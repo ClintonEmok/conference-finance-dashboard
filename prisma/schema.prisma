@@ -62,3 +62,102 @@ model Verification {
 
   @@index([identifier])
 }
+
+enum TicketTailorWebhookStatus {
+  pending
+  processed
+  failed
+}
+
+enum TicketTailorOrderStatus {
+  paid
+  refunded
+  cancelled
+  pending
+}
+
+enum TicketTailorSyncOutcome {
+  running
+  success
+  partial
+  failed
+}
+
+model TicketTailorWebhookEvent {
+  id               String                   @id @default(cuid())
+  providerEventId  String                   @unique
+  eventType        String
+  payload          Json
+  canonicalPayload Json?
+  status           TicketTailorWebhookStatus @default(pending)
+  deliveryCount    Int                      @default(1)
+  attempts         Int                      @default(0)
+  lastError        String?
+  nextRetryAt      DateTime?
+  canonicalFetchedAt DateTime?
+  processedAt      DateTime?
+  receivedAt       DateTime                 @default(now())
+  lastReceivedAt   DateTime                 @default(now())
+
+  @@index([status, nextRetryAt])
+  @@index([eventType])
+}
+
+model TicketTailorEvent {
+  id                String             @id @default(cuid())
+  providerEventId   String             @unique
+  name              String?
+  startsAt          DateTime?
+  endsAt            DateTime?
+  timezone          String?
+  currency          String?
+  rawPayload        Json
+  orders            TicketTailorOrder[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([startsAt])
+}
+
+model TicketTailorOrder {
+  id                    String                  @id @default(cuid())
+  providerOrderId       String                  @unique
+  providerEventId       String
+  eventId               String
+  event                 TicketTailorEvent       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  normalizedStatus      TicketTailorOrderStatus @default(pending)
+  providerStatus        String?
+  normalizationNote     String?
+  buyerEmail            String?
+  buyerName             String?
+  currency              String?
+  totalAmountMinor      Int?
+  orderedAt             DateTime?
+  refundedAt            DateTime?
+  cancelledAt           DateTime?
+  rawPayload            Json
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  @@index([eventId])
+  @@index([orderedAt])
+  @@index([normalizedStatus])
+}
+
+model TicketTailorSyncRun {
+  id                      String                  @id @default(cuid())
+  status                  TicketTailorSyncOutcome @default(running)
+  startedAt               DateTime                @default(now())
+  finishedAt              DateTime?
+  eventsScanned           Int                     @default(0)
+  ordersFetched           Int                     @default(0)
+  ordersUpserted          Int                     @default(0)
+  normalizedFallbackCount Int                     @default(0)
+  failedItems             Int                     @default(0)
+  errorSummary            String?
+  diagnostics             Json?
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+
+  @@index([startedAt])
+}
