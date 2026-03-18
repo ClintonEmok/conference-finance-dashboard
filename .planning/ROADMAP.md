@@ -36,11 +36,11 @@ Plans:
   1. Admin can run sync and see Ticket Tailor events/orders imported successfully.
   2. Admin can trigger manual re-sync for selected event/date range to correct stale data.
   3. Synced records show consistent normalized statuses (paid/refunded/cancelled/pending) used by downstream views.
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: Build Ticket Tailor adapter + sync pipeline
-- [ ] 02-02: Add manual backfill controls and normalization rules
+- [ ] 02-01-PLAN.md — Add durable Ticket Tailor storage, idempotent sync pipeline, and protected sync endpoint
+- [ ] 02-02-PLAN.md — Add scoped manual re-sync API/UI flow with operator verification checkpoint
 
 ### Phase 3: Finance Visibility & Reconciliation
 **Goal**: Finance admins can understand revenue performance and identify mismatches requiring follow-up.
