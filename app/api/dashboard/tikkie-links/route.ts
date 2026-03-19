@@ -1,0 +1,204 @@
+import { headers } from "next/headers"
+import { NextResponse } from "next/server"
+
+import { auth } from "@/lib/auth"
+import {
+  createTikkiePaymentLink,
+  listTikkiePaymentLinksByOrder,
+  normalizeProviderIdentifier,
+} from "@/lib/domain/finance/tikkie-links"
+import { TikkieApiError } from "@/lib/integrations/tikkie/client"
+
+type CreateBody = {
+  providerOrderId?: unknown
+  providerEventId?: unknown
+  amountMinor?: unknown
+  description?: unknown
+  expiryDate?: unknown
+  referenceId?: unknown
+}
+
+function badRequest(message: string) {
+  return NextResponse.json(
+    {
+      error: {
+        code: "BAD_REQUEST",
+        message,
+      },
+    },
+    { status: 400 },
+  )
+}
+
+function unauthorized() {
+  return NextResponse.json(
+    {
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Authentication required",
+      },
+    },
+    { status: 401 },
+  )
+}
+
+function parseRequiredString(value: unknown, fieldName: string) {
+  if (typeof value !== "string") {
+    throw new Error(`Invalid '${fieldName}'. Expected a string.`)
+  }
+
+  const normalized = value.trim()
+
+  if (!normalized) {
+    throw new Error(`Invalid '${fieldName}'. Value is required.`)
+  }
+
+  return normalized
+}
+
+function parseOptionalString(value: unknown, fieldName: string) {
+  if (value === undefined || value === null) {
+    return null
+  }
+
+  if (typeof value !== "string") {
+    throw new Error(`Invalid '${fieldName}'. Expected a string.`)
+  }
+
+  const normalized = value.trim()
+  return normalized || null
+}
+
+function parseAmountMinor(value: unknown) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new Error("Invalid 'amountMinor'. Expected a positive integer in cents.")
+  }
+
+  return value
+}
+
+function parseCreateBody(body: CreateBody) {
+  const providerOrderId = parseRequiredString(body.providerOrderId, "providerOrderId")
+  const providerEventId = parseRequiredString(body.providerEventId, "providerEventId")
+  const description = parseRequiredString(body.description, "description")
+  const expiryDate = parseRequiredString(body.expiryDate, "expiryDate")
+  const referenceId = parseOptionalString(body.referenceId, "referenceId")
+  const amountMinor = parseAmountMinor(body.amountMinor)
+
+  return {
+    providerOrderId,
+    providerEventId,
+    amountMinor,
+    description,
+    expiryDate,
+    referenceId,
+  }
+}
+
+export async function GET(request: Request) {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  })
+
+  if (!session) {
+    return unauthorized()
+  }
+
+  const url = new URL(request.url)
+  const providerOrderIdParam = url.searchParams.get("providerOrderId")
+
+  if (!providerOrderIdParam) {
+    return badRequest("Invalid 'providerOrderId'. Value is required.")
+  }
+
+  try {
+    const providerOrderId = normalizeProviderIdentifier(providerOrderIdParam, "providerOrderId")
+    const links = await listTikkiePaymentLinksByOrder({
+      providerOrderId,
+    })
+
+    return NextResponse.json({
+      providerOrderId,
+      count: links.length,
+      links,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Invalid request"
+    return badRequest(message)
+  }
+}
+
+export async function POST(request: Request) {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  })
+
+  if (!session) {
+    return unauthorized()
+  }
+
+  let payload: CreateBody
+
+  try {
+    payload = (await request.json()) as CreateBody
+  } catch {
+    return badRequest("Request body must be valid JSON")
+  }
+
+  try {
+    const input = parseCreateBody(payload)
+    const result = await createTikkiePaymentLink(input)
+
+    return NextResponse.json(
+      {
+        ok: true,
+        created: result.created,
+        link: result.link,
+      },
+      { status: result.created ? 201 : 200 },
+    )
+  } catch (error) {
+    if (error instanceof TikkieApiError) {
+      const code =
+        error.kind === "BAD_REQUEST"
+          ? "TIKKIE_BAD_REQUEST"
+          : error.kind === "UNAUTHORIZED"
+            ? "TIKKIE_UNAUTHORIZED"
+            : error.kind === "FORBIDDEN"
+              ? "TIKKIE_FORBIDDEN"
+              : "TIKKIE_UPSTREAM_ERROR"
+
+      return NextResponse.json(
+        {
+          error: {
+            code,
+            message: error.message,
+          },
+          diagnostics: {
+            status: error.status,
+            details: error.details,
+          },
+        },
+        {
+          status: error.status >= 500 ? 502 : error.status,
+        },
+      )
+    }
+
+    const message = error instanceof Error ? error.message : "Invalid request"
+
+    if (message.startsWith("Invalid") || message.includes("required") || message.includes("not found")) {
+      return badRequest(message)
+    }
+
+    return NextResponse.json(
+      {
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to create Tikkie payment link",
+        },
+      },
+      { status: 500 },
+    )
+  }
+}
