@@ -168,8 +168,10 @@ model TicketTailorAttendee {
   providerOrderId         String
   eventId                 String
   orderId                 String
+  assignedRoomId          String?
   event                   TicketTailorEvent  @relation(fields: [eventId], references: [id], onDelete: Cascade)
   order                   TicketTailorOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assignedRoom            AccommodationRoom? @relation(fields: [assignedRoomId], references: [id], onDelete: SetNull)
   name                    String?
   email                   String?
   ticketTypeLabel         String?
@@ -181,8 +183,48 @@ model TicketTailorAttendee {
 
   @@index([eventId])
   @@index([orderId])
+  @@index([assignedRoomId])
   @@index([providerEventId, providerOrderId])
   @@index([email])
+}
+
+model AccommodationHotel {
+  id        String              @id @default(cuid())
+  name      String              @unique
+  city      String?
+  notes     String?
+  rooms     AccommodationRoom[]
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+}
+
+model AccommodationRoomType {
+  id              String              @id @default(cuid())
+  label           String              @unique
+  defaultCapacity Int
+  notes           String?
+  rooms           AccommodationRoom[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+}
+
+model AccommodationRoom {
+  id           String                @id @default(cuid())
+  hotelId      String
+  roomTypeId   String
+  label        String
+  capacity     Int
+  occupiedBeds Int                   @default(0)
+  notes        String?
+  hotel        AccommodationHotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  roomType     AccommodationRoomType @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  attendees    TicketTailorAttendee[]
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@unique([hotelId, label])
+  @@index([roomTypeId])
+  @@index([hotelId, capacity])
 }
 
 model TikkiePaymentLink {
