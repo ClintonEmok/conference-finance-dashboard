@@ -1,5 +1,7 @@
 "use client"
 
+import Link from "next/link"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -124,6 +126,9 @@ function availabilityClasses(value: "empty" | "available" | "full") {
 }
 
 export default function AccommodationPage() {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [payload, setPayload] = useState<AccommodationWorkspacePayload>(emptyPayload)
   const [errors, setErrors] = useState<InventoryErrorState>(emptyErrors)
   const [isLoading, setIsLoading] = useState(true)
@@ -151,6 +156,68 @@ export default function AccommodationPage() {
   const [roomLabel, setRoomLabel] = useState("")
   const [roomCapacity, setRoomCapacity] = useState("2")
   const [selectedRoomByAttendee, setSelectedRoomByAttendee] = useState<Record<string, string>>({})
+
+  const selectedAttendeeId = searchParams.get("attendeeId")
+
+  const syncUrlState = useCallback(
+    (next: {
+      attendeeId?: string | null
+      eventId?: string | null
+      search?: string | null
+      hotelId?: string | null
+      roomTypeId?: string | null
+      availability?: AvailabilityFilter
+      source?: string | null
+    }) => {
+      const params = new URLSearchParams(searchParams.toString())
+
+      const assign = (key: string, value: string | null | undefined) => {
+        if (value && value.trim()) {
+          params.set(key, value)
+          return
+        }
+
+        params.delete(key)
+      }
+
+      assign("attendeeId", next.attendeeId)
+      assign("eventId", next.eventId)
+      assign("search", next.search)
+      assign("hotelId", next.hotelId)
+      assign("roomTypeId", next.roomTypeId)
+      assign("source", next.source)
+
+      if (next.availability && next.availability !== "all") {
+        params.set("availability", next.availability)
+      } else {
+        params.delete("availability")
+      }
+
+      const query = params.toString()
+      router.replace(query ? `${pathname}?${query}` : pathname)
+    },
+    [pathname, router, searchParams],
+  )
+
+  useEffect(() => {
+    const nextEventId = searchParams.get("eventId") ?? ""
+    const nextSearch = searchParams.get("search") ?? ""
+    const nextHotelId = searchParams.get("hotelId") ?? ""
+    const nextRoomTypeId = searchParams.get("roomTypeId") ?? ""
+    const nextAvailability = (searchParams.get("availability") as AvailabilityFilter | null) ?? "all"
+
+    setEventIdInput(nextEventId)
+    setSearchInput(nextSearch)
+    setHotelFilter(nextHotelId)
+    setRoomTypeFilter(nextRoomTypeId)
+    setAvailabilityFilter(nextAvailability)
+
+    setAppliedEventId(nextEventId)
+    setAppliedSearch(nextSearch)
+    setAppliedHotelFilter(nextHotelId)
+    setAppliedRoomTypeFilter(nextRoomTypeId)
+    setAppliedAvailability(nextAvailability)
+  }, [searchParams])
 
   const loadWorkspace = useCallback(async () => {
     setIsLoading(true)
@@ -219,14 +286,63 @@ export default function AccommodationPage() {
     [payload.rooms],
   )
 
+  const selectedAttendeeContext = useMemo(() => {
+    if (!selectedAttendeeId) {
+      return null
+    }
+
+    const unassignedAttendee = payload.unassignedAttendees.find(
+      (attendee) => attendee.attendeeId === selectedAttendeeId,
+    )
+
+    if (unassignedAttendee) {
+      return {
+        status: "unassigned" as const,
+        attendeeName: unassignedAttendee.attendeeName,
+        attendeeEmail: unassignedAttendee.attendeeEmail,
+        detailHref: `/dashboard/attendees/${unassignedAttendee.attendeeId}?search=${encodeURIComponent(
+          appliedSearch || unassignedAttendee.attendeeName || unassignedAttendee.providerOrderId,
+        )}&eventId=${encodeURIComponent(appliedEventId || unassignedAttendee.providerEventId)}`,
+      }
+    }
+
+    for (const room of payload.rooms) {
+      const occupant = room.occupants.find((attendee) => attendee.attendeeId === selectedAttendeeId)
+
+      if (occupant) {
+        return {
+          status: "assigned" as const,
+          attendeeName: occupant.attendeeName,
+          attendeeEmail: occupant.attendeeEmail,
+          roomLabel: room.label,
+          hotelName: room.hotel.name,
+          detailHref: `/dashboard/attendees/${occupant.attendeeId}?search=${encodeURIComponent(
+            appliedSearch || occupant.attendeeName || occupant.providerOrderId,
+          )}&eventId=${encodeURIComponent(appliedEventId || occupant.providerEventId)}`,
+        }
+      }
+    }
+
+    return {
+      status: "hidden" as const,
+      attendeeName: null,
+      attendeeEmail: null,
+      detailHref: "/dashboard/attendees",
+    }
+  }, [appliedEventId, appliedSearch, payload.rooms, payload.unassignedAttendees, selectedAttendeeId])
+
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setAssignmentMessage(null)
-    setAppliedEventId(eventIdInput)
-    setAppliedSearch(searchInput)
-    setAppliedHotelFilter(hotelFilter)
-    setAppliedRoomTypeFilter(roomTypeFilter)
-    setAppliedAvailability(availabilityFilter)
+    syncUrlState({
+      attendeeId: selectedAttendeeId,
+      eventId: eventIdInput,
+      search: searchInput,
+      hotelId: hotelFilter,
+      roomTypeId: roomTypeFilter,
+      availability: availabilityFilter,
+      source: searchParams.get("source"),
+    })
   }
 
   async function submitHotel(event: FormEvent<HTMLFormElement>) {
@@ -383,11 +499,51 @@ export default function AccommodationPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h2 className="text-xl font-semibold">Accommodation</h2>
+        <h2 className="text-xl font-semibold">Room allocation</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Manage room inventory, identify occupancy pressure, and assign or unassign attendees from one workspace.
         </p>
       </header>
+
+      {selectedAttendeeId && selectedAttendeeContext && (
+        <article className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-100">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-medium">selected attendee</p>
+              <p className="mt-1">
+                {selectedAttendeeContext.status === "assigned"
+                  ? `${selectedAttendeeContext.attendeeName ?? "Selected attendee"} is already assigned to ${selectedAttendeeContext.roomLabel} at ${selectedAttendeeContext.hotelName}.`
+                  : selectedAttendeeContext.status === "unassigned"
+                    ? `${selectedAttendeeContext.attendeeName ?? "Selected attendee"} is currently unassigned and ready for placement.`
+                    : "The selected attendee is outside the current filters. Clear filters or open attendee detail to restore context."}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="sm" variant="outline">
+                <Link href={selectedAttendeeContext.detailHref}>Open attendee detail</Link>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  syncUrlState({
+                    attendeeId: null,
+                    eventId: appliedEventId,
+                    search: appliedSearch,
+                    hotelId: appliedHotelFilter,
+                    roomTypeId: appliedRoomTypeFilter,
+                    availability: appliedAvailability,
+                    source: searchParams.get("source"),
+                  })
+                }
+              >
+                Clear focus
+              </Button>
+            </div>
+          </div>
+        </article>
+      )}
 
       {errors.global && (
         <article className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
@@ -514,12 +670,16 @@ export default function AccommodationPage() {
                 setHotelFilter("")
                 setRoomTypeFilter("")
                 setAvailabilityFilter("all")
-                setAppliedEventId("")
-                setAppliedSearch("")
-                setAppliedHotelFilter("")
-                setAppliedRoomTypeFilter("")
-                setAppliedAvailability("all")
                 setAssignmentMessage(null)
+                syncUrlState({
+                  attendeeId: selectedAttendeeId,
+                  eventId: null,
+                  search: null,
+                  hotelId: null,
+                  roomTypeId: null,
+                  availability: "all",
+                  source: searchParams.get("source"),
+                })
               }}
             >
               Reset
@@ -699,7 +859,14 @@ export default function AccommodationPage() {
                       </p>
                     ) : (
                       room.occupants.map((occupant) => (
-                        <div key={occupant.attendeeId} className="rounded-md border border-border/70 p-3 text-sm">
+                        <div
+                          key={occupant.attendeeId}
+                          className={`rounded-md border p-3 text-sm ${
+                            occupant.attendeeId === selectedAttendeeId
+                              ? "border-sky-400 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/30"
+                              : "border-border/70"
+                          }`}
+                        >
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
                               <p className="font-medium">{occupant.attendeeName ?? "Unnamed attendee"}</p>
@@ -707,6 +874,16 @@ export default function AccommodationPage() {
                               <p className="text-xs text-muted-foreground">
                                 {occupant.eventName ?? occupant.providerEventId}
                                 {occupant.ticketTypeLabel ? ` · ${occupant.ticketTypeLabel}` : ""}
+                              </p>
+                              <p className="mt-2 text-xs">
+                                <Link
+                                  className="text-primary underline"
+                                  href={`/dashboard/attendees/${occupant.attendeeId}?search=${encodeURIComponent(
+                                    occupant.attendeeName ?? occupant.providerOrderId,
+                                  )}&eventId=${encodeURIComponent(occupant.providerEventId)}&source=room-allocation`}
+                                >
+                                  Open attendee detail
+                                </Link>
                               </p>
                             </div>
                             <Button
@@ -742,12 +919,29 @@ export default function AccommodationPage() {
           ) : (
             <div className="mt-4 space-y-3">
               {payload.unassignedAttendees.map((attendee) => (
-                <article key={attendee.attendeeId} className="rounded-md border border-border/70 p-3 text-sm">
+                <article
+                  key={attendee.attendeeId}
+                  className={`rounded-md border p-3 text-sm ${
+                    attendee.attendeeId === selectedAttendeeId
+                      ? "border-sky-400 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/30"
+                      : "border-border/70"
+                  }`}
+                >
                   <p className="font-medium">{attendee.attendeeName ?? "Unnamed attendee"}</p>
                   <p className="text-xs text-muted-foreground">{attendee.attendeeEmail ?? attendee.providerOrderId}</p>
                   <p className="text-xs text-muted-foreground">
                     {attendee.eventName ?? attendee.providerEventId}
                     {attendee.ticketTypeLabel ? ` · ${attendee.ticketTypeLabel}` : ""}
+                  </p>
+                  <p className="mt-2 text-xs">
+                    <Link
+                      className="text-primary underline"
+                      href={`/dashboard/attendees/${attendee.attendeeId}?search=${encodeURIComponent(
+                        attendee.attendeeName ?? attendee.providerOrderId,
+                      )}&eventId=${encodeURIComponent(attendee.providerEventId)}&source=room-allocation`}
+                    >
+                      Open attendee detail
+                    </Link>
                   </p>
                   <p className="mt-2 text-xs text-muted-foreground">
                     {attendee.matchingRoomCount} room{attendee.matchingRoomCount === 1 ? "" : "s"} currently fit the active filters.
