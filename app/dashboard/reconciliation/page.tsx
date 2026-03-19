@@ -32,6 +32,34 @@ type ReconciliationPayload = {
   }>
 }
 
+type TikkieLinkRecord = {
+  id: string
+  providerOrderId: string
+  providerEventId: string
+  paymentRequestToken: string
+  paymentRequestUrl: string
+  status: "created" | "paid" | "expired"
+  statusSource: "create" | "webhook" | "poll"
+  providerStatus: string
+  amountMinor: number
+  description: string
+  expiryDate: string
+  referenceId: string | null
+  providerPayload: unknown
+  providerLastCheckedAt: string | null
+  statusUpdatedAt: string
+  createdAt: string
+  updatedAt: string
+}
+
+type RowLinkState = {
+  isLoading: boolean
+  isCreating: boolean
+  isCopying: boolean
+  error: string | null
+  links: TikkieLinkRecord[]
+}
+
 function toDateInputValue(date: Date) {
   return date.toISOString().slice(0, 10)
 }
@@ -75,6 +103,48 @@ function formatReason(reason: string) {
   }
 }
 
+function formatTikkieStatus(status: "created" | "paid" | "expired") {
+  switch (status) {
+    case "paid":
+      return "Paid"
+    case "expired":
+      return "Expired"
+    default:
+      return "Created"
+  }
+}
+
+function statusBadgeClass(status: "created" | "paid" | "expired") {
+  if (status === "paid") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300"
+  }
+
+  if (status === "expired") {
+    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300"
+  }
+
+  return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-300"
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) {
+    return "-"
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return "-"
+  }
+
+  return parsed.toLocaleString()
+}
+
+function defaultExpiryDate() {
+  const date = new Date()
+  date.setDate(date.getDate() + 14)
+  return date.toISOString().slice(0, 10)
+}
+
 export default function ReconciliationPage() {
   const [eventIdInput, setEventIdInput] = useState("")
   const [statusInput, setStatusInput] = useState<"all" | CanonicalOrderStatus>("all")
@@ -93,6 +163,7 @@ export default function ReconciliationPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [payload, setPayload] = useState<ReconciliationPayload | null>(null)
+  const [rowLinks, setRowLinks] = useState<Record<string, RowLinkState>>({})
 
   const dateValidationError = useMemo(() => {
     const fromIso = toIsoBoundary(fromInput, "start")
@@ -174,6 +245,186 @@ export default function ReconciliationPage() {
       controller.abort()
     }
   }, [appliedEventId, appliedFrom, appliedStatus, appliedTo])
+
+  async function fetchRowLinks(providerOrderId: string) {
+    setRowLinks((current) => ({
+      ...current,
+      [providerOrderId]: {
+        isLoading: true,
+        isCreating: current[providerOrderId]?.isCreating ?? false,
+        isCopying: current[providerOrderId]?.isCopying ?? false,
+        error: null,
+        links: current[providerOrderId]?.links ?? [],
+      },
+    }))
+
+    try {
+      const response = await fetch(
+        `/api/dashboard/tikkie-links?providerOrderId=${encodeURIComponent(providerOrderId)}`,
+      )
+
+      const body = (await response.json().catch(() => null)) as
+        | { links?: TikkieLinkRecord[]; error?: { message?: string } }
+        | null
+
+      if (!response.ok) {
+        setRowLinks((current) => ({
+          ...current,
+          [providerOrderId]: {
+            isLoading: false,
+            isCreating: current[providerOrderId]?.isCreating ?? false,
+            isCopying: current[providerOrderId]?.isCopying ?? false,
+            error: body?.error?.message ?? `Failed to load links (${response.status}).`,
+            links: current[providerOrderId]?.links ?? [],
+          },
+        }))
+        return
+      }
+
+      setRowLinks((current) => ({
+        ...current,
+        [providerOrderId]: {
+          isLoading: false,
+          isCreating: current[providerOrderId]?.isCreating ?? false,
+          isCopying: current[providerOrderId]?.isCopying ?? false,
+          error: null,
+          links: body?.links ?? [],
+        },
+      }))
+    } catch {
+      setRowLinks((current) => ({
+        ...current,
+        [providerOrderId]: {
+          isLoading: false,
+          isCreating: current[providerOrderId]?.isCreating ?? false,
+          isCopying: current[providerOrderId]?.isCopying ?? false,
+          error: "Network error while loading Tikkie links.",
+          links: current[providerOrderId]?.links ?? [],
+        },
+      }))
+    }
+  }
+
+  useEffect(() => {
+    if (!payload?.rows.length) {
+      return
+    }
+
+    for (const row of payload.rows) {
+      void fetchRowLinks(row.providerOrderId)
+    }
+  }, [payload?.rows])
+
+  async function handleGenerateLink(row: ReconciliationPayload["rows"][number]) {
+    setRowLinks((current) => ({
+      ...current,
+      [row.providerOrderId]: {
+        isLoading: current[row.providerOrderId]?.isLoading ?? false,
+        isCreating: true,
+        isCopying: current[row.providerOrderId]?.isCopying ?? false,
+        error: null,
+        links: current[row.providerOrderId]?.links ?? [],
+      },
+    }))
+
+    try {
+      const response = await fetch("/api/dashboard/tikkie-links", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          providerOrderId: row.providerOrderId,
+          providerEventId: row.providerEventId,
+          amountMinor: row.outstandingMinor,
+          description: `Order ${row.providerOrderId}`,
+          expiryDate: defaultExpiryDate(),
+          referenceId: row.providerOrderId,
+        }),
+      })
+
+      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+
+      if (!response.ok) {
+        setRowLinks((current) => ({
+          ...current,
+          [row.providerOrderId]: {
+            isLoading: current[row.providerOrderId]?.isLoading ?? false,
+            isCreating: false,
+            isCopying: current[row.providerOrderId]?.isCopying ?? false,
+            error: body?.error?.message ?? `Failed to create link (${response.status}).`,
+            links: current[row.providerOrderId]?.links ?? [],
+          },
+        }))
+        return
+      }
+
+      await fetchRowLinks(row.providerOrderId)
+    } catch {
+      setRowLinks((current) => ({
+        ...current,
+        [row.providerOrderId]: {
+          isLoading: current[row.providerOrderId]?.isLoading ?? false,
+          isCreating: false,
+          isCopying: current[row.providerOrderId]?.isCopying ?? false,
+          error: "Network error while creating link.",
+          links: current[row.providerOrderId]?.links ?? [],
+        },
+      }))
+      return
+    }
+
+    setRowLinks((current) => ({
+      ...current,
+      [row.providerOrderId]: {
+        isLoading: current[row.providerOrderId]?.isLoading ?? false,
+        isCreating: false,
+        isCopying: current[row.providerOrderId]?.isCopying ?? false,
+        error: current[row.providerOrderId]?.error ?? null,
+        links: current[row.providerOrderId]?.links ?? [],
+      },
+    }))
+  }
+
+  async function handleCopyLink(providerOrderId: string, url: string) {
+    setRowLinks((current) => ({
+      ...current,
+      [providerOrderId]: {
+        isLoading: current[providerOrderId]?.isLoading ?? false,
+        isCreating: current[providerOrderId]?.isCreating ?? false,
+        isCopying: true,
+        error: null,
+        links: current[providerOrderId]?.links ?? [],
+      },
+    }))
+
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      setRowLinks((current) => ({
+        ...current,
+        [providerOrderId]: {
+          isLoading: current[providerOrderId]?.isLoading ?? false,
+          isCreating: current[providerOrderId]?.isCreating ?? false,
+          isCopying: false,
+          error: "Clipboard permission denied. Copy the URL manually.",
+          links: current[providerOrderId]?.links ?? [],
+        },
+      }))
+      return
+    }
+
+    setRowLinks((current) => ({
+      ...current,
+      [providerOrderId]: {
+        isLoading: current[providerOrderId]?.isLoading ?? false,
+        isCreating: current[providerOrderId]?.isCreating ?? false,
+        isCopying: false,
+        error: null,
+        links: current[providerOrderId]?.links ?? [],
+      },
+    }))
+  }
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -303,11 +554,23 @@ export default function ReconciliationPage() {
                       <th className="px-2 py-2 font-medium text-muted-foreground">Amount</th>
                       <th className="px-2 py-2 font-medium text-muted-foreground">Outstanding</th>
                       <th className="px-2 py-2 font-medium text-muted-foreground">Reasons</th>
+                      <th className="px-2 py-2 font-medium text-muted-foreground">Tikkie</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {payload.rows.map((row) => (
-                      <tr key={row.providerOrderId} className="border-b border-border/60">
+                    {payload.rows.map((row) => {
+                      const linkState = rowLinks[row.providerOrderId] ?? {
+                        isLoading: false,
+                        isCreating: false,
+                        isCopying: false,
+                        error: null,
+                        links: [],
+                      }
+                      const latestLink = linkState.links[0] ?? null
+                      const canGenerate = row.outstandingMinor > 0
+
+                      return (
+                        <tr key={row.providerOrderId} className="border-b border-border/60">
                         <td className="px-2 py-2 font-mono text-xs">
                           <div>{row.providerOrderId}</div>
                           <div className="text-muted-foreground">{row.orderedAt ? new Date(row.orderedAt).toLocaleString() : "-"}</div>
@@ -326,8 +589,56 @@ export default function ReconciliationPage() {
                             ))}
                           </ul>
                         </td>
+                        <td className="px-2 py-2">
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={!canGenerate || linkState.isCreating}
+                                onClick={() => void handleGenerateLink(row)}
+                              >
+                                {linkState.isCreating ? "Generating…" : "Generate Tikkie link"}
+                              </Button>
+                              {latestLink && (
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  disabled={linkState.isCopying}
+                                  onClick={() => void handleCopyLink(row.providerOrderId, latestLink.paymentRequestUrl)}
+                                >
+                                  {linkState.isCopying ? "Copying…" : "Copy link"}
+                                </Button>
+                              )}
+                            </div>
+
+                            {!canGenerate && (
+                              <p className="text-[11px] text-muted-foreground">No outstanding amount for link generation.</p>
+                            )}
+
+                            {linkState.isLoading && (
+                              <p className="text-[11px] text-muted-foreground">Loading link status…</p>
+                            )}
+
+                            {latestLink && (
+                              <div className="space-y-1 text-[11px]">
+                                <span
+                                  className={`inline-flex items-center rounded-full border px-2 py-0.5 font-medium ${statusBadgeClass(latestLink.status)}`}
+                                >
+                                  {formatTikkieStatus(latestLink.status)}
+                                </span>
+                                <div className="text-muted-foreground">Created: {formatDateTime(latestLink.createdAt)}</div>
+                              </div>
+                            )}
+
+                            {linkState.error && <p className="text-[11px] text-red-600 dark:text-red-400">{linkState.error}</p>}
+                          </div>
+                        </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
