@@ -37,6 +37,11 @@ function buildUrl(path: string, query?: TicketTailorFetchOptions["query"]) {
   return { url, config }
 }
 
+function buildAuthorizationHeader(apiKey: string) {
+  const encoded = Buffer.from(`${apiKey}:`).toString("base64")
+  return `Basic ${encoded}`
+}
+
 export async function ticketTailorFetch<T>(
   path: string,
   options: TicketTailorFetchOptions = {},
@@ -50,7 +55,7 @@ export async function ticketTailorFetch<T>(
   const response = await fetch(url, {
     method: options.method ?? "GET",
     headers: {
-      Authorization: `Bearer ${config.values.apiKey}`,
+      Authorization: buildAuthorizationHeader(config.values.apiKey),
       Accept: "application/json",
     },
     cache: "no-store",
