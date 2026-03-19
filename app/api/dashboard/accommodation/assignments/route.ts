@@ -4,6 +4,8 @@ import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { assignAttendeeToRoom, getRoomAllocationBoard } from "@/lib/domain/accommodation/assignments"
 
+export const dynamic = "force-dynamic"
+
 function parseAvailability(value: string | null) {
   if (!value) {
     return undefined

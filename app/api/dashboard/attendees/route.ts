@@ -4,6 +4,8 @@ import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { getAttendeeLedger } from "@/lib/domain/finance/attendees"
 
+export const dynamic = "force-dynamic"
+
 function parseOptionalDate(value: string | null, field: "from" | "to") {
   if (!value || !value.trim()) {
     return null

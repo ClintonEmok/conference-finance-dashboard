@@ -4,6 +4,8 @@ import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { getAttendeeDetail } from "@/lib/domain/finance/attendee-detail"
 
+export const dynamic = "force-dynamic"
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ attendeeId: string }> },
