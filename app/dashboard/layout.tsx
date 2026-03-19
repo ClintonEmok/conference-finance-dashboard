@@ -39,8 +39,20 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
           </div>
 
           <div className="flex items-center gap-2">
+            <Button asChild variant="ghost">
+              <Link href="/dashboard">Overview</Link>
+            </Button>
+            <Button asChild variant="ghost">
+              <Link href="/dashboard/orders">Orders</Link>
+            </Button>
+            <Button asChild variant="ghost">
+              <Link href="/dashboard/reconciliation">Reconciliation</Link>
+            </Button>
             <Button asChild variant="outline">
               <Link href="/dashboard/integrations">Integrations</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/dashboard/ticket-tailor/sync">Run sync</Link>
             </Button>
             <form action={logout}>
               <Button type="submit" variant="outline">
