@@ -81,6 +81,18 @@ function derivePaidAmount(totalAmountMinor: number, links: Array<{ status: strin
   return Math.min(totalAmountMinor, paidAmount)
 }
 
+function deriveOutstandingAmount(params: {
+  normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
+  totalAmountMinor: number
+  paidAmountMinor: number
+}) {
+  if (params.normalizedStatus === "paid" || params.normalizedStatus === "refunded") {
+    return 0
+  }
+
+  return Math.max(0, params.totalAmountMinor - params.paidAmountMinor)
+}
+
 export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDetail> {
   const normalizedAttendeeId = normalizeAttendeeId(attendeeId)
 
@@ -130,7 +142,11 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
 
   const totalAmountMinor = attendee.order.totalAmountMinor ?? 0
   const paidAmountMinor = derivePaidAmount(totalAmountMinor, attendee.order.tikkiePaymentLinks)
-  const outstandingAmountMinor = Math.max(0, totalAmountMinor - paidAmountMinor)
+  const outstandingAmountMinor = deriveOutstandingAmount({
+    normalizedStatus: attendee.order.normalizedStatus,
+    totalAmountMinor,
+    paidAmountMinor,
+  })
 
   const paymentHistory = attendee.order.tikkiePaymentLinks.flatMap((link) => [
     {
