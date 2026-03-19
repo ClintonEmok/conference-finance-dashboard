@@ -10,7 +10,7 @@ This roadmap now prioritizes getting the operator-facing screens, navigation, at
 - [x] **Phase 2: Ticket Data Reliability** - Make Ticket Tailor data ingestion dependable and correct.
 - [x] **Phase 3: Finance Visibility & Outstanding Balances** - Deliver dashboard reporting, ledger visibility, and balance follow-up surfaces.
 - [x] **Phase 4: Attendee Data & Accommodation Foundations** - Sync issued ticket attendees and define hotel/room inventory foundations.
-- [ ] **Phase 5: Room Allocation & Operator Flow Polish** - Finalize attendee detail, room assignment, and cross-screen workflow clarity.
+- [x] **Phase 5: Room Allocation & Operator Flow Polish** - Finalize attendee detail, room assignment, and cross-screen workflow clarity.
 
 ## Phase Details
 
@@ -82,7 +82,7 @@ Plans:
 
 Plans:
 - [x] 05-01-PLAN.md — Build room allocation manager with protected assign/unassign flows and live attendee room state
-- [ ] 05-02-PLAN.md — Polish navigation, outstanding-balance naming, and cross-screen handoffs across overview, attendee, and room workflows
+- [x] 05-02-PLAN.md — Polish navigation, outstanding-balance naming, and cross-screen handoffs across overview, attendee, and room workflows
 
 ## Deferred After MVP
 
@@ -99,4 +99,4 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 2. Ticket Data Reliability | 2/2 | Complete | 2026-03-19 |
 | 3. Finance Visibility & Outstanding Balances | 2/2 | Complete | 2026-03-19 |
 | 4. Attendee Data & Accommodation Foundations | 2/2 | Complete | 2026-03-19 |
-| 5. Room Allocation & Operator Flow Polish | 1/2 | In progress | 2026-03-19 |
+| 5. Room Allocation & Operator Flow Polish | 2/2 | Complete | 2026-03-19 |
