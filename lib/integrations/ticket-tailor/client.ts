@@ -10,6 +10,7 @@ type TicketTailorFetchOptions = {
 
 export type TicketTailorEventPayload = JsonRecord
 export type TicketTailorOrderPayload = JsonRecord
+export type TicketTailorAttendeePayload = JsonRecord
 
 type PaginationOptions = {
   pageSize?: number
@@ -19,6 +20,12 @@ type PaginationOptions = {
 type PaginatedCollectionResult<T extends JsonRecord> = {
   items: T[]
   pagesFetched: number
+}
+
+export type TicketTailorAttendeeResult = {
+  items: TicketTailorAttendeePayload[]
+  source: "embedded" | "canonical-order"
+  usedFallback: boolean
 }
 
 function buildUrl(path: string, query?: TicketTailorFetchOptions["query"]) {
@@ -94,6 +101,28 @@ function extractItems(payload: unknown): JsonRecord[] {
 
   const record = asRecord(payload)
   const candidates = [record.data, record.results, record.items, record.orders, record.events]
+
+  for (const candidate of candidates) {
+    const extracted = asArrayOfRecords(candidate)
+    if (extracted.length > 0) {
+      return extracted
+    }
+  }
+
+  return []
+}
+
+function extractAttendeeItems(payload: unknown): TicketTailorAttendeePayload[] {
+  const root = asRecord(payload)
+  const nestedData = asRecord(root.data)
+  const candidates = [
+    root.issued_tickets,
+    root.attendees,
+    root.tickets,
+    nestedData.issued_tickets,
+    nestedData.attendees,
+    nestedData.tickets,
+  ]
 
   for (const candidate of candidates) {
     const extracted = asArrayOfRecords(candidate)
@@ -252,6 +281,40 @@ export async function fetchTicketTailorOrdersByEventPaginated(
   result.items.sort((a, b) => orderSortKey(a).localeCompare(orderSortKey(b)))
 
   return result
+}
+
+export async function fetchTicketTailorAttendeesForOrder(
+  orderPayload: TicketTailorOrderPayload,
+): Promise<TicketTailorAttendeeResult> {
+  const embeddedItems = extractAttendeeItems(orderPayload)
+
+  if (embeddedItems.length > 0) {
+    return {
+      items: embeddedItems,
+      source: "embedded",
+      usedFallback: false,
+    }
+  }
+
+  const providerOrderId =
+    pickString(orderPayload.id) ?? pickString(orderPayload.order_id) ?? pickString(orderPayload.reference)
+
+  if (!providerOrderId) {
+    return {
+      items: [],
+      source: "embedded",
+      usedFallback: false,
+    }
+  }
+
+  const canonicalPayload = await ticketTailorFetch<unknown>(`/orders/${providerOrderId}`)
+  const fallbackItems = extractAttendeeItems(canonicalPayload)
+
+  return {
+    items: fallbackItems,
+    source: "canonical-order",
+    usedFallback: true,
+  }
 }
 
 export async function fetchTicketTailorCanonicalPayload(payload: JsonRecord) {

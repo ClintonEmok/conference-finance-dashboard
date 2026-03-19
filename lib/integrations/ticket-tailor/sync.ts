@@ -2,8 +2,10 @@ import type { Prisma } from "@prisma/client"
 
 import { normalizeTicketTailorStatus } from "@/lib/domain/finance/ticket-tailor-status"
 import {
+  fetchTicketTailorAttendeesForOrder,
   fetchTicketTailorEventsPaginated,
   fetchTicketTailorOrdersByEventPaginated,
+  type TicketTailorAttendeePayload,
   type TicketTailorEventPayload,
   type TicketTailorOrderPayload,
 } from "@/lib/integrations/ticket-tailor/client"
@@ -26,6 +28,9 @@ export type TicketTailorSyncSummary = {
     ordersFetched: number
     ordersUpserted: number
     ordersSkippedByScope: number
+    attendeesFetched: number
+    attendeesUpserted: number
+    attendeesSkipped: number
     normalizedFallbackCount: number
     failedItems: number
   }
@@ -199,6 +204,92 @@ function extractOrderTotalMinor(order: TicketTailorOrderPayload) {
   )
 }
 
+function extractProviderAttendeeId(attendee: TicketTailorAttendeePayload) {
+  return pickString(attendee.attendee_id) ?? pickString(attendee.attendeeId)
+}
+
+function extractProviderIssuedTicketId(attendee: TicketTailorAttendeePayload) {
+  return (
+    pickString(attendee.issued_ticket_id) ??
+    pickString(attendee.issuedTicketId) ??
+    pickString(attendee.id) ??
+    pickString(attendee.ticket_id)
+  )
+}
+
+function extractAttendeeProviderEventId(attendee: TicketTailorAttendeePayload) {
+  return pickString(attendee.event_id) ?? pickString(attendee.eventId)
+}
+
+function extractAttendeeProviderOrderId(attendee: TicketTailorAttendeePayload) {
+  return pickString(attendee.order_id) ?? pickString(attendee.orderId)
+}
+
+function extractAttendeeName(attendee: TicketTailorAttendeePayload) {
+  const fullName =
+    pickString(attendee.full_name) ??
+    pickString(attendee.name) ??
+    pickString(attendee.display_name) ??
+    pickString(attendee.attendee_name)
+
+  if (fullName) {
+    return fullName
+  }
+
+  const firstName = pickString(attendee.first_name) ?? pickString(attendee.firstName)
+  const lastName = pickString(attendee.last_name) ?? pickString(attendee.lastName)
+
+  if (firstName && lastName) {
+    return `${firstName} ${lastName}`
+  }
+
+  return firstName ?? lastName
+}
+
+function extractAttendeeEmail(attendee: TicketTailorAttendeePayload) {
+  return pickString(attendee.email) ?? pickString(attendee.attendee_email)
+}
+
+function extractTicketTypeLabel(attendee: TicketTailorAttendeePayload) {
+  return (
+    pickString(attendee.description) ??
+    pickString(attendee.ticket_type_name) ??
+    pickString(attendee.ticket_name) ??
+    pickString(attendee.title)
+  )
+}
+
+function extractTicketTypeId(attendee: TicketTailorAttendeePayload) {
+  return (
+    pickString(attendee.ticket_type_id) ??
+    pickString(attendee.ticketTypeId) ??
+    pickString(attendee.item_id)
+  )
+}
+
+function extractTicketStatus(attendee: TicketTailorAttendeePayload) {
+  return pickString(attendee.status) ?? pickString(attendee.ticket_status)
+}
+
+function extractCheckedInAt(attendee: TicketTailorAttendeePayload) {
+  const checkedInAt =
+    parseDate(attendee.checked_in_at) ??
+    parseDate(attendee.checkedInAt) ??
+    parseDate(attendee.checked_in_date)
+
+  if (checkedInAt) {
+    return checkedInAt
+  }
+
+  const checkedIn = attendee.checked_in
+
+  if (checkedIn === true || checkedIn === "true" || checkedIn === "1") {
+    return parseDate(attendee.updated_at) ?? parseDate(attendee.created_at)
+  }
+
+  return null
+}
+
 function extractOrderDate(order: TicketTailorOrderPayload) {
   return (
     parseDate(order.created_at) ??
@@ -309,6 +400,9 @@ export async function runTicketTailorSync(
   let ordersFetched = 0
   let ordersUpserted = 0
   let ordersSkippedByScope = 0
+  let attendeesFetched = 0
+  let attendeesUpserted = 0
+  let attendeesSkipped = 0
   let normalizedFallbackCount = 0
   let failedItems = 0
 
@@ -394,7 +488,7 @@ export async function runTicketTailorSync(
           }
         }
 
-        await prisma.ticketTailorOrder.upsert({
+        const orderRecord = await prisma.ticketTailorOrder.upsert({
           where: {
             providerOrderId,
           },
@@ -429,9 +523,78 @@ export async function runTicketTailorSync(
             cancelledAt: extractCancelledAt(orderPayload),
             rawPayload: orderPayload,
           },
+          select: {
+            id: true,
+          },
         })
 
         ordersUpserted += 1
+
+        const attendeeResult = await fetchTicketTailorAttendeesForOrder(orderPayload)
+        attendeesFetched += attendeeResult.items.length
+
+        if (attendeeResult.usedFallback) {
+          fallbackNotes.push(
+            `[${providerOrderId}] fetched attendee records from canonical order payload`,
+          )
+        }
+
+        for (const attendeePayload of attendeeResult.items) {
+          const providerAttendeeId = extractProviderAttendeeId(attendeePayload)
+          const providerIssuedTicketId = extractProviderIssuedTicketId(attendeePayload)
+
+          if (!providerAttendeeId && !providerIssuedTicketId) {
+            attendeesSkipped += 1
+            errors.push(`Skipped attendee without provider identifiers for order ${providerOrderId}`)
+            continue
+          }
+
+          const attendeeProviderEventId =
+            extractAttendeeProviderEventId(attendeePayload) ?? orderProviderEventId
+          const attendeeProviderOrderId =
+            extractAttendeeProviderOrderId(attendeePayload) ?? providerOrderId
+
+          await prisma.ticketTailorAttendee.upsert({
+            where: providerAttendeeId
+              ? {
+                  providerAttendeeId,
+                }
+              : {
+                  providerIssuedTicketId: providerIssuedTicketId!,
+                },
+            create: {
+              providerAttendeeId,
+              providerIssuedTicketId,
+              providerTicketTypeId: extractTicketTypeId(attendeePayload),
+              providerEventId: attendeeProviderEventId,
+              providerOrderId: attendeeProviderOrderId,
+              eventId: eventRecord.id,
+              orderId: orderRecord.id,
+              name: extractAttendeeName(attendeePayload),
+              email: extractAttendeeEmail(attendeePayload),
+              ticketTypeLabel: extractTicketTypeLabel(attendeePayload),
+              ticketStatus: extractTicketStatus(attendeePayload),
+              checkedInAt: extractCheckedInAt(attendeePayload),
+              rawPayload: attendeePayload,
+            },
+            update: {
+              providerIssuedTicketId,
+              providerTicketTypeId: extractTicketTypeId(attendeePayload),
+              providerEventId: attendeeProviderEventId,
+              providerOrderId: attendeeProviderOrderId,
+              eventId: eventRecord.id,
+              orderId: orderRecord.id,
+              name: extractAttendeeName(attendeePayload),
+              email: extractAttendeeEmail(attendeePayload),
+              ticketTypeLabel: extractTicketTypeLabel(attendeePayload),
+              ticketStatus: extractTicketStatus(attendeePayload),
+              checkedInAt: extractCheckedInAt(attendeePayload),
+              rawPayload: attendeePayload,
+            },
+          })
+
+          attendeesUpserted += 1
+        }
       }
     }
 
@@ -449,6 +612,9 @@ export async function runTicketTailorSync(
         failedItems,
         errorSummary: errors.length > 0 ? errors.slice(0, 5).join("; ") : null,
         diagnostics: {
+          attendeesFetched,
+          attendeesSkipped,
+          attendeesUpserted,
           fallbackNotes,
           errors,
         },
@@ -468,6 +634,9 @@ export async function runTicketTailorSync(
         ordersFetched,
         ordersUpserted,
         ordersSkippedByScope,
+        attendeesFetched,
+        attendeesUpserted,
+        attendeesSkipped,
         normalizedFallbackCount,
         failedItems,
       },
@@ -492,6 +661,9 @@ export async function runTicketTailorSync(
         failedItems: failedItems + 1,
         errorSummary: message,
         diagnostics: {
+          attendeesFetched,
+          attendeesSkipped,
+          attendeesUpserted,
           fallbackNotes,
           errors,
         },
