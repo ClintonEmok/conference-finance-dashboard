@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-03-19T11:19:53Z"
-last_activity: 2026-03-19 — Completed attendee detail and accommodation inventory foundation
+stopped_at: Working through 05-02-PLAN.md
+last_updated: "2026-03-19T12:19:20Z"
+last_activity: 2026-03-19 — Completed room allocation manager and started operator flow polish
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
-  percent: 100
+  total_plans: 10
+  completed_plans: 9
+  percent: 90
 ---
 
 # Project State
@@ -26,16 +26,16 @@ See: `.planning/PROJECT.md` (updated 2026-03-18)
 ## Current Position
 
 Phase: 5 of 5 (Room Allocation & Operator Flow Polish)
-Plan: 0 of 0 in current phase
-Status: Ready for planning
-Last activity: 2026-03-19 — Completed 04-02 attendee detail and accommodation inventory foundation
+Plan: 1 of 2 in current phase
+Status: In progress
+Last activity: 2026-03-19 — Completed 05-01 room allocation manager and started 05-02 operator flow polish
 
-Progress: [██████████] 100%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
+- Total plans completed: 9
 - Average duration: 71 min
 - Total execution time: 9.5 hours
 
@@ -49,8 +49,8 @@ Progress: [██████████] 100%
 | 4. Attendee Data & Accommodation Foundations | 2 | 22 min | 11 min |
 
 **Recent Trend:**
-- Last 4 completed plans: 03-01, 03-02, 04-01, 04-02
-- Trend: Core attendee and accommodation workflow foundation is now complete; next work can focus on room assignment and flow polish
+- Last 4 completed plans: 03-02, 04-01, 04-02, 05-01
+- Trend: Room assignment is now working end to end; only navigation and cross-screen handoff polish remains for MVP completion
 
 ## Accumulated Context
 
@@ -80,20 +80,23 @@ Recent decisions affecting current work:
 - [04-02] Add nullable `assignedRoomId` on attendees now so future room assignment actions can attach to stable attendee identities.
 - [04-02] Represent accommodation inventory explicitly as hotel -> room type -> room before introducing assignment mutations.
 - [04-02] Keep attendee detail outstanding balances canonical-status aware so paid/refunded attendees do not show false debt.
+- [05-01] Keep room assignment logic in a dedicated accommodation assignments module instead of overloading inventory helpers.
+- [05-01] Project room state as explicit assigned/unassigned metadata in attendee payloads so accommodation changes stay visible across the dashboard.
+- [05-01] Force room-state APIs dynamic so assignment changes are reflected immediately after mutations.
 
 ### Pending Todos
 
-- Plan Phase 5 around room assignment, unassignment, occupancy visibility, and cross-screen workflow polish.
-- Decide whether Phase 5 planning should formalize `05-01` and `05-02` as concrete plan docs under `.planning/phases/05-*`.
+- Complete 05-02 operator-flow polish and gather human verification on the final navigation/handoff experience.
 
 ### Blockers/Concerns
 
 - Existing Tikkie phase artifacts remain deferred and should not drive the MVP completion path.
 - Baseline lint warning in `app/layout.tsx` (`Geist` unused import) remains non-blocking and should be cleaned during future hygiene work.
 - Phase 5 should preserve the new attendee detail/accommodation structure rather than bypassing it with room-assignment logic elsewhere.
+- Final MVP completion still depends on human verification of the polished operator flow in 05-02.
 
 ## Session Continuity
 
-Last session: 2026-03-19T11:19:53Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-03-19T12:19:20Z
+Stopped at: Working through 05-02-PLAN.md
 Resume file: None

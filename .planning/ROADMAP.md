@@ -81,7 +81,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Build room allocation manager with protected assign/unassign flows and live attendee room state
+- [x] 05-01-PLAN.md — Build room allocation manager with protected assign/unassign flows and live attendee room state
 - [ ] 05-02-PLAN.md — Polish navigation, outstanding-balance naming, and cross-screen handoffs across overview, attendee, and room workflows
 
 ## Deferred After MVP
@@ -99,4 +99,4 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 2. Ticket Data Reliability | 2/2 | Complete | 2026-03-19 |
 | 3. Finance Visibility & Outstanding Balances | 2/2 | Complete | 2026-03-19 |
 | 4. Attendee Data & Accommodation Foundations | 2/2 | Complete | 2026-03-19 |
-| 5. Room Allocation & Operator Flow Polish | 0/2 | Not started | - |
+| 5. Room Allocation & Operator Flow Polish | 1/2 | In progress | 2026-03-19 |
