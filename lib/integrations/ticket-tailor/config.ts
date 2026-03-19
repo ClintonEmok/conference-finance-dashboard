@@ -14,6 +14,25 @@ type ValidationResult = {
 
 const DEFAULT_TICKET_TAILOR_BASE_URL = "https://api.tickettailor.com/v1"
 
+function normalizeTicketTailorBaseUrl(rawBaseUrl: string) {
+  const trimmed = rawBaseUrl.replace(/\/+$/, "")
+
+  try {
+    const parsed = new URL(trimmed)
+    const isTicketTailorHost = parsed.hostname === "api.tickettailor.com"
+    const hasVersionPrefix = /^\/v\d+(\/|$)/.test(parsed.pathname)
+
+    if (isTicketTailorHost && !hasVersionPrefix) {
+      parsed.pathname = `${parsed.pathname.replace(/\/+$/, "")}/v1`.replace(/\/\//g, "/")
+      return parsed.toString().replace(/\/+$/, "")
+    }
+  } catch {
+    return rawBaseUrl
+  }
+
+  return trimmed
+}
+
 function maskToken(token: string) {
   if (token.length <= 6) {
     return "***"
@@ -30,8 +49,9 @@ export function getTicketTailorConfig(): ValidationResult {
   const errors: string[] = []
 
   const apiKey = process.env.TICKET_TAILOR_API_KEY?.trim() ?? ""
-  const baseUrl =
-    process.env.TICKET_TAILOR_BASE_URL?.trim() || DEFAULT_TICKET_TAILOR_BASE_URL
+  const baseUrl = normalizeTicketTailorBaseUrl(
+    process.env.TICKET_TAILOR_BASE_URL?.trim() || DEFAULT_TICKET_TAILOR_BASE_URL,
+  )
 
   if (!apiKey) {
     errors.push("TICKET_TAILOR_API_KEY is missing")
