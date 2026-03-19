@@ -78,11 +78,11 @@ Plans:
   1. Admin can assign and unassign attendees to rooms with clear capacity feedback.
   2. Admin can filter for room type, availability, full rooms, empty rooms, and unassigned attendees.
   3. Navigation between dashboard, ledger, attendee detail, and room allocation feels coherent and MVP-ready.
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: Build room allocation manager with occupancy indicators and assignment actions
-- [ ] 05-02: Polish command-center, ledger, attendee, and allocation flow with clearer naming and navigation
+- [ ] 05-01-PLAN.md — Build room allocation manager with protected assign/unassign flows and live attendee room state
+- [ ] 05-02-PLAN.md — Polish navigation, outstanding-balance naming, and cross-screen handoffs across overview, attendee, and room workflows
 
 ## Deferred After MVP
 
