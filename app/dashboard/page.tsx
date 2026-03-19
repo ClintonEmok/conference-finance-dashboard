@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { ArrowRight, BedDouble, CalendarRange, HandCoins, RefreshCcwDot, Users } from "lucide-react"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -63,6 +64,33 @@ function toIsoBoundary(value: string, boundary: "start" | "end") {
   return parsed.toISOString()
 }
 
+const quickActions = [
+  {
+    title: "Review outstanding balances",
+    description: "Start with collection follow-up and resolve unpaid orders.",
+    href: "/dashboard/reconciliation",
+    icon: HandCoins,
+  },
+  {
+    title: "Open attendee follow-up",
+    description: "Check attendee context before sending someone into room allocation.",
+    href: "/dashboard/attendees",
+    icon: Users,
+  },
+  {
+    title: "Manage room allocation",
+    description: "Place unassigned attendees and monitor room pressure.",
+    href: "/dashboard/accommodation",
+    icon: BedDouble,
+  },
+  {
+    title: "Run Ticket Tailor sync",
+    description: "Refresh source-of-truth data before finance review.",
+    href: "/dashboard/ticket-tailor/sync",
+    icon: RefreshCcwDot,
+  },
+] as const
+
 export default function DashboardPage() {
   const [eventIdInput, setEventIdInput] = useState("")
   const [fromDateInput, setFromDateInput] = useState(() => {
@@ -108,7 +136,6 @@ export default function DashboardPage() {
 
     const safeFromIso = fromIso
     const safeToIso = toIso
-
     const controller = new AbortController()
 
     async function loadRevenue() {
@@ -152,7 +179,7 @@ export default function DashboardPage() {
       }
     }
 
-    loadRevenue()
+    void loadRevenue()
 
     return () => {
       controller.abort()
@@ -173,195 +200,245 @@ export default function DashboardPage() {
   }
 
   return (
-    <section className="space-y-6">
-      <header>
-        <h2 className="text-xl font-semibold">Overview</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Start the day from one place, then jump directly into collection follow-up, attendee checks, or room allocation.
-        </p>
-      </header>
+    <section className="space-y-8">
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.9fr)]">
+        <article className="overflow-hidden rounded-[2rem] bg-[linear-gradient(145deg,rgba(113,84,255,0.97),rgba(83,56,171,0.94))] p-7 text-primary-foreground shadow-[0_28px_80px_rgba(78,52,166,0.28)] md:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="max-w-2xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary-foreground/70">
+                Overview
+              </p>
+              <h2 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+                One live picture of conference finance and operator flow.
+              </h2>
+              <p className="mt-3 max-w-xl text-sm leading-6 text-primary-foreground/82 md:text-base">
+                Start with the current financial picture, then move directly into balances, attendee checks,
+                and room placement without losing the thread.
+              </p>
+            </div>
 
-      <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
-        <form className="space-y-4" onSubmit={onApplyFilters}>
-          <div className="grid gap-4 md:grid-cols-3">
-            <label className="space-y-1">
-              <span className="text-sm font-medium">Event ID</span>
+            <div className="min-w-[210px] rounded-[1.5rem] border border-white/18 bg-white/10 p-5 backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.2em] text-primary-foreground/70">Reporting scope</p>
+              <p className="mt-2 text-sm font-medium">
+                {payload?.filters.eventId ?? "All events"}
+              </p>
+              <div className="mt-4 flex items-start gap-3 text-sm text-primary-foreground/82">
+                <CalendarRange className="mt-0.5 size-4 shrink-0" />
+                <div>
+                  <p>{payload ? new Date(payload.filters.from).toLocaleDateString() : appliedFromDate}</p>
+                  <p>{payload ? new Date(payload.filters.to).toLocaleDateString() : appliedToDate}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <article className="rounded-[1.5rem] bg-white/12 p-5 backdrop-blur-sm">
+              <p className="text-sm text-primary-foreground/68">Gross</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {payload ? formatMoney(payload.totals.grossMinor) : "--"}
+              </p>
+            </article>
+            <article className="rounded-[1.5rem] bg-white/12 p-5 backdrop-blur-sm">
+              <p className="text-sm text-primary-foreground/68">Paid</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {payload ? formatMoney(payload.totals.paidMinor) : "--"}
+              </p>
+            </article>
+            <article className="rounded-[1.5rem] bg-white/12 p-5 backdrop-blur-sm">
+              <p className="text-sm text-primary-foreground/68">Refunded</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {payload ? formatMoney(payload.totals.refundedMinor) : "--"}
+              </p>
+            </article>
+            <article className="rounded-[1.5rem] bg-white/12 p-5 backdrop-blur-sm">
+              <p className="text-sm text-primary-foreground/68">Net</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {payload ? formatMoney(payload.totals.netMinor) : "--"}
+              </p>
+            </article>
+          </div>
+        </article>
+
+        <article className="rounded-[2rem] border border-border/70 bg-background/80 p-6 shadow-[0_20px_60px_rgba(34,22,72,0.08)] backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/70">Filter view</p>
+              <h3 className="mt-2 text-xl font-semibold tracking-tight">Refine the dashboard snapshot</h3>
+            </div>
+          </div>
+
+          <form className="mt-5 space-y-4" onSubmit={onApplyFilters}>
+            <label className="space-y-2 text-sm">
+              <span className="font-medium text-foreground">Event ID</span>
               <input
                 type="text"
                 value={eventIdInput}
                 onChange={(event) => setEventIdInput(event.target.value)}
                 placeholder="All events"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm shadow-sm"
               />
             </label>
 
-            <label className="space-y-1">
-              <span className="text-sm font-medium">From</span>
-              <input
-                type="date"
-                value={fromDateInput}
-                onChange={(event) => setFromDateInput(event.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-foreground">From</span>
+                <input
+                  type="date"
+                  value={fromDateInput}
+                  onChange={(event) => setFromDateInput(event.target.value)}
+                  className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm shadow-sm"
+                />
+              </label>
 
-            <label className="space-y-1">
-              <span className="text-sm font-medium">To</span>
-              <input
-                type="date"
-                value={toDateInput}
-                onChange={(event) => setToDateInput(event.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </label>
-          </div>
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-foreground">To</span>
+                <input
+                  type="date"
+                  value={toDateInput}
+                  onChange={(event) => setToDateInput(event.target.value)}
+                  className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm shadow-sm"
+                />
+              </label>
+            </div>
 
-          {inlineValidationError && (
-            <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
-              {inlineValidationError}
-            </p>
-          )}
+            {inlineValidationError && (
+              <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
+                {inlineValidationError}
+              </p>
+            )}
 
-          <div>
-            <Button type="submit" disabled={Boolean(inlineValidationError) || isLoading}>
-              {isLoading ? "Loading…" : "Apply filters"}
+            <Button className="h-12 w-full rounded-2xl" type="submit" disabled={Boolean(inlineValidationError) || isLoading}>
+              {isLoading ? "Loading..." : "Apply reporting scope"}
             </Button>
-          </div>
-        </form>
-      </article>
+          </form>
+        </article>
+      </section>
 
       {errorMessage && (
-        <article className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
+        <article className="rounded-[1.5rem] border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
           {errorMessage}
         </article>
       )}
 
       {!errorMessage && isLoading && (
-        <article className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
-          Loading revenue metrics…
+        <article className="rounded-[1.75rem] border border-border bg-background/80 p-6 text-sm text-muted-foreground shadow-sm backdrop-blur">
+          Loading revenue metrics...
         </article>
       )}
 
       {!errorMessage && !isLoading && payload && (
         <>
-          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <article className="rounded-lg border border-border bg-card p-4 shadow-sm">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Gross</p>
-              <p className="mt-1 text-xl font-semibold">{formatMoney(payload.totals.grossMinor)}</p>
-            </article>
-            <article className="rounded-lg border border-border bg-card p-4 shadow-sm">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Paid</p>
-              <p className="mt-1 text-xl font-semibold text-emerald-700 dark:text-emerald-400">
-                {formatMoney(payload.totals.paidMinor)}
-              </p>
-            </article>
-            <article className="rounded-lg border border-border bg-card p-4 shadow-sm">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Refunded</p>
-              <p className="mt-1 text-xl font-semibold text-amber-700 dark:text-amber-400">
-                {formatMoney(payload.totals.refundedMinor)}
-              </p>
-            </article>
-            <article className="rounded-lg border border-border bg-card p-4 shadow-sm">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Net</p>
-              <p className="mt-1 text-xl font-semibold">{formatMoney(payload.totals.netMinor)}</p>
-            </article>
-          </section>
+          <section className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+            <article className="rounded-[2rem] border border-border/70 bg-background/80 p-6 shadow-[0_20px_60px_rgba(34,22,72,0.06)] backdrop-blur">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/70">Quick actions</p>
+                  <h3 className="mt-2 text-2xl font-semibold tracking-tight">Move into the next useful workflow</h3>
+                </div>
+              </div>
 
-          <section className="grid gap-4 md:grid-cols-2">
-            <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
-              <h3 className="text-sm font-semibold">Order status counts</h3>
-              <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-md border border-border/70 p-3">
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Paid</dt>
-                  <dd className="mt-1 font-semibold">{payload.statusCounts.paid}</dd>
-                </div>
-                <div className="rounded-md border border-border/70 p-3">
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Refunded</dt>
-                  <dd className="mt-1 font-semibold">{payload.statusCounts.refunded}</dd>
-                </div>
-                <div className="rounded-md border border-border/70 p-3">
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Cancelled</dt>
-                  <dd className="mt-1 font-semibold">{payload.statusCounts.cancelled}</dd>
-                </div>
-                <div className="rounded-md border border-border/70 p-3">
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Pending</dt>
-                  <dd className="mt-1 font-semibold">{payload.statusCounts.pending}</dd>
-                </div>
-              </dl>
-            </article>
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                {quickActions.map((action) => {
+                  const Icon = action.icon
 
-            <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
-              <h3 className="text-sm font-semibold">Quick actions</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Move straight into the next useful workflow instead of backtracking through the shell.
-              </p>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <Button asChild className="justify-start">
-                  <Link href="/dashboard/reconciliation">Review outstanding balances</Link>
-                </Button>
-                <Button asChild variant="outline" className="justify-start">
-                  <Link href="/dashboard/attendees">Open attendee follow-up</Link>
-                </Button>
-                <Button asChild variant="outline" className="justify-start">
-                  <Link href="/dashboard/accommodation">Manage room allocation</Link>
-                </Button>
-                <Button asChild variant="outline" className="justify-start">
-                  <Link href="/dashboard/ticket-tailor/sync">Run Ticket Tailor sync</Link>
-                </Button>
+                  return (
+                    <Link
+                      key={action.href}
+                      href={action.href}
+                      className="group rounded-[1.5rem] border border-border/70 bg-white/75 p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-[0_18px_44px_rgba(52,34,120,0.12)] dark:bg-white/6"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary dark:bg-white/10 dark:text-primary-foreground">
+                          <Icon className="size-5" />
+                        </span>
+                        <ArrowRight className="size-4 text-muted-foreground transition-transform duration-200 group-hover:translate-x-1 group-hover:text-primary" />
+                      </div>
+                      <h4 className="mt-5 text-lg font-semibold tracking-tight text-foreground">{action.title}</h4>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">{action.description}</p>
+                    </Link>
+                  )
+                })}
               </div>
             </article>
 
-            <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
-              <h3 className="text-sm font-semibold">Applied scope</h3>
-              <dl className="mt-3 space-y-2 text-sm">
-                <div className="flex items-center justify-between gap-3 rounded-md border border-border/70 p-3">
-                  <dt className="text-muted-foreground">Event</dt>
-                  <dd className="font-mono text-xs">{payload.filters.eventId ?? "All events"}</dd>
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-md border border-border/70 p-3">
-                  <dt className="text-muted-foreground">From</dt>
-                  <dd className="font-mono text-xs">{new Date(payload.filters.from).toLocaleString()}</dd>
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-md border border-border/70 p-3">
-                  <dt className="text-muted-foreground">To</dt>
-                  <dd className="font-mono text-xs">{new Date(payload.filters.to).toLocaleString()}</dd>
-                </div>
-              </dl>
+            <article className="rounded-[2rem] border border-border/70 bg-background/80 p-6 shadow-[0_20px_60px_rgba(34,22,72,0.06)] backdrop-blur">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/70">Order status mix</p>
+              <h3 className="mt-2 text-2xl font-semibold tracking-tight">How today&apos;s scope is distributed</h3>
+
+              <div className="mt-6 space-y-4">
+                {[
+                  ["Paid", payload.statusCounts.paid, "bg-primary"],
+                  ["Pending", payload.statusCounts.pending, "bg-amber-400"],
+                  ["Refunded", payload.statusCounts.refunded, "bg-slate-400"],
+                  ["Cancelled", payload.statusCounts.cancelled, "bg-rose-400"],
+                ].map(([label, value, colorClass]) => {
+                  const total =
+                    payload.statusCounts.paid +
+                    payload.statusCounts.pending +
+                    payload.statusCounts.refunded +
+                    payload.statusCounts.cancelled
+                  const width = total === 0 ? 0 : Math.max(8, Math.round((Number(value) / total) * 100))
+
+                  return (
+                    <div key={String(label)}>
+                      <div className="mb-2 flex items-center justify-between text-sm">
+                        <span className="font-medium text-foreground">{label}</span>
+                        <span className="text-muted-foreground">{value}</span>
+                      </div>
+                      <div className="h-2.5 rounded-full bg-muted">
+                        <div className={`h-2.5 rounded-full ${colorClass}`} style={{ width: `${width}%` }} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="mt-6 rounded-[1.5rem] bg-muted/70 p-4 text-sm text-muted-foreground">
+                Generated {new Date(payload.generatedAt).toLocaleString()} for operator review.
+              </div>
             </article>
           </section>
 
-          <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
-            <h3 className="text-base font-semibold">Daily trend</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Finance-safe daily breakdown suitable for charting or operational review.
-            </p>
+          <article className="rounded-[2rem] border border-border/70 bg-background/80 p-6 shadow-[0_20px_60px_rgba(34,22,72,0.06)] backdrop-blur">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/70">Daily trend</p>
+                <h3 className="mt-2 text-2xl font-semibold tracking-tight">Finance-safe movement across the selected window</h3>
+              </div>
+              <div className="rounded-full border border-border/70 bg-muted/60 px-4 py-2 text-sm text-muted-foreground">
+                Event: {payload.filters.eventId ?? "All events"}
+              </div>
+            </div>
 
             {payload.trend.length === 0 ? (
-              <p className="mt-4 rounded-md border border-border/70 p-3 text-sm text-muted-foreground">
+              <p className="mt-5 rounded-[1.5rem] border border-border/70 p-4 text-sm text-muted-foreground">
                 No synced orders found for the selected filters.
               </p>
             ) : (
-              <div className="mt-4 overflow-x-auto">
-                <table className="min-w-full border-collapse text-sm">
+              <div className="mt-6 overflow-x-auto">
+                <table className="min-w-full border-separate border-spacing-y-3 text-sm">
                   <thead>
-                    <tr className="border-b border-border text-left">
-                      <th className="px-2 py-2 font-medium text-muted-foreground">Date</th>
-                      <th className="px-2 py-2 font-medium text-muted-foreground">Orders</th>
-                      <th className="px-2 py-2 font-medium text-muted-foreground">Gross</th>
-                      <th className="px-2 py-2 font-medium text-muted-foreground">Paid</th>
-                      <th className="px-2 py-2 font-medium text-muted-foreground">Refunded</th>
-                      <th className="px-2 py-2 font-medium text-muted-foreground">Net</th>
+                    <tr className="text-left text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      <th className="px-4 py-2">Date</th>
+                      <th className="px-4 py-2">Orders</th>
+                      <th className="px-4 py-2">Gross</th>
+                      <th className="px-4 py-2">Paid</th>
+                      <th className="px-4 py-2">Refunded</th>
+                      <th className="px-4 py-2">Net</th>
                     </tr>
                   </thead>
                   <tbody>
                     {payload.trend.map((bucket) => (
-                      <tr key={bucket.bucket} className="border-b border-border/60">
-                        <td className="px-2 py-2 font-mono text-xs">{bucket.bucket}</td>
-                        <td className="px-2 py-2">{bucket.orderCount}</td>
-                        <td className="px-2 py-2">{formatMoney(bucket.grossMinor)}</td>
-                        <td className="px-2 py-2">{formatMoney(bucket.paidMinor)}</td>
-                        <td className="px-2 py-2">{formatMoney(bucket.refundedMinor)}</td>
-                        <td className="px-2 py-2 font-medium">{formatMoney(bucket.netMinor)}</td>
+                      <tr key={bucket.bucket} className="rounded-[1.25rem] bg-white/75 shadow-sm dark:bg-white/6">
+                        <td className="rounded-l-[1.25rem] px-4 py-4 font-medium text-foreground">{bucket.bucket}</td>
+                        <td className="px-4 py-4 text-muted-foreground">{bucket.orderCount}</td>
+                        <td className="px-4 py-4 text-foreground">{formatMoney(bucket.grossMinor)}</td>
+                        <td className="px-4 py-4 text-foreground">{formatMoney(bucket.paidMinor)}</td>
+                        <td className="px-4 py-4 text-foreground">{formatMoney(bucket.refundedMinor)}</td>
+                        <td className="rounded-r-[1.25rem] px-4 py-4 font-semibold text-foreground">
+                          {formatMoney(bucket.netMinor)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

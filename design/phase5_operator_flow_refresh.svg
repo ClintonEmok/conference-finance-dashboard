@@ -1,0 +1,88 @@
+<svg width="1440" height="980" viewBox="0 0 1440 980" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1440" height="980" fill="#F6F2FF"/>
+  <circle cx="156" cy="118" r="220" fill="#7154FF" fill-opacity="0.14"/>
+  <circle cx="1288" cy="852" r="240" fill="#7154FF" fill-opacity="0.1"/>
+
+  <rect x="34" y="34" width="280" height="912" rx="30" fill="white" fill-opacity="0.85"/>
+  <text x="62" y="88" fill="#7C67D9" font-size="14" font-family="Arial" font-weight="700" letter-spacing="3">CONFERENCE FINANCE DASHBOARD</text>
+  <text x="62" y="132" fill="#1D1638" font-size="34" font-family="Arial" font-weight="700">Command center</text>
+  <text x="62" y="170" fill="#6B6486" font-size="16" font-family="Arial">Calmer navigation with clearer operator flow.</text>
+
+  <rect x="56" y="220" width="236" height="72" rx="22" fill="#7154FF"/>
+  <text x="82" y="250" fill="white" font-size="18" font-family="Arial" font-weight="700">Overview</text>
+  <text x="82" y="275" fill="#E6DEFF" font-size="13" font-family="Arial">Daily command center</text>
+
+  <rect x="56" y="304" width="236" height="64" rx="22" fill="#F7F5FC" stroke="#E2DBF5"/>
+  <rect x="56" y="380" width="236" height="64" rx="22" fill="#F7F5FC" stroke="#E2DBF5"/>
+  <rect x="56" y="456" width="236" height="64" rx="22" fill="#F7F5FC" stroke="#E2DBF5"/>
+
+  <text x="82" y="344" fill="#322B4C" font-size="16" font-family="Arial">Outstanding balances</text>
+  <text x="82" y="420" fill="#322B4C" font-size="16" font-family="Arial">Attendees</text>
+  <text x="82" y="496" fill="#322B4C" font-size="16" font-family="Arial">Room allocation</text>
+
+  <rect x="56" y="566" width="236" height="220" rx="28" fill="url(#sidebarCard)"/>
+  <text x="82" y="610" fill="#DCCFFF" font-size="13" font-family="Arial" font-weight="700" letter-spacing="2">TODAY'S FOCUS</text>
+  <text x="82" y="652" fill="white" font-size="28" font-family="Arial" font-weight="700">Clear balances,</text>
+  <text x="82" y="688" fill="white" font-size="28" font-family="Arial" font-weight="700">confirm attendees,</text>
+  <text x="82" y="724" fill="white" font-size="28" font-family="Arial" font-weight="700">place final rooms.</text>
+  <rect x="82" y="748" width="184" height="34" rx="17" fill="white" fill-opacity="0.14"/>
+  <text x="100" y="770" fill="white" font-size="13" font-family="Arial">Big sidebar widget anchors the loop</text>
+
+  <rect x="340" y="34" width="1066" height="912" rx="30" fill="white" fill-opacity="0.72"/>
+
+  <rect x="374" y="66" width="664" height="296" rx="30" fill="url(#heroCard)"/>
+  <text x="414" y="112" fill="#DCCFFF" font-size="13" font-family="Arial" font-weight="700" letter-spacing="2">OVERVIEW</text>
+  <text x="414" y="166" fill="white" font-size="44" font-family="Arial" font-weight="700">One live picture of conference</text>
+  <text x="414" y="214" fill="white" font-size="44" font-family="Arial" font-weight="700">finance and operator flow.</text>
+
+  <rect x="414" y="264" width="136" height="72" rx="22" fill="white" fill-opacity="0.12"/>
+  <rect x="566" y="264" width="136" height="72" rx="22" fill="white" fill-opacity="0.12"/>
+  <rect x="718" y="264" width="136" height="72" rx="22" fill="white" fill-opacity="0.12"/>
+  <rect x="870" y="264" width="136" height="72" rx="22" fill="white" fill-opacity="0.12"/>
+
+  <text x="432" y="292" fill="#E6DEFF" font-size="14" font-family="Arial">Gross</text>
+  <text x="432" y="324" fill="white" font-size="24" font-family="Arial" font-weight="700">EUR284,500</text>
+  <text x="584" y="292" fill="#E6DEFF" font-size="14" font-family="Arial">Paid</text>
+  <text x="584" y="324" fill="white" font-size="24" font-family="Arial" font-weight="700">EUR261,800</text>
+  <text x="736" y="292" fill="#E6DEFF" font-size="14" font-family="Arial">Refunded</text>
+  <text x="736" y="324" fill="white" font-size="24" font-family="Arial" font-weight="700">EUR10,900</text>
+  <text x="888" y="292" fill="#E6DEFF" font-size="14" font-family="Arial">Net</text>
+  <text x="888" y="324" fill="white" font-size="24" font-family="Arial" font-weight="700">EUR250,900</text>
+
+  <rect x="1062" y="66" width="310" height="296" rx="30" fill="white"/>
+  <text x="1092" y="112" fill="#7C67D9" font-size="13" font-family="Arial" font-weight="700" letter-spacing="2">FILTER VIEW</text>
+  <text x="1092" y="152" fill="#1D1638" font-size="30" font-family="Arial" font-weight="700">Refine the snapshot</text>
+  <rect x="1092" y="194" width="250" height="50" rx="18" fill="#F2EFFB"/>
+  <rect x="1092" y="258" width="118" height="50" rx="18" fill="#F2EFFB"/>
+  <rect x="1224" y="258" width="118" height="50" rx="18" fill="#F2EFFB"/>
+  <rect x="1092" y="322" width="250" height="50" rx="18" fill="#7154FF"/>
+
+  <rect x="374" y="392" width="620" height="252" rx="30" fill="white"/>
+  <text x="406" y="436" fill="#7C67D9" font-size="13" font-family="Arial" font-weight="700" letter-spacing="2">QUICK ACTIONS</text>
+  <rect x="406" y="474" width="270" height="64" rx="22" fill="#FAF9FE" stroke="#E5DDFB"/>
+  <rect x="692" y="474" width="270" height="64" rx="22" fill="#FAF9FE" stroke="#E5DDFB"/>
+  <rect x="406" y="554" width="270" height="64" rx="22" fill="#FAF9FE" stroke="#E5DDFB"/>
+  <rect x="692" y="554" width="270" height="64" rx="22" fill="#FAF9FE" stroke="#E5DDFB"/>
+
+  <rect x="1020" y="392" width="352" height="252" rx="30" fill="white"/>
+  <text x="1052" y="436" fill="#7C67D9" font-size="13" font-family="Arial" font-weight="700" letter-spacing="2">STATUS MIX</text>
+  <rect x="1052" y="486" width="288" height="14" rx="7" fill="#ECE7FB"/>
+  <rect x="1052" y="486" width="212" height="14" rx="7" fill="#7154FF"/>
+  <rect x="1052" y="548" width="288" height="14" rx="7" fill="#ECE7FB"/>
+  <rect x="1052" y="548" width="88" height="14" rx="7" fill="#F6C44F"/>
+
+  <rect x="374" y="676" width="998" height="236" rx="30" fill="white"/>
+  <text x="406" y="720" fill="#7C67D9" font-size="13" font-family="Arial" font-weight="700" letter-spacing="2">DAILY TREND</text>
+  <rect x="406" y="760" width="934" height="118" rx="24" fill="#FAF9FE" stroke="#E5DDFB"/>
+
+  <defs>
+    <linearGradient id="sidebarCard" x1="56" y1="566" x2="292" y2="786" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7154FF"/>
+      <stop offset="1" stop-color="#5036AB"/>
+    </linearGradient>
+    <linearGradient id="heroCard" x1="374" y1="66" x2="1038" y2="362" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7154FF"/>
+      <stop offset="1" stop-color="#5036AB"/>
+    </linearGradient>
+  </defs>
+</svg>

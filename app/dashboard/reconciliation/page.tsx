@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { ArrowRight, CircleAlert, HandCoins, SearchCheck } from "lucide-react"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -456,181 +457,239 @@ export default function ReconciliationPage() {
   }
 
   return (
-    <section className="space-y-6">
-      <header>
-        <h2 className="text-xl font-semibold">Outstanding balances</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Identify unpaid or mismatched orders, then hand off directly into attendee follow-up and room assignment.
-        </p>
-      </header>
+    <section className="space-y-8">
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.9fr)]">
+        <article className="overflow-hidden rounded-[2rem] bg-[linear-gradient(145deg,rgba(113,84,255,0.97),rgba(83,56,171,0.94))] p-7 text-primary-foreground shadow-[0_28px_80px_rgba(78,52,166,0.28)] md:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="max-w-2xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary-foreground/70">
+                Outstanding balances
+              </p>
+              <h2 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+                Resolve the orders that still need payment or operator attention.
+              </h2>
+              <p className="mt-3 max-w-xl text-sm leading-6 text-primary-foreground/82 md:text-base">
+                Start here when a balance needs action, then carry the order context straight into attendee
+                follow-up and room assignment.
+              </p>
+            </div>
 
-      <article className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-100">
-        Start here when an order needs action, then open the attendee ledger with the order already in focus.
-      </article>
+            <div className="grid min-w-[220px] gap-3 sm:grid-cols-2 sm:grid-rows-2 sm:gap-4">
+              <div className="rounded-[1.5rem] bg-white/12 p-4 backdrop-blur-sm sm:col-span-2">
+                <p className="text-sm text-primary-foreground/68">Flagged rows</p>
+                <p className="mt-2 text-3xl font-semibold">{payload?.totals.rows ?? "--"}</p>
+              </div>
+              <div className="rounded-[1.5rem] bg-white/12 p-4 backdrop-blur-sm">
+                <p className="text-sm text-primary-foreground/68">Outstanding</p>
+                <p className="mt-2 text-lg font-semibold">
+                  {payload ? formatMoney(payload.totals.outstandingMinor) : "--"}
+                </p>
+              </div>
+              <div className="rounded-[1.5rem] bg-white/12 p-4 backdrop-blur-sm">
+                <p className="text-sm text-primary-foreground/68">Status view</p>
+                <p className="mt-2 text-lg font-semibold">{appliedStatus === "all" ? "All" : appliedStatus}</p>
+              </div>
+            </div>
+          </div>
+        </article>
 
-      <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
-        <form className="space-y-4" onSubmit={applyFilters}>
-          <div className="grid gap-4 md:grid-cols-4">
-            <label className="space-y-1">
-              <span className="text-sm font-medium">Event ID</span>
-              <input
-                type="text"
-                value={eventIdInput}
-                onChange={(event) => setEventIdInput(event.target.value)}
-                placeholder="All events"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </label>
-
-            <label className="space-y-1">
-              <span className="text-sm font-medium">Status</span>
-              <select
-                value={statusInput}
-                onChange={(event) => setStatusInput(event.target.value as "all" | CanonicalOrderStatus)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="all">All statuses</option>
-                <option value="paid">Paid</option>
-                <option value="refunded">Refunded</option>
-                <option value="cancelled">Cancelled</option>
-                <option value="pending">Pending</option>
-              </select>
-            </label>
-
-            <label className="space-y-1">
-              <span className="text-sm font-medium">From</span>
-              <input
-                type="date"
-                value={fromInput}
-                onChange={(event) => setFromInput(event.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </label>
-
-            <label className="space-y-1">
-              <span className="text-sm font-medium">To</span>
-              <input
-                type="date"
-                value={toInput}
-                onChange={(event) => setToInput(event.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </label>
+        <article className="rounded-[2rem] border border-border/70 bg-background/80 p-6 shadow-[0_20px_60px_rgba(34,22,72,0.08)] backdrop-blur">
+          <div className="flex items-center gap-3">
+            <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary dark:bg-white/10 dark:text-primary-foreground">
+              <SearchCheck className="size-5" />
+            </span>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/70">Refine list</p>
+              <h3 className="mt-1 text-xl font-semibold tracking-tight">Find the balances that need attention</h3>
+            </div>
           </div>
 
-          {dateValidationError && (
-            <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
-              {dateValidationError}
-            </p>
-          )}
+          <form className="mt-5 space-y-4" onSubmit={applyFilters}>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-foreground">Event ID</span>
+                <input
+                  type="text"
+                  value={eventIdInput}
+                  onChange={(event) => setEventIdInput(event.target.value)}
+                  placeholder="All events"
+                  className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm shadow-sm"
+                />
+              </label>
 
-          <div>
-            <Button type="submit" disabled={Boolean(dateValidationError) || isLoading}>
-              {isLoading ? "Loading…" : "Apply filters"}
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-foreground">Status</span>
+                <select
+                  value={statusInput}
+                  onChange={(event) => setStatusInput(event.target.value as "all" | CanonicalOrderStatus)}
+                  className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm shadow-sm"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="paid">Paid</option>
+                  <option value="refunded">Refunded</option>
+                  <option value="cancelled">Cancelled</option>
+                  <option value="pending">Pending</option>
+                </select>
+              </label>
+
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-foreground">From</span>
+                <input
+                  type="date"
+                  value={fromInput}
+                  onChange={(event) => setFromInput(event.target.value)}
+                  className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm shadow-sm"
+                />
+              </label>
+
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-foreground">To</span>
+                <input
+                  type="date"
+                  value={toInput}
+                  onChange={(event) => setToInput(event.target.value)}
+                  className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm shadow-sm"
+                />
+              </label>
+            </div>
+
+            {dateValidationError && (
+              <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
+                {dateValidationError}
+              </p>
+            )}
+
+            <Button className="h-12 w-full rounded-2xl" type="submit" disabled={Boolean(dateValidationError) || isLoading}>
+              {isLoading ? "Loading..." : "Apply follow-up filters"}
             </Button>
+          </form>
+        </article>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <article className="rounded-[1.5rem] border border-border/70 bg-background/80 p-5 shadow-sm backdrop-blur">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary dark:bg-white/10 dark:text-primary-foreground">
+              <HandCoins className="size-5" />
+            </span>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary/70">Outstanding</p>
+              <p className="mt-1 text-2xl font-semibold">{payload ? formatMoney(payload.totals.outstandingMinor) : "--"}</p>
+            </div>
           </div>
-        </form>
-      </article>
+        </article>
+        <article className="rounded-[1.5rem] border border-border/70 bg-background/80 p-5 shadow-sm backdrop-blur">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+              <CircleAlert className="size-5" />
+            </span>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary/70">Flagged rows</p>
+              <p className="mt-1 text-2xl font-semibold">{payload?.totals.rows ?? "--"}</p>
+            </div>
+          </div>
+        </article>
+        <article className="rounded-[1.5rem] border border-border/70 bg-background/80 p-5 text-sm text-muted-foreground shadow-sm backdrop-blur">
+          Open attendee follow-up from any row to preserve order context and avoid backtracking.
+        </article>
+      </section>
 
       {errorMessage && (
-        <article className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
+        <article className="rounded-[1.5rem] border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
           {errorMessage}
         </article>
       )}
 
       {!errorMessage && isLoading && (
-        <article className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
-          Loading outstanding-balance rows…
+        <article className="rounded-[1.75rem] border border-border bg-background/80 p-6 text-sm text-muted-foreground shadow-sm backdrop-blur">
+          Loading outstanding-balance rows...
         </article>
       )}
 
       {!errorMessage && !isLoading && payload && (
-        <>
-          <section className="grid gap-4 sm:grid-cols-2">
-            <article className="rounded-lg border border-border bg-card p-4 shadow-sm">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Flagged rows</p>
-              <p className="mt-1 text-xl font-semibold">{payload.totals.rows}</p>
-            </article>
-            <article className="rounded-lg border border-border bg-card p-4 shadow-sm">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Outstanding</p>
-              <p className="mt-1 text-xl font-semibold">{formatMoney(payload.totals.outstandingMinor)}</p>
-            </article>
-          </section>
+        <article className="rounded-[2rem] border border-border/70 bg-background/80 p-6 shadow-[0_20px_60px_rgba(34,22,72,0.06)] backdrop-blur">
+          {payload.rows.length === 0 ? (
+            <p className="rounded-[1.5rem] border border-border/70 p-4 text-sm text-muted-foreground">
+              No outstanding or mismatch candidates found for the selected filters.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-separate border-spacing-y-3 text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    <th className="px-4 py-2">Order</th>
+                    <th className="px-4 py-2">Event</th>
+                    <th className="px-4 py-2">Status</th>
+                    <th className="px-4 py-2">Amount</th>
+                    <th className="px-4 py-2">Outstanding</th>
+                    <th className="px-4 py-2">Reasons</th>
+                    <th className="px-4 py-2">Next step</th>
+                    <th className="px-4 py-2">Tikkie</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payload.rows.map((row) => {
+                    const linkState = rowLinks[row.providerOrderId] ?? {
+                      isLoading: false,
+                      isCreating: false,
+                      isCopying: false,
+                      error: null,
+                      links: [],
+                    }
+                    const latestLink = linkState.links[0] ?? null
+                    const canGenerate = row.outstandingMinor > 0
 
-          <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
-            {payload.rows.length === 0 ? (
-              <p className="rounded-md border border-border/70 p-3 text-sm text-muted-foreground">
-                No outstanding or mismatch candidates found for the selected filters.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-left">
-                      <th className="px-2 py-2 font-medium text-muted-foreground">Order</th>
-                      <th className="px-2 py-2 font-medium text-muted-foreground">Event</th>
-                      <th className="px-2 py-2 font-medium text-muted-foreground">Status</th>
-                      <th className="px-2 py-2 font-medium text-muted-foreground">Amount</th>
-                      <th className="px-2 py-2 font-medium text-muted-foreground">Outstanding</th>
-                       <th className="px-2 py-2 font-medium text-muted-foreground">Reasons</th>
-                       <th className="px-2 py-2 font-medium text-muted-foreground">Next step</th>
-                       <th className="px-2 py-2 font-medium text-muted-foreground">Tikkie</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {payload.rows.map((row) => {
-                      const linkState = rowLinks[row.providerOrderId] ?? {
-                        isLoading: false,
-                        isCreating: false,
-                        isCopying: false,
-                        error: null,
-                        links: [],
-                      }
-                      const latestLink = linkState.links[0] ?? null
-                      const canGenerate = row.outstandingMinor > 0
-
-                      return (
-                        <tr key={row.providerOrderId} className="border-b border-border/60">
-                        <td className="px-2 py-2 font-mono text-xs">
-                          <div>{row.providerOrderId}</div>
-                          <div className="text-muted-foreground">{row.orderedAt ? new Date(row.orderedAt).toLocaleString() : "-"}</div>
+                    return (
+                      <tr key={row.providerOrderId} className="align-top shadow-sm">
+                        <td className="rounded-l-[1.4rem] bg-white/75 px-4 py-4 font-mono text-xs dark:bg-white/6">
+                          <div className="text-foreground">{row.providerOrderId}</div>
+                          <div className="mt-1 text-muted-foreground">
+                            {row.orderedAt ? new Date(row.orderedAt).toLocaleString() : "-"}
+                          </div>
                         </td>
-                        <td className="px-2 py-2">
-                          <div className="text-xs">{row.eventName ?? "Unknown event"}</div>
-                          <div className="font-mono text-[11px] text-muted-foreground">{row.providerEventId}</div>
+                        <td className="bg-white/75 px-4 py-4 dark:bg-white/6">
+                          <div className="text-xs font-medium text-foreground">{row.eventName ?? "Unknown event"}</div>
+                          <div className="mt-1 font-mono text-[11px] text-muted-foreground">{row.providerEventId}</div>
                         </td>
-                        <td className="px-2 py-2">{row.normalizedStatus}</td>
-                        <td className="px-2 py-2">{formatMoney(row.totalAmountMinor)}</td>
-                        <td className="px-2 py-2 font-medium">{formatMoney(row.outstandingMinor)}</td>
-                         <td className="px-2 py-2">
-                           <ul className="list-inside list-disc text-xs text-muted-foreground">
-                             {row.reasons.map((reason) => (
-                               <li key={reason}>{formatReason(reason)}</li>
-                             ))}
-                           </ul>
-                         </td>
-                         <td className="px-2 py-2">
-                           <div className="flex flex-col gap-2">
-                             <Button asChild size="sm">
-                               <Link
-                                 href={`/dashboard/attendees?search=${encodeURIComponent(
-                                   row.providerOrderId,
-                                 )}&eventId=${encodeURIComponent(
-                                   row.providerEventId,
-                                 )}&source=outstanding-balances&orderId=${encodeURIComponent(
-                                   row.providerOrderId,
-                                 )}`}
-                               >
-                                 Open attendee follow-up
-                               </Link>
-                             </Button>
-                             <p className="text-[11px] text-muted-foreground">
-                               Search lands on the related attendees for this order.
-                             </p>
-                           </div>
-                         </td>
-                         <td className="px-2 py-2">
-                          <div className="space-y-2">
+                        <td className="bg-white/75 px-4 py-4 capitalize text-foreground dark:bg-white/6">
+                          {row.normalizedStatus}
+                        </td>
+                        <td className="bg-white/75 px-4 py-4 text-foreground dark:bg-white/6">
+                          {formatMoney(row.totalAmountMinor)}
+                        </td>
+                        <td className="bg-white/75 px-4 py-4 font-semibold text-foreground dark:bg-white/6">
+                          {formatMoney(row.outstandingMinor)}
+                        </td>
+                        <td className="bg-white/75 px-4 py-4 dark:bg-white/6">
+                          <ul className="space-y-1 text-xs text-muted-foreground">
+                            {row.reasons.map((reason) => (
+                              <li key={reason}>{formatReason(reason)}</li>
+                            ))}
+                          </ul>
+                        </td>
+                        <td className="bg-white/75 px-4 py-4 dark:bg-white/6">
+                          <div className="flex flex-col gap-3">
+                            <Button asChild className="h-10 justify-between rounded-2xl px-4" size="sm">
+                              <Link
+                                href={`/dashboard/attendees?search=${encodeURIComponent(
+                                  row.providerOrderId,
+                                )}&eventId=${encodeURIComponent(
+                                  row.providerEventId,
+                                )}&source=outstanding-balances&orderId=${encodeURIComponent(
+                                  row.providerOrderId,
+                                )}`}
+                              >
+                                Open attendee follow-up
+                                <ArrowRight className="size-4" />
+                              </Link>
+                            </Button>
+                            <p className="text-[11px] leading-5 text-muted-foreground">
+                              Search lands on the related attendees for this order.
+                            </p>
+                          </div>
+                        </td>
+                        <td className="rounded-r-[1.4rem] bg-white/75 px-4 py-4 dark:bg-white/6">
+                          <div className="space-y-3">
                             <div className="flex flex-wrap items-center gap-2">
                               <Button
                                 type="button"
@@ -639,7 +698,7 @@ export default function ReconciliationPage() {
                                 disabled={!canGenerate || linkState.isCreating}
                                 onClick={() => void handleGenerateLink(row)}
                               >
-                                {linkState.isCreating ? "Generating…" : "Generate Tikkie link"}
+                                {linkState.isCreating ? "Generating..." : "Generate Tikkie link"}
                               </Button>
                               {latestLink && (
                                 <Button
@@ -649,7 +708,7 @@ export default function ReconciliationPage() {
                                   disabled={linkState.isCopying}
                                   onClick={() => void handleCopyLink(row.providerOrderId, latestLink.paymentRequestUrl)}
                                 >
-                                  {linkState.isCopying ? "Copying…" : "Copy link"}
+                                  {linkState.isCopying ? "Copying..." : "Copy link"}
                                 </Button>
                               )}
                               {latestLink && (
@@ -660,7 +719,7 @@ export default function ReconciliationPage() {
                                   disabled={linkState.isLoading}
                                   onClick={() => void fetchRowLinks(row.providerOrderId, { refresh: true })}
                                 >
-                                  {linkState.isLoading ? "Refreshing…" : "Refresh status"}
+                                  {linkState.isLoading ? "Refreshing..." : "Refresh status"}
                                 </Button>
                               )}
                             </div>
@@ -670,21 +729,21 @@ export default function ReconciliationPage() {
                             )}
 
                             {linkState.isLoading && (
-                              <p className="text-[11px] text-muted-foreground">Loading link status…</p>
+                              <p className="text-[11px] text-muted-foreground">Loading link status...</p>
                             )}
 
                             {latestLink && (
-                              <div className="space-y-1 text-[11px]">
+                              <div className="space-y-1 text-[11px] text-muted-foreground">
                                 <span
                                   className={`inline-flex items-center rounded-full border px-2 py-0.5 font-medium ${statusBadgeClass(latestLink.status)}`}
                                 >
                                   {formatTikkieStatus(latestLink.status)}
                                 </span>
-                                <div className="text-muted-foreground">Created: {formatDateTime(latestLink.createdAt)}</div>
-                                <div className="text-muted-foreground">
+                                <div>Created: {formatDateTime(latestLink.createdAt)}</div>
+                                <div>
                                   Last status check: {formatDateTime(latestLink.providerLastCheckedAt)} ({formatStatusSource(latestLink.statusSource)})
                                 </div>
-                                <div className="text-muted-foreground">Updated: {formatDateTime(latestLink.statusUpdatedAt)}</div>
+                                <div>Updated: {formatDateTime(latestLink.statusUpdatedAt)}</div>
                               </div>
                             )}
 
@@ -692,14 +751,13 @@ export default function ReconciliationPage() {
                           </div>
                         </td>
                       </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </article>
-        </>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </article>
       )}
     </section>
   )
