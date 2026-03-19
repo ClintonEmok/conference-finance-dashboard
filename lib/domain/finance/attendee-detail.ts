@@ -1,0 +1,213 @@
+import { prisma } from "@/lib/prisma"
+
+type RoomStatus =
+  | {
+      status: "assigned"
+      roomLabel: string
+      hotelName: string
+      roomTypeLabel: string
+    }
+  | {
+      status: "unassigned"
+      roomLabel: null
+      hotelName: null
+      roomTypeLabel: null
+    }
+
+export type AttendeeDetail = {
+  attendee: {
+    id: string
+    name: string | null
+    email: string | null
+    ticketTypeLabel: string | null
+    ticketStatus: string | null
+    checkedInAt: string | null
+    providerIssuedTicketId: string | null
+    providerOrderId: string
+    providerEventId: string
+  }
+  event: {
+    id: string
+    name: string | null
+  }
+  order: {
+    id: string
+    providerOrderId: string
+    providerEventId: string
+    buyerName: string | null
+    buyerEmail: string | null
+    normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
+    orderedAt: string | null
+    totalAmountMinor: number
+  }
+  finance: {
+    outstandingAmountMinor: number
+    paidAmountMinor: number
+    installmentProgress: {
+      totalLinks: number
+      paidLinks: number
+      openLinks: number
+      expiredLinks: number
+    }
+  }
+  paymentHistory: Array<{
+    id: string
+    type: "payment-link" | "status-transition"
+    title: string
+    status: string
+    amountMinor: number | null
+    happenedAt: string
+    note: string | null
+    url: string | null
+  }>
+  roomStatus: RoomStatus
+}
+
+function normalizeAttendeeId(attendeeId: string) {
+  const normalized = attendeeId.trim()
+
+  if (!normalized) {
+    throw new Error("Invalid 'attendeeId'. Value is required.")
+  }
+
+  return normalized
+}
+
+function derivePaidAmount(totalAmountMinor: number, links: Array<{ status: string; amountMinor: number }>) {
+  const paidAmount = links
+    .filter((link) => link.status === "paid")
+    .reduce((sum, link) => sum + link.amountMinor, 0)
+
+  return Math.min(totalAmountMinor, paidAmount)
+}
+
+export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDetail> {
+  const normalizedAttendeeId = normalizeAttendeeId(attendeeId)
+
+  const attendee = await prisma.ticketTailorAttendee.findUnique({
+    where: {
+      id: normalizedAttendeeId,
+    },
+    include: {
+      event: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      order: {
+        include: {
+          tikkiePaymentLinks: {
+            orderBy: [{ createdAt: "desc" }],
+            include: {
+              transitionEvents: {
+                orderBy: [{ createdAt: "desc" }],
+              },
+            },
+          },
+        },
+      },
+      assignedRoom: {
+        include: {
+          hotel: {
+            select: {
+              name: true,
+            },
+          },
+          roomType: {
+            select: {
+              label: true,
+            },
+          },
+        },
+      },
+    },
+  })
+
+  if (!attendee) {
+    throw new Error("Attendee not found.")
+  }
+
+  const totalAmountMinor = attendee.order.totalAmountMinor ?? 0
+  const paidAmountMinor = derivePaidAmount(totalAmountMinor, attendee.order.tikkiePaymentLinks)
+  const outstandingAmountMinor = Math.max(0, totalAmountMinor - paidAmountMinor)
+
+  const paymentHistory = attendee.order.tikkiePaymentLinks.flatMap((link) => [
+    {
+      id: `link-${link.id}`,
+      type: "payment-link" as const,
+      title: `Payment link ${link.paymentRequestToken}`,
+      status: link.status,
+      amountMinor: link.amountMinor,
+      happenedAt: link.createdAt.toISOString(),
+      note: link.description,
+      url: link.paymentRequestUrl,
+    },
+    ...link.transitionEvents.map((event) => ({
+      id: `transition-${event.id}`,
+      type: "status-transition" as const,
+      title: `${event.fromStatus} -> ${event.toStatus}`,
+      status: event.toStatus,
+      amountMinor: link.amountMinor,
+      happenedAt: event.createdAt.toISOString(),
+      note: event.reason ?? event.providerStatus,
+      url: null,
+    })),
+  ])
+
+  paymentHistory.sort((left, right) => right.happenedAt.localeCompare(left.happenedAt))
+
+  const roomStatus: RoomStatus = attendee.assignedRoom
+    ? {
+        status: "assigned",
+        roomLabel: attendee.assignedRoom.label,
+        hotelName: attendee.assignedRoom.hotel.name,
+        roomTypeLabel: attendee.assignedRoom.roomType.label,
+      }
+    : {
+        status: "unassigned",
+        roomLabel: null,
+        hotelName: null,
+        roomTypeLabel: null,
+      }
+
+  return {
+    attendee: {
+      id: attendee.id,
+      name: attendee.name ?? null,
+      email: attendee.email ?? null,
+      ticketTypeLabel: attendee.ticketTypeLabel ?? null,
+      ticketStatus: attendee.ticketStatus ?? null,
+      checkedInAt: attendee.checkedInAt ? attendee.checkedInAt.toISOString() : null,
+      providerIssuedTicketId: attendee.providerIssuedTicketId ?? null,
+      providerOrderId: attendee.providerOrderId,
+      providerEventId: attendee.providerEventId,
+    },
+    event: {
+      id: attendee.event.id,
+      name: attendee.event.name ?? null,
+    },
+    order: {
+      id: attendee.order.id,
+      providerOrderId: attendee.order.providerOrderId,
+      providerEventId: attendee.order.providerEventId,
+      buyerName: attendee.order.buyerName ?? null,
+      buyerEmail: attendee.order.buyerEmail ?? null,
+      normalizedStatus: attendee.order.normalizedStatus,
+      orderedAt: attendee.order.orderedAt ? attendee.order.orderedAt.toISOString() : null,
+      totalAmountMinor,
+    },
+    finance: {
+      outstandingAmountMinor,
+      paidAmountMinor,
+      installmentProgress: {
+        totalLinks: attendee.order.tikkiePaymentLinks.length,
+        paidLinks: attendee.order.tikkiePaymentLinks.filter((link) => link.status === "paid").length,
+        openLinks: attendee.order.tikkiePaymentLinks.filter((link) => link.status === "created").length,
+        expiredLinks: attendee.order.tikkiePaymentLinks.filter((link) => link.status === "expired").length,
+      },
+    },
+    paymentHistory,
+    roomStatus,
+  }
+}
