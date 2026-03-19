@@ -9,7 +9,7 @@ This roadmap now prioritizes getting the operator-facing screens, navigation, at
 - [x] **Phase 1: Foundation & Secure Access** - Establish protected admin access and integration configuration baseline.
 - [x] **Phase 2: Ticket Data Reliability** - Make Ticket Tailor data ingestion dependable and correct.
 - [x] **Phase 3: Finance Visibility & Outstanding Balances** - Deliver dashboard reporting, ledger visibility, and balance follow-up surfaces.
-- [ ] **Phase 4: Attendee Data & Accommodation Foundations** - Sync issued ticket attendees and define hotel/room inventory foundations.
+- [x] **Phase 4: Attendee Data & Accommodation Foundations** - Sync issued ticket attendees and define hotel/room inventory foundations.
 - [ ] **Phase 5: Room Allocation & Operator Flow Polish** - Finalize attendee detail, room assignment, and cross-screen workflow clarity.
 
 ## Phase Details
@@ -67,8 +67,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Persist attendee-level Ticket Tailor sync and add attendee ledger dashboard surface
-- [ ] 04-02-PLAN.md — Add attendee detail plus accommodation inventory management flows
+- [x] 04-01-PLAN.md — Persist attendee-level Ticket Tailor sync and add attendee ledger dashboard surface
+- [x] 04-02-PLAN.md — Add attendee detail plus accommodation inventory management flows
 
 ### Phase 5: Room Allocation & Operator Flow Polish
 **Goal**: Finance admins can move cleanly between dashboard, ledger, attendee detail, and room assignment while resolving capacity and payment follow-up issues.
@@ -98,5 +98,5 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 1. Foundation & Secure Access | 2/2 | Complete | 2026-03-18 |
 | 2. Ticket Data Reliability | 2/2 | Complete | 2026-03-19 |
 | 3. Finance Visibility & Outstanding Balances | 2/2 | Complete | 2026-03-19 |
-| 4. Attendee Data & Accommodation Foundations | 0/2 | Not started | - |
+| 4. Attendee Data & Accommodation Foundations | 2/2 | Complete | 2026-03-19 |
 | 5. Room Allocation & Operator Flow Polish | 0/2 | Not started | - |
