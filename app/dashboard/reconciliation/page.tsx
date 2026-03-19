@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -457,11 +458,15 @@ export default function ReconciliationPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h2 className="text-xl font-semibold">Reconciliation</h2>
+        <h2 className="text-xl font-semibold">Outstanding balances</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Identify outstanding balances and mismatched order states requiring follow-up.
+          Identify unpaid or mismatched orders, then hand off directly into attendee follow-up and room assignment.
         </p>
       </header>
+
+      <article className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-100">
+        Start here when an order needs action, then open the attendee ledger with the order already in focus.
+      </article>
 
       <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
         <form className="space-y-4" onSubmit={applyFilters}>
@@ -535,7 +540,7 @@ export default function ReconciliationPage() {
 
       {!errorMessage && isLoading && (
         <article className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
-          Loading reconciliation rows…
+          Loading outstanding-balance rows…
         </article>
       )}
 
@@ -567,8 +572,9 @@ export default function ReconciliationPage() {
                       <th className="px-2 py-2 font-medium text-muted-foreground">Status</th>
                       <th className="px-2 py-2 font-medium text-muted-foreground">Amount</th>
                       <th className="px-2 py-2 font-medium text-muted-foreground">Outstanding</th>
-                      <th className="px-2 py-2 font-medium text-muted-foreground">Reasons</th>
-                      <th className="px-2 py-2 font-medium text-muted-foreground">Tikkie</th>
+                       <th className="px-2 py-2 font-medium text-muted-foreground">Reasons</th>
+                       <th className="px-2 py-2 font-medium text-muted-foreground">Next step</th>
+                       <th className="px-2 py-2 font-medium text-muted-foreground">Tikkie</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -596,14 +602,34 @@ export default function ReconciliationPage() {
                         <td className="px-2 py-2">{row.normalizedStatus}</td>
                         <td className="px-2 py-2">{formatMoney(row.totalAmountMinor)}</td>
                         <td className="px-2 py-2 font-medium">{formatMoney(row.outstandingMinor)}</td>
-                        <td className="px-2 py-2">
-                          <ul className="list-inside list-disc text-xs text-muted-foreground">
-                            {row.reasons.map((reason) => (
-                              <li key={reason}>{formatReason(reason)}</li>
-                            ))}
-                          </ul>
-                        </td>
-                        <td className="px-2 py-2">
+                         <td className="px-2 py-2">
+                           <ul className="list-inside list-disc text-xs text-muted-foreground">
+                             {row.reasons.map((reason) => (
+                               <li key={reason}>{formatReason(reason)}</li>
+                             ))}
+                           </ul>
+                         </td>
+                         <td className="px-2 py-2">
+                           <div className="flex flex-col gap-2">
+                             <Button asChild size="sm">
+                               <Link
+                                 href={`/dashboard/attendees?search=${encodeURIComponent(
+                                   row.providerOrderId,
+                                 )}&eventId=${encodeURIComponent(
+                                   row.providerEventId,
+                                 )}&source=outstanding-balances&orderId=${encodeURIComponent(
+                                   row.providerOrderId,
+                                 )}`}
+                               >
+                                 Open attendee follow-up
+                               </Link>
+                             </Button>
+                             <p className="text-[11px] text-muted-foreground">
+                               Search lands on the related attendees for this order.
+                             </p>
+                           </div>
+                         </td>
+                         <td className="px-2 py-2">
                           <div className="space-y-2">
                             <div className="flex flex-wrap items-center gap-2">
                               <Button

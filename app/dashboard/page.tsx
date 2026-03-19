@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -174,9 +175,9 @@ export default function DashboardPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h2 className="text-xl font-semibold">Revenue overview</h2>
+        <h2 className="text-xl font-semibold">Overview</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Monitor topline finance performance from synced Ticket Tailor orders.
+          Start the day from one place, then jump directly into collection follow-up, attendee checks, or room allocation.
         </p>
       </header>
 
@@ -287,6 +288,27 @@ export default function DashboardPage() {
                   <dd className="mt-1 font-semibold">{payload.statusCounts.pending}</dd>
                 </div>
               </dl>
+            </article>
+
+            <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
+              <h3 className="text-sm font-semibold">Quick actions</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Move straight into the next useful workflow instead of backtracking through the shell.
+              </p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <Button asChild className="justify-start">
+                  <Link href="/dashboard/reconciliation">Review outstanding balances</Link>
+                </Button>
+                <Button asChild variant="outline" className="justify-start">
+                  <Link href="/dashboard/attendees">Open attendee follow-up</Link>
+                </Button>
+                <Button asChild variant="outline" className="justify-start">
+                  <Link href="/dashboard/accommodation">Manage room allocation</Link>
+                </Button>
+                <Button asChild variant="outline" className="justify-start">
+                  <Link href="/dashboard/ticket-tailor/sync">Run Ticket Tailor sync</Link>
+                </Button>
+              </div>
             </article>
 
             <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
