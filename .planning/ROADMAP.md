@@ -50,11 +50,11 @@ Plans:
   1. Admin can view revenue totals and trends by event/date range from synced data.
   2. Admin can inspect order-level details and export filtered records to CSV.
   3. Admin can see a reconciliation list of outstanding balances and mismatched order/payment states.
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: Build core dashboard metrics and filters
-- [ ] 03-02: Build drilldown/export and reconciliation surfaces
+- [ ] 03-01-PLAN.md — Build protected revenue metrics API/domain aggregation and dashboard filter/trend surface
+- [ ] 03-02-PLAN.md — Build protected order drilldown + CSV export + reconciliation APIs and dashboard pages
 
 ### Phase 4: Tikkie Collection Workflow
 **Goal**: Finance admins can generate and track Tikkie payment links directly from reconciliation needs.
