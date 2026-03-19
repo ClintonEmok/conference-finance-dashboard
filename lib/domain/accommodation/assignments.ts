@@ -270,7 +270,18 @@ export async function getRoomAllocationBoard(
     })
     .filter((room) => room.matchesSearch)
     .filter((room) => availability === "all" || room.availability === availability)
-    .map(({ matchesSearch, ...room }) => room)
+    .map((room) => ({
+      id: room.id,
+      label: room.label,
+      capacity: room.capacity,
+      occupiedBeds: room.occupiedBeds,
+      availableBeds: room.availableBeds,
+      availability: room.availability,
+      notes: room.notes,
+      hotel: room.hotel,
+      roomType: room.roomType,
+      occupants: room.occupants,
+    }))
 
   const candidateRooms = mappedRooms.filter((room) => room.availableBeds > 0)
 
