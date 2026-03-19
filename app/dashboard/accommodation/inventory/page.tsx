@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
-import { BedDouble, Building2, ChevronRight, Hotel, MapPin, Sparkles } from "lucide-react"
+import { BedDouble, Building2, Hotel, MapPin, Sparkles } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -121,8 +121,8 @@ export default function RoomInventoryPage() {
   const [roomTypeCapacity, setRoomTypeCapacity] = useState("2")
   const [roomHotelId, setRoomHotelId] = useState("")
   const [roomTypeId, setRoomTypeId] = useState("")
-  const [roomLabel, setRoomLabel] = useState("")
-  const [roomCapacity, setRoomCapacity] = useState("2")
+  const [roomQuantity, setRoomQuantity] = useState("1")
+  const [manualRoomLabels, setManualRoomLabels] = useState("")
   const [isRegisterInventoryOpen, setIsRegisterInventoryOpen] = useState(false)
   const [activeHotelScopeId, setActiveHotelScopeId] = useState<string | null>(null)
   const [draftEventIds, setDraftEventIds] = useState<string[]>([])
@@ -143,15 +143,15 @@ export default function RoomInventoryPage() {
           ...current,
           global:
             body && "error" in body
-              ? body.error?.message ?? "Failed to load room inventory."
-              : "Failed to load room inventory.",
+              ? body.error?.message ?? "Failed to load room stock."
+              : "Failed to load room stock.",
         }))
         return
       }
 
       setPayload(body as InventoryPayload)
     } catch {
-      setErrors((current) => ({ ...current, global: "Network error while loading room inventory." }))
+      setErrors((current) => ({ ...current, global: "Network error while loading room stock." }))
     } finally {
       setIsLoading(false)
     }
@@ -318,8 +318,11 @@ export default function RoomInventoryPage() {
         body: JSON.stringify({
           hotelId: roomHotelId,
           roomTypeId,
-          label: roomLabel,
-          capacity: Number(roomCapacity),
+          quantity: Number(roomQuantity),
+          labels: manualRoomLabels
+            .split("\n")
+            .map((value) => value.trim())
+            .filter(Boolean),
         }),
       })
 
@@ -330,8 +333,8 @@ export default function RoomInventoryPage() {
         return
       }
 
-      setRoomLabel("")
-      setRoomCapacity("2")
+      setRoomQuantity("1")
+      setManualRoomLabels("")
       setErrors((current) => ({ ...current, rooms: null }))
       await loadInventory()
     } finally {
@@ -545,7 +548,7 @@ export default function RoomInventoryPage() {
 
           {isLoading ? (
             <Card>
-              <CardContent className="pt-5 text-sm text-muted-foreground">Loading room inventory...</CardContent>
+              <CardContent className="pt-5 text-sm text-muted-foreground">Loading room stock...</CardContent>
             </Card>
           ) : payload.hotels.length === 0 ? (
             <Card>
@@ -554,6 +557,28 @@ export default function RoomInventoryPage() {
           ) : (
             payload.hotels.map((hotel) => {
               const hotelRooms = payload.rooms.filter((room) => room.hotel.id === hotel.id)
+              const groupedRoomBlocks = Object.values(
+                hotelRooms.reduce<Record<string, { roomTypeLabel: string; quantity: number; totalBeds: number; availableBeds: number; occupiedBeds: number }>>(
+                  (groups, room) => {
+                    const key = room.roomType.id
+                    const current = groups[key] ?? {
+                      roomTypeLabel: room.roomType.label,
+                      quantity: 0,
+                      totalBeds: 0,
+                      availableBeds: 0,
+                      occupiedBeds: 0,
+                    }
+
+                    current.quantity += 1
+                    current.totalBeds += room.capacity
+                    current.availableBeds += room.availableBeds
+                    current.occupiedBeds += room.occupiedBeds
+                    groups[key] = current
+                    return groups
+                  },
+                  {},
+                ),
+              )
 
               return (
                 <Card key={hotel.id} className="overflow-hidden bg-background/90 backdrop-blur">
@@ -567,7 +592,7 @@ export default function RoomInventoryPage() {
                           <CardTitle className="text-lg">{hotel.name}</CardTitle>
                           <CardDescription className="mt-1 flex items-center gap-1.5 text-xs">
                             <MapPin className="size-3.5" />
-                            {hotelRooms[0]?.hotel.city ?? "City not set"} · {hotelRooms.length} rooms total
+                            {hotelRooms[0]?.hotel.city ?? "City not set"} · {hotelRooms.length} room units total
                           </CardDescription>
                         </div>
                       </div>
@@ -578,33 +603,30 @@ export default function RoomInventoryPage() {
                   </CardHeader>
                   <CardContent className="pt-5">
                     {hotelRooms.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No rooms configured for this hotel yet.</p>
+                      <p className="text-sm text-muted-foreground">No room stock configured for this hotel yet.</p>
                     ) : (
                       <div className="space-y-3">
-                        {hotelRooms.map((room) => (
+                        {groupedRoomBlocks.map((block) => (
                           <div
-                            key={room.id}
-                            className="grid gap-3 rounded-lg border border-border/70 bg-background px-4 py-4 md:grid-cols-[minmax(0,1.3fr)_140px_120px_120px_40px] md:items-center"
+                            key={`${hotel.id}-${block.roomTypeLabel}`}
+                            className="grid gap-3 rounded-lg border border-border/70 bg-background px-4 py-4 md:grid-cols-[minmax(0,1.3fr)_140px_140px_140px] md:items-center"
                           >
                             <div>
-                              <p className="font-medium text-foreground">{room.label}</p>
-                              <p className="mt-1 text-xs text-muted-foreground">{room.roomType.label}</p>
+                              <p className="font-medium text-foreground">{block.roomTypeLabel}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{block.quantity} room{block.quantity === 1 ? "" : "s"} in this block</p>
                             </div>
                             <div>
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Capacity</p>
-                              <p className="mt-1 text-sm font-medium">{room.capacity} beds</p>
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Bed capacity</p>
+                              <p className="mt-1 text-sm font-medium">{block.totalBeds} beds</p>
                             </div>
                             <div>
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">In stock</p>
-                              <p className="mt-1 text-sm font-medium">{room.availableBeds} free</p>
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Occupied beds</p>
+                              <p className="mt-1 text-sm font-medium">{block.occupiedBeds}</p>
                             </div>
                             <div>
-                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Status</p>
-                              <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${availabilityClasses(room.availability)}`}>
-                                {availabilityLabel(room.availability)}
-                              </span>
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Available beds</p>
+                              <p className="mt-1 text-sm font-medium">{block.availableBeds}</p>
                             </div>
-                            <ChevronRight className="hidden size-4 text-muted-foreground md:block" />
                           </div>
                         ))}
                       </div>
@@ -623,7 +645,7 @@ export default function RoomInventoryPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/70">Register inventory</p>
-                <h3 className="mt-2 text-2xl font-semibold tracking-tight">Add a hotel, room type, or room</h3>
+                <h3 className="mt-2 text-2xl font-semibold tracking-tight">Add a hotel, room type, or room stock block</h3>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Keep inventory setup in one focused modal instead of a permanent sidebar widget.
                 </p>
@@ -707,7 +729,7 @@ export default function RoomInventoryPage() {
                     </span>
                     <div>
                       <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Room</p>
-                      <p className="text-sm font-medium text-foreground">Add a room to inventory</p>
+                      <p className="text-sm font-medium text-foreground">Add a room stock block to inventory</p>
                     </div>
                   </div>
                   <div className="mt-4 space-y-3">
@@ -723,10 +745,16 @@ export default function RoomInventoryPage() {
                         <option key={type.id} value={type.id}>{type.label}</option>
                       ))}
                     </select>
-                    <input value={roomLabel} onChange={(event) => setRoomLabel(event.target.value)} placeholder="Room label" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" />
-                    <input type="number" min="1" value={roomCapacity} onChange={(event) => setRoomCapacity(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" />
+                    <input type="number" min="1" value={roomQuantity} onChange={(event) => setRoomQuantity(event.target.value)} placeholder="Quantity" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" />
+                    <textarea
+                      value={manualRoomLabels}
+                      onChange={(event) => setManualRoomLabels(event.target.value)}
+                      placeholder={"Optional manual room labels, one per line\nGH-301\nGH-302\nGH-303"}
+                      className="min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground">Leave manual labels empty to auto-generate room numbers. If you fill labels manually, enter one room number per line and those labels will be used instead of quantity.</p>
                     <Button type="submit" variant="outline" className="w-full" disabled={isMutating}>
-                      Add room
+                      Create room stock block
                     </Button>
                     {errors.rooms && <p className="text-xs text-red-600 dark:text-red-400">{errors.rooms}</p>}
                   </div>

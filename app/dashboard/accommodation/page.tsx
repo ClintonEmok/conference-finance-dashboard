@@ -484,7 +484,7 @@ export default function AccommodationPage() {
 
           <div className="flex flex-wrap gap-3">
             <Button asChild variant="outline" className="rounded-full border-white/20 bg-white/8 text-primary-foreground hover:bg-white/14 hover:text-primary-foreground">
-              <Link href="/dashboard/accommodation/inventory">Open inventory</Link>
+              <Link href="/dashboard/accommodation/inventory">Open room stock</Link>
             </Button>
             <Button
               type="button"
@@ -733,7 +733,7 @@ export default function AccommodationPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Allocation board</p>
-                <h3 className="mt-2 text-2xl font-semibold text-foreground">Rooms and occupancy</h3>
+                <h3 className="mt-2 text-2xl font-semibold text-foreground">Room overview and occupancy</h3>
               </div>
               <Button type="button" variant="outline" className="rounded-xl text-primary" disabled={isLoading || isMutating} onClick={() => void loadWorkspace()}>
                 <RefreshCcw className="mr-2 size-4" />
@@ -742,9 +742,9 @@ export default function AccommodationPage() {
             </div>
 
             {isLoading ? (
-              <p className="mt-5 text-sm text-muted-foreground">Loading room allocation board...</p>
+              <p className="mt-5 text-sm text-muted-foreground">Loading room overview...</p>
             ) : payload.rooms.length === 0 ? (
-              <p className="mt-5 rounded-xl border border-dashed border-border/80 px-4 py-5 text-sm text-muted-foreground">No rooms match the current filters.</p>
+              <p className="mt-5 rounded-xl border border-dashed border-border/80 px-4 py-5 text-sm text-muted-foreground">No room stock matches the current filters.</p>
             ) : (
               <div className="mt-5 overflow-hidden rounded-2xl border border-border/70">
                 <div className="overflow-x-auto">
@@ -924,7 +924,7 @@ export default function AccommodationPage() {
                                 }
                                 className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
                               >
-                                <option value="">Select room</option>
+                                <option value="">Select room unit</option>
                                 {assignableRooms.map((room) => (
                                   <option key={room.id} value={room.id}>
                                     {room.label} · {room.hotel.name} · {room.availableBeds} free

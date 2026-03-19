@@ -53,14 +53,14 @@ export async function POST(request: Request) {
     return unauthorized()
   }
 
-  let body: { hotelId?: unknown; roomTypeId?: unknown; label?: unknown; capacity?: unknown; notes?: unknown }
+  let body: { hotelId?: unknown; roomTypeId?: unknown; quantity?: unknown; labels?: unknown; notes?: unknown }
 
   try {
     body = (await request.json()) as {
       hotelId?: unknown
       roomTypeId?: unknown
-      label?: unknown
-      capacity?: unknown
+      quantity?: unknown
+      labels?: unknown
       notes?: unknown
     }
   } catch {
@@ -71,12 +71,12 @@ export async function POST(request: Request) {
     const room = await createRoom({
       hotelId: typeof body.hotelId === "string" ? body.hotelId : "",
       roomTypeId: typeof body.roomTypeId === "string" ? body.roomTypeId : "",
-      label: typeof body.label === "string" ? body.label : "",
-      capacity: typeof body.capacity === "number" ? body.capacity : Number.NaN,
+      quantity: typeof body.quantity === "number" ? body.quantity : Number.NaN,
+      labels: Array.isArray(body.labels) ? body.labels.filter((label): label is string => typeof label === "string") : undefined,
       notes: typeof body.notes === "string" ? body.notes : null,
     })
 
-    return NextResponse.json({ ok: true, room }, { status: 201 })
+    return NextResponse.json({ ok: true, rooms: room }, { status: 201 })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid request"
 
@@ -88,7 +88,7 @@ export async function POST(request: Request) {
       {
         error: {
           code: "INTERNAL_ERROR",
-          message: "Failed to create room",
+          message: "Failed to create room block",
         },
       },
       { status: 500 },

@@ -60,8 +60,8 @@ export type CreateRoomTypeInput = {
 export type CreateRoomInput = {
   hotelId: string
   roomTypeId: string
-  label: string
-  capacity: number
+  quantity: number
+  labels?: string[]
   notes?: string | null
 }
 
@@ -85,7 +85,25 @@ function normalizeOptionalString(value: string | null | undefined) {
   return normalized ? normalized : null
 }
 
-function normalizeCapacity(value: number, fieldName: "defaultCapacity" | "capacity") {
+function normalizeManualLabels(values: string[] | undefined) {
+  if (!values || values.length === 0) {
+    return []
+  }
+
+  const labels = values
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  const uniqueLabels = new Set(labels)
+
+  if (uniqueLabels.size !== labels.length) {
+    throw new Error("Invalid 'labels'. Manual room labels must be unique.")
+  }
+
+  return labels
+}
+
+function normalizeCapacity(value: number, fieldName: "defaultCapacity" | "capacity" | "quantity") {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`Invalid '${fieldName}'. Expected a positive integer.`)
   }
@@ -177,6 +195,13 @@ export async function listAccommodationInventory(): Promise<AccommodationInvento
       label: room.label,
       capacity: room.capacity,
       occupiedBeds: room.occupiedBeds,
+      availableBeds: Math.max(0, room.capacity - room.occupiedBeds),
+      availability:
+        room.occupiedBeds <= 0
+          ? ("empty" as const)
+          : room.occupiedBeds >= room.capacity
+            ? ("full" as const)
+            : ("available" as const),
       notes: room.notes ?? null,
       hotel: room.hotel,
       roomType: room.roomType,
@@ -318,13 +343,13 @@ export async function createRoomType(input: CreateRoomTypeInput) {
 export async function createRoom(input: CreateRoomInput) {
   const hotelId = normalizeRequiredString(input.hotelId, "hotelId")
   const roomTypeId = normalizeRequiredString(input.roomTypeId, "roomTypeId")
-  const label = normalizeRequiredString(input.label, "label")
-  const capacity = normalizeCapacity(input.capacity, "capacity")
+  const labels = normalizeManualLabels(input.labels)
+  const quantity = normalizeCapacity(labels.length > 0 ? labels.length : input.quantity, "quantity")
   const notes = normalizeOptionalString(input.notes)
 
   const [hotel, roomType] = await Promise.all([
-    prisma.accommodationHotel.findUnique({ where: { id: hotelId }, select: { id: true } }),
-    prisma.accommodationRoomType.findUnique({ where: { id: roomTypeId }, select: { id: true } }),
+    prisma.accommodationHotel.findUnique({ where: { id: hotelId }, select: { id: true, name: true } }),
+    prisma.accommodationRoomType.findUnique({ where: { id: roomTypeId }, select: { id: true, label: true, defaultCapacity: true } }),
   ])
 
   if (!hotel) {
@@ -335,15 +360,73 @@ export async function createRoom(input: CreateRoomInput) {
     throw new Error("Invalid 'roomTypeId'. Room type not found.")
   }
 
+  const hotelCode = hotel.name
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.slice(0, 2).toUpperCase())
+    .join("")
+    .slice(0, 6) || "HTL"
+  const roomTypeCode = roomType.label
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.slice(0, 2).toUpperCase())
+    .join("")
+    .slice(0, 6) || "RM"
+
   try {
-    return await prisma.accommodationRoom.create({
-      data: {
-        hotelId,
-        roomTypeId,
-        label,
-        capacity,
-        notes,
-      },
+    return await prisma.$transaction(async (tx) => {
+      const existingRoomCount = await tx.accommodationRoom.count({
+        where: { hotelId },
+      })
+
+      const createdRooms = []
+
+      for (let index = 0; index < quantity; index += 1) {
+        const label =
+          labels[index] ?? `${hotelCode}-${roomTypeCode}-${String(existingRoomCount + index + 1).padStart(3, "0")}`
+        const room = await tx.accommodationRoom.create({
+          data: {
+            hotelId,
+            roomTypeId,
+            label,
+            capacity: roomType.defaultCapacity,
+            notes,
+          },
+        })
+
+        createdRooms.push(room)
+      }
+
+      return createdRooms
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Unique constraint")) {
+      throw new Error("Failed to create room block. Generated room labels conflicted within the selected hotel.")
+    }
+
+    throw error
+  }
+}
+
+export async function updateRoomLabel(input: { roomId: string; label: string }) {
+  const roomId = normalizeRequiredString(input.roomId, "roomId")
+  const label = normalizeRequiredString(input.label, "label")
+
+  const room = await prisma.accommodationRoom.findUnique({
+    where: { id: roomId },
+    select: { id: true, hotelId: true },
+  })
+
+  if (!room) {
+    throw new Error("Invalid 'roomId'. Room not found.")
+  }
+
+  try {
+    return await prisma.accommodationRoom.update({
+      where: { id: roomId },
+      data: { label },
     })
   } catch (error) {
     if (error instanceof Error && error.message.includes("Unique constraint")) {

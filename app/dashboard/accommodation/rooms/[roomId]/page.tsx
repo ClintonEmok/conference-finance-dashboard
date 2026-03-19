@@ -65,6 +65,7 @@ export default function RoomDetailPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isMutating, setIsMutating] = useState(false)
+  const [labelInput, setLabelInput] = useState("")
 
   const loadRoom = useCallback(async () => {
     setIsLoading(true)
@@ -93,6 +94,10 @@ export default function RoomDetailPage() {
 
   const room = useMemo(() => payload?.rooms.find((item) => item.id === roomId) ?? null, [payload, roomId])
 
+  useEffect(() => {
+    setLabelInput(room?.label ?? "")
+  }, [room?.label])
+
   async function unassignAttendee(attendeeId: string) {
     setIsMutating(true)
     setErrorMessage(null)
@@ -111,6 +116,31 @@ export default function RoomDetailPage() {
       await loadRoom()
     } catch {
       setErrorMessage("Network error while unassigning attendee.")
+    } finally {
+      setIsMutating(false)
+    }
+  }
+
+  async function updateRoomNumber() {
+    setIsMutating(true)
+    setErrorMessage(null)
+
+    try {
+      const response = await fetch(`/api/dashboard/accommodation/rooms/${roomId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: labelInput }),
+      })
+      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+
+      if (!response.ok) {
+        setErrorMessage(body?.error?.message ?? "Failed to update room number.")
+        return
+      }
+
+      await loadRoom()
+    } catch {
+      setErrorMessage("Network error while updating room number.")
     } finally {
       setIsMutating(false)
     }
@@ -150,7 +180,7 @@ export default function RoomDetailPage() {
       <section className="rounded-3xl border border-primary/12 bg-[radial-gradient(circle_at_top_left,rgba(145,118,255,0.3),transparent_38%),linear-gradient(180deg,rgba(57,47,92,0.96)_0%,rgba(72,60,112,0.92)_36%,rgba(92,79,136,0.9)_100%)] p-6 text-primary-foreground shadow-[0_24px_70px_rgba(40,24,82,0.16)]">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary-foreground/55">Room detail</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary-foreground/55">Room unit detail</p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <h2 className="text-4xl font-semibold tracking-tight">{room.label}</h2>
               <span className="inline-flex rounded-full bg-white/12 px-3 py-1 text-sm font-medium">{room.roomType.label}</span>
@@ -169,7 +199,7 @@ export default function RoomDetailPage() {
               <p className="mt-2 text-3xl font-semibold">{room.occupiedBeds}</p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/18 p-4 backdrop-blur-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-foreground/58">Beds free</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-foreground/58">Beds available</p>
               <p className="mt-2 text-3xl font-semibold">{room.availableBeds}</p>
             </div>
           </div>
@@ -219,11 +249,25 @@ export default function RoomDetailPage() {
           <h3 className="mt-2 text-2xl font-semibold text-foreground">Manage this room</h3>
 
           <div className="mt-5 space-y-3">
+            <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Room number</p>
+              <div className="mt-3 space-y-3">
+                <input
+                  value={labelInput}
+                  onChange={(event) => setLabelInput(event.target.value)}
+                  placeholder="Enter room number"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                />
+                <Button type="button" className="w-full rounded-xl" disabled={isMutating} onClick={() => void updateRoomNumber()}>
+                  Save room number
+                </Button>
+              </div>
+            </div>
             <Button asChild className="w-full rounded-xl">
               <Link href="/dashboard/accommodation">Open allocation overview</Link>
             </Button>
             <Button asChild variant="outline" className="w-full rounded-xl">
-              <Link href="/dashboard/accommodation/inventory">Open inventory setup</Link>
+              <Link href="/dashboard/accommodation/inventory">Open room stock setup</Link>
             </Button>
             <div className="rounded-2xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
               Use the overview page to place new attendees into this room. Use this room detail page to inspect who is inside and remove assignments quickly.

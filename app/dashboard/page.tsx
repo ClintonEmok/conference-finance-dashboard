@@ -85,12 +85,12 @@ const quickActions = [
   },
   {
     title: "Open attendee follow-up",
-    description: "Check attendee context before sending someone into room allocation.",
+    description: "Check attendee context before sending someone into room placement.",
     href: "/dashboard/attendees",
     icon: Users,
   },
   {
-    title: "Manage room allocation",
+    title: "Manage room placement",
     description: "Place unassigned attendees and monitor room pressure.",
     href: "/dashboard/accommodation",
     icon: BedDouble,
@@ -382,7 +382,7 @@ export default function DashboardPage() {
               Use attendee follow-up when a payment issue needs person-level context.
             </div>
             <div className="rounded-md border border-border/70 bg-background px-3 py-3">
-              Move to room allocation only after attendee and finance context are clear.
+              Move to room placement only after attendee and finance context are clear.
             </div>
           </CardContent>
         </Card>
