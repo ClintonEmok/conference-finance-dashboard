@@ -80,24 +80,24 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
 
   return (
     <div className="min-h-svh bg-[radial-gradient(circle_at_top_left,rgba(113,84,255,0.16),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(113,84,255,0.10),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,245,252,0.96))] text-foreground dark:bg-[radial-gradient(circle_at_top_left,rgba(113,84,255,0.28),transparent_26%),radial-gradient(circle_at_bottom_right,rgba(113,84,255,0.18),transparent_22%),linear-gradient(180deg,rgba(18,17,25,0.98),rgba(20,17,27,0.98))]">
-      <div className="mx-auto grid min-h-svh max-w-[1600px] gap-6 px-4 py-4 lg:grid-cols-[280px_minmax(0,1fr)] lg:px-6 lg:py-6">
+      <div className="mx-auto grid min-h-svh max-w-[1600px] gap-5 px-4 py-4 lg:grid-cols-[232px_minmax(0,1fr)] lg:px-6 lg:py-6">
         <aside className="hidden lg:flex lg:flex-col">
-          <div className="sticky top-6 flex h-[calc(100svh-3rem)] flex-col rounded-[2rem] border border-white/60 bg-white/85 p-5 shadow-[0_24px_80px_rgba(40,24,82,0.12)] backdrop-blur-xl dark:border-white/10 dark:bg-white/6 dark:shadow-[0_24px_80px_rgba(0,0,0,0.28)]">
-            <div className="space-y-2 px-1 pb-5">
+          <div className="sticky top-6 flex h-[calc(100svh-3rem)] flex-col rounded-[1.75rem] border border-white/60 bg-white/82 p-4 shadow-[0_22px_70px_rgba(40,24,82,0.1)] backdrop-blur-xl dark:border-white/10 dark:bg-white/6 dark:shadow-[0_22px_70px_rgba(0,0,0,0.24)]">
+            <div className="space-y-2 px-1 pb-4">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/70">
                 Conference finance dashboard
               </p>
               <div>
-                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                <h1 className="text-[1.45rem] font-semibold tracking-tight text-foreground">
                   Command center
                 </h1>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
                   Payments, attendees, and room operations in one calm workspace.
                 </p>
               </div>
             </div>
 
-            <nav className="space-y-2">
+            <nav className="space-y-1.5">
               {navigationItems.map((item) => {
                 const Icon = item.icon
                 const active = isActive(pathname, item.href)
@@ -107,27 +107,27 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                     key={item.href}
                     href={item.href}
                     className={cn(
-                      "group flex items-center gap-3 rounded-2xl border px-4 py-3 transition-all duration-200",
+                      "group flex items-center gap-3 rounded-[1.2rem] border px-3 py-2.5 transition-all duration-200",
                       active
                         ? "border-primary/20 bg-primary text-primary-foreground shadow-[0_18px_48px_rgba(90,58,191,0.28)]"
                         : "border-transparent bg-transparent text-foreground hover:border-primary/10 hover:bg-primary/6 hover:shadow-[0_12px_32px_rgba(45,29,98,0.08)] dark:hover:bg-white/8",
                     )}
-                  >
-                    <span
-                      className={cn(
-                        "flex size-11 shrink-0 items-center justify-center rounded-2xl transition-colors",
-                        active
-                          ? "bg-white/18 text-primary-foreground"
-                          : "bg-primary/8 text-primary dark:bg-white/10 dark:text-primary-foreground",
+                    >
+                      <span
+                        className={cn(
+                          "flex size-9 shrink-0 items-center justify-center rounded-[1rem] transition-colors",
+                          active
+                            ? "bg-white/18 text-primary-foreground"
+                            : "bg-primary/8 text-primary dark:bg-white/10 dark:text-primary-foreground",
                       )}
                     >
                       <Icon className="size-4.5" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold">{item.label}</span>
+                      <span className="block text-[13px] font-semibold">{item.label}</span>
                       <span
                         className={cn(
-                          "block text-xs",
+                          "block text-[11px] leading-4",
                           active ? "text-primary-foreground/80" : "text-muted-foreground",
                         )}
                       >
@@ -139,19 +139,19 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
               })}
             </nav>
 
-            <div className="mt-6 rounded-[1.75rem] bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] p-5 text-primary-foreground shadow-[0_22px_60px_rgba(74,48,164,0.34)]">
+            <div className="mt-5 rounded-[1.45rem] bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] p-4 text-primary-foreground shadow-[0_20px_52px_rgba(74,48,164,0.28)]">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary-foreground/70">
                 Today&apos;s focus
               </p>
-              <h2 className="mt-3 text-xl font-semibold leading-tight">
+              <h2 className="mt-3 text-lg font-semibold leading-tight">
                 Clear balances, confirm attendees, then place the final rooms.
               </h2>
-              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-2xl bg-white/12 px-3 py-3">
+              <div className="mt-4 space-y-2 text-xs">
+                <div className="rounded-[1rem] bg-white/12 px-3 py-2.5">
                   <p className="text-primary-foreground/70">Flow</p>
                   <p className="mt-1 font-semibold">Balances to rooms</p>
                 </div>
-                <div className="rounded-2xl bg-white/12 px-3 py-3">
+                <div className="rounded-[1rem] bg-white/12 px-3 py-2.5">
                   <p className="text-primary-foreground/70">State</p>
                   <p className="mt-1 font-semibold">MVP-ready loop</p>
                 </div>
@@ -159,7 +159,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
               <Button
                 asChild
                 variant="secondary"
-                className="mt-5 h-11 w-full justify-between rounded-2xl bg-white text-primary hover:bg-white/92"
+                className="mt-4 h-10 w-full justify-between rounded-[1rem] bg-white text-primary hover:bg-white/92"
               >
                 <Link href="/dashboard/reconciliation">
                   Start follow-up
@@ -168,12 +168,12 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
               </Button>
             </div>
 
-            <div className="mt-auto flex items-center justify-between gap-3 rounded-[1.5rem] border border-border/60 bg-background/70 px-4 py-3 backdrop-blur dark:bg-white/6">
+            <div className="mt-auto flex items-center justify-between gap-3 rounded-[1.2rem] border border-border/60 bg-background/70 px-3 py-2.5 backdrop-blur dark:bg-white/6">
               <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   Signed in
                 </p>
-                <p className="truncate text-sm font-medium text-foreground">{userEmail}</p>
+                <p className="truncate text-[13px] font-medium text-foreground">{userEmail}</p>
               </div>
               <LogoutButton />
             </div>
