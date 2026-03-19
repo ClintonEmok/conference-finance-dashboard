@@ -51,6 +51,7 @@ export type RefreshTikkiePaymentLinkStatusInput = {
   paymentRequestToken: string
   source: "webhook" | "poll"
   reason?: string
+  providerNotificationKey?: string
   providerPayload?: Prisma.JsonValue
 }
 
@@ -350,6 +351,7 @@ export async function refreshTikkiePaymentLinkStatus(input: RefreshTikkiePayment
                 fromStatus: currentStatus,
                 toStatus: nextStatus,
                 source: input.source,
+                providerNotificationKey: input.providerNotificationKey,
                 providerStatus: request.status,
                 reason: input.reason ?? null,
                 providerPayload: (input.providerPayload ?? null) as Prisma.InputJsonValue,

@@ -190,6 +190,7 @@ model TikkiePaymentLinkTransition {
   fromStatus     TikkiePaymentLinkStatus
   toStatus       TikkiePaymentLinkStatus
   source         TikkiePaymentLinkStatusSource
+  providerNotificationKey String?              @unique
   providerStatus String
   reason         String?
   providerPayload Json?
