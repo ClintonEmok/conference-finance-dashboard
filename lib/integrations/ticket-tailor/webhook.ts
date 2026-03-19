@@ -1,0 +1,239 @@
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto"
+import type { Prisma } from "@prisma/client"
+
+import { prisma } from "@/lib/prisma"
+import { fetchTicketTailorCanonicalPayload } from "@/lib/integrations/ticket-tailor/client"
+
+type IncomingHeaders = Headers
+
+type JsonRecord = Prisma.InputJsonObject
+
+export type TicketTailorWebhookIngestResult = {
+  eventId: string
+  providerEventId: string
+  duplicate: boolean
+}
+
+type ProcessResult = {
+  status: "processed" | "failed"
+  attempts: number
+  nextRetryAt: string | null
+  lastError: string | null
+}
+
+function pickString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null
+}
+
+function getHeader(headers: IncomingHeaders, key: string) {
+  return pickString(headers.get(key))
+}
+
+function inferProviderEventId(headers: IncomingHeaders, payload: JsonRecord) {
+  const fromHeader =
+    getHeader(headers, "x-ticket-tailor-event-id") ??
+    getHeader(headers, "x-event-id") ??
+    getHeader(headers, "x-webhook-id")
+
+  if (fromHeader) {
+    return fromHeader
+  }
+
+  return (
+    pickString(payload.id) ??
+    pickString(payload.event_id) ??
+    pickString(payload.webhook_id) ??
+    randomUUID()
+  )
+}
+
+function inferEventType(payload: JsonRecord) {
+  return pickString(payload.event) ?? pickString(payload.type) ?? "unknown"
+}
+
+function computeBackoffSeconds(attempts: number) {
+  return Math.min(30 * 2 ** Math.max(0, attempts - 1), 60 * 60)
+}
+
+function asRecord(value: unknown): JsonRecord {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {}
+  }
+
+  return value as JsonRecord
+}
+
+export function verifyTicketTailorWebhook(headers: IncomingHeaders, rawBody: string) {
+  const expected = process.env.TICKET_TAILOR_WEBHOOK_SECRET?.trim()
+
+  if (!expected) {
+    return true
+  }
+
+  const provided =
+    getHeader(headers, "x-ticket-tailor-signature") ?? getHeader(headers, "x-webhook-signature")
+
+  if (!provided) {
+    return false
+  }
+
+  const digest = createHmac("sha256", expected).update(rawBody, "utf8").digest("hex")
+  const providedBuffer = Buffer.from(provided, "utf8")
+  const digestBuffer = Buffer.from(digest, "utf8")
+
+  if (providedBuffer.length !== digestBuffer.length) {
+    return false
+  }
+
+  return timingSafeEqual(providedBuffer, digestBuffer)
+}
+
+export async function ingestTicketTailorWebhook(
+  headers: IncomingHeaders,
+  payloadInput: unknown,
+): Promise<TicketTailorWebhookIngestResult> {
+  const payload = asRecord(payloadInput)
+  const providerEventId = inferProviderEventId(headers, payload)
+  const eventType = inferEventType(payload)
+
+  const existing = await prisma.ticketTailorWebhookEvent.findUnique({
+    where: { providerEventId },
+  })
+
+  if (existing) {
+    const updated = await prisma.ticketTailorWebhookEvent.update({
+      where: { id: existing.id },
+      data: {
+        deliveryCount: { increment: 1 },
+        lastReceivedAt: new Date(),
+        payload,
+      },
+      select: { id: true },
+    })
+
+    return {
+      eventId: updated.id,
+      providerEventId,
+      duplicate: true,
+    }
+  }
+
+  const created = await prisma.ticketTailorWebhookEvent.create({
+    data: {
+      providerEventId,
+      eventType,
+      payload,
+      status: "pending",
+    },
+    select: { id: true },
+  })
+
+  return {
+    eventId: created.id,
+    providerEventId,
+    duplicate: false,
+  }
+}
+
+export async function processTicketTailorWebhookEvent(eventId: string): Promise<ProcessResult> {
+  const event = await prisma.ticketTailorWebhookEvent.findUnique({
+    where: { id: eventId },
+  })
+
+  if (!event) {
+    throw new Error(`Webhook event not found: ${eventId}`)
+  }
+
+  const attempts = event.attempts + 1
+
+  try {
+    const canonicalPayload = await fetchTicketTailorCanonicalPayload(asRecord(event.payload))
+
+    const updated = await prisma.ticketTailorWebhookEvent.update({
+      where: { id: event.id },
+      data: {
+        attempts,
+        status: "processed",
+        lastError: null,
+        nextRetryAt: null,
+        canonicalPayload,
+        canonicalFetchedAt: new Date(),
+        processedAt: new Date(),
+      },
+      select: {
+        attempts: true,
+      },
+    })
+
+    return {
+      status: "processed",
+      attempts: updated.attempts,
+      nextRetryAt: null,
+      lastError: null,
+    }
+  } catch (error) {
+    const seconds = computeBackoffSeconds(attempts)
+    const nextRetry = new Date(Date.now() + seconds * 1000)
+    const lastError = error instanceof Error ? error.message : "Unknown processing error"
+
+    const updated = await prisma.ticketTailorWebhookEvent.update({
+      where: { id: event.id },
+      data: {
+        attempts,
+        status: "failed",
+        lastError,
+        nextRetryAt: nextRetry,
+      },
+      select: {
+        attempts: true,
+        nextRetryAt: true,
+        lastError: true,
+      },
+    })
+
+    return {
+      status: "failed",
+      attempts: updated.attempts,
+      nextRetryAt: updated.nextRetryAt?.toISOString() ?? null,
+      lastError: updated.lastError,
+    }
+  }
+}
+
+export async function processTicketTailorRetryBatch(limit = 20) {
+  const now = new Date()
+  const queued = await prisma.ticketTailorWebhookEvent.findMany({
+    where: {
+      OR: [
+        { status: "pending" },
+        {
+          status: "failed",
+          nextRetryAt: {
+            lte: now,
+          },
+        },
+      ],
+    },
+    orderBy: [{ receivedAt: "asc" }],
+    take: limit,
+    select: { id: true },
+  })
+
+  let processed = 0
+  let failed = 0
+
+  for (const item of queued) {
+    const result = await processTicketTailorWebhookEvent(item.id)
+    if (result.status === "processed") {
+      processed += 1
+    } else {
+      failed += 1
+    }
+  }
+
+  return {
+    scanned: queued.length,
+    processed,
+    failed,
+  }
+}

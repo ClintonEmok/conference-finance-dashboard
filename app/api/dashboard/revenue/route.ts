@@ -61,6 +61,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       generatedAt: new Date().toISOString(),
       filters: overview.appliedFilters,
+      availableEvents: overview.availableEvents,
       totals: overview.totals,
       statusCounts: overview.statusCounts,
       trend: overview.trend,

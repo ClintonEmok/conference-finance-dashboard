@@ -2,9 +2,11 @@
 
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { BedDouble, CalendarDays, ChevronRight, CreditCard, Mail, ReceiptText, UserRound } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
 type AttendeeDetailPayload = {
   attendee: {
@@ -90,6 +92,26 @@ function formatDateTime(value: string | null) {
   return parsed.toLocaleString()
 }
 
+function formatStatusLabel(value: string | null) {
+  if (!value) {
+    return "-"
+  }
+
+  return value.replace(/[-_]/g, " ")
+}
+
+function paymentMethodLabel(entry: AttendeeDetailPayload["paymentHistory"][number]) {
+  return entry.type === "payment-link" ? "Tikkie" : "Status update"
+}
+
+function paymentMethodClasses(entry: AttendeeDetailPayload["paymentHistory"][number]) {
+  if (entry.type === "payment-link") {
+    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+  }
+
+  return "bg-slate-100 text-slate-700 dark:bg-slate-900/60 dark:text-slate-300"
+}
+
 type PageProps = {
   params: Promise<{
     attendeeId: string
@@ -173,7 +195,9 @@ export default function AttendeeDetailPage({ params }: PageProps) {
         if (!response.ok) {
           if (!cancelled) {
             setPayload(null)
-            setErrorMessage(body && "error" in body ? body.error?.message ?? "Failed to load attendee detail." : "Failed to load attendee detail.")
+            setErrorMessage(
+              body && "error" in body ? body.error?.message ?? "Failed to load attendee detail." : "Failed to load attendee detail.",
+            )
           }
           return
         }
@@ -200,157 +224,256 @@ export default function AttendeeDetailPage({ params }: PageProps) {
     }
   }, [params])
 
+  const paymentProgress = useMemo(() => {
+    if (!payload || payload.order.totalAmountMinor <= 0) {
+      return 0
+    }
+
+    return Math.max(0, Math.min(100, Math.round((payload.finance.paidAmountMinor / payload.order.totalAmountMinor) * 100)))
+  }, [payload])
+
+  const attendeeName = payload?.attendee.name ?? "Unnamed attendee"
+  const attendeeInitials = attendeeName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("")
+
   return (
     <section className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold">Attendee detail</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Payment summary, installment progress, outstanding balance, and room-status context.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild>
-            <Link href={manageRoomAssignmentHref}>Manage room assignment</Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link href={backToAttendeesHref}>Back to attendees</Link>
-          </Button>
-        </div>
-      </header>
-
       {errorMessage && (
-        <article className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
+        <article className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
           {errorMessage}
         </article>
       )}
 
       {!errorMessage && isLoading && (
-        <article className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
-          Loading attendee detail…
+        <article className="rounded-xl border border-border bg-background/80 p-5 text-sm text-muted-foreground shadow-sm backdrop-blur">
+          Loading attendee detail...
         </article>
       )}
 
       {!errorMessage && !isLoading && payload && (
         <>
-          <section className="grid gap-4 md:grid-cols-3">
-            <article className="rounded-lg border border-border bg-card p-4 shadow-sm">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Outstanding balance</p>
-              <p className="mt-1 text-2xl font-semibold">{formatMoney(payload.finance.outstandingAmountMinor)}</p>
-              <p className="mt-2 text-xs text-muted-foreground">Order total {formatMoney(payload.order.totalAmountMinor)}</p>
-            </article>
-            <article className="rounded-lg border border-border bg-card p-4 shadow-sm">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Paid so far</p>
-              <p className="mt-1 text-2xl font-semibold">{formatMoney(payload.finance.paidAmountMinor)}</p>
-              <p className="mt-2 text-xs text-muted-foreground">{payload.finance.installmentProgress.paidLinks} paid links recorded</p>
-            </article>
-            <article className="rounded-lg border border-border bg-card p-4 shadow-sm">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Installment progress</p>
-              <p className="mt-1 text-2xl font-semibold">{payload.finance.installmentProgress.totalLinks}</p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                {payload.finance.installmentProgress.openLinks} open / {payload.finance.installmentProgress.expiredLinks} expired
-              </p>
+          <section className="rounded-xl border border-border/70 bg-background/88 p-5 shadow-sm backdrop-blur">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+              <div className="flex gap-4">
+                <div className="flex size-28 shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(145deg,rgba(113,84,255,0.18),rgba(83,56,171,0.12))] text-3xl font-semibold text-primary shadow-inner">
+                  {attendeeInitials || "A"}
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                    <span>Directory</span>
+                    <ChevronRight className="size-3" />
+                    <span>Attendee details</span>
+                  </div>
+
+                  <div>
+                    <h2 className="text-4xl font-semibold tracking-tight text-primary md:text-5xl">{attendeeName}</h2>
+                    <p className="mt-2 text-lg text-muted-foreground">
+                      {payload.attendee.ticketTypeLabel ?? payload.event.name ?? payload.attendee.providerEventId}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span className="rounded-full border border-border/70 bg-background px-3 py-1.5">
+                      Event: {payload.event.name ?? payload.attendee.providerEventId}
+                    </span>
+                    <span className="rounded-full border border-border/70 bg-background px-3 py-1.5">
+                      Order: {payload.order.providerOrderId}
+                    </span>
+                    <span className="rounded-full border border-border/70 bg-background px-3 py-1.5 capitalize">
+                      Status: {payload.order.normalizedStatus}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex min-w-[250px] flex-col gap-2">
+                <Button asChild variant="outline" className="justify-start">
+                  <Link href={backToAttendeesHref}>Back to attendees</Link>
+                </Button>
+                <Button asChild className="justify-start">
+                  <Link href={manageRoomAssignmentHref}>Manage room assignment</Link>
+                </Button>
+              </div>
+            </div>
+          </section>
+
+          <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_340px]">
+            <Card className="bg-background/88 backdrop-blur">
+              <CardHeader className="flex flex-wrap items-center justify-between gap-3 sm:flex-row">
+                <div>
+                  <CardTitle className="text-2xl text-primary">Financial status</CardTitle>
+                  <CardDescription>Live payment health across Ticket Tailor and Tikkie activity.</CardDescription>
+                </div>
+                <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.18em] text-primary">
+                  {payload.finance.installmentProgress.totalLinks > 0 ? "Installments active" : "No installments"}
+                </span>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Total amount due</p>
+                    <p className="mt-2 text-3xl font-semibold tracking-tight">{formatMoney(payload.order.totalAmountMinor)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Amount paid</p>
+                    <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-700 dark:text-emerald-300">
+                      {formatMoney(payload.finance.paidAmountMinor)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Remaining balance</p>
+                    <p className="mt-2 text-3xl font-semibold tracking-tight text-rose-600 dark:text-rose-300">
+                      {formatMoney(payload.finance.outstandingAmountMinor)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-lg font-medium">Payment progress</p>
+                    <p className="text-2xl font-semibold text-primary">{paymentProgress}%</p>
+                  </div>
+                  <div className="h-3 rounded-full bg-muted">
+                    <div
+                      className="h-3 rounded-full bg-[linear-gradient(90deg,#0f6b21,#6bcc74)]"
+                      style={{ width: `${paymentProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {payload.finance.installmentProgress.openLinks} open links, {payload.finance.installmentProgress.expiredLinks} expired,
+                    {" "}{payload.finance.installmentProgress.paidLinks} paid.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <article className="overflow-hidden rounded-xl bg-[linear-gradient(145deg,rgba(15,54,138,0.96),rgba(20,64,156,0.92))] text-primary-foreground shadow-[0_20px_56px_rgba(16,43,113,0.24)]">
+              <div className="border-b border-white/10 px-6 py-5">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-10 items-center justify-center rounded-lg bg-white/10">
+                    <BedDouble className="size-5" />
+                  </span>
+                  <h3 className="text-2xl font-semibold tracking-tight">Accommodation</h3>
+                </div>
+              </div>
+
+              <div className="space-y-5 px-6 py-6 text-sm">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-primary-foreground/70">Assigned hotel</p>
+                  <p className="mt-2 text-2xl font-semibold leading-tight">
+                    {payload.roomStatus.status === "assigned" ? payload.roomStatus.hotelName : "Not assigned yet"}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-primary-foreground/70">Room</p>
+                    <p className="mt-2 text-xl font-semibold">{payload.roomStatus.roomLabel ?? "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-primary-foreground/70">Type</p>
+                    <p className="mt-2 text-xl font-semibold">{payload.roomStatus.roomTypeLabel ?? "-"}</p>
+                  </div>
+                </div>
+
+                <Button asChild variant="secondary" className="w-full justify-center bg-white/10 text-primary-foreground hover:bg-white/16">
+                  <Link href={manageRoomAssignmentHref}>Manage room assignment</Link>
+                </Button>
+              </div>
             </article>
           </section>
 
-          <section className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-            <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
-              <h3 className="text-base font-semibold">Attendee and order context</h3>
-              <dl className="mt-4 grid gap-3 sm:grid-cols-2 text-sm">
+          <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_340px]">
+            <Card className="bg-background/88 backdrop-blur">
+              <CardHeader className="flex flex-wrap items-center justify-between gap-3 sm:flex-row">
                 <div>
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Attendee</dt>
-                  <dd className="mt-1">{payload.attendee.name ?? "Unnamed attendee"}</dd>
+                  <CardTitle className="text-2xl text-primary">Payment history ledger</CardTitle>
+                  <CardDescription>Payment links, transitions, and reminder-ready history for this attendee&apos;s order.</CardDescription>
                 </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Email</dt>
-                  <dd className="mt-1">{payload.attendee.email ?? "-"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Ticket</dt>
-                  <dd className="mt-1">{payload.attendee.ticketTypeLabel ?? "-"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Ticket status</dt>
-                  <dd className="mt-1">{payload.attendee.ticketStatus ?? "-"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Event</dt>
-                  <dd className="mt-1">{payload.event.name ?? payload.attendee.providerEventId}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Checked in</dt>
-                  <dd className="mt-1">{formatDateTime(payload.attendee.checkedInAt)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Order</dt>
-                  <dd className="mt-1 font-mono text-xs">{payload.order.providerOrderId}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Order status</dt>
-                  <dd className="mt-1">{payload.order.normalizedStatus}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Buyer</dt>
-                  <dd className="mt-1">{payload.order.buyerName ?? payload.order.buyerEmail ?? "-"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">Ordered at</dt>
-                  <dd className="mt-1">{formatDateTime(payload.order.orderedAt)}</dd>
-                </div>
-              </dl>
-            </article>
+              </CardHeader>
+              <CardContent>
+                {payload.paymentHistory.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No Tikkie payment activity recorded yet for this attendee&apos;s order.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border-separate border-spacing-y-2 text-sm">
+                      <thead>
+                        <tr className="text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                          <th className="px-4 py-2">Transaction</th>
+                          <th className="px-4 py-2">Date</th>
+                          <th className="px-4 py-2">Method</th>
+                          <th className="px-4 py-2">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payload.paymentHistory.map((entry) => (
+                          <tr key={entry.id} className="bg-background shadow-sm">
+                            <td className="rounded-l-lg px-4 py-4">
+                              <p className="font-medium text-primary">{entry.title}</p>
+                              {entry.note && <p className="mt-1 text-xs text-muted-foreground">{entry.note}</p>}
+                              {entry.url && (
+                                <a className="mt-2 inline-flex text-xs text-primary underline" href={entry.url} target="_blank" rel="noreferrer">
+                                  Open payment link
+                                </a>
+                              )}
+                            </td>
+                            <td className="px-4 py-4 text-muted-foreground">{formatDateTime(entry.happenedAt)}</td>
+                            <td className="px-4 py-4">
+                              <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${paymentMethodClasses(entry)}`}>
+                                {paymentMethodLabel(entry)}
+                              </span>
+                            </td>
+                            <td className="rounded-r-lg px-4 py-4 text-right font-semibold text-foreground">
+                              {entry.amountMinor === null ? "-" : formatMoney(entry.amountMinor)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-            <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
-              <h3 className="text-base font-semibold">Room status</h3>
-              <p className="mt-3 text-sm text-muted-foreground">
-                {payload.roomStatus.status === "assigned"
-                  ? `Assigned to ${payload.roomStatus.roomLabel} at ${payload.roomStatus.hotelName} (${payload.roomStatus.roomTypeLabel}).`
-                  : "Unassigned. Use the accommodation workspace to place this attendee into a room when inventory is ready."}
-              </p>
-              <Button asChild className="mt-4" size="sm">
-                <Link href={manageRoomAssignmentHref}>Manage room assignment</Link>
-              </Button>
-            </article>
-          </section>
-
-          <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
-            <h3 className="text-base font-semibold">Payment history</h3>
-            {payload.paymentHistory.length === 0 ? (
-              <p className="mt-3 text-sm text-muted-foreground">
-                No Tikkie payment activity recorded yet for this attendee&apos;s order.
-              </p>
-            ) : (
-              <div className="mt-4 space-y-3">
-                {payload.paymentHistory.map((entry) => (
-                  <article key={entry.id} className="rounded-md border border-border/70 p-3 text-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="font-medium">{entry.title}</p>
-                        <p className="text-xs text-muted-foreground">{formatDateTime(entry.happenedAt)}</p>
-                      </div>
-                      <div className="text-right text-xs text-muted-foreground">
-                        <div>Status: {entry.status}</div>
-                        <div>{entry.amountMinor === null ? "-" : formatMoney(entry.amountMinor)}</div>
+            <Card className="bg-background/88 backdrop-blur">
+              <CardHeader>
+                <CardTitle className="text-lg">Attendee snapshot</CardTitle>
+                <CardDescription>Quick reference for attendee, ticket, and order context.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                {[
+                  { label: "Email", value: payload.attendee.email ?? "-", icon: Mail },
+                  { label: "Buyer", value: payload.order.buyerName ?? payload.order.buyerEmail ?? "-", icon: UserRound },
+                  { label: "Ordered at", value: formatDateTime(payload.order.orderedAt), icon: CalendarDays },
+                  { label: "Ticket status", value: formatStatusLabel(payload.attendee.ticketStatus), icon: ReceiptText },
+                  { label: "Checked in", value: formatDateTime(payload.attendee.checkedInAt), icon: CreditCard },
+                ].map((item) => {
+                  const Icon = item.icon
+                  return (
+                    <div key={item.label} className="flex gap-3 rounded-lg border border-border/70 bg-background px-3 py-3">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                        <Icon className="size-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{item.label}</p>
+                        <p className="mt-1 break-words font-medium text-foreground">{item.value}</p>
                       </div>
                     </div>
-                    {entry.note && <p className="mt-2 text-xs text-muted-foreground">{entry.note}</p>}
-                    {entry.url && (
-                      <p className="mt-2 text-xs">
-                        <a className="text-primary underline" href={entry.url} target="_blank" rel="noreferrer">
-                          Open payment link
-                        </a>
-                      </p>
-                    )}
-                  </article>
-                ))}
-              </div>
-            )}
-          </article>
+                  )
+                })}
+              </CardContent>
+            </Card>
+          </section>
         </>
       )}
 
       {!attendeeId && !isLoading && !payload && !errorMessage && (
-        <article className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
+        <article className="rounded-xl border border-border bg-background/80 p-5 text-sm text-muted-foreground shadow-sm backdrop-blur">
           No attendee selected.
         </article>
       )}

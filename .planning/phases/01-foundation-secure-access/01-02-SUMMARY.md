@@ -78,6 +78,7 @@ completed: 2026-03-18
 ## Decisions Made
 - Used provider-agnostic status record format to keep UI/API decoupled from provider internals.
 - Added configurable ping timeout via `INTEGRATION_PING_TIMEOUT_MS` for predictable runtime behavior.
+- Updated Tikkie baseline to require `TIKKIE_APP_TOKEN` with `API-Key`/`X-App-Token` headers (no IBAN env requirement).
 
 ## Deviations from Plan
 

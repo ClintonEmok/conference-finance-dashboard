@@ -71,6 +71,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       generatedAt: payload.generatedAt,
       filters: payload.filters,
+      availableEvents: payload.availableEvents,
       totals: payload.totals,
       rows: payload.rows,
     })

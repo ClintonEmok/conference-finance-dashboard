@@ -5,6 +5,7 @@ import { ArrowRight, BedDouble, CalendarRange, HandCoins, RefreshCcwDot, Users }
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
 type RevenueResponse = {
   generatedAt: string
@@ -14,6 +15,10 @@ type RevenueResponse = {
     to: string
     trendGranularity: "day"
   }
+  availableEvents: Array<{
+    providerEventId: string
+    name: string | null
+  }>
   totals: {
     grossMinor: number
     paidMinor: number
@@ -28,6 +33,7 @@ type RevenueResponse = {
   }
   trend: Array<{
     bucket: string
+    eventLabel: string
     grossMinor: number
     paidMinor: number
     refundedMinor: number
@@ -66,10 +72,16 @@ function toIsoBoundary(value: string, boundary: "start" | "end") {
 
 const quickActions = [
   {
+    title: "Open financial workspace",
+    description: "Start with revenue, ledger, and collections in one route.",
+    href: "/dashboard/financial",
+    icon: HandCoins,
+  },
+  {
     title: "Review outstanding balances",
     description: "Start with collection follow-up and resolve unpaid orders.",
     href: "/dashboard/reconciliation",
-    icon: HandCoins,
+    icon: ArrowRight,
   },
   {
     title: "Open attendee follow-up",
@@ -201,28 +213,28 @@ export default function DashboardPage() {
 
   return (
     <section className="space-y-8">
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.9fr)]">
-        <article className="overflow-hidden rounded-[2rem] bg-[linear-gradient(145deg,rgba(113,84,255,0.97),rgba(83,56,171,0.94))] p-7 text-primary-foreground shadow-[0_28px_80px_rgba(78,52,166,0.28)] md:p-8">
+      <section className="space-y-4">
+        <article className="overflow-hidden rounded-xl bg-[linear-gradient(145deg,rgba(113,84,255,0.97),rgba(83,56,171,0.94))] p-6 text-primary-foreground shadow-[0_20px_56px_rgba(78,52,166,0.24)] md:p-7">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary-foreground/70">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary-foreground/70">
                 Overview
               </p>
-              <h2 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+              <h2 className="mt-2.5 text-2xl font-semibold tracking-tight md:text-[2rem]">
                 One live picture of conference finance and operator flow.
               </h2>
-              <p className="mt-3 max-w-xl text-sm leading-6 text-primary-foreground/82 md:text-base">
+              <p className="mt-3 max-w-xl text-[13px] leading-6 text-primary-foreground/82 md:text-sm">
                 Start with the current financial picture, then move directly into balances, attendee checks,
                 and room placement without losing the thread.
               </p>
             </div>
 
-            <div className="min-w-[210px] rounded-[1.5rem] border border-white/18 bg-white/10 p-5 backdrop-blur">
-              <p className="text-xs uppercase tracking-[0.2em] text-primary-foreground/70">Reporting scope</p>
-              <p className="mt-2 text-sm font-medium">
+            <div className="min-w-[210px] rounded-lg border border-white/18 bg-white/10 p-4 backdrop-blur">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-primary-foreground/70">Reporting scope</p>
+              <p className="mt-2 text-xs font-medium">
                 {payload?.filters.eventId ?? "All events"}
               </p>
-              <div className="mt-4 flex items-start gap-3 text-sm text-primary-foreground/82">
+              <div className="mt-3 flex items-start gap-2.5 text-xs text-primary-foreground/82">
                 <CalendarRange className="mt-0.5 size-4 shrink-0" />
                 <div>
                   <p>{payload ? new Date(payload.filters.from).toLocaleDateString() : appliedFromDate}</p>
@@ -232,97 +244,158 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <article className="rounded-[1.5rem] bg-white/12 p-5 backdrop-blur-sm">
-              <p className="text-sm text-primary-foreground/68">Gross</p>
-              <p className="mt-2 text-2xl font-semibold">
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <article className="rounded-lg bg-white/12 p-4 backdrop-blur-sm">
+              <p className="text-xs text-primary-foreground/68">Gross</p>
+              <p className="mt-1.5 text-xl font-semibold">
                 {payload ? formatMoney(payload.totals.grossMinor) : "--"}
               </p>
             </article>
-            <article className="rounded-[1.5rem] bg-white/12 p-5 backdrop-blur-sm">
-              <p className="text-sm text-primary-foreground/68">Paid</p>
-              <p className="mt-2 text-2xl font-semibold">
+            <article className="rounded-lg bg-white/12 p-4 backdrop-blur-sm">
+              <p className="text-xs text-primary-foreground/68">Paid</p>
+              <p className="mt-1.5 text-xl font-semibold">
                 {payload ? formatMoney(payload.totals.paidMinor) : "--"}
               </p>
             </article>
-            <article className="rounded-[1.5rem] bg-white/12 p-5 backdrop-blur-sm">
-              <p className="text-sm text-primary-foreground/68">Refunded</p>
-              <p className="mt-2 text-2xl font-semibold">
+            <article className="rounded-lg bg-white/12 p-4 backdrop-blur-sm">
+              <p className="text-xs text-primary-foreground/68">Refunded</p>
+              <p className="mt-1.5 text-xl font-semibold">
                 {payload ? formatMoney(payload.totals.refundedMinor) : "--"}
               </p>
             </article>
-            <article className="rounded-[1.5rem] bg-white/12 p-5 backdrop-blur-sm">
-              <p className="text-sm text-primary-foreground/68">Net</p>
-              <p className="mt-2 text-2xl font-semibold">
+            <article className="rounded-lg bg-white/12 p-4 backdrop-blur-sm">
+              <p className="text-xs text-primary-foreground/68">Net</p>
+              <p className="mt-1.5 text-xl font-semibold">
                 {payload ? formatMoney(payload.totals.netMinor) : "--"}
               </p>
             </article>
           </div>
         </article>
 
-        <article className="rounded-[2rem] border border-border/70 bg-background/80 p-6 shadow-[0_20px_60px_rgba(34,22,72,0.08)] backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/70">Filter view</p>
-              <h3 className="mt-2 text-xl font-semibold tracking-tight">Refine the dashboard snapshot</h3>
-            </div>
-          </div>
+        <Card className="bg-background/85 backdrop-blur">
+          <CardHeader className="pb-3">
+            <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/70">
+              Filter view
+            </CardDescription>
+            <CardTitle className="text-base">Refine the dashboard snapshot</CardTitle>
+          </CardHeader>
 
-          <form className="mt-5 space-y-4" onSubmit={onApplyFilters}>
+          <CardContent>
+          <form className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(180px,0.7fr)_minmax(180px,0.7fr)_150px] lg:items-end" onSubmit={onApplyFilters}>
             <label className="space-y-2 text-sm">
-              <span className="font-medium text-foreground">Event ID</span>
-              <input
-                type="text"
+              <span className="text-xs font-medium text-foreground">Event ID</span>
+              <select
                 value={eventIdInput}
                 onChange={(event) => setEventIdInput(event.target.value)}
-                placeholder="All events"
-                className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm shadow-sm"
-              />
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
+              >
+                <option value="">All events</option>
+                {(payload?.availableEvents ?? []).map((event) => (
+                  <option key={event.providerEventId} value={event.providerEventId}>
+                    {event.name?.trim() || event.providerEventId}
+                  </option>
+                ))}
+              </select>
             </label>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2 lg:grid-cols-2">
               <label className="space-y-2 text-sm">
-                <span className="font-medium text-foreground">From</span>
+                <span className="text-xs font-medium text-foreground">From</span>
                 <input
                   type="date"
                   value={fromDateInput}
                   onChange={(event) => setFromDateInput(event.target.value)}
-                  className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm shadow-sm"
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
                 />
               </label>
 
               <label className="space-y-2 text-sm">
-                <span className="font-medium text-foreground">To</span>
+                <span className="text-xs font-medium text-foreground">To</span>
                 <input
                   type="date"
                   value={toDateInput}
                   onChange={(event) => setToDateInput(event.target.value)}
-                  className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm shadow-sm"
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
                 />
               </label>
             </div>
 
             {inlineValidationError && (
-              <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 lg:col-span-4 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
                 {inlineValidationError}
               </p>
             )}
 
-            <Button className="h-12 w-full rounded-2xl" type="submit" disabled={Boolean(inlineValidationError) || isLoading}>
+            <Button className="h-9 w-full rounded-md text-xs lg:self-end" type="submit" disabled={Boolean(inlineValidationError) || isLoading}>
               {isLoading ? "Loading..." : "Apply reporting scope"}
             </Button>
           </form>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+        <article className="rounded-xl bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] p-5 text-primary-foreground shadow-[0_18px_44px_rgba(74,48,164,0.2)]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary-foreground/70">
+            Today&apos;s focus
+          </p>
+          <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-xl">
+              <h3 className="text-xl font-semibold tracking-tight">Clear balances, confirm attendees, then place the final rooms.</h3>
+              <p className="mt-2 text-xs leading-5 text-primary-foreground/82">
+                Keep the daily operator loop visible in the main dashboard instead of the sidebar.
+              </p>
+            </div>
+
+            <Button asChild variant="secondary" className="h-9 rounded-md bg-white px-3 text-xs text-primary hover:bg-white/92">
+              <Link href="/dashboard/reconciliation">
+                Start follow-up
+                <ArrowRight className="size-4" />
+              </Link>
+            </Button>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-md bg-white/12 px-4 py-3 text-xs">
+              <p className="text-primary-foreground/70">Flow</p>
+              <p className="mt-1 font-semibold">Balances to rooms</p>
+            </div>
+            <div className="rounded-md bg-white/12 px-4 py-3 text-xs">
+              <p className="text-primary-foreground/70">State</p>
+              <p className="mt-1 font-semibold">MVP-ready loop</p>
+            </div>
+          </div>
         </article>
+
+        <Card className="bg-background/85 backdrop-blur">
+          <CardHeader>
+            <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/70">
+              Reporting notes
+            </CardDescription>
+            <CardTitle className="text-lg">What to review next</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-xs text-muted-foreground">
+            <div className="rounded-md border border-border/70 bg-background px-3 py-3">
+              Start in outstanding balances when an order still has money to collect.
+            </div>
+            <div className="rounded-md border border-border/70 bg-background px-3 py-3">
+              Use attendee follow-up when a payment issue needs person-level context.
+            </div>
+            <div className="rounded-md border border-border/70 bg-background px-3 py-3">
+              Move to room allocation only after attendee and finance context are clear.
+            </div>
+          </CardContent>
+        </Card>
       </section>
 
       {errorMessage && (
-        <article className="rounded-[1.5rem] border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
+        <article className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
           {errorMessage}
         </article>
       )}
 
       {!errorMessage && isLoading && (
-        <article className="rounded-[1.75rem] border border-border bg-background/80 p-6 text-sm text-muted-foreground shadow-sm backdrop-blur">
+        <article className="rounded-xl border border-border bg-background/80 p-5 text-xs text-muted-foreground shadow-sm backdrop-blur">
           Loading revenue metrics...
         </article>
       )}
@@ -330,15 +403,16 @@ export default function DashboardPage() {
       {!errorMessage && !isLoading && payload && (
         <>
           <section className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-            <article className="rounded-[2rem] border border-border/70 bg-background/80 p-6 shadow-[0_20px_60px_rgba(34,22,72,0.06)] backdrop-blur">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/70">Quick actions</p>
-                  <h3 className="mt-2 text-2xl font-semibold tracking-tight">Move into the next useful workflow</h3>
-                </div>
-              </div>
+            <Card className="bg-background/85 backdrop-blur">
+              <CardHeader>
+                <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/70">
+                  Quick actions
+                </CardDescription>
+                <CardTitle className="text-lg">Move into the next useful workflow</CardTitle>
+              </CardHeader>
 
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <CardContent>
+              <div className="grid gap-3 md:grid-cols-2">
                 {quickActions.map((action) => {
                   const Icon = action.icon
 
@@ -346,27 +420,32 @@ export default function DashboardPage() {
                     <Link
                       key={action.href}
                       href={action.href}
-                      className="group rounded-[1.5rem] border border-border/70 bg-white/75 p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-[0_18px_44px_rgba(52,34,120,0.12)] dark:bg-white/6"
+                      className="group rounded-lg border border-border/70 bg-white/75 p-4 shadow-sm transition-all duration-200 hover:border-primary/20 hover:shadow-[0_12px_24px_rgba(52,34,120,0.08)] dark:bg-white/6"
                     >
                       <div className="flex items-start justify-between gap-4">
-                        <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary dark:bg-white/10 dark:text-primary-foreground">
-                          <Icon className="size-5" />
+                        <span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary dark:bg-white/10 dark:text-primary-foreground">
+                          <Icon className="size-4" />
                         </span>
                         <ArrowRight className="size-4 text-muted-foreground transition-transform duration-200 group-hover:translate-x-1 group-hover:text-primary" />
                       </div>
-                      <h4 className="mt-5 text-lg font-semibold tracking-tight text-foreground">{action.title}</h4>
-                      <p className="mt-2 text-sm leading-6 text-muted-foreground">{action.description}</p>
+                      <h4 className="mt-4 text-sm font-semibold tracking-tight text-foreground">{action.title}</h4>
+                      <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{action.description}</p>
                     </Link>
                   )
                 })}
               </div>
-            </article>
+              </CardContent>
+            </Card>
 
-            <article className="rounded-[2rem] border border-border/70 bg-background/80 p-6 shadow-[0_20px_60px_rgba(34,22,72,0.06)] backdrop-blur">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/70">Order status mix</p>
-              <h3 className="mt-2 text-2xl font-semibold tracking-tight">How today&apos;s scope is distributed</h3>
+            <Card className="bg-background/85 backdrop-blur">
+              <CardHeader>
+                <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/70">
+                  Order status mix
+                </CardDescription>
+                <CardTitle className="text-lg">How today&apos;s scope is distributed</CardTitle>
+              </CardHeader>
 
-              <div className="mt-6 space-y-4">
+              <CardContent className="space-y-4">
                 {[
                   ["Paid", payload.statusCounts.paid, "bg-primary"],
                   ["Pending", payload.statusCounts.pending, "bg-amber-400"],
@@ -378,65 +457,73 @@ export default function DashboardPage() {
                     payload.statusCounts.pending +
                     payload.statusCounts.refunded +
                     payload.statusCounts.cancelled
-                  const width = total === 0 ? 0 : Math.max(8, Math.round((Number(value) / total) * 100))
+                  const numericValue = Number(value)
+                  const width = total === 0 || numericValue === 0 ? 0 : Math.max(8, Math.round((numericValue / total) * 100))
 
                   return (
                     <div key={String(label)}>
-                      <div className="mb-2 flex items-center justify-between text-sm">
+                      <div className="mb-2 flex items-center justify-between text-xs">
                         <span className="font-medium text-foreground">{label}</span>
                         <span className="text-muted-foreground">{value}</span>
                       </div>
-                      <div className="h-2.5 rounded-full bg-muted">
-                        <div className={`h-2.5 rounded-full ${colorClass}`} style={{ width: `${width}%` }} />
+                      <div className="h-2 rounded-full bg-muted">
+                        <div className={`h-2 rounded-full ${colorClass}`} style={{ width: `${width}%` }} />
                       </div>
                     </div>
                   )
                 })}
-              </div>
+              </CardContent>
 
-              <div className="mt-6 rounded-[1.5rem] bg-muted/70 p-4 text-sm text-muted-foreground">
+              <div className="mx-5 mb-5 rounded-lg bg-muted/70 p-3 text-xs text-muted-foreground">
                 Generated {new Date(payload.generatedAt).toLocaleString()} for operator review.
               </div>
-            </article>
+            </Card>
           </section>
 
-          <article className="rounded-[2rem] border border-border/70 bg-background/80 p-6 shadow-[0_20px_60px_rgba(34,22,72,0.06)] backdrop-blur">
+          <Card className="bg-background/85 backdrop-blur">
+            <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/70">Daily trend</p>
-                <h3 className="mt-2 text-2xl font-semibold tracking-tight">Finance-safe movement across the selected window</h3>
-              </div>
-              <div className="rounded-full border border-border/70 bg-muted/60 px-4 py-2 text-sm text-muted-foreground">
-                Event: {payload.filters.eventId ?? "All events"}
+                <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/70">Daily trend</CardDescription>
+                <CardTitle className="mt-1 text-lg">Finance-safe movement across the selected window</CardTitle>
               </div>
             </div>
+            </CardHeader>
 
             {payload.trend.length === 0 ? (
-              <p className="mt-5 rounded-[1.5rem] border border-border/70 p-4 text-sm text-muted-foreground">
+              <CardContent>
+              <p className="rounded-lg border border-border/70 p-4 text-xs text-muted-foreground">
                 No synced orders found for the selected filters.
               </p>
+              </CardContent>
             ) : (
-              <div className="mt-6 overflow-x-auto">
-                <table className="min-w-full border-separate border-spacing-y-3 text-sm">
+              <CardContent>
+              <div className="overflow-x-auto">
+                <div className="mb-3 text-xs text-muted-foreground">
+                  Daily trend is aggregated across the selected event scope, so the event filter above determines which event data is included.
+                </div>
+                <table className="min-w-full border-separate border-spacing-y-2.5 text-xs">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                      <th className="px-4 py-2">Date</th>
-                      <th className="px-4 py-2">Orders</th>
-                      <th className="px-4 py-2">Gross</th>
-                      <th className="px-4 py-2">Paid</th>
-                      <th className="px-4 py-2">Refunded</th>
-                      <th className="px-4 py-2">Net</th>
+                    <tr className="text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                      <th className="px-3 py-2">Date</th>
+                      <th className="px-3 py-2">Event</th>
+                      <th className="px-3 py-2">Orders</th>
+                      <th className="px-3 py-2">Gross</th>
+                      <th className="px-3 py-2">Paid</th>
+                      <th className="px-3 py-2">Refunded</th>
+                      <th className="px-3 py-2">Net</th>
                     </tr>
                   </thead>
                   <tbody>
                     {payload.trend.map((bucket) => (
-                      <tr key={bucket.bucket} className="rounded-[1.25rem] bg-white/75 shadow-sm dark:bg-white/6">
-                        <td className="rounded-l-[1.25rem] px-4 py-4 font-medium text-foreground">{bucket.bucket}</td>
-                        <td className="px-4 py-4 text-muted-foreground">{bucket.orderCount}</td>
-                        <td className="px-4 py-4 text-foreground">{formatMoney(bucket.grossMinor)}</td>
-                        <td className="px-4 py-4 text-foreground">{formatMoney(bucket.paidMinor)}</td>
-                        <td className="px-4 py-4 text-foreground">{formatMoney(bucket.refundedMinor)}</td>
-                        <td className="rounded-r-[1.25rem] px-4 py-4 font-semibold text-foreground">
+                      <tr key={bucket.bucket} className="rounded-lg bg-white/75 shadow-sm dark:bg-white/6">
+                        <td className="rounded-l-lg px-3 py-3 font-medium text-foreground">{bucket.bucket}</td>
+                        <td className="px-3 py-3 text-muted-foreground">{bucket.eventLabel}</td>
+                        <td className="px-3 py-3 text-muted-foreground">{bucket.orderCount}</td>
+                        <td className="px-3 py-3 text-foreground">{formatMoney(bucket.grossMinor)}</td>
+                        <td className="px-3 py-3 text-foreground">{formatMoney(bucket.paidMinor)}</td>
+                        <td className="px-3 py-3 text-foreground">{formatMoney(bucket.refundedMinor)}</td>
+                        <td className="rounded-r-lg px-3 py-3 font-semibold text-foreground">
                           {formatMoney(bucket.netMinor)}
                         </td>
                       </tr>
@@ -444,8 +531,9 @@ export default function DashboardPage() {
                   </tbody>
                 </table>
               </div>
+              </CardContent>
             )}
-          </article>
+          </Card>
         </>
       )}
     </section>

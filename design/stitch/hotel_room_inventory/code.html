@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary-fixed-dim": "#b0c6ff",
+              "on-background": "#191c1d",
+              "surface": "#f8f9fa",
+              "outline-variant": "#c1c7ce",
+              "on-tertiary-container": "#7acb76",
+              "on-secondary": "#ffffff",
+              "surface-dim": "#d9dadb",
+              "inverse-on-surface": "#f0f1f2",
+              "secondary-fixed": "#cfe6f2",
+              "on-tertiary": "#ffffff",
+              "outline": "#72787e",
+              "on-primary": "#ffffff",
+              "secondary-container": "#cfe6f2",
+              "surface-variant": "#e1e3e4",
+              "on-surface": "#191c1d",
+              "on-secondary-fixed": "#071e27",
+              "primary": "#002f73",
+              "surface-container-high": "#e7e8e9",
+              "on-secondary-fixed-variant": "#354a53",
+              "on-primary-fixed": "#001945",
+              "surface-container-highest": "#e1e3e4",
+              "surface-bright": "#f8f9fa",
+              "primary-container": "#06449e",
+              "inverse-surface": "#2e3132",
+              "surface-container-lowest": "#ffffff",
+              "secondary-fixed-dim": "#b4cad6",
+              "tertiary-container": "#005613",
+              "surface-container-low": "#f3f4f5",
+              "on-surface-variant": "#41474e",
+              "secondary": "#4c616c",
+              "surface-tint": "#2b5bb5",
+              "inverse-primary": "#b0c6ff",
+              "on-primary-fixed-variant": "#00429c",
+              "tertiary-fixed-dim": "#88d982",
+              "tertiary-fixed": "#a3f69c",
+              "on-secondary-container": "#526772",
+              "on-error-container": "#93000a",
+              "error": "#ba1a1a",
+              "on-error": "#ffffff",
+              "on-tertiary-fixed-variant": "#005312",
+              "on-primary-container": "#9bb7ff",
+              "error-container": "#ffdad6",
+              "tertiary": "#003c0a",
+              "on-tertiary-fixed": "#002204",
+              "background": "#f8f9fa",
+              "primary-fixed": "#d9e2ff",
+              "surface-container": "#edeeef"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .tonal-shift-bg {
+            background-color: #f3f4f5;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body flex overflow-hidden">
+<!-- SideNavBar Component -->
+<aside class="hidden md:flex flex-col h-screen w-64 bg-slate-50 dark:bg-slate-950 p-4 space-y-2 shrink-0">
+<div class="mb-8 px-2 py-4">
+<h1 class="font-headline font-extrabold text-sky-900 dark:text-sky-100 text-2xl tracking-tight">Executive Ledger</h1>
+<p class="text-xs text-slate-500 font-medium">Conference Manager</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2.5 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 transition-transform duration-200 hover:translate-x-1 font-['Inter'] text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 transition-transform duration-200 hover:translate-x-1 font-['Inter'] text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="payments">payments</span>
+<span>Payments</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 transition-transform duration-200 hover:translate-x-1 font-['Inter'] text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="bed">bed</span>
+<span>Allocations</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-300 rounded-lg shadow-sm font-['Inter'] text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="inventory_2">inventory_2</span>
+<span>Inventory</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 transition-transform duration-200 hover:translate-x-1 font-['Inter'] text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="settings_input_component">settings_input_component</span>
+<span>Integrations</span>
+</a>
+</nav>
+<div class="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span>Help Center</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="logout">logout</span>
+<span>Log Out</span>
+</a>
+</div>
+</aside>
+<main class="flex-1 h-screen overflow-y-auto relative">
+<!-- TopNavBar Component -->
+<header class="fixed top-0 right-0 left-0 md:left-64 h-16 flex justify-between items-center px-8 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md z-50 shadow-[0_12px_32px_rgba(25,28,29,0.04)]">
+<div class="flex items-center gap-8">
+<h2 class="text-xl font-headline font-bold text-sky-950 dark:text-sky-50">Inventory</h2>
+<div class="hidden lg:flex items-center gap-6">
+<a class="text-slate-500 dark:text-slate-400 hover:text-sky-900 dark:hover:text-sky-100 transition-colors font-['Manrope'] tracking-tight" href="#">Overview</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-sky-900 dark:hover:text-sky-100 transition-colors font-['Manrope'] tracking-tight" href="#">Ledger</a>
+<a class="text-sky-700 dark:text-sky-300 border-b-2 border-sky-700 dark:border-sky-300 pb-1 font-['Manrope'] tracking-tight" href="#">Rooms</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-sky-900 dark:hover:text-sky-100 transition-colors font-['Manrope'] tracking-tight" href="#">Settings</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-slate-500 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-full transition-all active:scale-[0.98]">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<div class="h-8 w-8 rounded-full bg-slate-200 overflow-hidden">
+<img alt="User Profile" data-alt="User avatar profile picture circular icon" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC7Sp122OfoWGK7OL9-QilWKlMtSF_SCyD4S0z0A0MlYrLjiEDEtsYuyneEApZtbYX8zQoQaWjuYw1g4h6Z1_Tx1XZNDUxt-vEV60jTNEeZH7OUS8D557WS387j9e2jK2Vnn6lV3ocir1BS3Ln7NOML1OetU26WNyoNBIJKZh7AQhqv3OuuwTQP_u_oXN18Ys8QRc3SIXHTp5Z5vzl8FE4qtrQvrskHfRO8oY4sHvK5mIIsIc78733POCxh93dVu-kmj6XbK3aBedA"/>
+</div>
+</div>
+</header>
+<div class="pt-24 pb-12 px-8 max-w-7xl mx-auto space-y-10">
+<!-- Hero Stats Section -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="bg-gradient-to-br from-primary to-primary-container p-6 rounded-xl text-white shadow-sm flex flex-col justify-between h-40">
+<span class="text-sm font-medium opacity-80">Total Inventory</span>
+<div class="flex items-end justify-between">
+<h3 class="text-4xl font-headline font-extrabold">1,420</h3>
+<span class="material-symbols-outlined text-4xl" data-icon="apartment">apartment</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl border-0 shadow-sm flex flex-col justify-between h-40">
+<span class="text-sm font-medium text-on-surface-variant">Active Capacity</span>
+<div class="flex items-end justify-between">
+<h3 class="text-4xl font-headline font-extrabold text-primary">94%</h3>
+<div class="h-12 w-12 bg-tertiary-container rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-tertiary-fixed" data-icon="trending_up">trending_up</span>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl border-0 shadow-sm flex flex-col justify-between h-40">
+<span class="text-sm font-medium text-on-surface-variant">Venues Managed</span>
+<div class="flex items-end justify-between">
+<h3 class="text-4xl font-headline font-extrabold text-primary">12</h3>
+<span class="material-symbols-outlined text-4xl text-outline-variant" data-icon="map">map</span>
+</div>
+</div>
+</section>
+<!-- Main Content Grid -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-10">
+<!-- Registration Form Section (Left Column) -->
+<section class="lg:col-span-4 space-y-6">
+<div class="flex items-center justify-between">
+<h4 class="text-lg font-headline font-bold text-on-surface">Register New Venue</h4>
+</div>
+<form class="bg-surface-container-lowest p-8 rounded-xl space-y-5">
+<div class="space-y-2">
+<label class="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">Hotel Name</label>
+<input class="w-full bg-surface-container-highest border-0 rounded-sm focus:ring-2 focus:ring-surface-tint/40 px-4 py-3 placeholder:text-outline-variant text-sm" placeholder="e.g. Grand Plaza Executive" type="text"/>
+</div>
+<div class="space-y-2">
+<label class="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">Venue Location</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline-variant text-lg" data-icon="location_on">location_on</span>
+<input class="w-full bg-surface-container-highest border-0 rounded-sm focus:ring-2 focus:ring-surface-tint/40 pl-10 pr-4 py-3 placeholder:text-outline-variant text-sm" placeholder="London, United Kingdom" type="text"/>
+</div>
+</div>
+<div class="space-y-2">
+<label class="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">Classification</label>
+<select class="w-full bg-surface-container-highest border-0 rounded-sm focus:ring-2 focus:ring-surface-tint/40 px-4 py-3 text-sm">
+<option>5-Star Luxury</option>
+<option>4-Star Executive</option>
+<option>Boutique</option>
+</select>
+</div>
+<div class="pt-4">
+<button class="w-full bg-gradient-to-br from-primary to-primary-container text-white py-3.5 rounded-xl font-bold text-sm transition-all hover:shadow-lg active:scale-[0.98]" type="submit">
+                                Add Venue to Portfolio
+                            </button>
+</div>
+</form>
+</section>
+<!-- Inventory Management Section (Right Column) -->
+<section class="lg:col-span-8 space-y-6">
+<div class="flex items-center justify-between">
+<h4 class="text-lg font-headline font-bold text-on-surface">Portfolio Inventory</h4>
+<div class="flex gap-2">
+<button class="bg-surface-container-high text-on-surface px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-sm" data-icon="filter_list">filter_list</span>
+                                Filter
+                            </button>
+<button class="bg-primary text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-sm" data-icon="file_download">file_download</span>
+                                Export
+                            </button>
+</div>
+</div>
+<!-- Venue Inventory List (Bento-ish Stack) -->
+<div class="space-y-4">
+<!-- Venue Card 01 -->
+<div class="bg-surface-container-lowest rounded-xl overflow-hidden">
+<div class="p-6 border-b border-surface-container flex items-center justify-between tonal-shift-bg">
+<div class="flex items-center gap-4">
+<div class="h-10 w-10 bg-primary-fixed flex items-center justify-center rounded-lg">
+<span class="material-symbols-outlined text-primary" data-icon="business">business</span>
+</div>
+<div>
+<h5 class="font-headline font-bold text-sky-950">Grand Plaza Executive</h5>
+<p class="text-xs text-on-surface-variant">London Central District • 320 Rooms Total</p>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<span class="px-3 py-1 bg-tertiary-container text-on-tertiary-container rounded-full text-[10px] font-bold uppercase tracking-widest">Active</span>
+<button class="text-outline-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</div>
+<div class="p-6">
+<div class="grid grid-cols-1 gap-2">
+<!-- Room Type Header -->
+<div class="grid grid-cols-12 px-4 py-2 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">
+<div class="col-span-4">Room Type</div>
+<div class="col-span-3 text-center">Capacity</div>
+<div class="col-span-3 text-center">In Stock</div>
+<div class="col-span-2 text-right">Status</div>
+</div>
+<!-- Nested Room List -->
+<div class="bg-surface-container-low rounded-lg p-1 space-y-1">
+<div class="grid grid-cols-12 items-center px-4 py-3 bg-white rounded-sm">
+<div class="col-span-4 font-semibold text-sm">Superior Single</div>
+<div class="col-span-3 text-center text-sm">1 Person</div>
+<div class="col-span-3 text-center text-sm font-medium">120</div>
+<div class="col-span-2 flex justify-end">
+<div class="w-10 h-5 bg-tertiary rounded-full relative p-1 cursor-pointer">
+<div class="w-3 h-3 bg-white rounded-full ml-auto"></div>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-12 items-center px-4 py-3 bg-white rounded-sm">
+<div class="col-span-4 font-semibold text-sm">Executive Double</div>
+<div class="col-span-3 text-center text-sm">2 People</div>
+<div class="col-span-3 text-center text-sm font-medium">180</div>
+<div class="col-span-2 flex justify-end">
+<div class="w-10 h-5 bg-tertiary rounded-full relative p-1 cursor-pointer">
+<div class="w-3 h-3 bg-white rounded-full ml-auto"></div>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-12 items-center px-4 py-3 bg-white rounded-sm">
+<div class="col-span-4 font-semibold text-sm">Penthouse Suite</div>
+<div class="col-span-3 text-center text-sm">4 People</div>
+<div class="col-span-3 text-center text-sm font-medium">20</div>
+<div class="col-span-2 flex justify-end">
+<div class="w-10 h-5 bg-outline-variant rounded-full relative p-1 cursor-pointer">
+<div class="w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Venue Card 02 -->
+<div class="bg-surface-container-lowest rounded-xl overflow-hidden opacity-80">
+<div class="p-6 border-b border-surface-container flex items-center justify-between tonal-shift-bg">
+<div class="flex items-center gap-4">
+<div class="h-10 w-10 bg-secondary-fixed flex items-center justify-center rounded-lg">
+<span class="material-symbols-outlined text-secondary" data-icon="corporate_fare">corporate_fare</span>
+</div>
+<div>
+<h5 class="font-headline font-bold text-sky-950">Harbor View Hotel</h5>
+<p class="text-xs text-on-surface-variant">Singapore Waterfront • 140 Rooms Total</p>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<span class="px-3 py-1 bg-surface-container-high text-on-surface-variant rounded-full text-[10px] font-bold uppercase tracking-widest">Maintenance</span>
+<button class="text-outline-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</div>
+</main>
+<!-- Contextual Floating Action Button -->
+<button class="fixed bottom-8 right-8 bg-gradient-to-br from-primary to-primary-container text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 z-[60]">
+<span class="material-symbols-outlined text-2xl" data-icon="add">add</span>
+</button>
+</body></html>

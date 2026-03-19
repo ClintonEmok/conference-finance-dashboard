@@ -25,9 +25,14 @@ export type RoomAllocationBoard = {
     roomTypeId: string | null
     availability: RoomAvailability
   }
+  availableEvents: Array<{
+    providerEventId: string
+    name: string | null
+  }>
   hotels: Array<{
     id: string
     name: string
+    assignedEventIds: string[]
   }>
   roomTypes: Array<{
     id: string
@@ -162,12 +167,40 @@ export async function getRoomAllocationBoard(
   const roomTypeId = normalizeOptionalString(filters.roomTypeId)
   const availability = normalizeAvailability(filters.availability)
 
+  const availableEvents = await prisma.ticketTailorEvent.findMany({
+    orderBy: [{ startsAt: "asc" }, { name: "asc" }],
+    select: {
+      providerEventId: true,
+      name: true,
+      accommodationHotels: {
+        select: {
+          hotelId: true,
+        },
+      },
+    },
+  })
+
+  const selectedEventHotelIds =
+    availableEvents.find((event) => event.providerEventId === eventId)?.accommodationHotels.map((link) => link.hotelId) ?? []
+
+  const scopedHotelIds = eventId && selectedEventHotelIds.length > 0 ? selectedEventHotelIds : null
+
   const [hotels, roomTypes, rooms, unassignedAttendees] = await Promise.all([
     prisma.accommodationHotel.findMany({
+      where: scopedHotelIds ? { id: { in: scopedHotelIds } } : undefined,
       orderBy: [{ name: "asc" }],
       select: {
         id: true,
         name: true,
+        eventLinks: {
+          select: {
+            event: {
+              select: {
+                providerEventId: true,
+              },
+            },
+          },
+        },
       },
     }),
     prisma.accommodationRoomType.findMany({
@@ -180,6 +213,7 @@ export async function getRoomAllocationBoard(
     }),
     prisma.accommodationRoom.findMany({
       where: {
+        ...(scopedHotelIds ? { hotelId: { in: scopedHotelIds } } : {}),
         ...(hotelId ? { hotelId } : {}),
         ...(roomTypeId ? { roomTypeId } : {}),
       },
@@ -333,7 +367,12 @@ export async function getRoomAllocationBoard(
       roomTypeId,
       availability,
     },
-    hotels,
+    availableEvents,
+    hotels: hotels.map((hotel) => ({
+      id: hotel.id,
+      name: hotel.name,
+      assignedEventIds: hotel.eventLinks.map((link) => link.event.providerEventId),
+    })),
     roomTypes,
     rooms: mappedRooms,
     unassignedAttendees: filteredUnassignedAttendees,
@@ -370,6 +409,8 @@ export async function assignAttendeeToRoom(input: { attendeeId: string; roomId: 
       select: {
         id: true,
         assignedRoomId: true,
+        providerEventId: true,
+        eventId: true,
       },
     })
 
@@ -384,6 +425,7 @@ export async function assignAttendeeToRoom(input: { attendeeId: string; roomId: 
       select: {
         id: true,
         capacity: true,
+        hotelId: true,
       },
     })
 
@@ -393,6 +435,19 @@ export async function assignAttendeeToRoom(input: { attendeeId: string; roomId: 
 
     if (attendee.assignedRoomId === room.id) {
       throw new Error("Invalid assignment. Attendee is already assigned to this room.")
+    }
+
+    const eventHotelLinks = await tx.accommodationEventHotel.findMany({
+      where: {
+        eventId: attendee.eventId,
+      },
+      select: {
+        hotelId: true,
+      },
+    })
+
+    if (eventHotelLinks.length > 0 && !eventHotelLinks.some((link) => link.hotelId === room.hotelId)) {
+      throw new Error("Invalid assignment. Selected room hotel is not enabled for this event.")
     }
 
     const occupiedBeds = await tx.ticketTailorAttendee.count({

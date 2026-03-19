@@ -125,6 +125,7 @@ model TicketTailorEvent {
   currency          String?
   rawPayload        Json
   attendees         TicketTailorAttendee[]
+  accommodationHotels AccommodationEventHotel[]
   orders            TicketTailorOrder[]
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
@@ -193,9 +194,22 @@ model AccommodationHotel {
   name      String              @unique
   city      String?
   notes     String?
+   eventLinks AccommodationEventHotel[]
   rooms     AccommodationRoom[]
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
+}
+
+model AccommodationEventHotel {
+  id        String             @id @default(cuid())
+  eventId    String
+  hotelId    String
+  event      TicketTailorEvent  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  hotel      AccommodationHotel @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  createdAt  DateTime           @default(now())
+
+  @@unique([eventId, hotelId])
+  @@index([hotelId])
 }
 
 model AccommodationRoomType {

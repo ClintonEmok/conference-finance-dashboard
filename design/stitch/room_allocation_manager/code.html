@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Executive Ledger - Room Allocation Manager</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">tailwind.config = {darkMode: "class", theme: {extend: {colors: {"primary-fixed-dim": "#67bbfa", "on-background": "#143454", surface: "#f8f9ff", "outline-variant": "#97b4db", "on-tertiary-container": "#641b4e", "on-secondary": "#fff7f9", "surface-dim": "#c3dcff", "inverse-on-surface": "#8f9eb3", "secondary-fixed": "#ffd7ef", "on-tertiary": "#fff7f8", outline: "#607da1", "on-primary": "#f6f9ff", "secondary-container": "#ffd7ef", "surface-variant": "#d2e4ff", "on-surface": "#143454", "on-secondary-fixed": "#55354c", primary: "#006497", "surface-container-high": "#dbe9ff", "on-secondary-fixed-variant": "#745069", "on-primary-fixed": "#002a43", "surface-container-highest": "#d2e4ff", "surface-bright": "#f8f9ff", "primary-container": "#83c8ff", "inverse-surface": "#010f1f", "surface-container-lowest": "#ffffff", "secondary-fixed-dim": "#f5c7e4", "tertiary-container": "#fd9dd7", "surface-container-low": "#eff4ff", "on-surface-variant": "#446183", secondary: "#78546d", "surface-tint": "#006497", "inverse-primary": "#6abdfd", "on-primary-fixed-variant": "#004970", "tertiary-fixed-dim": "#ee90c9", "tertiary-fixed": "#fd9dd7", "on-secondary-container": "#6a475f", "on-error-container": "#65000b", error: "#ac3434", "on-error": "#fff7f6", "on-tertiary-fixed-variant": "#6f2457", "on-primary-container": "#004062", "error-container": "#f56965", tertiary: "#924277", "on-tertiary-fixed": "#480037", background: "#f8f9ff", "primary-fixed": "#83c8ff", "surface-container": "#e5eeff", "secondary-dim": "#6b4860", "tertiary-dim": "#84366a", "error-dim": "#70030f", "primary-dim": "#005885"}, fontFamily: {headline: ["Manrope"], body: ["Inter"], label: ["Inter"], display: "Manrope"}, borderRadius: {DEFAULT: "0.125rem", lg: "0.25rem", xl: "0.5rem", full: "0.75rem"}}}};</script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px);
+        }
+        .tonal-shift-bg {
+            background-color: #f3f4f5;
+        }
+    </style>
+</head>
+<body class="bg-surface font-body text-on-surface flex min-h-screen">
+<!-- Side Navigation Shell -->
+<aside class="h-screen w-64 fixed left-0 top-0 bg-slate-50 flex flex-col p-4 space-y-2 font-body text-sm font-medium z-40">
+<div class="mb-8 px-2">
+<h1 class="font-headline font-extrabold text-sky-900 text-xl tracking-tight">Executive Ledger</h1>
+<p class="text-xs text-on-surface-variant opacity-70">Conference Manager</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-100 transition-transform duration-200 hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">dashboard</span> Dashboard
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-100 transition-transform duration-200 hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">payments</span> Payments
+            </a>
+<!-- Active State: Allocations -->
+<a class="flex items-center gap-3 px-3 py-2 bg-white text-sky-700 rounded-lg shadow-sm transition-transform duration-200 scale-[0.98]" href="#">
+<span class="material-symbols-outlined">bed</span> Allocations
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-100 transition-transform duration-200 hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">inventory_2</span> Inventory
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-100 transition-transform duration-200 hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">settings_input_component</span> Integrations
+            </a>
+</nav>
+<div class="pt-4 border-t border-slate-200 space-y-1">
+<button class="w-full bg-gradient-to-br from-primary to-primary-container text-white py-3 rounded-xl font-headline font-bold text-sm mb-4">
+                Export Report
+            </button>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-100 transition-transform duration-200 hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">help</span> Help Center
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-100 transition-transform duration-200 hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">logout</span> Log Out
+            </a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="flex-1 ml-64 p-10">
+<!-- Top Navigation (Shell Integrated) -->
+<header class="fixed top-0 right-0 left-64 h-16 bg-white/80 backdrop-blur-md flex justify-between items-center px-8 z-30 shadow-[0_12px_32px_rgba(25,28,29,0.04)]">
+<div class="flex items-center gap-8">
+<div class="flex items-center bg-surface-container-highest px-3 py-1.5 rounded-sm">
+<span class="material-symbols-outlined text-outline text-sm mr-2">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm font-body w-64 p-0 placeholder:text-outline-variant" placeholder="Search rooms or attendees..." type="text"/>
+</div>
+<nav class="hidden md:flex gap-6 font-headline tracking-tight">
+<a class="text-slate-500 hover:text-sky-900 transition-colors" href="#">Overview</a>
+<a class="text-slate-500 hover:text-sky-900 transition-colors" href="#">Ledger</a>
+<a class="text-sky-700 border-b-2 border-sky-700 pb-1" href="#">Rooms</a>
+<a class="text-slate-500 hover:text-sky-900 transition-colors" href="#">Settings</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-on-surface-variant hover:bg-slate-50/50 p-2 rounded-full transition-all active:scale-95">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<div class="h-8 w-8 rounded-full overflow-hidden bg-secondary-container">
+<img alt="User Avatar" data-alt="Corporate headshot of executive user" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCJwNXh1LdcfvH-YJGZ8UEXwhG68NeSPHY40kZ-XtqqTGYqZnIlgMoVEwlTa277ERzespskHGHjiC_NF4EybDEI04C5QzRkqHc6CVh3YyLgcP4H18VCX7CNEco0DH7Sg17BxhTSBYik8S4ATgfakziqFy1TvOU1yO11-vt4y_RnaHQ9nx0Ijxs1fHd6xAIv7W-zNEQi4MQt0OyXzi6d2T19VffWdZPuKFEIwGiBZoKQJ9FwgLNV_69CvWBmzHvD6tR6ITZ5-Oaf3zg"/>
+</div>
+</div>
+</header>
+<div class="mt-12 space-y-10">
+<!-- Header Section -->
+<section class="flex justify-between items-end">
+<div>
+<h2 class="font-headline text-4xl font-extrabold text-primary tracking-tight">Room Allocation Manager</h2>
+<p class="text-on-surface-variant mt-2 font-body">Managing 1,240 attendees across 4 primary hotel partners.</p>
+</div>
+<div class="flex gap-3">
+<button class="px-6 py-2.5 bg-surface-container-high text-on-surface font-body font-medium rounded-xl hover:bg-surface-container-highest transition-all">
+                        Bulk Assign
+                    </button>
+<button class="px-6 py-2.5 bg-gradient-to-br from-primary to-primary-container text-white font-body font-medium rounded-xl shadow-sm transition-all active:opacity-80">
+                        New Room Block
+                    </button>
+</div>
+</section>
+<!-- Metrics Bento Grid -->
+<section class="grid grid-cols-1 md:grid-cols-4 gap-6">
+<div class="p-6 rounded-xl bg-surface-container-lowest border border-outline-variant/20 shadow-sm">
+<p class="text-on-surface-variant font-label text-sm uppercase tracking-wider mb-2">Total Capacity</p>
+<h3 class="font-headline text-3xl font-bold text-primary">1,500</h3>
+<div class="mt-4 flex items-center text-tertiary">
+<span class="material-symbols-outlined text-sm mr-1">trending_up</span>
+<span class="text-xs font-bold">+120 from last week</span>
+</div>
+</div>
+<div class="p-6 rounded-xl bg-surface-container-lowest border border-outline-variant/20 shadow-sm">
+<p class="text-on-surface-variant font-label text-sm uppercase tracking-wider mb-2">Current Occupancy</p>
+<h3 class="font-headline text-3xl font-bold text-primary">1,240 <span class="text-lg font-medium text-outline-variant">/ 82%</span></h3>
+<div class="mt-4 h-1.5 w-full bg-tertiary-container rounded-full overflow-hidden">
+<div class="h-full bg-tertiary-fixed w-[82%]"></div>
+</div>
+</div>
+<div class="p-6 rounded-xl bg-surface-container-lowest border border-outline-variant/20 shadow-sm">
+<p class="text-on-surface-variant font-label text-sm uppercase tracking-wider mb-2">Pending Requests</p>
+<h3 class="font-headline text-3xl font-bold text-primary">42</h3>
+<div class="mt-4 flex items-center text-error">
+<span class="material-symbols-outlined text-sm mr-1">priority_high</span>
+<span class="text-xs font-bold">12 urgent</span>
+</div>
+</div>
+<div class="p-6 rounded-xl bg-surface-container-lowest border border-outline-variant/20 shadow-sm">
+<p class="text-on-surface-variant font-label text-sm uppercase tracking-wider mb-2">Avg. Nightly Rate</p>
+<h3 class="font-headline text-3xl font-bold text-primary">$312.40</h3>
+<div class="mt-4 text-outline-variant text-xs">Based on current contract prices</div>
+</div>
+</section>
+<!-- Main Workspace -->
+<div class="grid grid-cols-12 gap-8">
+<!-- Filters Panel -->
+<aside class="col-span-12 lg:col-span-3 space-y-6">
+<div class="p-6 rounded-xl bg-surface-container border border-outline-variant/10">
+<h4 class="font-headline font-bold text-primary mb-4">Refine View</h4>
+<div class="space-y-4">
+<div>
+<label class="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-2 block">Hotel Property</label>
+<div class="space-y-2">
+<label class="flex items-center gap-3 cursor-pointer group">
+<input checked="" class="rounded-sm border-none bg-surface-container-highest text-primary focus:ring-primary/20" type="checkbox"/>
+<span class="text-sm font-medium group-hover:text-primary transition-colors">Grand Regency Hotel</span>
+</label>
+<label class="flex items-center gap-3 cursor-pointer group">
+<input checked="" class="rounded-sm border-none bg-surface-container-highest text-primary focus:ring-primary/20" type="checkbox"/>
+<span class="text-sm font-medium group-hover:text-primary transition-colors">The Skyloft Suites</span>
+</label>
+<label class="flex items-center gap-3 cursor-pointer group">
+<input class="rounded-sm border-none bg-surface-container-highest text-primary focus:ring-primary/20" type="checkbox"/>
+<span class="text-sm font-medium group-hover:text-primary transition-colors">Waterfront Plaza</span>
+</label>
+</div>
+</div>
+<div class="pt-4 border-t border-outline-variant/20">
+<label class="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-2 block">Room Type</label>
+<div class="flex flex-wrap gap-2">
+<button class="px-3 py-1 bg-secondary-container text-on-secondary-container text-xs font-bold rounded-full">Standard</button>
+<button class="px-3 py-1 bg-surface-container-highest text-on-surface-variant text-xs font-bold rounded-full">Deluxe King</button>
+<button class="px-3 py-1 bg-surface-container-highest text-on-surface-variant text-xs font-bold rounded-full">Executive Suite</button>
+</div>
+</div>
+<div class="pt-4 border-t border-outline-variant/20">
+<label class="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-2 block">Status</label>
+<select class="w-full bg-surface-container-highest border-none rounded-sm text-sm py-2 focus:ring-surface-tint/40">
+<option>All Statuses</option>
+<option>Fully Allocated</option>
+<option>Partial Occupancy</option>
+<option>Available Only</option>
+</select>
+</div>
+</div>
+</div>
+<div class="p-6 rounded-xl bg-primary text-white">
+<h4 class="font-headline font-bold mb-2">Smart Suggestion</h4>
+<p class="text-xs opacity-80 leading-relaxed mb-4">32 attendees are currently unassigned. Waterfront Plaza has available block capacity matching their tier.</p>
+<button class="w-full bg-white/20 hover:bg-white/30 text-white text-xs font-bold py-2 rounded-lg transition-colors">
+                            Auto-Allocate
+                        </button>
+</div>
+</aside>
+<!-- List View -->
+<section class="col-span-12 lg:col-span-9 space-y-4">
+<!-- Table Header -->
+<div class="grid grid-cols-12 px-6 py-2 text-on-surface-variant font-label text-xs uppercase tracking-widest font-bold">
+<div class="col-span-4">Room &amp; Property</div>
+<div class="col-span-2 text-center">Type</div>
+<div class="col-span-3">Assigned Attendee</div>
+<div class="col-span-2">Status</div>
+<div class="col-span-1 text-right">Action</div>
+</div>
+<!-- Room Item 1 -->
+<div class="grid grid-cols-12 items-center px-6 py-5 bg-surface-container-lowest rounded-xl shadow-sm border border-transparent hover:border-primary/10 transition-all">
+<div class="col-span-4 flex items-center gap-4">
+<div class="h-10 w-10 bg-slate-100 rounded-lg flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">apartment</span>
+</div>
+<div>
+<p class="font-headline font-bold text-primary">Room 402</p>
+<p class="text-xs text-on-surface-variant">Grand Regency Hotel</p>
+</div>
+</div>
+<div class="col-span-2 text-center">
+<span class="px-3 py-1 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full uppercase">Deluxe King</span>
+</div>
+<div class="col-span-3 flex items-center gap-3">
+<div class="h-8 w-8 rounded-full overflow-hidden">
+<img alt="Attendee" data-alt="Portrait of conference attendee" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDCUW0fqQkDMMO9XsXVxj2s3GGLK3-ptYuR9vCzLxbHrwtnpVj46YJOM3k4E2_F_CDV3IHIbg7vRFUiBFYV4zlECrgpviqagHLi1tAVS_sftMREpvseker7GhcSA0H762Cpelcr401hUUoHsiVVvYilnQN6ZjyfNiUXYhWJM-eAgT1TJiyR9x7RZccui2Am-Vywd2dTgM3rM45BlM-_Dlbm6Q2eTYQe5SbxDqOnk18vtNPfeekEOhV7B9LgANLY1Tw9QK0q-37Zrm0"/>
+</div>
+<div>
+<p class="text-sm font-medium">David Richardson</p>
+<p class="text-[10px] text-on-surface-variant">CEO, TechCore Dynamics</p>
+</div>
+</div>
+<div class="col-span-2">
+<span class="inline-flex items-center gap-1.5 text-xs font-bold text-tertiary">
+<span class="h-2 w-2 rounded-full bg-tertiary"></span>
+                                Occupied
+                            </span>
+</div>
+<div class="col-span-1 text-right">
+<button class="text-outline hover:text-primary transition-colors">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Room Item 2 -->
+<div class="grid grid-cols-12 items-center px-6 py-5 bg-surface-container-lowest rounded-xl shadow-sm border border-transparent hover:border-primary/10 transition-all">
+<div class="col-span-4 flex items-center gap-4">
+<div class="h-10 w-10 bg-slate-100 rounded-lg flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">apartment</span>
+</div>
+<div>
+<p class="font-headline font-bold text-primary">Suite 1204</p>
+<p class="text-xs text-on-surface-variant">The Skyloft Suites</p>
+</div>
+</div>
+<div class="col-span-2 text-center">
+<span class="px-3 py-1 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full uppercase">Executive</span>
+</div>
+<div class="col-span-3 flex items-center gap-3">
+<div class="h-8 w-8 rounded-full bg-surface-container flex items-center justify-center">
+<span class="material-symbols-outlined text-outline-variant">person_add</span>
+</div>
+<div>
+<p class="text-sm font-medium text-outline">Unassigned</p>
+<p class="text-[10px] text-outline-variant">Click to allocate</p>
+</div>
+</div>
+<div class="col-span-2">
+<span class="inline-flex items-center gap-1.5 text-xs font-bold text-on-surface-variant">
+<span class="h-2 w-2 rounded-full bg-outline-variant"></span>
+                                Available
+                            </span>
+</div>
+<div class="col-span-1 text-right">
+<button class="text-outline hover:text-primary transition-colors">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Room Item 3 -->
+<div class="grid grid-cols-12 items-center px-6 py-5 bg-surface-container-lowest rounded-xl shadow-sm border border-transparent hover:border-primary/10 transition-all">
+<div class="col-span-4 flex items-center gap-4">
+<div class="h-10 w-10 bg-slate-100 rounded-lg flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">apartment</span>
+</div>
+<div>
+<p class="font-headline font-bold text-primary">Room 105</p>
+<p class="text-xs text-on-surface-variant">Grand Regency Hotel</p>
+</div>
+</div>
+<div class="col-span-2 text-center">
+<span class="px-3 py-1 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full uppercase">Standard</span>
+</div>
+<div class="col-span-3 flex items-center gap-3">
+<div class="h-8 w-8 rounded-full overflow-hidden">
+<img alt="Attendee" data-alt="Portrait of female conference attendee" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAtY_hj8-662LtgSdNJUt1Mo3dCnvgsaOQUQJ9vV91HmS2y393XsquYcJZ8s7bXFLimhtIHY9GS1f4Kx5eha2r0e6Di67qKKDpB1njBJ5-y7y09UIiqaSKd0F6UFMDkS6MB2Bo0NAQojlW4mObI3jV7ijvP8HECku5qO-iFjgOublKyF8ldlrFqeCoGEHSq7xYwm0ug3P2WBK9Ug0cs5jsSEIt7WxtcszeAwnGMw-e5smJ3rfC-tRDCjseU1FPxpFts4goIfV_1bMw"/>
+</div>
+<div>
+<p class="text-sm font-medium">Elena Rodriguez</p>
+<p class="text-[10px] text-on-surface-variant">Director, Innovate Global</p>
+</div>
+</div>
+<div class="col-span-2">
+<span class="inline-flex items-center gap-1.5 text-xs font-bold text-tertiary">
+<span class="h-2 w-2 rounded-full bg-tertiary"></span>
+                                Occupied
+                            </span>
+</div>
+<div class="col-span-1 text-right">
+<button class="text-outline hover:text-primary transition-colors">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Pagination -->
+<div class="flex justify-between items-center mt-8 pt-4 border-t border-outline-variant/10">
+<p class="text-xs text-on-surface-variant">Showing 1-15 of 450 rooms</p>
+<div class="flex gap-2">
+<button class="p-2 bg-surface-container-lowest border border-outline-variant/20 rounded-lg hover:bg-surface-container transition-all">
+<span class="material-symbols-outlined text-sm">chevron_left</span>
+</button>
+<button class="px-3 py-1 bg-primary text-white text-xs font-bold rounded-lg">1</button>
+<button class="px-3 py-1 bg-surface-container-lowest border border-outline-variant/20 text-xs font-bold rounded-lg hover:bg-surface-container">2</button>
+<button class="px-3 py-1 bg-surface-container-lowest border border-outline-variant/20 text-xs font-bold rounded-lg hover:bg-surface-container">3</button>
+<button class="p-2 bg-surface-container-lowest border border-outline-variant/20 rounded-lg hover:bg-surface-container transition-all">
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+</div>
+</div>
+</section>
+</div>
+</div>
+</main>
+<!-- Floating Action Button (Shell) -->
+<button class="fixed bottom-8 right-8 h-14 w-14 rounded-full bg-primary text-white shadow-xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-50">
+<span class="material-symbols-outlined text-3xl">add</span>
+</button>
+</body></html>

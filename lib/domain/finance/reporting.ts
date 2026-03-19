@@ -21,6 +21,10 @@ export type RevenueOverview = {
     to: string
     trendGranularity: RevenueTrendGranularity
   }
+  availableEvents: Array<{
+    providerEventId: string
+    name: string | null
+  }>
   totals: {
     grossMinor: number
     paidMinor: number
@@ -30,6 +34,7 @@ export type RevenueOverview = {
   statusCounts: Record<CanonicalStatus, number>
   trend: Array<{
     bucket: string
+    eventLabel: string
     grossMinor: number
     paidMinor: number
     refundedMinor: number
@@ -89,13 +94,19 @@ export async function getRevenueOverview(filters: RevenueOverviewFilters = {}): 
     ...(eventId ? { providerEventId: eventId } : {}),
   }
 
-  const [orders, groupedStatuses] = await Promise.all([
+  const [orders, groupedStatuses, availableEvents] = await Promise.all([
     prisma.ticketTailorOrder.findMany({
       where: whereClause,
       select: {
         orderedAt: true,
         normalizedStatus: true,
         totalAmountMinor: true,
+        providerEventId: true,
+        event: {
+          select: {
+            name: true,
+          },
+        },
       },
     }),
     prisma.ticketTailorOrder.groupBy({
@@ -103,6 +114,13 @@ export async function getRevenueOverview(filters: RevenueOverviewFilters = {}): 
       where: whereClause,
       _count: {
         _all: true,
+      },
+    }),
+    prisma.ticketTailorEvent.findMany({
+      orderBy: [{ startsAt: "asc" }, { name: "asc" }],
+      select: {
+        providerEventId: true,
+        name: true,
       },
     }),
   ])
@@ -127,6 +145,7 @@ export async function getRevenueOverview(filters: RevenueOverviewFilters = {}): 
       refundedMinor: number
       netMinor: number
       orderCount: number
+      eventLabel: string
     }
   >()
 
@@ -143,6 +162,7 @@ export async function getRevenueOverview(filters: RevenueOverviewFilters = {}): 
     const bucket = trendGranularity === "day" ? toUtcDayBucket(order.orderedAt) : toUtcDayBucket(order.orderedAt)
 
     const current = trendMap.get(bucket) ?? {
+      eventLabel: order.event.name?.trim() || order.providerEventId,
       grossMinor: 0,
       paidMinor: 0,
       refundedMinor: 0,
@@ -152,6 +172,11 @@ export async function getRevenueOverview(filters: RevenueOverviewFilters = {}): 
 
     current.grossMinor += amountMinor
     current.orderCount += 1
+
+    const nextEventLabel = order.event.name?.trim() || order.providerEventId
+    if (current.eventLabel !== nextEventLabel) {
+      current.eventLabel = "Multiple events"
+    }
 
     if (order.normalizedStatus === "paid") {
       current.paidMinor += amountMinor
@@ -186,6 +211,7 @@ export async function getRevenueOverview(filters: RevenueOverviewFilters = {}): 
       to: to.toISOString(),
       trendGranularity,
     },
+    availableEvents,
     totals: {
       grossMinor,
       paidMinor,

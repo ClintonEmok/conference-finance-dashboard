@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Attendee Detail - Julianne Deutch</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "surface-bright": "#f8f9fa",
+                        "tertiary-fixed-dim": "#88d982",
+                        "surface-tint": "#2b5bb5",
+                        "secondary-fixed-dim": "#b4cad6",
+                        "inverse-on-surface": "#f0f1f2",
+                        "on-secondary-container": "#526772",
+                        "on-secondary": "#ffffff",
+                        "primary": "#002f73",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-low": "#f3f4f5",
+                        "on-tertiary-fixed": "#002204",
+                        "on-surface-variant": "#41474e",
+                        "on-primary-fixed": "#001945",
+                        "tertiary-container": "#005613",
+                        "on-tertiary-fixed-variant": "#005312",
+                        "background": "#f8f9fa",
+                        "secondary-fixed": "#cfe6f2",
+                        "on-error-container": "#93000a",
+                        "surface-container": "#edeeef",
+                        "surface": "#f8f9fa",
+                        "error": "#ba1a1a",
+                        "outline-variant": "#c1c7ce",
+                        "on-tertiary-container": "#7acb76",
+                        "secondary": "#4c616c",
+                        "tertiary-fixed": "#a3f69c",
+                        "surface-container-highest": "#e1e3e4",
+                        "primary-fixed": "#d9e2ff",
+                        "on-error": "#ffffff",
+                        "surface-dim": "#d9dadb",
+                        "on-primary": "#ffffff",
+                        "primary-fixed-dim": "#b0c6ff",
+                        "on-surface": "#191c1d",
+                        "surface-variant": "#e1e3e4",
+                        "error-container": "#ffdad6",
+                        "tertiary": "#003c0a",
+                        "surface-container-high": "#e7e8e9",
+                        "secondary-container": "#cfe6f2",
+                        "on-tertiary": "#ffffff",
+                        "on-background": "#191c1d",
+                        "on-primary-container": "#9bb7ff",
+                        "outline": "#72787e",
+                        "inverse-surface": "#2e3132",
+                        "on-secondary-fixed": "#071e27",
+                        "on-primary-fixed-variant": "#00429c",
+                        "inverse-primary": "#b0c6ff"
+                    },
+                    fontFamily: {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px);
+        }
+    </style>
+</head>
+<body class="bg-surface font-body text-on-surface antialiased">
+<!-- TopNavBar (Shared Component) -->
+<nav class="fixed top-0 w-full z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-sm dark:shadow-none flex items-center justify-between px-6 h-16 w-full">
+<div class="flex items-center gap-4">
+<span class="font-headline tracking-tight text-xl font-bold text-sky-900 dark:text-sky-100">Executive Ledger</span>
+</div>
+<div class="flex items-center gap-3">
+<button class="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-200 rounded-full">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-200 rounded-full">
+<span class="material-symbols-outlined">account_circle</span>
+</button>
+</div>
+</nav>
+<!-- SideNavBar (Shared Component) -->
+<aside class="fixed left-0 top-0 h-full w-64 z-40 bg-slate-50 dark:bg-slate-950 flex flex-col py-8 px-4 border-r border-slate-100 dark:border-slate-800 hidden md:flex">
+<div class="mb-10 px-2">
+<h2 class="font-headline font-extrabold text-sky-900 dark:text-sky-100 text-lg">Executive Ledger</h2>
+<p class="text-xs text-slate-500 font-medium uppercase tracking-wider">Conference Manager</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 transition-all duration-300 rounded-lg" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-inter text-sm antialiased">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-sky-900 dark:text-sky-100 font-bold border-r-4 border-sky-700 dark:border-sky-400 bg-white dark:bg-slate-900 transition-all duration-300 rounded-l-lg" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="font-inter text-sm antialiased">Attendees</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 transition-all duration-300 rounded-lg" href="#">
+<span class="material-symbols-outlined">payments</span>
+<span class="font-inter text-sm antialiased">Financials</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 transition-all duration-300 rounded-lg" href="#">
+<span class="material-symbols-outlined">hotel</span>
+<span class="font-inter text-sm antialiased">Rooms</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 transition-all duration-300 rounded-lg" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-inter text-sm antialiased">Settings</span>
+</a>
+</nav>
+<div class="mt-auto">
+<button class="w-full bg-primary bg-gradient-to-br from-primary to-primary-container text-white py-3 rounded-xl font-semibold shadow-sm hover:shadow-md transition-shadow">
+                New Registration
+            </button>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="md:ml-64 pt-16 min-h-screen bg-surface">
+<div class="max-w-6xl mx-auto p-6 md:p-10 space-y-10">
+<!-- Header Section: Architectural Editorial Style -->
+<header class="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2 border-b border-outline-variant/20">
+<div class="flex items-center gap-6">
+<div class="relative group">
+<img alt="Julianne Deutch" class="w-24 h-24 md:w-32 md:h-32 rounded-xl object-cover grayscale hover:grayscale-0 transition-all duration-500 shadow-xl" data-alt="Professional headshot of a female executive" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBZv4lIN5Sejus3W3DDqkX0UOYuTWKQLWV0Tky_Wy_qaOtFW9B2gPp351HFR2xCwQP0IoqCGzDuWSEB4TdErwYy_utIxup0Igtqv8AzGSnEHqTmlGSDHyZATIYRY-IezhRKo1k43PU-Eka18f0NSomK71kXxo2ia08Ih87oA3RCVIKf0_gHqkOVu8pQsBIirX83bjhz-mv7SWVfwQAyDvE9fn1-Peytdz1qHDBHY8wn6TpMvcSfTbwLMOCn397BOfXK47f6BjMbTVQ"/>
+<div class="absolute -bottom-2 -right-2 bg-primary p-2 rounded-lg text-white shadow-lg">
+<span class="material-symbols-outlined text-sm">verified</span>
+</div>
+</div>
+<div>
+<nav class="flex items-center gap-2 text-xs font-label text-on-surface-variant mb-2 uppercase tracking-widest">
+<span>Directory</span>
+<span class="material-symbols-outlined text-[10px]">chevron_right</span>
+<span>Attendee Details</span>
+</nav>
+<h1 class="font-headline text-4xl md:text-5xl font-extrabold tracking-tight text-primary">Julianne Deutch</h1>
+<p class="font-body text-lg text-secondary mt-1">SVP of Global Strategy, TechCorp Industries</p>
+</div>
+</div>
+<div class="flex flex-wrap gap-3">
+<button class="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-outline-variant/30 text-on-surface hover:bg-surface-container transition-colors font-semibold text-sm">
+<span class="material-symbols-outlined text-lg">edit</span>
+                        Edit Profile
+                    </button>
+<button class="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary bg-gradient-to-br from-primary to-primary-container text-white shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all font-semibold text-sm">
+<span class="material-symbols-outlined text-lg">mail</span>
+                        Send Payment Reminder
+                    </button>
+</div>
+</header>
+<!-- Bento Grid Layout for Key Metrics -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Financial Status Card -->
+<div class="md:col-span-2 bg-surface-container-lowest p-8 rounded-xl shadow-sm border border-outline-variant/10">
+<div class="flex items-center justify-between mb-8">
+<h3 class="font-headline text-xl font-bold text-primary">Financial Status</h3>
+<span class="px-3 py-1 bg-secondary-container text-on-secondary-fixed-variant rounded-full text-xs font-bold uppercase tracking-wider">Installments Active</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10">
+<div class="space-y-1">
+<p class="text-xs font-label text-on-surface-variant uppercase tracking-widest">Total Amount Due</p>
+<p class="text-3xl font-headline font-bold text-on-surface">€2,450.00</p>
+</div>
+<div class="space-y-1">
+<p class="text-xs font-label text-on-surface-variant uppercase tracking-widest">Amount Paid</p>
+<p class="text-3xl font-headline font-bold text-tertiary">€1,470.00</p>
+</div>
+<div class="space-y-1">
+<p class="text-xs font-label text-on-surface-variant uppercase tracking-widest">Remaining Balance</p>
+<p class="text-3xl font-headline font-bold text-error">€980.00</p>
+</div>
+</div>
+<div class="space-y-3">
+<div class="flex justify-between items-end">
+<span class="text-sm font-semibold text-on-surface">Payment Progress</span>
+<span class="text-lg font-headline font-bold text-primary">60%</span>
+</div>
+<div class="h-3 w-full bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-gradient-to-r from-tertiary-container to-tertiary-fixed-dim w-[60%] rounded-full shadow-[0_0_12px_rgba(136,217,130,0.4)]"></div>
+</div>
+<p class="text-xs text-on-surface-variant">Next installment of €490.00 due on Oct 15, 2023.</p>
+</div>
+</div>
+<!-- Accommodation Card -->
+<div class="bg-primary bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] text-white p-8 rounded-xl shadow-xl flex flex-col justify-between" style="background-color: #002f73;">
+<div>
+<div class="flex items-center gap-3 mb-6">
+<span class="material-symbols-outlined text-secondary-fixed">hotel</span>
+<h3 class="font-headline text-xl font-bold">Accommodation</h3>
+</div>
+<div class="space-y-6">
+<div>
+<p class="text-xs font-label text-blue-200/70 uppercase tracking-widest">Assigned Hotel</p>
+<p class="text-xl font-headline font-semibold">Grand Regency Hotel</p>
+</div>
+<div class="flex gap-10">
+<div>
+<p class="text-xs font-label text-blue-200/70 uppercase tracking-widest">Room</p>
+<p class="text-xl font-headline font-semibold">402</p>
+</div>
+<div>
+<p class="text-xs font-label text-blue-200/70 uppercase tracking-widest">Type</p>
+<p class="text-xl font-headline font-semibold">Deluxe King</p>
+</div>
+</div>
+</div>
+</div>
+<button class="mt-8 w-full py-3 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-lg font-semibold text-sm transition-all border border-white/20">
+                        Reassign Room
+                    </button>
+</div>
+</div>
+<!-- Payment History Ledger -->
+<section class="space-y-6">
+<div class="flex items-center justify-between">
+<h3 class="font-headline text-2xl font-bold text-primary">Payment History Ledger</h3>
+<button class="flex items-center gap-2 text-primary hover:text-primary-container font-semibold transition-colors">
+<span class="material-symbols-outlined">download</span>
+                        Download Receipt
+                    </button>
+</div>
+<div class="bg-surface-container-lowest rounded-xl overflow-hidden shadow-sm border border-outline-variant/10">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low text-on-surface-variant">
+<th class="px-6 py-4 text-xs font-label uppercase tracking-widest">Transaction ID</th>
+<th class="px-6 py-4 text-xs font-label uppercase tracking-widest">Date</th>
+<th class="px-6 py-4 text-xs font-label uppercase tracking-widest">Method</th>
+<th class="px-6 py-4 text-xs font-label uppercase tracking-widest text-right">Amount</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/10">
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-6 py-5 font-mono text-sm text-primary font-medium">#TRX-9821-DA</td>
+<td class="px-6 py-5 text-sm text-on-surface">Sep 12, 2023</td>
+<td class="px-6 py-5">
+<span class="px-3 py-1 rounded-full bg-secondary-container/50 text-on-secondary-fixed-variant text-[11px] font-bold">Ticket Tailor</span>
+</td>
+<td class="px-6 py-5 text-right font-headline font-bold text-on-surface">€735.00</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-6 py-5 font-mono text-sm text-primary font-medium">#TRX-8442-LQ</td>
+<td class="px-6 py-5 text-sm text-on-surface">Aug 28, 2023</td>
+<td class="px-6 py-5">
+<span class="px-3 py-1 rounded-full bg-tertiary-fixed/30 text-tertiary text-[11px] font-bold">Tikkie</span>
+</td>
+<td class="px-6 py-5 text-right font-headline font-bold text-on-surface">€735.00</td>
+</tr>
+<tr class="bg-surface-container-low/30 italic">
+<td class="px-6 py-5 font-mono text-sm text-on-surface-variant">#TRX-PENDING</td>
+<td class="px-6 py-5 text-sm text-on-surface-variant">Oct 15, 2023</td>
+<td class="px-6 py-5 text-on-surface-variant text-xs">Scheduled Installment</td>
+<td class="px-6 py-5 text-right font-headline font-bold text-on-surface-variant">€490.00</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Bottom Note / System Status -->
+<footer class="pt-10 flex flex-col md:flex-row justify-between items-center gap-4 border-t border-outline-variant/10 text-on-surface-variant text-xs font-label uppercase tracking-widest">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-tertiary animate-pulse"></span>
+                    Account in good standing
+                </div>
+<div>Last Synced: Today at 09:42 AM</div>
+<div class="flex gap-4">
+<a class="hover:text-primary transition-colors" href="#">Privacy Policy</a>
+<a class="hover:text-primary transition-colors" href="#">Audit Log</a>
+</div>
+</footer>
+</div>
+</main>
+<!-- Mobile Navigation Shell -->
+<nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl flex justify-around items-center h-16 border-t border-outline-variant/20 z-50">
+<button class="flex flex-col items-center gap-1 text-slate-500">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="text-[10px] font-bold">DASH</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-primary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">group</span>
+<span class="text-[10px] font-bold">ATTENDEES</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-slate-500">
+<span class="material-symbols-outlined">hotel</span>
+<span class="text-[10px] font-bold">ROOMS</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-slate-500">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-[10px] font-bold">SET</span>
+</button>
+</nav>
+</body></html>

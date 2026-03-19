@@ -84,6 +84,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       generatedAt: ledger.generatedAt,
       filters: ledger.filters,
+      availableEvents: ledger.availableEvents,
       page: ledger.page,
       rows: ledger.rows,
     })

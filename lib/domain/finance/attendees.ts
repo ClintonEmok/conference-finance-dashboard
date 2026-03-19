@@ -52,6 +52,10 @@ export type AttendeeLedgerResult = {
     page: number
     pageSize: number
   }
+  availableEvents: Array<{
+    providerEventId: string
+    name: string | null
+  }>
   page: {
     number: number
     size: number
@@ -154,7 +158,7 @@ export async function getAttendeeLedger(
       : {}),
   }
 
-  const [totalRows, attendees] = await Promise.all([
+  const [totalRows, attendees, availableEvents] = await Promise.all([
     prisma.ticketTailorAttendee.count({ where: whereClause }),
     prisma.ticketTailorAttendee.findMany({
       where: whereClause,
@@ -196,6 +200,13 @@ export async function getAttendeeLedger(
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
+    prisma.ticketTailorEvent.findMany({
+      orderBy: [{ startsAt: "asc" }, { name: "asc" }],
+      select: {
+        providerEventId: true,
+        name: true,
+      },
+    }),
   ])
 
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
@@ -210,6 +221,7 @@ export async function getAttendeeLedger(
       page,
       pageSize,
     },
+    availableEvents,
     page: {
       number: page,
       size: pageSize,

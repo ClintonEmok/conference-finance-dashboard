@@ -118,8 +118,9 @@ async function buildTikkieStatus(): Promise<IntegrationStatusRecord> {
   const config = getTikkieConfig()
 
   const connectivity = config.configured
-    ? await pingUrl(`${config.values.baseUrl}/platforms`, {
-        "X-Api-Key": config.values.apiKey ?? "",
+    ? await pingUrl(`${config.values.baseUrl}/paymentrequests?pageSize=1&pageNumber=0`, {
+        "API-Key": config.values.apiKey ?? "",
+        "X-App-Token": config.values.appToken ?? "",
       })
     : {
         attempted: false,
@@ -139,7 +140,7 @@ async function buildTikkieStatus(): Promise<IntegrationStatusRecord> {
       baseUrl: config.metadata.baseUrl,
       apiKeyConfigured: config.metadata.hasApiKey,
       apiKeyPreview: config.metadata.keyPreview,
-      ibanConfigured: config.metadata.ibanConfigured,
+      appTokenConfigured: config.metadata.appTokenConfigured,
     },
     connectivity,
   }

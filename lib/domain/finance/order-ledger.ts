@@ -35,6 +35,10 @@ export type OrderLedgerResult = {
     page: number
     pageSize: number
   }
+  availableEvents: Array<{
+    providerEventId: string
+    name: string | null
+  }>
   page: {
     number: number
     size: number
@@ -116,7 +120,7 @@ export async function getOrderLedger(filters: OrderLedgerFilters = {}): Promise<
     ...(status ? { normalizedStatus: status } : {}),
   }
 
-  const [totalRows, orders] = await Promise.all([
+  const [totalRows, orders, availableEvents] = await Promise.all([
     prisma.ticketTailorOrder.count({ where: whereClause }),
     prisma.ticketTailorOrder.findMany({
       where: whereClause,
@@ -130,6 +134,13 @@ export async function getOrderLedger(filters: OrderLedgerFilters = {}): Promise<
       orderBy: [{ orderedAt: "desc" }, { createdAt: "desc" }],
       skip: (page - 1) * pageSize,
       take: pageSize,
+    }),
+    prisma.ticketTailorEvent.findMany({
+      orderBy: [{ startsAt: "asc" }, { name: "asc" }],
+      select: {
+        providerEventId: true,
+        name: true,
+      },
     }),
   ])
 
@@ -145,6 +156,7 @@ export async function getOrderLedger(filters: OrderLedgerFilters = {}): Promise<
       page,
       pageSize,
     },
+    availableEvents,
     page: {
       number: page,
       size: pageSize,

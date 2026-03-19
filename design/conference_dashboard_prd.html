@@ -1,0 +1,31 @@
+# Project: Executive Ledger - Conference Financial Dashboard
+
+## Core Functionality
+An internal tool for conference organizers to track financial health, manage attendee payments via Tikkie and Ticket Tailor, and handle venue room allocations.
+
+## Key User Flows
+1. **Financial Overview:** Tracking total revenue, outstanding payments, and budget health.
+2. **Payment Tracking:** Monitoring real-time status of Tikkie and Ticket Tailor transactions.
+3. **Room Allocation:** Assigning attendees to rooms and managing venue capacity.
+4. **Attendee Ledger:** Detailed view of individual attendee financial status and logistics.
+
+## Proposed Screens
+
+### 1. Main Dashboard (Overview)
+*   **Purpose:** High-level health check of the conference finances.
+*   **Key Elements:** KPIs (Total Revenue, Paid vs. Unpaid, Room Capacity %), Recent Transactions, and an Integration Status panel (Tikkie/Ticket Tailor).
+
+### 2. Payment Tracking (Ledger)
+*   **Purpose:** Detailed list of all financial transactions.
+*   **Key Elements:** Filterable table showing Attendee Name, Source (Tikkie/Ticket Tailor), Status (Paid, Pending, Failed), Amount, and Date. Action buttons to send reminders.
+
+### 3. Room Allocation Manager
+*   **Purpose:** Visual tool for managing accommodation.
+*   **Key Elements:** Floor plan or list view of available rooms, drag-and-drop allocation, and filters for room type/status.
+
+### 4. Integration Settings
+*   **Purpose:** Connecting and configuring third-party tools.
+*   **Key Elements:** API configuration for Ticket Tailor and webhook setup for Tikkie notifications.
+
+## Design Philosophy
+The UI will prioritize **clarity and trust**. Financial data will be presented with high contrast and precise alignment, while status indicators (Success/Warning) will provide immediate visual feedback on payment health.

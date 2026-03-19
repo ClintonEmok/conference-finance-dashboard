@@ -36,8 +36,12 @@ export type ReconciliationResult = {
     eventId: string | null
     from: string
     to: string
-    status: CanonicalOrderStatus | null
+      status: CanonicalOrderStatus | null
   }
+  availableEvents: Array<{
+    providerEventId: string
+    name: string | null
+  }>
   totals: {
     rows: number
     outstandingMinor: number
@@ -122,17 +126,26 @@ export async function getReconciliationRows(
     ...(status ? { normalizedStatus: status } : {}),
   }
 
-  const orders = await prisma.ticketTailorOrder.findMany({
-    where: whereClause,
-    include: {
-      event: {
-        select: {
-          name: true,
+  const [orders, availableEvents] = await Promise.all([
+    prisma.ticketTailorOrder.findMany({
+      where: whereClause,
+      include: {
+        event: {
+          select: {
+            name: true,
+          },
         },
       },
-    },
-    orderBy: [{ orderedAt: "desc" }, { createdAt: "desc" }],
-  })
+      orderBy: [{ orderedAt: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.ticketTailorEvent.findMany({
+      orderBy: [{ startsAt: "asc" }, { name: "asc" }],
+      select: {
+        providerEventId: true,
+        name: true,
+      },
+    }),
+  ])
 
   const rows: ReconciliationRow[] = []
   let outstandingMinor = 0
@@ -172,6 +185,7 @@ export async function getReconciliationRows(
       to: to.toISOString(),
       status,
     },
+    availableEvents,
     totals: {
       rows: rows.length,
       outstandingMinor,

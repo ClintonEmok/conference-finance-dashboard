@@ -1,12 +1,17 @@
 import { prisma } from "@/lib/prisma"
 
 export type AccommodationInventory = {
+  availableEvents: Array<{
+    providerEventId: string
+    name: string | null
+  }>
   hotels: Array<{
     id: string
     name: string
     city: string | null
     notes: string | null
     roomCount: number
+    assignedEventIds: string[]
   }>
   roomTypes: Array<{
     id: string
@@ -31,6 +36,13 @@ export type AccommodationInventory = {
       defaultCapacity: number
     }
   }>
+  summary: {
+    totalRooms: number
+    emptyRooms: number
+    availableRooms: number
+    fullRooms: number
+    unassignedAttendees: number
+  }
 }
 
 export type CreateHotelInput = {
@@ -51,6 +63,11 @@ export type CreateRoomInput = {
   label: string
   capacity: number
   notes?: string | null
+}
+
+export type EventHotelScopeInput = {
+  eventId: string
+  hotelId: string
 }
 
 function normalizeRequiredString(value: string, fieldName: string) {
@@ -81,10 +98,26 @@ function normalizeCapacity(value: number, fieldName: "defaultCapacity" | "capaci
 }
 
 export async function listAccommodationInventory(): Promise<AccommodationInventory> {
-  const [hotels, roomTypes, rooms] = await Promise.all([
+  const [availableEvents, hotels, roomTypes, rooms] = await Promise.all([
+    prisma.ticketTailorEvent.findMany({
+      orderBy: [{ startsAt: "asc" }, { name: "asc" }],
+      select: {
+        providerEventId: true,
+        name: true,
+      },
+    }),
     prisma.accommodationHotel.findMany({
       orderBy: [{ name: "asc" }],
       include: {
+        eventLinks: {
+          select: {
+            event: {
+              select: {
+                providerEventId: true,
+              },
+            },
+          },
+        },
         _count: {
           select: {
             rooms: true,
@@ -123,12 +156,14 @@ export async function listAccommodationInventory(): Promise<AccommodationInvento
   ])
 
   return {
+    availableEvents,
     hotels: hotels.map((hotel) => ({
       id: hotel.id,
       name: hotel.name,
       city: hotel.city ?? null,
       notes: hotel.notes ?? null,
       roomCount: hotel._count.rooms,
+      assignedEventIds: hotel.eventLinks.map((link) => link.event.providerEventId),
     })),
     roomTypes: roomTypes.map((roomType) => ({
       id: roomType.id,
@@ -146,7 +181,94 @@ export async function listAccommodationInventory(): Promise<AccommodationInvento
       hotel: room.hotel,
       roomType: room.roomType,
     })),
+    summary: {
+      totalRooms: rooms.length,
+      emptyRooms: rooms.filter((room) => room.occupiedBeds === 0).length,
+      availableRooms: rooms.filter((room) => room.occupiedBeds < room.capacity).length,
+      fullRooms: rooms.filter((room) => room.occupiedBeds >= room.capacity).length,
+      unassignedAttendees: 0,
+    },
   }
+}
+
+export async function attachHotelToEvent(input: EventHotelScopeInput) {
+  const eventId = normalizeRequiredString(input.eventId, "eventId")
+  const hotelId = normalizeRequiredString(input.hotelId, "hotelId")
+
+  const [event, hotel] = await Promise.all([
+    prisma.ticketTailorEvent.findUnique({
+      where: { providerEventId: eventId },
+      select: { id: true },
+    }),
+    prisma.accommodationHotel.findUnique({
+      where: { id: hotelId },
+      select: { id: true },
+    }),
+  ])
+
+  if (!event) {
+    throw new Error("Invalid 'eventId'. Event not found.")
+  }
+
+  if (!hotel) {
+    throw new Error("Invalid 'hotelId'. Hotel not found.")
+  }
+
+  try {
+    return await prisma.accommodationEventHotel.upsert({
+      where: {
+        eventId_hotelId: {
+          eventId: event.id,
+          hotelId: hotel.id,
+        },
+      },
+      update: {},
+      create: {
+        eventId: event.id,
+        hotelId: hotel.id,
+      },
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Unique constraint")) {
+      throw new Error("Invalid assignment. Hotel is already linked to this event.")
+    }
+
+    throw error
+  }
+}
+
+export async function detachHotelFromEvent(input: EventHotelScopeInput) {
+  const eventId = normalizeRequiredString(input.eventId, "eventId")
+  const hotelId = normalizeRequiredString(input.hotelId, "hotelId")
+
+  const event = await prisma.ticketTailorEvent.findUnique({
+    where: { providerEventId: eventId },
+    select: { id: true },
+  })
+
+  if (!event) {
+    throw new Error("Invalid 'eventId'. Event not found.")
+  }
+
+  const link = await prisma.accommodationEventHotel.findFirst({
+    where: {
+      eventId: event.id,
+      hotelId,
+    },
+    select: { id: true },
+  })
+
+  if (!link) {
+    throw new Error("Invalid assignment. Hotel is not linked to this event.")
+  }
+
+  await prisma.accommodationEventHotel.delete({
+    where: {
+      id: link.id,
+    },
+  })
+
+  return { ok: true }
 }
 
 export async function createHotel(input: CreateHotelInput) {

@@ -16,6 +16,10 @@ type OrdersPayload = {
     page: number
     pageSize: number
   }
+  availableEvents: Array<{
+    providerEventId: string
+    name: string | null
+  }>
   page: {
     number: number
     size: number
@@ -219,13 +223,18 @@ export default function OrdersPage() {
           <div className="grid gap-4 md:grid-cols-4">
             <label className="space-y-1">
               <span className="text-sm font-medium">Event ID</span>
-              <input
-                type="text"
+              <select
                 value={eventIdInput}
                 onChange={(event) => setEventIdInput(event.target.value)}
-                placeholder="All events"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
+              >
+                <option value="">All events</option>
+                {(payload?.availableEvents ?? []).map((event) => (
+                  <option key={event.providerEventId} value={event.providerEventId}>
+                    {event.name?.trim() || event.providerEventId}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label className="space-y-1">
