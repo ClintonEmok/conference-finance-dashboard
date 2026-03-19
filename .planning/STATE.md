@@ -4,40 +4,40 @@ milestone: v1.0
 milestone_name: milestone
 status: in_progress
 stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-03-19T10:17:02Z"
-last_activity: 2026-03-19 — Completed 04-01-PLAN.md
+last_updated: "2026-03-19T11:07:15Z"
+last_activity: 2026-03-19 — Completed attendee sync and attendee ledger foundation
 progress:
   total_phases: 5
-  completed_phases: 2
-  total_plans: 10
-  completed_plans: 6
-  percent: 60
+  completed_phases: 3
+  total_plans: 8
+  completed_plans: 7
+  percent: 88
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-18)
+See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 **Core value:** One trusted dashboard for church conference finance operations.
-**Current focus:** Phase 4 - Tikkie Collection Workflow
+**Current focus:** Phase 4 - Attendee Data & Accommodation Foundations
 
 ## Current Position
 
-Phase: 4 of 5 (Tikkie Collection Workflow)
+Phase: 4 of 5 (Attendee Data & Accommodation Foundations)
 Plan: 1 of 2 in current phase
 Status: In progress
-Last activity: 2026-03-19 — Completed 04-01-PLAN.md
+Last activity: 2026-03-19 — Completed 04-01 attendee sync and attendee ledger foundation
 
-Progress: [██████░░░░] 60%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: 89 min
-- Total execution time: 8.9 hours
+- Total plans completed: 7
+- Average duration: 78 min
+- Total execution time: 9.1 hours
 
 **By Phase:**
 
@@ -45,12 +45,12 @@ Progress: [██████░░░░] 60%
 |-------|-------|-------|----------|
 | 1. Foundation & Secure Access | 2 | 62 min | 31 min |
 | 2. Ticket Data Reliability | 1 | 148 min | 148 min |
-| 3. Finance Visibility & Reconciliation | 2 | 453 min | 227 min |
-| 4. Tikkie Collection Workflow | 1 | 10 min | 10 min |
+| 3. Finance Visibility & Outstanding Balances | 2 | 453 min | 227 min |
+| 4. Attendee Data & Accommodation Foundations | 1 | 15 min | 15 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-02, 02-01, 03-01, 03-02, 04-01
-- Trend: Improving (faster execution with stable delivery)
+- Last 4 completed plans: 02-01, 03-01, 03-02, 04-01
+- Trend: Stable delivery with fast progress into attendee-centric workflow foundations
 
 ## Accumulated Context
 
@@ -68,24 +68,29 @@ Recent decisions affecting current work:
 - [03-01] Keep revenue calculations in minor units and derive paid/refunded/net from canonical normalized statuses.
 - [03-01] Return applied filters + generated timestamp in revenue API for operator-visible scope verification.
 - [03-01] Use explicit filter-apply dashboard interactions to avoid noisy query churn while preserving responsive refresh.
-- [03-02] Use conservative reconciliation heuristics until external Tikkie payment-state linkage is available.
+- [03-02] Use conservative outstanding-balance heuristics until attendee-level and accommodation data are modeled.
 - [03-02] Keep orders CSV deterministic with stable headers/escaping and explicit scoped filename metadata.
-- [03-02] Keep orders/reconciliation APIs scope-explicit and validation-consistent for operator trust.
-- [04-01] Store app-level Tikkie status as `created|paid|expired` while preserving raw provider payload/status for auditability.
-- [04-01] Use `paymentRequestToken` as deterministic upsert key to prevent duplicate link records.
-- [04-01] Add transition event persistence early to support idempotent webhook status auditing in 04-02.
+- [03-02] Keep orders/balance APIs scope-explicit and validation-consistent for operator trust.
+- [MVP Reset] Defer Tikkie automation and operational hardening until the core command-center, ledger, attendee, and room workflow is validated.
+- [MVP Reset] Rename user-facing "reconciliation" concepts toward clearer "outstanding balances" / collection follow-up language.
+- [MVP Reset] Prioritize issued-ticket attendee sync so the app reflects actual attendees, not only order buyers.
+- [04-01] Model attendee records as first-class Prisma rows keyed by provider attendee or issued-ticket identifiers.
+- [04-01] Fall back from embedded attendee arrays to canonical order payloads when Ticket Tailor order payloads omit attendee rows.
+- [04-01] Project attendee outstanding balances conservatively from order status and per-order attendee count until richer allocation exists.
 
 ### Pending Todos
 
-None currently tracked.
+- Complete 04-02 around attendee detail, accommodation inventory CRUD, and navigation polish.
+- Plan Phase 5 around actual room assignment actions and occupancy indicators.
 
 ### Blockers/Concerns
 
-- Confirm webhook callback subscription (`/api/webhooks/tikkie`) is configured in Tikkie for Phase 4 Plan 2 verification.
-- Baseline lint warning in `app/layout.tsx` (`Geist` unused import) remains; does not block execution but should be cleaned.
+- Existing Tikkie phase artifacts are deferred and should not drive the current MVP implementation cycle.
+- Baseline lint warning in `app/layout.tsx` (`Geist` unused import) remains non-blocking and should be cleaned during future hygiene work.
+- 04-02 should replace the attendee detail placeholder route with the real finance/accommodation detail screen.
 
 ## Session Continuity
 
-Last session: 2026-03-19T10:17:02Z
+Last session: 2026-03-19T11:07:15Z
 Stopped at: Completed 04-01-PLAN.md
 Resume file: None
