@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-03-19T09:57:44Z"
-last_activity: 2026-03-19 — Completed 03-02-PLAN.md
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-03-19T10:17:02Z"
+last_activity: 2026-03-19 — Completed 04-01-PLAN.md
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 10
-  completed_plans: 5
-  percent: 50
+  completed_plans: 6
+  percent: 60
 ---
 
 # Project State
@@ -26,18 +26,18 @@ See: .planning/PROJECT.md (updated 2026-03-18)
 ## Current Position
 
 Phase: 4 of 5 (Tikkie Collection Workflow)
-Plan: 0 of 2 in current phase
+Plan: 1 of 2 in current phase
 Status: In progress
-Last activity: 2026-03-19 — Completed 03-02-PLAN.md
+Last activity: 2026-03-19 — Completed 04-01-PLAN.md
 
-Progress: [█████░░░░░] 50%
+Progress: [██████░░░░] 60%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
-- Average duration: 104 min
-- Total execution time: 8.7 hours
+- Total plans completed: 6
+- Average duration: 89 min
+- Total execution time: 8.9 hours
 
 **By Phase:**
 
@@ -46,10 +46,11 @@ Progress: [█████░░░░░] 50%
 | 1. Foundation & Secure Access | 2 | 62 min | 31 min |
 | 2. Ticket Data Reliability | 1 | 148 min | 148 min |
 | 3. Finance Visibility & Reconciliation | 2 | 453 min | 227 min |
+| 4. Tikkie Collection Workflow | 1 | 10 min | 10 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01, 01-02, 02-01, 03-01, 03-02
-- Trend: Mixed (delivery complete with checkpoint wait overhead)
+- Last 5 plans: 01-02, 02-01, 03-01, 03-02, 04-01
+- Trend: Improving (faster execution with stable delivery)
 
 ## Accumulated Context
 
@@ -70,6 +71,9 @@ Recent decisions affecting current work:
 - [03-02] Use conservative reconciliation heuristics until external Tikkie payment-state linkage is available.
 - [03-02] Keep orders CSV deterministic with stable headers/escaping and explicit scoped filename metadata.
 - [03-02] Keep orders/reconciliation APIs scope-explicit and validation-consistent for operator trust.
+- [04-01] Store app-level Tikkie status as `created|paid|expired` while preserving raw provider payload/status for auditability.
+- [04-01] Use `paymentRequestToken` as deterministic upsert key to prevent duplicate link records.
+- [04-01] Add transition event persistence early to support idempotent webhook status auditing in 04-02.
 
 ### Pending Todos
 
@@ -77,11 +81,11 @@ None currently tracked.
 
 ### Blockers/Concerns
 
-- Confirm Tikkie sandbox connectivity and final webhook payload mappings before Phase 4 implementation.
+- Confirm webhook callback subscription (`/api/webhooks/tikkie`) is configured in Tikkie for Phase 4 Plan 2 verification.
 - Baseline lint warning in `app/layout.tsx` (`Geist` unused import) remains; does not block execution but should be cleaned.
 
 ## Session Continuity
 
-Last session: 2026-03-19T09:57:44Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-03-19T10:17:02Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None
