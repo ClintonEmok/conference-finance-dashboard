@@ -43,6 +43,9 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
               <Link href="/dashboard">Overview</Link>
             </Button>
             <Button asChild variant="ghost">
+              <Link href="/dashboard/attendees">Attendees</Link>
+            </Button>
+            <Button asChild variant="ghost">
               <Link href="/dashboard/orders">Orders</Link>
             </Button>
             <Button asChild variant="ghost">
