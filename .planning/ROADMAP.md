@@ -64,11 +64,11 @@ Plans:
   1. Admin can generate a Tikkie payment link for an outstanding balance from dashboard context.
   2. Generated links store metadata and show status transitions (created/paid/expired) in the app.
   3. Admin can copy/share payment links and confirm up-to-date payment status.
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 04-01: Implement Tikkie link generation flow
-- [ ] 04-02: Add payment-status sync (webhook + fallback polling)
+- [ ] 04-01-PLAN.md — Build persistent Tikkie link generation API/domain flow and reconciliation copy/share actions
+- [ ] 04-02-PLAN.md — Add idempotent webhook + fallback polling status sync with reconciliation status refresh verification
 
 ### Phase 5: Operational Hardening
 **Goal**: The production deployment is observable and finance actions are traceable for day-to-day operations.
