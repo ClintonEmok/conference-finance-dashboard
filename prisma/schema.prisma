@@ -83,6 +83,18 @@ enum TicketTailorSyncOutcome {
   failed
 }
 
+enum TikkiePaymentLinkStatus {
+  created
+  paid
+  expired
+}
+
+enum TikkiePaymentLinkStatusSource {
+  create
+  webhook
+  poll
+}
+
 model TicketTailorWebhookEvent {
   id               String                   @id @default(cuid())
   providerEventId  String                   @unique
@@ -136,12 +148,54 @@ model TicketTailorOrder {
   refundedAt            DateTime?
   cancelledAt           DateTime?
   rawPayload            Json
+  tikkiePaymentLinks    TikkiePaymentLink[]
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
 
   @@index([eventId])
   @@index([orderedAt])
   @@index([normalizedStatus])
+}
+
+model TikkiePaymentLink {
+  id                    String                        @id @default(cuid())
+  providerOrderId       String
+  providerEventId       String
+  orderId               String
+  order                 TicketTailorOrder             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentRequestToken   String                        @unique
+  paymentRequestUrl     String
+  status                TikkiePaymentLinkStatus       @default(created)
+  statusSource          TikkiePaymentLinkStatusSource @default(create)
+  providerStatus        String
+  amountMinor           Int
+  description           String
+  expiryDate            DateTime
+  referenceId           String?
+  providerPayload       Json
+  providerLastCheckedAt DateTime?
+  statusUpdatedAt       DateTime                      @default(now())
+  createdAt             DateTime                      @default(now())
+  updatedAt             DateTime                      @updatedAt
+  transitionEvents      TikkiePaymentLinkTransition[]
+
+  @@index([providerOrderId, providerEventId])
+  @@index([status, statusUpdatedAt])
+}
+
+model TikkiePaymentLinkTransition {
+  id             String                        @id @default(cuid())
+  paymentLinkId  String
+  paymentLink    TikkiePaymentLink             @relation(fields: [paymentLinkId], references: [id], onDelete: Cascade)
+  fromStatus     TikkiePaymentLinkStatus
+  toStatus       TikkiePaymentLinkStatus
+  source         TikkiePaymentLinkStatusSource
+  providerStatus String
+  reason         String?
+  providerPayload Json?
+  createdAt      DateTime                      @default(now())
+
+  @@index([paymentLinkId, createdAt])
 }
 
 model TicketTailorSyncRun {
