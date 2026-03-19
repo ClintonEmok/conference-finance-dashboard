@@ -213,10 +213,32 @@ export async function fetchTicketTailorOrdersByEventPaginated(
     return { items: [], pagesFetched: 0 }
   }
 
-  const result = await fetchPaginatedCollection<TicketTailorOrderPayload>(
-    `/events/${encodeURIComponent(cleanEventId)}/orders`,
-    options,
-  )
+  let result: PaginatedCollectionResult<TicketTailorOrderPayload>
+
+  try {
+    result = await fetchPaginatedCollection<TicketTailorOrderPayload>(
+      `/events/${encodeURIComponent(cleanEventId)}/orders`,
+      options,
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown Ticket Tailor error"
+    const missingNestedOrdersEndpoint = /\(404\)|PAGE_NOT_FOUND|Not Found/i.test(message)
+
+    if (!missingNestedOrdersEndpoint) {
+      throw error
+    }
+
+    result = await fetchPaginatedCollection<TicketTailorOrderPayload>("/orders", {
+      ...options,
+    })
+
+    result.items = result.items.filter((order) => {
+      const eventIdFromOrder =
+        pickString(order.event_id) ?? pickString(order.eventId) ?? pickString(asRecord(order.event).id)
+
+      return eventIdFromOrder === cleanEventId
+    })
+  }
 
   result.items.sort((a, b) => orderSortKey(a).localeCompare(orderSortKey(b)))
 
