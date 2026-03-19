@@ -124,6 +124,7 @@ model TicketTailorEvent {
   timezone          String?
   currency          String?
   rawPayload        Json
+  attendees         TicketTailorAttendee[]
   orders            TicketTailorOrder[]
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
@@ -137,6 +138,7 @@ model TicketTailorOrder {
   providerEventId       String
   eventId               String
   event                 TicketTailorEvent       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  attendees             TicketTailorAttendee[]
   normalizedStatus      TicketTailorOrderStatus @default(pending)
   providerStatus        String?
   normalizationNote     String?
@@ -155,6 +157,32 @@ model TicketTailorOrder {
   @@index([eventId])
   @@index([orderedAt])
   @@index([normalizedStatus])
+}
+
+model TicketTailorAttendee {
+  id                      String             @id @default(cuid())
+  providerAttendeeId      String?            @unique
+  providerIssuedTicketId  String?            @unique
+  providerTicketTypeId    String?
+  providerEventId         String
+  providerOrderId         String
+  eventId                 String
+  orderId                 String
+  event                   TicketTailorEvent  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  order                   TicketTailorOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  name                    String?
+  email                   String?
+  ticketTypeLabel         String?
+  ticketStatus            String?
+  checkedInAt             DateTime?
+  rawPayload              Json
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  @@index([eventId])
+  @@index([orderId])
+  @@index([providerEventId, providerOrderId])
+  @@index([email])
 }
 
 model TikkiePaymentLink {
