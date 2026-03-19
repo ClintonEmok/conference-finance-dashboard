@@ -16,10 +16,16 @@ export type TicketTailorSyncOutcome = "running" | "success" | "partial" | "faile
 export type TicketTailorSyncSummary = {
   runId: string
   status: TicketTailorSyncOutcome
+  scope: {
+    eventId: string | null
+    from: string | null
+    to: string | null
+  }
   counts: {
     eventsScanned: number
     ordersFetched: number
     ordersUpserted: number
+    ordersSkippedByScope: number
     normalizedFallbackCount: number
     failedItems: number
   }
@@ -222,7 +228,70 @@ function finalizeRunStatus(failedItems: number, errors: string[]): TicketTailorS
   return "success"
 }
 
-export async function runTicketTailorSync(): Promise<TicketTailorSyncSummary> {
+export type TicketTailorSyncScopeInput = {
+  eventId?: string | null
+  from?: string | Date | null
+  to?: string | Date | null
+}
+
+type NormalizedTicketTailorSyncScope = {
+  eventId: string | null
+  from: Date | null
+  to: Date | null
+}
+
+function normalizeScopeDate(value: string | Date | null | undefined) {
+  if (!value) {
+    return null
+  }
+
+  const parsed = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function normalizeTicketTailorSyncScope(
+  scope?: TicketTailorSyncScopeInput,
+): NormalizedTicketTailorSyncScope {
+  const eventId = typeof scope?.eventId === "string" && scope.eventId.trim() ? scope.eventId.trim() : null
+  const from = normalizeScopeDate(scope?.from)
+  const to = normalizeScopeDate(scope?.to)
+
+  if ((scope?.from && !from) || (scope?.to && !to)) {
+    throw new Error("Invalid scope dates. Provide ISO-8601 compatible dates.")
+  }
+
+  if (from && to && from.getTime() > to.getTime()) {
+    throw new Error("Invalid scope date range. 'from' must be less than or equal to 'to'.")
+  }
+
+  return { eventId, from, to }
+}
+
+function isOrderInScope(orderDate: Date | null, scope: NormalizedTicketTailorSyncScope) {
+  if (!scope.from && !scope.to) {
+    return true
+  }
+
+  if (!orderDate) {
+    return false
+  }
+
+  if (scope.from && orderDate.getTime() < scope.from.getTime()) {
+    return false
+  }
+
+  if (scope.to && orderDate.getTime() > scope.to.getTime()) {
+    return false
+  }
+
+  return true
+}
+
+export async function runTicketTailorSync(
+  scopeInput?: TicketTailorSyncScopeInput,
+): Promise<TicketTailorSyncSummary> {
+  const scope = normalizeTicketTailorSyncScope(scopeInput)
+
   const run = await prisma.ticketTailorSyncRun.create({
     data: {
       status: "running",
@@ -239,13 +308,22 @@ export async function runTicketTailorSync(): Promise<TicketTailorSyncSummary> {
   let eventsScanned = 0
   let ordersFetched = 0
   let ordersUpserted = 0
+  let ordersSkippedByScope = 0
   let normalizedFallbackCount = 0
   let failedItems = 0
 
   try {
     const eventsResult = await fetchTicketTailorEventsPaginated({ pageSize: 100, maxPages: 200 })
+    const scopedEvents = eventsResult.items.filter((eventPayload) => {
+      if (!scope.eventId) {
+        return true
+      }
 
-    for (const eventPayload of eventsResult.items) {
+      const providerEventId = extractProviderEventId(eventPayload)
+      return providerEventId === scope.eventId
+    })
+
+    for (const eventPayload of scopedEvents) {
       const providerEventId = extractProviderEventId(eventPayload)
 
       if (!providerEventId) {
@@ -297,6 +375,12 @@ export async function runTicketTailorSync(): Promise<TicketTailorSyncSummary> {
         }
 
         ordersFetched += 1
+        const orderedAt = extractOrderDate(orderPayload)
+
+        if (!isOrderInScope(orderedAt, scope)) {
+          ordersSkippedByScope += 1
+          continue
+        }
 
         const statusSignals = extractOrderStatusSignals(orderPayload)
         const normalization = normalizeTicketTailorStatus(...statusSignals)
@@ -325,7 +409,7 @@ export async function runTicketTailorSync(): Promise<TicketTailorSyncSummary> {
             buyerName: extractBuyerName(orderPayload),
             currency: extractOrderCurrency(orderPayload),
             totalAmountMinor: extractOrderTotalMinor(orderPayload),
-            orderedAt: extractOrderDate(orderPayload),
+            orderedAt,
             refundedAt: extractRefundedAt(orderPayload),
             cancelledAt: extractCancelledAt(orderPayload),
             rawPayload: orderPayload,
@@ -340,7 +424,7 @@ export async function runTicketTailorSync(): Promise<TicketTailorSyncSummary> {
             buyerName: extractBuyerName(orderPayload),
             currency: extractOrderCurrency(orderPayload),
             totalAmountMinor: extractOrderTotalMinor(orderPayload),
-            orderedAt: extractOrderDate(orderPayload),
+            orderedAt,
             refundedAt: extractRefundedAt(orderPayload),
             cancelledAt: extractCancelledAt(orderPayload),
             rawPayload: orderPayload,
@@ -374,10 +458,16 @@ export async function runTicketTailorSync(): Promise<TicketTailorSyncSummary> {
     return {
       runId: run.id,
       status,
+      scope: {
+        eventId: scope.eventId,
+        from: scope.from ? scope.from.toISOString() : null,
+        to: scope.to ? scope.to.toISOString() : null,
+      },
       counts: {
         eventsScanned,
         ordersFetched,
         ordersUpserted,
+        ordersSkippedByScope,
         normalizedFallbackCount,
         failedItems,
       },
