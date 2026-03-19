@@ -76,15 +76,15 @@
 | TT-01 | Phase 2 | Complete |
 | TT-02 | Phase 2 | Complete |
 | TT-03 | Phase 2 | Complete |
-| TT-04 | Phase 4 | Pending |
+| TT-04 | Phase 4 | Complete |
 | DASH-01 | Phase 3 | Complete |
 | DASH-02 | Phase 3 | Complete |
 | DASH-03 | Phase 3 | Complete |
-| DASH-04 | Phase 4 | Pending |
-| ACC-01 | Phase 4 | Pending |
-| ACC-02 | Phase 5 | Pending |
-| ACC-03 | Phase 5 | Pending |
-| FLOW-01 | Phase 5 | Pending |
+| DASH-04 | Phase 4 | Complete |
+| ACC-01 | Phase 4 | Complete |
+| ACC-02 | Phase 5 | Complete |
+| ACC-03 | Phase 5 | Complete |
+| FLOW-01 | Phase 5 | Complete |
 | TK-01 | Deferred | Deferred |
 | TK-02 | Deferred | Deferred |
 | TK-03 | Deferred | Deferred |

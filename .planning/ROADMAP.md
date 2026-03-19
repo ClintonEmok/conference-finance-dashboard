@@ -4,6 +4,8 @@
 
 This roadmap now prioritizes getting the operator-facing screens, navigation, attendee data, and accommodation workflow correct before investing further in payment-link automation and production hardening. The current MVP path focuses on trusted Ticket Tailor data, clear finance views, actual attendee visibility, and room allocation flow. Tikkie automation and operational hardening remain valuable, but are explicitly deferred until the core UX and workflow are settled.
 
+All MVP-path phases are now complete. Future work should route through the deferred post-MVP tracks rather than reopening the finished command-center flow.
+
 ## Phases
 
 - [x] **Phase 1: Foundation & Secure Access** - Establish protected admin access and integration configuration baseline.
