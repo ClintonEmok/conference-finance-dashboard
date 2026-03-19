@@ -42,6 +42,11 @@ function pickString(value: unknown) {
 }
 
 function parseDate(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const parsedFromUnix = new Date(value * 1000)
+    return Number.isNaN(parsedFromUnix.getTime()) ? null : parsedFromUnix
+  }
+
   if (typeof value !== "string" || !value.trim()) {
     return null
   }
@@ -118,6 +123,20 @@ function extractOrderStatusSignals(order: TicketTailorOrderPayload) {
   ]
 }
 
+function extractOrderProviderEventId(order: TicketTailorOrderPayload) {
+  const event = asRecord(order.event)
+  const eventSummary = asRecord(order.event_summary)
+
+  return (
+    pickString(order.event_id) ??
+    pickString(order.eventId) ??
+    pickString(event.id) ??
+    pickString(event.event_id) ??
+    pickString(eventSummary.id) ??
+    pickString(eventSummary.event_id)
+  )
+}
+
 function extractOrderCurrency(order: TicketTailorOrderPayload) {
   return (
     pickString(order.currency) ??
@@ -127,19 +146,30 @@ function extractOrderCurrency(order: TicketTailorOrderPayload) {
 }
 
 function extractBuyerEmail(order: TicketTailorOrderPayload) {
+  const buyerDetails = asRecord(order.buyer_details)
   const customer = asRecord(order.customer)
   const buyer = asRecord(order.buyer)
 
-  return pickString(order.email) ?? pickString(customer.email) ?? pickString(buyer.email)
+  return (
+    pickString(order.email) ??
+    pickString(customer.email) ??
+    pickString(buyer.email) ??
+    pickString(buyerDetails.email)
+  )
 }
 
 function extractBuyerName(order: TicketTailorOrderPayload) {
+  const buyerDetails = asRecord(order.buyer_details)
   const customer = asRecord(order.customer)
   const buyer = asRecord(order.buyer)
 
   const firstName = pickString(customer.first_name) ?? pickString(buyer.first_name)
   const lastName = pickString(customer.last_name) ?? pickString(buyer.last_name)
-  const fullName = pickString(order.name) ?? pickString(customer.name) ?? pickString(buyer.name)
+  const fullName =
+    pickString(order.name) ??
+    pickString(customer.name) ??
+    pickString(buyer.name) ??
+    pickString(buyerDetails.name)
 
   if (fullName) {
     return fullName
@@ -156,6 +186,8 @@ function extractOrderTotalMinor(order: TicketTailorOrderPayload) {
   return (
     toMinorAmount(order.total_amount_minor) ??
     toMinorAmount(order.total_amount) ??
+    toMinorAmount(order.total_paid) ??
+    toMinorAmount(order.total) ??
     toMinorAmount(asRecord(order.financial).total_amount_minor) ??
     toMinorAmount(asRecord(order.financial).total_amount)
   )
@@ -268,6 +300,7 @@ export async function runTicketTailorSync(): Promise<TicketTailorSyncSummary> {
 
         const statusSignals = extractOrderStatusSignals(orderPayload)
         const normalization = normalizeTicketTailorStatus(...statusSignals)
+        const orderProviderEventId = extractOrderProviderEventId(orderPayload) ?? providerEventId
 
         if (normalization.usedFallback) {
           normalizedFallbackCount += 1
@@ -283,7 +316,7 @@ export async function runTicketTailorSync(): Promise<TicketTailorSyncSummary> {
           },
           create: {
             providerOrderId,
-            providerEventId,
+            providerEventId: orderProviderEventId,
             eventId: eventRecord.id,
             normalizedStatus: normalization.normalizedStatus,
             providerStatus: statusSignals.find((signal) => Boolean(signal)) ?? null,
@@ -298,7 +331,7 @@ export async function runTicketTailorSync(): Promise<TicketTailorSyncSummary> {
             rawPayload: orderPayload,
           },
           update: {
-            providerEventId,
+            providerEventId: orderProviderEventId,
             eventId: eventRecord.id,
             normalizedStatus: normalization.normalizedStatus,
             providerStatus: statusSignals.find((signal) => Boolean(signal)) ?? null,

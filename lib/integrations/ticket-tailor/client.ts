@@ -239,7 +239,11 @@ export async function fetchTicketTailorOrdersByEventPaginated(
 
     result.items = result.items.filter((order) => {
       const eventIdFromOrder =
-        pickString(order.event_id) ?? pickString(order.eventId) ?? pickString(asRecord(order.event).id)
+        pickString(order.event_id) ??
+        pickString(order.eventId) ??
+        pickString(asRecord(order.event).id) ??
+        pickString(asRecord(order.event_summary).id) ??
+        pickString(asRecord(order.event_summary).event_id)
 
       return eventIdFromOrder === cleanEventId
     })
