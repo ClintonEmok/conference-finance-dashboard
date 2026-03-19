@@ -6,9 +6,9 @@ This roadmap moves from secure foundation setup to reliable data ingestion, then
 
 ## Phases
 
-- [ ] **Phase 1: Foundation & Secure Access** - Establish protected admin access and integration configuration baseline.
-- [ ] **Phase 2: Ticket Data Reliability** - Make Ticket Tailor data ingestion dependable and correct.
-- [ ] **Phase 3: Finance Visibility & Reconciliation** - Deliver dashboard reporting and mismatch visibility.
+- [x] **Phase 1: Foundation & Secure Access** - Establish protected admin access and integration configuration baseline.
+- [x] **Phase 2: Ticket Data Reliability** - Make Ticket Tailor data ingestion dependable and correct.
+- [x] **Phase 3: Finance Visibility & Reconciliation** - Deliver dashboard reporting and mismatch visibility.
 - [ ] **Phase 4: Tikkie Collection Workflow** - Enable payment-link creation and payment-state tracking.
 - [ ] **Phase 5: Operational Hardening** - Add health visibility and auditability for production confidence.
 
@@ -25,8 +25,8 @@ This roadmap moves from secure foundation setup to reliable data ingestion, then
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Implement magic-link auth, protected dashboard routes, and 401 API guardrails
-- [ ] 01-02-PLAN.md — Add environment-based integration validation and `/dashboard/integrations` runtime status panel
+- [x] 01-01-PLAN.md — Implement magic-link auth, protected dashboard routes, and 401 API guardrails
+- [x] 01-02-PLAN.md — Add environment-based integration validation and `/dashboard/integrations` runtime status panel
 
 ### Phase 2: Ticket Data Reliability
 **Goal**: Ticket Tailor event and order data is synced accurately enough to trust as reporting input.
@@ -39,8 +39,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Add durable Ticket Tailor storage, idempotent sync pipeline, and protected sync endpoint
-- [ ] 02-02-PLAN.md — Add scoped manual re-sync API/UI flow with operator verification checkpoint
+- [x] 02-01-PLAN.md — Add durable Ticket Tailor storage, idempotent sync pipeline, and protected sync endpoint
+- [x] 02-02-PLAN.md — Add scoped manual re-sync API/UI flow with operator verification checkpoint
 
 ### Phase 3: Finance Visibility & Reconciliation
 **Goal**: Finance admins can understand revenue performance and identify mismatches requiring follow-up.
@@ -53,8 +53,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Build protected revenue metrics API/domain aggregation and dashboard filter/trend surface
-- [ ] 03-02-PLAN.md — Build protected order drilldown + CSV export + reconciliation APIs and dashboard pages
+- [x] 03-01-PLAN.md — Build protected revenue metrics API/domain aggregation and dashboard filter/trend surface
+- [x] 03-02-PLAN.md — Build protected order drilldown + CSV export + reconciliation APIs and dashboard pages
 
 ### Phase 4: Tikkie Collection Workflow
 **Goal**: Finance admins can generate and track Tikkie payment links directly from reconciliation needs.
@@ -88,8 +88,8 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Secure Access | 0/2 | Not started | - |
-| 2. Ticket Data Reliability | 0/2 | Not started | - |
-| 3. Finance Visibility & Reconciliation | 0/2 | Not started | - |
+| 1. Foundation & Secure Access | 2/2 | Complete | 2026-03-18 |
+| 2. Ticket Data Reliability | 2/2 | Complete | 2026-03-19 |
+| 3. Finance Visibility & Reconciliation | 2/2 | Complete | 2026-03-19 |
 | 4. Tikkie Collection Workflow | 0/2 | Not started | - |
 | 5. Operational Hardening | 0/2 | Not started | - |
