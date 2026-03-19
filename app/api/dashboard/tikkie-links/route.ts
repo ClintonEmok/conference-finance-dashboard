@@ -6,6 +6,7 @@ import {
   createTikkiePaymentLink,
   listTikkiePaymentLinksByOrder,
   normalizeProviderIdentifier,
+  refreshTikkiePaymentLinkStatus,
 } from "@/lib/domain/finance/tikkie-links"
 import { TikkieApiError } from "@/lib/integrations/tikkie/client"
 
@@ -113,6 +114,26 @@ export async function GET(request: Request) {
 
   try {
     const providerOrderId = normalizeProviderIdentifier(providerOrderIdParam, "providerOrderId")
+    const shouldRefresh = ["1", "true", "yes"].includes(
+      (url.searchParams.get("refresh") ?? "").toLowerCase(),
+    )
+
+    if (shouldRefresh) {
+      const linksForRefresh = await listTikkiePaymentLinksByOrder({
+        providerOrderId,
+      })
+
+      for (const link of linksForRefresh) {
+        if (link.status === "created") {
+          await refreshTikkiePaymentLinkStatus({
+            paymentRequestToken: link.paymentRequestToken,
+            source: "poll",
+            reason: "dashboard-row-refresh",
+          })
+        }
+      }
+    }
+
     const links = await listTikkiePaymentLinksByOrder({
       providerOrderId,
     })

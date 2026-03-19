@@ -145,6 +145,18 @@ function defaultExpiryDate() {
   return date.toISOString().slice(0, 10)
 }
 
+function formatStatusSource(value: "create" | "webhook" | "poll") {
+  if (value === "webhook") {
+    return "Webhook"
+  }
+
+  if (value === "poll") {
+    return "Poll"
+  }
+
+  return "Create"
+}
+
 export default function ReconciliationPage() {
   const [eventIdInput, setEventIdInput] = useState("")
   const [statusInput, setStatusInput] = useState<"all" | CanonicalOrderStatus>("all")
@@ -246,7 +258,7 @@ export default function ReconciliationPage() {
     }
   }, [appliedEventId, appliedFrom, appliedStatus, appliedTo])
 
-  async function fetchRowLinks(providerOrderId: string) {
+  async function fetchRowLinks(providerOrderId: string, options?: { refresh?: boolean }) {
     setRowLinks((current) => ({
       ...current,
       [providerOrderId]: {
@@ -260,7 +272,9 @@ export default function ReconciliationPage() {
 
     try {
       const response = await fetch(
-        `/api/dashboard/tikkie-links?providerOrderId=${encodeURIComponent(providerOrderId)}`,
+        `/api/dashboard/tikkie-links?providerOrderId=${encodeURIComponent(providerOrderId)}${
+          options?.refresh ? "&refresh=1" : ""
+        }`,
       )
 
       const body = (await response.json().catch(() => null)) as
@@ -612,6 +626,17 @@ export default function ReconciliationPage() {
                                   {linkState.isCopying ? "Copying…" : "Copy link"}
                                 </Button>
                               )}
+                              {latestLink && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={linkState.isLoading}
+                                  onClick={() => void fetchRowLinks(row.providerOrderId, { refresh: true })}
+                                >
+                                  {linkState.isLoading ? "Refreshing…" : "Refresh status"}
+                                </Button>
+                              )}
                             </div>
 
                             {!canGenerate && (
@@ -630,6 +655,10 @@ export default function ReconciliationPage() {
                                   {formatTikkieStatus(latestLink.status)}
                                 </span>
                                 <div className="text-muted-foreground">Created: {formatDateTime(latestLink.createdAt)}</div>
+                                <div className="text-muted-foreground">
+                                  Last status check: {formatDateTime(latestLink.providerLastCheckedAt)} ({formatStatusSource(latestLink.statusSource)})
+                                </div>
+                                <div className="text-muted-foreground">Updated: {formatDateTime(latestLink.statusUpdatedAt)}</div>
                               </div>
                             )}
 
