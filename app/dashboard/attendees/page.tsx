@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -34,7 +35,19 @@ type AttendeesPayload = {
     normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
     totalAmountMinor: number
     outstandingAmountMinor: number
-    roomStatus: "unassigned"
+    roomStatus:
+      | {
+          status: "assigned"
+          roomLabel: string
+          hotelName: string
+          roomTypeLabel: string
+        }
+      | {
+          status: "unassigned"
+          roomLabel: null
+          hotelName: null
+          roomTypeLabel: null
+        }
     orderedAt: string | null
   }>
 }
@@ -68,6 +81,7 @@ function formatMoney(minor: number) {
 }
 
 export default function AttendeesPage() {
+  const searchParams = useSearchParams()
   const [eventIdInput, setEventIdInput] = useState("")
   const [searchInput, setSearchInput] = useState("")
   const [fromInput, setFromInput] = useState(() => {
@@ -87,6 +101,9 @@ export default function AttendeesPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [payload, setPayload] = useState<AttendeesPayload | null>(null)
 
+  const source = searchParams.get("source")
+  const focusedOrderId = searchParams.get("orderId")
+
   const dateValidationError = useMemo(() => {
     const fromIso = toIsoBoundary(fromInput, "start")
     const toIso = toIsoBoundary(toInput, "end")
@@ -101,6 +118,17 @@ export default function AttendeesPage() {
 
     return null
   }, [fromInput, toInput])
+
+  useEffect(() => {
+    const nextEventId = searchParams.get("eventId") ?? ""
+    const nextSearch = searchParams.get("search") ?? ""
+
+    setEventIdInput(nextEventId)
+    setSearchInput(nextSearch)
+    setAppliedEventId(nextEventId)
+    setAppliedSearch(nextSearch)
+    setPage(1)
+  }, [searchParams])
 
   useEffect(() => {
     const fromIso = toIsoBoundary(appliedFrom, "start")
@@ -186,6 +214,35 @@ export default function AttendeesPage() {
     setPage(1)
   }
 
+  function renderRoomStatus(
+    roomStatus:
+      | {
+          status: "assigned"
+          roomLabel: string
+          hotelName: string
+          roomTypeLabel: string
+        }
+      | {
+          status: "unassigned"
+          roomLabel: null
+          hotelName: null
+          roomTypeLabel: null
+        },
+  ) {
+    if (roomStatus.status === "assigned") {
+      return (
+        <div>
+          <div className="text-xs font-medium">{roomStatus.roomLabel}</div>
+          <div className="text-[11px] text-muted-foreground">
+            {roomStatus.hotelName} · {roomStatus.roomTypeLabel}
+          </div>
+        </div>
+      )
+    }
+
+    return <span className="text-xs text-muted-foreground">Unassigned</span>
+  }
+
   return (
     <section className="space-y-6">
       <header>
@@ -194,6 +251,14 @@ export default function AttendeesPage() {
           Review real attendee rows synced from Ticket Tailor with order finance context and room status.
         </p>
       </header>
+
+      {(source === "outstanding-balances" || focusedOrderId) && (
+        <article className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-100">
+          {focusedOrderId
+            ? `Showing attendee follow-up for order ${focusedOrderId}. Open the relevant attendee detail to continue into room assignment if needed.`
+            : "Showing attendee follow-up from outstanding balances."}
+        </article>
+      )}
 
       <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
         <form className="space-y-4" onSubmit={applyFilters}>
@@ -338,10 +403,18 @@ export default function AttendeesPage() {
                           Outstanding {formatMoney(row.outstandingAmountMinor)}
                         </div>
                       </td>
-                      <td className="px-2 py-2">{row.roomStatus}</td>
+                      <td className="px-2 py-2">{renderRoomStatus(row.roomStatus)}</td>
                       <td className="px-2 py-2">
                         <Button asChild variant="outline" size="sm">
-                          <Link href={`/dashboard/attendees/${row.attendeeId}`}>Open detail</Link>
+                          <Link
+                            href={`/dashboard/attendees/${row.attendeeId}?search=${encodeURIComponent(
+                              appliedSearch || row.providerOrderId,
+                            )}&eventId=${encodeURIComponent(
+                              appliedEventId || row.providerEventId,
+                            )}&source=${encodeURIComponent(source ?? "attendee-ledger")}`}
+                          >
+                            Open detail
+                          </Link>
                         </Button>
                       </td>
                     </tr>

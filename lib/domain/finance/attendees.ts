@@ -26,7 +26,19 @@ export type AttendeeLedgerRow = {
   normalizedStatus: CanonicalOrderStatus
   totalAmountMinor: number
   outstandingAmountMinor: number
-  roomStatus: "unassigned"
+  roomStatus:
+    | {
+        status: "assigned"
+        roomLabel: string
+        hotelName: string
+        roomTypeLabel: string
+      }
+    | {
+        status: "unassigned"
+        roomLabel: null
+        hotelName: null
+        roomTypeLabel: null
+      }
   orderedAt: string | null
 }
 
@@ -164,6 +176,21 @@ export async function getAttendeeLedger(
             },
           },
         },
+        assignedRoom: {
+          select: {
+            label: true,
+            hotel: {
+              select: {
+                name: true,
+              },
+            },
+            roomType: {
+              select: {
+                label: true,
+              },
+            },
+          },
+        },
       },
       orderBy: [{ order: { orderedAt: "desc" } }, { createdAt: "desc" }],
       skip: (page - 1) * pageSize,
@@ -210,7 +237,19 @@ export async function getAttendeeLedger(
           totalAmountMinor,
           attendee.order.attendees.length,
         ),
-        roomStatus: "unassigned",
+        roomStatus: attendee.assignedRoom
+          ? {
+              status: "assigned",
+              roomLabel: attendee.assignedRoom.label,
+              hotelName: attendee.assignedRoom.hotel.name,
+              roomTypeLabel: attendee.assignedRoom.roomType.label,
+            }
+          : {
+              status: "unassigned",
+              roomLabel: null,
+              hotelName: null,
+              roomTypeLabel: null,
+            },
         orderedAt: attendee.order.orderedAt ? attendee.order.orderedAt.toISOString() : null,
       }
     }),

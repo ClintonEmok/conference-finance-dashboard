@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -96,10 +97,57 @@ type PageProps = {
 }
 
 export default function AttendeeDetailPage({ params }: PageProps) {
+  const searchParams = useSearchParams()
   const [attendeeId, setAttendeeId] = useState<string | null>(null)
   const [payload, setPayload] = useState<AttendeeDetailPayload | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+
+  const attendeeSearch = searchParams.get("search")
+  const eventId = searchParams.get("eventId")
+  const source = searchParams.get("source")
+
+  const backToAttendeesHref = (() => {
+    const params = new URLSearchParams()
+
+    if (attendeeSearch) {
+      params.set("search", attendeeSearch)
+    }
+
+    if (eventId) {
+      params.set("eventId", eventId)
+    }
+
+    if (source) {
+      params.set("source", source)
+    }
+
+    const query = params.toString()
+    return query ? `/dashboard/attendees?${query}` : "/dashboard/attendees"
+  })()
+
+  const manageRoomAssignmentHref = (() => {
+    if (!attendeeId) {
+      return "/dashboard/accommodation"
+    }
+
+    const params = new URLSearchParams({
+      attendeeId,
+      source: "attendee-detail",
+    })
+
+    if (payload?.attendee.name) {
+      params.set("search", payload.attendee.name)
+    } else if (attendeeSearch) {
+      params.set("search", attendeeSearch)
+    }
+
+    if (eventId ?? payload?.attendee.providerEventId) {
+      params.set("eventId", eventId ?? payload?.attendee.providerEventId ?? "")
+    }
+
+    return `/dashboard/accommodation?${params.toString()}`
+  })()
 
   useEffect(() => {
     let cancelled = false
@@ -161,9 +209,14 @@ export default function AttendeeDetailPage({ params }: PageProps) {
             Payment summary, installment progress, outstanding balance, and room-status context.
           </p>
         </div>
-        <Button asChild variant="outline">
-          <Link href="/dashboard/attendees">Back to attendees</Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild>
+            <Link href={manageRoomAssignmentHref}>Manage room assignment</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href={backToAttendeesHref}>Back to attendees</Link>
+          </Button>
+        </div>
       </header>
 
       {errorMessage && (
@@ -252,8 +305,11 @@ export default function AttendeeDetailPage({ params }: PageProps) {
               <p className="mt-3 text-sm text-muted-foreground">
                 {payload.roomStatus.status === "assigned"
                   ? `Assigned to ${payload.roomStatus.roomLabel} at ${payload.roomStatus.hotelName} (${payload.roomStatus.roomTypeLabel}).`
-                  : "Unassigned. Accommodation inventory is ready, and assignment actions arrive in Phase 5."}
+                  : "Unassigned. Use the accommodation workspace to place this attendee into a room when inventory is ready."}
               </p>
+              <Button asChild className="mt-4" size="sm">
+                <Link href={manageRoomAssignmentHref}>Manage room assignment</Link>
+              </Button>
             </article>
           </section>
 
