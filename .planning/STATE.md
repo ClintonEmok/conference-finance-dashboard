@@ -88,6 +88,10 @@ Recent decisions affecting current work:
 - [05-02] Keep dashboard navigation ordered around overview, finance follow-up, attendees, and rooms so the MVP feels like one command center.
 - [05-02] Preserve reversible handoffs between attendee detail and accommodation so operators can move forward without dead-end navigation.
 
+### Roadmap Evolution
+
+- Phase 6 added: tikkie integration
+
 ### Pending Todos
 
 - None - core MVP roadmap plans are complete.
@@ -99,7 +103,7 @@ Recent decisions affecting current work:
 - Phase 5 should preserve the new attendee detail/accommodation structure rather than bypassing it with room-assignment logic elsewhere.
 - Core MVP roadmap is complete; remaining work is intentionally deferred post-MVP scope.
 - Non-blocking lint warnings remain in `app/layout.tsx`, `app/dashboard/accommodation/page.tsx`, and `app/dashboard/accommodation/rooms/[roomId]/page.tsx`.
-- Phase 2 has no `02-02-SUMMARY.md` artifact, so historic timing metrics remain partially reconstructed from available summaries.
+- Phase 2 summary docs are now complete: `02-01-SUMMARY.md` and `02-02-SUMMARY.md` both written.
 
 ## Session Continuity
 
