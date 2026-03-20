@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: complete
-stopped_at: Completed Phase 5 workflow and final routing
-last_updated: "2026-03-19T18:25:52Z"
-last_activity: 2026-03-19 — Aggregated Phase 5 results, marked requirements complete, and routed future work to deferred tracks
+status: Roadmap extended; awaiting next execution phase
+stopped_at: Phase 6 context gathered
+last_updated: "2026-03-20T02:04:25.907Z"
+last_activity: 2026-03-20 — Added Phase 7 planning for smart allocation and attendee-derived accommodation signals
 progress:
-  total_phases: 5
+  total_phases: 7
   completed_phases: 5
-  total_plans: 10
-  completed_plans: 10
-  percent: 100
+  total_plans: 12
+  completed_plans: 11
+  percent: 83
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 **Core value:** One trusted dashboard for church conference finance operations.
-**Current focus:** MVP roadmap complete; deferred Tikkie automation and operational hardening remain post-MVP work.
+**Current focus:** MVP roadmap complete; post-MVP planning now includes Tikkie integration and smart allocation / attendee signals.
 
 ## Current Position
 
-Phase: 5 of 5 (Room Allocation & Operator Flow Polish)
-Plan: 2 of 2 in current phase
-Status: Phase complete
-Last activity: 2026-03-19 — Aggregated Phase 5 completion artifacts and closed the MVP roadmap workflow
+Phase: 5 of 7 completed
+Plan: No active plan
+Status: Roadmap extended; awaiting next execution phase
+Last activity: 2026-03-20 — Added Phase 7 planning for smart allocation and attendee-derived accommodation signals
 
-Progress: [██████████] 100%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -91,22 +91,23 @@ Recent decisions affecting current work:
 ### Roadmap Evolution
 
 - Phase 6 added: tikkie integration
+- Phase 7 added: smart allocation and attendee signals
 
 ### Pending Todos
 
-- None - core MVP roadmap plans are complete.
+- No active execution todos. Planned post-MVP work now includes Phase 6 Tikkie integration and Phase 7 smart allocation.
 
 ### Blockers/Concerns
 
 - Existing Tikkie phase artifacts remain deferred and should not drive the MVP completion path.
 - Baseline lint warning in `app/layout.tsx` (`Geist` unused import) remains non-blocking and should be cleaned during future hygiene work.
 - Phase 5 should preserve the new attendee detail/accommodation structure rather than bypassing it with room-assignment logic elsewhere.
-- Core MVP roadmap is complete; remaining work is intentionally deferred post-MVP scope.
+- Core MVP roadmap remains complete; newly added Phases 6 and 7 are post-MVP planned work, not regressions in delivered MVP scope.
 - Non-blocking lint warnings remain in `app/layout.tsx`, `app/dashboard/accommodation/page.tsx`, and `app/dashboard/accommodation/rooms/[roomId]/page.tsx`.
 - Phase 2 summary docs are now complete: `02-01-SUMMARY.md` and `02-02-SUMMARY.md` both written.
 
 ## Session Continuity
 
-Last session: 2026-03-19T18:25:52Z
-Stopped at: Completed Phase 5 workflow and final routing
-Resume file: None
+Last session: 2026-03-20T02:04:25.896Z
+Stopped at: Phase 6 context gathered
+Resume file: .planning/phases/06-tikkie-integration/06-CONTEXT.md
