@@ -102,3 +102,29 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 3. Finance Visibility & Outstanding Balances | 2/2 | Complete | 2026-03-19 |
 | 4. Attendee Data & Accommodation Foundations | 2/2 | Complete | 2026-03-19 |
 | 5. Room Allocation & Operator Flow Polish | 2/2 | Complete | 2026-03-19 |
+
+### Phase 6: Tikkie Integration
+
+**Goal:** Finance admins can generate, share, and trust Tikkie payment links from outstanding balances and attendee detail without leaving the existing operator workflow.
+**Depends on:** Phase 5
+**Requirements**: TK-01, TK-02, TK-03
+**Success Criteria** (what must be TRUE):
+  1. Admin can open a lightweight confirmation modal from outstanding balances or attendee detail, adjust amount/expiry/reference details, and create a Tikkie link.
+  2. Latest Tikkie link status is shown first with last-checked recency and a subtle stale indicator in the existing finance follow-up surfaces.
+  3. Admin can copy/open the latest link, inspect prior history, and recover status freshness through webhook or manual refresh/job fallback.
+**Plans:** 2 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Harden Tikkie backend contracts, status trust, and attendee-detail link projection
+- [ ] 06-02-PLAN.md — Add latest-first Tikkie modal and follow-up actions to outstanding balances and attendee detail
+
+### Phase 7: Smart Allocation & Attendee Signals
+
+**Goal:** Finance admins can use attendee-derived accommodation signals to filter, prioritize, and auto-allocate rooms with family and gender-aware guardrails.
+**Requirements**: TT-05, ACC-04, ACC-05, ACC-06
+**Depends on:** Phase 5
+**Plans:** 2 plans
+
+Plans:
+- [ ] 07-01-PLAN.md — Normalize attendee accommodation signals and same-order family grouping foundations
+- [ ] 07-02-PLAN.md — Apply attendee signals to allocation filters and smart room proposals
