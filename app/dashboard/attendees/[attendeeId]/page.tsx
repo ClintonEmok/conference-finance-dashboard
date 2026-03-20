@@ -5,6 +5,15 @@ import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { BedDouble, CalendarDays, ChevronRight, CreditCard, Mail, ReceiptText, UserRound } from "lucide-react"
 
+import {
+  TikkieLinkDialog,
+  type TikkieLinkDialogDefaults,
+  type TikkieLinkDialogValues,
+} from "@/components/dashboard/tikkie-link-dialog"
+import {
+  TikkieLinkSummary,
+  type TikkieLinkSummaryRecord,
+} from "@/components/dashboard/tikkie-link-summary"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -42,6 +51,23 @@ type AttendeeDetailPayload = {
       paidLinks: number
       openLinks: number
       expiredLinks: number
+    }
+  }
+  tikkie: {
+    latestLink: TikkieLinkSummaryRecord | null
+    history: TikkieLinkSummaryRecord[]
+    providerLastCheckedAt: string | null
+    latestLinkCheckState: "fresh" | "stale" | null
+    generationDefaults: {
+      amountMinor: number
+      expiryDate: string
+      description: string
+      referenceId: string
+    }
+    actions: {
+      createEndpoint: string
+      listEndpoint: string
+      refreshEndpoint: string
     }
   }
   paymentHistory: Array<{
@@ -124,6 +150,11 @@ export default function AttendeeDetailPage({ params }: PageProps) {
   const [payload, setPayload] = useState<AttendeeDetailPayload | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isTikkieDialogOpen, setIsTikkieDialogOpen] = useState(false)
+  const [isSubmittingTikkie, setIsSubmittingTikkie] = useState(false)
+  const [isRefreshingTikkie, setIsRefreshingTikkie] = useState(false)
+  const [isCopyingLatestLink, setIsCopyingLatestLink] = useState(false)
+  const [tikkieError, setTikkieError] = useState<string | null>(null)
 
   const attendeeSearch = searchParams.get("search")
   const eventId = searchParams.get("eventId")
@@ -171,6 +202,41 @@ export default function AttendeeDetailPage({ params }: PageProps) {
     return `/dashboard/accommodation?${params.toString()}`
   })()
 
+  async function loadAttendeeDetail(targetAttendeeId: string, options?: { silent?: boolean }) {
+    if (!options?.silent) {
+      setIsLoading(true)
+    }
+
+    setErrorMessage(null)
+
+    try {
+      const response = await fetch(`/api/dashboard/attendees/${targetAttendeeId}`)
+      const body = (await response.json().catch(() => null)) as
+        | AttendeeDetailPayload
+        | { error?: { message?: string } }
+        | null
+
+      if (!response.ok) {
+        setPayload(null)
+        setErrorMessage(
+          body && "error" in body ? body.error?.message ?? "Failed to load attendee detail." : "Failed to load attendee detail.",
+        )
+        return false
+      }
+
+      setPayload(body as AttendeeDetailPayload)
+      return true
+    } catch {
+      setPayload(null)
+      setErrorMessage("Network error while loading attendee detail.")
+      return false
+    } finally {
+      if (!options?.silent) {
+        setIsLoading(false)
+      }
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
 
@@ -182,38 +248,8 @@ export default function AttendeeDetailPage({ params }: PageProps) {
       }
 
       setAttendeeId(resolved.attendeeId)
-      setIsLoading(true)
-      setErrorMessage(null)
-
-      try {
-        const response = await fetch(`/api/dashboard/attendees/${resolved.attendeeId}`)
-        const body = (await response.json().catch(() => null)) as
-          | AttendeeDetailPayload
-          | { error?: { message?: string } }
-          | null
-
-        if (!response.ok) {
-          if (!cancelled) {
-            setPayload(null)
-            setErrorMessage(
-              body && "error" in body ? body.error?.message ?? "Failed to load attendee detail." : "Failed to load attendee detail.",
-            )
-          }
-          return
-        }
-
-        if (!cancelled) {
-          setPayload(body as AttendeeDetailPayload)
-        }
-      } catch {
-        if (!cancelled) {
-          setPayload(null)
-          setErrorMessage("Network error while loading attendee detail.")
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false)
-        }
+      if (!cancelled) {
+        await loadAttendeeDetail(resolved.attendeeId)
       }
     }
 
@@ -239,6 +275,91 @@ export default function AttendeeDetailPage({ params }: PageProps) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("")
+
+  const tikkieDialogDefaults: TikkieLinkDialogDefaults | null = payload
+    ? {
+        providerOrderId: payload.attendee.providerOrderId,
+        providerEventId: payload.attendee.providerEventId,
+        ...payload.tikkie.generationDefaults,
+      }
+    : null
+
+  async function handleCreateTikkieLink(values: TikkieLinkDialogValues) {
+    if (!payload) {
+      return
+    }
+
+    setIsSubmittingTikkie(true)
+    setTikkieError(null)
+
+    try {
+      const response = await fetch(payload.tikkie.actions.createEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          providerOrderId: payload.attendee.providerOrderId,
+          providerEventId: payload.attendee.providerEventId,
+          amountMinor: values.amountMinor,
+          description: values.description,
+          expiryDate: values.expiryDate,
+          referenceId: values.referenceId,
+        }),
+      })
+      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+
+      if (!response.ok) {
+        setTikkieError(body?.error?.message ?? `Failed to create link (${response.status}).`)
+        return
+      }
+
+      setIsTikkieDialogOpen(false)
+      await loadAttendeeDetail(payload.attendee.id, { silent: true })
+    } catch {
+      setTikkieError("Network error while creating link.")
+    } finally {
+      setIsSubmittingTikkie(false)
+    }
+  }
+
+  async function handleRefreshTikkie() {
+    if (!payload) {
+      return
+    }
+
+    setIsRefreshingTikkie(true)
+    setTikkieError(null)
+
+    try {
+      const response = await fetch(payload.tikkie.actions.refreshEndpoint)
+      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+
+      if (!response.ok) {
+        setTikkieError(body?.error?.message ?? `Failed to refresh link status (${response.status}).`)
+        return
+      }
+
+      await loadAttendeeDetail(payload.attendee.id, { silent: true })
+    } catch {
+      setTikkieError("Network error while refreshing Tikkie status.")
+    } finally {
+      setIsRefreshingTikkie(false)
+    }
+  }
+
+  async function handleCopyLatestLink(url: string) {
+    setIsCopyingLatestLink(true)
+    setTikkieError(null)
+
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      setTikkieError("Clipboard permission denied. Copy the URL manually.")
+    } finally {
+      setIsCopyingLatestLink(false)
+    }
+  }
 
   return (
     <section className="space-y-6">
@@ -348,6 +469,50 @@ export default function AttendeeDetailPage({ params }: PageProps) {
                     {payload.finance.installmentProgress.openLinks} open links, {payload.finance.installmentProgress.expiredLinks} expired,
                     {" "}{payload.finance.installmentProgress.paidLinks} paid.
                   </p>
+                </div>
+
+                <div className="space-y-4 rounded-2xl border border-border/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,0.88))] p-4 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.68),rgba(17,24,39,0.76))]">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-700 dark:text-cyan-300">
+                        Tikkie follow-up
+                      </p>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        Keep the latest link visible here so payment follow-up stays in the same attendee context.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={isSubmittingTikkie || payload.finance.outstandingAmountMinor <= 0}
+                      onClick={() => {
+                        setTikkieError(null)
+                        setIsTikkieDialogOpen(true)
+                      }}
+                    >
+                      {isSubmittingTikkie ? "Generating..." : "Generate Tikkie link"}
+                    </Button>
+                  </div>
+
+                  {payload.finance.outstandingAmountMinor <= 0 && (
+                    <p className="text-sm text-muted-foreground">No remaining balance to generate a new payment link.</p>
+                  )}
+
+                  <TikkieLinkSummary
+                    latestLink={payload.tikkie.latestLink}
+                    history={payload.tikkie.history}
+                    isLoading={isRefreshingTikkie}
+                    isCopying={isCopyingLatestLink}
+                    emptyState="No Tikkie link has been generated for this order yet."
+                    onCopy={(url) => void handleCopyLatestLink(url)}
+                    onRefresh={() => void handleRefreshTikkie()}
+                  />
+
+                  {tikkieError && (
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200">
+                      {tikkieError}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -477,6 +642,21 @@ export default function AttendeeDetailPage({ params }: PageProps) {
           No attendee selected.
         </article>
       )}
+
+      <TikkieLinkDialog
+        key={payload ? payload.attendee.id : "attendee-tikkie-closed"}
+        open={isTikkieDialogOpen}
+        defaults={tikkieDialogDefaults}
+        submitting={isSubmittingTikkie}
+        error={tikkieError}
+        onOpenChange={(open) => {
+          setIsTikkieDialogOpen(open)
+          if (!open) {
+            setTikkieError(null)
+          }
+        }}
+        onSubmit={handleCreateTikkieLink}
+      />
     </section>
   )
 }

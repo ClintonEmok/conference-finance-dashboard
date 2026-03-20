@@ -85,26 +85,12 @@ export function TikkieLinkDialog({
   onSubmit,
 }: TikkieLinkDialogProps) {
   const [values, setValues] = useState<TikkieLinkDialogValues>({
-    amountMinor: 0,
-    expiryDate: "",
-    description: "",
-    referenceId: "",
+    amountMinor: defaults?.amountMinor ?? 0,
+    expiryDate: defaults?.expiryDate ?? "",
+    description: defaults?.description ?? "",
+    referenceId: defaults?.referenceId ?? "",
   })
   const [errors, setErrors] = useState<FormErrors>({})
-
-  useEffect(() => {
-    if (!open || !defaults) {
-      return
-    }
-
-    setValues({
-      amountMinor: defaults.amountMinor,
-      expiryDate: defaults.expiryDate,
-      description: defaults.description,
-      referenceId: defaults.referenceId,
-    })
-    setErrors({})
-  }, [defaults, open])
 
   useEffect(() => {
     if (!open) {

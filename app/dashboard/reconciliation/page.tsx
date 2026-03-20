@@ -4,6 +4,15 @@ import Link from "next/link"
 import { ArrowRight, CircleAlert, HandCoins, SearchCheck } from "lucide-react"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
+import {
+  TikkieLinkDialog,
+  type TikkieLinkDialogDefaults,
+  type TikkieLinkDialogValues,
+} from "@/components/dashboard/tikkie-link-dialog"
+import {
+  TikkieLinkSummary,
+  type TikkieLinkSummaryRecord,
+} from "@/components/dashboard/tikkie-link-summary"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -39,24 +48,14 @@ type ReconciliationPayload = {
   }>
 }
 
-type TikkieLinkRecord = {
-  id: string
-  providerOrderId: string
-  providerEventId: string
-  paymentRequestToken: string
-  paymentRequestUrl: string
-  status: "created" | "paid" | "expired"
-  statusSource: "create" | "webhook" | "poll"
-  providerStatus: string
-  amountMinor: number
-  description: string
-  expiryDate: string
-  referenceId: string | null
-  providerPayload: unknown
+type TikkieLinkRecord = TikkieLinkSummaryRecord
+
+type TikkieLinkSummaryPayload = {
+  count: number
+  latestLink: TikkieLinkRecord | null
+  history: TikkieLinkRecord[]
   providerLastCheckedAt: string | null
-  statusUpdatedAt: string
-  createdAt: string
-  updatedAt: string
+  latestLinkCheckState: "fresh" | "stale" | null
 }
 
 type RowLinkState = {
@@ -64,7 +63,15 @@ type RowLinkState = {
   isCreating: boolean
   isCopying: boolean
   error: string | null
-  links: TikkieLinkRecord[]
+  summary: TikkieLinkSummaryPayload | null
+}
+
+const EMPTY_ROW_LINK_STATE: RowLinkState = {
+  isLoading: false,
+  isCreating: false,
+  isCopying: false,
+  error: null,
+  summary: null,
 }
 
 function toDateInputValue(date: Date) {
@@ -110,58 +117,21 @@ function formatReason(reason: string) {
   }
 }
 
-function formatTikkieStatus(status: "created" | "paid" | "expired") {
-  switch (status) {
-    case "paid":
-      return "Paid"
-    case "expired":
-      return "Expired"
-    default:
-      return "Created"
-  }
-}
-
-function statusBadgeClass(status: "created" | "paid" | "expired") {
-  if (status === "paid") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300"
-  }
-
-  if (status === "expired") {
-    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300"
-  }
-
-  return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-300"
-}
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return "-"
-  }
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return "-"
-  }
-
-  return parsed.toLocaleString()
-}
-
 function defaultExpiryDate() {
   const date = new Date()
   date.setDate(date.getDate() + 14)
   return date.toISOString().slice(0, 10)
 }
 
-function formatStatusSource(value: "create" | "webhook" | "poll") {
-  if (value === "webhook") {
-    return "Webhook"
+function defaultDialogValues(row: ReconciliationPayload["rows"][number]): TikkieLinkDialogDefaults {
+  return {
+    providerOrderId: row.providerOrderId,
+    providerEventId: row.providerEventId,
+    amountMinor: row.outstandingMinor,
+    expiryDate: defaultExpiryDate(),
+    description: `Order ${row.providerOrderId}`.slice(0, 35),
+    referenceId: row.providerOrderId.slice(0, 35),
   }
-
-  if (value === "poll") {
-    return "Poll"
-  }
-
-  return "Create"
 }
 
 export default function ReconciliationPage() {
@@ -183,6 +153,7 @@ export default function ReconciliationPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [payload, setPayload] = useState<ReconciliationPayload | null>(null)
   const [rowLinks, setRowLinks] = useState<Record<string, RowLinkState>>({})
+  const [dialogRow, setDialogRow] = useState<ReconciliationPayload["rows"][number] | null>(null)
 
   const dateValidationError = useMemo(() => {
     const fromIso = toIsoBoundary(fromInput, "start")
@@ -265,6 +236,10 @@ export default function ReconciliationPage() {
     }
   }, [appliedEventId, appliedFrom, appliedStatus, appliedTo])
 
+  function getRowLinkState(providerOrderId: string) {
+    return rowLinks[providerOrderId] ?? EMPTY_ROW_LINK_STATE
+  }
+
   async function fetchRowLinks(providerOrderId: string, options?: { refresh?: boolean }) {
     setRowLinks((current) => ({
       ...current,
@@ -273,7 +248,7 @@ export default function ReconciliationPage() {
         isCreating: current[providerOrderId]?.isCreating ?? false,
         isCopying: current[providerOrderId]?.isCopying ?? false,
         error: null,
-        links: current[providerOrderId]?.links ?? [],
+        summary: current[providerOrderId]?.summary ?? null,
       },
     }))
 
@@ -285,7 +260,7 @@ export default function ReconciliationPage() {
       )
 
       const body = (await response.json().catch(() => null)) as
-        | { links?: TikkieLinkRecord[]; error?: { message?: string } }
+        | (TikkieLinkSummaryPayload & { error?: { message?: string } })
         | null
 
       if (!response.ok) {
@@ -296,7 +271,7 @@ export default function ReconciliationPage() {
             isCreating: current[providerOrderId]?.isCreating ?? false,
             isCopying: current[providerOrderId]?.isCopying ?? false,
             error: body?.error?.message ?? `Failed to load links (${response.status}).`,
-            links: current[providerOrderId]?.links ?? [],
+            summary: current[providerOrderId]?.summary ?? null,
           },
         }))
         return
@@ -309,7 +284,15 @@ export default function ReconciliationPage() {
           isCreating: current[providerOrderId]?.isCreating ?? false,
           isCopying: current[providerOrderId]?.isCopying ?? false,
           error: null,
-          links: body?.links ?? [],
+          summary: body
+            ? {
+                count: body.count,
+                latestLink: body.latestLink,
+                history: body.history,
+                providerLastCheckedAt: body.providerLastCheckedAt,
+                latestLinkCheckState: body.latestLinkCheckState,
+              }
+            : null,
         },
       }))
     } catch {
@@ -320,7 +303,7 @@ export default function ReconciliationPage() {
           isCreating: current[providerOrderId]?.isCreating ?? false,
           isCopying: current[providerOrderId]?.isCopying ?? false,
           error: "Network error while loading Tikkie links.",
-          links: current[providerOrderId]?.links ?? [],
+          summary: current[providerOrderId]?.summary ?? null,
         },
       }))
     }
@@ -336,7 +319,10 @@ export default function ReconciliationPage() {
     }
   }, [payload?.rows])
 
-  async function handleGenerateLink(row: ReconciliationPayload["rows"][number]) {
+  async function handleGenerateLink(
+    row: ReconciliationPayload["rows"][number],
+    values: TikkieLinkDialogValues,
+  ) {
     setRowLinks((current) => ({
       ...current,
       [row.providerOrderId]: {
@@ -344,7 +330,7 @@ export default function ReconciliationPage() {
         isCreating: true,
         isCopying: current[row.providerOrderId]?.isCopying ?? false,
         error: null,
-        links: current[row.providerOrderId]?.links ?? [],
+        summary: current[row.providerOrderId]?.summary ?? null,
       },
     }))
 
@@ -357,10 +343,10 @@ export default function ReconciliationPage() {
         body: JSON.stringify({
           providerOrderId: row.providerOrderId,
           providerEventId: row.providerEventId,
-          amountMinor: row.outstandingMinor,
-          description: `Order ${row.providerOrderId}`,
-          expiryDate: defaultExpiryDate(),
-          referenceId: row.providerOrderId,
+          amountMinor: values.amountMinor,
+          description: values.description,
+          expiryDate: values.expiryDate,
+          referenceId: values.referenceId,
         }),
       })
 
@@ -374,13 +360,14 @@ export default function ReconciliationPage() {
             isCreating: false,
             isCopying: current[row.providerOrderId]?.isCopying ?? false,
             error: body?.error?.message ?? `Failed to create link (${response.status}).`,
-            links: current[row.providerOrderId]?.links ?? [],
+            summary: current[row.providerOrderId]?.summary ?? null,
           },
         }))
         return
       }
 
       await fetchRowLinks(row.providerOrderId)
+      setDialogRow(null)
     } catch {
       setRowLinks((current) => ({
         ...current,
@@ -389,7 +376,7 @@ export default function ReconciliationPage() {
           isCreating: false,
           isCopying: current[row.providerOrderId]?.isCopying ?? false,
           error: "Network error while creating link.",
-          links: current[row.providerOrderId]?.links ?? [],
+          summary: current[row.providerOrderId]?.summary ?? null,
         },
       }))
       return
@@ -402,7 +389,7 @@ export default function ReconciliationPage() {
         isCreating: false,
         isCopying: current[row.providerOrderId]?.isCopying ?? false,
         error: current[row.providerOrderId]?.error ?? null,
-        links: current[row.providerOrderId]?.links ?? [],
+        summary: current[row.providerOrderId]?.summary ?? null,
       },
     }))
   }
@@ -410,14 +397,14 @@ export default function ReconciliationPage() {
   async function handleCopyLink(providerOrderId: string, url: string) {
     setRowLinks((current) => ({
       ...current,
-      [providerOrderId]: {
-        isLoading: current[providerOrderId]?.isLoading ?? false,
-        isCreating: current[providerOrderId]?.isCreating ?? false,
-        isCopying: true,
-        error: null,
-        links: current[providerOrderId]?.links ?? [],
-      },
-    }))
+        [providerOrderId]: {
+          isLoading: current[providerOrderId]?.isLoading ?? false,
+          isCreating: current[providerOrderId]?.isCreating ?? false,
+          isCopying: true,
+          error: null,
+          summary: current[providerOrderId]?.summary ?? null,
+        },
+      }))
 
     try {
       await navigator.clipboard.writeText(url)
@@ -429,7 +416,7 @@ export default function ReconciliationPage() {
           isCreating: current[providerOrderId]?.isCreating ?? false,
           isCopying: false,
           error: "Clipboard permission denied. Copy the URL manually.",
-          links: current[providerOrderId]?.links ?? [],
+          summary: current[providerOrderId]?.summary ?? null,
         },
       }))
       return
@@ -437,14 +424,14 @@ export default function ReconciliationPage() {
 
     setRowLinks((current) => ({
       ...current,
-      [providerOrderId]: {
-        isLoading: current[providerOrderId]?.isLoading ?? false,
-        isCreating: current[providerOrderId]?.isCreating ?? false,
-        isCopying: false,
-        error: null,
-        links: current[providerOrderId]?.links ?? [],
-      },
-    }))
+        [providerOrderId]: {
+          isLoading: current[providerOrderId]?.isLoading ?? false,
+          isCreating: current[providerOrderId]?.isCreating ?? false,
+          isCopying: false,
+          error: null,
+          summary: current[providerOrderId]?.summary ?? null,
+        },
+      }))
   }
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
@@ -650,14 +637,8 @@ export default function ReconciliationPage() {
                 </thead>
                 <tbody>
                   {payload.rows.map((row) => {
-                    const linkState = rowLinks[row.providerOrderId] ?? {
-                      isLoading: false,
-                      isCreating: false,
-                      isCopying: false,
-                      error: null,
-                      links: [],
-                    }
-                    const latestLink = linkState.links[0] ?? null
+                    const linkState = getRowLinkState(row.providerOrderId)
+                    const latestLink = linkState.summary?.latestLink ?? null
                     const canGenerate = row.outstandingMinor > 0
 
                     return (
@@ -717,32 +698,10 @@ export default function ReconciliationPage() {
                                 variant="outline"
                                 size="sm"
                                 disabled={!canGenerate || linkState.isCreating}
-                                onClick={() => void handleGenerateLink(row)}
+                                onClick={() => setDialogRow(row)}
                               >
                                 {linkState.isCreating ? "Generating..." : "Generate Tikkie link"}
                               </Button>
-                              {latestLink && (
-                                <Button
-                                  type="button"
-                                  variant="secondary"
-                                  size="sm"
-                                  disabled={linkState.isCopying}
-                                  onClick={() => void handleCopyLink(row.providerOrderId, latestLink.paymentRequestUrl)}
-                                >
-                                  {linkState.isCopying ? "Copying..." : "Copy link"}
-                                </Button>
-                              )}
-                              {latestLink && (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  disabled={linkState.isLoading}
-                                  onClick={() => void fetchRowLinks(row.providerOrderId, { refresh: true })}
-                                >
-                                  {linkState.isLoading ? "Refreshing..." : "Refresh status"}
-                                </Button>
-                              )}
                             </div>
 
                             {!canGenerate && (
@@ -753,20 +712,16 @@ export default function ReconciliationPage() {
                               <p className="text-[11px] text-muted-foreground">Loading link status...</p>
                             )}
 
-                            {latestLink && (
-                              <div className="space-y-1 text-[11px] text-muted-foreground">
-                                <span
-                                  className={`inline-flex items-center rounded-full border px-2 py-0.5 font-medium ${statusBadgeClass(latestLink.status)}`}
-                                >
-                                  {formatTikkieStatus(latestLink.status)}
-                                </span>
-                                <div>Created: {formatDateTime(latestLink.createdAt)}</div>
-                                <div>
-                                  Last status check: {formatDateTime(latestLink.providerLastCheckedAt)} ({formatStatusSource(latestLink.statusSource)})
-                                </div>
-                                <div>Updated: {formatDateTime(latestLink.statusUpdatedAt)}</div>
-                              </div>
-                            )}
+                            <TikkieLinkSummary
+                              latestLink={latestLink}
+                              history={linkState.summary?.history ?? []}
+                              isLoading={linkState.isLoading}
+                              isCopying={linkState.isCopying}
+                              compact
+                              emptyState="No Tikkie links generated for this order yet."
+                              onCopy={(url) => void handleCopyLink(row.providerOrderId, url)}
+                              onRefresh={() => void fetchRowLinks(row.providerOrderId, { refresh: true })}
+                            />
 
                             {linkState.error && <p className="text-[11px] text-red-600 dark:text-red-400">{linkState.error}</p>}
                           </div>
@@ -781,6 +736,26 @@ export default function ReconciliationPage() {
           </CardContent>
         </Card>
       )}
+
+      <TikkieLinkDialog
+        key={dialogRow ? dialogRow.providerOrderId : "reconciliation-tikkie-closed"}
+        open={Boolean(dialogRow)}
+        defaults={dialogRow ? defaultDialogValues(dialogRow) : null}
+        submitting={dialogRow ? getRowLinkState(dialogRow.providerOrderId).isCreating : false}
+        error={dialogRow ? getRowLinkState(dialogRow.providerOrderId).error : null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDialogRow(null)
+          }
+        }}
+        onSubmit={async (values) => {
+          if (!dialogRow) {
+            return
+          }
+
+          await handleGenerateLink(dialogRow, values)
+        }}
+      />
     </section>
   )
 }
