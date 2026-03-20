@@ -9,6 +9,11 @@ import {
 
 export type AppTikkieLinkStatus = "created" | "paid" | "expired"
 
+export type TikkieLinkCheckState = "fresh" | "stale" | null
+
+export const TIKKIE_TEXT_LIMIT = 35
+export const TIKKIE_OPEN_LINK_STALE_MINUTES = 30
+
 export type TikkiePaymentLinkDto = {
   id: string
   providerOrderId: string
@@ -29,12 +34,26 @@ export type TikkiePaymentLinkDto = {
   updatedAt: string
 }
 
+export type TikkiePaymentLinkView = TikkiePaymentLinkDto & {
+  checkState: TikkieLinkCheckState
+}
+
+export type TikkiePaymentLinksByOrderSummary = {
+  providerOrderId: string
+  count: number
+  links: TikkiePaymentLinkView[]
+  latestLink: TikkiePaymentLinkView | null
+  history: TikkiePaymentLinkView[]
+  providerLastCheckedAt: string | null
+  latestLinkCheckState: TikkieLinkCheckState
+}
+
 export type CreateTikkiePaymentLinkInput = {
   providerOrderId: string
   providerEventId: string
   amountMinor: number
   description: string
-  expiryDate: string
+  expiryDate: string | Date
   referenceId?: string | null
 }
 
@@ -60,6 +79,19 @@ export type SyncPendingTikkiePaymentLinksResult = {
   updated: number
   unchanged: number
   failed: number
+}
+
+export type RefreshTikkiePaymentLinkStatusResult = {
+  link: TikkiePaymentLinkDto
+  changed: boolean
+  duplicate: boolean
+}
+
+export type TikkieGenerationDefaults = {
+  amountMinor: number
+  expiryDate: string
+  description: string
+  referenceId: string
 }
 
 type DbTikkiePaymentLink = {
@@ -120,6 +152,40 @@ export function mapTikkiePaymentLink(link: DbTikkiePaymentLink): TikkiePaymentLi
   }
 }
 
+export function deriveTikkieLinkCheckState(link: {
+  status: AppTikkieLinkStatus
+  providerLastCheckedAt: string | null
+}): TikkieLinkCheckState {
+  if (link.status !== "created") {
+    return null
+  }
+
+  if (!link.providerLastCheckedAt) {
+    return "stale"
+  }
+
+  const checkedAt = new Date(link.providerLastCheckedAt)
+
+  if (Number.isNaN(checkedAt.getTime())) {
+    return "stale"
+  }
+
+  const staleAt = checkedAt.getTime() + TIKKIE_OPEN_LINK_STALE_MINUTES * 60_000
+  return staleAt <= Date.now() ? "stale" : "fresh"
+}
+
+export function mapTikkiePaymentLinkView(link: DbTikkiePaymentLink): TikkiePaymentLinkView {
+  const mapped = mapTikkiePaymentLink(link)
+
+  return {
+    ...mapped,
+    checkState: deriveTikkieLinkCheckState({
+      status: mapped.status,
+      providerLastCheckedAt: mapped.providerLastCheckedAt,
+    }),
+  }
+}
+
 export function normalizeProviderIdentifier(value: string, fieldName: string) {
   const normalized = value.trim()
   if (!normalized) {
@@ -129,17 +195,35 @@ export function normalizeProviderIdentifier(value: string, fieldName: string) {
   return normalized
 }
 
-function normalizeDescription(value: string) {
+function normalizeTextField(value: string, fieldName: string) {
   const normalized = value.trim()
   if (!normalized) {
-    throw new Error("Invalid 'description'. Value is required.")
+    throw new Error(`Invalid '${fieldName}'. Value is required.`)
   }
 
-  if (normalized.length > 35) {
-    throw new Error("Invalid 'description'. Maximum length is 35 characters.")
+  if (normalized.length > TIKKIE_TEXT_LIMIT) {
+    throw new Error(`Invalid '${fieldName}'. Maximum length is ${TIKKIE_TEXT_LIMIT} characters.`)
   }
 
   return normalized
+}
+
+function normalizeDescription(value: string) {
+  return normalizeTextField(value, "description")
+}
+
+function normalizeReferenceId(value: string | null | undefined) {
+  if (value === undefined || value === null) {
+    return null
+  }
+
+  const normalized = value.trim()
+
+  if (!normalized) {
+    return null
+  }
+
+  return normalizeTextField(normalized, "referenceId")
 }
 
 function normalizeAmountMinor(value: number) {
@@ -150,10 +234,19 @@ function normalizeAmountMinor(value: number) {
   return value
 }
 
-function normalizeExpiryDate(value: string) {
-  const parsed = new Date(value)
+function normalizeExpiryDate(value: string | Date) {
+  const normalized = value instanceof Date ? value.toISOString() : value.trim()
+  const parsed = value instanceof Date ? new Date(value) : new Date(normalized)
   if (Number.isNaN(parsed.getTime())) {
     throw new Error("Invalid 'expiryDate'. Expected ISO date or datetime.")
+  }
+
+  const effectiveExpiry = /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+    ? new Date(`${normalized}T23:59:59.999Z`)
+    : parsed
+
+  if (effectiveExpiry.getTime() <= Date.now()) {
+    throw new Error("Invalid 'expiryDate'. Expected a future date.")
   }
 
   return parsed
@@ -161,6 +254,33 @@ function normalizeExpiryDate(value: string) {
 
 function toTikkieDate(value: Date) {
   return value.toISOString().slice(0, 10)
+}
+
+export function buildTikkieGenerationDefaults(params: {
+  providerOrderId: string
+  outstandingAmountMinor: number
+}) {
+  const providerOrderId = normalizeProviderIdentifier(params.providerOrderId, "providerOrderId")
+
+  return {
+    amountMinor: Number.isInteger(params.outstandingAmountMinor) && params.outstandingAmountMinor > 0
+      ? params.outstandingAmountMinor
+      : 0,
+    expiryDate: toTikkieDate(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)),
+    description: `Order ${providerOrderId}`.slice(0, TIKKIE_TEXT_LIMIT),
+    referenceId: providerOrderId.slice(0, TIKKIE_TEXT_LIMIT),
+  } satisfies TikkieGenerationDefaults
+}
+
+export function validateCreateTikkiePaymentLinkInput(input: CreateTikkiePaymentLinkInput) {
+  return {
+    providerOrderId: normalizeProviderIdentifier(input.providerOrderId, "providerOrderId"),
+    providerEventId: normalizeProviderIdentifier(input.providerEventId, "providerEventId"),
+    amountMinor: normalizeAmountMinor(input.amountMinor),
+    description: normalizeDescription(input.description),
+    expiryDate: normalizeExpiryDate(input.expiryDate),
+    referenceId: normalizeReferenceId(input.referenceId),
+  }
 }
 
 function mapProviderStatus(providerStatus: string) {
@@ -196,12 +316,8 @@ async function resolveOrder(providerOrderId: string, providerEventId: string) {
 export async function createTikkiePaymentLink(
   input: CreateTikkiePaymentLinkInput,
 ): Promise<CreateTikkiePaymentLinkResult> {
-  const providerOrderId = normalizeProviderIdentifier(input.providerOrderId, "providerOrderId")
-  const providerEventId = normalizeProviderIdentifier(input.providerEventId, "providerEventId")
-  const amountMinor = normalizeAmountMinor(input.amountMinor)
-  const description = normalizeDescription(input.description)
-  const expiryDate = normalizeExpiryDate(input.expiryDate)
-  const referenceId = input.referenceId?.trim() || null
+  const { providerOrderId, providerEventId, amountMinor, description, expiryDate, referenceId } =
+    validateCreateTikkiePaymentLinkInput(input)
 
   const order = await resolveOrder(providerOrderId, providerEventId)
 
@@ -260,7 +376,9 @@ export async function createTikkiePaymentLink(
   }
 }
 
-export async function listTikkiePaymentLinksByOrder(input: ListTikkiePaymentLinksByOrderInput) {
+export async function listTikkiePaymentLinksByOrder(
+  input: ListTikkiePaymentLinksByOrderInput,
+): Promise<TikkiePaymentLinksByOrderSummary> {
   const providerOrderId = normalizeProviderIdentifier(input.providerOrderId, "providerOrderId")
 
   const links = await prisma.tikkiePaymentLink.findMany({
@@ -270,7 +388,18 @@ export async function listTikkiePaymentLinksByOrder(input: ListTikkiePaymentLink
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   })
 
-  return links.map(mapTikkiePaymentLink)
+  const mappedLinks = links.map(mapTikkiePaymentLinkView)
+  const latestLink = mappedLinks[0] ?? null
+
+  return {
+    providerOrderId,
+    count: mappedLinks.length,
+    links: mappedLinks,
+    latestLink,
+    history: mappedLinks.slice(1),
+    providerLastCheckedAt: latestLink?.providerLastCheckedAt ?? null,
+    latestLinkCheckState: latestLink?.checkState ?? null,
+  }
 }
 
 function derivePaymentState(params: {
@@ -301,8 +430,29 @@ function canTransition(current: AppTikkieLinkStatus, next: AppTikkieLinkStatus) 
   return false
 }
 
-export async function refreshTikkiePaymentLinkStatus(input: RefreshTikkiePaymentLinkStatusInput) {
+export async function refreshTikkiePaymentLinkStatus(
+  input: RefreshTikkiePaymentLinkStatusInput,
+): Promise<RefreshTikkiePaymentLinkStatusResult> {
   const paymentRequestToken = normalizeProviderIdentifier(input.paymentRequestToken, "paymentRequestToken")
+
+  if (input.providerNotificationKey) {
+    const existingTransition = await prisma.tikkiePaymentLinkTransition.findUnique({
+      where: {
+        providerNotificationKey: input.providerNotificationKey,
+      },
+      select: {
+        paymentLink: true,
+      },
+    })
+
+    if (existingTransition) {
+      return {
+        link: mapTikkiePaymentLink(existingTransition.paymentLink as DbTikkiePaymentLink),
+        changed: false,
+        duplicate: true,
+      }
+    }
+  }
 
   const existing = await prisma.tikkiePaymentLink.findUnique({
     where: {
@@ -364,6 +514,7 @@ export async function refreshTikkiePaymentLinkStatus(input: RefreshTikkiePayment
   return {
     link: mapTikkiePaymentLink(update),
     changed: nextStatus !== currentStatus,
+    duplicate: false,
   }
 }
 

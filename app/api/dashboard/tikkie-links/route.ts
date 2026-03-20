@@ -7,6 +7,7 @@ import {
   listTikkiePaymentLinksByOrder,
   normalizeProviderIdentifier,
   refreshTikkiePaymentLinkStatus,
+  validateCreateTikkiePaymentLinkInput,
 } from "@/lib/domain/finance/tikkie-links"
 import { TikkieApiError } from "@/lib/integrations/tikkie/client"
 
@@ -79,21 +80,14 @@ function parseAmountMinor(value: unknown) {
 }
 
 function parseCreateBody(body: CreateBody) {
-  const providerOrderId = parseRequiredString(body.providerOrderId, "providerOrderId")
-  const providerEventId = parseRequiredString(body.providerEventId, "providerEventId")
-  const description = parseRequiredString(body.description, "description")
-  const expiryDate = parseRequiredString(body.expiryDate, "expiryDate")
-  const referenceId = parseOptionalString(body.referenceId, "referenceId")
-  const amountMinor = parseAmountMinor(body.amountMinor)
-
-  return {
-    providerOrderId,
-    providerEventId,
-    amountMinor,
-    description,
-    expiryDate,
-    referenceId,
-  }
+  return validateCreateTikkiePaymentLinkInput({
+    providerOrderId: parseRequiredString(body.providerOrderId, "providerOrderId"),
+    providerEventId: parseRequiredString(body.providerEventId, "providerEventId"),
+    description: parseRequiredString(body.description, "description"),
+    expiryDate: parseRequiredString(body.expiryDate, "expiryDate"),
+    referenceId: parseOptionalString(body.referenceId, "referenceId"),
+    amountMinor: parseAmountMinor(body.amountMinor),
+  })
 }
 
 export async function GET(request: Request) {
@@ -123,7 +117,7 @@ export async function GET(request: Request) {
         providerOrderId,
       })
 
-      for (const link of linksForRefresh) {
+      for (const link of linksForRefresh.links) {
         if (link.status === "created") {
           await refreshTikkiePaymentLinkStatus({
             paymentRequestToken: link.paymentRequestToken,
@@ -139,9 +133,7 @@ export async function GET(request: Request) {
     })
 
     return NextResponse.json({
-      providerOrderId,
-      count: links.length,
-      links,
+      ...links,
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid request"
