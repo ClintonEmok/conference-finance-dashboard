@@ -67,6 +67,7 @@ describe("POST /api/webhooks/tikkie", () => {
     vi.mocked(processTikkieWebhookNotification).mockResolvedValue({
       accepted: true,
       duplicate: false,
+      missing: false,
       paymentRequestToken: "qzdnzr8hnVWTgXXcFRLUMc",
       changed: true,
       status: "paid",
@@ -93,6 +94,7 @@ describe("POST /api/webhooks/tikkie", () => {
     expect(body).toEqual({
       accepted: true,
       duplicate: false,
+      missing: false,
       paymentRequestToken: "qzdnzr8hnVWTgXXcFRLUMc",
       changed: true,
       status: "paid",

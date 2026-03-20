@@ -1,7 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 import type { Prisma } from "@prisma/client"
 
-import { refreshTikkiePaymentLinkStatus } from "@/lib/domain/finance/tikkie-links"
+import {
+  refreshTikkiePaymentLinkStatus,
+  type AppTikkieLinkStatus,
+} from "@/lib/domain/finance/tikkie-links"
 
 type JsonRecord = Prisma.InputJsonObject
 
@@ -11,6 +14,15 @@ export type TikkieWebhookNotification = {
   paymentRequestToken: string
   paymentToken?: string
   refundToken?: string
+}
+
+export type ProcessTikkieWebhookNotificationResult = {
+  accepted: true
+  duplicate: boolean
+  missing: boolean
+  paymentRequestToken: string
+  changed: boolean
+  status: AppTikkieLinkStatus | null
 }
 
 function getHeader(headers: Headers, name: string) {
@@ -87,7 +99,9 @@ function notificationKey(notification: TikkieWebhookNotification) {
   return `${notification.subscriptionId}:${notification.notificationType}:${notification.paymentRequestToken}:${notification.paymentToken ?? ""}:${notification.refundToken ?? ""}`
 }
 
-export async function processTikkieWebhookNotification(payload: unknown) {
+export async function processTikkieWebhookNotification(
+  payload: unknown,
+): Promise<ProcessTikkieWebhookNotificationResult> {
   const notification = parseNotification(payload)
   const key = notificationKey(notification)
 
@@ -102,12 +116,24 @@ export async function processTikkieWebhookNotification(payload: unknown) {
 
     return {
       accepted: true,
-      duplicate: false,
+      duplicate: result.duplicate,
+      missing: false,
       paymentRequestToken: notification.paymentRequestToken,
       changed: result.changed,
       status: result.link.status,
     }
   } catch (error) {
+    if (error instanceof Error && error.message.includes("Payment link not found")) {
+      return {
+        accepted: true,
+        duplicate: false,
+        missing: true,
+        paymentRequestToken: notification.paymentRequestToken,
+        changed: false,
+        status: null,
+      }
+    }
+
     if (
       error instanceof Error &&
       error.message.includes("Unique constraint failed") &&
@@ -116,8 +142,10 @@ export async function processTikkieWebhookNotification(payload: unknown) {
       return {
         accepted: true,
         duplicate: true,
+        missing: false,
         paymentRequestToken: notification.paymentRequestToken,
         changed: false,
+        status: null,
       }
     }
 

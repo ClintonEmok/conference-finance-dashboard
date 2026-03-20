@@ -66,6 +66,7 @@ vi.mock("@/lib/integrations/tikkie/client", () => ({
 }))
 
 import { GET, POST } from "@/app/api/dashboard/tikkie-links/route"
+import { POST as syncStatusRoute } from "@/app/api/jobs/tikkie/status-sync/route"
 import {
   TIKKIE_OPEN_LINK_STALE_MINUTES,
   listTikkiePaymentLinksByOrder,
@@ -272,6 +273,57 @@ describe("Tikkie payment link contracts", () => {
       paymentRequestToken: "missing_token",
       changed: false,
       status: null,
+    })
+  })
+
+  it("keeps the manual status sync route protected with the established contract", async () => {
+    mocks.getSession.mockResolvedValueOnce(null)
+
+    const response = await syncStatusRoute(
+      new Request("http://localhost/api/jobs/tikkie/status-sync", { method: "POST" }),
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(401)
+    expect(body).toEqual({
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Authentication required",
+      },
+    })
+  })
+
+  it("returns trustworthy manual sync counts for created links only", async () => {
+    mocks.prisma.tikkiePaymentLink.findMany.mockResolvedValue([
+      { paymentRequestToken: "token_1" },
+      { paymentRequestToken: "token_2" },
+    ])
+    mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue(null)
+    mocks.prisma.tikkiePaymentLink.findUnique
+      .mockResolvedValueOnce(dbLink({ paymentRequestToken: "token_1", status: "created" }))
+      .mockResolvedValueOnce(dbLink({ paymentRequestToken: "token_2", status: "created" }))
+    mocks.getPaymentRequest
+      .mockResolvedValueOnce({ status: "CLOSED" })
+      .mockResolvedValueOnce({ status: "OPEN" })
+    mocks.getPaymentRequestPayments
+      .mockResolvedValueOnce({ payments: [{ id: "pay_1" }], totalElementCount: 1 })
+      .mockResolvedValueOnce({ payments: [], totalElementCount: 0 })
+    mocks.prisma.tikkiePaymentLink.update
+      .mockResolvedValueOnce(dbLink({ paymentRequestToken: "token_1", status: "paid", providerStatus: "CLOSED" }))
+      .mockResolvedValueOnce(dbLink({ paymentRequestToken: "token_2", status: "created", providerStatus: "OPEN" }))
+
+    const response = await syncStatusRoute(
+      new Request("http://localhost/api/jobs/tikkie/status-sync?limit=2", { method: "POST" }),
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual({
+      ok: true,
+      scanned: 2,
+      updated: 1,
+      unchanged: 1,
+      failed: 0,
     })
   })
 })
