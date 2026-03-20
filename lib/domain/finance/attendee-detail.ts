@@ -1,4 +1,11 @@
 import { prisma } from "@/lib/prisma"
+import {
+  buildTikkieGenerationDefaults,
+  deriveTikkieLinkCheckState,
+  mapTikkiePaymentLink,
+  type TikkieLinkCheckState,
+  type TikkiePaymentLinkDto,
+} from "@/lib/domain/finance/tikkie-links"
 
 type RoomStatus =
   | {
@@ -48,6 +55,23 @@ export type AttendeeDetail = {
       paidLinks: number
       openLinks: number
       expiredLinks: number
+    }
+  }
+  tikkie: {
+    latestLink: (TikkiePaymentLinkDto & { checkState: TikkieLinkCheckState }) | null
+    history: Array<TikkiePaymentLinkDto & { checkState: TikkieLinkCheckState }>
+    providerLastCheckedAt: string | null
+    latestLinkCheckState: TikkieLinkCheckState
+    generationDefaults: {
+      amountMinor: number
+      expiryDate: string
+      description: string
+      referenceId: string
+    }
+    actions: {
+      createEndpoint: string
+      listEndpoint: string
+      refreshEndpoint: string
     }
   }
   paymentHistory: Array<{
@@ -110,7 +134,7 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
       order: {
         include: {
           tikkiePaymentLinks: {
-            orderBy: [{ createdAt: "desc" }],
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             include: {
               transitionEvents: {
                 orderBy: [{ createdAt: "desc" }],
@@ -173,6 +197,25 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
 
   paymentHistory.sort((left, right) => right.happenedAt.localeCompare(left.happenedAt))
 
+  const tikkieLinks = attendee.order.tikkiePaymentLinks.map((link) => {
+    const mapped = mapTikkiePaymentLink(link)
+
+    return {
+      ...mapped,
+      checkState: deriveTikkieLinkCheckState({
+        status: mapped.status,
+        providerLastCheckedAt: mapped.providerLastCheckedAt,
+      }),
+    }
+  })
+
+  const latestLink = tikkieLinks[0] ?? null
+  const generationDefaults = buildTikkieGenerationDefaults({
+    providerOrderId: attendee.order.providerOrderId,
+    outstandingAmountMinor,
+  })
+  const listEndpoint = `/api/dashboard/tikkie-links?providerOrderId=${encodeURIComponent(attendee.order.providerOrderId)}`
+
   const roomStatus: RoomStatus = attendee.assignedRoom
     ? {
         status: "assigned",
@@ -221,6 +264,18 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
         paidLinks: attendee.order.tikkiePaymentLinks.filter((link) => link.status === "paid").length,
         openLinks: attendee.order.tikkiePaymentLinks.filter((link) => link.status === "created").length,
         expiredLinks: attendee.order.tikkiePaymentLinks.filter((link) => link.status === "expired").length,
+      },
+    },
+    tikkie: {
+      latestLink,
+      history: tikkieLinks.slice(1),
+      providerLastCheckedAt: latestLink?.providerLastCheckedAt ?? null,
+      latestLinkCheckState: latestLink?.checkState ?? null,
+      generationDefaults,
+      actions: {
+        createEndpoint: "/api/dashboard/tikkie-links",
+        listEndpoint,
+        refreshEndpoint: `${listEndpoint}&refresh=1`,
       },
     },
     paymentHistory,
