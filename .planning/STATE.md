@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Roadmap extended; awaiting next execution phase
-stopped_at: Phase 6 context gathered
-last_updated: "2026-03-20T02:04:25.907Z"
-last_activity: 2026-03-20 — Added Phase 7 planning for smart allocation and attendee-derived accommodation signals
+status: Phase 6 in progress
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-03-20T03:00:03Z"
+last_activity: 2026-03-20 — Completed 06-01 backend Tikkie contract hardening and attendee-detail projection
 progress:
   total_phases: 7
   completed_phases: 5
-  total_plans: 12
+  total_plans: 14
   completed_plans: 11
-  percent: 83
+  percent: 79
 ---
 
 # Project State
@@ -21,22 +21,22 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 **Core value:** One trusted dashboard for church conference finance operations.
-**Current focus:** MVP roadmap complete; post-MVP planning now includes Tikkie integration and smart allocation / attendee signals.
+**Current focus:** Phase 6 is underway to ship Tikkie operator workflows on top of the completed MVP dashboard foundation.
 
 ## Current Position
 
-Phase: 5 of 7 completed
-Plan: No active plan
-Status: Roadmap extended; awaiting next execution phase
-Last activity: 2026-03-20 — Added Phase 7 planning for smart allocation and attendee-derived accommodation signals
+Phase: 6 of 7 in progress (tikkie integration)
+Plan: 1 of 2 completed
+Status: In progress
+Last activity: 2026-03-20 — Completed 06-01 backend Tikkie contract hardening and attendee-detail projection
 
-Progress: [████████░░] 83%
+Progress: [████████░░] 79%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
-- Average duration: 71 min
+- Total plans completed: 11
+- Average duration: 66 min
 - Total execution time: 9.5 hours
 
 **By Phase:**
@@ -50,8 +50,8 @@ Progress: [████████░░] 83%
 | 5. Room Allocation & Operator Flow Polish | 2 | 383 min | 192 min |
 
 **Recent Trend:**
-- Last 4 completed plans: 04-01, 04-02, 05-01, 05-02
-- Trend: MVP-critical finance, attendee, and room workflows now land cleanly as one operator command center
+- Last 4 completed plans: 04-02, 05-01, 05-02, 06-01
+- Trend: Post-MVP work is extending the command center with trustworthy payment-link follow-up instead of adding a separate collection product area
 
 ## Accumulated Context
 
@@ -87,6 +87,9 @@ Recent decisions affecting current work:
 - [05-02] Carry operator context across balances, attendee follow-up, and room allocation with URL query state instead of hidden client-side workflow state.
 - [05-02] Keep dashboard navigation ordered around overview, finance follow-up, attendees, and rooms so the MVP feels like one command center.
 - [05-02] Preserve reversible handoffs between attendee detail and accommodation so operators can move forward without dead-end navigation.
+- [06-01] Return one latest-link-first Tikkie contract with `latestLink`, history, and freshness metadata so clients do not rebuild provider ordering or recency rules.
+- [06-01] Only open Tikkie links receive stale/fresh trust signals; terminal paid and expired links stay free of noisy recency warnings.
+- [06-01] Short-circuit duplicate webhook notifications by checking persisted providerNotificationKey before refreshing provider state.
 
 ### Roadmap Evolution
 
@@ -95,7 +98,7 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- No active execution todos. Planned post-MVP work now includes Phase 6 Tikkie integration and Phase 7 smart allocation.
+- Phase 6 Plan 02 remains next: build the shared Tikkie modal and latest-link UI, then pause for human verification.
 
 ### Blockers/Concerns
 
@@ -105,9 +108,10 @@ Recent decisions affecting current work:
 - Core MVP roadmap remains complete; newly added Phases 6 and 7 are post-MVP planned work, not regressions in delivered MVP scope.
 - Non-blocking lint warnings remain in `app/layout.tsx`, `app/dashboard/accommodation/page.tsx`, and `app/dashboard/accommodation/rooms/[roomId]/page.tsx`.
 - Phase 2 summary docs are now complete: `02-01-SUMMARY.md` and `02-02-SUMMARY.md` both written.
+- Real provider verification for Phase 6 still depends on `TIKKIE_API_KEY`, `TIKKIE_APP_TOKEN`, and the active webhook callback subscription being configured.
 
 ## Session Continuity
 
-Last session: 2026-03-20T02:04:25.896Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-tikkie-integration/06-CONTEXT.md
+Last session: 2026-03-20T03:00:03Z
+Stopped at: Completed 06-01-PLAN.md
+Resume file: .planning/phases/06-tikkie-integration/06-02-PLAN.md
