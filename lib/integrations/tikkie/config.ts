@@ -6,11 +6,16 @@ type ValidationResult = {
     hasApiKey: boolean
     keyPreview: string | null
     appTokenConfigured: boolean
+    subscriptionSetupEnabled: boolean
+    hasWebhookCallbackUrl: boolean
+    webhookCallbackUrl: string | null
   }
   values: {
     apiKey: string | null
     baseUrl: string
     appToken: string | null
+    subscriptionSetupEnabled: boolean
+    webhookCallbackUrl: string | null
   }
 }
 
@@ -30,7 +35,7 @@ function isLikelyTikkieKey(value: string) {
 
 function isLikelyUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value,
+    value
   )
 }
 
@@ -40,6 +45,11 @@ export function getTikkieConfig(): ValidationResult {
   const apiKey = process.env.TIKKIE_API_KEY?.trim() ?? ""
   const baseUrl = process.env.TIKKIE_BASE_URL?.trim() || DEFAULT_TIKKIE_BASE_URL
   const appToken = process.env.TIKKIE_APP_TOKEN?.trim() ?? ""
+  const subscriptionSetupEnabled =
+    process.env.TIKKIE_SUBSCRIPTION_SETUP_ENABLED?.trim().toLowerCase() ===
+    "true"
+  const webhookCallbackUrl =
+    process.env.TIKKIE_WEBHOOK_CALLBACK_URL?.trim() ?? ""
 
   if (!apiKey) {
     errors.push("TIKKIE_API_KEY is missing")
@@ -62,6 +72,24 @@ export function getTikkieConfig(): ValidationResult {
     errors.push("TIKKIE_BASE_URL must be a valid URL")
   }
 
+  // Validate webhook callback URL if subscription setup is enabled
+  if (subscriptionSetupEnabled) {
+    if (!webhookCallbackUrl) {
+      errors.push(
+        "TIKKIE_WEBHOOK_CALLBACK_URL is required when TIKKIE_SUBSCRIPTION_SETUP_ENABLED is true"
+      )
+    } else {
+      try {
+        const parsed = new URL(webhookCallbackUrl)
+        if (!parsed.protocol.startsWith("http")) {
+          errors.push("TIKKIE_WEBHOOK_CALLBACK_URL must be an HTTP(S) URL")
+        }
+      } catch {
+        errors.push("TIKKIE_WEBHOOK_CALLBACK_URL must be a valid URL")
+      }
+    }
+  }
+
   return {
     configured: errors.length === 0,
     errors,
@@ -70,11 +98,16 @@ export function getTikkieConfig(): ValidationResult {
       hasApiKey: Boolean(apiKey),
       keyPreview: apiKey ? maskToken(apiKey) : null,
       appTokenConfigured: Boolean(appToken),
+      subscriptionSetupEnabled,
+      hasWebhookCallbackUrl: Boolean(webhookCallbackUrl),
+      webhookCallbackUrl: webhookCallbackUrl || null,
     },
     values: {
       apiKey: apiKey || null,
       baseUrl,
       appToken: appToken || null,
+      subscriptionSetupEnabled,
+      webhookCallbackUrl: webhookCallbackUrl || null,
     },
   }
 }

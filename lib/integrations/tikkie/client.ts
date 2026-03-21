@@ -25,7 +25,12 @@ export type TikkiePaymentRequest = {
   referenceId?: string
   createdDateTime: string
   expiryDate: string
-  status: "OPEN" | "CLOSED" | "EXPIRED" | "MAX_YIELD_REACHED" | "MAX_SUCCESSFUL_PAYMENTS_REACHED"
+  status:
+    | "OPEN"
+    | "CLOSED"
+    | "EXPIRED"
+    | "MAX_YIELD_REACHED"
+    | "MAX_SUCCESSFUL_PAYMENTS_REACHED"
   numberOfPayments?: number
   totalAmountPaidInCents?: number
 }
@@ -62,7 +67,9 @@ function buildUrl(path: string, query?: TikkieRequestOptions["query"]) {
   const config = getTikkieConfig()
 
   if (!config.configured || !config.values.apiKey || !config.values.appToken) {
-    throw new Error(`Tikkie configuration invalid: ${config.errors.join(", ") || "missing API credentials"}`)
+    throw new Error(
+      `Tikkie configuration invalid: ${config.errors.join(", ") || "missing API credentials"}`
+    )
   }
 
   const cleanPath = path.startsWith("/") ? path : `/${path}`
@@ -120,7 +127,10 @@ function firstErrorMessage(details: JsonObject) {
   return typeof message === "string" ? message : null
 }
 
-async function tikkieFetch<T>(path: string, options: TikkieRequestOptions = {}): Promise<T> {
+async function tikkieFetch<T>(
+  path: string,
+  options: TikkieRequestOptions = {}
+): Promise<T> {
   const { url, headers } = buildUrl(path, options.query)
 
   const response = await fetch(url, {
@@ -141,7 +151,9 @@ async function tikkieFetch<T>(path: string, options: TikkieRequestOptions = {}):
     const details = asObject(payload)
     const message =
       firstErrorMessage(details) ??
-      (typeof details.message === "string" ? details.message : `Tikkie request failed (${response.status})`)
+      (typeof details.message === "string"
+        ? details.message
+        : `Tikkie request failed (${response.status})`)
 
     throw new TikkieApiError(response.status, String(message), payload)
   }
@@ -149,7 +161,9 @@ async function tikkieFetch<T>(path: string, options: TikkieRequestOptions = {}):
   return payload as T
 }
 
-export async function createPaymentRequest(input: TikkieCreatePaymentRequestInput) {
+export async function createPaymentRequest(
+  input: TikkieCreatePaymentRequestInput
+) {
   return tikkieFetch<TikkiePaymentRequest>("/paymentrequests", {
     method: "POST",
     body: {
@@ -163,14 +177,14 @@ export async function createPaymentRequest(input: TikkieCreatePaymentRequestInpu
 
 export async function getPaymentRequest(paymentRequestToken: string) {
   return tikkieFetch<TikkiePaymentRequest>(
-    `/paymentrequests/${encodeURIComponent(paymentRequestToken)}`,
+    `/paymentrequests/${encodeURIComponent(paymentRequestToken)}`
   )
 }
 
 export async function getPaymentRequestPayments(
   paymentRequestToken: string,
   pageNumber = 0,
-  pageSize = 50,
+  pageSize = 50
 ) {
   return tikkieFetch<TikkiePaymentListResponse>(
     `/paymentrequests/${encodeURIComponent(paymentRequestToken)}/payments`,
@@ -179,6 +193,28 @@ export async function getPaymentRequestPayments(
         pageNumber,
         pageSize,
       },
-    },
+    }
+  )
+}
+
+export type TikkieSubscriptionInput = {
+  url: string
+}
+
+export type TikkieSubscriptionResponse = {
+  subscriptionId: string
+}
+
+export async function subscribePaymentRequestNotifications(
+  input: TikkieSubscriptionInput
+) {
+  return tikkieFetch<TikkieSubscriptionResponse>(
+    "/paymentrequestssubscription",
+    {
+      method: "POST",
+      body: {
+        url: input.url,
+      },
+    }
   )
 }
