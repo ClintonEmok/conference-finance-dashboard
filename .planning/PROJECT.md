@@ -38,11 +38,13 @@ Deliver a practical MVP-to-production path for a conference finance dashboard th
 ## Integration Risks (to actively manage)
 
 ### Ticket Tailor
+
 - API limits or pagination behavior can cause incomplete syncs
 - Status-model differences (paid/refunded/cancelled) can skew totals if not normalized
 - Event configuration drift may break assumptions in reporting
 
 ### Tikkie
+
 - Link lifecycle differences (created/paid/expired) may require fallback polling
 - Webhook reliability/idempotency can produce duplicate state changes
 - Amount/description formatting constraints can block link creation
@@ -61,3 +63,7 @@ Deliver a practical MVP-to-production path for a conference finance dashboard th
 ## Success Definition
 
 Finance admin can open the dashboard, trust conference revenue figures from Ticket Tailor, generate Tikkie links for outstanding balances, and verify payment/reconciliation status without manual spreadsheet stitching.
+
+## Validated Requirements
+
+- **Phase 7 (2026-03-21):** Tikkie integration complete — provider-authoritative refresh via GET payment retrieval and guarded webhook subscription setup path. Status trust gap closed.
