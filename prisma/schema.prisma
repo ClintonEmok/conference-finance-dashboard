@@ -95,6 +95,26 @@ enum TikkiePaymentLinkStatusSource {
   poll
 }
 
+enum AllocationPriority {
+  CRITICAL
+  HIGH
+  NORMAL
+  LOW
+}
+
+enum GenderType {
+  MALE
+  FEMALE
+  MIXED
+  UNKNOWN
+}
+
+enum RoomAllocationStatus {
+  proposed
+  confirmed
+  rejected
+}
+
 model TicketTailorWebhookEvent {
   id               String                   @id @default(cuid())
   providerEventId  String                   @unique
@@ -127,6 +147,7 @@ model TicketTailorEvent {
   attendees         TicketTailorAttendee[]
   accommodationHotels AccommodationEventHotel[]
   orders            TicketTailorOrder[]
+  tikkieTemplates   TikkiePaymentTemplate[]
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
@@ -179,6 +200,14 @@ model TicketTailorAttendee {
   ticketStatus            String?
   checkedInAt             DateTime?
   rawPayload              Json
+  customAnswers           Json?
+  genderType              GenderType?
+  ageGroup                String?
+  ticketCategory          String?
+  allocationPriority      AllocationPriority @default(NORMAL)
+  priorityReason          String?
+  tikkieAmountOverrideMinor Int?
+  familyGroupMember       AttendeeFamilyMember?
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
 
@@ -187,6 +216,8 @@ model TicketTailorAttendee {
   @@index([assignedRoomId])
   @@index([providerEventId, providerOrderId])
   @@index([email])
+  @@index([genderType])
+  @@index([allocationPriority])
 }
 
 model AccommodationHotel {
@@ -210,6 +241,22 @@ model AccommodationEventHotel {
 
   @@unique([eventId, hotelId])
   @@index([hotelId])
+}
+
+model TikkiePaymentTemplate {
+  id                  String      @id @default(cuid())
+  eventId             String
+  event               TicketTailorEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketTypeLabel     String
+  amountMinor         Int
+  descriptionTemplate String
+  expiryDays          Int         @default(14)
+  isActive            Boolean     @default(true)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  @@unique([eventId, ticketTypeLabel])
+  @@index([eventId])
 }
 
 model AccommodationRoomType {
@@ -299,4 +346,40 @@ model TicketTailorSyncRun {
   updatedAt               DateTime                @updatedAt
 
   @@index([startedAt])
+}
+
+model AttendeeFamilyGroup {
+  id                    String   @id @default(cuid())
+  label                 String?
+  primaryAttendeeId     String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  members               AttendeeFamilyMember[]
+
+  @@index([primaryAttendeeId])
+}
+
+model AttendeeFamilyMember {
+  id              String            @id @default(cuid())
+  familyGroupId   String
+  familyGroup     AttendeeFamilyGroup @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
+  attendeeId      String            @unique
+  attendee        TicketTailorAttendee @relation(fields: [attendeeId], references: [id], onDelete: Cascade)
+  relationship    String?
+  createdAt       DateTime          @default(now())
+
+  @@index([familyGroupId])
+}
+
+model RoomAllocation {
+  id        String              @id @default(cuid())
+  eventId   String
+  roomId    String
+  status    RoomAllocationStatus @default(proposed)
+  notes     String?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@unique([eventId, roomId])
+  @@index([eventId, status])
 }

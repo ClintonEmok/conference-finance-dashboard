@@ -2,6 +2,15 @@ import type { Prisma } from "@prisma/client"
 
 import { normalizeTicketTailorStatus } from "@/lib/domain/finance/ticket-tailor-status"
 import {
+  extractCustomAnswers,
+  parseGenderFromAnswer,
+  parseGenderFromTicketType,
+  parseAgeGroupFromTicketType,
+  parseTicketCategory,
+  detectPriorityFromAnswers,
+  type CustomAnswers,
+} from "@/lib/domain/ticket-tailor/custom-answers"
+import {
   fetchTicketTailorAttendeesForOrder,
   fetchTicketTailorEventsPaginated,
   fetchTicketTailorOrdersByEventPaginated,
@@ -378,6 +387,58 @@ function isOrderInScope(orderDate: Date | null, scope: NormalizedTicketTailorSyn
   return true
 }
 
+async function linkAttendeesAsFamily(
+  eventId: string,
+  orderId: string,
+  attendeeCount: number,
+): Promise<void> {
+  const attendees = await prisma.ticketTailorAttendee.findMany({
+    where: { eventId, orderId },
+    select: { id: true },
+  })
+
+  if (attendees.length < 2) {
+    return
+  }
+
+  const firstAttendee = attendees[0]
+
+  const existingFamily = await prisma.attendeeFamilyGroup.findFirst({
+    where: { primaryAttendeeId: firstAttendee.id },
+    include: { members: true },
+  })
+
+  if (existingFamily) {
+    const existingMemberIds = new Set(existingFamily.members.map((m) => m.attendeeId))
+    const newMembers = attendees.filter((a) => !existingMemberIds.has(a.id))
+
+    for (const attendee of newMembers) {
+      await prisma.attendeeFamilyMember.create({
+        data: {
+          familyGroupId: existingFamily.id,
+          attendeeId: attendee.id,
+        },
+      })
+    }
+  } else {
+    const familyGroup = await prisma.attendeeFamilyGroup.create({
+      data: {
+        primaryAttendeeId: firstAttendee.id,
+        label: `Family (${attendeeCount} members)`,
+      },
+    })
+
+    for (const attendee of attendees) {
+      await prisma.attendeeFamilyMember.create({
+        data: {
+          familyGroupId: familyGroup.id,
+          attendeeId: attendee.id,
+        },
+      })
+    }
+  }
+}
+
 export async function runTicketTailorSync(
   scopeInput?: TicketTailorSyncScopeInput,
 ): Promise<TicketTailorSyncSummary> {
@@ -554,6 +615,21 @@ export async function runTicketTailorSync(
           const attendeeProviderOrderId =
             extractAttendeeProviderOrderId(attendeePayload) ?? providerOrderId
 
+          const ticketTypeLabel = extractTicketTypeLabel(attendeePayload)
+          const customQuestions = (attendeePayload as Record<string, unknown>).custom_questions as Array<{
+            question: string
+            answer: string | null
+          }> | undefined
+          const customAnswers = extractCustomAnswers(customQuestions ?? [])
+          const genderTypeFromAnswer = parseGenderFromAnswer(customAnswers.gender)
+          const genderType =
+            genderTypeFromAnswer !== "UNKNOWN"
+              ? genderTypeFromAnswer
+              : parseGenderFromTicketType(ticketTypeLabel)
+          const ageGroup = parseAgeGroupFromTicketType(ticketTypeLabel)
+          const ticketCategory = parseTicketCategory(ticketTypeLabel)
+          const { priority, reason } = detectPriorityFromAnswers(customAnswers)
+
           await prisma.ticketTailorAttendee.upsert({
             where: providerAttendeeId
               ? {
@@ -572,10 +648,16 @@ export async function runTicketTailorSync(
               orderId: orderRecord.id,
               name: extractAttendeeName(attendeePayload),
               email: extractAttendeeEmail(attendeePayload),
-              ticketTypeLabel: extractTicketTypeLabel(attendeePayload),
+              ticketTypeLabel,
               ticketStatus: extractTicketStatus(attendeePayload),
               checkedInAt: extractCheckedInAt(attendeePayload),
               rawPayload: attendeePayload,
+              customAnswers: customAnswers as unknown as Prisma.InputJsonValue,
+              genderType,
+              ageGroup,
+              ticketCategory,
+              allocationPriority: priority,
+              priorityReason: reason,
             },
             update: {
               providerIssuedTicketId,
@@ -586,14 +668,24 @@ export async function runTicketTailorSync(
               orderId: orderRecord.id,
               name: extractAttendeeName(attendeePayload),
               email: extractAttendeeEmail(attendeePayload),
-              ticketTypeLabel: extractTicketTypeLabel(attendeePayload),
+              ticketTypeLabel,
               ticketStatus: extractTicketStatus(attendeePayload),
               checkedInAt: extractCheckedInAt(attendeePayload),
               rawPayload: attendeePayload,
+              customAnswers: customAnswers as unknown as Prisma.InputJsonValue,
+              genderType,
+              ageGroup,
+              ticketCategory,
+              allocationPriority: priority,
+              priorityReason: reason,
             },
           })
 
           attendeesUpserted += 1
+        }
+
+        if (attendeeResult.items.length > 1) {
+          await linkAttendeesAsFamily(eventRecord.id, orderRecord.id, attendeeResult.items.length)
         }
       }
     }

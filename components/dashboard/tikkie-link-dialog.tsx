@@ -47,7 +47,7 @@ function validate(values: TikkieLinkDialogValues) {
   const errors: FormErrors = {}
 
   if (!Number.isInteger(values.amountMinor) || values.amountMinor <= 0) {
-    errors.amountMinor = "Amount must be a positive whole-number cent value."
+    errors.amountMinor = "Amount must be a positive euro amount."
   }
 
   if (!values.description.trim()) {
@@ -185,17 +185,17 @@ export function TikkieLinkDialog({
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-2 text-sm">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                  Amount in cents
+                  Amount (EUR)
                 </span>
                 <input
                   type="number"
-                  min={1}
-                  step={1}
-                  value={values.amountMinor}
+                  min={0.01}
+                  step={0.01}
+                  value={values.amountMinor ? (values.amountMinor / 100).toFixed(2) : ""}
                   onChange={(event) =>
                     setValues((current) => ({
                       ...current,
-                      amountMinor: Number.parseInt(event.target.value || "0", 10),
+                      amountMinor: Math.round(Number.parseFloat(event.target.value || "0") * 100),
                     }))
                   }
                   className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none ring-0 transition focus:border-cyan-500 dark:border-slate-800 dark:bg-slate-950"

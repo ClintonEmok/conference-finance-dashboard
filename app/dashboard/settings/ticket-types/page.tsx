@@ -132,7 +132,7 @@ export default function TicketTypesSettingsPage() {
     setEditingTemplateId(template.id)
     setFormState({
       ticketTypeLabel: template.ticketTypeLabel,
-      amountMinor: String(template.amountMinor),
+      amountMinor: (template.amountMinor / 100).toFixed(2),
       descriptionTemplate: template.descriptionTemplate,
       expiryDays: String(template.expiryDays),
     })
@@ -152,11 +152,18 @@ export default function TicketTypesSettingsPage() {
     setIsSubmitting(true)
     setFormError(null)
 
+    const euros = Number.parseFloat(formState.amountMinor)
+    if (isNaN(euros) || euros <= 0) {
+      setFormError("Please enter a valid positive amount in euros.")
+      setIsSubmitting(false)
+      return
+    }
+
     try {
       const payload = {
         eventId: selectedEventId,
         ticketTypeLabel: formState.ticketTypeLabel.trim(),
-        amountMinor: Number(formState.amountMinor),
+        amountMinor: Math.round(euros * 100),
         descriptionTemplate: formState.descriptionTemplate.trim(),
         expiryDays: formState.expiryDays ? Number(formState.expiryDays) : 14,
       }

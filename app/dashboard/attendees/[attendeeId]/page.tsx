@@ -378,9 +378,9 @@ export default function AttendeeDetailPage({ params }: PageProps) {
       return
     }
 
-    const amount = Number.parseInt(overrideValue.trim(), 10)
-    if (isNaN(amount) || amount <= 0) {
-      setOverrideError("Please enter a valid positive amount in cents.")
+    const euros = Number.parseFloat(overrideValue.trim())
+    if (isNaN(euros) || euros <= 0) {
+      setOverrideError("Please enter a valid positive amount in euros.")
       return
     }
 
@@ -391,7 +391,7 @@ export default function AttendeeDetailPage({ params }: PageProps) {
       const response = await fetch(payload.tikkie.actions.updateOverrideEndpoint, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tikkieAmountOverrideMinor: amount }),
+        body: JSON.stringify({ tikkieAmountOverrideMinor: Math.round(euros * 100) }),
       })
 
       if (!response.ok) {
@@ -604,7 +604,7 @@ export default function AttendeeDetailPage({ params }: PageProps) {
                           variant="outline"
                           size="sm"
                           onClick={() => {
-                            setOverrideValue(payload.attendee.tikkieAmountOverrideMinor !== null ? String(payload.attendee.tikkieAmountOverrideMinor) : "")
+                            setOverrideValue(payload.attendee.tikkieAmountOverrideMinor !== null ? (payload.attendee.tikkieAmountOverrideMinor / 100).toFixed(2) : "")
                             setOverrideError(null)
                             setIsEditingOverride(true)
                           }}
