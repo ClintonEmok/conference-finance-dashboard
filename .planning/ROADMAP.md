@@ -102,6 +102,7 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 3. Finance Visibility & Outstanding Balances | 2/2 | Complete | 2026-03-19 |
 | 4. Attendee Data & Accommodation Foundations | 2/2 | Complete | 2026-03-19 |
 | 5. Room Allocation & Operator Flow Polish | 2/2 | Complete | 2026-03-19 |
+| 6. Tikkie Integration | 3/3 | Complete | 2026-03-21 |
 
 ### Phase 6: Tikkie Integration
 
@@ -113,12 +114,12 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
   2. Latest Tikkie link status is shown first with last-checked recency and a subtle stale indicator in the existing finance follow-up surfaces.
   3. Admin can copy/open the latest link, inspect prior history, and recover status freshness through webhook or manual refresh/job fallback.
 **Plans:** 3 plans
-**Status:** 2/3 plans complete
+**Status:** 3/3 plans complete
 
 Plans:
 - [x] 06-01-PLAN.md — Harden Tikkie backend contracts, status trust, and attendee-detail link projection
 - [x] 06-02-PLAN.md — Add latest-first Tikkie modal and follow-up actions to outstanding balances and attendee detail
-- [ ] 06-03-PLAN.md — Add reusable ticket-type Tikkie payment templates
+- [x] 06-03-PLAN.md — Add reusable ticket-type Tikkie payment templates
 
 ### Phase 7: Smart Allocation & Attendee Signals
 

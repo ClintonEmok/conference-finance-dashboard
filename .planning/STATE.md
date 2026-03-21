@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 6 in progress
-stopped_at: Completed 06-02-PLAN.md
-last_updated: "2026-03-21T00:52:04Z"
-last_activity: 2026-03-21 — Completed 06-02 Tikkie modal and latest-link UI integration
+status: Phase 6 complete
+stopped_at: Completed 06-03-PLAN.md
+last_updated: "2026-03-21T09:39:00Z"
+last_activity: 2026-03-21 — Completed 06-03 Tikkie payment templates with auto-fill and override
 progress:
   total_phases: 7
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 14
-  completed_plans: 12
-  percent: 86
+  completed_plans: 13
+  percent: 93
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 **Core value:** One trusted dashboard for church conference finance operations.
-**Current focus:** Phase 6 is underway to ship Tikkie operator workflows on top of the completed MVP dashboard foundation.
+**Current focus:** Phase 6 complete - Tikkie operator workflows shipped. Moving to Phase 7 smart allocation.
 
 ## Current Position
 
-Phase: 6 of 7 in progress (tikkie integration)
-Plan: 2 of 3 completed
-Status: In progress
-Last activity: 2026-03-21 — Completed 06-02 Tikkie modal and latest-link UI integration
+Phase: 6 of 7 complete (tikkie integration)
+Plan: 3 of 3 completed
+Status: Phase complete
+Last activity: 2026-03-21 — Completed 06-03 Tikkie payment templates with auto-fill and override
 
-Progress: [█████████░] 86%
+Progress: [██████████] 93%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
-- Average duration: 66 min
-- Total execution time: 9.5 hours
+- Total plans completed: 12
+- Average duration: 59 min
+- Total execution time: 10.5 hours
 
 **By Phase:**
 
@@ -48,10 +48,11 @@ Progress: [█████████░] 86%
 | 3. Finance Visibility & Outstanding Balances | 2 | 453 min | 227 min |
 | 4. Attendee Data & Accommodation Foundations | 2 | 22 min | 11 min |
 | 5. Room Allocation & Operator Flow Polish | 2 | 383 min | 192 min |
+| 6. Tikkie Integration | 3 | 51 min | 17 min |
 
 **Recent Trend:**
-- Last 5 completed plans: 04-02, 05-01, 05-02, 06-01, 06-02
-- Trend: Post-MVP work is extending the command center with trustworthy payment-link follow-up instead of adding a separate collection product area
+- Last 5 completed plans: 05-02, 06-01, 06-02, 06-03
+- Phase 6 completed with template-aware Tikkie generation
 
 ## Accumulated Context
 
@@ -93,25 +94,26 @@ Recent decisions affecting current work:
 - [06-02] Used prefilled defaults from row data with edit-before-submit to keep the modal lightweight and operational.
 - [06-02] Applied latest-link-first presentation with expandable history to avoid inline full dumps while keeping prior links accessible.
 - [06-02] Showed stale badge only for open links (created status) since paid and expired links do not need freshness warnings.
+- [06-03] Integrated template matching into attendee detail generation defaults for automatic pre-fill.
+- [06-03] Added PATCH endpoint for attendee amount override management with soft-delete for templates.
 
 ### Roadmap Evolution
 
-- Phase 6 added: tikkie integration
-- Phase 7 added: smart allocation and attendee signals
+- Phase 6 added: tikkie integration (COMPLETE)
+- Phase 7 pending: smart allocation and attendee signals
 
 ### Pending Todos
 
-- Phase 6 Plan 03 remains: Add reusable ticket-type Tikkie payment templates.
 - Phase 7 plans pending: Smart allocation and attendee signals.
 
 ### Blockers/Concerns
 
-- Phase 6 summary docs are now complete: `06-01-SUMMARY.md` and `06-02-SUMMARY.md` both written.
-- Real provider verification for Phase 6 still depends on `TIKKIE_API_KEY`, `TIKKIE_APP_TOKEN`, and the active webhook callback subscription being configured.
+- Phase 6 complete. All Tikkie operator workflows shipped.
+- Real provider verification for Tikkie still depends on `TIKKIE_API_KEY`, `TIKKIE_APP_TOKEN`, and the active webhook callback subscription being configured.
 - Non-blocking lint warnings in various files should be cleaned during future hygiene work.
 
 ## Session Continuity
 
-Last session: 2026-03-21T00:52:04Z
-Stopped at: Completed 06-02-PLAN.md
-Resume file: .planning/phases/06-tikkie-integration/06-03-PLAN.md
+Last session: 2026-03-21T09:39:00Z
+Stopped at: Completed 06-03-PLAN.md
+Resume file: None - Phase 6 complete
