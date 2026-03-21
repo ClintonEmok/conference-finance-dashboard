@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { matchTemplateForAttendee } from "@/lib/domain/finance/tikkie-templates"
 import {
   buildTikkieGenerationDefaults,
   deriveTikkieLinkCheckState,
@@ -210,10 +211,21 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
   })
 
   const latestLink = tikkieLinks[0] ?? null
-  const generationDefaults = buildTikkieGenerationDefaults({
-    providerOrderId: attendee.order.providerOrderId,
-    outstandingAmountMinor,
+  const templateMatch = await matchTemplateForAttendee({
+    id: attendee.id,
+    eventId: attendee.eventId,
+    orderId: attendee.orderId,
+    providerOrderId: attendee.providerOrderId,
+    providerEventId: attendee.providerEventId,
+    ticketTypeLabel: attendee.ticketTypeLabel,
+    tikkieAmountOverrideMinor: attendee.tikkieAmountOverrideMinor,
   })
+  const generationDefaults = {
+    amountMinor: templateMatch.amountMinor,
+    expiryDate: templateMatch.expiryDate,
+    description: templateMatch.description,
+    referenceId: templateMatch.referenceId,
+  }
   const listEndpoint = `/api/dashboard/tikkie-links?providerOrderId=${encodeURIComponent(attendee.order.providerOrderId)}`
 
   const roomStatus: RoomStatus = attendee.assignedRoom
