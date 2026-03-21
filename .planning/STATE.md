@@ -7,7 +7,7 @@ stopped_at: Completed 06-03-PLAN.md
 last_updated: "2026-03-21T09:39:00Z"
 last_activity: 2026-03-21 — Completed 06-03 Tikkie payment templates with auto-fill and override
 progress:
-  total_phases: 7
+  total_phases: 8
   completed_phases: 6
   total_plans: 14
   completed_plans: 13
@@ -100,7 +100,8 @@ Recent decisions affecting current work:
 ### Roadmap Evolution
 
 - Phase 6 added: tikkie integration (COMPLETE)
-- Phase 7 pending: smart allocation and attendee signals
+- Phase 7 added: complete Tikkie integration with GET payment retrieval and webhook subscription setup
+- Phase 8 added: smart allocation and attendee signals (renamed from original phase 7)
 
 ### Pending Todos
 

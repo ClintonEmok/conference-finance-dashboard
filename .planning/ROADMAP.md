@@ -103,6 +103,8 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 4. Attendee Data & Accommodation Foundations | 2/2 | Complete | 2026-03-19 |
 | 5. Room Allocation & Operator Flow Polish | 2/2 | Complete | 2026-03-19 |
 | 6. Tikkie Integration | 3/3 | Complete | 2026-03-21 |
+| 7. Complete Tikkie Integration | 0/0 | In Progress | - |
+| 8. Smart Allocation & Attendee Signals | 0/2 | Planned | - |
 
 ### Phase 6: Tikkie Integration
 
@@ -125,9 +127,29 @@ Plans:
 
 **Goal:** Finance admins can use attendee-derived accommodation signals to filter, prioritize, and auto-allocate rooms with family and gender-aware guardrails.
 **Requirements**: TT-05, ACC-04, ACC-05, ACC-06
-**Depends on:** Phase 5
+**Depends on:** Phase 6
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 7 to break down)
+
+### Phase 8: Smart Allocation & Attendee Signals
+
+**Goal:** Finance admins can use attendee-derived accommodation signals to filter, prioritize, and auto-allocate rooms with family and gender-aware guardrails.
+**Requirements**: TT-05, ACC-04, ACC-05, ACC-06
+**Depends on:** Phase 6
 **Plans:** 2 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — Normalize attendee accommodation signals and same-order family grouping foundations
-- [ ] 07-02-PLAN.md — Apply attendee signals to allocation filters and smart room proposals
+- [ ] 08-01-PLAN.md — Normalize attendee accommodation signals and same-order family grouping foundations
+- [ ] 08-02-PLAN.md — Apply attendee signals to allocation filters and smart room proposals
+
+### Phase 07: Complete Tikkie integration with GET payment retrieval and webhook subscription setup
+
+**Goal:** Retrieve Tikkie payment request details via GET and set up webhook subscription (not yet active).
+**Requirements**: TBD
+**Depends on:** Phase 6
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 7 to break down)
