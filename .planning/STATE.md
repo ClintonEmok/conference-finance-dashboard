@@ -113,12 +113,13 @@ Recent decisions affecting current work:
 
 ### Quick Tasks Completed
 
-| #          | Description        | Date       | Commit  | Directory                                                               |
-| ---------- | ------------------ | ---------- | ------- | ----------------------------------------------------------------------- |
-| 260321-rxb | add tanstack query | 2026-03-21 | 3052489 | [260321-rxb-add-tanstack-query](./quick/260321-rxb-add-tanstack-query/) |
+| #          | Description                        | Date       | Commit  | Directory                                                                                                           |
+| ---------- | ---------------------------------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
+| 260321-rxb | add tanstack query                 | 2026-03-21 | 3052489 | [260321-rxb-add-tanstack-query](./quick/260321-rxb-add-tanstack-query/)                                             |
+| 260321-s4w | make attendee table rows clickable | 2026-03-21 | be1f925 | [260321-s4w-make-attendee-table-rows-clickable-and-r](./quick/260321-s4w-make-attendee-table-rows-clickable-and-r/) |
 
 ## Session Continuity
 
-Last session: 2026-03-21T20:05:00Z
-Stopped at: Completed 07-02-PLAN.md
-Resume file: None - Phase 7 complete
+Last session: 2026-03-21T20:25:00Z
+Stopped at: Completed quick task 260321-s4w
+Resume file: None
