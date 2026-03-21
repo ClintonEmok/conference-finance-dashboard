@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Phase 6 in progress
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-03-20T03:00:03Z"
-last_activity: 2026-03-20 — Completed 06-01 backend Tikkie contract hardening and attendee-detail projection
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-03-21T00:52:04Z"
+last_activity: 2026-03-21 — Completed 06-02 Tikkie modal and latest-link UI integration
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 14
-  completed_plans: 11
-  percent: 79
+  completed_plans: 12
+  percent: 86
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-03-18)
 ## Current Position
 
 Phase: 6 of 7 in progress (tikkie integration)
-Plan: 1 of 2 completed
+Plan: 2 of 3 completed
 Status: In progress
-Last activity: 2026-03-20 — Completed 06-01 backend Tikkie contract hardening and attendee-detail projection
+Last activity: 2026-03-21 — Completed 06-02 Tikkie modal and latest-link UI integration
 
-Progress: [████████░░] 79%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
@@ -50,7 +50,7 @@ Progress: [████████░░] 79%
 | 5. Room Allocation & Operator Flow Polish | 2 | 383 min | 192 min |
 
 **Recent Trend:**
-- Last 4 completed plans: 04-02, 05-01, 05-02, 06-01
+- Last 5 completed plans: 04-02, 05-01, 05-02, 06-01, 06-02
 - Trend: Post-MVP work is extending the command center with trustworthy payment-link follow-up instead of adding a separate collection product area
 
 ## Accumulated Context
@@ -90,6 +90,9 @@ Recent decisions affecting current work:
 - [06-01] Return one latest-link-first Tikkie contract with `latestLink`, history, and freshness metadata so clients do not rebuild provider ordering or recency rules.
 - [06-01] Only open Tikkie links receive stale/fresh trust signals; terminal paid and expired links stay free of noisy recency warnings.
 - [06-01] Short-circuit duplicate webhook notifications by checking persisted providerNotificationKey before refreshing provider state.
+- [06-02] Used prefilled defaults from row data with edit-before-submit to keep the modal lightweight and operational.
+- [06-02] Applied latest-link-first presentation with expandable history to avoid inline full dumps while keeping prior links accessible.
+- [06-02] Showed stale badge only for open links (created status) since paid and expired links do not need freshness warnings.
 
 ### Roadmap Evolution
 
@@ -98,20 +101,17 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Phase 6 Plan 02 remains next: build the shared Tikkie modal and latest-link UI, then pause for human verification.
+- Phase 6 Plan 03 remains: Add reusable ticket-type Tikkie payment templates.
+- Phase 7 plans pending: Smart allocation and attendee signals.
 
 ### Blockers/Concerns
 
-- Existing Tikkie phase artifacts remain deferred and should not drive the MVP completion path.
-- Baseline lint warning in `app/layout.tsx` (`Geist` unused import) remains non-blocking and should be cleaned during future hygiene work.
-- Phase 5 should preserve the new attendee detail/accommodation structure rather than bypassing it with room-assignment logic elsewhere.
-- Core MVP roadmap remains complete; newly added Phases 6 and 7 are post-MVP planned work, not regressions in delivered MVP scope.
-- Non-blocking lint warnings remain in `app/layout.tsx`, `app/dashboard/accommodation/page.tsx`, and `app/dashboard/accommodation/rooms/[roomId]/page.tsx`.
-- Phase 2 summary docs are now complete: `02-01-SUMMARY.md` and `02-02-SUMMARY.md` both written.
+- Phase 6 summary docs are now complete: `06-01-SUMMARY.md` and `06-02-SUMMARY.md` both written.
 - Real provider verification for Phase 6 still depends on `TIKKIE_API_KEY`, `TIKKIE_APP_TOKEN`, and the active webhook callback subscription being configured.
+- Non-blocking lint warnings in various files should be cleaned during future hygiene work.
 
 ## Session Continuity
 
-Last session: 2026-03-20T03:00:03Z
-Stopped at: Completed 06-01-PLAN.md
-Resume file: .planning/phases/06-tikkie-integration/06-02-PLAN.md
+Last session: 2026-03-21T00:52:04Z
+Stopped at: Completed 06-02-PLAN.md
+Resume file: .planning/phases/06-tikkie-integration/06-03-PLAN.md

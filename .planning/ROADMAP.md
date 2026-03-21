@@ -107,16 +107,18 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 
 **Goal:** Finance admins can generate, share, and trust Tikkie payment links from outstanding balances and attendee detail without leaving the existing operator workflow.
 **Depends on:** Phase 5
-**Requirements**: TK-01, TK-02, TK-03
+**Requirements**: TK-01, TK-02, TK-03, TK-04
 **Success Criteria** (what must be TRUE):
   1. Admin can open a lightweight confirmation modal from outstanding balances or attendee detail, adjust amount/expiry/reference details, and create a Tikkie link.
   2. Latest Tikkie link status is shown first with last-checked recency and a subtle stale indicator in the existing finance follow-up surfaces.
   3. Admin can copy/open the latest link, inspect prior history, and recover status freshness through webhook or manual refresh/job fallback.
-**Plans:** 2 plans
+**Plans:** 3 plans
+**Status:** 2/3 plans complete
 
 Plans:
-- [ ] 06-01-PLAN.md — Harden Tikkie backend contracts, status trust, and attendee-detail link projection
-- [ ] 06-02-PLAN.md — Add latest-first Tikkie modal and follow-up actions to outstanding balances and attendee detail
+- [x] 06-01-PLAN.md — Harden Tikkie backend contracts, status trust, and attendee-detail link projection
+- [x] 06-02-PLAN.md — Add latest-first Tikkie modal and follow-up actions to outstanding balances and attendee detail
+- [ ] 06-03-PLAN.md — Add reusable ticket-type Tikkie payment templates
 
 ### Phase 7: Smart Allocation & Attendee Signals
 

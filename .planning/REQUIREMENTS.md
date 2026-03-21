@@ -14,6 +14,7 @@
 - **TT-02**: Admin can run manual re-sync for a selected event/date range to correct missing or stale data.
 - **TT-03**: Synced ticket/order statuses are normalized (paid/refunded/cancelled/pending) for consistent reporting.
 - **TT-04**: System syncs issued ticket / attendee records for each Ticket Tailor order so actual attendees are visible, not only the buyer.
+- **TT-05**: System extracts attendee accommodation signals from Ticket Tailor attendee custom questions and ticket metadata, including gender, location, remarks, and priority-related notes.
 
 ### Dashboard & Finance Views
 
@@ -27,6 +28,9 @@
 - **ACC-01**: Admin can define hotels, room types, and room capacity.
 - **ACC-02**: Admin can assign and unassign attendees to rooms.
 - **ACC-03**: Admin can identify full rooms, empty rooms, and unassigned attendees through clear UI indicators and filters.
+- **ACC-04**: System auto-groups attendees from the same order as a family or linked party, while remaining compatible with future manual cross-order family linking.
+- **ACC-05**: Admin can filter attendee and accommodation views by allocation-relevant signals such as gender, family grouping, location, and priority accommodation indicators.
+- **ACC-06**: Room allocation can propose assignments that keep family groups together when possible, avoid incompatible roommate matching, and prioritize elderly attendees, attendees with disability/special needs, and families with young children.
 
 ### Workflow Clarity
 
@@ -77,6 +81,7 @@
 | TT-02 | Phase 2 | Complete |
 | TT-03 | Phase 2 | Complete |
 | TT-04 | Phase 4 | Complete |
+| TT-05 | Phase 7 | Planned |
 | DASH-01 | Phase 3 | Complete |
 | DASH-02 | Phase 3 | Complete |
 | DASH-03 | Phase 3 | Complete |
@@ -84,9 +89,12 @@
 | ACC-01 | Phase 4 | Complete |
 | ACC-02 | Phase 5 | Complete |
 | ACC-03 | Phase 5 | Complete |
+| ACC-04 | Phase 7 | Planned |
+| ACC-05 | Phase 7 | Planned |
+| ACC-06 | Phase 7 | Planned |
 | FLOW-01 | Phase 5 | Complete |
-| TK-01 | Deferred | Deferred |
-| TK-02 | Deferred | Deferred |
-| TK-03 | Deferred | Deferred |
+| TK-01 | Phase 6 | Complete |
+| TK-02 | Phase 6 | Complete |
+| TK-03 | Phase 6 | Complete |
 | OPS-01 | Deferred | Deferred |
 | OPS-02 | Deferred | Deferred |
