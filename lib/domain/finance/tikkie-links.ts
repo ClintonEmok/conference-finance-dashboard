@@ -130,7 +130,9 @@ export function toStatusSource(value: string): "create" | "webhook" | "poll" {
   return "create"
 }
 
-export function mapTikkiePaymentLink(link: DbTikkiePaymentLink): TikkiePaymentLinkDto {
+export function mapTikkiePaymentLink(
+  link: DbTikkiePaymentLink
+): TikkiePaymentLinkDto {
   return {
     id: link.id,
     providerOrderId: link.providerOrderId,
@@ -174,7 +176,9 @@ export function deriveTikkieLinkCheckState(link: {
   return staleAt <= Date.now() ? "stale" : "fresh"
 }
 
-export function mapTikkiePaymentLinkView(link: DbTikkiePaymentLink): TikkiePaymentLinkView {
+export function mapTikkiePaymentLinkView(
+  link: DbTikkiePaymentLink
+): TikkiePaymentLinkView {
   const mapped = mapTikkiePaymentLink(link)
 
   return {
@@ -202,7 +206,9 @@ function normalizeTextField(value: string, fieldName: string) {
   }
 
   if (normalized.length > TIKKIE_TEXT_LIMIT) {
-    throw new Error(`Invalid '${fieldName}'. Maximum length is ${TIKKIE_TEXT_LIMIT} characters.`)
+    throw new Error(
+      `Invalid '${fieldName}'. Maximum length is ${TIKKIE_TEXT_LIMIT} characters.`
+    )
   }
 
   return normalized
@@ -228,7 +234,9 @@ function normalizeReferenceId(value: string | null | undefined) {
 
 function normalizeAmountMinor(value: number) {
   if (!Number.isInteger(value) || value <= 0) {
-    throw new Error("Invalid 'amountMinor'. Expected a positive integer in cents.")
+    throw new Error(
+      "Invalid 'amountMinor'. Expected a positive integer in cents."
+    )
   }
 
   return value
@@ -260,22 +268,35 @@ export function buildTikkieGenerationDefaults(params: {
   providerOrderId: string
   outstandingAmountMinor: number
 }) {
-  const providerOrderId = normalizeProviderIdentifier(params.providerOrderId, "providerOrderId")
+  const providerOrderId = normalizeProviderIdentifier(
+    params.providerOrderId,
+    "providerOrderId"
+  )
 
   return {
-    amountMinor: Number.isInteger(params.outstandingAmountMinor) && params.outstandingAmountMinor > 0
-      ? params.outstandingAmountMinor
-      : 0,
+    amountMinor:
+      Number.isInteger(params.outstandingAmountMinor) &&
+      params.outstandingAmountMinor > 0
+        ? params.outstandingAmountMinor
+        : 0,
     expiryDate: toTikkieDate(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)),
     description: `Order ${providerOrderId}`.slice(0, TIKKIE_TEXT_LIMIT),
     referenceId: providerOrderId.slice(0, TIKKIE_TEXT_LIMIT),
   } satisfies TikkieGenerationDefaults
 }
 
-export function validateCreateTikkiePaymentLinkInput(input: CreateTikkiePaymentLinkInput) {
+export function validateCreateTikkiePaymentLinkInput(
+  input: CreateTikkiePaymentLinkInput
+) {
   return {
-    providerOrderId: normalizeProviderIdentifier(input.providerOrderId, "providerOrderId"),
-    providerEventId: normalizeProviderIdentifier(input.providerEventId, "providerEventId"),
+    providerOrderId: normalizeProviderIdentifier(
+      input.providerOrderId,
+      "providerOrderId"
+    ),
+    providerEventId: normalizeProviderIdentifier(
+      input.providerEventId,
+      "providerEventId"
+    ),
     amountMinor: normalizeAmountMinor(input.amountMinor),
     description: normalizeDescription(input.description),
     expiryDate: normalizeExpiryDate(input.expiryDate),
@@ -307,17 +328,25 @@ async function resolveOrder(providerOrderId: string, providerEventId: string) {
   }
 
   if (order.providerEventId !== providerEventId) {
-    throw new Error("Invalid provider identifiers. 'providerEventId' does not match the order.")
+    throw new Error(
+      "Invalid provider identifiers. 'providerEventId' does not match the order."
+    )
   }
 
   return order
 }
 
 export async function createTikkiePaymentLink(
-  input: CreateTikkiePaymentLinkInput,
+  input: CreateTikkiePaymentLinkInput
 ): Promise<CreateTikkiePaymentLinkResult> {
-  const { providerOrderId, providerEventId, amountMinor, description, expiryDate, referenceId } =
-    validateCreateTikkiePaymentLinkInput(input)
+  const {
+    providerOrderId,
+    providerEventId,
+    amountMinor,
+    description,
+    expiryDate,
+    referenceId,
+  } = validateCreateTikkiePaymentLinkInput(input)
 
   const order = await resolveOrder(providerOrderId, providerEventId)
 
@@ -377,9 +406,12 @@ export async function createTikkiePaymentLink(
 }
 
 export async function listTikkiePaymentLinksByOrder(
-  input: ListTikkiePaymentLinksByOrderInput,
+  input: ListTikkiePaymentLinksByOrderInput
 ): Promise<TikkiePaymentLinksByOrderSummary> {
-  const providerOrderId = normalizeProviderIdentifier(input.providerOrderId, "providerOrderId")
+  const providerOrderId = normalizeProviderIdentifier(
+    input.providerOrderId,
+    "providerOrderId"
+  )
 
   const links = await prisma.tikkiePaymentLink.findMany({
     where: {
@@ -402,19 +434,40 @@ export async function listTikkiePaymentLinksByOrder(
   }
 }
 
+/**
+ * Derives the canonical app status from provider payment-request fields.
+ * Priority:
+ *  1. Paid if numberOfPayments > 0 or totalAmountPaidInCents > 0  (provider aggregate — authoritative)
+ *  2. Paid if list-payments returned at least one payment         (compatibility fallback)
+ *  3. Map provider status to created/expired                      (no payments found)
+ */
 function derivePaymentState(params: {
   providerStatus: string
+  numberOfPayments?: number
+  totalAmountPaidInCents?: number
   payments: unknown[]
   totalElementCount: number
-}) {
+}): "paid" | "created" | "expired" {
+  // Primary: use aggregate fields from GET /paymentrequests/{token}
+  if (
+    (params.numberOfPayments ?? 0) > 0 ||
+    (params.totalAmountPaidInCents ?? 0) > 0
+  ) {
+    return "paid"
+  }
+
+  // Compatibility fallback: check list-payments when aggregate fields are absent/zero
   if (params.totalElementCount > 0 || params.payments.length > 0) {
-    return "paid" as const
+    return "paid"
   }
 
   return mapProviderStatus(params.providerStatus)
 }
 
-function canTransition(current: AppTikkieLinkStatus, next: AppTikkieLinkStatus) {
+function canTransition(
+  current: AppTikkieLinkStatus,
+  next: AppTikkieLinkStatus
+) {
   if (current === "paid" && next !== "paid") {
     return false
   }
@@ -431,23 +484,29 @@ function canTransition(current: AppTikkieLinkStatus, next: AppTikkieLinkStatus) 
 }
 
 export async function refreshTikkiePaymentLinkStatus(
-  input: RefreshTikkiePaymentLinkStatusInput,
+  input: RefreshTikkiePaymentLinkStatusInput
 ): Promise<RefreshTikkiePaymentLinkStatusResult> {
-  const paymentRequestToken = normalizeProviderIdentifier(input.paymentRequestToken, "paymentRequestToken")
+  const paymentRequestToken = normalizeProviderIdentifier(
+    input.paymentRequestToken,
+    "paymentRequestToken"
+  )
 
   if (input.providerNotificationKey) {
-    const existingTransition = await prisma.tikkiePaymentLinkTransition.findUnique({
-      where: {
-        providerNotificationKey: input.providerNotificationKey,
-      },
-      select: {
-        paymentLink: true,
-      },
-    })
+    const existingTransition =
+      await prisma.tikkiePaymentLinkTransition.findUnique({
+        where: {
+          providerNotificationKey: input.providerNotificationKey,
+        },
+        select: {
+          paymentLink: true,
+        },
+      })
 
     if (existingTransition) {
       return {
-        link: mapTikkiePaymentLink(existingTransition.paymentLink as DbTikkiePaymentLink),
+        link: mapTikkiePaymentLink(
+          existingTransition.paymentLink as DbTikkiePaymentLink
+        ),
         changed: false,
         duplicate: true,
       }
@@ -464,19 +523,30 @@ export async function refreshTikkiePaymentLinkStatus(
     throw new Error("Payment link not found for given 'paymentRequestToken'.")
   }
 
-  const [request, payments] = await Promise.all([
-    getPaymentRequest(paymentRequestToken),
-    getPaymentRequestPayments(paymentRequestToken, 0, 50),
-  ])
+  // Canonical: fetch GET /paymentrequests/{token} first
+  const request = await getPaymentRequest(paymentRequestToken)
+
+  // Compatibility: only fetch payments list when aggregate fields are absent or zero
+  const hasAggregatePayment =
+    (request.numberOfPayments ?? 0) > 0 ||
+    (request.totalAmountPaidInCents ?? 0) > 0
+
+  const payments = hasAggregatePayment
+    ? { payments: [] as unknown[], totalElementCount: 0 }
+    : await getPaymentRequestPayments(paymentRequestToken, 0, 50)
 
   const resolvedStatus = derivePaymentState({
     providerStatus: request.status,
+    numberOfPayments: request.numberOfPayments,
+    totalAmountPaidInCents: request.totalAmountPaidInCents,
     payments: payments.payments,
     totalElementCount: payments.totalElementCount,
   })
 
   const currentStatus = toAppTikkieStatus(existing.status)
-  const nextStatus = canTransition(currentStatus, resolvedStatus) ? resolvedStatus : currentStatus
+  const nextStatus = canTransition(currentStatus, resolvedStatus)
+    ? resolvedStatus
+    : currentStatus
   const now = new Date()
 
   const update = await prisma.tikkiePaymentLink.update({
@@ -504,7 +574,8 @@ export async function refreshTikkiePaymentLinkStatus(
                 providerNotificationKey: input.providerNotificationKey,
                 providerStatus: request.status,
                 reason: input.reason ?? null,
-                providerPayload: (input.providerPayload ?? null) as Prisma.InputJsonValue,
+                providerPayload: (input.providerPayload ??
+                  null) as Prisma.InputJsonValue,
               },
             }
           : undefined,
@@ -518,8 +589,13 @@ export async function refreshTikkiePaymentLinkStatus(
   }
 }
 
-export async function syncPendingTikkiePaymentLinks({ limit }: { limit: number }) {
-  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 100) : 25
+export async function syncPendingTikkiePaymentLinks({
+  limit,
+}: {
+  limit: number
+}) {
+  const safeLimit =
+    Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 100) : 25
 
   const pending = await prisma.tikkiePaymentLink.findMany({
     where: {
