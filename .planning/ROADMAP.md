@@ -118,7 +118,7 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 4. Attendee Data & Accommodation Foundations | 2/2            | Complete | 2026-03-19 |
 | 5. Room Allocation & Operator Flow Polish    | 2/2            | Complete | 2026-03-19 |
 | 6. Tikkie Integration                        | 3/3            | Complete | 2026-03-21 |
-| 7. Complete Tikkie Integration               | 2/2            | Complete | 2026-03-21 |
+| 7. Complete Tikkie Integration               | 2/2            | Complete    | 2026-03-21 |
 | 8. Smart Allocation & Attendee Signals       | 0/2            | Planned  | -          |
 
 ### Phase 6: Tikkie Integration
@@ -145,7 +145,7 @@ Plans:
 **Goal:** Finance admins can refresh provider-trusted payment status directly from `GET /paymentrequests/{paymentRequestToken}` and the system is ready for subscription-driven updates via `/paymentrequestssubscription` (not enabled in production yet).
 **Requirements**: TBD
 **Depends on:** Phase 6
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 **Status:** 2/2 plans complete
 
 Plans:
