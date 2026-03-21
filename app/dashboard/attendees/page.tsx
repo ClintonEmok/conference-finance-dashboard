@@ -5,6 +5,17 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 
 type AttendeesPayload = {
   generatedAt: string
@@ -350,8 +361,22 @@ export default function AttendeesPage() {
       )}
 
       {!errorMessage && isLoading && (
-        <article className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
-          Loading attendee ledger…
+        <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
+          <div className="space-y-3">
+            <Skeleton className="h-4 w-[200px]" />
+            <div className="flex flex-col gap-2">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="flex items-center gap-4">
+                  <Skeleton className="h-12 w-[150px]" />
+                  <Skeleton className="h-12 w-[100px]" />
+                  <Skeleton className="h-12 w-[120px]" />
+                  <Skeleton className="h-12 w-[80px]" />
+                  <Skeleton className="h-12 w-[100px]" />
+                  <Skeleton className="h-12 w-[100px]" />
+                </div>
+              ))}
+            </div>
+          </div>
         </article>
       )}
 
@@ -390,34 +415,34 @@ export default function AttendeesPage() {
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left">
-                    <th className="px-2 py-2 font-medium text-muted-foreground">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="font-medium text-muted-foreground">
                       Attendee
-                    </th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">
+                    </TableHead>
+                    <TableHead className="font-medium text-muted-foreground">
                       Ticket
-                    </th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">
+                    </TableHead>
+                    <TableHead className="font-medium text-muted-foreground">
                       Order
-                    </th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">
+                    </TableHead>
+                    <TableHead className="font-medium text-muted-foreground">
                       Status
-                    </th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">
+                    </TableHead>
+                    <TableHead className="font-medium text-muted-foreground">
                       Amounts
-                    </th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">
+                    </TableHead>
+                    <TableHead className="font-medium text-muted-foreground">
                       Room
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {payload.rows.map((row) => (
-                    <tr
+                    <TableRow
                       key={row.attendeeId}
-                      className="cursor-pointer border-b border-border/60 align-top transition-colors hover:bg-muted/50"
+                      className="cursor-pointer transition-colors hover:bg-muted/50"
                       onClick={() => {
                         const params = new URLSearchParams()
                         params.set(
@@ -434,7 +459,7 @@ export default function AttendeesPage() {
                         )
                       }}
                     >
-                      <td className="px-2 py-2">
+                      <TableCell>
                         <div className="text-xs font-medium">
                           {row.attendeeName ?? "Unnamed attendee"}
                         </div>
@@ -446,8 +471,8 @@ export default function AttendeesPage() {
                             row.providerAttendeeId ??
                             row.attendeeId}
                         </div>
-                      </td>
-                      <td className="px-2 py-2">
+                      </TableCell>
+                      <TableCell>
                         <div className="text-xs">
                           {row.ticketTypeLabel ?? "-"}
                         </div>
@@ -456,31 +481,41 @@ export default function AttendeesPage() {
                             ? new Date(row.orderedAt).toLocaleString()
                             : "Order date unavailable"}
                         </div>
-                      </td>
-                      <td className="px-2 py-2">
+                      </TableCell>
+                      <TableCell>
                         <div className="font-mono text-xs">
                           {row.providerOrderId}
                         </div>
                         <div className="text-[11px] text-muted-foreground">
                           {row.eventName ?? row.providerEventId}
                         </div>
-                      </td>
-                      <td className="px-2 py-2">{row.normalizedStatus}</td>
-                      <td className="px-2 py-2">
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            row.normalizedStatus === "cancelled"
+                              ? "destructive"
+                              : row.normalizedStatus === "refunded"
+                                ? "outline"
+                                : "secondary"
+                          }
+                        >
+                          {row.normalizedStatus}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
                         <div className="text-xs">
                           Total {formatMoney(row.totalAmountMinor)}
                         </div>
                         <div className="text-[11px] text-muted-foreground">
                           Outstanding {formatMoney(row.outstandingAmountMinor)}
                         </div>
-                      </td>
-                      <td className="px-2 py-2">
-                        {renderRoomStatus(row.roomStatus)}
-                      </td>
-                    </tr>
+                      </TableCell>
+                      <TableCell>{renderRoomStatus(row.roomStatus)}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </article>
