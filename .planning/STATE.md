@@ -2,16 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 6 complete
-stopped_at: Completed 06-03-PLAN.md
-last_updated: "2026-03-21T09:39:00Z"
-last_activity: 2026-03-21 — Completed 06-03 Tikkie payment templates with auto-fill and override
+status: unknown
+stopped_at: Completed 07-02-PLAN.md
+last_updated: "2026-03-21T18:21:47Z"
 progress:
-  total_phases: 8
-  completed_phases: 6
-  total_plans: 14
-  completed_plans: 13
-  percent: 93
+  total_phases: 9
+  completed_phases: 7
+  total_plans: 17
+  completed_plans: 16
 ---
 
 # Project State
@@ -21,36 +19,34 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 **Core value:** One trusted dashboard for church conference finance operations.
-**Current focus:** Phase 6 complete - Tikkie operator workflows shipped. Moving to Phase 7 smart allocation.
+**Current focus:** Phase 7 — complete-tikkie-integration
 
 ## Current Position
 
-Phase: 6 of 7 complete (tikkie integration)
-Plan: 3 of 3 completed
-Status: Phase complete
-Last activity: 2026-03-21 — Completed 06-03 Tikkie payment templates with auto-fill and override
-
-Progress: [██████████] 93%
+Phase: 7 (complete-tikkie-integration) — COMPLETE
+Plan: 2 of 2
 
 ## Performance Metrics
 
 **Velocity:**
+
 - Total plans completed: 12
 - Average duration: 59 min
 - Total execution time: 10.5 hours
 
 **By Phase:**
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 1. Foundation & Secure Access | 2 | 62 min | 31 min |
-| 2. Ticket Data Reliability | 2 | 148 min documented | 74 min documented |
-| 3. Finance Visibility & Outstanding Balances | 2 | 453 min | 227 min |
-| 4. Attendee Data & Accommodation Foundations | 2 | 22 min | 11 min |
-| 5. Room Allocation & Operator Flow Polish | 2 | 383 min | 192 min |
-| 6. Tikkie Integration | 3 | 51 min | 17 min |
+| Phase                                        | Plans | Total              | Avg/Plan          |
+| -------------------------------------------- | ----- | ------------------ | ----------------- |
+| 1. Foundation & Secure Access                | 2     | 62 min             | 31 min            |
+| 2. Ticket Data Reliability                   | 2     | 148 min documented | 74 min documented |
+| 3. Finance Visibility & Outstanding Balances | 2     | 453 min            | 227 min           |
+| 4. Attendee Data & Accommodation Foundations | 2     | 22 min             | 11 min            |
+| 5. Room Allocation & Operator Flow Polish    | 2     | 383 min            | 192 min           |
+| 6. Tikkie Integration                        | 3     | 51 min             | 17 min            |
 
 **Recent Trend:**
+
 - Last 5 completed plans: 05-02, 06-01, 06-02, 06-03
 - Phase 6 completed with template-aware Tikkie generation
 
@@ -96,16 +92,18 @@ Recent decisions affecting current work:
 - [06-02] Showed stale badge only for open links (created status) since paid and expired links do not need freshness warnings.
 - [06-03] Integrated template matching into attendee detail generation defaults for automatic pre-fill.
 - [06-03] Added PATCH endpoint for attendee amount override management with soft-delete for templates.
+- [07-02] Subscription setup is disabled by default to prevent accidental production activation; requires TIKKIE_SUBSCRIPTION_SETUP_ENABLED=true and valid TIKKIE_WEBHOOK_CALLBACK_URL.
+- [07-02] Route validates both setup flag and callback URL before attempting provider API call, providing clear error messages for each guard path.
 
 ### Roadmap Evolution
 
 - Phase 6 added: tikkie integration (COMPLETE)
-- Phase 7 added: complete Tikkie integration with GET payment retrieval and webhook subscription setup
+- Phase 7 added: complete Tikkie integration with GET payment retrieval and webhook subscription setup (COMPLETE)
 - Phase 8 added: smart allocation and attendee signals (renamed from original phase 7)
 
 ### Pending Todos
 
-- Phase 7 plans pending: Smart allocation and attendee signals.
+- Phase 8 plans pending: Smart allocation and attendee signals.
 
 ### Blockers/Concerns
 
@@ -115,6 +113,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-03-21T09:39:00Z
-Stopped at: Completed 06-03-PLAN.md
-Resume file: None - Phase 6 complete
+Last session: 2026-03-21T18:21:47Z
+Stopped at: Completed 07-02-PLAN.md
+Resume file: None - Phase 7 complete
