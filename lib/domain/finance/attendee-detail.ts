@@ -33,6 +33,7 @@ export type AttendeeDetail = {
     providerIssuedTicketId: string | null
     providerOrderId: string
     providerEventId: string
+    tikkieAmountOverrideMinor: number | null
   }
   event: {
     id: string
@@ -69,10 +70,17 @@ export type AttendeeDetail = {
       description: string
       referenceId: string
     }
+    templateFallback: {
+      hasTemplate: boolean
+      source: "override" | "template" | "default"
+      amountMinor: number | null
+      description: string | null
+    } | null
     actions: {
       createEndpoint: string
       listEndpoint: string
       refreshEndpoint: string
+      updateOverrideEndpoint: string
     }
   }
   paymentHistory: Array<{
@@ -226,6 +234,36 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
     description: templateMatch.description,
     referenceId: templateMatch.referenceId,
   }
+
+  // Build template fallback info (what would be used if override is cleared)
+  let templateFallback: AttendeeDetail["tikkie"]["templateFallback"] = null
+  if (attendee.ticketTypeLabel && attendee.ticketTypeLabel.trim()) {
+    const templateMatchWithoutOverride = await matchTemplateForAttendee({
+      id: attendee.id,
+      eventId: attendee.eventId,
+      orderId: attendee.orderId,
+      providerOrderId: attendee.providerOrderId,
+      providerEventId: attendee.providerEventId,
+      ticketTypeLabel: attendee.ticketTypeLabel,
+      tikkieAmountOverrideMinor: null, // Check without override to show fallback
+    })
+    if (templateMatchWithoutOverride.hasTemplate) {
+      templateFallback = {
+        hasTemplate: true,
+        source: "template",
+        amountMinor: templateMatchWithoutOverride.amountMinor,
+        description: templateMatchWithoutOverride.description,
+      }
+    } else {
+      templateFallback = {
+        hasTemplate: false,
+        source: templateMatchWithoutOverride.source,
+        amountMinor: templateMatchWithoutOverride.amountMinor,
+        description: templateMatchWithoutOverride.description,
+      }
+    }
+  }
+
   const listEndpoint = `/api/dashboard/tikkie-links?providerOrderId=${encodeURIComponent(attendee.order.providerOrderId)}`
 
   const roomStatus: RoomStatus = attendee.assignedRoom
@@ -253,6 +291,7 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
       providerIssuedTicketId: attendee.providerIssuedTicketId ?? null,
       providerOrderId: attendee.providerOrderId,
       providerEventId: attendee.providerEventId,
+      tikkieAmountOverrideMinor: attendee.tikkieAmountOverrideMinor,
     },
     event: {
       id: attendee.event.id,
@@ -284,10 +323,12 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
       providerLastCheckedAt: latestLink?.providerLastCheckedAt ?? null,
       latestLinkCheckState: latestLink?.checkState ?? null,
       generationDefaults,
+      templateFallback,
       actions: {
         createEndpoint: "/api/dashboard/tikkie-links",
         listEndpoint,
         refreshEndpoint: `${listEndpoint}&refresh=1`,
+        updateOverrideEndpoint: `/api/dashboard/attendees/${attendee.id}`,
       },
     },
     paymentHistory,

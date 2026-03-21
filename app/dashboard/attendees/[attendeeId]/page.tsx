@@ -28,6 +28,7 @@ type AttendeeDetailPayload = {
     providerIssuedTicketId: string | null
     providerOrderId: string
     providerEventId: string
+    tikkieAmountOverrideMinor: number | null
   }
   event: {
     id: string
@@ -64,10 +65,17 @@ type AttendeeDetailPayload = {
       description: string
       referenceId: string
     }
+    templateFallback: {
+      hasTemplate: boolean
+      source: "override" | "template" | "default"
+      amountMinor: number | null
+      description: string | null
+    } | null
     actions: {
       createEndpoint: string
       listEndpoint: string
       refreshEndpoint: string
+      updateOverrideEndpoint: string
     }
   }
   paymentHistory: Array<{
@@ -155,6 +163,10 @@ export default function AttendeeDetailPage({ params }: PageProps) {
   const [isRefreshingTikkie, setIsRefreshingTikkie] = useState(false)
   const [isCopyingLatestLink, setIsCopyingLatestLink] = useState(false)
   const [tikkieError, setTikkieError] = useState<string | null>(null)
+  const [isEditingOverride, setIsEditingOverride] = useState(false)
+  const [overrideValue, setOverrideValue] = useState<string>("")
+  const [isSavingOverride, setIsSavingOverride] = useState(false)
+  const [overrideError, setOverrideError] = useState<string | null>(null)
 
   const attendeeSearch = searchParams.get("search")
   const eventId = searchParams.get("eventId")
@@ -361,6 +373,70 @@ export default function AttendeeDetailPage({ params }: PageProps) {
     }
   }
 
+  async function handleSaveOverride() {
+    if (!payload) {
+      return
+    }
+
+    const amount = Number.parseInt(overrideValue.trim(), 10)
+    if (isNaN(amount) || amount <= 0) {
+      setOverrideError("Please enter a valid positive amount in cents.")
+      return
+    }
+
+    setIsSavingOverride(true)
+    setOverrideError(null)
+
+    try {
+      const response = await fetch(payload.tikkie.actions.updateOverrideEndpoint, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tikkieAmountOverrideMinor: amount }),
+      })
+
+      if (!response.ok) {
+        const body = (await response.json()) as { error?: { message?: string } } | null
+        throw new Error(body?.error?.message ?? "Failed to save override")
+      }
+
+      setIsEditingOverride(false)
+      await loadAttendeeDetail(payload.attendee.id, { silent: true })
+    } catch (err) {
+      setOverrideError(err instanceof Error ? err.message : "Failed to save override")
+    } finally {
+      setIsSavingOverride(false)
+    }
+  }
+
+  async function handleClearOverride() {
+    if (!payload) {
+      return
+    }
+
+    setIsSavingOverride(true)
+    setOverrideError(null)
+
+    try {
+      const response = await fetch(payload.tikkie.actions.updateOverrideEndpoint, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tikkieAmountOverrideMinor: null }),
+      })
+
+      if (!response.ok) {
+        const body = (await response.json()) as { error?: { message?: string } } | null
+        throw new Error(body?.error?.message ?? "Failed to clear override")
+      }
+
+      setIsEditingOverride(false)
+      await loadAttendeeDetail(payload.attendee.id, { silent: true })
+    } catch (err) {
+      setOverrideError(err instanceof Error ? err.message : "Failed to clear override")
+    } finally {
+      setIsSavingOverride(false)
+    }
+  }
+
   return (
     <section className="space-y-6">
       {errorMessage && (
@@ -492,6 +568,111 @@ export default function AttendeeDetailPage({ params }: PageProps) {
                     >
                       {isSubmittingTikkie ? "Generating..." : "Generate Tikkie link"}
                     </Button>
+                  </div>
+
+                  {/* Amount Override Section */}
+                  <div className="rounded-lg border border-slate-200/80 bg-white/60 p-3 dark:border-slate-800 dark:bg-slate-900/40">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                          Amount override
+                        </p>
+                        {payload.attendee.tikkieAmountOverrideMinor !== null ? (
+                          <div className="mt-1">
+                            <p className="text-lg font-semibold text-foreground">
+                              {formatMoney(payload.attendee.tikkieAmountOverrideMinor)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Custom amount for this attendee (overrides template/default)
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="mt-1">
+                            <p className="text-sm text-muted-foreground">No override set</p>
+                            {payload.tikkie.templateFallback && (
+                              <p className="text-xs text-muted-foreground">
+                                Template fallback: {formatMoney(payload.tikkie.templateFallback.amountMinor ?? 0)}
+                                {payload.tikkie.templateFallback.source === "template" && " from ticket type template"}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {!isEditingOverride ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setOverrideValue(payload.attendee.tikkieAmountOverrideMinor !== null ? String(payload.attendee.tikkieAmountOverrideMinor) : "")
+                            setOverrideError(null)
+                            setIsEditingOverride(true)
+                          }}
+                        >
+                          {payload.attendee.tikkieAmountOverrideMinor !== null ? "Edit override" : "Set override"}
+                        </Button>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setIsEditingOverride(false)
+                              setOverrideError(null)
+                            }}
+                            disabled={isSavingOverride}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              void handleClearOverride()
+                            }}
+                            disabled={isSavingOverride}
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    {isEditingOverride && (
+                      <form
+                        className="mt-3 flex items-end gap-2"
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          void handleSaveOverride()
+                        }}
+                      >
+                        <div className="flex-1">
+                          <label htmlFor="overrideAmount" className="sr-only">
+                            Amount in cents
+                          </label>
+                          <input
+                            id="overrideAmount"
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={overrideValue}
+                            onChange={(e) => setOverrideValue(e.target.value)}
+                            placeholder="Amount in cents (e.g. 2500 for €25.00)"
+                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            disabled={isSavingOverride}
+                          />
+                        </div>
+                        <Button type="submit" size="sm" disabled={isSavingOverride || !overrideValue.trim()}>
+                          {isSavingOverride ? "Saving..." : "Save"}
+                        </Button>
+                      </form>
+                    )}
+
+                    {overrideError && (
+                      <div className="mt-2 text-xs text-rose-600 dark:text-rose-300">{overrideError}</div>
+                    )}
                   </div>
 
                   {payload.finance.outstandingAmountMinor <= 0 && (

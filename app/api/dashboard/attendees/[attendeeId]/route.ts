@@ -2,12 +2,12 @@ import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
 import { auth } from "@/lib/auth"
-import { getAttendeeDetail } from "@/lib/domain/finance/attendee-detail"
+import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(
-  _request: Request,
+export async function PATCH(
+  request: Request,
   context: { params: Promise<{ attendeeId: string }> },
 ) {
   const session = await auth.api.getSession({
@@ -28,11 +28,97 @@ export async function GET(
 
   try {
     const { attendeeId } = await context.params
-    const detail = await getAttendeeDetail(attendeeId)
 
-    return NextResponse.json(detail)
+    const normalizedAttendeeId = attendeeId.trim()
+    if (!normalizedAttendeeId) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "BAD_REQUEST",
+            message: "Invalid attendeeId",
+          },
+        },
+        { status: 400 },
+      )
+    }
+
+    const body = (await request.json()) as unknown
+
+    if (!body || typeof body !== "object") {
+      return NextResponse.json(
+        {
+          error: {
+            code: "BAD_REQUEST",
+            message: "Request body must be a JSON object",
+          },
+        },
+        { status: 400 },
+      )
+    }
+
+    const input = body as Record<string, unknown>
+
+    // Only allow updating specific fields
+    const allowedFields: string[] = ["tikkieAmountOverrideMinor"]
+
+    const updateData: Record<string, unknown> = {}
+    for (const field of allowedFields) {
+      if (field in input) {
+        const value = input[field]
+        if (value === null || value === undefined) {
+          updateData[field] = null
+        } else if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+          updateData[field] = value
+        } else if (typeof value === "number" && value === 0) {
+          // Allow 0 to clear the override
+          updateData[field] = null
+        }
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "BAD_REQUEST",
+            message: "No valid fields to update. Allowed fields: tikkieAmountOverrideMinor",
+          },
+        },
+        { status: 400 },
+      )
+    }
+
+    const updated = await prisma.ticketTailorAttendee.update({
+      where: {
+        id: normalizedAttendeeId,
+      },
+      data: updateData as { tikkieAmountOverrideMinor: number | null },
+      select: {
+        id: true,
+        tikkieAmountOverrideMinor: true,
+      },
+    })
+
+    return NextResponse.json({
+      attendee: {
+        id: updated.id,
+        tikkieAmountOverrideMinor: updated.tikkieAmountOverrideMinor,
+      },
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid request"
+
+    if (message.includes("not found")) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "NOT_FOUND",
+            message: "Attendee not found",
+          },
+        },
+        { status: 404 },
+      )
+    }
 
     if (message.startsWith("Invalid")) {
       return NextResponse.json(
@@ -46,23 +132,11 @@ export async function GET(
       )
     }
 
-    if (message.includes("not found")) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message,
-          },
-        },
-        { status: 404 },
-      )
-    }
-
     return NextResponse.json(
       {
         error: {
           code: "INTERNAL_ERROR",
-          message: "Failed to load attendee detail",
+          message: "Failed to update attendee",
         },
       },
       { status: 500 },
