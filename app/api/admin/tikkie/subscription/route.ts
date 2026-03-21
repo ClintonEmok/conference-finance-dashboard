@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth"
 import { getTikkieConfig } from "@/lib/integrations/tikkie/config"
 import { subscribePaymentRequestNotifications } from "@/lib/integrations/tikkie/client"
 
-export async function POST() {
+export async function POST(_request: Request) {
   // Authenticate request
   const session = await auth.api.getSession({
     headers: await headers(),
