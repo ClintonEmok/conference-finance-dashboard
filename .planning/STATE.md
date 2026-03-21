@@ -113,13 +113,15 @@ Recent decisions affecting current work:
 
 ### Quick Tasks Completed
 
-| #          | Description                        | Date       | Commit  | Directory                                                                                                           |
-| ---------- | ---------------------------------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
-| 260321-rxb | add tanstack query                 | 2026-03-21 | 3052489 | [260321-rxb-add-tanstack-query](./quick/260321-rxb-add-tanstack-query/)                                             |
-| 260321-s4w | make attendee table rows clickable | 2026-03-21 | be1f925 | [260321-s4w-make-attendee-table-rows-clickable-and-r](./quick/260321-s4w-make-attendee-table-rows-clickable-and-r/) |
+| #          | Description                                 | Date       | Commit  | Directory                                                                                                           |
+| ---------- | ------------------------------------------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
+| 260321-rxb | add tanstack query                          | 2026-03-21 | 3052489 | [260321-rxb-add-tanstack-query](./quick/260321-rxb-add-tanstack-query/)                                             |
+| 260321-s4w | make attendee table rows clickable          | 2026-03-21 | be1f925 | [260321-s4w-make-attendee-table-rows-clickable-and-r](./quick/260321-s4w-make-attendee-table-rows-clickable-and-r/) |
+| 260321-s9e | add landing page on root route              | 2026-03-21 | 9a2d095 | [260321-s9e-add-a-landing-page-on-the-root-route](./quick/260321-s9e-add-a-landing-page-on-the-root-route/)         |
+| 260322-0dv | redesign entire application UI using shadcn | 2026-03-22 | 5d829e2 | [260322-0dv-redesign-the-entire-application-ui-using](./quick/260322-0dv-redesign-the-entire-application-ui-using/) |
 
 ## Session Continuity
 
-Last session: 2026-03-21T20:25:00Z
+Last session: 2026-03-22T00:00:00Z
 Stopped at: Completed quick task 260321-s4w
 Resume file: None
