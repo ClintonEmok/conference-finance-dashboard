@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -86,6 +86,7 @@ function formatMoney(minor: number) {
 
 export default function AttendeesPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [eventIdInput, setEventIdInput] = useState("")
   const [searchInput, setSearchInput] = useState("")
   const [fromInput, setFromInput] = useState(() => {
@@ -169,16 +170,22 @@ export default function AttendeesPage() {
           query.set("search", appliedSearch.trim())
         }
 
-        const response = await fetch(`/api/dashboard/attendees?${query.toString()}`, {
-          signal: controller.signal,
-        })
+        const response = await fetch(
+          `/api/dashboard/attendees?${query.toString()}`,
+          {
+            signal: controller.signal,
+          }
+        )
 
         if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as
-            | { error?: { message?: string } }
-            | null
+          const body = (await response.json().catch(() => null)) as {
+            error?: { message?: string }
+          } | null
           setPayload(null)
-          setErrorMessage(body?.error?.message ?? `Failed to load attendees (${response.status}).`)
+          setErrorMessage(
+            body?.error?.message ??
+              `Failed to load attendees (${response.status}).`
+          )
           return
         }
 
@@ -231,7 +238,7 @@ export default function AttendeesPage() {
           roomLabel: null
           hotelName: null
           roomTypeLabel: null
-        },
+        }
   ) {
     if (roomStatus.status === "assigned") {
       return (
@@ -252,7 +259,8 @@ export default function AttendeesPage() {
       <header>
         <h2 className="text-xl font-semibold">Attendees</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Review real attendee rows synced from Ticket Tailor with order finance context and room status.
+          Review real attendee rows synced from Ticket Tailor with order finance
+          context and room status.
         </p>
       </header>
 
@@ -276,7 +284,10 @@ export default function AttendeesPage() {
               >
                 <option value="">All events</option>
                 {(payload?.availableEvents ?? []).map((event) => (
-                  <option key={event.providerEventId} value={event.providerEventId}>
+                  <option
+                    key={event.providerEventId}
+                    value={event.providerEventId}
+                  >
                     {event.name?.trim() || event.providerEventId}
                   </option>
                 ))}
@@ -322,7 +333,10 @@ export default function AttendeesPage() {
           )}
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" disabled={Boolean(dateValidationError) || isLoading}>
+            <Button
+              type="submit"
+              disabled={Boolean(dateValidationError) || isLoading}
+            >
               {isLoading ? "Loading…" : "Apply filters"}
             </Button>
           </div>
@@ -345,7 +359,8 @@ export default function AttendeesPage() {
         <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              Showing page {payload.page.number} of {payload.page.totalPages} ({payload.page.totalRows} rows)
+              Showing page {payload.page.number} of {payload.page.totalPages} (
+              {payload.page.totalRows} rows)
             </p>
             <div className="flex items-center gap-2">
               <Button
@@ -359,7 +374,9 @@ export default function AttendeesPage() {
               <Button
                 type="button"
                 variant="outline"
-                disabled={payload.page.number >= payload.page.totalPages || isLoading}
+                disabled={
+                  payload.page.number >= payload.page.totalPages || isLoading
+                }
                 onClick={() => setPage((current) => current + 1)}
               >
                 Next
@@ -376,55 +393,89 @@ export default function AttendeesPage() {
               <table className="min-w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border text-left">
-                    <th className="px-2 py-2 font-medium text-muted-foreground">Attendee</th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">Ticket</th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">Order</th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">Status</th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">Amounts</th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">Room</th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">Detail</th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground">
+                      Attendee
+                    </th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground">
+                      Ticket
+                    </th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground">
+                      Order
+                    </th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground">
+                      Status
+                    </th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground">
+                      Amounts
+                    </th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground">
+                      Room
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {payload.rows.map((row) => (
-                    <tr key={row.attendeeId} className="border-b border-border/60 align-top">
+                    <tr
+                      key={row.attendeeId}
+                      className="cursor-pointer border-b border-border/60 align-top transition-colors hover:bg-muted/50"
+                      onClick={() => {
+                        const params = new URLSearchParams()
+                        params.set(
+                          "search",
+                          appliedSearch || row.providerOrderId
+                        )
+                        params.set(
+                          "eventId",
+                          appliedEventId || row.providerEventId
+                        )
+                        params.set("source", source ?? "attendee-ledger")
+                        router.push(
+                          `/dashboard/attendees/${row.attendeeId}?${params.toString()}`
+                        )
+                      }}
+                    >
                       <td className="px-2 py-2">
-                        <div className="text-xs font-medium">{row.attendeeName ?? "Unnamed attendee"}</div>
-                        <div className="text-[11px] text-muted-foreground">{row.attendeeEmail ?? "-"}</div>
-                        <div className="font-mono text-[11px] text-muted-foreground">
-                          {row.providerIssuedTicketId ?? row.providerAttendeeId ?? row.attendeeId}
+                        <div className="text-xs font-medium">
+                          {row.attendeeName ?? "Unnamed attendee"}
                         </div>
-                      </td>
-                      <td className="px-2 py-2">
-                        <div className="text-xs">{row.ticketTypeLabel ?? "-"}</div>
                         <div className="text-[11px] text-muted-foreground">
-                          {row.orderedAt ? new Date(row.orderedAt).toLocaleString() : "Order date unavailable"}
+                          {row.attendeeEmail ?? "-"}
+                        </div>
+                        <div className="font-mono text-[11px] text-muted-foreground">
+                          {row.providerIssuedTicketId ??
+                            row.providerAttendeeId ??
+                            row.attendeeId}
                         </div>
                       </td>
                       <td className="px-2 py-2">
-                        <div className="font-mono text-xs">{row.providerOrderId}</div>
-                        <div className="text-[11px] text-muted-foreground">{row.eventName ?? row.providerEventId}</div>
+                        <div className="text-xs">
+                          {row.ticketTypeLabel ?? "-"}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {row.orderedAt
+                            ? new Date(row.orderedAt).toLocaleString()
+                            : "Order date unavailable"}
+                        </div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="font-mono text-xs">
+                          {row.providerOrderId}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {row.eventName ?? row.providerEventId}
+                        </div>
                       </td>
                       <td className="px-2 py-2">{row.normalizedStatus}</td>
                       <td className="px-2 py-2">
-                        <div className="text-xs">Total {formatMoney(row.totalAmountMinor)}</div>
+                        <div className="text-xs">
+                          Total {formatMoney(row.totalAmountMinor)}
+                        </div>
                         <div className="text-[11px] text-muted-foreground">
                           Outstanding {formatMoney(row.outstandingAmountMinor)}
                         </div>
                       </td>
-                      <td className="px-2 py-2">{renderRoomStatus(row.roomStatus)}</td>
                       <td className="px-2 py-2">
-                        <Button asChild variant="outline" size="sm">
-                          <Link
-                            href={`/dashboard/attendees/${row.attendeeId}?search=${encodeURIComponent(
-                              appliedSearch || row.providerOrderId,
-                            )}&eventId=${encodeURIComponent(
-                              appliedEventId || row.providerEventId,
-                            )}&source=${encodeURIComponent(source ?? "attendee-ledger")}`}
-                          >
-                            Open detail
-                          </Link>
-                        </Button>
+                        {renderRoomStatus(row.roomStatus)}
                       </td>
                     </tr>
                   ))}
