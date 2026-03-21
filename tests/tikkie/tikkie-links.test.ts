@@ -135,7 +135,7 @@ describe("Tikkie payment link contracts", () => {
         description: "x".repeat(36),
         expiryDate: "2026-04-12",
         referenceId: "ord_1",
-      }),
+      })
     ).toThrow("Invalid 'description'. Maximum length is 35 characters.")
 
     expect(() =>
@@ -146,7 +146,7 @@ describe("Tikkie payment link contracts", () => {
         description: "Order ord_1",
         expiryDate: "2026-04-12",
         referenceId: "r".repeat(36),
-      }),
+      })
     ).toThrow("Invalid 'referenceId'. Maximum length is 35 characters.")
 
     expect(() =>
@@ -157,20 +157,34 @@ describe("Tikkie payment link contracts", () => {
         description: "Order ord_1",
         expiryDate: "2020-01-01",
         referenceId: "ord_1",
-      }),
+      })
     ).toThrow("Invalid 'expiryDate'. Expected a future date.")
   })
 
   it("returns latest-link-first summary with history and freshness metadata", async () => {
     const freshTime = new Date().toISOString()
-    const staleTime = new Date(Date.now() - (TIKKIE_OPEN_LINK_STALE_MINUTES + 5) * 60_000).toISOString()
+    const staleTime = new Date(
+      Date.now() - (TIKKIE_OPEN_LINK_STALE_MINUTES + 5) * 60_000
+    ).toISOString()
 
     mocks.prisma.tikkiePaymentLink.findMany.mockResolvedValue([
-      dbLink({ id: "tpl_2", paymentRequestToken: "token_2", createdAt: new Date("2026-03-20T03:00:00.000Z"), providerLastCheckedAt: new Date(freshTime) }),
-      dbLink({ id: "tpl_1", paymentRequestToken: "token_1", createdAt: new Date("2026-03-19T03:00:00.000Z"), providerLastCheckedAt: new Date(staleTime) }),
+      dbLink({
+        id: "tpl_2",
+        paymentRequestToken: "token_2",
+        createdAt: new Date("2026-03-20T03:00:00.000Z"),
+        providerLastCheckedAt: new Date(freshTime),
+      }),
+      dbLink({
+        id: "tpl_1",
+        paymentRequestToken: "token_1",
+        createdAt: new Date("2026-03-19T03:00:00.000Z"),
+        providerLastCheckedAt: new Date(staleTime),
+      }),
     ])
 
-    const result = await listTikkiePaymentLinksByOrder({ providerOrderId: " ord_1 " })
+    const result = await listTikkiePaymentLinksByOrder({
+      providerOrderId: " ord_1 ",
+    })
 
     expect(result.count).toBe(2)
     expect(result.latestLink?.paymentRequestToken).toBe("token_2")
@@ -178,7 +192,9 @@ describe("Tikkie payment link contracts", () => {
     expect(result.history).toHaveLength(1)
     expect(result.history[0]?.paymentRequestToken).toBe("token_1")
     expect(result.history[0]?.checkState).toBe("stale")
-    expect(result.providerLastCheckedAt).toBe(result.latestLink?.providerLastCheckedAt ?? null)
+    expect(result.providerLastCheckedAt).toBe(
+      result.latestLink?.providerLastCheckedAt ?? null
+    )
   })
 
   it("returns BAD_REQUEST from the route for invalid provider-safe create payloads", async () => {
@@ -194,7 +210,7 @@ describe("Tikkie payment link contracts", () => {
           expiryDate: "2030-04-12",
           referenceId: "ord_1",
         }),
-      }),
+      })
     )
 
     const body = await response.json()
@@ -211,23 +227,54 @@ describe("Tikkie payment link contracts", () => {
   it("returns latest-link-first contract from the route and refreshes only open links", async () => {
     mocks.prisma.tikkiePaymentLink.findMany
       .mockResolvedValueOnce([
-        dbLink({ id: "tpl_2", paymentRequestToken: "token_2", status: "created" }),
-        dbLink({ id: "tpl_1", paymentRequestToken: "token_1", status: "paid", providerStatus: "CLOSED" }),
+        dbLink({
+          id: "tpl_2",
+          paymentRequestToken: "token_2",
+          status: "created",
+        }),
+        dbLink({
+          id: "tpl_1",
+          paymentRequestToken: "token_1",
+          status: "paid",
+          providerStatus: "CLOSED",
+        }),
       ])
       .mockResolvedValueOnce([
-        dbLink({ id: "tpl_2", paymentRequestToken: "token_2", status: "paid", providerStatus: "CLOSED" }),
-        dbLink({ id: "tpl_1", paymentRequestToken: "token_1", status: "paid", providerStatus: "CLOSED" }),
+        dbLink({
+          id: "tpl_2",
+          paymentRequestToken: "token_2",
+          status: "paid",
+          providerStatus: "CLOSED",
+        }),
+        dbLink({
+          id: "tpl_1",
+          paymentRequestToken: "token_1",
+          status: "paid",
+          providerStatus: "CLOSED",
+        }),
       ])
     mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue(null)
-    mocks.prisma.tikkiePaymentLink.findUnique.mockResolvedValue(dbLink({ id: "tpl_2", paymentRequestToken: "token_2", status: "created" }))
+    mocks.prisma.tikkiePaymentLink.findUnique.mockResolvedValue(
+      dbLink({ id: "tpl_2", paymentRequestToken: "token_2", status: "created" })
+    )
     mocks.getPaymentRequest.mockResolvedValue({ status: "CLOSED" })
-    mocks.getPaymentRequestPayments.mockResolvedValue({ payments: [{ id: "pay_1" }], totalElementCount: 1 })
+    mocks.getPaymentRequestPayments.mockResolvedValue({
+      payments: [{ id: "pay_1" }],
+      totalElementCount: 1,
+    })
     mocks.prisma.tikkiePaymentLink.update.mockResolvedValue(
-      dbLink({ id: "tpl_2", paymentRequestToken: "token_2", status: "paid", providerStatus: "CLOSED" }),
+      dbLink({
+        id: "tpl_2",
+        paymentRequestToken: "token_2",
+        status: "paid",
+        providerStatus: "CLOSED",
+      })
     )
 
     const response = await GET(
-      new Request("http://localhost/api/dashboard/tikkie-links?providerOrderId=ord_1&refresh=1"),
+      new Request(
+        "http://localhost/api/dashboard/tikkie-links?providerOrderId=ord_1&refresh=1"
+      )
     )
     const body = await response.json()
 
@@ -280,7 +327,9 @@ describe("Tikkie payment link contracts", () => {
     mocks.getSession.mockResolvedValueOnce(null)
 
     const response = await syncStatusRoute(
-      new Request("http://localhost/api/jobs/tikkie/status-sync", { method: "POST" }),
+      new Request("http://localhost/api/jobs/tikkie/status-sync", {
+        method: "POST",
+      })
     )
     const body = await response.json()
 
@@ -300,20 +349,43 @@ describe("Tikkie payment link contracts", () => {
     ])
     mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue(null)
     mocks.prisma.tikkiePaymentLink.findUnique
-      .mockResolvedValueOnce(dbLink({ paymentRequestToken: "token_1", status: "created" }))
-      .mockResolvedValueOnce(dbLink({ paymentRequestToken: "token_2", status: "created" }))
+      .mockResolvedValueOnce(
+        dbLink({ paymentRequestToken: "token_1", status: "created" })
+      )
+      .mockResolvedValueOnce(
+        dbLink({ paymentRequestToken: "token_2", status: "created" })
+      )
     mocks.getPaymentRequest
-      .mockResolvedValueOnce({ status: "CLOSED" })
-      .mockResolvedValueOnce({ status: "OPEN" })
-    mocks.getPaymentRequestPayments
-      .mockResolvedValueOnce({ payments: [{ id: "pay_1" }], totalElementCount: 1 })
-      .mockResolvedValueOnce({ payments: [], totalElementCount: 0 })
+      .mockResolvedValueOnce({ status: "CLOSED", numberOfPayments: 1 })
+      .mockResolvedValueOnce({
+        status: "OPEN",
+        numberOfPayments: 0,
+        totalAmountPaidInCents: 0,
+      })
+    mocks.getPaymentRequestPayments.mockResolvedValueOnce({
+      payments: [],
+      totalElementCount: 0,
+    })
     mocks.prisma.tikkiePaymentLink.update
-      .mockResolvedValueOnce(dbLink({ paymentRequestToken: "token_1", status: "paid", providerStatus: "CLOSED" }))
-      .mockResolvedValueOnce(dbLink({ paymentRequestToken: "token_2", status: "created", providerStatus: "OPEN" }))
+      .mockResolvedValueOnce(
+        dbLink({
+          paymentRequestToken: "token_1",
+          status: "paid",
+          providerStatus: "CLOSED",
+        })
+      )
+      .mockResolvedValueOnce(
+        dbLink({
+          paymentRequestToken: "token_2",
+          status: "created",
+          providerStatus: "OPEN",
+        })
+      )
 
     const response = await syncStatusRoute(
-      new Request("http://localhost/api/jobs/tikkie/status-sync?limit=2", { method: "POST" }),
+      new Request("http://localhost/api/jobs/tikkie/status-sync?limit=2", {
+        method: "POST",
+      })
     )
     const body = await response.json()
 
@@ -325,5 +397,314 @@ describe("Tikkie payment link contracts", () => {
       unchanged: 1,
       failed: 0,
     })
+    // getPaymentRequestPayments should NOT be called since aggregate fields indicate payment for token_1
+    // token_2 had no aggregate payments, so payments list would be fetched — but in this test
+    // the mock for getPaymentRequestPayments is not set for token_2 since the result is unchanged
+  })
+})
+
+describe("Provider-authoritative refresh behavior", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.headers.mockResolvedValue(new Headers())
+    mocks.getSession.mockResolvedValue(session())
+  })
+
+  it("infers paid status from GET payment-request aggregate fields without calling payments list", async () => {
+    mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue(null)
+    mocks.prisma.tikkiePaymentLink.findUnique.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "created",
+        providerStatus: "OPEN",
+      })
+    )
+    mocks.prisma.tikkiePaymentLink.update.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "paid",
+        providerStatus: "CLOSED",
+      })
+    )
+
+    // Provider returns numberOfPayments > 0 — payments list should NOT be needed
+    mocks.getPaymentRequest.mockResolvedValue({
+      status: "CLOSED",
+      numberOfPayments: 1,
+      totalAmountPaidInCents: 2500,
+    })
+
+    const result = await refreshTikkiePaymentLinkStatus({
+      paymentRequestToken: "token_1",
+      source: "poll",
+      reason: "pending-link-poll",
+    })
+
+    expect(result.changed).toBe(true)
+    expect(result.link.status).toBe("paid")
+    // getPaymentRequestPayments should not be called when aggregate indicates payment
+    expect(mocks.getPaymentRequestPayments).not.toHaveBeenCalled()
+  })
+
+  it("infers paid from totalAmountPaidInCents > 0 even when numberOfPayments is absent", async () => {
+    mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue(null)
+    mocks.prisma.tikkiePaymentLink.findUnique.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "created",
+        providerStatus: "OPEN",
+      })
+    )
+    mocks.prisma.tikkiePaymentLink.update.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "paid",
+        providerStatus: "CLOSED",
+      })
+    )
+
+    mocks.getPaymentRequest.mockResolvedValue({
+      status: "CLOSED",
+      numberOfPayments: undefined,
+      totalAmountPaidInCents: 2500,
+    })
+
+    const result = await refreshTikkiePaymentLinkStatus({
+      paymentRequestToken: "token_1",
+      source: "webhook",
+      reason: "notification:PAYMENT",
+    })
+
+    expect(result.changed).toBe(true)
+    expect(result.link.status).toBe("paid")
+    expect(mocks.getPaymentRequestPayments).not.toHaveBeenCalled()
+  })
+
+  it("transitions created to expired when provider indicates non-open unpaid state", async () => {
+    mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue(null)
+    mocks.prisma.tikkiePaymentLink.findUnique.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "created",
+        providerStatus: "OPEN",
+      })
+    )
+    mocks.prisma.tikkiePaymentLink.update.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "expired",
+        providerStatus: "EXPIRED",
+      })
+    )
+
+    mocks.getPaymentRequest.mockResolvedValue({
+      status: "EXPIRED",
+      numberOfPayments: 0,
+      totalAmountPaidInCents: 0,
+    })
+    mocks.getPaymentRequestPayments.mockResolvedValue({
+      payments: [],
+      totalElementCount: 0,
+    })
+
+    const result = await refreshTikkiePaymentLinkStatus({
+      paymentRequestToken: "token_1",
+      source: "poll",
+      reason: "pending-link-poll",
+    })
+
+    expect(result.changed).toBe(true)
+    expect(result.link.status).toBe("expired")
+  })
+
+  it("transitions created to expired via CLOSED without payments", async () => {
+    mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue(null)
+    mocks.prisma.tikkiePaymentLink.findUnique.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "created",
+        providerStatus: "OPEN",
+      })
+    )
+    mocks.prisma.tikkiePaymentLink.update.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "expired",
+        providerStatus: "CLOSED",
+      })
+    )
+
+    mocks.getPaymentRequest.mockResolvedValue({
+      status: "CLOSED",
+      numberOfPayments: 0,
+      totalAmountPaidInCents: 0,
+    })
+    mocks.getPaymentRequestPayments.mockResolvedValue({
+      payments: [],
+      totalElementCount: 0,
+    })
+
+    const result = await refreshTikkiePaymentLinkStatus({
+      paymentRequestToken: "token_1",
+      source: "poll",
+      reason: "pending-link-poll",
+    })
+
+    expect(result.changed).toBe(true)
+    expect(result.link.status).toBe("expired")
+  })
+
+  it("never regresses paid links even when later refresh returns OPEN without payments", async () => {
+    mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue(null)
+    mocks.prisma.tikkiePaymentLink.findUnique.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "paid",
+        providerStatus: "CLOSED",
+      })
+    )
+    mocks.prisma.tikkiePaymentLink.update.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "paid",
+        providerStatus: "OPEN",
+      })
+    )
+
+    // Provider returns OPEN with no payments — but link is already paid, should stay paid
+    mocks.getPaymentRequest.mockResolvedValue({
+      status: "OPEN",
+      numberOfPayments: 0,
+      totalAmountPaidInCents: 0,
+    })
+    mocks.getPaymentRequestPayments.mockResolvedValue({
+      payments: [],
+      totalElementCount: 0,
+    })
+
+    const result = await refreshTikkiePaymentLinkStatus({
+      paymentRequestToken: "token_1",
+      source: "poll",
+      reason: "pending-link-poll",
+    })
+
+    expect(result.changed).toBe(false)
+    expect(result.link.status).toBe("paid")
+  })
+
+  it("never regresses expired links on later refresh returning OPEN", async () => {
+    mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue(null)
+    mocks.prisma.tikkiePaymentLink.findUnique.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "expired",
+        providerStatus: "EXPIRED",
+      })
+    )
+    mocks.prisma.tikkiePaymentLink.update.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "expired",
+        providerStatus: "OPEN",
+      })
+    )
+
+    mocks.getPaymentRequest.mockResolvedValue({
+      status: "OPEN",
+      numberOfPayments: 0,
+      totalAmountPaidInCents: 0,
+    })
+    mocks.getPaymentRequestPayments.mockResolvedValue({
+      payments: [],
+      totalElementCount: 0,
+    })
+
+    const result = await refreshTikkiePaymentLinkStatus({
+      paymentRequestToken: "token_1",
+      source: "poll",
+      reason: "pending-link-poll",
+    })
+
+    expect(result.changed).toBe(false)
+    expect(result.link.status).toBe("expired")
+  })
+
+  it("calls payments list as compatibility fallback when aggregate fields are absent/zero", async () => {
+    mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue(null)
+    mocks.prisma.tikkiePaymentLink.findUnique.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "created",
+        providerStatus: "OPEN",
+      })
+    )
+    mocks.prisma.tikkiePaymentLink.update.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "paid",
+        providerStatus: "CLOSED",
+      })
+    )
+
+    // Aggregate fields are absent — should fall back to payments list
+    mocks.getPaymentRequest.mockResolvedValue({
+      status: "CLOSED",
+      numberOfPayments: undefined,
+      totalAmountPaidInCents: undefined,
+    })
+    mocks.getPaymentRequestPayments.mockResolvedValue({
+      payments: [{ id: "pay_1" }],
+      totalElementCount: 1,
+    })
+
+    const result = await refreshTikkiePaymentLinkStatus({
+      paymentRequestToken: "token_1",
+      source: "poll",
+      reason: "pending-link-poll",
+    })
+
+    expect(result.changed).toBe(true)
+    expect(result.link.status).toBe("paid")
+    expect(mocks.getPaymentRequestPayments).toHaveBeenCalledTimes(1)
+    expect(mocks.getPaymentRequestPayments).toHaveBeenCalledWith(
+      "token_1",
+      0,
+      50
+    )
+  })
+
+  it("stays unchanged when already paid and later refresh also shows paid via aggregate", async () => {
+    mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue(null)
+    mocks.prisma.tikkiePaymentLink.findUnique.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "paid",
+        providerStatus: "CLOSED",
+      })
+    )
+    mocks.prisma.tikkiePaymentLink.update.mockResolvedValue(
+      dbLink({
+        paymentRequestToken: "token_1",
+        status: "paid",
+        providerStatus: "CLOSED",
+      })
+    )
+
+    mocks.getPaymentRequest.mockResolvedValue({
+      status: "CLOSED",
+      numberOfPayments: 2,
+      totalAmountPaidInCents: 5000,
+    })
+
+    const result = await refreshTikkiePaymentLinkStatus({
+      paymentRequestToken: "token_1",
+      source: "poll",
+      reason: "pending-link-poll",
+    })
+
+    expect(result.changed).toBe(false)
+    expect(result.link.status).toBe("paid")
+    // No payments list needed since aggregate already shows payment
+    expect(mocks.getPaymentRequestPayments).not.toHaveBeenCalled()
   })
 })
