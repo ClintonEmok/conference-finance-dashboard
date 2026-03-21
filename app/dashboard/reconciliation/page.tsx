@@ -14,7 +14,23 @@ import {
   type TikkieLinkSummaryRecord,
 } from "@/components/dashboard/tikkie-link-summary"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
 
 type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 
@@ -44,7 +60,12 @@ type ReconciliationPayload = {
     orderedAt: string | null
     refundedAt: string | null
     outstandingMinor: number
-    reasons: Array<"pending-payment" | "cancelled-with-amount" | "missing-amount" | "refund-without-refunded-at">
+    reasons: Array<
+      | "pending-payment"
+      | "cancelled-with-amount"
+      | "missing-amount"
+      | "refund-without-refunded-at"
+    >
   }>
 }
 
@@ -123,7 +144,9 @@ function defaultExpiryDate() {
   return date.toISOString().slice(0, 10)
 }
 
-function defaultDialogValues(row: ReconciliationPayload["rows"][number]): TikkieLinkDialogDefaults {
+function defaultDialogValues(
+  row: ReconciliationPayload["rows"][number]
+): TikkieLinkDialogDefaults {
   return {
     providerOrderId: row.providerOrderId,
     providerEventId: row.providerEventId,
@@ -136,7 +159,9 @@ function defaultDialogValues(row: ReconciliationPayload["rows"][number]): Tikkie
 
 export default function ReconciliationPage() {
   const [eventIdInput, setEventIdInput] = useState("")
-  const [statusInput, setStatusInput] = useState<"all" | CanonicalOrderStatus>("all")
+  const [statusInput, setStatusInput] = useState<"all" | CanonicalOrderStatus>(
+    "all"
+  )
   const [fromInput, setFromInput] = useState(() => {
     const today = new Date()
     const from = new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000)
@@ -145,7 +170,9 @@ export default function ReconciliationPage() {
   const [toInput, setToInput] = useState(() => toDateInputValue(new Date()))
 
   const [appliedEventId, setAppliedEventId] = useState("")
-  const [appliedStatus, setAppliedStatus] = useState<"all" | CanonicalOrderStatus>("all")
+  const [appliedStatus, setAppliedStatus] = useState<
+    "all" | CanonicalOrderStatus
+  >("all")
   const [appliedFrom, setAppliedFrom] = useState(fromInput)
   const [appliedTo, setAppliedTo] = useState(toInput)
 
@@ -153,7 +180,9 @@ export default function ReconciliationPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [payload, setPayload] = useState<ReconciliationPayload | null>(null)
   const [rowLinks, setRowLinks] = useState<Record<string, RowLinkState>>({})
-  const [dialogRow, setDialogRow] = useState<ReconciliationPayload["rows"][number] | null>(null)
+  const [dialogRow, setDialogRow] = useState<
+    ReconciliationPayload["rows"][number] | null
+  >(null)
 
   const dateValidationError = useMemo(() => {
     const fromIso = toIsoBoundary(fromInput, "start")
@@ -202,16 +231,22 @@ export default function ReconciliationPage() {
           query.set("status", appliedStatus)
         }
 
-        const response = await fetch(`/api/dashboard/reconciliation?${query.toString()}`, {
-          signal: controller.signal,
-        })
+        const response = await fetch(
+          `/api/dashboard/reconciliation?${query.toString()}`,
+          {
+            signal: controller.signal,
+          }
+        )
 
         if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as
-            | { error?: { message?: string } }
-            | null
+          const body = (await response.json().catch(() => null)) as {
+            error?: { message?: string }
+          } | null
           setPayload(null)
-          setErrorMessage(body?.error?.message ?? `Failed to load reconciliation data (${response.status}).`)
+          setErrorMessage(
+            body?.error?.message ??
+              `Failed to load reconciliation data (${response.status}).`
+          )
           return
         }
 
@@ -240,7 +275,10 @@ export default function ReconciliationPage() {
     return rowLinks[providerOrderId] ?? EMPTY_ROW_LINK_STATE
   }
 
-  async function fetchRowLinks(providerOrderId: string, options?: { refresh?: boolean }) {
+  async function fetchRowLinks(
+    providerOrderId: string,
+    options?: { refresh?: boolean }
+  ) {
     setRowLinks((current) => ({
       ...current,
       [providerOrderId]: {
@@ -256,7 +294,7 @@ export default function ReconciliationPage() {
       const response = await fetch(
         `/api/dashboard/tikkie-links?providerOrderId=${encodeURIComponent(providerOrderId)}${
           options?.refresh ? "&refresh=1" : ""
-        }`,
+        }`
       )
 
       const body = (await response.json().catch(() => null)) as
@@ -270,7 +308,9 @@ export default function ReconciliationPage() {
             isLoading: false,
             isCreating: current[providerOrderId]?.isCreating ?? false,
             isCopying: current[providerOrderId]?.isCopying ?? false,
-            error: body?.error?.message ?? `Failed to load links (${response.status}).`,
+            error:
+              body?.error?.message ??
+              `Failed to load links (${response.status}).`,
             summary: current[providerOrderId]?.summary ?? null,
           },
         }))
@@ -321,7 +361,7 @@ export default function ReconciliationPage() {
 
   async function handleGenerateLink(
     row: ReconciliationPayload["rows"][number],
-    values: TikkieLinkDialogValues,
+    values: TikkieLinkDialogValues
   ) {
     setRowLinks((current) => ({
       ...current,
@@ -350,7 +390,9 @@ export default function ReconciliationPage() {
         }),
       })
 
-      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+      const body = (await response.json().catch(() => null)) as {
+        error?: { message?: string }
+      } | null
 
       if (!response.ok) {
         setRowLinks((current) => ({
@@ -359,7 +401,9 @@ export default function ReconciliationPage() {
             isLoading: current[row.providerOrderId]?.isLoading ?? false,
             isCreating: false,
             isCopying: current[row.providerOrderId]?.isCopying ?? false,
-            error: body?.error?.message ?? `Failed to create link (${response.status}).`,
+            error:
+              body?.error?.message ??
+              `Failed to create link (${response.status}).`,
             summary: current[row.providerOrderId]?.summary ?? null,
           },
         }))
@@ -397,14 +441,14 @@ export default function ReconciliationPage() {
   async function handleCopyLink(providerOrderId: string, url: string) {
     setRowLinks((current) => ({
       ...current,
-        [providerOrderId]: {
-          isLoading: current[providerOrderId]?.isLoading ?? false,
-          isCreating: current[providerOrderId]?.isCreating ?? false,
-          isCopying: true,
-          error: null,
-          summary: current[providerOrderId]?.summary ?? null,
-        },
-      }))
+      [providerOrderId]: {
+        isLoading: current[providerOrderId]?.isLoading ?? false,
+        isCreating: current[providerOrderId]?.isCreating ?? false,
+        isCopying: true,
+        error: null,
+        summary: current[providerOrderId]?.summary ?? null,
+      },
+    }))
 
     try {
       await navigator.clipboard.writeText(url)
@@ -424,14 +468,14 @@ export default function ReconciliationPage() {
 
     setRowLinks((current) => ({
       ...current,
-        [providerOrderId]: {
-          isLoading: current[providerOrderId]?.isLoading ?? false,
-          isCreating: current[providerOrderId]?.isCreating ?? false,
-          isCopying: false,
-          error: null,
-          summary: current[providerOrderId]?.summary ?? null,
-        },
-      }))
+      [providerOrderId]: {
+        isLoading: current[providerOrderId]?.isLoading ?? false,
+        isCreating: current[providerOrderId]?.isCreating ?? false,
+        isCopying: false,
+        error: null,
+        summary: current[providerOrderId]?.summary ?? null,
+      },
+    }))
   }
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
@@ -454,32 +498,45 @@ export default function ReconciliationPage() {
         <article className="overflow-hidden rounded-xl bg-[linear-gradient(145deg,rgba(113,84,255,0.97),rgba(83,56,171,0.94))] p-6 text-primary-foreground shadow-[0_20px_56px_rgba(78,52,166,0.24)] md:p-7">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="max-w-2xl">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary-foreground/70">
+              <p className="text-[11px] font-semibold tracking-[0.22em] text-primary-foreground/70 uppercase">
                 Outstanding balances
               </p>
               <h2 className="mt-2.5 text-2xl font-semibold tracking-tight md:text-[2rem]">
-                Resolve the orders that still need payment or operator attention.
+                Resolve the orders that still need payment or operator
+                attention.
               </h2>
               <p className="mt-3 max-w-xl text-[13px] leading-6 text-primary-foreground/82 md:text-sm">
-                Start here when a balance needs action, then carry the order context straight into attendee
-                follow-up and room assignment.
+                Start here when a balance needs action, then carry the order
+                context straight into attendee follow-up and room assignment.
               </p>
             </div>
 
             <div className="grid min-w-[220px] gap-3 sm:grid-cols-2 sm:grid-rows-2 sm:gap-4">
               <div className="rounded-lg bg-white/12 p-4 backdrop-blur-sm sm:col-span-2">
-                <p className="text-xs text-primary-foreground/68">Flagged rows</p>
-                <p className="mt-1.5 text-2xl font-semibold">{payload?.totals.rows ?? "--"}</p>
-              </div>
-              <div className="rounded-lg bg-white/12 p-4 backdrop-blur-sm">
-                <p className="text-xs text-primary-foreground/68">Outstanding</p>
-                <p className="mt-1.5 text-base font-semibold">
-                  {payload ? formatMoney(payload.totals.outstandingMinor) : "--"}
+                <p className="text-xs text-primary-foreground/68">
+                  Flagged rows
+                </p>
+                <p className="mt-1.5 text-2xl font-semibold">
+                  {payload?.totals.rows ?? "--"}
                 </p>
               </div>
               <div className="rounded-lg bg-white/12 p-4 backdrop-blur-sm">
-                <p className="text-xs text-primary-foreground/68">Status view</p>
-                <p className="mt-1.5 text-base font-semibold">{appliedStatus === "all" ? "All" : appliedStatus}</p>
+                <p className="text-xs text-primary-foreground/68">
+                  Outstanding
+                </p>
+                <p className="mt-1.5 text-base font-semibold">
+                  {payload
+                    ? formatMoney(payload.totals.outstandingMinor)
+                    : "--"}
+                </p>
+              </div>
+              <div className="rounded-lg bg-white/12 p-4 backdrop-blur-sm">
+                <p className="text-xs text-primary-foreground/68">
+                  Status view
+                </p>
+                <p className="mt-1.5 text-base font-semibold">
+                  {appliedStatus === "all" ? "All" : appliedStatus}
+                </p>
               </div>
             </div>
           </div>
@@ -487,82 +544,105 @@ export default function ReconciliationPage() {
 
         <Card className="bg-background/85 backdrop-blur">
           <CardHeader>
-          <div className="flex items-center gap-3">
-            <span className="flex size-10 items-center justify-center rounded-md bg-primary/10 text-primary dark:bg-white/10 dark:text-primary-foreground">
-              <SearchCheck className="size-5" />
-            </span>
-            <div>
-              <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/70">Refine list</CardDescription>
-              <CardTitle className="mt-1 text-lg">Find the balances that need attention</CardTitle>
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-md bg-primary/10 text-primary dark:bg-white/10 dark:text-primary-foreground">
+                <SearchCheck className="size-5" />
+              </span>
+              <div>
+                <CardDescription className="text-[11px] font-semibold tracking-[0.2em] text-primary/70 uppercase">
+                  Refine list
+                </CardDescription>
+                <CardTitle className="mt-1 text-lg">
+                  Find the balances that need attention
+                </CardTitle>
+              </div>
             </div>
-          </div>
           </CardHeader>
 
           <CardContent>
-          <form className="space-y-4" onSubmit={applyFilters}>
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="space-y-2 text-sm">
-                <span className="text-xs font-medium text-foreground">Event ID</span>
-                <select
-                  value={eventIdInput}
-                  onChange={(event) => setEventIdInput(event.target.value)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
-                >
-                  <option value="">All events</option>
-                  {(payload?.availableEvents ?? []).map((event) => (
-                    <option key={event.providerEventId} value={event.providerEventId}>
-                      {event.name?.trim() || event.providerEventId}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <form className="space-y-4" onSubmit={applyFilters}>
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="space-y-2 text-sm">
+                  <span className="text-xs font-medium text-foreground">
+                    Event ID
+                  </span>
+                  <select
+                    value={eventIdInput}
+                    onChange={(event) => setEventIdInput(event.target.value)}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
+                  >
+                    <option value="">All events</option>
+                    {(payload?.availableEvents ?? []).map((event) => (
+                      <option
+                        key={event.providerEventId}
+                        value={event.providerEventId}
+                      >
+                        {event.name?.trim() || event.providerEventId}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-              <label className="space-y-2 text-sm">
-                <span className="text-xs font-medium text-foreground">Status</span>
-                <select
-                  value={statusInput}
-                  onChange={(event) => setStatusInput(event.target.value as "all" | CanonicalOrderStatus)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
-                >
-                  <option value="all">All statuses</option>
-                  <option value="paid">Paid</option>
-                  <option value="refunded">Refunded</option>
-                  <option value="cancelled">Cancelled</option>
-                  <option value="pending">Pending</option>
-                </select>
-              </label>
+                <label className="space-y-2 text-sm">
+                  <span className="text-xs font-medium text-foreground">
+                    Status
+                  </span>
+                  <select
+                    value={statusInput}
+                    onChange={(event) =>
+                      setStatusInput(
+                        event.target.value as "all" | CanonicalOrderStatus
+                      )
+                    }
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
+                  >
+                    <option value="all">All statuses</option>
+                    <option value="paid">Paid</option>
+                    <option value="refunded">Refunded</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="pending">Pending</option>
+                  </select>
+                </label>
 
-              <label className="space-y-2 text-sm">
-                <span className="text-xs font-medium text-foreground">From</span>
-                <input
-                  type="date"
-                  value={fromInput}
-                  onChange={(event) => setFromInput(event.target.value)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
-                />
-              </label>
+                <label className="space-y-2 text-sm">
+                  <span className="text-xs font-medium text-foreground">
+                    From
+                  </span>
+                  <input
+                    type="date"
+                    value={fromInput}
+                    onChange={(event) => setFromInput(event.target.value)}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
+                  />
+                </label>
 
-              <label className="space-y-2 text-sm">
-                <span className="text-xs font-medium text-foreground">To</span>
-                <input
-                  type="date"
-                  value={toInput}
-                  onChange={(event) => setToInput(event.target.value)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
-                />
-              </label>
-            </div>
+                <label className="space-y-2 text-sm">
+                  <span className="text-xs font-medium text-foreground">
+                    To
+                  </span>
+                  <input
+                    type="date"
+                    value={toInput}
+                    onChange={(event) => setToInput(event.target.value)}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
+                  />
+                </label>
+              </div>
 
-            {dateValidationError && (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
-                {dateValidationError}
-              </p>
-            )}
+              {dateValidationError && (
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
+                  {dateValidationError}
+                </p>
+              )}
 
-            <Button className="h-10 w-full rounded-md text-xs" type="submit" disabled={Boolean(dateValidationError) || isLoading}>
-              {isLoading ? "Loading..." : "Apply follow-up filters"}
-            </Button>
-          </form>
+              <Button
+                className="h-10 w-full rounded-md text-xs"
+                type="submit"
+                disabled={Boolean(dateValidationError) || isLoading}
+              >
+                {isLoading ? "Loading..." : "Apply follow-up filters"}
+              </Button>
+            </form>
           </CardContent>
         </Card>
       </section>
@@ -570,33 +650,44 @@ export default function ReconciliationPage() {
       <section className="grid gap-4 md:grid-cols-3">
         <Card className="bg-background/85 backdrop-blur">
           <CardContent className="p-4">
-          <div className="flex items-center gap-3">
-            <span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary dark:bg-white/10 dark:text-primary-foreground">
-              <HandCoins className="size-4" />
-            </span>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/70">Outstanding</p>
-              <p className="mt-1 text-lg font-semibold">{payload ? formatMoney(payload.totals.outstandingMinor) : "--"}</p>
+            <div className="flex items-center gap-3">
+              <span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary dark:bg-white/10 dark:text-primary-foreground">
+                <HandCoins className="size-4" />
+              </span>
+              <div>
+                <p className="text-[11px] font-semibold tracking-[0.18em] text-primary/70 uppercase">
+                  Outstanding
+                </p>
+                <p className="mt-1 text-lg font-semibold">
+                  {payload
+                    ? formatMoney(payload.totals.outstandingMinor)
+                    : "--"}
+                </p>
+              </div>
             </div>
-          </div>
           </CardContent>
         </Card>
         <Card className="bg-background/85 backdrop-blur">
           <CardContent className="p-4">
-          <div className="flex items-center gap-3">
-            <span className="flex size-9 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
-              <CircleAlert className="size-4" />
-            </span>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/70">Flagged rows</p>
-              <p className="mt-1 text-lg font-semibold">{payload?.totals.rows ?? "--"}</p>
+            <div className="flex items-center gap-3">
+              <span className="flex size-9 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                <CircleAlert className="size-4" />
+              </span>
+              <div>
+                <p className="text-[11px] font-semibold tracking-[0.18em] text-primary/70 uppercase">
+                  Flagged rows
+                </p>
+                <p className="mt-1 text-lg font-semibold">
+                  {payload?.totals.rows ?? "--"}
+                </p>
+              </div>
             </div>
-          </div>
           </CardContent>
         </Card>
         <Card className="bg-background/85 backdrop-blur">
           <CardContent className="p-4 text-xs leading-5 text-muted-foreground">
-          Open attendee follow-up from any row to preserve order context and avoid backtracking.
+            Open attendee follow-up from any row to preserve order context and
+            avoid backtracking.
           </CardContent>
         </Card>
       </section>
@@ -608,141 +699,225 @@ export default function ReconciliationPage() {
       )}
 
       {!errorMessage && isLoading && (
-        <article className="rounded-xl border border-border bg-background/80 p-5 text-xs text-muted-foreground shadow-sm backdrop-blur">
-          Loading outstanding-balance rows...
-        </article>
+        <Card className="bg-background/85 backdrop-blur">
+          <CardContent className="p-5">
+            <div className="space-y-3">
+              <Skeleton className="h-4 w-[150px]" />
+              <div className="flex flex-col gap-2">
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-4">
+                    <Skeleton className="h-16 w-[120px]" />
+                    <Skeleton className="h-16 w-[100px]" />
+                    <Skeleton className="h-16 w-[70px]" />
+                    <Skeleton className="h-16 w-[80px]" />
+                    <Skeleton className="h-16 w-[80px]" />
+                    <Skeleton className="h-16 w-[150px]" />
+                    <Skeleton className="h-16 w-[100px]" />
+                    <Skeleton className="h-16 w-[120px]" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {!errorMessage && !isLoading && payload && (
         <Card className="bg-background/85 backdrop-blur">
           <CardContent className="p-5">
-          {payload.rows.length === 0 ? (
-            <p className="rounded-lg border border-border/70 p-4 text-xs text-muted-foreground">
-              No outstanding or mismatch candidates found for the selected filters.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full border-separate border-spacing-y-2.5 text-xs">
-                <thead>
-                  <tr className="text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                    <th className="px-3 py-2">Order</th>
-                    <th className="px-3 py-2">Event</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Amount</th>
-                    <th className="px-3 py-2">Outstanding</th>
-                    <th className="px-3 py-2">Reasons</th>
-                    <th className="px-3 py-2">Next step</th>
-                    <th className="px-3 py-2">Tikkie</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {payload.rows.map((row) => {
-                    const linkState = getRowLinkState(row.providerOrderId)
-                    const latestLink = linkState.summary?.latestLink ?? null
-                    const canGenerate = row.outstandingMinor > 0
+            {payload.rows.length === 0 ? (
+              <p className="rounded-lg border border-border/70 p-4 text-xs text-muted-foreground">
+                No outstanding or mismatch candidates found for the selected
+                filters.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                        Order
+                      </TableHead>
+                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                        Event
+                      </TableHead>
+                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                        Status
+                      </TableHead>
+                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                        Amount
+                      </TableHead>
+                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                        Outstanding
+                      </TableHead>
+                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                        Reasons
+                      </TableHead>
+                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                        Next step
+                      </TableHead>
+                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                        Tikkie
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {payload.rows.map((row) => {
+                      const linkState = getRowLinkState(row.providerOrderId)
+                      const latestLink = linkState.summary?.latestLink ?? null
+                      const canGenerate = row.outstandingMinor > 0
 
-                    return (
-                      <tr key={row.providerOrderId} className="align-top shadow-sm">
-                        <td className="rounded-l-lg bg-white/75 px-3 py-3 font-mono text-[11px] dark:bg-white/6">
-                          <div className="text-foreground">{row.providerOrderId}</div>
-                          <div className="mt-1 text-muted-foreground">
-                            {row.orderedAt ? new Date(row.orderedAt).toLocaleString() : "-"}
-                          </div>
-                        </td>
-                        <td className="bg-white/75 px-3 py-3 dark:bg-white/6">
-                          <div className="text-[11px] font-medium text-foreground">{row.eventName ?? "Unknown event"}</div>
-                          <div className="mt-1 font-mono text-[11px] text-muted-foreground">{row.providerEventId}</div>
-                        </td>
-                        <td className="bg-white/75 px-3 py-3 capitalize text-foreground dark:bg-white/6">
-                          {row.normalizedStatus}
-                        </td>
-                        <td className="bg-white/75 px-3 py-3 text-foreground dark:bg-white/6">
-                          {formatMoney(row.totalAmountMinor)}
-                        </td>
-                        <td className="bg-white/75 px-3 py-3 font-semibold text-foreground dark:bg-white/6">
-                          {formatMoney(row.outstandingMinor)}
-                        </td>
-                        <td className="bg-white/75 px-3 py-3 dark:bg-white/6">
-                          <ul className="space-y-1 text-[11px] text-muted-foreground">
-                            {row.reasons.map((reason) => (
-                              <li key={reason}>{formatReason(reason)}</li>
-                            ))}
-                          </ul>
-                        </td>
-                        <td className="bg-white/75 px-3 py-3 dark:bg-white/6">
-                          <div className="flex flex-col gap-3">
-                            <Button asChild className="h-9 justify-between rounded-md px-3 text-[11px]" size="sm">
-                              <Link
-                                href={`/dashboard/attendees?search=${encodeURIComponent(
-                                  row.providerOrderId,
-                                )}&eventId=${encodeURIComponent(
-                                  row.providerEventId,
-                                )}&source=outstanding-balances&orderId=${encodeURIComponent(
-                                  row.providerOrderId,
-                                )}`}
-                              >
-                                Open attendee follow-up
-                                <ArrowRight className="size-4" />
-                              </Link>
-                            </Button>
-                            <p className="text-[10px] leading-5 text-muted-foreground">
-                              Search lands on the related attendees for this order.
-                            </p>
-                          </div>
-                        </td>
-                        <td className="rounded-r-lg bg-white/75 px-3 py-3 dark:bg-white/6">
-                          <div className="space-y-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={!canGenerate || linkState.isCreating}
-                                onClick={() => setDialogRow(row)}
-                              >
-                                {linkState.isCreating ? "Generating..." : "Generate Tikkie link"}
-                              </Button>
+                      return (
+                        <TableRow key={row.providerOrderId}>
+                          <TableCell>
+                            <div className="font-mono text-[11px]">
+                              {row.providerOrderId}
                             </div>
+                            <div className="mt-1 text-[11px] text-muted-foreground">
+                              {row.orderedAt
+                                ? new Date(row.orderedAt).toLocaleString()
+                                : "-"}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-[11px] font-medium">
+                              {row.eventName ?? "Unknown event"}
+                            </div>
+                            <div className="mt-1 font-mono text-[11px] text-muted-foreground">
+                              {row.providerEventId}
+                            </div>
+                          </TableCell>
+                          <TableCell className="capitalize">
+                            <Badge
+                              variant={
+                                row.normalizedStatus === "cancelled"
+                                  ? "destructive"
+                                  : row.normalizedStatus === "refunded"
+                                    ? "outline"
+                                    : "secondary"
+                              }
+                            >
+                              {row.normalizedStatus}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {formatMoney(row.totalAmountMinor)}
+                          </TableCell>
+                          <TableCell className="font-semibold">
+                            {formatMoney(row.outstandingMinor)}
+                          </TableCell>
+                          <TableCell>
+                            <ul className="space-y-1 text-[11px] text-muted-foreground">
+                              {row.reasons.map((reason) => (
+                                <li key={reason}>{formatReason(reason)}</li>
+                              ))}
+                            </ul>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-3">
+                              <Button
+                                asChild
+                                className="h-9 justify-between rounded-md px-3 text-[11px]"
+                                size="sm"
+                              >
+                                <Link
+                                  href={`/dashboard/attendees?search=${encodeURIComponent(
+                                    row.providerOrderId
+                                  )}&eventId=${encodeURIComponent(
+                                    row.providerEventId
+                                  )}&source=outstanding-balances&orderId=${encodeURIComponent(
+                                    row.providerOrderId
+                                  )}`}
+                                >
+                                  Open attendee follow-up
+                                  <ArrowRight className="size-4" />
+                                </Link>
+                              </Button>
+                              <p className="text-[10px] leading-5 text-muted-foreground">
+                                Search lands on the related attendees for this
+                                order.
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={
+                                    !canGenerate || linkState.isCreating
+                                  }
+                                  onClick={() => setDialogRow(row)}
+                                >
+                                  {linkState.isCreating
+                                    ? "Generating..."
+                                    : "Generate Tikkie link"}
+                                </Button>
+                              </div>
 
-                            {!canGenerate && (
-                              <p className="text-[11px] text-muted-foreground">No outstanding amount for link generation.</p>
-                            )}
+                              {!canGenerate && (
+                                <p className="text-[11px] text-muted-foreground">
+                                  No outstanding amount for link generation.
+                                </p>
+                              )}
 
-                            {linkState.isLoading && (
-                              <p className="text-[11px] text-muted-foreground">Loading link status...</p>
-                            )}
+                              {linkState.isLoading && (
+                                <p className="text-[11px] text-muted-foreground">
+                                  Loading link status...
+                                </p>
+                              )}
 
-                            <TikkieLinkSummary
-                              latestLink={latestLink}
-                              history={linkState.summary?.history ?? []}
-                              isLoading={linkState.isLoading}
-                              isCopying={linkState.isCopying}
-                              compact
-                              emptyState="No Tikkie links generated for this order yet."
-                              onCopy={(url) => void handleCopyLink(row.providerOrderId, url)}
-                              onRefresh={() => void fetchRowLinks(row.providerOrderId, { refresh: true })}
-                            />
+                              <TikkieLinkSummary
+                                latestLink={latestLink}
+                                history={linkState.summary?.history ?? []}
+                                isLoading={linkState.isLoading}
+                                isCopying={linkState.isCopying}
+                                compact
+                                emptyState="No Tikkie links generated for this order yet."
+                                onCopy={(url) =>
+                                  void handleCopyLink(row.providerOrderId, url)
+                                }
+                                onRefresh={() =>
+                                  void fetchRowLinks(row.providerOrderId, {
+                                    refresh: true,
+                                  })
+                                }
+                              />
 
-                            {linkState.error && <p className="text-[11px] text-red-600 dark:text-red-400">{linkState.error}</p>}
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                              {linkState.error && (
+                                <p className="text-[11px] text-red-600 dark:text-red-400">
+                                  {linkState.error}
+                                </p>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
 
       <TikkieLinkDialog
-        key={dialogRow ? dialogRow.providerOrderId : "reconciliation-tikkie-closed"}
+        key={
+          dialogRow ? dialogRow.providerOrderId : "reconciliation-tikkie-closed"
+        }
         open={Boolean(dialogRow)}
         defaults={dialogRow ? defaultDialogValues(dialogRow) : null}
-        submitting={dialogRow ? getRowLinkState(dialogRow.providerOrderId).isCreating : false}
-        error={dialogRow ? getRowLinkState(dialogRow.providerOrderId).error : null}
+        submitting={
+          dialogRow
+            ? getRowLinkState(dialogRow.providerOrderId).isCreating
+            : false
+        }
+        error={
+          dialogRow ? getRowLinkState(dialogRow.providerOrderId).error : null
+        }
         onOpenChange={(open) => {
           if (!open) {
             setDialogRow(null)
