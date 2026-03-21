@@ -3,6 +3,17 @@
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 
 type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 
@@ -69,7 +80,9 @@ function formatMoney(minor: number) {
 
 export default function OrdersPage() {
   const [eventIdInput, setEventIdInput] = useState("")
-  const [statusInput, setStatusInput] = useState<"all" | CanonicalOrderStatus>("all")
+  const [statusInput, setStatusInput] = useState<"all" | CanonicalOrderStatus>(
+    "all"
+  )
   const [fromInput, setFromInput] = useState(() => {
     const today = new Date()
     const from = new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000)
@@ -78,7 +91,9 @@ export default function OrdersPage() {
   const [toInput, setToInput] = useState(() => toDateInputValue(new Date()))
 
   const [appliedEventId, setAppliedEventId] = useState("")
-  const [appliedStatus, setAppliedStatus] = useState<"all" | CanonicalOrderStatus>("all")
+  const [appliedStatus, setAppliedStatus] = useState<
+    "all" | CanonicalOrderStatus
+  >("all")
   const [appliedFrom, setAppliedFrom] = useState(fromInput)
   const [appliedTo, setAppliedTo] = useState(toInput)
   const [page, setPage] = useState(1)
@@ -136,16 +151,22 @@ export default function OrdersPage() {
           query.set("status", appliedStatus)
         }
 
-        const response = await fetch(`/api/dashboard/orders?${query.toString()}`, {
-          signal: controller.signal,
-        })
+        const response = await fetch(
+          `/api/dashboard/orders?${query.toString()}`,
+          {
+            signal: controller.signal,
+          }
+        )
 
         if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as
-            | { error?: { message?: string } }
-            | null
+          const body = (await response.json().catch(() => null)) as {
+            error?: { message?: string }
+          } | null
           setPayload(null)
-          setErrorMessage(body?.error?.message ?? `Failed to load orders (${response.status}).`)
+          setErrorMessage(
+            body?.error?.message ??
+              `Failed to load orders (${response.status}).`
+          )
           return
         }
 
@@ -214,7 +235,8 @@ export default function OrdersPage() {
       <header>
         <h2 className="text-xl font-semibold">Order drilldown</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Inspect filtered Ticket Tailor order rows and export the current scope.
+          Inspect filtered Ticket Tailor order rows and export the current
+          scope.
         </p>
       </header>
 
@@ -230,7 +252,10 @@ export default function OrdersPage() {
               >
                 <option value="">All events</option>
                 {(payload?.availableEvents ?? []).map((event) => (
-                  <option key={event.providerEventId} value={event.providerEventId}>
+                  <option
+                    key={event.providerEventId}
+                    value={event.providerEventId}
+                  >
                     {event.name?.trim() || event.providerEventId}
                   </option>
                 ))}
@@ -241,7 +266,11 @@ export default function OrdersPage() {
               <span className="text-sm font-medium">Status</span>
               <select
                 value={statusInput}
-                onChange={(event) => setStatusInput(event.target.value as "all" | CanonicalOrderStatus)}
+                onChange={(event) =>
+                  setStatusInput(
+                    event.target.value as "all" | CanonicalOrderStatus
+                  )
+                }
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
                 <option value="all">All statuses</option>
@@ -280,10 +309,18 @@ export default function OrdersPage() {
           )}
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" disabled={Boolean(dateValidationError) || isLoading}>
+            <Button
+              type="submit"
+              disabled={Boolean(dateValidationError) || isLoading}
+            >
               {isLoading ? "Loading…" : "Apply filters"}
             </Button>
-            <Button type="button" variant="outline" onClick={exportCsv} disabled={isLoading}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={exportCsv}
+              disabled={isLoading}
+            >
               Export CSV
             </Button>
           </div>
@@ -297,8 +334,22 @@ export default function OrdersPage() {
       )}
 
       {!errorMessage && isLoading && (
-        <article className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
-          Loading order ledger…
+        <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
+          <div className="space-y-3">
+            <Skeleton className="h-4 w-[200px]" />
+            <div className="flex flex-col gap-2">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="flex items-center gap-4">
+                  <Skeleton className="h-12 w-[140px]" />
+                  <Skeleton className="h-12 w-[100px]" />
+                  <Skeleton className="h-12 w-[120px]" />
+                  <Skeleton className="h-12 w-[80px]" />
+                  <Skeleton className="h-12 w-[100px]" />
+                  <Skeleton className="h-12 w-[120px]" />
+                </div>
+              ))}
+            </div>
+          </div>
         </article>
       )}
 
@@ -306,7 +357,8 @@ export default function OrdersPage() {
         <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              Showing page {payload.page.number} of {payload.page.totalPages} ({payload.page.totalRows} rows)
+              Showing page {payload.page.number} of {payload.page.totalPages} (
+              {payload.page.totalRows} rows)
             </p>
             <div className="flex items-center gap-2">
               <Button
@@ -320,7 +372,9 @@ export default function OrdersPage() {
               <Button
                 type="button"
                 variant="outline"
-                disabled={payload.page.number >= payload.page.totalPages || isLoading}
+                disabled={
+                  payload.page.number >= payload.page.totalPages || isLoading
+                }
                 onClick={() => setPage((current) => current + 1)}
               >
                 Next
@@ -334,38 +388,72 @@ export default function OrdersPage() {
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left">
-                    <th className="px-2 py-2 font-medium text-muted-foreground">Ordered</th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">Order</th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">Event</th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">Status</th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">Amount</th>
-                    <th className="px-2 py-2 font-medium text-muted-foreground">Buyer</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="font-medium text-muted-foreground">
+                      Ordered
+                    </TableHead>
+                    <TableHead className="font-medium text-muted-foreground">
+                      Order
+                    </TableHead>
+                    <TableHead className="font-medium text-muted-foreground">
+                      Event
+                    </TableHead>
+                    <TableHead className="font-medium text-muted-foreground">
+                      Status
+                    </TableHead>
+                    <TableHead className="font-medium text-muted-foreground">
+                      Amount
+                    </TableHead>
+                    <TableHead className="font-medium text-muted-foreground">
+                      Buyer
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {payload.rows.map((row) => (
-                    <tr key={row.providerOrderId} className="border-b border-border/60">
-                      <td className="px-2 py-2 font-mono text-xs">
-                        {row.orderedAt ? new Date(row.orderedAt).toLocaleString() : "-"}
-                      </td>
-                      <td className="px-2 py-2 font-mono text-xs">{row.providerOrderId}</td>
-                      <td className="px-2 py-2">
-                        <div className="text-xs">{row.eventName ?? "Unknown event"}</div>
-                        <div className="font-mono text-[11px] text-muted-foreground">{row.providerEventId}</div>
-                      </td>
-                      <td className="px-2 py-2">{row.normalizedStatus}</td>
-                      <td className="px-2 py-2">{formatMoney(row.totalAmountMinor)}</td>
-                      <td className="px-2 py-2">
+                    <TableRow key={row.providerOrderId}>
+                      <TableCell className="font-mono text-xs">
+                        {row.orderedAt
+                          ? new Date(row.orderedAt).toLocaleString()
+                          : "-"}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {row.providerOrderId}
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-xs">
+                          {row.eventName ?? "Unknown event"}
+                        </div>
+                        <div className="font-mono text-[11px] text-muted-foreground">
+                          {row.providerEventId}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            row.normalizedStatus === "cancelled"
+                              ? "destructive"
+                              : row.normalizedStatus === "refunded"
+                                ? "outline"
+                                : "secondary"
+                          }
+                        >
+                          {row.normalizedStatus}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{formatMoney(row.totalAmountMinor)}</TableCell>
+                      <TableCell>
                         <div className="text-xs">{row.buyerName ?? "-"}</div>
-                        <div className="text-[11px] text-muted-foreground">{row.buyerEmail ?? "-"}</div>
-                      </td>
-                    </tr>
+                        <div className="text-[11px] text-muted-foreground">
+                          {row.buyerEmail ?? "-"}
+                        </div>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </article>
