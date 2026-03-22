@@ -134,7 +134,7 @@ export function OrderAttendeeBreakdown({
         className="flex items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
       >
         {isOpen ? (
-          <ChevronRight className="size-3 shrink-0" />
+          <ChevronDown className="size-3 shrink-0" />
         ) : (
           <ChevronRight className="size-3 shrink-0" />
         )}
