@@ -275,11 +275,13 @@ export default function AttendeesPage() {
         </p>
       </header>
 
-      {(source === "outstanding-balances" || focusedOrderId) && (
+      {(source === "outstanding-balances" ||
+        source === "reconciliation" ||
+        focusedOrderId) && (
         <article className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-100">
           {focusedOrderId
             ? `Showing attendee follow-up for order ${focusedOrderId}. Open the relevant attendee detail to continue into room assignment if needed.`
-            : "Showing attendee follow-up from outstanding balances."}
+            : "Showing attendee follow-up from reconciliation."}
         </article>
       )}
 

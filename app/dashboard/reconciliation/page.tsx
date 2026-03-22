@@ -793,7 +793,7 @@ export default function ReconciliationPage() {
                               size="sm"
                             >
                               <Link
-                                href={`/dashboard/attendees?search=${encodeURIComponent(row.providerOrderId)}&eventId=${encodeURIComponent(row.providerEventId)}&source=outstanding-balances&orderId=${encodeURIComponent(row.providerOrderId)}`}
+                                href={`/dashboard/attendees?search=${encodeURIComponent(row.providerOrderId)}&eventId=${encodeURIComponent(row.providerEventId)}&source=reconciliation&orderId=${encodeURIComponent(row.providerOrderId)}`}
                               >
                                 Open attendee follow-up
                                 <ArrowRight className="size-4" />
@@ -929,7 +929,7 @@ export default function ReconciliationPage() {
                                 row.providerOrderId
                               )}&eventId=${encodeURIComponent(
                                 row.providerEventId
-                              )}&source=outstanding-balances&orderId=${encodeURIComponent(
+                              )}&source=reconciliation&orderId=${encodeURIComponent(
                                 row.providerOrderId
                               )}`}
                             >
