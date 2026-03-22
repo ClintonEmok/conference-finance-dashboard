@@ -21,14 +21,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -718,184 +711,151 @@ export default function ReconciliationPage() {
 
       {!errorMessage && !isLoading && payload && (
         <Card className="border border-border">
-          <CardContent className="p-0 md:p-5">
+          <CardContent className="p-4 lg:p-6">
             {payload.rows.length === 0 ? (
-              <p className="rounded-lg border border-border/70 p-4 text-xs text-muted-foreground">
+              <p className="rounded-lg border border-border/70 p-4 text-sm text-muted-foreground">
                 No outstanding or mismatch candidates found for the selected
                 filters.
               </p>
             ) : (
               <>
-                <div className="hidden overflow-x-auto p-5 md:block">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                          Order
-                        </TableHead>
-                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                          Event
-                        </TableHead>
-                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                          Status
-                        </TableHead>
-                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                          Amount
-                        </TableHead>
-                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                          Outstanding
-                        </TableHead>
-                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                          Reasons
-                        </TableHead>
-                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                          Next step
-                        </TableHead>
-                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                          Tikkie
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {payload.rows.map((row) => {
-                        const linkState = getRowLinkState(row.providerOrderId)
-                        const latestLink = linkState.summary?.latestLink ?? null
-                        const canGenerate = row.outstandingMinor > 0
+                <div className="hidden md:block">
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {payload.rows.map((row) => {
+                      const linkState = getRowLinkState(row.providerOrderId)
+                      const latestLink = linkState.summary?.latestLink ?? null
+                      const canGenerate = row.outstandingMinor > 0
 
-                        return (
-                          <TableRow key={row.providerOrderId}>
-                            <TableCell>
-                              <div className="font-mono text-[11px]">
+                      return (
+                        <Card
+                          key={row.providerOrderId}
+                          className="flex flex-col gap-3 border border-border p-4"
+                        >
+                          <div className="flex min-w-0 items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate font-mono text-xs font-medium text-foreground">
                                 {row.providerOrderId}
-                              </div>
-                              <div className="mt-1 text-[11px] text-muted-foreground">
-                                {row.orderedAt
-                                  ? new Date(row.orderedAt).toLocaleString()
-                                  : "-"}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="text-[11px] font-medium">
+                              </p>
+                              <p className="truncate text-[11px] text-muted-foreground">
                                 {row.eventName ?? "Unknown event"}
-                              </div>
-                              <div className="mt-1 font-mono text-[11px] text-muted-foreground">
-                                {row.providerEventId}
-                              </div>
-                            </TableCell>
-                            <TableCell className="capitalize">
-                              <Badge
-                                variant={
-                                  row.normalizedStatus === "cancelled"
-                                    ? "destructive"
-                                    : row.normalizedStatus === "refunded"
-                                      ? "outline"
-                                      : "secondary"
-                                }
-                              >
-                                {row.normalizedStatus}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              {formatMoney(row.totalAmountMinor)}
-                            </TableCell>
-                            <TableCell className="font-semibold">
-                              {formatMoney(row.outstandingMinor)}
-                            </TableCell>
-                            <TableCell>
-                              <ul className="flex flex-col gap-1 text-[11px] text-muted-foreground">
-                                {row.reasons.map((reason) => (
-                                  <li key={reason}>{formatReason(reason)}</li>
-                                ))}
-                              </ul>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-col gap-3">
-                                <Button
-                                  asChild
-                                  className="h-9 justify-between rounded-md px-3 text-[11px]"
-                                  size="sm"
-                                >
-                                  <Link
-                                    href={`/dashboard/attendees?search=${encodeURIComponent(
-                                      row.providerOrderId
-                                    )}&eventId=${encodeURIComponent(
-                                      row.providerEventId
-                                    )}&source=outstanding-balances&orderId=${encodeURIComponent(
-                                      row.providerOrderId
-                                    )}`}
-                                  >
-                                    Open attendee follow-up
-                                    <ArrowRight className="size-4" />
-                                  </Link>
-                                </Button>
-                                <p className="text-[10px] leading-5 text-muted-foreground">
-                                  Search lands on the related attendees for this
-                                  order.
+                              </p>
+                              {row.orderedAt && (
+                                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                                  {new Date(row.orderedAt).toLocaleString()}
                                 </p>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-col gap-3">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={
-                                      !canGenerate || linkState.isCreating
-                                    }
-                                    onClick={() => setDialogRow(row)}
-                                  >
-                                    {linkState.isCreating
-                                      ? "Generating..."
-                                      : "Generate Tikkie link"}
-                                  </Button>
-                                </div>
+                              )}
+                            </div>
+                            <Badge
+                              variant={
+                                row.normalizedStatus === "cancelled"
+                                  ? "destructive"
+                                  : row.normalizedStatus === "refunded"
+                                    ? "outline"
+                                    : "secondary"
+                              }
+                              className="shrink-0 capitalize"
+                            >
+                              {row.normalizedStatus}
+                            </Badge>
+                          </div>
 
-                                {!canGenerate && (
-                                  <p className="text-[11px] text-muted-foreground">
-                                    No outstanding amount for link generation.
-                                  </p>
-                                )}
+                          <div className="flex items-baseline justify-between gap-3 rounded-md border border-border bg-muted/30 p-3">
+                            <div>
+                              <p className="text-[10px] font-semibold tracking-[0.15em] text-muted-foreground uppercase">
+                                Amount
+                              </p>
+                              <p className="mt-0.5 text-sm text-foreground">
+                                {formatMoney(row.totalAmountMinor)}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[10px] font-semibold tracking-[0.15em] text-muted-foreground uppercase">
+                                Outstanding
+                              </p>
+                              <p className="mt-0.5 text-base font-semibold text-foreground">
+                                {formatMoney(row.outstandingMinor)}
+                              </p>
+                            </div>
+                          </div>
 
-                                {linkState.isLoading && (
-                                  <p className="text-[11px] text-muted-foreground">
-                                    Loading link status...
-                                  </p>
-                                )}
+                          {row.reasons.length > 0 && (
+                            <ul className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                              {row.reasons.map((reason) => (
+                                <li key={reason}>{formatReason(reason)}</li>
+                              ))}
+                            </ul>
+                          )}
 
-                                <TikkieLinkSummary
-                                  latestLink={latestLink}
-                                  history={linkState.summary?.history ?? []}
-                                  isLoading={linkState.isLoading}
-                                  isCopying={linkState.isCopying}
-                                  compact
-                                  emptyState="No Tikkie links generated for this order yet."
-                                  onCopy={(url) =>
-                                    void handleCopyLink(
-                                      row.providerOrderId,
-                                      url
-                                    )
-                                  }
-                                  onRefresh={() =>
-                                    void fetchRowLinks(row.providerOrderId, {
-                                      refresh: true,
-                                    })
-                                  }
-                                />
+                          <div className="flex flex-col gap-1.5 border-t border-border/50 pt-1">
+                            <Button
+                              asChild
+                              className="h-9 justify-between rounded-md px-3 text-[11px]"
+                              size="sm"
+                            >
+                              <Link
+                                href={`/dashboard/attendees?search=${encodeURIComponent(row.providerOrderId)}&eventId=${encodeURIComponent(row.providerEventId)}&source=outstanding-balances&orderId=${encodeURIComponent(row.providerOrderId)}`}
+                              >
+                                Open attendee follow-up
+                                <ArrowRight className="size-4" />
+                              </Link>
+                            </Button>
+                          </div>
 
-                                {linkState.error && (
-                                  <p className="text-[11px] text-destructive">
-                                    {linkState.error}
-                                  </p>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
+                          <div className="flex flex-col gap-2 border-t border-border/50 pt-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={!canGenerate || linkState.isCreating}
+                                onClick={() => setDialogRow(row)}
+                                className="h-8 text-[11px]"
+                              >
+                                {linkState.isCreating
+                                  ? "Generating..."
+                                  : "Generate Tikkie link"}
+                              </Button>
+                            </div>
+
+                            {!canGenerate && (
+                              <p className="text-[11px] text-muted-foreground">
+                                No outstanding amount for link generation.
+                              </p>
+                            )}
+
+                            {linkState.isLoading && (
+                              <p className="text-[11px] text-muted-foreground">
+                                Loading link status...
+                              </p>
+                            )}
+
+                            <TikkieLinkSummary
+                              latestLink={latestLink}
+                              history={linkState.summary?.history ?? []}
+                              isLoading={linkState.isLoading}
+                              isCopying={linkState.isCopying}
+                              compact
+                              emptyState="No Tikkie links generated for this order yet."
+                              onCopy={(url) =>
+                                void handleCopyLink(row.providerOrderId, url)
+                              }
+                              onRefresh={() =>
+                                void fetchRowLinks(row.providerOrderId, {
+                                  refresh: true,
+                                })
+                              }
+                            />
+
+                            {linkState.error && (
+                              <p className="text-[11px] text-destructive">
+                                {linkState.error}
+                              </p>
+                            )}
+                          </div>
+                        </Card>
+                      )
+                    })}
+                  </div>
                 </div>
 
                 <div className="block divide-y divide-border md:hidden">
