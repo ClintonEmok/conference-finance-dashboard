@@ -118,8 +118,9 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 4. Attendee Data & Accommodation Foundations | 2/2            | Complete | 2026-03-19 |
 | 5. Room Allocation & Operator Flow Polish    | 2/2            | Complete | 2026-03-19 |
 | 6. Tikkie Integration                        | 3/3            | Complete | 2026-03-21 |
-| 7. Complete Tikkie Integration               | 2/2            | Complete    | 2026-03-21 |
-| 8. Smart Allocation & Attendee Signals       | 0/2            | Planned  | -          |
+| 7. Complete Tikkie Integration               | 2/2            | Complete | 2026-03-21 |
+| 8. Attendee Follow-up & Reconciliation UX    | 0/1            | Planned  | -          |
+| 9. Smart Allocation & Attendee Signals       | 0/2            | Planned  | -          |
 
 ### Phase 6: Tikkie Integration
 
@@ -153,7 +154,18 @@ Plans:
 - [x] 07-01-PLAN.md — Make Tikkie refresh provider-authoritative via GET payment request
 - [x] 07-02-PLAN.md — Add guarded subscription setup path for payment request notifications
 
-### Phase 8: Smart Allocation & Attendee Signals
+### Phase 8: Attendee Follow-up & Reconciliation UX
+
+**Goal:** Improve reconciliation and attendees UX with five targeted fixes: simplify reconciliation page layout, fix attendee follow-up flow to navigate directly to attendee detail, add attendee breakdown per order, fix attendees route amount display, and add background auto-sync.
+**Requirements**: UX-01, UX-02, UX-03, UX-04, UX-05
+**Depends on:** Phase 7
+**Plans:** 1 plan
+
+Plans:
+
+- [ ] 08-PLAN.md — Implement reconciliation simplification, attendee detail navigation, order attendee breakdown, amount display fixes, and background auto-sync
+
+### Phase 9: Smart Allocation & Attendee Signals
 
 **Goal:** Finance admins can use attendee-derived accommodation signals to filter, prioritize, and auto-allocate rooms with family and gender-aware guardrails.
 **Requirements**: TT-05, ACC-04, ACC-05, ACC-06
@@ -162,5 +174,5 @@ Plans:
 
 Plans:
 
-- [ ] 08-01-PLAN.md — Normalize attendee accommodation signals and same-order family grouping foundations
-- [ ] 08-02-PLAN.md — Apply attendee signals to allocation filters and smart room proposals
+- [ ] 09-01-PLAN.md — Normalize attendee accommodation signals and same-order family grouping foundations
+- [ ] 09-02-PLAN.md — Apply attendee signals to allocation filters and smart room proposals

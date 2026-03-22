@@ -24,7 +24,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-18)
 ## Current Position
 
 Phase: 08
-Plan: Not started
+Plan: Not started (Attendee Follow-up & Reconciliation UX)
 
 ## Performance Metrics
 
@@ -99,11 +99,13 @@ Recent decisions affecting current work:
 
 - Phase 6 added: tikkie integration (COMPLETE)
 - Phase 7 added: complete Tikkie integration with GET payment retrieval and webhook subscription setup (COMPLETE)
-- Phase 8 added: smart allocation and attendee signals (renamed from original phase 7)
+- Phase 8 replaced: Attendee Follow-up & Reconciliation UX (5 targeted UX improvements)
+- Phase 9 added: Smart Allocation & Attendee Signals (moved from original Phase 8)
 
 ### Pending Todos
 
-- Phase 8 plans pending: Smart allocation and attendee signals.
+- Phase 8 plans pending: Attendee Follow-up & Reconciliation UX (5 targeted improvements)
+- Phase 9 plans pending: Smart allocation and attendee signals (moved from Phase 8)
 
 ### Blockers/Concerns
 
