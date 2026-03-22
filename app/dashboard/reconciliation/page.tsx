@@ -4,6 +4,8 @@ import Link from "next/link"
 import { ArrowRight, CircleAlert, HandCoins, SearchCheck } from "lucide-react"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
+import { OrderAttendeeBreakdown } from "@/components/dashboard/order-attendee-breakdown"
+
 import {
   TikkieLinkDialog,
   type TikkieLinkDialogDefaults,
@@ -786,6 +788,11 @@ export default function ReconciliationPage() {
                             </ul>
                           )}
 
+                          <OrderAttendeeBreakdown
+                            orderId={row.providerOrderId}
+                            eventId={row.providerEventId}
+                          />
+
                           <div className="flex flex-col gap-1.5 border-t border-border/50 pt-1">
                             <Button
                               asChild
@@ -917,6 +924,11 @@ export default function ReconciliationPage() {
                             ))}
                           </div>
                         )}
+
+                        <OrderAttendeeBreakdown
+                          orderId={row.providerOrderId}
+                          eventId={row.providerEventId}
+                        />
 
                         <div className="flex flex-col gap-2 pt-1">
                           <Button
