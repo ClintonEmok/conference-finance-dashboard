@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { Check } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
@@ -509,9 +510,17 @@ export default function AttendeesPage() {
                         <div className="text-xs">
                           Total {formatMoney(row.totalAmountMinor)}
                         </div>
-                        <div className="text-[11px] text-muted-foreground">
-                          Outstanding {formatMoney(row.outstandingAmountMinor)}
-                        </div>
+                        {row.outstandingAmountMinor > 0 ? (
+                          <div className="text-[11px] text-muted-foreground">
+                            Outstanding{" "}
+                            {formatMoney(row.outstandingAmountMinor)}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                            <Check className="size-3" />
+                            Paid
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>{renderRoomStatus(row.roomStatus)}</TableCell>
                     </TableRow>
