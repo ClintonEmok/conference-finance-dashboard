@@ -495,54 +495,48 @@ export default function ReconciliationPage() {
   return (
     <section className="space-y-8">
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.9fr)]">
-        <article className="overflow-hidden rounded-xl bg-[linear-gradient(145deg,rgba(113,84,255,0.97),rgba(83,56,171,0.94))] p-6 text-primary-foreground shadow-[0_20px_56px_rgba(78,52,166,0.24)] md:p-7">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+        <Card className="border border-border p-6 md:p-7">
+          <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
             <div className="max-w-2xl">
-              <p className="text-[11px] font-semibold tracking-[0.22em] text-primary-foreground/70 uppercase">
+              <p className="text-xs font-semibold tracking-[0.22em] text-muted-foreground uppercase">
                 Outstanding balances
               </p>
-              <h2 className="mt-2.5 text-2xl font-semibold tracking-tight md:text-[2rem]">
+              <h2 className="mt-2.5 text-2xl font-semibold tracking-tight text-foreground md:text-[2rem]">
                 Resolve the orders that still need payment or operator
                 attention.
               </h2>
-              <p className="mt-3 max-w-xl text-[13px] leading-6 text-primary-foreground/82 md:text-sm">
+              <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
                 Start here when a balance needs action, then carry the order
                 context straight into attendee follow-up and room assignment.
               </p>
             </div>
 
-            <div className="grid min-w-[220px] gap-3 sm:grid-cols-2 sm:grid-rows-2 sm:gap-4">
-              <div className="rounded-lg bg-white/12 p-4 backdrop-blur-sm sm:col-span-2">
-                <p className="text-xs text-primary-foreground/68">
-                  Flagged rows
-                </p>
-                <p className="mt-1.5 text-2xl font-semibold">
+            <div className="grid min-w-[220px] gap-3 sm:grid-cols-2 sm:grid-rows-2">
+              <div className="rounded-lg border border-border bg-muted/40 p-4 sm:col-span-2">
+                <p className="text-xs text-muted-foreground">Flagged rows</p>
+                <p className="mt-1.5 text-2xl font-semibold text-foreground">
                   {payload?.totals.rows ?? "--"}
                 </p>
               </div>
-              <div className="rounded-lg bg-white/12 p-4 backdrop-blur-sm">
-                <p className="text-xs text-primary-foreground/68">
-                  Outstanding
-                </p>
-                <p className="mt-1.5 text-base font-semibold">
+              <div className="rounded-lg border border-border bg-muted/40 p-4">
+                <p className="text-xs text-muted-foreground">Outstanding</p>
+                <p className="mt-1.5 text-base font-semibold text-foreground">
                   {payload
                     ? formatMoney(payload.totals.outstandingMinor)
                     : "--"}
                 </p>
               </div>
-              <div className="rounded-lg bg-white/12 p-4 backdrop-blur-sm">
-                <p className="text-xs text-primary-foreground/68">
-                  Status view
-                </p>
-                <p className="mt-1.5 text-base font-semibold">
+              <div className="rounded-lg border border-border bg-muted/40 p-4">
+                <p className="text-xs text-muted-foreground">Status view</p>
+                <p className="mt-1.5 text-base font-semibold text-foreground">
                   {appliedStatus === "all" ? "All" : appliedStatus}
                 </p>
               </div>
             </div>
           </div>
-        </article>
+        </Card>
 
-        <Card className="bg-background/85 backdrop-blur">
+        <Card className="border border-border">
           <CardHeader>
             <div className="flex items-center gap-3">
               <span className="flex size-10 items-center justify-center rounded-md bg-primary/10 text-primary dark:bg-white/10 dark:text-primary-foreground">
@@ -560,9 +554,9 @@ export default function ReconciliationPage() {
           </CardHeader>
 
           <CardContent>
-            <form className="space-y-4" onSubmit={applyFilters}>
+            <form className="flex flex-col gap-4" onSubmit={applyFilters}>
               <div className="grid gap-4 md:grid-cols-2">
-                <label className="space-y-2 text-sm">
+                <label className="flex flex-col gap-2 text-sm">
                   <span className="text-xs font-medium text-foreground">
                     Event ID
                   </span>
@@ -583,7 +577,7 @@ export default function ReconciliationPage() {
                   </select>
                 </label>
 
-                <label className="space-y-2 text-sm">
+                <label className="flex flex-col gap-2 text-sm">
                   <span className="text-xs font-medium text-foreground">
                     Status
                   </span>
@@ -604,7 +598,7 @@ export default function ReconciliationPage() {
                   </select>
                 </label>
 
-                <label className="space-y-2 text-sm">
+                <label className="flex flex-col gap-2 text-sm">
                   <span className="text-xs font-medium text-foreground">
                     From
                   </span>
@@ -616,7 +610,7 @@ export default function ReconciliationPage() {
                   />
                 </label>
 
-                <label className="space-y-2 text-sm">
+                <label className="flex flex-col gap-2 text-sm">
                   <span className="text-xs font-medium text-foreground">
                     To
                   </span>
@@ -630,7 +624,7 @@ export default function ReconciliationPage() {
               </div>
 
               {dateValidationError && (
-                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
+                <p className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-900/20 dark:text-yellow-200">
                   {dateValidationError}
                 </p>
               )}
@@ -648,17 +642,17 @@ export default function ReconciliationPage() {
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <Card className="bg-background/85 backdrop-blur">
-          <CardContent className="p-4">
+        <Card className="border border-border">
+          <CardContent className="p-5">
             <div className="flex items-center gap-3">
-              <span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary dark:bg-white/10 dark:text-primary-foreground">
-                <HandCoins className="size-4" />
+              <span className="flex size-10 items-center justify-center rounded-lg bg-muted text-primary">
+                <HandCoins className="size-5" />
               </span>
               <div>
-                <p className="text-[11px] font-semibold tracking-[0.18em] text-primary/70 uppercase">
+                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
                   Outstanding
                 </p>
-                <p className="mt-1 text-lg font-semibold">
+                <p className="mt-1 text-lg font-semibold text-foreground">
                   {payload
                     ? formatMoney(payload.totals.outstandingMinor)
                     : "--"}
@@ -667,25 +661,25 @@ export default function ReconciliationPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-background/85 backdrop-blur">
-          <CardContent className="p-4">
+        <Card className="border border-border">
+          <CardContent className="p-5">
             <div className="flex items-center gap-3">
-              <span className="flex size-9 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
-                <CircleAlert className="size-4" />
+              <span className="flex size-10 items-center justify-center rounded-lg bg-muted text-primary">
+                <CircleAlert className="size-5" />
               </span>
               <div>
-                <p className="text-[11px] font-semibold tracking-[0.18em] text-primary/70 uppercase">
+                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
                   Flagged rows
                 </p>
-                <p className="mt-1 text-lg font-semibold">
+                <p className="mt-1 text-lg font-semibold text-foreground">
                   {payload?.totals.rows ?? "--"}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-background/85 backdrop-blur">
-          <CardContent className="p-4 text-xs leading-5 text-muted-foreground">
+        <Card className="border border-border">
+          <CardContent className="p-5 text-sm leading-5 text-muted-foreground">
             Open attendee follow-up from any row to preserve order context and
             avoid backtracking.
           </CardContent>
@@ -693,15 +687,15 @@ export default function ReconciliationPage() {
       </section>
 
       {errorMessage && (
-        <article className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
+        <div className="rounded-md border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {errorMessage}
-        </article>
+        </div>
       )}
 
       {!errorMessage && isLoading && (
-        <Card className="bg-background/85 backdrop-blur">
+        <Card className="border border-border">
           <CardContent className="p-5">
-            <div className="space-y-3">
+            <div className="flex flex-col gap-3">
               <Skeleton className="h-4 w-[150px]" />
               <div className="flex flex-col gap-2">
                 {[...Array(5)].map((_, i) => (
@@ -723,182 +717,308 @@ export default function ReconciliationPage() {
       )}
 
       {!errorMessage && !isLoading && payload && (
-        <Card className="bg-background/85 backdrop-blur">
-          <CardContent className="p-5">
+        <Card className="border border-border">
+          <CardContent className="p-0 md:p-5">
             {payload.rows.length === 0 ? (
               <p className="rounded-lg border border-border/70 p-4 text-xs text-muted-foreground">
                 No outstanding or mismatch candidates found for the selected
                 filters.
               </p>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                        Order
-                      </TableHead>
-                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                        Event
-                      </TableHead>
-                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                        Status
-                      </TableHead>
-                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                        Amount
-                      </TableHead>
-                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                        Outstanding
-                      </TableHead>
-                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                        Reasons
-                      </TableHead>
-                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                        Next step
-                      </TableHead>
-                      <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                        Tikkie
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {payload.rows.map((row) => {
-                      const linkState = getRowLinkState(row.providerOrderId)
-                      const latestLink = linkState.summary?.latestLink ?? null
-                      const canGenerate = row.outstandingMinor > 0
+              <>
+                <div className="hidden overflow-x-auto p-5 md:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                          Order
+                        </TableHead>
+                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                          Event
+                        </TableHead>
+                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                          Status
+                        </TableHead>
+                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                          Amount
+                        </TableHead>
+                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                          Outstanding
+                        </TableHead>
+                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                          Reasons
+                        </TableHead>
+                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                          Next step
+                        </TableHead>
+                        <TableHead className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                          Tikkie
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {payload.rows.map((row) => {
+                        const linkState = getRowLinkState(row.providerOrderId)
+                        const latestLink = linkState.summary?.latestLink ?? null
+                        const canGenerate = row.outstandingMinor > 0
 
-                      return (
-                        <TableRow key={row.providerOrderId}>
-                          <TableCell>
-                            <div className="font-mono text-[11px]">
-                              {row.providerOrderId}
-                            </div>
-                            <div className="mt-1 text-[11px] text-muted-foreground">
-                              {row.orderedAt
-                                ? new Date(row.orderedAt).toLocaleString()
-                                : "-"}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="text-[11px] font-medium">
-                              {row.eventName ?? "Unknown event"}
-                            </div>
-                            <div className="mt-1 font-mono text-[11px] text-muted-foreground">
-                              {row.providerEventId}
-                            </div>
-                          </TableCell>
-                          <TableCell className="capitalize">
-                            <Badge
-                              variant={
-                                row.normalizedStatus === "cancelled"
-                                  ? "destructive"
-                                  : row.normalizedStatus === "refunded"
-                                    ? "outline"
-                                    : "secondary"
-                              }
-                            >
-                              {row.normalizedStatus}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {formatMoney(row.totalAmountMinor)}
-                          </TableCell>
-                          <TableCell className="font-semibold">
-                            {formatMoney(row.outstandingMinor)}
-                          </TableCell>
-                          <TableCell>
-                            <ul className="space-y-1 text-[11px] text-muted-foreground">
-                              {row.reasons.map((reason) => (
-                                <li key={reason}>{formatReason(reason)}</li>
-                              ))}
-                            </ul>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-col gap-3">
-                              <Button
-                                asChild
-                                className="h-9 justify-between rounded-md px-3 text-[11px]"
-                                size="sm"
-                              >
-                                <Link
-                                  href={`/dashboard/attendees?search=${encodeURIComponent(
-                                    row.providerOrderId
-                                  )}&eventId=${encodeURIComponent(
-                                    row.providerEventId
-                                  )}&source=outstanding-balances&orderId=${encodeURIComponent(
-                                    row.providerOrderId
-                                  )}`}
-                                >
-                                  Open attendee follow-up
-                                  <ArrowRight className="size-4" />
-                                </Link>
-                              </Button>
-                              <p className="text-[10px] leading-5 text-muted-foreground">
-                                Search lands on the related attendees for this
-                                order.
-                              </p>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="space-y-3">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={
-                                    !canGenerate || linkState.isCreating
-                                  }
-                                  onClick={() => setDialogRow(row)}
-                                >
-                                  {linkState.isCreating
-                                    ? "Generating..."
-                                    : "Generate Tikkie link"}
-                                </Button>
+                        return (
+                          <TableRow key={row.providerOrderId}>
+                            <TableCell>
+                              <div className="font-mono text-[11px]">
+                                {row.providerOrderId}
                               </div>
-
-                              {!canGenerate && (
-                                <p className="text-[11px] text-muted-foreground">
-                                  No outstanding amount for link generation.
-                                </p>
-                              )}
-
-                              {linkState.isLoading && (
-                                <p className="text-[11px] text-muted-foreground">
-                                  Loading link status...
-                                </p>
-                              )}
-
-                              <TikkieLinkSummary
-                                latestLink={latestLink}
-                                history={linkState.summary?.history ?? []}
-                                isLoading={linkState.isLoading}
-                                isCopying={linkState.isCopying}
-                                compact
-                                emptyState="No Tikkie links generated for this order yet."
-                                onCopy={(url) =>
-                                  void handleCopyLink(row.providerOrderId, url)
+                              <div className="mt-1 text-[11px] text-muted-foreground">
+                                {row.orderedAt
+                                  ? new Date(row.orderedAt).toLocaleString()
+                                  : "-"}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-[11px] font-medium">
+                                {row.eventName ?? "Unknown event"}
+                              </div>
+                              <div className="mt-1 font-mono text-[11px] text-muted-foreground">
+                                {row.providerEventId}
+                              </div>
+                            </TableCell>
+                            <TableCell className="capitalize">
+                              <Badge
+                                variant={
+                                  row.normalizedStatus === "cancelled"
+                                    ? "destructive"
+                                    : row.normalizedStatus === "refunded"
+                                      ? "outline"
+                                      : "secondary"
                                 }
-                                onRefresh={() =>
-                                  void fetchRowLinks(row.providerOrderId, {
-                                    refresh: true,
-                                  })
-                                }
-                              />
-
-                              {linkState.error && (
-                                <p className="text-[11px] text-red-600 dark:text-red-400">
-                                  {linkState.error}
+                              >
+                                {row.normalizedStatus}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {formatMoney(row.totalAmountMinor)}
+                            </TableCell>
+                            <TableCell className="font-semibold">
+                              {formatMoney(row.outstandingMinor)}
+                            </TableCell>
+                            <TableCell>
+                              <ul className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                                {row.reasons.map((reason) => (
+                                  <li key={reason}>{formatReason(reason)}</li>
+                                ))}
+                              </ul>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-3">
+                                <Button
+                                  asChild
+                                  className="h-9 justify-between rounded-md px-3 text-[11px]"
+                                  size="sm"
+                                >
+                                  <Link
+                                    href={`/dashboard/attendees?search=${encodeURIComponent(
+                                      row.providerOrderId
+                                    )}&eventId=${encodeURIComponent(
+                                      row.providerEventId
+                                    )}&source=outstanding-balances&orderId=${encodeURIComponent(
+                                      row.providerOrderId
+                                    )}`}
+                                  >
+                                    Open attendee follow-up
+                                    <ArrowRight className="size-4" />
+                                  </Link>
+                                </Button>
+                                <p className="text-[10px] leading-5 text-muted-foreground">
+                                  Search lands on the related attendees for this
+                                  order.
                                 </p>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={
+                                      !canGenerate || linkState.isCreating
+                                    }
+                                    onClick={() => setDialogRow(row)}
+                                  >
+                                    {linkState.isCreating
+                                      ? "Generating..."
+                                      : "Generate Tikkie link"}
+                                  </Button>
+                                </div>
+
+                                {!canGenerate && (
+                                  <p className="text-[11px] text-muted-foreground">
+                                    No outstanding amount for link generation.
+                                  </p>
+                                )}
+
+                                {linkState.isLoading && (
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Loading link status...
+                                  </p>
+                                )}
+
+                                <TikkieLinkSummary
+                                  latestLink={latestLink}
+                                  history={linkState.summary?.history ?? []}
+                                  isLoading={linkState.isLoading}
+                                  isCopying={linkState.isCopying}
+                                  compact
+                                  emptyState="No Tikkie links generated for this order yet."
+                                  onCopy={(url) =>
+                                    void handleCopyLink(
+                                      row.providerOrderId,
+                                      url
+                                    )
+                                  }
+                                  onRefresh={() =>
+                                    void fetchRowLinks(row.providerOrderId, {
+                                      refresh: true,
+                                    })
+                                  }
+                                />
+
+                                {linkState.error && (
+                                  <p className="text-[11px] text-destructive">
+                                    {linkState.error}
+                                  </p>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div className="block divide-y divide-border md:hidden">
+                  {payload.rows.map((row) => {
+                    const linkState = getRowLinkState(row.providerOrderId)
+                    const latestLink = linkState.summary?.latestLink ?? null
+                    const canGenerate = row.outstandingMinor > 0
+
+                    return (
+                      <div
+                        key={row.providerOrderId}
+                        className="flex flex-col gap-3 p-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate font-mono text-xs text-foreground">
+                              {row.providerOrderId}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {row.eventName ?? "Unknown event"}
+                            </p>
+                          </div>
+                          <Badge
+                            variant={
+                              row.normalizedStatus === "cancelled"
+                                ? "destructive"
+                                : row.normalizedStatus === "refunded"
+                                  ? "outline"
+                                  : "secondary"
+                            }
+                          >
+                            {row.normalizedStatus}
+                          </Badge>
+                        </div>
+
+                        <div className="flex items-baseline justify-between gap-3">
+                          <div>
+                            <p className="text-xs text-muted-foreground">
+                              Amount
+                            </p>
+                            <p className="text-sm text-foreground">
+                              {formatMoney(row.totalAmountMinor)}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground">
+                              Outstanding
+                            </p>
+                            <p className="text-base font-semibold text-foreground">
+                              {formatMoney(row.outstandingMinor)}
+                            </p>
+                          </div>
+                        </div>
+
+                        {row.reasons.length > 0 && (
+                          <div className="text-xs text-muted-foreground">
+                            {row.reasons.map((reason) => (
+                              <p key={reason}>{formatReason(reason)}</p>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="flex flex-col gap-2 pt-1">
+                          <Button
+                            asChild
+                            className="w-full justify-between rounded-md text-xs"
+                            size="sm"
+                          >
+                            <Link
+                              href={`/dashboard/attendees?search=${encodeURIComponent(
+                                row.providerOrderId
+                              )}&eventId=${encodeURIComponent(
+                                row.providerEventId
+                              )}&source=outstanding-balances&orderId=${encodeURIComponent(
+                                row.providerOrderId
+                              )}`}
+                            >
+                              Open attendee follow-up
+                              <ArrowRight className="size-4" />
+                            </Link>
+                          </Button>
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="w-full text-xs"
+                            disabled={!canGenerate || linkState.isCreating}
+                            onClick={() => setDialogRow(row)}
+                          >
+                            {linkState.isCreating
+                              ? "Generating..."
+                              : "Generate Tikkie link"}
+                          </Button>
+                        </div>
+
+                        <TikkieLinkSummary
+                          latestLink={latestLink}
+                          history={linkState.summary?.history ?? []}
+                          isLoading={linkState.isLoading}
+                          isCopying={linkState.isCopying}
+                          compact
+                          emptyState="No Tikkie links yet."
+                          onCopy={(url) =>
+                            void handleCopyLink(row.providerOrderId, url)
+                          }
+                          onRefresh={() =>
+                            void fetchRowLinks(row.providerOrderId, {
+                              refresh: true,
+                            })
+                          }
+                        />
+
+                        {linkState.error && (
+                          <p className="text-xs text-destructive">
+                            {linkState.error}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
