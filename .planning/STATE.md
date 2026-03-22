@@ -113,13 +113,15 @@ Recent decisions affecting current work:
 
 ### Quick Tasks Completed
 
-| #          | Description                                 | Date       | Commit  | Directory                                                                                                           |
-| ---------- | ------------------------------------------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
-| 260321-rxb | add tanstack query                          | 2026-03-21 | 3052489 | [260321-rxb-add-tanstack-query](./quick/260321-rxb-add-tanstack-query/)                                             |
-| 260321-s4w | make attendee table rows clickable          | 2026-03-21 | be1f925 | [260321-s4w-make-attendee-table-rows-clickable-and-r](./quick/260321-s4w-make-attendee-table-rows-clickable-and-r/) |
-| 260321-s9e | add landing page on root route              | 2026-03-21 | 9a2d095 | [260321-s9e-add-a-landing-page-on-the-root-route](./quick/260321-s9e-add-a-landing-page-on-the-root-route/)         |
-| 260322-0dv | redesign entire application UI using shadcn | 2026-03-22 | 5d829e2 | [260322-0dv-redesign-the-entire-application-ui-using](./quick/260322-0dv-redesign-the-entire-application-ui-using/) |
-| 260322-14a | refactor financial page align colours       | 2026-03-22 | 40d652c | [260322-14a-refactor-financial-page-align-colours-wi](./quick/260322-14a-refactor-financial-page-align-colours-wi/) |
+| #          | Description                                    | Date       | Commit  | Directory                                                                                                           |
+| ---------- | ---------------------------------------------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
+| 260321-rxb | add tanstack query                             | 2026-03-21 | 3052489 | [260321-rxb-add-tanstack-query](./quick/260321-rxb-add-tanstack-query/)                                             |
+| 260321-s4w | make attendee table rows clickable             | 2026-03-21 | be1f925 | [260321-s4w-make-attendee-table-rows-clickable-and-r](./quick/260321-s4w-make-attendee-table-rows-clickable-and-r/) |
+| 260321-s9e | add landing page on root route                 | 2026-03-21 | 9a2d095 | [260321-s9e-add-a-landing-page-on-the-root-route](./quick/260321-s9e-add-a-landing-page-on-the-root-route/)         |
+| 260322-0dv | redesign entire application UI using shadcn    | 2026-03-22 | 5d829e2 | [260322-0dv-redesign-the-entire-application-ui-using](./quick/260322-0dv-redesign-the-entire-application-ui-using/) |
+| 260322-14a | refactor financial page align colours          | 2026-03-22 | 40d652c | [260322-14a-refactor-financial-page-align-colours-wi](./quick/260322-14a-refactor-financial-page-align-colours-wi/) |
+| 260322-xao | redesign reconciliation page mobile-friendly   | 2026-03-22 | 57fbf7e | [260322-xao-design-reconciliation-page-mobile-friend](./quick/260322-xao-design-reconciliation-page-mobile-friend/) |
+| 260323-07i | redesign reconciliation desktop into card grid | 2026-03-23 | 7d9b1cf | [260323-07i-redesign-desktop-reconciliation-table-in](./quick/260323-07i-redesign-desktop-reconciliation-table-in/) |
 
 ## Session Continuity
 
