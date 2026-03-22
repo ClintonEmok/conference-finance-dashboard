@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 07-02-PLAN.md
-last_updated: "2026-03-21T18:25:41.927Z"
+stopped_at: Completed quick task 260321-s4w
+last_updated: "2026-03-22T23:57:36Z"
 progress:
-  total_phases: 9
+  total_phases: 10
   completed_phases: 7
-  total_plans: 17
+  total_plans: 18
   completed_plans: 16
 ---
 
@@ -19,12 +19,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 **Core value:** One trusted dashboard for church conference finance operations.
-**Current focus:** Phase 7 — complete-tikkie-integration
+**Current focus:** Phase 08 — attendee-followup-and-reconciliation-ux
 
 ## Current Position
 
-Phase: 08
-Plan: Not started (Attendee Follow-up & Reconciliation UX)
+Phase: 08 (attendee-followup-and-reconciliation-ux) — EXECUTING
+Plan: 1 of 2 (COMPLETED)
 
 ## Performance Metrics
 
@@ -44,10 +44,11 @@ Plan: Not started (Attendee Follow-up & Reconciliation UX)
 | 4. Attendee Data & Accommodation Foundations | 2     | 22 min             | 11 min            |
 | 5. Room Allocation & Operator Flow Polish    | 2     | 383 min            | 192 min           |
 | 6. Tikkie Integration                        | 3     | 51 min             | 17 min            |
+| 8. Attendee Follow-up & Reconciliation UX    | 1     | 5 min              | 5 min             |
 
 **Recent Trend:**
 
-- Last 5 completed plans: 05-02, 06-01, 06-02, 06-03
+- Last 5 completed plans: 06-03, 07-01, 07-02, 08-01
 - Phase 6 completed with template-aware Tikkie generation
 
 ## Accumulated Context
@@ -94,6 +95,10 @@ Recent decisions affecting current work:
 - [06-03] Added PATCH endpoint for attendee amount override management with soft-delete for templates.
 - [07-02] Subscription setup is disabled by default to prevent accidental production activation; requires TIKKIE_SUBSCRIPTION_SETUP_ENABLED=true and valid TIKKIE_WEBHOOK_CALLBACK_URL.
 - [07-02] Route validates both setup flag and callback URL before attempting provider API call, providing clear error messages for each guard path.
+- [08-01] Reconciliation CTA now passes source=reconciliation for origin tracking; attendees page banner recognizes source=reconciliation alongside source=outstanding-balances.
+- [08-01] Attendees page shows green "Paid" checkmark for outstandingAmountMinor === 0 using text-emerald-600 dark:text-emerald-400.
+- [08-01] Single-attendee orders on reconciliation cards show inline "1 attendee: Name · TicketType" without expand/collapse for operational density.
+- [08-01] Attendee breakdown fetches per-card via client-side useEffect to avoid over-fetching on large reconciliation lists.
 
 ### Roadmap Evolution
 
@@ -104,7 +109,8 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Phase 8 plans pending: Attendee Follow-up & Reconciliation UX (5 targeted improvements)
+- Phase 8 Plan 2 pending: TanStack Query background sync and sync status indicator
+- Phase 9 plans pending: Smart allocation and attendee signals (moved from Phase 8)
 - Phase 9 plans pending: Smart allocation and attendee signals (moved from Phase 8)
 
 ### Blockers/Concerns
@@ -127,6 +133,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-03-22T01:00:00Z
-Stopped at: Completed quick task 260321-s4w
+Last session: 2026-03-22T23:57:36Z
+Stopped at: Completed 08-01 — attendee follow-up and reconciliation UX (3/3 tasks)
 Resume file: None
