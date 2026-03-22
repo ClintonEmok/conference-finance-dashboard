@@ -159,11 +159,12 @@ Plans:
 **Goal:** Improve reconciliation and attendees UX with five targeted fixes: simplify reconciliation page layout, fix attendee follow-up flow to navigate directly to attendee detail, add attendee breakdown per order, fix attendees route amount display, and add background auto-sync.
 **Requirements**: UX-01, UX-02, UX-03, UX-04, UX-05
 **Depends on:** Phase 7
-**Plans:** 1 plan
+**Plans:** 2 plans
 
 Plans:
 
-- [ ] 08-PLAN.md — Implement reconciliation simplification, attendee detail navigation, order attendee breakdown, amount display fixes, and background auto-sync
+- [ ] 08-01-PLAN.md — Fix attendee follow-up navigation, attendee amount display, and order attendee breakdown
+- [ ] 08-02-PLAN.md — Add TanStack Query background refetch and sync status indicator
 
 ### Phase 9: Smart Allocation & Attendee Signals
 
