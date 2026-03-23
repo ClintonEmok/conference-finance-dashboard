@@ -175,5 +175,14 @@ Plans:
 
 Plans:
 
-- [ ] 09-01-PLAN.md — Normalize attendee accommodation signals and same-order family grouping foundations
-- [ ] 09-02-PLAN.md — Apply attendee signals to allocation filters and smart room proposals
+## Backlog
+
+### Phase 999.1: Complete UI/UX Redesign (BACKLOG)
+
+**Goal:** Complete redesign of all pages from the ground up.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (promote with /gsd-review-backlog when ready)
