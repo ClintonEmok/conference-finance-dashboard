@@ -35,6 +35,23 @@ export type AttendeeDetail = {
     providerEventId: string
     tikkieAmountOverrideMinor: number | null
   }
+  signals: {
+    genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+    location: string | null
+    remarks: string | null
+    dietary: string | null
+    roommatePreference: string | null
+    allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+    priorityReason: string | null
+    ageGroup: string | null
+    ticketCategory: string | null
+  }
+  familyGroup: {
+    groupId: string | null
+    label: string | null
+    memberCount: number
+    isPrimary: boolean
+  } | null
   event: {
     id: string
     name: string | null
@@ -60,7 +77,9 @@ export type AttendeeDetail = {
     }
   }
   tikkie: {
-    latestLink: (TikkiePaymentLinkDto & { checkState: TikkieLinkCheckState }) | null
+    latestLink:
+      | (TikkiePaymentLinkDto & { checkState: TikkieLinkCheckState })
+      | null
     history: Array<TikkiePaymentLinkDto & { checkState: TikkieLinkCheckState }>
     providerLastCheckedAt: string | null
     latestLinkCheckState: TikkieLinkCheckState
@@ -106,7 +125,10 @@ function normalizeAttendeeId(attendeeId: string) {
   return normalized
 }
 
-function derivePaidAmount(totalAmountMinor: number, links: Array<{ status: string; amountMinor: number }>) {
+function derivePaidAmount(
+  totalAmountMinor: number,
+  links: Array<{ status: string; amountMinor: number }>
+) {
   const paidAmount = links
     .filter((link) => link.status === "paid")
     .reduce((sum, link) => sum + link.amountMinor, 0)
@@ -119,14 +141,19 @@ function deriveOutstandingAmount(params: {
   totalAmountMinor: number
   paidAmountMinor: number
 }) {
-  if (params.normalizedStatus === "paid" || params.normalizedStatus === "refunded") {
+  if (
+    params.normalizedStatus === "paid" ||
+    params.normalizedStatus === "refunded"
+  ) {
     return 0
   }
 
   return Math.max(0, params.totalAmountMinor - params.paidAmountMinor)
 }
 
-export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDetail> {
+export async function getAttendeeDetail(
+  attendeeId: string
+): Promise<AttendeeDetail> {
   const normalizedAttendeeId = normalizeAttendeeId(attendeeId)
 
   const attendee = await prisma.ticketTailorAttendee.findUnique({
@@ -166,6 +193,19 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
           },
         },
       },
+      familyGroupMember: {
+        include: {
+          familyGroup: {
+            include: {
+              members: {
+                select: {
+                  attendeeId: true,
+                },
+              },
+            },
+          },
+        },
+      },
     },
   })
 
@@ -174,7 +214,10 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
   }
 
   const totalAmountMinor = attendee.order.totalAmountMinor ?? 0
-  const paidAmountMinor = derivePaidAmount(totalAmountMinor, attendee.order.tikkiePaymentLinks)
+  const paidAmountMinor = derivePaidAmount(
+    totalAmountMinor,
+    attendee.order.tikkiePaymentLinks
+  )
   const outstandingAmountMinor = deriveOutstandingAmount({
     normalizedStatus: attendee.order.normalizedStatus,
     totalAmountMinor,
@@ -204,7 +247,9 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
     })),
   ])
 
-  paymentHistory.sort((left, right) => right.happenedAt.localeCompare(left.happenedAt))
+  paymentHistory.sort((left, right) =>
+    right.happenedAt.localeCompare(left.happenedAt)
+  )
 
   const tikkieLinks = attendee.order.tikkiePaymentLinks.map((link) => {
     const mapped = mapTikkiePaymentLink(link)
@@ -287,12 +332,43 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
       email: attendee.email ?? null,
       ticketTypeLabel: attendee.ticketTypeLabel ?? null,
       ticketStatus: attendee.ticketStatus ?? null,
-      checkedInAt: attendee.checkedInAt ? attendee.checkedInAt.toISOString() : null,
+      checkedInAt: attendee.checkedInAt
+        ? attendee.checkedInAt.toISOString()
+        : null,
       providerIssuedTicketId: attendee.providerIssuedTicketId ?? null,
       providerOrderId: attendee.providerOrderId,
       providerEventId: attendee.providerEventId,
       tikkieAmountOverrideMinor: attendee.tikkieAmountOverrideMinor,
     },
+    signals: {
+      genderType: attendee.genderType,
+      location:
+        (attendee.customAnswers as { location?: string } | null)?.location ??
+        null,
+      remarks:
+        (attendee.customAnswers as { remarks?: string } | null)?.remarks ??
+        null,
+      dietary:
+        (attendee.customAnswers as { dietary?: string } | null)?.dietary ??
+        null,
+      roommatePreference:
+        (attendee.customAnswers as { roommatePreference?: string } | null)
+          ?.roommatePreference ?? null,
+      allocationPriority: attendee.allocationPriority,
+      priorityReason: attendee.priorityReason,
+      ageGroup: attendee.ageGroup,
+      ticketCategory: attendee.ticketCategory,
+    },
+    familyGroup: attendee.familyGroupMember
+      ? {
+          groupId: attendee.familyGroupMember.familyGroup.id,
+          label: attendee.familyGroupMember.familyGroup.label,
+          memberCount: attendee.familyGroupMember.familyGroup.members.length,
+          isPrimary:
+            attendee.familyGroupMember.familyGroup.primaryAttendeeId ===
+            attendee.id,
+        }
+      : null,
     event: {
       id: attendee.event.id,
       name: attendee.event.name ?? null,
@@ -304,7 +380,9 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
       buyerName: attendee.order.buyerName ?? null,
       buyerEmail: attendee.order.buyerEmail ?? null,
       normalizedStatus: attendee.order.normalizedStatus,
-      orderedAt: attendee.order.orderedAt ? attendee.order.orderedAt.toISOString() : null,
+      orderedAt: attendee.order.orderedAt
+        ? attendee.order.orderedAt.toISOString()
+        : null,
       totalAmountMinor,
     },
     finance: {
@@ -312,9 +390,15 @@ export async function getAttendeeDetail(attendeeId: string): Promise<AttendeeDet
       paidAmountMinor,
       installmentProgress: {
         totalLinks: attendee.order.tikkiePaymentLinks.length,
-        paidLinks: attendee.order.tikkiePaymentLinks.filter((link) => link.status === "paid").length,
-        openLinks: attendee.order.tikkiePaymentLinks.filter((link) => link.status === "created").length,
-        expiredLinks: attendee.order.tikkiePaymentLinks.filter((link) => link.status === "expired").length,
+        paidLinks: attendee.order.tikkiePaymentLinks.filter(
+          (link) => link.status === "paid"
+        ).length,
+        openLinks: attendee.order.tikkiePaymentLinks.filter(
+          (link) => link.status === "created"
+        ).length,
+        expiredLinks: attendee.order.tikkiePaymentLinks.filter(
+          (link) => link.status === "expired"
+        ).length,
       },
     },
     tikkie: {

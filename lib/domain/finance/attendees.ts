@@ -26,6 +26,14 @@ export type AttendeeLedgerRow = {
   normalizedStatus: CanonicalOrderStatus
   totalAmountMinor: number
   outstandingAmountMinor: number
+  // Normalized signal fields for allocation decisions
+  genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+  location: string | null
+  remarks: string | null
+  allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+  priorityReason: string | null
+  ageGroup: string | null
+  ticketCategory: string | null
   roomStatus:
     | {
         status: "assigned"
@@ -70,7 +78,10 @@ const DEFAULT_PAGE = 1
 const DEFAULT_PAGE_SIZE = 25
 const MAX_PAGE_SIZE = 200
 
-function parseDate(value: Date | string | null | undefined, field: "from" | "to") {
+function parseDate(
+  value: Date | string | null | undefined,
+  field: "from" | "to"
+) {
   if (!value) {
     return null
   }
@@ -87,17 +98,22 @@ function parseDate(value: Date | string | null | undefined, field: "from" | "to"
 function normalizeRange(filters: AttendeeLedgerFilters) {
   const now = new Date()
   const to = parseDate(filters.to, "to") ?? now
-  const from = parseDate(filters.from, "from") ?? new Date(to.getTime() - 29 * DAY_MS)
+  const from =
+    parseDate(filters.from, "from") ?? new Date(to.getTime() - 29 * DAY_MS)
 
   if (from.getTime() > to.getTime()) {
-    throw new Error("Invalid date range. 'from' must be less than or equal to 'to'.")
+    throw new Error(
+      "Invalid date range. 'from' must be less than or equal to 'to'."
+    )
   }
 
   return { from, to }
 }
 
 function normalizePagination(page?: number, pageSize?: number) {
-  const safePage = Number.isFinite(page) ? Math.max(DEFAULT_PAGE, Math.floor(page as number)) : DEFAULT_PAGE
+  const safePage = Number.isFinite(page)
+    ? Math.max(DEFAULT_PAGE, Math.floor(page as number))
+    : DEFAULT_PAGE
   const safePageSize = Number.isFinite(pageSize)
     ? Math.max(1, Math.min(MAX_PAGE_SIZE, Math.floor(pageSize as number)))
     : DEFAULT_PAGE_SIZE
@@ -111,7 +127,7 @@ function normalizePagination(page?: number, pageSize?: number) {
 function deriveOutstandingAmount(
   status: CanonicalOrderStatus,
   totalAmountMinor: number,
-  attendeeCount: number,
+  attendeeCount: number
 ) {
   if (status !== "pending" && status !== "cancelled") {
     return 0
@@ -121,10 +137,16 @@ function deriveOutstandingAmount(
 }
 
 export async function getAttendeeLedger(
-  filters: AttendeeLedgerFilters = {},
+  filters: AttendeeLedgerFilters = {}
 ): Promise<AttendeeLedgerResult> {
-  const eventId = typeof filters.eventId === "string" && filters.eventId.trim() ? filters.eventId.trim() : null
-  const search = typeof filters.search === "string" && filters.search.trim() ? filters.search.trim() : null
+  const eventId =
+    typeof filters.eventId === "string" && filters.eventId.trim()
+      ? filters.eventId.trim()
+      : null
+  const search =
+    typeof filters.search === "string" && filters.search.trim()
+      ? filters.search.trim()
+      : null
   const { from, to } = normalizeRange(filters)
   const { page, pageSize } = normalizePagination(filters.page, filters.pageSize)
 
@@ -230,7 +252,8 @@ export async function getAttendeeLedger(
     },
     rows: attendees.map((attendee) => {
       const totalAmountMinor = attendee.order.totalAmountMinor ?? 0
-      const normalizedStatus = attendee.order.normalizedStatus as CanonicalOrderStatus
+      const normalizedStatus = attendee.order
+        .normalizedStatus as CanonicalOrderStatus
 
       return {
         attendeeId: attendee.id,
@@ -247,8 +270,20 @@ export async function getAttendeeLedger(
         outstandingAmountMinor: deriveOutstandingAmount(
           normalizedStatus,
           totalAmountMinor,
-          attendee.order.attendees.length,
+          attendee.order.attendees.length
         ),
+        // Normalized signal fields for allocation decisions
+        genderType: attendee.genderType,
+        location:
+          (attendee.customAnswers as { location?: string } | null)?.location ??
+          null,
+        remarks:
+          (attendee.customAnswers as { remarks?: string } | null)?.remarks ??
+          null,
+        allocationPriority: attendee.allocationPriority,
+        priorityReason: attendee.priorityReason,
+        ageGroup: attendee.ageGroup,
+        ticketCategory: attendee.ticketCategory,
         roomStatus: attendee.assignedRoom
           ? {
               status: "assigned",
@@ -262,7 +297,9 @@ export async function getAttendeeLedger(
               hotelName: null,
               roomTypeLabel: null,
             },
-        orderedAt: attendee.order.orderedAt ? attendee.order.orderedAt.toISOString() : null,
+        orderedAt: attendee.order.orderedAt
+          ? attendee.order.orderedAt.toISOString()
+          : null,
       }
     }),
   }
