@@ -2,7 +2,10 @@ import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
 import { auth } from "@/lib/auth"
-import { assignAttendeeToRoom, getRoomAllocationBoard } from "@/lib/domain/accommodation/assignments"
+import {
+  assignAttendeeToRoom,
+  getRoomAllocationBoard,
+} from "@/lib/domain/accommodation/assignments"
 
 export const dynamic = "force-dynamic"
 
@@ -11,11 +14,68 @@ function parseAvailability(value: string | null) {
     return undefined
   }
 
-  if (value === "all" || value === "empty" || value === "available" || value === "full") {
+  if (
+    value === "all" ||
+    value === "empty" ||
+    value === "available" ||
+    value === "full"
+  ) {
     return value
   }
 
-  throw new Error("Invalid 'availability'. Expected one of: all, empty, available, full.")
+  throw new Error(
+    "Invalid 'availability'. Expected one of: all, empty, available, full."
+  )
+}
+
+function parseGenderType(value: string | null) {
+  if (!value) {
+    return undefined
+  }
+
+  if (
+    value === "MALE" ||
+    value === "FEMALE" ||
+    value === "MIXED" ||
+    value === "UNKNOWN"
+  ) {
+    return value
+  }
+
+  return undefined
+}
+
+function parseAllocationPriority(value: string | null) {
+  if (!value) {
+    return undefined
+  }
+
+  if (
+    value === "CRITICAL" ||
+    value === "HIGH" ||
+    value === "NORMAL" ||
+    value === "LOW"
+  ) {
+    return value
+  }
+
+  return undefined
+}
+
+function parseBoolean(value: string | null) {
+  if (!value) {
+    return undefined
+  }
+
+  if (value === "true") {
+    return true
+  }
+
+  if (value === "false") {
+    return false
+  }
+
+  return undefined
 }
 
 function unauthorized() {
@@ -26,7 +86,7 @@ function unauthorized() {
         message: "Authentication required",
       },
     },
-    { status: 401 },
+    { status: 401 }
   )
 }
 
@@ -38,7 +98,7 @@ function badRequest(message: string) {
         message,
       },
     },
-    { status: 400 },
+    { status: 400 }
   )
 }
 
@@ -59,6 +119,14 @@ export async function GET(request: Request) {
       hotelId: params.get("hotelId"),
       roomTypeId: params.get("roomTypeId"),
       availability: parseAvailability(params.get("availability")),
+      // Signal-aware filters
+      genderType: parseGenderType(params.get("genderType")),
+      familyGroupId: params.get("familyGroupId"),
+      location: params.get("location"),
+      allocationPriority: parseAllocationPriority(
+        params.get("allocationPriority")
+      ),
+      hasPriority: parseBoolean(params.get("hasPriority")),
     })
 
     return NextResponse.json(board)
@@ -76,7 +144,7 @@ export async function GET(request: Request) {
           message: "Failed to load room allocation board",
         },
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }
@@ -108,7 +176,11 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid request"
 
-    if (message.startsWith("Invalid") || message.includes("not found") || message.includes("already")) {
+    if (
+      message.startsWith("Invalid") ||
+      message.includes("not found") ||
+      message.includes("already")
+    ) {
       return badRequest(message)
     }
 
@@ -119,7 +191,7 @@ export async function POST(request: Request) {
           message: "Failed to assign attendee to room",
         },
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

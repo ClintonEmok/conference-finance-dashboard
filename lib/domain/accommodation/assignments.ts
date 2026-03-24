@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma"
 type RoomAvailability = "all" | "empty" | "available" | "full"
 
 type RoomAllocationBoardRoom = RoomAllocationBoard["rooms"][number]
-type RoomAllocationBoardAttendee = RoomAllocationBoard["unassignedAttendees"][number]
+type RoomAllocationBoardAttendee =
+  RoomAllocationBoard["unassignedAttendees"][number]
 type RoomAllocationBoardSummary = RoomAllocationBoard["summary"]
 
 export type RoomAllocationBoardFilters = {
@@ -14,6 +15,12 @@ export type RoomAllocationBoardFilters = {
   hotelId?: string | null
   roomTypeId?: string | null
   availability?: RoomAvailability
+  // Signal-aware filters
+  genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+  familyGroupId?: string | null
+  location?: string | null
+  allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
+  hasPriority?: boolean | null
 }
 
 export type RoomAllocationBoard = {
@@ -24,6 +31,12 @@ export type RoomAllocationBoard = {
     hotelId: string | null
     roomTypeId: string | null
     availability: RoomAvailability
+    // Signal-aware filters
+    genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+    familyGroupId: string | null
+    location: string | null
+    allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
+    hasPriority: boolean | null
   }
   availableEvents: Array<{
     providerEventId: string
@@ -76,6 +89,12 @@ export type RoomAllocationBoard = {
     eventName: string | null
     ticketTypeLabel: string | null
     matchingRoomCount: number
+    // Signal fields for UI display
+    genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+    location: string | null
+    remarks: string | null
+    allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
+    familyGroupId: string | null
   }>
   summary: {
     totalRooms: number
@@ -106,11 +125,76 @@ function normalizeAvailability(value: string | null | undefined) {
     return "all" as const
   }
 
-  if (value === "all" || value === "empty" || value === "available" || value === "full") {
+  if (
+    value === "all" ||
+    value === "empty" ||
+    value === "available" ||
+    value === "full"
+  ) {
     return value
   }
 
-  throw new Error("Invalid 'availability'. Expected one of: all, empty, available, full.")
+  throw new Error(
+    "Invalid 'availability'. Expected one of: all, empty, available, full."
+  )
+}
+
+function normalizeGenderType(value: string | null | undefined) {
+  if (!value) {
+    return null
+  }
+
+  if (
+    value === "MALE" ||
+    value === "FEMALE" ||
+    value === "MIXED" ||
+    value === "UNKNOWN"
+  ) {
+    return value
+  }
+
+  return null
+}
+
+function normalizeAllocationPriority(value: string | null | undefined) {
+  if (!value) {
+    return null
+  }
+
+  if (
+    value === "CRITICAL" ||
+    value === "HIGH" ||
+    value === "NORMAL" ||
+    value === "LOW"
+  ) {
+    return value
+  }
+
+  return null
+}
+
+function normalizeBoolean(value: string | boolean | null | undefined) {
+  if (value === true) {
+    return true
+  }
+
+  if (value === false) {
+    return false
+  }
+
+  if (!value || value === "null" || value === "undefined") {
+    return null
+  }
+
+  if (value === "true") {
+    return true
+  }
+
+  if (value === "false") {
+    return false
+  }
+
+  return null
 }
 
 function deriveAvailability(occupiedBeds: number, capacity: number) {
@@ -125,7 +209,10 @@ function deriveAvailability(occupiedBeds: number, capacity: number) {
   return "available" as const
 }
 
-function matchesSearch(value: string | null | undefined, search: string | null) {
+function matchesSearch(
+  value: string | null | undefined,
+  search: string | null
+) {
   if (!search) {
     return true
   }
@@ -142,7 +229,7 @@ function attendeeMatchesSearch(
     eventName: string | null
     ticketTypeLabel: string | null
   },
-  search: string | null,
+  search: string | null
 ) {
   if (!search) {
     return true
@@ -159,13 +246,22 @@ function attendeeMatchesSearch(
 }
 
 export async function getRoomAllocationBoard(
-  filters: RoomAllocationBoardFilters = {},
+  filters: RoomAllocationBoardFilters = {}
 ): Promise<RoomAllocationBoard> {
   const eventId = normalizeOptionalString(filters.eventId)
   const search = normalizeOptionalString(filters.search)
   const hotelId = normalizeOptionalString(filters.hotelId)
   const roomTypeId = normalizeOptionalString(filters.roomTypeId)
   const availability = normalizeAvailability(filters.availability)
+
+  // Signal-aware filter parsing
+  const genderType = normalizeGenderType(filters.genderType ?? undefined)
+  const familyGroupId = normalizeOptionalString(filters.familyGroupId)
+  const location = normalizeOptionalString(filters.location)
+  const allocationPriority = normalizeAllocationPriority(
+    filters.allocationPriority ?? undefined
+  )
+  const hasPriority = normalizeBoolean(filters.hasPriority ?? undefined)
 
   const availableEvents = await prisma.ticketTailorEvent.findMany({
     orderBy: [{ startsAt: "asc" }, { name: "asc" }],
@@ -181,9 +277,12 @@ export async function getRoomAllocationBoard(
   })
 
   const selectedEventHotelIds =
-    availableEvents.find((event) => event.providerEventId === eventId)?.accommodationHotels.map((link) => link.hotelId) ?? []
+    availableEvents
+      .find((event) => event.providerEventId === eventId)
+      ?.accommodationHotels.map((link) => link.hotelId) ?? []
 
-  const scopedHotelIds = eventId && selectedEventHotelIds.length > 0 ? selectedEventHotelIds : null
+  const scopedHotelIds =
+    eventId && selectedEventHotelIds.length > 0 ? selectedEventHotelIds : null
 
   const [hotels, roomTypes, rooms, unassignedAttendees] = await Promise.all([
     prisma.accommodationHotel.findMany({
@@ -252,12 +351,32 @@ export async function getRoomAllocationBoard(
       where: {
         assignedRoomId: null,
         ...(eventId ? { providerEventId: eventId } : {}),
+        // Signal-aware filters
+        ...(genderType ? { genderType } : {}),
+        ...(allocationPriority
+          ? { allocationPriority }
+          : hasPriority
+            ? {
+                allocationPriority: { in: ["CRITICAL", "HIGH"] },
+              }
+            : {}),
       },
-      orderBy: [{ name: "asc" }, { email: "asc" }, { createdAt: "asc" }],
+      orderBy: [
+        // Prioritize high-priority attendees first
+        { allocationPriority: "asc" },
+        { name: "asc" },
+        { email: "asc" },
+        { createdAt: "asc" },
+      ],
       include: {
         event: {
           select: {
             name: true,
+          },
+        },
+        familyGroupMember: {
+          select: {
+            familyGroupId: true,
           },
         },
       },
@@ -276,7 +395,9 @@ export async function getRoomAllocationBoard(
         ticketTypeLabel: attendee.ticketTypeLabel ?? null,
       }))
       const searchedOccupants = search
-        ? occupants.filter((occupant) => attendeeMatchesSearch(occupant, search))
+        ? occupants.filter((occupant) =>
+            attendeeMatchesSearch(occupant, search)
+          )
         : occupants
       const occupiedBeds = occupants.length
       const availableBeds = Math.max(0, room.capacity - occupiedBeds)
@@ -303,7 +424,9 @@ export async function getRoomAllocationBoard(
       }
     })
     .filter((room) => room.matchesSearch)
-    .filter((room) => availability === "all" || room.availability === availability)
+    .filter(
+      (room) => availability === "all" || room.availability === availability
+    )
     .map((room) => ({
       id: room.id,
       label: room.label,
@@ -319,19 +442,64 @@ export async function getRoomAllocationBoard(
 
   const candidateRooms = mappedRooms.filter((room) => room.availableBeds > 0)
 
-  const filteredUnassignedAttendees: RoomAllocationBoard["unassignedAttendees"] = unassignedAttendees
-    .map((attendee): RoomAllocationBoardAttendee => ({
-      attendeeId: attendee.id,
-      attendeeName: attendee.name ?? null,
-      attendeeEmail: attendee.email ?? null,
-      providerOrderId: attendee.providerOrderId,
-      providerEventId: attendee.providerEventId,
-      eventName: attendee.event?.name ?? null,
-      ticketTypeLabel: attendee.ticketTypeLabel ?? null,
-      matchingRoomCount: candidateRooms.length,
-    }))
-    .filter((attendee) => attendeeMatchesSearch(attendee, search))
-    .filter((attendee) => (availability === "full" ? false : attendee.matchingRoomCount > 0 || availability === "all"))
+  const filteredUnassignedAttendees: RoomAllocationBoard["unassignedAttendees"] =
+    unassignedAttendees
+      .map((attendee): RoomAllocationBoardAttendee | null => {
+        // Extract location from customAnswers JSON
+        const customAnswers = attendee.customAnswers as
+          | { location?: string; remarks?: string }
+          | null
+          | undefined
+        const attendeeLocation = customAnswers?.location ?? null
+        const attendeeRemarks = customAnswers?.remarks ?? null
+
+        // Filter by location if specified
+        const locationMatch =
+          !location ||
+          (attendeeLocation &&
+            attendeeLocation.toLowerCase().includes(location.toLowerCase()))
+
+        if (!locationMatch) {
+          return null
+        }
+
+        // Get family group info if available
+        const familyGroupId = attendee.familyGroupMember?.familyGroupId ?? null
+
+        const result: RoomAllocationBoardAttendee = {
+          attendeeId: attendee.id,
+          attendeeName: attendee.name ?? null,
+          attendeeEmail: attendee.email ?? null,
+          providerOrderId: attendee.providerOrderId,
+          providerEventId: attendee.providerEventId,
+          eventName: attendee.event?.name ?? null,
+          ticketTypeLabel: attendee.ticketTypeLabel ?? null,
+          matchingRoomCount: candidateRooms.length,
+          // Signal fields for UI display
+          genderType: attendee.genderType ?? null,
+          location: attendeeLocation,
+          remarks: attendeeRemarks,
+          allocationPriority: attendee.allocationPriority ?? null,
+          familyGroupId,
+        }
+
+        return result
+      })
+      .filter(
+        (attendee): attendee is RoomAllocationBoardAttendee => attendee !== null
+      )
+      .filter((attendee) => attendeeMatchesSearch(attendee, search))
+      .filter((attendee) =>
+        availability === "full"
+          ? false
+          : attendee.matchingRoomCount > 0 || availability === "all"
+      )
+      .filter((attendee) => attendeeMatchesSearch(attendee, search))
+      .filter((attendee) =>
+        availability === "full"
+          ? false
+          : attendee.matchingRoomCount > 0 || availability === "all"
+      )
 
   const summary = mappedRooms.reduce<RoomAllocationBoardSummary>(
     (counts, room) => {
@@ -353,7 +521,7 @@ export async function getRoomAllocationBoard(
       availableRooms: 0,
       fullRooms: 0,
       unassignedAttendees: filteredUnassignedAttendees.length,
-    },
+    }
   )
 
   summary.unassignedAttendees = filteredUnassignedAttendees.length
@@ -366,12 +534,19 @@ export async function getRoomAllocationBoard(
       hotelId,
       roomTypeId,
       availability,
+      genderType,
+      familyGroupId,
+      location,
+      allocationPriority,
+      hasPriority,
     },
     availableEvents,
     hotels: hotels.map((hotel) => ({
       id: hotel.id,
       name: hotel.name,
-      assignedEventIds: hotel.eventLinks.map((link) => link.event.providerEventId),
+      assignedEventIds: hotel.eventLinks.map(
+        (link) => link.event.providerEventId
+      ),
     })),
     roomTypes,
     rooms: mappedRooms,
@@ -397,7 +572,10 @@ async function syncRoomOccupancy(tx: Prisma.TransactionClient, roomId: string) {
   })
 }
 
-export async function assignAttendeeToRoom(input: { attendeeId: string; roomId: string }) {
+export async function assignAttendeeToRoom(input: {
+  attendeeId: string
+  roomId: string
+}) {
   const attendeeId = normalizeRequiredString(input.attendeeId, "attendeeId")
   const roomId = normalizeRequiredString(input.roomId, "roomId")
 
@@ -434,7 +612,9 @@ export async function assignAttendeeToRoom(input: { attendeeId: string; roomId: 
     }
 
     if (attendee.assignedRoomId === room.id) {
-      throw new Error("Invalid assignment. Attendee is already assigned to this room.")
+      throw new Error(
+        "Invalid assignment. Attendee is already assigned to this room."
+      )
     }
 
     const eventHotelLinks = await tx.accommodationEventHotel.findMany({
@@ -446,8 +626,13 @@ export async function assignAttendeeToRoom(input: { attendeeId: string; roomId: 
       },
     })
 
-    if (eventHotelLinks.length > 0 && !eventHotelLinks.some((link) => link.hotelId === room.hotelId)) {
-      throw new Error("Invalid assignment. Selected room hotel is not enabled for this event.")
+    if (
+      eventHotelLinks.length > 0 &&
+      !eventHotelLinks.some((link) => link.hotelId === room.hotelId)
+    ) {
+      throw new Error(
+        "Invalid assignment. Selected room hotel is not enabled for this event."
+      )
     }
 
     const occupiedBeds = await tx.ticketTailorAttendee.count({
@@ -518,7 +703,9 @@ export async function unassignAttendeeFromRoom(attendeeIdValue: string) {
     }
 
     if (!attendee.assignedRoomId) {
-      throw new Error("Invalid unassignment. Attendee is not assigned to a room.")
+      throw new Error(
+        "Invalid unassignment. Attendee is not assigned to a room."
+      )
     }
 
     await tx.ticketTailorAttendee.update({
