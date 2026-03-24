@@ -730,3 +730,457 @@ export async function unassignAttendeeFromRoom(attendeeIdValue: string) {
     })
   })
 }
+
+// ============================================================
+// Smart Allocation Proposal Logic
+// ============================================================
+
+export type AllocationProposal = {
+  generatedAt: string
+  eventId: string | null
+  suggestions: Array<{
+    attendeeId: string
+    attendeeName: string | null
+    roomId: string
+    roomLabel: string
+    hotelName: string
+    reason: string
+    priority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+  }>
+  unplacedAttendees: Array<{
+    attendeeId: string
+    attendeeName: string | null
+    reason: string
+    priority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+  }>
+  summary: {
+    totalSuggested: number
+    totalUnplaced: number
+    familyGroupsKeptTogether: number
+    highPriorityPlaced: number
+  }
+}
+
+type AttendeeWithSignals = {
+  id: string
+  name: string | null
+  email: string | null
+  providerEventId: string
+  genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+  allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+  familyGroupId: string | null
+  customAnswers: { location?: string; remarks?: string } | null
+}
+
+type RoomWithOccupants = {
+  id: string
+  label: string
+  capacity: number
+  occupiedBeds: number
+  hotelName: string
+  currentGenders: Set<string>
+  hasMixedGender: boolean
+}
+
+const PRIORITY_ORDER: Record<string, number> = {
+  CRITICAL: 0,
+  HIGH: 1,
+  NORMAL: 2,
+  LOW: 3,
+}
+
+function getAttendeeSignals(attendee: AttendeeWithSignals) {
+  const customAnswers = attendee.customAnswers as
+    | { location?: string; remarks?: string }
+    | null
+    | undefined
+  return {
+    genderType: attendee.genderType ?? "UNKNOWN",
+    allocationPriority: attendee.allocationPriority ?? "NORMAL",
+    familyGroupId: attendee.familyGroupId,
+    location: customAnswers?.location ?? null,
+    remarks: customAnswers?.remarks ?? null,
+  }
+}
+
+function isGenderCompatible(
+  newGender: string,
+  room: RoomWithOccupants
+): boolean {
+  // Empty rooms accept anyone
+  if (room.occupiedBeds === 0) {
+    return true
+  }
+
+  // If room already has mixed gender, any gender is compatible
+  if (room.hasMixedGender) {
+    return true
+  }
+
+  // UNKNOWN gender is always compatible
+  if (newGender === "UNKNOWN") {
+    return true
+  }
+
+  // MIXED gender (family) can join any room
+  if (newGender === "MIXED") {
+    return true
+  }
+
+  // If room has MIXED gender, new attendee can join
+  if (room.hasMixedGender) {
+    return true
+  }
+
+  // Same gender is compatible
+  if (room.currentGenders.has(newGender)) {
+    return true
+  }
+
+  // Unknown current genders are compatible
+  if (room.currentGenders.has("UNKNOWN")) {
+    return true
+  }
+
+  // Otherwise incompatible
+  return false
+}
+
+function getCompatibilityReason(
+  newGender: string,
+  room: RoomWithOccupants
+): string | null {
+  if (isGenderCompatible(newGender, room)) {
+    return null
+  }
+
+  const currentGenders = Array.from(room.currentGenders).join(", ")
+  return `Gender mismatch: ${newGender} cannot join room with ${currentGenders}`
+}
+
+export async function generateAllocationProposal(input: {
+  eventId?: string | null
+}): Promise<AllocationProposal> {
+  const eventId = normalizeOptionalString(input.eventId)
+
+  // Fetch unassigned attendees with signal data
+  const unassignedAttendees = await prisma.ticketTailorAttendee.findMany({
+    where: {
+      assignedRoomId: null,
+      ...(eventId ? { providerEventId: eventId } : {}),
+    },
+    orderBy: [{ allocationPriority: "asc" }, { name: "asc" }, { email: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      providerEventId: true,
+      genderType: true,
+      allocationPriority: true,
+      familyGroupMember: {
+        select: {
+          familyGroupId: true,
+        },
+      },
+      customAnswers: true,
+    },
+  })
+
+  // Fetch available rooms with occupant info
+  const rooms = await prisma.accommodationRoom.findMany({
+    where: {
+      ...(eventId
+        ? {
+            hotel: {
+              eventLinks: {
+                some: {
+                  event: {
+                    providerEventId: eventId,
+                  },
+                },
+              },
+            },
+          }
+        : {}),
+    },
+    orderBy: [{ hotel: { name: "asc" } }, { label: "asc" }],
+    include: {
+      hotel: {
+        select: {
+          name: true,
+        },
+      },
+      attendees: {
+        select: {
+          genderType: true,
+        },
+      },
+    },
+  })
+
+  // Build room lookup with gender tracking
+  const roomMap: Map<string, RoomWithOccupants> = new Map()
+
+  for (const room of rooms) {
+    const genders = new Set<string>()
+    let hasMixedGender = false
+
+    for (const occupant of room.attendees) {
+      const gender = occupant.genderType ?? "UNKNOWN"
+      genders.add(gender)
+    }
+
+    // Check if we have both MALE and FEMALE (not MIXED)
+    const hasMale = genders.has("MALE")
+    const hasFemale = genders.has("FEMALE")
+    hasMixedGender = genders.has("MIXED") || (hasMale && hasFemale)
+
+    roomMap.set(room.id, {
+      id: room.id,
+      label: room.label,
+      capacity: room.capacity,
+      occupiedBeds: room.attendees.length,
+      hotelName: room.hotel.name,
+      currentGenders: genders,
+      hasMixedGender,
+    })
+  }
+
+  // Get available rooms (has space)
+  const availableRooms = Array.from(roomMap.values()).filter(
+    (room) => room.occupiedBeds < room.capacity
+  )
+
+  // Build attendee lookup
+  const attendeeMap: Map<string, AttendeeWithSignals> = new Map()
+  for (const attendee of unassignedAttendees) {
+    attendeeMap.set(attendee.id, {
+      id: attendee.id,
+      name: attendee.name,
+      email: attendee.email,
+      providerEventId: attendee.providerEventId,
+      genderType: attendee.genderType,
+      allocationPriority: attendee.allocationPriority ?? "NORMAL",
+      familyGroupId: attendee.familyGroupMember?.familyGroupId ?? null,
+      customAnswers: attendee.customAnswers as {
+        location?: string
+        remarks?: string
+      } | null,
+    })
+  }
+
+  // Group attendees by family
+  const familyGroups: Map<string, AttendeeWithSignals[]> = new Map()
+  for (const attendee of unassignedAttendees) {
+    const familyId = attendee.familyGroupMember?.familyGroupId
+    if (familyId) {
+      const group = familyGroups.get(familyId) ?? []
+      group.push({
+        id: attendee.id,
+        name: attendee.name,
+        email: attendee.email,
+        providerEventId: attendee.providerEventId,
+        genderType: attendee.genderType,
+        allocationPriority: attendee.allocationPriority ?? "NORMAL",
+        familyGroupId: familyId,
+        customAnswers: attendee.customAnswers as {
+          location?: string
+          remarks?: string
+        } | null,
+      })
+      familyGroups.set(familyId, group)
+    }
+  }
+
+  // Track suggestions and unplaced
+  const suggestions: AllocationProposal["suggestions"] = []
+  const unplaced: AllocationProposal["unplacedAttendees"] = []
+
+  // Track which rooms have been used for family groups to avoid splitting
+  const roomFamilyAssignments: Map<string, string> = new Map() // roomId -> familyId
+
+  // Process attendees in priority order
+  const sortedAttendees = [...unassignedAttendees].sort((a, b) => {
+    const priorityA = PRIORITY_ORDER[a.allocationPriority ?? "NORMAL"]
+    const priorityB = PRIORITY_ORDER[b.allocationPriority ?? "NORMAL"]
+    return priorityA - priorityB
+  })
+
+  // First pass: try to place family groups together
+  const familyGroupIds = Array.from(familyGroups.keys())
+
+  for (const familyId of familyGroupIds) {
+    const familyMembers = familyGroups.get(familyId) ?? []
+    if (familyMembers.length === 0) continue
+
+    // Sort family members by priority
+    familyMembers.sort(
+      (a, b) =>
+        PRIORITY_ORDER[a.allocationPriority] -
+        PRIORITY_ORDER[b.allocationPriority]
+    )
+
+    // Find a room that can fit all family members
+    const requiredBeds = familyMembers.length
+
+    for (const room of availableRooms) {
+      if (room.occupiedBeds + requiredBeds > room.capacity) {
+        continue // Not enough space
+      }
+
+      // Check gender compatibility for all members
+      let allCompatible = true
+      const tempRoom = { ...room }
+
+      for (const member of familyMembers) {
+        if (!isGenderCompatible(member.genderType ?? "UNKNOWN", tempRoom)) {
+          allCompatible = false
+          break
+        }
+        // Simulate adding this member
+        if (tempRoom.occupiedBeds < tempRoom.capacity) {
+          tempRoom.occupiedBeds++
+          if (member.genderType) {
+            tempRoom.currentGenders.add(member.genderType)
+          }
+        }
+      }
+
+      if (allCompatible) {
+        // Place all family members
+        for (const member of familyMembers) {
+          const attendeeSignals = getAttendeeSignals(member)
+
+          suggestions.push({
+            attendeeId: member.id,
+            attendeeName: member.name,
+            roomId: room.id,
+            roomLabel: room.label,
+            hotelName: room.hotelName,
+            reason: `Family group kept together (${familyMembers.length} members)`,
+            priority: member.allocationPriority,
+          })
+
+          // Update room state
+          room.occupiedBeds++
+          room.currentGenders.add(member.genderType ?? "UNKNOWN")
+          if (
+            room.currentGenders.has("MALE") &&
+            room.currentGenders.has("FEMALE")
+          ) {
+            room.hasMixedGender = true
+          }
+          roomFamilyAssignments.set(room.id, familyId)
+        }
+
+        // Remove family from unassigned
+        for (const member of familyMembers) {
+          attendeeMap.delete(member.id)
+        }
+        break
+      }
+    }
+  }
+
+  // Second pass: place remaining individuals
+  const remainingAttendees = Array.from(attendeeMap.values())
+
+  for (const attendee of remainingAttendees) {
+    const signals = getAttendeeSignals(attendee)
+
+    // Find compatible room
+    let placed = false
+
+    for (const room of availableRooms) {
+      // Skip if this room already has a family group and we're trying to add more
+      const existingFamily = roomFamilyAssignments.get(room.id)
+      if (existingFamily && signals.familyGroupId !== existingFamily) {
+        continue // Room already assigned to different family
+      }
+
+      // Check capacity
+      if (room.occupiedBeds >= room.capacity) {
+        continue
+      }
+
+      // Check gender compatibility
+      const incompatibilityReason = getCompatibilityReason(
+        signals.genderType,
+        room
+      )
+
+      if (incompatibilityReason) {
+        unplaced.push({
+          attendeeId: attendee.id,
+          attendeeName: attendee.name,
+          reason: incompatibilityReason,
+          priority: signals.allocationPriority,
+        })
+        placed = true
+        break
+      }
+
+      // Place the attendee
+      suggestions.push({
+        attendeeId: attendee.id,
+        attendeeName: attendee.name,
+        roomId: room.id,
+        roomLabel: room.label,
+        hotelName: room.hotelName,
+        reason:
+          signals.allocationPriority === "CRITICAL"
+            ? "Priority placement: critical accommodation needs"
+            : signals.allocationPriority === "HIGH"
+              ? "Priority placement: high accommodation needs"
+              : "Standard allocation",
+        priority: signals.allocationPriority,
+      })
+
+      // Update room state
+      room.occupiedBeds++
+      room.currentGenders.add(signals.genderType)
+      if (
+        room.currentGenders.has("MALE") &&
+        room.currentGenders.has("FEMALE")
+      ) {
+        room.hasMixedGender = true
+      }
+      placed = true
+      break
+    }
+
+    if (!placed) {
+      // No compatible room found
+      const roomWithSpace = availableRooms.find(
+        (r) => r.occupiedBeds < r.capacity
+      )
+      if (!roomWithSpace) {
+        unplaced.push({
+          attendeeId: attendee.id,
+          attendeeName: attendee.name,
+          reason: "No rooms available with compatible gender",
+          priority: signals.allocationPriority,
+        })
+      }
+    }
+  }
+
+  // Calculate summary
+  const familyGroupsKeptTogether = new Set(roomFamilyAssignments.values()).size
+  const highPriorityPlaced = suggestions.filter(
+    (s) => s.priority === "CRITICAL" || s.priority === "HIGH"
+  ).length
+
+  return {
+    generatedAt: new Date().toISOString(),
+    eventId,
+    suggestions,
+    unplacedAttendees: unplaced,
+    summary: {
+      totalSuggested: suggestions.length,
+      totalUnplaced: unplaced.length,
+      familyGroupsKeptTogether,
+      highPriorityPlaced,
+    },
+  }
+}
