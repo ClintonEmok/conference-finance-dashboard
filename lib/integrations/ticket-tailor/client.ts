@@ -1,7 +1,6 @@
 import { getTicketTailorConfig } from "@/lib/integrations/ticket-tailor/config"
-import type { Prisma } from "@prisma/client"
 
-type JsonRecord = Prisma.InputJsonObject
+type JsonRecord = Record<string, unknown>
 
 type TicketTailorFetchOptions = {
   method?: "GET" | "POST"
@@ -51,7 +50,7 @@ function buildAuthorizationHeader(apiKey: string) {
 
 export async function ticketTailorFetch<T>(
   path: string,
-  options: TicketTailorFetchOptions = {},
+  options: TicketTailorFetchOptions = {}
 ): Promise<T> {
   const { url, config } = buildUrl(path, options.query)
 
@@ -70,7 +69,9 @@ export async function ticketTailorFetch<T>(
 
   if (!response.ok) {
     const text = await response.text()
-    throw new Error(`Ticket Tailor request failed (${response.status}): ${text}`)
+    throw new Error(
+      `Ticket Tailor request failed (${response.status}): ${text}`
+    )
   }
 
   return (await response.json()) as T
@@ -90,7 +91,10 @@ function asArrayOfRecords(value: unknown): JsonRecord[] {
   }
 
   return value
-    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .filter(
+      (item): item is Record<string, unknown> =>
+        typeof item === "object" && item !== null
+    )
     .map((item) => item as JsonRecord)
 }
 
@@ -100,7 +104,13 @@ function extractItems(payload: unknown): JsonRecord[] {
   }
 
   const record = asRecord(payload)
-  const candidates = [record.data, record.results, record.items, record.orders, record.events]
+  const candidates = [
+    record.data,
+    record.results,
+    record.items,
+    record.orders,
+    record.events,
+  ]
 
   for (const candidate of candidates) {
     const extracted = asArrayOfRecords(candidate)
@@ -134,23 +144,40 @@ function extractAttendeeItems(payload: unknown): TicketTailorAttendeePayload[] {
   return []
 }
 
-function inferHasNextPage(payload: unknown, page: number, pageSize: number, itemCount: number) {
+function inferHasNextPage(
+  payload: unknown,
+  page: number,
+  pageSize: number,
+  itemCount: number
+) {
   const root = asRecord(payload)
   const pagination = asRecord(root.pagination)
   const meta = asRecord(root.meta)
   const metaPagination = asRecord(meta.pagination)
 
   const currentPageCandidate =
-    (typeof pagination.current_page === "number" ? pagination.current_page : undefined) ??
-    (typeof metaPagination.current_page === "number" ? metaPagination.current_page : undefined)
+    (typeof pagination.current_page === "number"
+      ? pagination.current_page
+      : undefined) ??
+    (typeof metaPagination.current_page === "number"
+      ? metaPagination.current_page
+      : undefined)
 
   const totalPagesCandidate =
-    (typeof pagination.total_pages === "number" ? pagination.total_pages : undefined) ??
-    (typeof metaPagination.total_pages === "number" ? metaPagination.total_pages : undefined)
+    (typeof pagination.total_pages === "number"
+      ? pagination.total_pages
+      : undefined) ??
+    (typeof metaPagination.total_pages === "number"
+      ? metaPagination.total_pages
+      : undefined)
 
   const nextPageCandidate =
-    (typeof pagination.next_page === "number" ? pagination.next_page : undefined) ??
-    (typeof metaPagination.next_page === "number" ? metaPagination.next_page : undefined)
+    (typeof pagination.next_page === "number"
+      ? pagination.next_page
+      : undefined) ??
+    (typeof metaPagination.next_page === "number"
+      ? metaPagination.next_page
+      : undefined)
 
   if (typeof nextPageCandidate === "number") {
     return nextPageCandidate >= 1
@@ -167,7 +194,7 @@ function inferHasNextPage(payload: unknown, page: number, pageSize: number, item
 
 async function fetchPaginatedCollection<T extends JsonRecord>(
   path: string,
-  options: PaginationOptions = {},
+  options: PaginationOptions = {}
 ): Promise<PaginatedCollectionResult<T>> {
   const pageSize = Math.min(Math.max(options.pageSize ?? 100, 1), 200)
   const maxPages = Math.min(Math.max(options.maxPages ?? 100, 1), 500)
@@ -209,12 +236,17 @@ async function fetchPaginatedCollection<T extends JsonRecord>(
 }
 
 function pickString(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null
 }
 
 function eventSortKey(event: JsonRecord) {
   return (
-    pickString(event.id) ?? pickString(event.event_id) ?? pickString(event.slug) ?? JSON.stringify(event)
+    pickString(event.id) ??
+    pickString(event.event_id) ??
+    pickString(event.slug) ??
+    JSON.stringify(event)
   )
 }
 
@@ -228,9 +260,12 @@ function orderSortKey(order: JsonRecord) {
 }
 
 export async function fetchTicketTailorEventsPaginated(
-  options: PaginationOptions = {},
+  options: PaginationOptions = {}
 ): Promise<PaginatedCollectionResult<TicketTailorEventPayload>> {
-  const result = await fetchPaginatedCollection<TicketTailorEventPayload>("/events", options)
+  const result = await fetchPaginatedCollection<TicketTailorEventPayload>(
+    "/events",
+    options
+  )
 
   result.items.sort((a, b) => eventSortKey(a).localeCompare(eventSortKey(b)))
 
@@ -239,7 +274,7 @@ export async function fetchTicketTailorEventsPaginated(
 
 export async function fetchTicketTailorOrdersByEventPaginated(
   providerEventId: string,
-  options: PaginationOptions = {},
+  options: PaginationOptions = {}
 ): Promise<PaginatedCollectionResult<TicketTailorOrderPayload>> {
   const cleanEventId = providerEventId.trim()
 
@@ -252,19 +287,24 @@ export async function fetchTicketTailorOrdersByEventPaginated(
   try {
     result = await fetchPaginatedCollection<TicketTailorOrderPayload>(
       `/events/${encodeURIComponent(cleanEventId)}/orders`,
-      options,
+      options
     )
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown Ticket Tailor error"
-    const missingNestedOrdersEndpoint = /\(404\)|PAGE_NOT_FOUND|Not Found/i.test(message)
+    const message =
+      error instanceof Error ? error.message : "Unknown Ticket Tailor error"
+    const missingNestedOrdersEndpoint =
+      /\(404\)|PAGE_NOT_FOUND|Not Found/i.test(message)
 
     if (!missingNestedOrdersEndpoint) {
       throw error
     }
 
-    result = await fetchPaginatedCollection<TicketTailorOrderPayload>("/orders", {
-      ...options,
-    })
+    result = await fetchPaginatedCollection<TicketTailorOrderPayload>(
+      "/orders",
+      {
+        ...options,
+      }
+    )
 
     result.items = result.items.filter((order) => {
       const eventIdFromOrder =
@@ -284,7 +324,7 @@ export async function fetchTicketTailorOrdersByEventPaginated(
 }
 
 export async function fetchTicketTailorAttendeesForOrder(
-  orderPayload: TicketTailorOrderPayload,
+  orderPayload: TicketTailorOrderPayload
 ): Promise<TicketTailorAttendeeResult> {
   const embeddedItems = extractAttendeeItems(orderPayload)
 
@@ -297,7 +337,9 @@ export async function fetchTicketTailorAttendeesForOrder(
   }
 
   const providerOrderId =
-    pickString(orderPayload.id) ?? pickString(orderPayload.order_id) ?? pickString(orderPayload.reference)
+    pickString(orderPayload.id) ??
+    pickString(orderPayload.order_id) ??
+    pickString(orderPayload.reference)
 
   if (!providerOrderId) {
     return {
@@ -307,7 +349,9 @@ export async function fetchTicketTailorAttendeesForOrder(
     }
   }
 
-  const canonicalPayload = await ticketTailorFetch<unknown>(`/orders/${providerOrderId}`)
+  const canonicalPayload = await ticketTailorFetch<unknown>(
+    `/orders/${providerOrderId}`
+  )
   const fallbackItems = extractAttendeeItems(canonicalPayload)
 
   return {

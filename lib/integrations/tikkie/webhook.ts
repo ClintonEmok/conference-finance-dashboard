@@ -1,12 +1,11 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
-import type { Prisma } from "@prisma/client"
 
 import {
   refreshTikkiePaymentLinkStatus,
   type AppTikkieLinkStatus,
 } from "@/lib/domain/finance/tikkie-links"
 
-type JsonRecord = Prisma.InputJsonObject
+type JsonRecord = Record<string, unknown>
 
 export type TikkieWebhookNotification = {
   subscriptionId: string
@@ -41,25 +40,45 @@ function asRecord(value: unknown): JsonRecord {
 function parseNotification(payload: unknown): TikkieWebhookNotification {
   const record = asRecord(payload)
 
-  const subscriptionId = typeof record.subscriptionId === "string" ? record.subscriptionId.trim() : ""
-  const notificationType = typeof record.notificationType === "string" ? record.notificationType.trim() : ""
+  const subscriptionId =
+    typeof record.subscriptionId === "string"
+      ? record.subscriptionId.trim()
+      : ""
+  const notificationType =
+    typeof record.notificationType === "string"
+      ? record.notificationType.trim()
+      : ""
   const paymentRequestToken =
-    typeof record.paymentRequestToken === "string" ? record.paymentRequestToken.trim() : ""
+    typeof record.paymentRequestToken === "string"
+      ? record.paymentRequestToken.trim()
+      : ""
 
   if (!subscriptionId) {
     throw new Error("Invalid webhook payload: 'subscriptionId' is required.")
   }
 
-  if (notificationType !== "PAYMENT" && notificationType !== "REFUND" && notificationType !== "BUNDLE") {
+  if (
+    notificationType !== "PAYMENT" &&
+    notificationType !== "REFUND" &&
+    notificationType !== "BUNDLE"
+  ) {
     throw new Error("Invalid webhook payload: unsupported 'notificationType'.")
   }
 
   if (!paymentRequestToken) {
-    throw new Error("Invalid webhook payload: 'paymentRequestToken' is required.")
+    throw new Error(
+      "Invalid webhook payload: 'paymentRequestToken' is required."
+    )
   }
 
-  const paymentToken = typeof record.paymentToken === "string" ? record.paymentToken.trim() : undefined
-  const refundToken = typeof record.refundToken === "string" ? record.refundToken.trim() : undefined
+  const paymentToken =
+    typeof record.paymentToken === "string"
+      ? record.paymentToken.trim()
+      : undefined
+  const refundToken =
+    typeof record.refundToken === "string"
+      ? record.refundToken.trim()
+      : undefined
 
   return {
     subscriptionId,
@@ -78,13 +97,17 @@ export function verifyTikkieWebhook(headers: Headers, rawBody: string) {
   }
 
   const provided =
-    getHeader(headers, "x-tikkie-signature") ?? getHeader(headers, "x-signature") ?? getHeader(headers, "signature")
+    getHeader(headers, "x-tikkie-signature") ??
+    getHeader(headers, "x-signature") ??
+    getHeader(headers, "signature")
 
   if (!provided) {
     return false
   }
 
-  const digest = createHmac("sha256", secret).update(rawBody, "utf8").digest("hex")
+  const digest = createHmac("sha256", secret)
+    .update(rawBody, "utf8")
+    .digest("hex")
   const providedBuffer = Buffer.from(provided, "utf8")
   const digestBuffer = Buffer.from(digest, "utf8")
 
@@ -100,7 +123,7 @@ function notificationKey(notification: TikkieWebhookNotification) {
 }
 
 export async function processTikkieWebhookNotification(
-  payload: unknown,
+  payload: unknown
 ): Promise<ProcessTikkieWebhookNotificationResult> {
   const notification = parseNotification(payload)
   const key = notificationKey(notification)
@@ -111,7 +134,7 @@ export async function processTikkieWebhookNotification(
       source: "webhook",
       reason: `notification:${notification.notificationType}`,
       providerNotificationKey: key,
-      providerPayload: notification as unknown as Prisma.JsonValue,
+      providerPayload: notification,
     })
 
     return {
@@ -123,7 +146,10 @@ export async function processTikkieWebhookNotification(
       status: result.link.status,
     }
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Payment link not found")) {
+    if (
+      error instanceof Error &&
+      error.message.includes("Payment link not found")
+    ) {
       return {
         accepted: true,
         duplicate: false,

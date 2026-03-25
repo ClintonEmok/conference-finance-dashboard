@@ -1,12 +1,11 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto"
-import type { Prisma } from "@prisma/client"
 
-import { prisma } from "@/lib/prisma"
+import { convexMutation, convexQuery } from "@/lib/convex/server"
 import { fetchTicketTailorCanonicalPayload } from "@/lib/integrations/ticket-tailor/client"
 
 type IncomingHeaders = Headers
 
-type JsonRecord = Prisma.InputJsonObject
+type JsonRecord = Record<string, unknown>
 
 export type TicketTailorWebhookIngestResult = {
   eventId: string
@@ -22,7 +21,9 @@ type ProcessResult = {
 }
 
 function pickString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null
 }
 
 function getHeader(headers: IncomingHeaders, key: string) {
@@ -63,7 +64,10 @@ function asRecord(value: unknown): JsonRecord {
   return value as JsonRecord
 }
 
-export function verifyTicketTailorWebhook(headers: IncomingHeaders, rawBody: string) {
+export function verifyTicketTailorWebhook(
+  headers: IncomingHeaders,
+  rawBody: string
+) {
   const expected = process.env.TICKET_TAILOR_WEBHOOK_SECRET?.trim()
 
   if (!expected) {
@@ -71,13 +75,16 @@ export function verifyTicketTailorWebhook(headers: IncomingHeaders, rawBody: str
   }
 
   const provided =
-    getHeader(headers, "x-ticket-tailor-signature") ?? getHeader(headers, "x-webhook-signature")
+    getHeader(headers, "x-ticket-tailor-signature") ??
+    getHeader(headers, "x-webhook-signature")
 
   if (!provided) {
     return false
   }
 
-  const digest = createHmac("sha256", expected).update(rawBody, "utf8").digest("hex")
+  const digest = createHmac("sha256", expected)
+    .update(rawBody, "utf8")
+    .digest("hex")
   const providedBuffer = Buffer.from(provided, "utf8")
   const digestBuffer = Buffer.from(digest, "utf8")
 
@@ -90,134 +97,152 @@ export function verifyTicketTailorWebhook(headers: IncomingHeaders, rawBody: str
 
 export async function ingestTicketTailorWebhook(
   headers: IncomingHeaders,
-  payloadInput: unknown,
+  payloadInput: unknown
 ): Promise<TicketTailorWebhookIngestResult> {
   const payload = asRecord(payloadInput)
   const providerEventId = inferProviderEventId(headers, payload)
   const eventType = inferEventType(payload)
 
-  const existing = await prisma.ticketTailorWebhookEvent.findUnique({
-    where: { providerEventId },
-  })
+  const existing = await convexQuery<
+    { providerEventId: string },
+    { _id: string; deliveryCount?: number } | null
+  >("sync:getWebhookEventByProviderId", { providerEventId })
 
   if (existing) {
-    const updated = await prisma.ticketTailorWebhookEvent.update({
-      where: { id: existing.id },
-      data: {
-        deliveryCount: { increment: 1 },
-        lastReceivedAt: new Date(),
-        payload,
+    await convexMutation<
+      {
+        eventId: string
+        deliveryCount: number
+        lastReceivedAt: number
+        payload: unknown
       },
-      select: { id: true },
+      string
+    >("sync:updateWebhookEvent", {
+      eventId: existing._id,
+      deliveryCount: (existing.deliveryCount ?? 0) + 1,
+      lastReceivedAt: Date.now(),
+      payload,
     })
 
     return {
-      eventId: updated.id,
+      eventId: existing._id,
       providerEventId,
       duplicate: true,
     }
   }
 
-  const created = await prisma.ticketTailorWebhookEvent.create({
-    data: {
-      providerEventId,
-      eventType,
-      payload,
-      status: "pending",
+  const eventId = await convexMutation<
+    {
+      providerEventId: string
+      eventType: string
+      payload: JsonRecord
     },
-    select: { id: true },
+    string
+  >("sync:createWebhookEvent", {
+    providerEventId,
+    eventType,
+    payload,
   })
 
   return {
-    eventId: created.id,
+    eventId,
     providerEventId,
     duplicate: false,
   }
 }
 
-export async function processTicketTailorWebhookEvent(eventId: string): Promise<ProcessResult> {
-  const event = await prisma.ticketTailorWebhookEvent.findUnique({
-    where: { id: eventId },
-  })
+export async function processTicketTailorWebhookEvent(
+  eventId: string
+): Promise<ProcessResult> {
+  const event = await convexQuery<
+    { eventId: string },
+    {
+      _id: string
+      payload: JsonRecord
+      attempts: number
+    } | null
+  >("sync:getWebhookEventById", { eventId })
 
   if (!event) {
     throw new Error(`Webhook event not found: ${eventId}`)
   }
 
-  const attempts = event.attempts + 1
+  const attempts = (event.attempts ?? 0) + 1
 
   try {
-    const canonicalPayload = await fetchTicketTailorCanonicalPayload(asRecord(event.payload))
+    const canonicalPayload = await fetchTicketTailorCanonicalPayload(
+      asRecord(event.payload)
+    )
 
-    const updated = await prisma.ticketTailorWebhookEvent.update({
-      where: { id: event.id },
-      data: {
-        attempts,
-        status: "processed",
-        lastError: null,
-        nextRetryAt: null,
-        canonicalPayload,
-        canonicalFetchedAt: new Date(),
-        processedAt: new Date(),
+    await convexMutation<
+      {
+        eventId: string
+        attempts: number
+        status: "processed"
+        lastError: undefined
+        nextRetryAt: undefined
+        canonicalPayload: JsonRecord
+        canonicalFetchedAt: number
+        processedAt: number
       },
-      select: {
-        attempts: true,
-      },
+      string
+    >("sync:updateWebhookEvent", {
+      eventId: event._id,
+      attempts,
+      status: "processed",
+      lastError: undefined,
+      nextRetryAt: undefined,
+      canonicalPayload,
+      canonicalFetchedAt: Date.now(),
+      processedAt: Date.now(),
     })
 
     return {
       status: "processed",
-      attempts: updated.attempts,
+      attempts,
       nextRetryAt: null,
       lastError: null,
     }
   } catch (error) {
     const seconds = computeBackoffSeconds(attempts)
     const nextRetry = new Date(Date.now() + seconds * 1000)
-    const lastError = error instanceof Error ? error.message : "Unknown processing error"
+    const lastError =
+      error instanceof Error ? error.message : "Unknown processing error"
 
-    const updated = await prisma.ticketTailorWebhookEvent.update({
-      where: { id: event.id },
-      data: {
-        attempts,
-        status: "failed",
-        lastError,
-        nextRetryAt: nextRetry,
+    await convexMutation<
+      {
+        eventId: string
+        attempts: number
+        status: "failed"
+        lastError: string
+        nextRetryAt: number
       },
-      select: {
-        attempts: true,
-        nextRetryAt: true,
-        lastError: true,
-      },
+      string
+    >("sync:updateWebhookEvent", {
+      eventId: event._id,
+      attempts,
+      status: "failed",
+      lastError,
+      nextRetryAt: nextRetry.getTime(),
     })
 
     return {
       status: "failed",
-      attempts: updated.attempts,
-      nextRetryAt: updated.nextRetryAt?.toISOString() ?? null,
-      lastError: updated.lastError,
+      attempts,
+      nextRetryAt: nextRetry.toISOString(),
+      lastError,
     }
   }
 }
 
 export async function processTicketTailorRetryBatch(limit = 20) {
-  const now = new Date()
-  const queued = await prisma.ticketTailorWebhookEvent.findMany({
-    where: {
-      OR: [
-        { status: "pending" },
-        {
-          status: "failed",
-          nextRetryAt: {
-            lte: now,
-          },
-        },
-      ],
-    },
-    orderBy: [{ receivedAt: "asc" }],
-    take: limit,
-    select: { id: true },
-  })
+  const queued = await convexQuery<
+    { limit: number },
+    Array<{
+      id: string
+      status: "pending" | "failed"
+    }>
+  >("sync:getPendingWebhookEvents", { limit })
 
   let processed = 0
   let failed = 0
@@ -231,9 +256,5 @@ export async function processTicketTailorRetryBatch(limit = 20) {
     }
   }
 
-  return {
-    scanned: queued.length,
-    processed,
-    failed,
-  }
+  return { processed, failed, total: queued.length }
 }
