@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-stopped_at: Completed plan 10-03 (reconciliation dashboard)
-last_updated: "2026-03-25T12:04:52.172Z"
+status: in-progress
+stopped_at: Completed plan 11-02 (schema conversion)
+last_updated: "2026-03-25T15:20:00.000Z"
 progress:
   total_phases: 13
   completed_phases: 10
   total_plans: 24
-  completed_plans: 24
+  completed_plans: 25
 ---
 
 # Project State
@@ -23,8 +23,9 @@ See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 ## Current Position
 
-Phase: 11
-Plan: Not started
+Phase: 11 (use-convex)
+Plan: 2 of 5 complete
+Status: In progress - Schema converted, ready for query conversion (11-03)
 
 ## Performance Metrics
 
@@ -110,6 +111,14 @@ Recent decisions affecting current work:
 - [10-05] Calculate payment status at order level, not payment level.
 - [10-05] Use order totalAmountMinor vs sum of linked payments.
 - [10-05] Keep legacy payment-level counts for backward compatibility.
+- [11-01] Chose better-convex for type-safe HTTP access to Convex functions via CRPC pattern.
+- [11-01] Ported Prisma schema to Convex defineSchema with v.id() string references (no enforced referential integrity).
+- [11-01] Used v.any() for rawPayload/providerPayload fields to preserve flexible provider data without strict typing.
+- [11-02] Foreign keys are implicit using v.string() — relationships enforced at application level (no referential integrity).
+- [11-02] Timestamps stored as numbers (milliseconds since epoch) instead of Date objects.
+- [11-02] JSON fields use v.any() for flexibility with rawPayload, customAnswers, providerPayload.
+- [11-02] Enum types use v.union(v.literal()) pattern instead of string literals.
+- [11-02] cRPC builder exports typed context helpers (QueryCtx, MutationCtx, ActionCtx) for procedure authoring.
 
 ### Roadmap Evolution
 
@@ -145,6 +154,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-03-25T11:55:00Z
-Stopped at: Completed plan 10-03 (reconciliation dashboard)
-Resume file: .planning/phases/10-payment-reconciliation-tikkie-bank-cash/10-03-SUMMARY.md
+Last session: 2026-03-25T15:20:00Z
+Stopped at: Completed plan 11-02 (schema conversion)
+Resume file: None
