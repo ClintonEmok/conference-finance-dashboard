@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in-progress
-stopped_at: Completed plan 11-02 (schema conversion)
-last_updated: "2026-03-25T15:20:00.000Z"
+stopped_at: Completed plan 11-03 (convex functions)
+last_updated: "2026-03-25T16:00:00.000Z"
 progress:
   total_phases: 13
   completed_phases: 10
@@ -24,8 +24,8 @@ See: `.planning/PROJECT.md` (updated 2026-03-18)
 ## Current Position
 
 Phase: 11 (use-convex)
-Plan: 2 of 5 complete
-Status: In progress - Schema converted, ready for query conversion (11-03)
+Plan: 3 of 5 complete
+Status: In progress - Functions written, need commit + API routes (11-04)
 
 ## Performance Metrics
 
@@ -119,6 +119,11 @@ Recent decisions affecting current work:
 - [11-02] JSON fields use v.any() for flexibility with rawPayload, customAnswers, providerPayload.
 - [11-02] Enum types use v.union(v.literal()) pattern instead of string literals.
 - [11-02] cRPC builder exports typed context helpers (QueryCtx, MutationCtx, ActionCtx) for procedure authoring.
+- [11-03] Used Convex native query/mutation from \_generated/server instead of cRPC wrapper pattern for simplicity.
+- [11-03] Accommodation domain expanded from 4 to 30 functions — full hotel/room type/room CRUD, event-hotel links, allocation board.
+- [11-03] Orders domain expanded from 3 to 13 functions — search, pagination, reconciliation, payment status, provider upserts.
+- [11-03] Sync domain expanded from 2 to 23 functions — webhook events, Ticket Tailor upserts, attendee family groups.
+- [11-03] Functions operate directly on Convex ctx.db with typed v.\* argument validation — no intermediate service layer.
 
 ### Roadmap Evolution
 
@@ -136,6 +141,7 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
+- Convex function files (convex/functions/\*.ts) are UNTRACKED — must be committed before proceeding to 11-04
 - Phase 6 complete. All Tikkie operator workflows shipped.
 - Real provider verification for Tikkie still depends on `TIKKIE_API_KEY`, `TIKKIE_APP_TOKEN`, and the active webhook callback subscription being configured.
 - Non-blocking lint warnings in various files should be cleaned during future hygiene work.
@@ -154,6 +160,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-03-25T15:20:00Z
-Stopped at: Completed plan 11-02 (schema conversion)
+Last session: 2026-03-25T16:00:00Z
+Stopped at: Completed plan 11-03 (convex functions)
 Resume file: None
