@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client"
 
 import { prisma } from "@/lib/prisma"
+import { getPaymentRequestPayments } from "@/lib/integrations/tikkie/client"
 
 export type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 
@@ -299,4 +300,141 @@ export async function getUnassignedPayments(): Promise<PaymentDto[]> {
   })
 
   return payments.map(mapPayment)
+}
+
+export type SyncTikkiePaymentsResult = {
+  newPayments: number
+  existingPayments: number
+  errors: string[]
+}
+
+/**
+ * Syncs payments from Tikkie Open Payment API and creates Payment records.
+ * Fetches all payments for a payment request token and stores new ones.
+ */
+export async function syncTikkiePayments(
+  paymentRequestToken: string
+): Promise<SyncTikkiePaymentsResult> {
+  const result: SyncTikkiePaymentsResult = {
+    newPayments: 0,
+    existingPayments: 0,
+    errors: [],
+  }
+
+  try {
+    // Fetch payments from Tikkie API
+    const tikkieResponse = await getPaymentRequestPayments(paymentRequestToken)
+
+    // The response has a 'payments' array with payment objects
+    const tikkiePayments = tikkieResponse.payments as Array<{
+      paymentId: string
+      payerName: string
+      payerAccountNumber?: string
+      amountPaidInCents: number
+      paidAt: string
+    }>
+
+    for (const tPayment of tikkiePayments) {
+      // Check if payment already exists by sourceId
+      const existing = await prisma.payment.findFirst({
+        where: {
+          source: "tikkie",
+          sourceId: tPayment.paymentId,
+        },
+      })
+
+      if (existing) {
+        result.existingPayments++
+        continue
+      }
+
+      // Create new Payment record
+      await prisma.payment.create({
+        data: {
+          source: "tikkie",
+          sourceId: tPayment.paymentId,
+          payerName: tPayment.payerName,
+          payerAccountNumber: tPayment.payerAccountNumber || null,
+          amountMinor: tPayment.amountPaidInCents,
+          paidAt: new Date(tPayment.paidAt),
+          status: "unassigned",
+          providerPayload: tPayment as unknown as Prisma.JsonValue,
+        },
+      })
+      result.newPayments++
+    }
+  } catch (error) {
+    result.errors.push(error instanceof Error ? error.message : "Unknown error")
+  }
+
+  return result
+}
+
+export type AutoMatchResult = {
+  autoMatched: number
+  ambiguous: number
+  unchanged: number
+}
+
+/**
+ * Automatically matches unassigned payments to orders by payerName -> buyerName exact match.
+ * - Single match: status = 'auto_matched', orderId set
+ * - Multiple matches: status = 'ambiguous' (manual review)
+ * - No match: status remains 'unassigned'
+ */
+export async function autoMatchPayments(): Promise<AutoMatchResult> {
+  const result: AutoMatchResult = {
+    autoMatched: 0,
+    ambiguous: 0,
+    unchanged: 0,
+  }
+
+  // Get all unassigned payments with payerName
+  const unassignedPayments = await prisma.payment.findMany({
+    where: {
+      status: "unassigned",
+      payerName: { not: "" },
+    },
+  })
+
+  for (const payment of unassignedPayments) {
+    // Find orders where buyerName exactly matches payerName
+    const matchingOrders = await prisma.ticketTailorOrder.findMany({
+      where: {
+        buyerName: {
+          equals: payment.payerName,
+          mode: "insensitive",
+        },
+      },
+      select: { id: true },
+    })
+
+    if (matchingOrders.length === 0) {
+      // No match - remains unassigned
+      result.unchanged++
+    } else if (matchingOrders.length === 1) {
+      // Exact single match - auto-assign
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          orderId: matchingOrders[0].id,
+          status: "auto_matched",
+          matchedAt: new Date(),
+          matchedBy: "auto",
+        },
+      })
+      result.autoMatched++
+    } else {
+      // Multiple matches - ambiguous, needs manual review
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: "ambiguous",
+        },
+      })
+      result.ambiguous++
+    }
+  }
+
+  return result
 }
