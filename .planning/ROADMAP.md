@@ -121,6 +121,7 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 7. Complete Tikkie Integration               | 2/2            | Complete | 2026-03-21 |
 | 8. Attendee Follow-up & Reconciliation UX    | 0/1            | Planned  | -          |
 | 9. Smart Allocation & Attendee Signals       | 0/2            | Planned  | -          |
+| 10. Payment Reconciliation                   | 0/1            | Planned  | -          |
 
 ### Phase 6: Tikkie Integration
 
@@ -175,11 +176,32 @@ Plans:
 
 Plans:
 
+### Phase 10: Payment Reconciliation (Tikkie Open, Bank Transfers, Cash)
+
+**Goal:** Add unified payment reconciliation for Tikkie open payments, bank transfers, and cash entries with automatic matching by payer name to buyer name and manual assignment for unresolved payments.
+**Requirements**: TBD
+**Depends on:** Phase 7
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run `/gsd-plan-phase 10` to break down)
+
 ## Backlog
 
 ### Phase 999.1: Complete UI/UX Redesign (BACKLOG)
 
 **Goal:** Complete redesign of all pages from the ground up.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.2: Use Supabase (BACKLOG)
+
+**Goal:** Migrate or integrate with Supabase for backend services.
 **Requirements:** TBD
 **Plans:** 0 plans
 
