@@ -19,7 +19,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 **Core value:** One trusted dashboard for church conference finance operations.
-**Current focus:** Phase 10 — payment-reconciliation
+**Current focus:** Phase 11 — use-convex (migrating from Prisma/SQLite to Convex)
 
 ## Current Position
 
