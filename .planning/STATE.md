@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 12 context gathered
-last_updated: "2026-03-25T18:42:30.115Z"
+stopped_at: Completed 12-01-PLAN.md
+last_updated: "2026-03-25T22:20:55Z"
 progress:
   total_phases: 14
   completed_phases: 11
-  total_plans: 28
-  completed_plans: 29
+  total_plans: 30
+  completed_plans: 28
 ---
 
 # Project State
@@ -19,13 +19,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 **Core value:** One trusted dashboard for church conference finance operations.
-**Current focus:** Phase 11 — use-convex (migrating from Prisma/SQLite to Convex)
+**Current focus:** Phase 12 — migrate-auth-to-convex (Convex auth cutover and Prisma auth removal)
 
 ## Current Position
 
-Phase: 999.1
-Plan: Not started
-Status: In progress - API routes done, e2e verify + deploy remaining (11-05 tasks 2-4)
+Phase: 12 of 14 (migrate-auth-to-convex)
+Plan: 1 of 2 completed (12-01)
+Status: In progress - foundation complete, cutover/removal pending (12-02)
+Last activity: 2026-03-25 - Completed 12-01-PLAN.md
+
+Progress: ███████████████████░ 93% (28/30 plans)
 
 ## Performance Metrics
 
@@ -131,6 +134,8 @@ Recent decisions affecting current work:
 - [11-05] API routes use direct HTTP fetch to Convex URL via convexQuery/convexMutation helpers instead of ConvexClient.
 - [11-05] Payments list route delegates to domain layer (listPayments) rather than calling Convex directly, maintaining abstraction.
 - [11-05] Tikkie sync route inlines its own convexQuery helper rather than importing from lib/convex/server.ts.
+- [12-01] Better Auth runtime configuration now lives in `convex/functions/auth.ts`, and app code consumes generated Convex auth via `lib/auth.ts`.
+- [12-01] Auth schema models are singular (`user`, `session`, `account`, `verification`) in both Convex schema files for adapter compatibility.
 
 ### Roadmap Evolution
 
@@ -150,10 +155,11 @@ Recent decisions affecting current work:
 ### Blockers/Concerns
 
 - E2E verification and production deploy still pending (11-05 tasks 2-4)
-- `lib/prisma.ts` and `lib/auth.ts` still use Prisma for better-auth adapter (expected, intentional)
+- `lib/prisma.ts` and Prisma package removal are pending 12-02 cutover cleanup.
 - Phase 6 complete. All Tikkie operator workflows shipped.
 - Real provider verification for Tikkie still depends on `TIKKIE_API_KEY`, `TIKKIE_APP_TOKEN`, and the active webhook callback subscription being configured.
 - Non-blocking lint warnings in various files should be cleaned during future hygiene work.
+- Local working tree contains dirty `.env` and `prisma/dev.db` not committed by plan execution.
 
 ### Quick Tasks Completed
 
@@ -169,6 +175,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-03-25T18:42:30.108Z
-Stopped at: Phase 12 context gathered
-Resume file: .planning/phases/12-migrate-auth-to-convex/12-CONTEXT.md
+Last session: 2026-03-25T22:20:55Z
+Stopped at: Completed 12-01-PLAN.md
+Resume file: .planning/phases/12-migrate-auth-to-convex/12-02-PLAN.md
