@@ -1052,19 +1052,27 @@ type PaymentMatchStatus =
   | "manual_assignment"
   | "auto_matched"
 
+type OrderPaymentStatus = "unassigned" | "partial" | "paid" | "overpaid"
+
 type PaymentSummary = {
   summary: {
     unassigned: number
-    ambiguous: number
-    manual_assignment: number
-    auto_matched: number
-    total: number
+    partial: number
+    paid: number
+    overpaid: number
+    totalOrders: number
   }
   totalAmountMinor: number
   bySource: {
     tikkie: number
     bank_transfer: number
     cash: number
+  }
+  legacyPaymentStatus?: {
+    unassigned: number
+    ambiguous: number
+    manual_assignment: number
+    auto_matched: number
   }
 }
 
@@ -1164,7 +1172,7 @@ function PaymentReconciliationSection() {
                   {isLoading ? "--" : (summary?.summary.unassigned ?? 0)}
                 </p>
                 <p className="text-[10px] text-muted-foreground">
-                  Needs attention
+                  No payments linked
                 </p>
               </div>
             </div>
@@ -1179,34 +1187,13 @@ function PaymentReconciliationSection() {
               </span>
               <div>
                 <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                  Ambiguous
+                  Partial
                 </p>
                 <p className="mt-1 text-lg font-semibold text-foreground">
-                  {isLoading ? "--" : (summary?.summary.ambiguous ?? 0)}
+                  {isLoading ? "--" : (summary?.summary.partial ?? 0)}
                 </p>
                 <p className="text-[10px] text-muted-foreground">
-                  Review needed
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border border-border">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
-                <HandCoins className="size-5" />
-              </span>
-              <div>
-                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                  Manual
-                </p>
-                <p className="mt-1 text-lg font-semibold text-foreground">
-                  {isLoading ? "--" : (summary?.summary.manual_assignment ?? 0)}
-                </p>
-                <p className="text-[10px] text-muted-foreground">
-                  Manually assigned
+                  Partially paid
                 </p>
               </div>
             </div>
@@ -1221,13 +1208,32 @@ function PaymentReconciliationSection() {
               </span>
               <div>
                 <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                  Auto-matched
+                  Paid
                 </p>
                 <p className="mt-1 text-lg font-semibold text-foreground">
-                  {isLoading ? "--" : (summary?.summary.auto_matched ?? 0)}
+                  {isLoading ? "--" : (summary?.summary.paid ?? 0)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">Fully paid</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-lg bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
+                <CircleAlert className="size-5" />
+              </span>
+              <div>
+                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                  Overpaid
+                </p>
+                <p className="mt-1 text-lg font-semibold text-foreground">
+                  {isLoading ? "--" : (summary?.summary.overpaid ?? 0)}
                 </p>
                 <p className="text-[10px] text-muted-foreground">
-                  Automatically matched
+                  Excess payment
                 </p>
               </div>
             </div>
