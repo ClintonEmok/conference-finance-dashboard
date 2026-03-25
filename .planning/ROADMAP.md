@@ -181,11 +181,14 @@ Plans:
 **Goal:** Add unified payment reconciliation for Tikkie open payments, bank transfers, and cash entries with automatic matching by payer name to buyer name and manual assignment for unresolved payments.
 **Requirements**: TBD
 **Depends on:** Phase 7
-**Plans:** 0 plans
+**Plans:** 3 plans
+**Status:** 3/3 planned
 
 Plans:
 
-- [ ] TBD (run `/gsd-plan-phase 10` to break down)
+- [ ] 10-01-PLAN.md — Payment model + Tikkie Open sync + auto-match logic
+- [ ] 10-02-PLAN.md — Manual bank/cash entry + assignment API + UI
+- [ ] 10-03-PLAN.md — Reconciliation dashboard with summary and payment list
 
 ## Backlog
 
