@@ -67,3 +67,4 @@ Finance admin can open the dashboard, trust conference revenue figures from Tick
 ## Validated Requirements
 
 - **Phase 7 (2026-03-21):** Tikkie integration complete — provider-authoritative refresh via GET payment retrieval and guarded webhook subscription setup path. Status trust gap closed.
+- **Phase 11 (2026-03-25):** Backend migrated from Prisma/SQLite to Convex — 101 Convex functions, all domain/integration files converted, API routes updated. Better Auth preserved.
