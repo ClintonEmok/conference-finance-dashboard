@@ -108,19 +108,21 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
-  accounts: {
+  account: {
     document: {
       accessToken?: string;
       accessTokenExpiresAt?: number;
       accountId: string;
+      createdAt: number;
       idToken?: string;
       password?: string;
       providerId: string;
       refreshToken?: string;
       refreshTokenExpiresAt?: number;
       scope?: string;
+      updatedAt: number;
       userId: string;
-      _id: Id<"accounts">;
+      _id: Id<"account">;
       _creationTime: number;
     };
     fieldPaths:
@@ -129,16 +131,19 @@ export type DataModel = {
       | "accessToken"
       | "accessTokenExpiresAt"
       | "accountId"
+      | "createdAt"
       | "idToken"
       | "password"
       | "providerId"
       | "refreshToken"
       | "refreshTokenExpiresAt"
       | "scope"
+      | "updatedAt"
       | "userId";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      accountId: ["accountId", "_creationTime"];
       userId: ["userId", "_creationTime"];
     };
     searchIndexes: {};
@@ -256,22 +261,26 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
-  sessions: {
+  session: {
     document: {
+      createdAt: number;
       expiresAt: number;
       ipAddress?: string;
       token: string;
+      updatedAt: number;
       userAgent?: string;
       userId: string;
-      _id: Id<"sessions">;
+      _id: Id<"session">;
       _creationTime: number;
     };
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "createdAt"
       | "expiresAt"
       | "ipAddress"
       | "token"
+      | "updatedAt"
       | "userAgent"
       | "userId";
     indexes: {
@@ -625,22 +634,26 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
-  users: {
+  user: {
     document: {
+      createdAt: number;
       email: string;
       emailVerified: boolean;
       image?: string;
       name: string;
-      _id: Id<"users">;
+      updatedAt: number;
+      _id: Id<"user">;
       _creationTime: number;
     };
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "createdAt"
       | "email"
       | "emailVerified"
       | "image"
-      | "name";
+      | "name"
+      | "updatedAt";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
@@ -649,15 +662,24 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
-  verifications: {
+  verification: {
     document: {
+      createdAt?: number;
       expiresAt: number;
       identifier: string;
+      updatedAt?: number;
       value: string;
-      _id: Id<"verifications">;
+      _id: Id<"verification">;
       _creationTime: number;
     };
-    fieldPaths: "_creationTime" | "_id" | "expiresAt" | "identifier" | "value";
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "expiresAt"
+      | "identifier"
+      | "updatedAt"
+      | "value";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];

@@ -8,14 +8,14 @@ import {
   createAuthRuntime,
   type GenericAuthDefinition,
   getGeneratedAuthDisabledReason,
-  createDisabledAuthRuntime,
+  resolveGeneratedAuthDefinition,
 } from 'better-convex/auth';
-
+import { internal } from '../_generated/api.js';
 import type { DataModel } from '../_generated/dataModel';
 import type { GenericCtx, MutationCtx } from './server';
 
 import schema from '../schema';
-
+import * as authDefinitionModule from '../auth';
 
 export function defineAuth<
   AuthOptions extends BetterAuthOptionsWithoutDatabase = BetterAuthOptionsWithoutDatabase,
@@ -25,9 +25,28 @@ export function defineAuth<
   return baseDefineAuth(definition);
 }
 
+type AuthDefinitionFromFile = Extract<
+  typeof authDefinitionModule extends { default: infer T } ? T : never,
+  (...args: unknown[]) => unknown
+>;
 
-const authRuntime = createDisabledAuthRuntime<DataModel, typeof schema, MutationCtx, GenericCtx>({
-  reason: getGeneratedAuthDisabledReason("missing_auth_file"),
+const authDefinition = ((ctx: GenericCtx) =>
+  resolveGeneratedAuthDefinition<AuthDefinitionFromFile>(
+    authDefinitionModule,
+    getGeneratedAuthDisabledReason("default_export_unavailable")
+  )(ctx)) as AuthDefinitionFromFile;
+
+const authRuntime = createAuthRuntime<
+  DataModel,
+  typeof schema,
+  MutationCtx,
+  GenericCtx,
+  ReturnType<AuthDefinitionFromFile>
+>({
+  internal,
+  moduleName: "generated/auth",
+  schema,
+  auth: authDefinition,
 });
 
 export const {

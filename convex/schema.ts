@@ -2,19 +2,23 @@ import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
 
 export default defineSchema({
-  users: defineTable(
+  user: defineTable(
     v.object({
       name: v.string(),
       email: v.string(),
       emailVerified: v.boolean(),
       image: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
     })
   ).index("email", ["email"]),
 
-  sessions: defineTable(
+  session: defineTable(
     v.object({
-      expiresAt: v.number(),
       token: v.string(),
+      expiresAt: v.number(),
+      createdAt: v.number(),
+      updatedAt: v.number(),
       ipAddress: v.optional(v.string()),
       userAgent: v.optional(v.string()),
       userId: v.string(),
@@ -23,7 +27,7 @@ export default defineSchema({
     .index("userId", ["userId"])
     .index("token", ["token"]),
 
-  accounts: defineTable(
+  account: defineTable(
     v.object({
       accountId: v.string(),
       providerId: v.string(),
@@ -35,14 +39,20 @@ export default defineSchema({
       refreshTokenExpiresAt: v.optional(v.number()),
       scope: v.optional(v.string()),
       password: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
     })
-  ).index("userId", ["userId"]),
+  )
+    .index("accountId", ["accountId"])
+    .index("userId", ["userId"]),
 
-  verifications: defineTable(
+  verification: defineTable(
     v.object({
       identifier: v.string(),
       value: v.string(),
       expiresAt: v.number(),
+      createdAt: v.optional(v.number()),
+      updatedAt: v.optional(v.number()),
     })
   ).index("identifier", ["identifier"]),
 
