@@ -122,7 +122,7 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 8. Attendee Follow-up & Reconciliation UX    | 0/1            | Planned  | -          |
 | 9. Smart Allocation & Attendee Signals       | 0/2            | Planned  | -          |
 | 10. Payment Reconciliation                   | 0/1            | Complete | 2026-03-25 |
-| 11. Use Supabase                             | 0/1            | Complete    | 2026-03-25 |
+| 11. Use Supabase                             | 0/1            | Complete | 2026-03-25 |
 
 ### Phase 6: Tikkie Integration
 
@@ -219,12 +219,13 @@ Plans:
 
 - [ ] TBD (promote with /gsd-review-backlog when ready)
 
-### Phase 1000: migrate auth to convex
+### Phase 12: migrate auth to convex
 
 **Goal:** [To be planned]
 **Requirements**: TBD
-**Depends on:** Phase 999
+**Depends on:** Phase 11
 **Plans:** 0 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 1000 to break down)
+
+- [ ] TBD (run /gsd:plan-phase 12 to break down)

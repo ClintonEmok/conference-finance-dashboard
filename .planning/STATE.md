@@ -139,7 +139,7 @@ Recent decisions affecting current work:
 - Phase 8 replaced: Attendee Follow-up & Reconciliation UX (5 targeted UX improvements)
 - Phase 9 added: Smart Allocation & Attendee Signals (moved from original Phase 8)
 - Phase 10 added: Payment reconciliation with Tikkie open, bank transfers, and cash entries
-- Phase 1000 added: migrate auth to convex
+- Phase 12 added: migrate auth to convex
 
 ### Pending Todos
 
