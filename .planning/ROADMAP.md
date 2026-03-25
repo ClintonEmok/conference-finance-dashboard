@@ -182,14 +182,16 @@ Plans:
 **Goal:** Add unified payment reconciliation for Tikkie open payments, bank transfers, and cash entries with automatic matching by payer name to buyer name and manual assignment for unresolved payments.
 **Requirements**: TBD
 **Depends on:** Phase 7
-**Plans:** 3 plans
-**Status:** 3/3 planned
+**Plans:** 5 plans
+**Status:** 3/5 planned (gap closure: 10-04, 10-05)
 
 Plans:
 
-- [ ] 10-01-PLAN.md — Payment model + Tikkie Open sync + auto-match logic
-- [ ] 10-02-PLAN.md — Manual bank/cash entry + assignment API + UI
-- [ ] 10-03-PLAN.md — Reconciliation dashboard with summary and payment list
+- [x] 10-01-PLAN.md — Payment model + Tikkie Open sync + auto-match logic
+- [x] 10-02-PLAN.md — Manual bank/cash entry + assignment API + UI
+- [x] 10-03-PLAN.md — Reconciliation dashboard with summary and payment list
+- [ ] 10-04-PLAN.md — Gap closure: Tikkie payment storage + auto-matching logic
+- [ ] 10-05-PLAN.md — Gap closure: Order-level payment status (partial/paid/overpaid)
 
 ### Phase 11: Use Supabase
 
