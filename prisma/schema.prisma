@@ -371,6 +371,53 @@ model AttendeeFamilyMember {
   @@index([familyGroupId])
 }
 
+enum PaymentSource {
+  tikkie
+  bank_transfer
+  cash
+}
+
+enum PaymentMatchStatus {
+  auto_matched
+  manual_assignment
+  ambiguous
+  unassigned
+}
+
+model Payment {
+  id                    String             @id @default(cuid())
+  source                PaymentSource
+  sourceId              String?            // Tikkie: payment ID, Bank/Cash: internal
+
+  // Payer info (from payment)
+  payerName             String
+  payerAccountNumber    String?
+
+  // Amount
+  amountMinor          Int
+  paidAt               DateTime
+
+  // Linkage
+  orderId              String?
+  status               PaymentMatchStatus @default(unassigned)
+  matchedAt            DateTime?
+  matchedBy            String?            // 'auto' or user ID
+
+  // Manual entry specifics
+  reference            String?            // Bank transfer reference
+  notes                String?
+
+  // Source data preservation
+  providerPayload       Json?
+
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@index([orderId])
+  @@index([source, sourceId])
+  @@index([status])
+}
+
 model RoomAllocation {
   id        String              @id @default(cuid())
   eventId   String
