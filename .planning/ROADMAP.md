@@ -121,7 +121,7 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 7. Complete Tikkie Integration               | 2/2            | Complete | 2026-03-21 |
 | 8. Attendee Follow-up & Reconciliation UX    | 0/1            | Planned  | -          |
 | 9. Smart Allocation & Attendee Signals       | 0/2            | Planned  | -          |
-| 10. Payment Reconciliation                   | 0/1            | Complete    | 2026-03-25 |
+| 10. Payment Reconciliation                   | 0/1            | Complete | 2026-03-25 |
 | 11. Use Supabase                             | 0/1            | Planned  | -          |
 
 ### Phase 6: Tikkie Integration
@@ -193,16 +193,16 @@ Plans:
 - [ ] 10-04-PLAN.md — Gap closure: Tikkie payment storage + auto-matching logic
 - [ ] 10-05-PLAN.md — Gap closure: Order-level payment status (partial/paid/overpaid)
 
-### Phase 11: Use Supabase
+### Phase 11: Use Convex
 
-**Goal:** Migrate or integrate with Supabase for backend services.
+**Goal:** Migrate backend from SQLite/Prisma to Convex for simpler, all-in-repo backend with real-time support.
 **Requirements:** TBD
 **Depends on:** Phase 10
 **Plans:** 1 plan
 
 Plans:
 
-- [ ] 11-01-PLAN.md — Migrate backend from SQLite/Prisma to Supabase (PostgreSQL + Auth)
+- [ ] 11-01-PLAN.md — Migrate from Prisma to Convex (install, init, schema, functions, auth, deploy)
 
 ## Backlog
 
