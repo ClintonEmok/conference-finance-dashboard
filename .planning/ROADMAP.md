@@ -196,11 +196,11 @@ Plans:
 **Goal:** Migrate or integrate with Supabase for backend services.
 **Requirements:** TBD
 **Depends on:** Phase 10
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
 
-- [ ] TBD (run `/gsd-plan-phase 11` to break down)
+- [ ] 11-01-PLAN.md — Migrate backend from SQLite/Prisma to Supabase (PostgreSQL + Auth)
 
 ## Backlog
 
