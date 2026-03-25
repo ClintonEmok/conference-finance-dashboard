@@ -122,7 +122,7 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 8. Attendee Follow-up & Reconciliation UX    | 0/1            | Planned  | -          |
 | 9. Smart Allocation & Attendee Signals       | 0/2            | Planned  | -          |
 | 10. Payment Reconciliation                   | 0/1            | Complete | 2026-03-25 |
-| 11. Use Supabase                             | 0/1            | Planned  | -          |
+| 11. Use Supabase                             | 0/1            | Complete    | 2026-03-25 |
 
 ### Phase 6: Tikkie Integration
 
@@ -193,16 +193,19 @@ Plans:
 - [ ] 10-04-PLAN.md — Gap closure: Tikkie payment storage + auto-matching logic
 - [ ] 10-05-PLAN.md — Gap closure: Order-level payment status (partial/paid/overpaid)
 
-### Phase 11: Use Convex
+### Phase 11: Use Better Convex
 
-**Goal:** Migrate backend from SQLite/Prisma to Convex for simpler, all-in-repo backend with real-time support.
-**Requirements:** TBD
+**Goal:** Migrate backend from SQLite/Prisma to Better Convex (Better Auth + Convex ORM) - keeping Better Auth and swapping only the DB layer.
 **Depends on:** Phase 10
-**Plans:** 1 plan
+**Plans:** 5/5 plans complete
 
 Plans:
 
-- [ ] 11-01-PLAN.md — Migrate from Prisma to Convex (install, init, schema, functions, auth, deploy)
+- [ ] 11-01-PLAN.md — Setup: install packages, configure folder structure, initialize dev server
+- [ ] 11-02-PLAN.md — Schema: convert Prisma schema to Better Convex schema
+- [ ] 11-03-PLAN.md — Functions: create Convex functions for data operations
+- [ ] 11-04-PLAN.md — Domain: update domain layer to use Convex
+- [ ] 11-05-PLAN.md — API + Verify: update API routes, verify end-to-end, deploy
 
 ## Backlog
 
