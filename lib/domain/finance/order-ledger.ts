@@ -1,6 +1,24 @@
-import { Prisma } from "@prisma/client"
+const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
 
-import { prisma } from "@/lib/prisma"
+async function convexQuery<Args extends Record<string, unknown>, Response>(
+  path: string,
+  args: Args
+): Promise<Response> {
+  const response = await fetch(`${CONVEX_URL}/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ args }),
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Convex query failed: ${error}`)
+  }
+
+  return response.json()
+}
 
 export type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 
@@ -53,7 +71,10 @@ const DEFAULT_PAGE = 1
 const DEFAULT_PAGE_SIZE = 25
 const MAX_PAGE_SIZE = 200
 
-function parseDate(value: Date | string | null | undefined, field: "from" | "to") {
+function parseDate(
+  value: Date | string | null | undefined,
+  field: "from" | "to"
+) {
   if (!value) {
     return null
   }
@@ -70,17 +91,22 @@ function parseDate(value: Date | string | null | undefined, field: "from" | "to"
 function normalizeRange(filters: OrderLedgerFilters) {
   const now = new Date()
   const to = parseDate(filters.to, "to") ?? now
-  const from = parseDate(filters.from, "from") ?? new Date(to.getTime() - 29 * DAY_MS)
+  const from =
+    parseDate(filters.from, "from") ?? new Date(to.getTime() - 29 * DAY_MS)
 
   if (from.getTime() > to.getTime()) {
-    throw new Error("Invalid date range. 'from' must be less than or equal to 'to'.")
+    throw new Error(
+      "Invalid date range. 'from' must be less than or equal to 'to'."
+    )
   }
 
   return { from, to }
 }
 
 function normalizePagination(page?: number, pageSize?: number) {
-  const safePage = Number.isFinite(page) ? Math.max(DEFAULT_PAGE, Math.floor(page as number)) : DEFAULT_PAGE
+  const safePage = Number.isFinite(page)
+    ? Math.max(DEFAULT_PAGE, Math.floor(page as number))
+    : DEFAULT_PAGE
   const safePageSize = Number.isFinite(pageSize)
     ? Math.max(1, Math.min(MAX_PAGE_SIZE, Math.floor(pageSize as number)))
     : DEFAULT_PAGE_SIZE
@@ -98,53 +124,65 @@ function escapeCsvCell(value: string | number | null) {
 
   const raw = String(value)
 
-  if (raw.includes(",") || raw.includes("\n") || raw.includes("\"")) {
+  if (raw.includes(",") || raw.includes("\n") || raw.includes('"')) {
     return `"${raw.replace(/"/g, '""')}"`
   }
 
   return raw
 }
 
-export async function getOrderLedger(filters: OrderLedgerFilters = {}): Promise<OrderLedgerResult> {
-  const eventId = typeof filters.eventId === "string" && filters.eventId.trim() ? filters.eventId.trim() : null
+export async function getOrderLedger(
+  filters: OrderLedgerFilters = {}
+): Promise<OrderLedgerResult> {
+  const eventId =
+    typeof filters.eventId === "string" && filters.eventId.trim()
+      ? filters.eventId.trim()
+      : null
   const status = filters.status ?? null
   const { from, to } = normalizeRange(filters)
   const { page, pageSize } = normalizePagination(filters.page, filters.pageSize)
 
-  const whereClause: Prisma.TicketTailorOrderWhereInput = {
-    orderedAt: {
-      gte: from,
-      lte: to,
-    },
-    ...(eventId ? { providerEventId: eventId } : {}),
-    ...(status ? { normalizedStatus: status } : {}),
-  }
+  const fromMs = from.getTime()
+  const toMs = to.getTime()
 
-  const [totalRows, orders, availableEvents] = await Promise.all([
-    prisma.ticketTailorOrder.count({ where: whereClause }),
-    prisma.ticketTailorOrder.findMany({
-      where: whereClause,
-      include: {
-        event: {
-          select: {
-            name: true,
-          },
-        },
+  const [ordersResult, availableEvents] = await Promise.all([
+    convexQuery<
+      {
+        eventId?: string
+        from?: number
+        to?: number
+        status?: CanonicalOrderStatus
+        page?: number
+        pageSize?: number
       },
-      orderBy: [{ orderedAt: "desc" }, { createdAt: "desc" }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      {
+        totalRows: number
+        totalPages: number
+        orders: Array<{
+          providerOrderId: string
+          providerEventId: string
+          eventName: string | null
+          normalizedStatus: CanonicalOrderStatus
+          totalAmountMinor: number
+          currency: string | null
+          orderedAt: string | null
+          buyerName: string | null
+          buyerEmail: string | null
+        }>
+      }
+    >("orders/getOrdersWithFilters", {
+      eventId: eventId ?? undefined,
+      from: fromMs,
+      to: toMs,
+      status: status ?? undefined,
+      page,
+      pageSize,
     }),
-    prisma.ticketTailorEvent.findMany({
-      orderBy: [{ startsAt: "asc" }, { name: "asc" }],
-      select: {
-        providerEventId: true,
-        name: true,
-      },
-    }),
+    convexQuery<{}, Array<{ providerEventId: string; name: string | null }>>(
+      "events/getEventsForLedger",
+      {}
+    ),
   ])
-
-  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
 
   return {
     generatedAt: new Date().toISOString(),
@@ -160,20 +198,10 @@ export async function getOrderLedger(filters: OrderLedgerFilters = {}): Promise<
     page: {
       number: page,
       size: pageSize,
-      totalRows,
-      totalPages,
+      totalRows: ordersResult.totalRows,
+      totalPages: ordersResult.totalPages,
     },
-    rows: orders.map((order) => ({
-      providerOrderId: order.providerOrderId,
-      providerEventId: order.providerEventId,
-      eventName: order.event?.name ?? null,
-      normalizedStatus: order.normalizedStatus as CanonicalOrderStatus,
-      totalAmountMinor: order.totalAmountMinor ?? 0,
-      currency: order.currency ?? null,
-      orderedAt: order.orderedAt ? order.orderedAt.toISOString() : null,
-      buyerName: order.buyerName ?? null,
-      buyerEmail: order.buyerEmail ?? null,
-    })),
+    rows: ordersResult.orders,
   }
 }
 
@@ -206,7 +234,7 @@ export function buildOrderLedgerCsv(rows: OrderLedgerRow[]) {
         row.buyerEmail,
       ]
         .map((cell) => escapeCsvCell(cell))
-        .join(","),
+        .join(",")
     )
   }
 

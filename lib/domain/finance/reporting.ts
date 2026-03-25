@@ -1,6 +1,24 @@
-import { Prisma } from "@prisma/client"
+const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
 
-import { prisma } from "@/lib/prisma"
+async function convexQuery<Args extends Record<string, unknown>, Response>(
+  path: string,
+  args: Args
+): Promise<Response> {
+  const response = await fetch(`${CONVEX_URL}/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ args }),
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Convex query failed: ${error}`)
+  }
+
+  return response.json()
+}
 
 export type RevenueTrendGranularity = "day"
 
@@ -45,7 +63,10 @@ export type RevenueOverview = {
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-function parseDateInput(value: Date | string | null | undefined, field: "from" | "to") {
+function parseDateInput(
+  value: Date | string | null | undefined,
+  field: "from" | "to"
+) {
   if (!value) {
     return null
   }
@@ -75,54 +96,55 @@ function normalizeRange(filters: RevenueOverviewFilters) {
   const from = requestedFrom ?? new Date(to.getTime() - 29 * DAY_MS)
 
   if (from.getTime() > to.getTime()) {
-    throw new Error("Invalid date range. 'from' must be less than or equal to 'to'.")
+    throw new Error(
+      "Invalid date range. 'from' must be less than or equal to 'to'."
+    )
   }
 
   return { from, to }
 }
 
-export async function getRevenueOverview(filters: RevenueOverviewFilters = {}): Promise<RevenueOverview> {
-  const eventId = typeof filters.eventId === "string" && filters.eventId.trim() ? filters.eventId.trim() : null
+export async function getRevenueOverview(
+  filters: RevenueOverviewFilters = {}
+): Promise<RevenueOverview> {
+  const eventId =
+    typeof filters.eventId === "string" && filters.eventId.trim()
+      ? filters.eventId.trim()
+      : null
   const trendGranularity = filters.trendGranularity ?? "day"
   const { from, to } = normalizeRange(filters)
 
-  const whereClause: Prisma.TicketTailorOrderWhereInput = {
-    orderedAt: {
-      gte: from,
-      lte: to,
-    },
-    ...(eventId ? { providerEventId: eventId } : {}),
-  }
+  const fromMs = from.getTime()
+  const toMs = to.getTime()
 
-  const [orders, groupedStatuses, availableEvents] = await Promise.all([
-    prisma.ticketTailorOrder.findMany({
-      where: whereClause,
-      select: {
-        orderedAt: true,
-        normalizedStatus: true,
-        totalAmountMinor: true,
-        providerEventId: true,
-        event: {
-          select: {
-            name: true,
-          },
-        },
+  const [orders, availableEvents] = await Promise.all([
+    convexQuery<
+      {
+        eventId?: string
+        from?: number
+        to?: number
       },
+      Array<{
+        providerOrderId: string
+        providerEventId: string
+        eventName: string | null
+        normalizedStatus: CanonicalStatus
+        totalAmountMinor: number
+        currency: string | null
+        orderedAt: string | null
+        refundedAt: string | null
+        buyerName: string | null
+        buyerEmail: string | null
+      }>
+    >("orders/getOrdersForReconciliation", {
+      eventId: eventId ?? undefined,
+      from: fromMs,
+      to: toMs,
     }),
-    prisma.ticketTailorOrder.groupBy({
-      by: ["normalizedStatus"],
-      where: whereClause,
-      _count: {
-        _all: true,
-      },
-    }),
-    prisma.ticketTailorEvent.findMany({
-      orderBy: [{ startsAt: "asc" }, { name: "asc" }],
-      select: {
-        providerEventId: true,
-        name: true,
-      },
-    }),
+    convexQuery<{}, Array<{ providerEventId: string; name: string | null }>>(
+      "events/getEventsForLedger",
+      {}
+    ),
   ])
 
   const statusCounts: Record<CanonicalStatus, number> = {
@@ -132,9 +154,9 @@ export async function getRevenueOverview(filters: RevenueOverviewFilters = {}): 
     pending: 0,
   }
 
-  for (const groupedStatus of groupedStatuses) {
-    const key = groupedStatus.normalizedStatus as CanonicalStatus
-    statusCounts[key] = groupedStatus._count._all
+  for (const order of orders) {
+    const key = order.normalizedStatus
+    statusCounts[key] = (statusCounts[key] || 0) + 1
   }
 
   const trendMap = new Map<
@@ -159,10 +181,13 @@ export async function getRevenueOverview(filters: RevenueOverviewFilters = {}): 
     }
 
     const amountMinor = order.totalAmountMinor ?? 0
-    const bucket = trendGranularity === "day" ? toUtcDayBucket(order.orderedAt) : toUtcDayBucket(order.orderedAt)
+    const bucket =
+      trendGranularity === "day"
+        ? toUtcDayBucket(new Date(order.orderedAt))
+        : toUtcDayBucket(new Date(order.orderedAt))
 
     const current = trendMap.get(bucket) ?? {
-      eventLabel: order.event.name?.trim() || order.providerEventId,
+      eventLabel: order.eventName?.trim() || order.providerEventId,
       grossMinor: 0,
       paidMinor: 0,
       refundedMinor: 0,
@@ -173,7 +198,7 @@ export async function getRevenueOverview(filters: RevenueOverviewFilters = {}): 
     current.grossMinor += amountMinor
     current.orderCount += 1
 
-    const nextEventLabel = order.event.name?.trim() || order.providerEventId
+    const nextEventLabel = order.eventName?.trim() || order.providerEventId
     if (current.eventLabel !== nextEventLabel) {
       current.eventLabel = "Multiple events"
     }

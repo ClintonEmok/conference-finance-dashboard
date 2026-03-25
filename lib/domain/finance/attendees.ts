@@ -1,8 +1,24 @@
-import { Prisma } from "@prisma/client"
+const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
 
-import { prisma } from "@/lib/prisma"
+async function convexQuery<Args extends Record<string, unknown>, Response>(
+  path: string,
+  args: Args
+): Promise<Response> {
+  const response = await fetch(`${CONVEX_URL}/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ args }),
+  })
 
-import type { CanonicalOrderStatus } from "@/lib/domain/finance/order-ledger"
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Convex query failed: ${error}`)
+  }
+
+  return response.json()
+}
 
 export type AttendeeLedgerFilters = {
   eventId?: string | null
@@ -12,6 +28,8 @@ export type AttendeeLedgerFilters = {
   page?: number
   pageSize?: number
 }
+
+export type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 
 export type AttendeeLedgerRow = {
   attendeeId: string
@@ -26,7 +44,6 @@ export type AttendeeLedgerRow = {
   normalizedStatus: CanonicalOrderStatus
   totalAmountMinor: number
   outstandingAmountMinor: number
-  // Normalized signal fields for allocation decisions
   genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
   location: string | null
   remarks: string | null
@@ -136,6 +153,59 @@ function deriveOutstandingAmount(
   return Math.max(0, Math.round(totalAmountMinor / Math.max(attendeeCount, 1)))
 }
 
+type ConvexAttendee = {
+  _id: string
+  providerAttendeeId: string | null
+  providerIssuedTicketId: string | null
+  providerOrderId: string
+  providerEventId: string
+  eventId: string
+  orderId: string
+  name: string | null
+  email: string | null
+  ticketTypeLabel: string | null
+  genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+  allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
+  priorityReason: string | null
+  ageGroup: string | null
+  ticketCategory: string | null
+  assignedRoomId: string | null
+  customAnswers: unknown | null
+}
+
+type ConvexOrder = {
+  _id: string
+  providerOrderId: string
+  providerEventId: string
+  eventId: string
+  normalizedStatus: CanonicalOrderStatus | null
+  totalAmountMinor: number | null
+  orderedAt: number | null
+}
+
+type ConvexEvent = {
+  _id: string
+  providerEventId: string
+  name: string | null
+}
+
+type ConvexRoom = {
+  _id: string
+  label: string
+  hotelId: string
+  roomTypeId: string
+}
+
+type ConvexHotel = {
+  _id: string
+  name: string
+}
+
+type ConvexRoomType = {
+  _id: string
+  label: string
+}
+
 export async function getAttendeeLedger(
   filters: AttendeeLedgerFilters = {}
 ): Promise<AttendeeLedgerResult> {
@@ -150,88 +220,124 @@ export async function getAttendeeLedger(
   const { from, to } = normalizeRange(filters)
   const { page, pageSize } = normalizePagination(filters.page, filters.pageSize)
 
-  const whereClause: Prisma.TicketTailorAttendeeWhereInput = {
-    order: {
-      is: {
-        orderedAt: {
-          gte: from,
-          lte: to,
-        },
-      },
-    },
-    ...(eventId ? { providerEventId: eventId } : {}),
-    ...(search
-      ? {
-          OR: [
-            { name: { contains: search } },
-            { email: { contains: search } },
-            { ticketTypeLabel: { contains: search } },
-            { providerIssuedTicketId: { contains: search } },
-            { providerOrderId: { contains: search } },
-            {
-              event: {
-                is: {
-                  name: { contains: search },
-                },
-              },
-            },
-          ],
-        }
-      : {}),
-  }
-
-  const [totalRows, attendees, availableEvents] = await Promise.all([
-    prisma.ticketTailorAttendee.count({ where: whereClause }),
-    prisma.ticketTailorAttendee.findMany({
-      where: whereClause,
-      include: {
-        event: {
-          select: {
-            name: true,
-          },
-        },
-        order: {
-          select: {
-            normalizedStatus: true,
-            totalAmountMinor: true,
-            orderedAt: true,
-            attendees: {
-              select: {
-                id: true,
-              },
-            },
-          },
-        },
-        assignedRoom: {
-          select: {
-            label: true,
-            hotel: {
-              select: {
-                name: true,
-              },
-            },
-            roomType: {
-              select: {
-                label: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: [{ order: { orderedAt: "desc" } }, { createdAt: "desc" }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-    prisma.ticketTailorEvent.findMany({
-      orderBy: [{ startsAt: "asc" }, { name: "asc" }],
-      select: {
-        providerEventId: true,
-        name: true,
-      },
-    }),
+  const [
+    allAttendees,
+    availableEvents,
+    allOrders,
+    allRooms,
+    allHotels,
+    allRoomTypes,
+  ] = await Promise.all([
+    convexQuery<{ eventId?: string }, ConvexAttendee[]>(
+      "attendees/getAttendees",
+      {
+        eventId: eventId ?? undefined,
+      }
+    ),
+    convexQuery<{}, ConvexEvent[]>("events/getEvents", {}),
+    convexQuery<{}, ConvexOrder[]>("orders/getOrders", {}),
+    convexQuery<{}, ConvexRoom[]>("accommodation/getRooms", {}),
+    convexQuery<{}, ConvexHotel[]>("accommodation/getHotels", {}),
+    convexQuery<{}, ConvexRoomType[]>("accommodation/getRoomTypes", {}),
   ])
 
+  const orderMap = new Map(allOrders.map((o) => [o._id, o]))
+  const eventMap = new Map(availableEvents.map((e) => [e.providerEventId, e]))
+  const roomMap = new Map(allRooms.map((r) => [r._id, r]))
+  const hotelMap = new Map(allHotels.map((h) => [h._id, h]))
+  const roomTypeMap = new Map(allRoomTypes.map((rt) => [rt._id, rt]))
+
+  const fromTime = from.getTime()
+  const toTime = to.getTime()
+
+  let filteredAttendees = allAttendees.filter((a) => {
+    const order = orderMap.get(a.orderId)
+    if (!order?.orderedAt) return false
+    const orderTime = order.orderedAt
+    return orderTime >= fromTime && orderTime <= toTime
+  })
+
+  if (search) {
+    const searchLower = search.toLowerCase()
+    filteredAttendees = filteredAttendees.filter(
+      (a) =>
+        a.name?.toLowerCase().includes(searchLower) ||
+        a.email?.toLowerCase().includes(searchLower) ||
+        a.ticketTypeLabel?.toLowerCase().includes(searchLower) ||
+        a.providerOrderId.toLowerCase().includes(searchLower)
+    )
+  }
+
+  const totalRows = filteredAttendees.length
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
+  const paginatedAttendees = filteredAttendees.slice(
+    (page - 1) * pageSize,
+    page * pageSize
+  )
+
+  const rows: AttendeeLedgerRow[] = paginatedAttendees.map((attendee) => {
+    const order = orderMap.get(attendee.orderId)
+    const event = eventMap.get(attendee.providerEventId)
+    const room = attendee.assignedRoomId
+      ? roomMap.get(attendee.assignedRoomId)
+      : null
+    const hotel = room ? hotelMap.get(room.hotelId) : null
+    const roomType = room ? roomTypeMap.get(room.roomTypeId) : null
+
+    const totalAmountMinor = order?.totalAmountMinor ?? 0
+    const normalizedStatus = (order?.normalizedStatus ??
+      "pending") as CanonicalOrderStatus
+    const attendeeCount = allAttendees.filter(
+      (a) => a.orderId === attendee.orderId
+    ).length
+
+    return {
+      attendeeId: attendee._id,
+      providerAttendeeId: attendee.providerAttendeeId,
+      providerIssuedTicketId: attendee.providerIssuedTicketId,
+      providerOrderId: attendee.providerOrderId,
+      providerEventId: attendee.providerEventId,
+      eventName: event?.name ?? null,
+      attendeeName: attendee.name ?? null,
+      attendeeEmail: attendee.email ?? null,
+      ticketTypeLabel: attendee.ticketTypeLabel ?? null,
+      normalizedStatus,
+      totalAmountMinor,
+      outstandingAmountMinor: deriveOutstandingAmount(
+        normalizedStatus,
+        totalAmountMinor,
+        attendeeCount
+      ),
+      genderType: attendee.genderType,
+      location:
+        (attendee.customAnswers as { location?: string } | null)?.location ??
+        null,
+      remarks:
+        (attendee.customAnswers as { remarks?: string } | null)?.remarks ??
+        null,
+      allocationPriority: attendee.allocationPriority ?? "NORMAL",
+      priorityReason: attendee.priorityReason,
+      ageGroup: attendee.ageGroup,
+      ticketCategory: attendee.ticketCategory,
+      roomStatus:
+        room && hotel && roomType
+          ? {
+              status: "assigned",
+              roomLabel: room.label,
+              hotelName: hotel.name,
+              roomTypeLabel: roomType.label,
+            }
+          : {
+              status: "unassigned",
+              roomLabel: null,
+              hotelName: null,
+              roomTypeLabel: null,
+            },
+      orderedAt: order?.orderedAt
+        ? new Date(order.orderedAt).toISOString()
+        : null,
+    }
+  })
 
   return {
     generatedAt: new Date().toISOString(),
@@ -243,64 +349,16 @@ export async function getAttendeeLedger(
       page,
       pageSize,
     },
-    availableEvents,
+    availableEvents: availableEvents.map((e) => ({
+      providerEventId: e.providerEventId,
+      name: e.name,
+    })),
     page: {
       number: page,
       size: pageSize,
       totalRows,
       totalPages,
     },
-    rows: attendees.map((attendee) => {
-      const totalAmountMinor = attendee.order.totalAmountMinor ?? 0
-      const normalizedStatus = attendee.order
-        .normalizedStatus as CanonicalOrderStatus
-
-      return {
-        attendeeId: attendee.id,
-        providerAttendeeId: attendee.providerAttendeeId,
-        providerIssuedTicketId: attendee.providerIssuedTicketId,
-        providerOrderId: attendee.providerOrderId,
-        providerEventId: attendee.providerEventId,
-        eventName: attendee.event?.name ?? null,
-        attendeeName: attendee.name ?? null,
-        attendeeEmail: attendee.email ?? null,
-        ticketTypeLabel: attendee.ticketTypeLabel ?? null,
-        normalizedStatus,
-        totalAmountMinor,
-        outstandingAmountMinor: deriveOutstandingAmount(
-          normalizedStatus,
-          totalAmountMinor,
-          attendee.order.attendees.length
-        ),
-        // Normalized signal fields for allocation decisions
-        genderType: attendee.genderType,
-        location:
-          (attendee.customAnswers as { location?: string } | null)?.location ??
-          null,
-        remarks:
-          (attendee.customAnswers as { remarks?: string } | null)?.remarks ??
-          null,
-        allocationPriority: attendee.allocationPriority,
-        priorityReason: attendee.priorityReason,
-        ageGroup: attendee.ageGroup,
-        ticketCategory: attendee.ticketCategory,
-        roomStatus: attendee.assignedRoom
-          ? {
-              status: "assigned",
-              roomLabel: attendee.assignedRoom.label,
-              hotelName: attendee.assignedRoom.hotel.name,
-              roomTypeLabel: attendee.assignedRoom.roomType.label,
-            }
-          : {
-              status: "unassigned",
-              roomLabel: null,
-              hotelName: null,
-              roomTypeLabel: null,
-            },
-        orderedAt: attendee.order.orderedAt
-          ? attendee.order.orderedAt.toISOString()
-          : null,
-      }
-    }),
+    rows,
   }
 }

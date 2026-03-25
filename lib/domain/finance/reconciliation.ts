@@ -1,6 +1,24 @@
-import { Prisma } from "@prisma/client"
+const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
 
-import { prisma } from "@/lib/prisma"
+async function convexQuery<Args extends Record<string, unknown>, Response>(
+  path: string,
+  args: Args
+): Promise<Response> {
+  const response = await fetch(`${CONVEX_URL}/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ args }),
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Convex query failed: ${error}`)
+  }
+
+  return response.json()
+}
 
 import type { CanonicalOrderStatus } from "@/lib/domain/finance/order-ledger"
 
@@ -36,7 +54,7 @@ export type ReconciliationResult = {
     eventId: string | null
     from: string
     to: string
-      status: CanonicalOrderStatus | null
+    status: CanonicalOrderStatus | null
   }
   availableEvents: Array<{
     providerEventId: string
@@ -51,7 +69,10 @@ export type ReconciliationResult = {
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-function parseDate(value: Date | string | null | undefined, field: "from" | "to") {
+function parseDate(
+  value: Date | string | null | undefined,
+  field: "from" | "to"
+) {
   if (!value) {
     return null
   }
@@ -68,10 +89,13 @@ function parseDate(value: Date | string | null | undefined, field: "from" | "to"
 function normalizeRange(filters: ReconciliationFilters) {
   const now = new Date()
   const to = parseDate(filters.to, "to") ?? now
-  const from = parseDate(filters.from, "from") ?? new Date(to.getTime() - 29 * DAY_MS)
+  const from =
+    parseDate(filters.from, "from") ?? new Date(to.getTime() - 29 * DAY_MS)
 
   if (from.getTime() > to.getTime()) {
-    throw new Error("Invalid date range. 'from' must be less than or equal to 'to'.")
+    throw new Error(
+      "Invalid date range. 'from' must be less than or equal to 'to'."
+    )
   }
 
   return { from, to }
@@ -111,50 +135,60 @@ function deriveReconciliation(order: {
 }
 
 export async function getReconciliationRows(
-  filters: ReconciliationFilters = {},
+  filters: ReconciliationFilters = {}
 ): Promise<ReconciliationResult> {
-  const eventId = typeof filters.eventId === "string" && filters.eventId.trim() ? filters.eventId.trim() : null
+  const eventId =
+    typeof filters.eventId === "string" && filters.eventId.trim()
+      ? filters.eventId.trim()
+      : null
   const status = filters.status ?? null
   const { from, to } = normalizeRange(filters)
 
-  const whereClause: Prisma.TicketTailorOrderWhereInput = {
-    orderedAt: {
-      gte: from,
-      lte: to,
-    },
-    ...(eventId ? { providerEventId: eventId } : {}),
-    ...(status ? { normalizedStatus: status } : {}),
-  }
+  const fromMs = from.getTime()
+  const toMs = to.getTime()
 
   const [orders, availableEvents] = await Promise.all([
-    prisma.ticketTailorOrder.findMany({
-      where: whereClause,
-      include: {
-        event: {
-          select: {
-            name: true,
-          },
-        },
+    convexQuery<
+      {
+        eventId?: string
+        from?: number
+        to?: number
+        status?: CanonicalOrderStatus
       },
-      orderBy: [{ orderedAt: "desc" }, { createdAt: "desc" }],
+      Array<{
+        providerOrderId: string
+        providerEventId: string
+        eventName: string | null
+        normalizedStatus: CanonicalOrderStatus
+        totalAmountMinor: number
+        currency: string | null
+        orderedAt: string | null
+        refundedAt: string | null
+        buyerName: string | null
+        buyerEmail: string | null
+      }>
+    >("orders/getOrdersForReconciliation", {
+      eventId: eventId ?? undefined,
+      from: fromMs,
+      to: toMs,
+      status: status ?? undefined,
     }),
-    prisma.ticketTailorEvent.findMany({
-      orderBy: [{ startsAt: "asc" }, { name: "asc" }],
-      select: {
-        providerEventId: true,
-        name: true,
-      },
-    }),
+    convexQuery<{}, Array<{ providerEventId: string; name: string | null }>>(
+      "events/getEventsForLedger",
+      {}
+    ),
   ])
 
   const rows: ReconciliationRow[] = []
   let outstandingMinor = 0
 
   for (const order of orders) {
+    const refundedAtDate = order.refundedAt ? new Date(order.refundedAt) : null
+
     const reconciliation = deriveReconciliation({
-      normalizedStatus: order.normalizedStatus as CanonicalOrderStatus,
+      normalizedStatus: order.normalizedStatus,
       totalAmountMinor: order.totalAmountMinor,
-      refundedAt: order.refundedAt,
+      refundedAt: refundedAtDate,
     })
 
     if (reconciliation.reasons.length === 0) {
@@ -166,12 +200,12 @@ export async function getReconciliationRows(
     rows.push({
       providerOrderId: order.providerOrderId,
       providerEventId: order.providerEventId,
-      eventName: order.event?.name ?? null,
-      normalizedStatus: order.normalizedStatus as CanonicalOrderStatus,
-      totalAmountMinor: order.totalAmountMinor ?? 0,
-      currency: order.currency ?? null,
-      orderedAt: order.orderedAt ? order.orderedAt.toISOString() : null,
-      refundedAt: order.refundedAt ? order.refundedAt.toISOString() : null,
+      eventName: order.eventName,
+      normalizedStatus: order.normalizedStatus,
+      totalAmountMinor: order.totalAmountMinor,
+      currency: order.currency,
+      orderedAt: order.orderedAt,
+      refundedAt: order.refundedAt,
       outstandingMinor: reconciliation.outstandingMinor,
       reasons: reconciliation.reasons,
     })

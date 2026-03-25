@@ -1,11 +1,50 @@
-import type { Prisma } from "@prisma/client"
-
-import { prisma } from "@/lib/prisma"
 import {
   createPaymentRequest,
   getPaymentRequest,
   getPaymentRequestPayments,
 } from "@/lib/integrations/tikkie/client"
+
+const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
+
+async function convexQuery<Args extends Record<string, unknown>, Response>(
+  path: string,
+  args: Args
+): Promise<Response> {
+  const response = await fetch(`${CONVEX_URL}/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ args }),
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Convex query failed: ${error}`)
+  }
+
+  return response.json()
+}
+
+async function convexMutation<Args extends Record<string, unknown>, Response>(
+  path: string,
+  args: Args
+): Promise<Response> {
+  const response = await fetch(`${CONVEX_URL}/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ args }),
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Convex mutation failed: ${error}`)
+  }
+
+  return response.json()
+}
 
 export type AppTikkieLinkStatus = "created" | "paid" | "expired"
 
@@ -27,7 +66,7 @@ export type TikkiePaymentLinkDto = {
   description: string
   expiryDate: string
   referenceId: string | null
-  providerPayload: Prisma.JsonValue
+  providerPayload: unknown
   providerLastCheckedAt: string | null
   statusUpdatedAt: string
   createdAt: string
@@ -71,7 +110,7 @@ export type RefreshTikkiePaymentLinkStatusInput = {
   source: "webhook" | "poll"
   reason?: string
   providerNotificationKey?: string
-  providerPayload?: Prisma.JsonValue
+  providerPayload?: unknown
 }
 
 export type SyncPendingTikkiePaymentLinksResult = {
@@ -95,9 +134,28 @@ export type TikkieGenerationDefaults = {
 }
 
 type DbTikkiePaymentLink = {
+  _id: string
+  providerOrderId: string
+  providerEventId: string
+  orderId: string
+  paymentRequestToken: string
+  paymentRequestUrl: string
+  status: AppTikkieLinkStatus
+  statusSource: "create" | "webhook" | "poll"
+  providerStatus: string
+  amountMinor: number
+  description: string
+  expiryDate: number
+  referenceId: string | null
+  providerPayload: unknown
+  statusUpdatedAt: number
+}
+
+type PrismaTikkiePaymentLink = {
   id: string
   providerOrderId: string
   providerEventId: string
+  orderId: string
   paymentRequestToken: string
   paymentRequestUrl: string
   status: AppTikkieLinkStatus
@@ -107,7 +165,7 @@ type DbTikkiePaymentLink = {
   description: string
   expiryDate: Date
   referenceId: string | null
-  providerPayload: Prisma.JsonValue
+  providerPayload: unknown
   providerLastCheckedAt: Date | null
   statusUpdatedAt: Date
   createdAt: Date
@@ -131,10 +189,26 @@ export function toStatusSource(value: string): "create" | "webhook" | "poll" {
 }
 
 export function mapTikkiePaymentLink(
-  link: DbTikkiePaymentLink
+  link: DbTikkiePaymentLink | PrismaTikkiePaymentLink
 ): TikkiePaymentLinkDto {
+  const linkId = "_id" in link ? link._id : link.id
+  const expiry =
+    "expiryDate" in link && typeof link.expiryDate === "number"
+      ? link.expiryDate
+      : new Date(link.expiryDate as unknown as string).getTime()
+  const statusUpdated =
+    "statusUpdatedAt" in link && typeof link.statusUpdatedAt === "number"
+      ? link.statusUpdatedAt
+      : new Date(link.statusUpdatedAt as unknown as string).getTime()
+  const createdAt =
+    "createdAt" in link
+      ? typeof link.createdAt === "number"
+        ? link.createdAt
+        : new Date(link.createdAt as unknown as string).getTime()
+      : statusUpdated
+
   return {
-    id: link.id,
+    id: linkId,
     providerOrderId: link.providerOrderId,
     providerEventId: link.providerEventId,
     paymentRequestToken: link.paymentRequestToken,
@@ -144,13 +218,13 @@ export function mapTikkiePaymentLink(
     providerStatus: link.providerStatus,
     amountMinor: link.amountMinor,
     description: link.description,
-    expiryDate: link.expiryDate.toISOString(),
+    expiryDate: new Date(expiry).toISOString(),
     referenceId: link.referenceId,
     providerPayload: link.providerPayload,
-    providerLastCheckedAt: link.providerLastCheckedAt?.toISOString() ?? null,
-    statusUpdatedAt: link.statusUpdatedAt.toISOString(),
-    createdAt: link.createdAt.toISOString(),
-    updatedAt: link.updatedAt.toISOString(),
+    providerLastCheckedAt: null,
+    statusUpdatedAt: new Date(statusUpdated).toISOString(),
+    createdAt: new Date(createdAt).toISOString(),
+    updatedAt: new Date(statusUpdated).toISOString(),
   }
 }
 
@@ -313,15 +387,12 @@ function mapProviderStatus(providerStatus: string) {
 }
 
 async function resolveOrder(providerOrderId: string, providerEventId: string) {
-  const order = await prisma.ticketTailorOrder.findUnique({
-    where: {
-      providerOrderId,
-    },
-    select: {
-      id: true,
-      providerEventId: true,
-    },
-  })
+  const orders = await convexQuery<
+    { providerOrderId: string },
+    { _id: string; providerEventId: string }[]
+  >("orders/getOrderByProviderId", { providerOrderId })
+
+  const order = orders[0]
 
   if (!order) {
     throw new Error("Order not found for given 'providerOrderId'.")
@@ -358,50 +429,74 @@ export async function createTikkiePaymentLink(
   })
 
   const appStatus = mapProviderStatus(providerResponse.status)
-  const now = new Date()
+  const now = Date.now()
 
-  const saved = await prisma.tikkiePaymentLink.upsert({
-    where: {
-      paymentRequestToken: providerResponse.paymentRequestToken,
+  const existingLinks = await convexQuery<
+    { orderId: string },
+    DbTikkiePaymentLink[]
+  >("tikkie/getPaymentLinks", { orderId: order._id })
+
+  const existingToken = existingLinks.find(
+    (l) => l.paymentRequestToken === providerResponse.paymentRequestToken
+  )
+
+  if (existingToken) {
+    return {
+      link: mapTikkiePaymentLink(existingToken),
+      created: false,
+    }
+  }
+
+  const linkId = await convexMutation<
+    {
+      providerOrderId: string
+      providerEventId: string
+      orderId: string
+      paymentRequestToken: string
+      paymentRequestUrl: string
+      providerStatus: string
+      amountMinor: number
+      description: string
+      expiryDate: number
+      referenceId?: string
+      providerPayload?: unknown
     },
-    update: {
-      providerOrderId,
-      providerEventId,
-      orderId: order.id,
-      paymentRequestUrl: providerResponse.url,
-      status: appStatus,
-      statusSource: "create",
-      providerStatus: providerResponse.status,
-      amountMinor,
-      description,
-      expiryDate,
-      referenceId,
-      providerPayload: providerResponse as unknown as Prisma.InputJsonValue,
-      providerLastCheckedAt: now,
-      statusUpdatedAt: now,
-    },
-    create: {
-      providerOrderId,
-      providerEventId,
-      orderId: order.id,
-      paymentRequestToken: providerResponse.paymentRequestToken,
-      paymentRequestUrl: providerResponse.url,
-      status: appStatus,
-      statusSource: "create",
-      providerStatus: providerResponse.status,
-      amountMinor,
-      description,
-      expiryDate,
-      referenceId,
-      providerPayload: providerResponse as unknown as Prisma.InputJsonValue,
-      providerLastCheckedAt: now,
-      statusUpdatedAt: now,
-    },
+    string
+  >("tikkie/createPaymentLink", {
+    providerOrderId,
+    providerEventId,
+    orderId: order._id,
+    paymentRequestToken: providerResponse.paymentRequestToken,
+    paymentRequestUrl: providerResponse.url,
+    providerStatus: providerResponse.status,
+    amountMinor,
+    description,
+    expiryDate: expiryDate.getTime(),
+    referenceId: referenceId ?? undefined,
+    providerPayload: providerResponse,
   })
 
+  const newLink: DbTikkiePaymentLink = {
+    _id: linkId,
+    providerOrderId,
+    providerEventId,
+    orderId: order._id,
+    paymentRequestToken: providerResponse.paymentRequestToken,
+    paymentRequestUrl: providerResponse.url,
+    status: appStatus,
+    statusSource: "create",
+    providerStatus: providerResponse.status,
+    amountMinor,
+    description,
+    expiryDate: expiryDate.getTime(),
+    referenceId: referenceId,
+    providerPayload: providerResponse,
+    statusUpdatedAt: now,
+  }
+
   return {
-    link: mapTikkiePaymentLink(saved),
-    created: saved.createdAt.getTime() === saved.updatedAt.getTime(),
+    link: mapTikkiePaymentLink(newLink),
+    created: true,
   }
 }
 
@@ -413,14 +508,26 @@ export async function listTikkiePaymentLinksByOrder(
     "providerOrderId"
   )
 
-  const links = await prisma.tikkiePaymentLink.findMany({
-    where: {
-      providerOrderId,
-    },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-  })
+  const orders = await convexQuery<
+    { providerOrderId: string },
+    { _id: string }[]
+  >("orders/getOrderByProviderId", { providerOrderId })
 
-  const mappedLinks = links.map(mapTikkiePaymentLinkView)
+  const orderId = orders[0]?._id
+
+  const links = orderId
+    ? await convexQuery<{ orderId: string }, DbTikkiePaymentLink[]>(
+        "tikkie/getPaymentLinks",
+        { orderId }
+      )
+    : []
+
+  const mappedLinks = links
+    .map(mapTikkiePaymentLinkView)
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    )
   const latestLink = mappedLinks[0] ?? null
 
   return {
@@ -434,13 +541,6 @@ export async function listTikkiePaymentLinksByOrder(
   }
 }
 
-/**
- * Derives the canonical app status from provider payment-request fields.
- * Priority:
- *  1. Paid if numberOfPayments > 0 or totalAmountPaidInCents > 0  (provider aggregate — authoritative)
- *  2. Paid if list-payments returned at least one payment         (compatibility fallback)
- *  3. Map provider status to created/expired                      (no payments found)
- */
 function derivePaymentState(params: {
   providerStatus: string
   numberOfPayments?: number
@@ -448,7 +548,6 @@ function derivePaymentState(params: {
   payments: unknown[]
   totalElementCount: number
 }): "paid" | "created" | "expired" {
-  // Primary: use aggregate fields from GET /paymentrequests/{token}
   if (
     (params.numberOfPayments ?? 0) > 0 ||
     (params.totalAmountPaidInCents ?? 0) > 0
@@ -456,7 +555,6 @@ function derivePaymentState(params: {
     return "paid"
   }
 
-  // Compatibility fallback: check list-payments when aggregate fields are absent/zero
   if (params.totalElementCount > 0 || params.payments.length > 0) {
     return "paid"
   }
@@ -491,42 +589,17 @@ export async function refreshTikkiePaymentLinkStatus(
     "paymentRequestToken"
   )
 
-  if (input.providerNotificationKey) {
-    const existingTransition =
-      await prisma.tikkiePaymentLinkTransition.findUnique({
-        where: {
-          providerNotificationKey: input.providerNotificationKey,
-        },
-        select: {
-          paymentLink: true,
-        },
-      })
-
-    if (existingTransition) {
-      return {
-        link: mapTikkiePaymentLink(
-          existingTransition.paymentLink as DbTikkiePaymentLink
-        ),
-        changed: false,
-        duplicate: true,
-      }
-    }
-  }
-
-  const existing = await prisma.tikkiePaymentLink.findUnique({
-    where: {
-      paymentRequestToken,
-    },
-  })
+  const existing = await convexQuery<
+    { paymentRequestToken: string },
+    DbTikkiePaymentLink | null
+  >("tikkie/getPaymentLinkByToken", { paymentRequestToken })
 
   if (!existing) {
     throw new Error("Payment link not found for given 'paymentRequestToken'.")
   }
 
-  // Canonical: fetch GET /paymentrequests/{token} first
   const request = await getPaymentRequest(paymentRequestToken)
 
-  // Compatibility: only fetch payments list when aggregate fields are absent or zero
   const hasAggregatePayment =
     (request.numberOfPayments ?? 0) > 0 ||
     (request.totalAmountPaidInCents ?? 0) > 0
@@ -547,43 +620,43 @@ export async function refreshTikkiePaymentLinkStatus(
   const nextStatus = canTransition(currentStatus, resolvedStatus)
     ? resolvedStatus
     : currentStatus
-  const now = new Date()
 
-  const update = await prisma.tikkiePaymentLink.update({
-    where: {
-      id: existing.id,
-    },
-    data: {
+  if (nextStatus !== currentStatus) {
+    await convexMutation<
+      {
+        linkId: string
+        status: "created" | "paid" | "expired"
+        providerStatus: string
+        source: "create" | "webhook" | "poll"
+        reason?: string
+        providerPayload?: unknown
+      },
+      { linkId: string }
+    >("tikkie/updatePaymentLinkStatus", {
+      linkId: existing._id,
       status: nextStatus,
-      statusSource: input.source,
       providerStatus: request.status,
+      source: input.source as "create" | "webhook" | "poll",
+      reason: input.reason,
       providerPayload: {
         paymentRequest: request,
         payments,
         webhook: input.providerPayload ?? null,
-      } as Prisma.InputJsonValue,
-      providerLastCheckedAt: now,
-      ...(nextStatus !== currentStatus ? { statusUpdatedAt: now } : {}),
-      transitionEvents:
-        nextStatus !== currentStatus
-          ? {
-              create: {
-                fromStatus: currentStatus,
-                toStatus: nextStatus,
-                source: input.source,
-                providerNotificationKey: input.providerNotificationKey,
-                providerStatus: request.status,
-                reason: input.reason ?? null,
-                providerPayload: (input.providerPayload ??
-                  null) as Prisma.InputJsonValue,
-              },
-            }
-          : undefined,
-    },
-  })
+      },
+    })
+  }
+
+  const updatedLink = await convexQuery<
+    { linkId: string },
+    DbTikkiePaymentLink | null
+  >("tikkie/getPaymentLinkById", { linkId: existing._id })
+
+  if (!updatedLink) {
+    throw new Error("Failed to retrieve updated payment link")
+  }
 
   return {
-    link: mapTikkiePaymentLink(update),
+    link: mapTikkiePaymentLink(updatedLink),
     changed: nextStatus !== currentStatus,
     duplicate: false,
   }
@@ -597,22 +670,20 @@ export async function syncPendingTikkiePaymentLinks({
   const safeLimit =
     Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 100) : 25
 
-  const pending = await prisma.tikkiePaymentLink.findMany({
-    where: {
-      status: "created",
-    },
-    orderBy: [{ statusUpdatedAt: "asc" }, { createdAt: "asc" }],
-    take: safeLimit,
-    select: {
-      paymentRequestToken: true,
-    },
-  })
+  const pending = await convexQuery<{ status: string }, DbTikkiePaymentLink[]>(
+    "tikkie/getPaymentLinks",
+    { status: "created" }
+  )
+
+  const limitedPending = pending
+    .sort((a, b) => a.statusUpdatedAt - b.statusUpdatedAt)
+    .slice(0, safeLimit)
 
   let updated = 0
   let unchanged = 0
   let failed = 0
 
-  for (const item of pending) {
+  for (const item of limitedPending) {
     try {
       const result = await refreshTikkiePaymentLinkStatus({
         paymentRequestToken: item.paymentRequestToken,
@@ -631,7 +702,7 @@ export async function syncPendingTikkiePaymentLinks({
   }
 
   return {
-    scanned: pending.length,
+    scanned: limitedPending.length,
     updated,
     unchanged,
     failed,

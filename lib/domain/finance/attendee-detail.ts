@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma"
+import { convexQuery } from "@/lib/convex/server"
 import { matchTemplateForAttendee } from "@/lib/domain/finance/tikkie-templates"
 import {
   buildTikkieGenerationDefaults,
@@ -12,8 +12,8 @@ type RoomStatus =
   | {
       status: "assigned"
       roomLabel: string
-      hotelName: string
-      roomTypeLabel: string
+      hotelName: string | null
+      roomTypeLabel: string | null
     }
   | {
       status: "unassigned"
@@ -156,92 +156,151 @@ export async function getAttendeeDetail(
 ): Promise<AttendeeDetail> {
   const normalizedAttendeeId = normalizeAttendeeId(attendeeId)
 
-  const attendee = await prisma.ticketTailorAttendee.findUnique({
-    where: {
-      id: normalizedAttendeeId,
-    },
-    include: {
-      event: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
-      order: {
-        include: {
-          tikkiePaymentLinks: {
-            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-            include: {
-              transitionEvents: {
-                orderBy: [{ createdAt: "desc" }],
-              },
-            },
-          },
-        },
-      },
-      assignedRoom: {
-        include: {
-          hotel: {
-            select: {
-              name: true,
-            },
-          },
-          roomType: {
-            select: {
-              label: true,
-            },
-          },
-        },
-      },
-      familyGroupMember: {
-        include: {
-          familyGroup: {
-            include: {
-              members: {
-                select: {
-                  attendeeId: true,
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  })
+  const attendee = await convexQuery<
+    { attendeeId: string },
+    {
+      _id: string
+      name: string | null
+      email: string | null
+      ticketTypeLabel: string | null
+      ticketStatus: string | null
+      checkedInAt: number | null
+      providerIssuedTicketId: string | null
+      providerOrderId: string
+      providerEventId: string
+      eventId: string
+      orderId: string
+      assignedRoomId: string | null
+      customAnswers: Record<string, unknown> | null
+      genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+      allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
+      priorityReason: string | null
+      ageGroup: string | null
+      ticketCategory: string | null
+      tikkieAmountOverrideMinor: number | null
+    } | null
+  >("attendees/getAttendeeByStringId", { attendeeId: normalizedAttendeeId })
 
   if (!attendee) {
     throw new Error("Attendee not found.")
   }
 
-  const totalAmountMinor = attendee.order.totalAmountMinor ?? 0
-  const paidAmountMinor = derivePaidAmount(
-    totalAmountMinor,
-    attendee.order.tikkiePaymentLinks
-  )
+  const [
+    event,
+    order,
+    paymentLinks,
+    assignedRoomData,
+    hotelData,
+    roomTypeData,
+  ] = await Promise.all([
+    convexQuery<
+      { eventId: string },
+      { _id: string; name: string | null } | null
+    >("events/getEventById", { eventId: attendee.eventId }),
+    convexQuery<
+      { orderId: string },
+      {
+        _id: string
+        providerOrderId: string
+        providerEventId: string
+        buyerName: string | null
+        buyerEmail: string | null
+        normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
+        orderedAt: number | null
+        totalAmountMinor: number | null
+      } | null
+    >("orders/getOrderById", { orderId: attendee.orderId }),
+    convexQuery<
+      { orderId: string },
+      Array<{
+        _id: string
+        paymentRequestToken: string
+        status: "created" | "paid" | "expired"
+        providerStatus: string
+        amountMinor: number
+        description: string
+        expiryDate: number
+        referenceId: string | null
+        providerPayload: unknown
+        providerLastCheckedAt: number | null
+        statusUpdatedAt: number
+        createdAt: number
+        transitionEvents: Array<{
+          _id: string
+          fromStatus: string
+          toStatus: string
+          source: string
+          providerStatus: string
+          reason: string | null
+          createdAt: number
+        }>
+      }>
+    >("tikkie/getPaymentLinksByOrderId", { orderId: attendee.orderId }),
+    attendee.assignedRoomId
+      ? convexQuery<
+          { roomId: string },
+          {
+            _id: string
+            label: string
+            hotelId: string
+            roomTypeId: string
+          } | null
+        >("accommodation/getRoomById", { roomId: attendee.assignedRoomId })
+      : Promise.resolve(null),
+    attendee.assignedRoomId
+      ? convexQuery<{ hotelId: string }, { _id: string; name: string } | null>(
+          "accommodation/getHotelById",
+          { hotelId: attendee.assignedRoomId }
+        )
+      : Promise.resolve(null),
+    attendee.assignedRoomId
+      ? convexQuery<
+          { roomTypeId: string },
+          { _id: string; label: string } | null
+        >("accommodation/getRoomTypeById", {
+          roomTypeId: attendee.assignedRoomId,
+        })
+      : Promise.resolve(null),
+  ])
+
+  const assignedRoom = assignedRoomData
+  const hotel = hotelData
+  const roomType = roomTypeData
+
+  if (!order) {
+    throw new Error("Order not found.")
+  }
+
+  if (!event) {
+    throw new Error("Event not found.")
+  }
+
+  const totalAmountMinor = order.totalAmountMinor ?? 0
+  const paidAmountMinor = derivePaidAmount(totalAmountMinor, paymentLinks)
   const outstandingAmountMinor = deriveOutstandingAmount({
-    normalizedStatus: attendee.order.normalizedStatus,
+    normalizedStatus: order.normalizedStatus,
     totalAmountMinor,
     paidAmountMinor,
   })
 
-  const paymentHistory = attendee.order.tikkiePaymentLinks.flatMap((link) => [
+  const paymentHistory = paymentLinks.flatMap((link) => [
     {
-      id: `link-${link.id}`,
+      id: `link-${link._id}`,
       type: "payment-link" as const,
       title: `Payment link ${link.paymentRequestToken}`,
       status: link.status,
       amountMinor: link.amountMinor,
-      happenedAt: link.createdAt.toISOString(),
+      happenedAt: new Date(link.createdAt).toISOString(),
       note: link.description,
-      url: link.paymentRequestUrl,
+      url: null,
     },
     ...link.transitionEvents.map((event) => ({
-      id: `transition-${event.id}`,
+      id: `transition-${event._id}`,
       type: "status-transition" as const,
       title: `${event.fromStatus} -> ${event.toStatus}`,
       status: event.toStatus,
       amountMinor: link.amountMinor,
-      happenedAt: event.createdAt.toISOString(),
+      happenedAt: new Date(event.createdAt).toISOString(),
       note: event.reason ?? event.providerStatus,
       url: null,
     })),
@@ -251,8 +310,12 @@ export async function getAttendeeDetail(
     right.happenedAt.localeCompare(left.happenedAt)
   )
 
-  const tikkieLinks = attendee.order.tikkiePaymentLinks.map((link) => {
-    const mapped = mapTikkiePaymentLink(link)
+  const tikkieLinks = paymentLinks.map((link) => {
+    const mapped = mapTikkiePaymentLink({
+      ...link,
+      statusUpdatedAt: link.statusUpdatedAt,
+      createdAt: link.createdAt,
+    } as any)
 
     return {
       ...mapped,
@@ -265,7 +328,7 @@ export async function getAttendeeDetail(
 
   const latestLink = tikkieLinks[0] ?? null
   const templateMatch = await matchTemplateForAttendee({
-    id: attendee.id,
+    id: attendee._id,
     eventId: attendee.eventId,
     orderId: attendee.orderId,
     providerOrderId: attendee.providerOrderId,
@@ -280,17 +343,16 @@ export async function getAttendeeDetail(
     referenceId: templateMatch.referenceId,
   }
 
-  // Build template fallback info (what would be used if override is cleared)
   let templateFallback: AttendeeDetail["tikkie"]["templateFallback"] = null
   if (attendee.ticketTypeLabel && attendee.ticketTypeLabel.trim()) {
     const templateMatchWithoutOverride = await matchTemplateForAttendee({
-      id: attendee.id,
+      id: attendee._id,
       eventId: attendee.eventId,
       orderId: attendee.orderId,
       providerOrderId: attendee.providerOrderId,
       providerEventId: attendee.providerEventId,
       ticketTypeLabel: attendee.ticketTypeLabel,
-      tikkieAmountOverrideMinor: null, // Check without override to show fallback
+      tikkieAmountOverrideMinor: null,
     })
     if (templateMatchWithoutOverride.hasTemplate) {
       templateFallback = {
@@ -309,14 +371,14 @@ export async function getAttendeeDetail(
     }
   }
 
-  const listEndpoint = `/api/dashboard/tikkie-links?providerOrderId=${encodeURIComponent(attendee.order.providerOrderId)}`
+  const listEndpoint = `/api/dashboard/tikkie-links?providerOrderId=${encodeURIComponent(order.providerOrderId)}`
 
-  const roomStatus: RoomStatus = attendee.assignedRoom
+  const roomStatus: RoomStatus = assignedRoom
     ? {
         status: "assigned",
-        roomLabel: attendee.assignedRoom.label,
-        hotelName: attendee.assignedRoom.hotel.name,
-        roomTypeLabel: attendee.assignedRoom.roomType.label,
+        roomLabel: assignedRoom.label,
+        hotelName: hotel?.name ?? null,
+        roomTypeLabel: roomType?.label ?? null,
       }
     : {
         status: "unassigned",
@@ -327,15 +389,15 @@ export async function getAttendeeDetail(
 
   return {
     attendee: {
-      id: attendee.id,
-      name: attendee.name ?? null,
-      email: attendee.email ?? null,
-      ticketTypeLabel: attendee.ticketTypeLabel ?? null,
-      ticketStatus: attendee.ticketStatus ?? null,
+      id: attendee._id,
+      name: attendee.name,
+      email: attendee.email,
+      ticketTypeLabel: attendee.ticketTypeLabel,
+      ticketStatus: attendee.ticketStatus,
       checkedInAt: attendee.checkedInAt
-        ? attendee.checkedInAt.toISOString()
+        ? new Date(attendee.checkedInAt).toISOString()
         : null,
-      providerIssuedTicketId: attendee.providerIssuedTicketId ?? null,
+      providerIssuedTicketId: attendee.providerIssuedTicketId,
       providerOrderId: attendee.providerOrderId,
       providerEventId: attendee.providerEventId,
       tikkieAmountOverrideMinor: attendee.tikkieAmountOverrideMinor,
@@ -354,34 +416,25 @@ export async function getAttendeeDetail(
       roommatePreference:
         (attendee.customAnswers as { roommatePreference?: string } | null)
           ?.roommatePreference ?? null,
-      allocationPriority: attendee.allocationPriority,
+      allocationPriority: attendee.allocationPriority ?? "NORMAL",
       priorityReason: attendee.priorityReason,
       ageGroup: attendee.ageGroup,
       ticketCategory: attendee.ticketCategory,
     },
-    familyGroup: attendee.familyGroupMember
-      ? {
-          groupId: attendee.familyGroupMember.familyGroup.id,
-          label: attendee.familyGroupMember.familyGroup.label,
-          memberCount: attendee.familyGroupMember.familyGroup.members.length,
-          isPrimary:
-            attendee.familyGroupMember.familyGroup.primaryAttendeeId ===
-            attendee.id,
-        }
-      : null,
+    familyGroup: null,
     event: {
-      id: attendee.event.id,
-      name: attendee.event.name ?? null,
+      id: event._id,
+      name: event.name,
     },
     order: {
-      id: attendee.order.id,
-      providerOrderId: attendee.order.providerOrderId,
-      providerEventId: attendee.order.providerEventId,
-      buyerName: attendee.order.buyerName ?? null,
-      buyerEmail: attendee.order.buyerEmail ?? null,
-      normalizedStatus: attendee.order.normalizedStatus,
-      orderedAt: attendee.order.orderedAt
-        ? attendee.order.orderedAt.toISOString()
+      id: order._id,
+      providerOrderId: order.providerOrderId,
+      providerEventId: order.providerEventId,
+      buyerName: order.buyerName,
+      buyerEmail: order.buyerEmail,
+      normalizedStatus: order.normalizedStatus,
+      orderedAt: order.orderedAt
+        ? new Date(order.orderedAt).toISOString()
         : null,
       totalAmountMinor,
     },
@@ -389,16 +442,12 @@ export async function getAttendeeDetail(
       outstandingAmountMinor,
       paidAmountMinor,
       installmentProgress: {
-        totalLinks: attendee.order.tikkiePaymentLinks.length,
-        paidLinks: attendee.order.tikkiePaymentLinks.filter(
-          (link) => link.status === "paid"
-        ).length,
-        openLinks: attendee.order.tikkiePaymentLinks.filter(
-          (link) => link.status === "created"
-        ).length,
-        expiredLinks: attendee.order.tikkiePaymentLinks.filter(
-          (link) => link.status === "expired"
-        ).length,
+        totalLinks: paymentLinks.length,
+        paidLinks: paymentLinks.filter((link) => link.status === "paid").length,
+        openLinks: paymentLinks.filter((link) => link.status === "created")
+          .length,
+        expiredLinks: paymentLinks.filter((link) => link.status === "expired")
+          .length,
       },
     },
     tikkie: {
@@ -412,7 +461,7 @@ export async function getAttendeeDetail(
         createEndpoint: "/api/dashboard/tikkie-links",
         listEndpoint,
         refreshEndpoint: `${listEndpoint}&refresh=1`,
-        updateOverrideEndpoint: `/api/dashboard/attendees/${attendee.id}`,
+        updateOverrideEndpoint: `/api/dashboard/attendees/${attendee._id}`,
       },
     },
     paymentHistory,

@@ -1,6 +1,3 @@
-import type { Prisma } from "@prisma/client"
-
-import { prisma } from "@/lib/prisma"
 import { getPaymentRequestPayments } from "@/lib/integrations/tikkie/client"
 
 export type PaymentSource = "tikkie" | "bank_transfer" | "cash"
@@ -12,22 +9,20 @@ export type PaymentMatchStatus =
   | "unassigned"
 
 export type PaymentDto = {
-  id: string
+  _id: string
   source: PaymentSource
   sourceId: string | null
   payerName: string
   payerAccountNumber: string | null
   amountMinor: number
-  paidAt: string
+  paidAt: number
   orderId: string | null
-  status: PaymentMatchStatus
-  matchedAt: string | null
+  status: PaymentMatchStatus | null
+  matchedAt: number | null
   matchedBy: string | null
   reference: string | null
   notes: string | null
-  providerPayload: Prisma.JsonValue | null
-  createdAt: string
-  updatedAt: string
+  providerPayload: unknown | null
 }
 
 export type CreateBankTransferPaymentInput = {
@@ -52,42 +47,69 @@ export type AssignPaymentInput = {
   orderId: string
 }
 
-function mapPayment(payment: {
-  id: string
-  source: PaymentSource
-  sourceId: string | null
-  payerName: string
-  payerAccountNumber: string | null
-  amountMinor: number
-  paidAt: Date
-  orderId: string | null
-  status: PaymentMatchStatus
-  matchedAt: Date | null
-  matchedBy: string | null
-  reference: string | null
-  notes: string | null
-  providerPayload: Prisma.JsonValue | null
-  createdAt: Date
-  updatedAt: Date
-}): PaymentDto {
-  return {
-    id: payment.id,
-    source: payment.source,
-    sourceId: payment.sourceId,
-    payerName: payment.payerName,
-    payerAccountNumber: payment.payerAccountNumber,
-    amountMinor: payment.amountMinor,
-    paidAt: payment.paidAt.toISOString(),
-    orderId: payment.orderId,
-    status: payment.status,
-    matchedAt: payment.matchedAt?.toISOString() ?? null,
-    matchedBy: payment.matchedBy,
-    reference: payment.reference,
-    notes: payment.notes,
-    providerPayload: payment.providerPayload,
-    createdAt: payment.createdAt.toISOString(),
-    updatedAt: payment.updatedAt.toISOString(),
+export type ListPaymentsInput = {
+  status?: PaymentMatchStatus
+  source?: PaymentSource
+  orderId?: string
+}
+
+export type ListPaymentsResult = {
+  payments: PaymentDto[]
+  total: number
+}
+
+export type SyncTikkiePaymentsResult = {
+  newPayments: number
+  existingPayments: number
+  errors: string[]
+}
+
+export type AutoMatchResult = {
+  autoMatched: number
+  ambiguous: number
+  unchanged: number
+}
+
+const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
+
+async function convexQuery<Args extends Record<string, unknown>, Response>(
+  path: string,
+  args: Args
+): Promise<Response> {
+  const response = await fetch(`${CONVEX_URL}/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ args }),
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Convex query failed: ${error}`)
   }
+
+  return response.json()
+}
+
+async function convexMutation<Args extends Record<string, unknown>, Response>(
+  path: string,
+  args: Args
+): Promise<Response> {
+  const response = await fetch(`${CONVEX_URL}/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ args }),
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Convex mutation failed: ${error}`)
+  }
+
+  return response.json()
 }
 
 function normalizeAmountMinor(value: number): number {
@@ -107,12 +129,12 @@ function normalizePayerName(value: string): string {
   return normalized
 }
 
-function normalizePaidAt(value: string): Date {
+function normalizePaidAt(value: string): number {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) {
     throw new Error("Invalid 'paidAt'. Expected ISO date string.")
   }
-  return parsed
+  return parsed.getTime()
 }
 
 export async function createBankTransferPayment(
@@ -124,38 +146,42 @@ export async function createBankTransferPayment(
     amountMinor: normalizeAmountMinor(input.amountMinor),
     paidAt: normalizePaidAt(input.paidAt),
     payerName: normalizePayerName(input.payerName),
-    payerAccountNumber: input.payerAccountNumber?.trim() ?? null,
-    reference: input.reference?.trim() ?? null,
-    notes: input.notes?.trim() ?? null,
+    payerAccountNumber: input.payerAccountNumber?.trim() ?? undefined,
+    reference: input.reference?.trim() ?? undefined,
+    notes: input.notes?.trim() ?? undefined,
   }
 
-  // Verify order exists
-  const order = await prisma.ticketTailorOrder.findUnique({
-    where: { id: validated.orderId },
-    select: { id: true },
-  })
-
-  if (!order) {
-    throw new Error("Order not found for given 'orderId'.")
-  }
-
-  const payment = await prisma.payment.create({
-    data: {
-      source: "bank_transfer",
-      amountMinor: validated.amountMinor,
-      paidAt: validated.paidAt,
-      payerName: validated.payerName,
-      payerAccountNumber: validated.payerAccountNumber,
-      reference: validated.reference,
-      notes: validated.notes,
-      orderId: validated.orderId,
-      status: "manual_assignment",
-      matchedBy: userId,
-      matchedAt: new Date(),
+  const id = await convexMutation<
+    {
+      source: "bank_transfer"
+      orderId: string
+      amountMinor: number
+      paidAt: number
+      payerName: string
+      payerAccountNumber?: string
+      reference?: string
+      notes?: string
+      matchedBy: string
     },
+    string
+  >("payments/createPayment", {
+    source: "bank_transfer",
+    orderId: validated.orderId,
+    amountMinor: validated.amountMinor,
+    paidAt: validated.paidAt,
+    payerName: validated.payerName,
+    payerAccountNumber: validated.payerAccountNumber,
+    reference: validated.reference,
+    notes: validated.notes,
+    matchedBy: userId,
   })
 
-  return mapPayment(payment)
+  const payment = await convexQuery<{ paymentId: string }, PaymentDto>(
+    "payments/getPaymentById",
+    { paymentId: id as any }
+  )
+
+  return payment
 }
 
 export async function createCashPayment(
@@ -167,34 +193,36 @@ export async function createCashPayment(
     amountMinor: normalizeAmountMinor(input.amountMinor),
     paidAt: normalizePaidAt(input.paidAt),
     payerName: normalizePayerName(input.payerName),
-    notes: input.notes?.trim() ?? null,
+    notes: input.notes?.trim() ?? undefined,
   }
 
-  // Verify order exists
-  const order = await prisma.ticketTailorOrder.findUnique({
-    where: { id: validated.orderId },
-    select: { id: true },
-  })
-
-  if (!order) {
-    throw new Error("Order not found for given 'orderId'.")
-  }
-
-  const payment = await prisma.payment.create({
-    data: {
-      source: "cash",
-      amountMinor: validated.amountMinor,
-      paidAt: validated.paidAt,
-      payerName: validated.payerName,
-      notes: validated.notes,
-      orderId: validated.orderId,
-      status: "manual_assignment",
-      matchedBy: userId,
-      matchedAt: new Date(),
+  const id = await convexMutation<
+    {
+      source: "cash"
+      orderId: string
+      amountMinor: number
+      paidAt: number
+      payerName: string
+      notes?: string
+      matchedBy: string
     },
+    string
+  >("payments/createPayment", {
+    source: "cash",
+    orderId: validated.orderId,
+    amountMinor: validated.amountMinor,
+    paidAt: validated.paidAt,
+    payerName: validated.payerName,
+    notes: validated.notes,
+    matchedBy: userId,
   })
 
-  return mapPayment(payment)
+  const payment = await convexQuery<{ paymentId: string }, PaymentDto>(
+    "payments/getPaymentById",
+    { paymentId: id as any }
+  )
+
+  return payment
 }
 
 export async function assignPaymentToOrder(
@@ -204,114 +232,66 @@ export async function assignPaymentToOrder(
 ): Promise<PaymentDto> {
   const validatedOrderId = input.orderId.trim()
 
-  // Verify order exists
-  const order = await prisma.ticketTailorOrder.findUnique({
-    where: { id: validatedOrderId },
-    select: { id: true },
-  })
-
-  if (!order) {
-    throw new Error("Order not found for given 'orderId'.")
-  }
-
-  // Verify payment exists
-  const payment = await prisma.payment.findUnique({
-    where: { id: paymentId },
-  })
-
-  if (!payment) {
-    throw new Error("Payment not found.")
-  }
-
-  const updated = await prisma.payment.update({
-    where: { id: paymentId },
-    data: {
-      orderId: validatedOrderId,
-      status: "manual_assignment",
-      matchedBy: userId,
-      matchedAt: new Date(),
+  await convexMutation<
+    {
+      paymentId: string
+      orderId: string
+      status: "manual_assignment"
+      matchedBy: string
     },
+    string
+  >("payments/assignPaymentToOrder", {
+    paymentId: paymentId as any,
+    orderId: validatedOrderId,
+    status: "manual_assignment",
+    matchedBy: userId,
   })
 
-  return mapPayment(updated)
+  const payment = await convexQuery<{ paymentId: string }, PaymentDto>(
+    "payments/getPaymentById",
+    { paymentId: paymentId as any }
+  )
+
+  return payment
 }
 
 export async function getPaymentById(id: string): Promise<PaymentDto | null> {
-  const payment = await prisma.payment.findUnique({
-    where: { id },
-  })
-
-  if (!payment) {
+  try {
+    return await convexQuery<{ paymentId: string }, PaymentDto>(
+      "payments/getPaymentById",
+      { paymentId: id as any }
+    )
+  } catch {
     return null
   }
-
-  return mapPayment(payment)
-}
-
-export type ListPaymentsInput = {
-  status?: PaymentMatchStatus
-  source?: PaymentSource
-  orderId?: string
-}
-
-export type ListPaymentsResult = {
-  payments: PaymentDto[]
-  total: number
 }
 
 export async function listPayments(
   input: ListPaymentsInput = {}
 ): Promise<ListPaymentsResult> {
-  const where: Prisma.PaymentWhereInput = {}
-
-  if (input.status) {
-    where.status = input.status
-  }
-
-  if (input.source) {
-    where.source = input.source
-  }
-
-  if (input.orderId) {
-    where.orderId = input.orderId
-  }
-
-  const [payments, total] = await Promise.all([
-    prisma.payment.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.payment.count({ where }),
-  ])
+  const payments = await convexQuery<
+    {
+      orderId?: string
+      source?: PaymentSource
+      status?: PaymentMatchStatus
+    },
+    PaymentDto[]
+  >("payments/getPayments", {
+    orderId: input.orderId,
+    source: input.source,
+    status: input.status,
+  })
 
   return {
-    payments: payments.map(mapPayment),
-    total,
+    payments,
+    total: payments.length,
   }
 }
 
 export async function getUnassignedPayments(): Promise<PaymentDto[]> {
-  const payments = await prisma.payment.findMany({
-    where: {
-      status: "unassigned",
-      orderId: null,
-    },
-    orderBy: { createdAt: "desc" },
-  })
-
-  return payments.map(mapPayment)
+  return convexQuery<{}, PaymentDto[]>("payments/getUnassignedPayments", {})
 }
 
-export type SyncTikkiePaymentsResult = {
-  newPayments: number
-  existingPayments: number
-  errors: string[]
-}
-
-/**
- * Syncs payments from Tikkie Open Payment API and creates Payment records.
- * Fetches all payments for a payment request token and stores new ones.
- */
 export async function syncTikkiePayments(
   paymentRequestToken: string
 ): Promise<SyncTikkiePaymentsResult> {
@@ -322,10 +302,8 @@ export async function syncTikkiePayments(
   }
 
   try {
-    // Fetch payments from Tikkie API
     const tikkieResponse = await getPaymentRequestPayments(paymentRequestToken)
 
-    // The response has a 'payments' array with payment objects
     const tikkiePayments = tikkieResponse.payments as Array<{
       paymentId: string
       payerName: string
@@ -335,31 +313,41 @@ export async function syncTikkiePayments(
     }>
 
     for (const tPayment of tikkiePayments) {
-      // Check if payment already exists by sourceId
-      const existing = await prisma.payment.findFirst({
-        where: {
-          source: "tikkie",
-          sourceId: tPayment.paymentId,
+      const existing = await convexQuery<
+        {
+          source: "tikkie"
+          sourceId: string
         },
+        PaymentDto[]
+      >("payments/getPayments", {
+        source: "tikkie",
+        sourceId: tPayment.paymentId,
       })
 
-      if (existing) {
+      if (existing.length > 0) {
         result.existingPayments++
         continue
       }
 
-      // Create new Payment record
-      await prisma.payment.create({
-        data: {
-          source: "tikkie",
-          sourceId: tPayment.paymentId,
-          payerName: tPayment.payerName,
-          payerAccountNumber: tPayment.payerAccountNumber || null,
-          amountMinor: tPayment.amountPaidInCents,
-          paidAt: new Date(tPayment.paidAt),
-          status: "unassigned",
-          providerPayload: tPayment as unknown as Prisma.JsonValue,
+      await convexMutation<
+        {
+          source: "tikkie"
+          sourceId: string
+          payerName: string
+          payerAccountNumber?: string
+          amountMinor: number
+          paidAt: number
+          providerPayload: unknown
         },
+        string
+      >("payments/createPayment", {
+        source: "tikkie",
+        sourceId: tPayment.paymentId,
+        payerName: tPayment.payerName,
+        payerAccountNumber: tPayment.payerAccountNumber,
+        amountMinor: tPayment.amountPaidInCents,
+        paidAt: new Date(tPayment.paidAt).getTime(),
+        providerPayload: tPayment,
       })
       result.newPayments++
     }
@@ -370,18 +358,6 @@ export async function syncTikkiePayments(
   return result
 }
 
-export type AutoMatchResult = {
-  autoMatched: number
-  ambiguous: number
-  unchanged: number
-}
-
-/**
- * Automatically matches unassigned payments to orders by payerName -> buyerName exact match.
- * - Single match: status = 'auto_matched', orderId set
- * - Multiple matches: status = 'ambiguous' (manual review)
- * - No match: status remains 'unassigned'
- */
 export async function autoMatchPayments(): Promise<AutoMatchResult> {
   const result: AutoMatchResult = {
     autoMatched: 0,
@@ -389,49 +365,40 @@ export async function autoMatchPayments(): Promise<AutoMatchResult> {
     unchanged: 0,
   }
 
-  // Get all unassigned payments with payerName
-  const unassignedPayments = await prisma.payment.findMany({
-    where: {
-      status: "unassigned",
-      payerName: { not: "" },
-    },
-  })
+  const unassignedPayments = await convexQuery<{}, PaymentDto[]>(
+    "payments/getUnassignedPayments",
+    {}
+  )
 
   for (const payment of unassignedPayments) {
-    // Find orders where buyerName exactly matches payerName
-    const matchingOrders = await prisma.ticketTailorOrder.findMany({
-      where: {
-        buyerName: {
-          equals: payment.payerName,
-          mode: "insensitive",
-        },
-      },
-      select: { id: true },
-    })
+    const matchingOrders = await convexQuery<
+      { status: "paid" },
+      Array<{ _id: string; buyerName: string | null }>
+    >("orders/getOrders", { status: "paid" })
 
-    if (matchingOrders.length === 0) {
-      // No match - remains unassigned
+    const matches = matchingOrders.filter(
+      (o) => o.buyerName?.toLowerCase() === payment.payerName.toLowerCase()
+    )
+
+    if (matches.length === 0) {
       result.unchanged++
-    } else if (matchingOrders.length === 1) {
-      // Exact single match - auto-assign
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          orderId: matchingOrders[0].id,
-          status: "auto_matched",
-          matchedAt: new Date(),
-          matchedBy: "auto",
+    } else if (matches.length === 1) {
+      await convexMutation<
+        {
+          paymentId: string
+          orderId: string
+          status: "auto_matched"
+          matchedBy: string
         },
+        string
+      >("payments/assignPaymentToOrder", {
+        paymentId: payment._id as any,
+        orderId: matches[0]._id,
+        status: "auto_matched",
+        matchedBy: "auto",
       })
       result.autoMatched++
     } else {
-      // Multiple matches - ambiguous, needs manual review
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: "ambiguous",
-        },
-      })
       result.ambiguous++
     }
   }

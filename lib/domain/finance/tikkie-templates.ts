@@ -1,4 +1,44 @@
-import { prisma } from "@/lib/prisma"
+const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
+
+async function convexQuery<Args extends Record<string, unknown>, Response>(
+  path: string,
+  args: Args
+): Promise<Response> {
+  const response = await fetch(`${CONVEX_URL}/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ args }),
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Convex query failed: ${error}`)
+  }
+
+  return response.json()
+}
+
+async function convexMutation<Args extends Record<string, unknown>, Response>(
+  path: string,
+  args: Args
+): Promise<Response> {
+  const response = await fetch(`${CONVEX_URL}/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ args }),
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Convex mutation failed: ${error}`)
+  }
+
+  return response.json()
+}
 
 export type TikkiePaymentTemplateDto = {
   id: string
@@ -28,29 +68,28 @@ export type UpdateTemplateInput = {
   isActive?: boolean
 }
 
-type DbTemplate = {
-  id: string
+type ConvexTemplate = {
+  _id: string
+  _creationTime: number
   eventId: string
   ticketTypeLabel: string
   amountMinor: number
   descriptionTemplate: string
-  expiryDays: number
-  isActive: boolean
-  createdAt: Date
-  updatedAt: Date
+  expiryDays?: number
+  isActive?: boolean
 }
 
-function mapTemplate(template: DbTemplate): TikkiePaymentTemplateDto {
+function mapTemplate(template: ConvexTemplate): TikkiePaymentTemplateDto {
   return {
-    id: template.id,
+    id: template._id,
     eventId: template.eventId,
     ticketTypeLabel: template.ticketTypeLabel,
     amountMinor: template.amountMinor,
     descriptionTemplate: template.descriptionTemplate,
-    expiryDays: template.expiryDays,
-    isActive: template.isActive,
-    createdAt: template.createdAt.toISOString(),
-    updatedAt: template.updatedAt.toISOString(),
+    expiryDays: template.expiryDays ?? 14,
+    isActive: template.isActive ?? true,
+    createdAt: new Date(template._creationTime).toISOString(),
+    updatedAt: new Date(template._creationTime).toISOString(),
   }
 }
 
@@ -72,7 +111,9 @@ function normalizeEventId(value: string): string {
 
 function normalizeAmountMinor(value: number): number {
   if (!Number.isInteger(value) || value <= 0) {
-    throw new Error("Invalid 'amountMinor'. Expected a positive integer in cents.")
+    throw new Error(
+      "Invalid 'amountMinor'. Expected a positive integer in cents."
+    )
   }
   return value
 }
@@ -80,7 +121,9 @@ function normalizeAmountMinor(value: number): number {
 function normalizeExpiryDays(value: number | undefined): number {
   const days = value ?? 14
   if (!Number.isInteger(days) || days < 1 || days > 365) {
-    throw new Error("Invalid 'expiryDays'. Expected an integer between 1 and 365.")
+    throw new Error(
+      "Invalid 'expiryDays'. Expected an integer between 1 and 365."
+    )
   }
   return days
 }
@@ -91,7 +134,9 @@ function normalizeDescriptionTemplate(value: string): string {
     throw new Error("Invalid 'descriptionTemplate'. Value is required.")
   }
   if (normalized.length > 200) {
-    throw new Error("Invalid 'descriptionTemplate'. Maximum length is 200 characters.")
+    throw new Error(
+      "Invalid 'descriptionTemplate'. Maximum length is 200 characters."
+    )
   }
   return normalized
 }
@@ -101,7 +146,9 @@ export function validateCreateTemplateInput(input: CreateTemplateInput) {
     eventId: normalizeEventId(input.eventId),
     ticketTypeLabel: normalizeTicketTypeLabel(input.ticketTypeLabel),
     amountMinor: normalizeAmountMinor(input.amountMinor),
-    descriptionTemplate: normalizeDescriptionTemplate(input.descriptionTemplate),
+    descriptionTemplate: normalizeDescriptionTemplate(
+      input.descriptionTemplate
+    ),
     expiryDays: normalizeExpiryDays(input.expiryDays),
   }
 }
@@ -114,108 +161,117 @@ export function validateUpdateTemplateInput(input: UpdateTemplateInput) {
   return {
     id: normalizedId,
     amountMinor: normalizeAmountMinor(input.amountMinor),
-    descriptionTemplate: normalizeDescriptionTemplate(input.descriptionTemplate),
+    descriptionTemplate: normalizeDescriptionTemplate(
+      input.descriptionTemplate
+    ),
     expiryDays: normalizeExpiryDays(input.expiryDays),
     isActive: input.isActive ?? true,
   }
 }
 
-export async function createTemplate(input: CreateTemplateInput): Promise<TikkiePaymentTemplateDto> {
+export async function createTemplate(
+  input: CreateTemplateInput
+): Promise<TikkiePaymentTemplateDto> {
   const validated = validateCreateTemplateInput(input)
 
-  const event = await prisma.ticketTailorEvent.findUnique({
-    where: { id: validated.eventId },
-    select: { id: true },
-  })
+  const eventResult = await convexQuery<{ eventId: string }, unknown | null>(
+    "tickettailor:getEventById",
+    { eventId: validated.eventId }
+  )
 
-  if (!event) {
+  if (!eventResult) {
     throw new Error("Event not found for given 'eventId'.")
   }
 
-  const template = await prisma.tikkiePaymentTemplate.upsert({
-    where: {
-      eventId_ticketTypeLabel: {
-        eventId: validated.eventId,
-        ticketTypeLabel: validated.ticketTypeLabel,
-      },
-    },
-    update: {
-      amountMinor: validated.amountMinor,
-      descriptionTemplate: validated.descriptionTemplate,
-      expiryDays: validated.expiryDays,
-      isActive: true,
-    },
-    create: {
-      eventId: validated.eventId,
-      ticketTypeLabel: validated.ticketTypeLabel,
-      amountMinor: validated.amountMinor,
-      descriptionTemplate: validated.descriptionTemplate,
-      expiryDays: validated.expiryDays,
-      isActive: true,
-    },
+  await convexMutation("tikkie:createPaymentTemplate", {
+    eventId: validated.eventId,
+    ticketTypeLabel: validated.ticketTypeLabel,
+    amountMinor: validated.amountMinor,
+    descriptionTemplate: validated.descriptionTemplate,
+    expiryDays: validated.expiryDays,
+    isActive: true,
   })
 
-  return mapTemplate(template)
+  const templates = await convexQuery<{ eventId: string }, ConvexTemplate[]>(
+    "tikkie:getPaymentTemplates",
+    { eventId: validated.eventId }
+  )
+
+  const created = templates.find(
+    (t) => t.ticketTypeLabel === validated.ticketTypeLabel
+  )
+  if (!created) {
+    throw new Error("Failed to create template")
+  }
+
+  return mapTemplate(created)
 }
 
-export async function updateTemplate(input: UpdateTemplateInput): Promise<TikkiePaymentTemplateDto> {
+export async function updateTemplate(
+  input: UpdateTemplateInput
+): Promise<TikkiePaymentTemplateDto> {
   const validated = validateUpdateTemplateInput(input)
 
-  const existing = await prisma.tikkiePaymentTemplate.findUnique({
-    where: { id: validated.id },
+  await convexMutation("tikkie:updatePaymentTemplate", {
+    templateId: validated.id,
+    amountMinor: validated.amountMinor,
+    descriptionTemplate: validated.descriptionTemplate,
+    expiryDays: validated.expiryDays,
+    isActive: validated.isActive,
   })
 
-  if (!existing) {
+  const templates = await convexQuery<{ eventId?: string }, ConvexTemplate[]>(
+    "tikkie:getPaymentTemplates",
+    {}
+  )
+  const updated = templates.find((t) => t._id === validated.id)
+
+  if (!updated) {
     throw new Error("Template not found for given 'id'.")
   }
 
-  const template = await prisma.tikkiePaymentTemplate.update({
-    where: { id: validated.id },
-    data: {
-      amountMinor: validated.amountMinor,
-      descriptionTemplate: validated.descriptionTemplate,
-      expiryDays: validated.expiryDays,
-      isActive: validated.isActive,
-    },
-  })
-
-  return mapTemplate(template)
+  return mapTemplate(updated)
 }
 
-export async function deleteTemplate(id: string): Promise<TikkiePaymentTemplateDto> {
+export async function deleteTemplate(
+  id: string
+): Promise<TikkiePaymentTemplateDto> {
   const normalizedId = id.trim()
   if (!normalizedId) {
     throw new Error("Invalid 'id'. Value is required.")
   }
 
-  const existing = await prisma.tikkiePaymentTemplate.findUnique({
-    where: { id: normalizedId },
-  })
+  const templates = await convexQuery<{ eventId?: string }, ConvexTemplate[]>(
+    "tikkie:getPaymentTemplates",
+    {}
+  )
+  const existing = templates.find((t) => t._id === normalizedId)
 
   if (!existing) {
     throw new Error("Template not found for given 'id'.")
   }
 
-  const template = await prisma.tikkiePaymentTemplate.update({
-    where: { id: normalizedId },
-    data: { isActive: false },
+  await convexMutation("tikkie:deletePaymentTemplate", {
+    templateId: normalizedId,
   })
 
-  return mapTemplate(template)
+  return mapTemplate({ ...existing, isActive: false })
 }
 
-export async function getTemplatesByEvent(eventId: string): Promise<TikkiePaymentTemplateDto[]> {
+export async function getTemplatesByEvent(
+  eventId: string
+): Promise<TikkiePaymentTemplateDto[]> {
   const normalizedEventId = normalizeEventId(eventId)
 
-  const templates = await prisma.tikkiePaymentTemplate.findMany({
-    where: {
-      eventId: normalizedEventId,
-      isActive: true,
-    },
-    orderBy: [{ ticketTypeLabel: "asc" }],
-  })
+  const templates = await convexQuery<{ eventId: string }, ConvexTemplate[]>(
+    "tikkie:getPaymentTemplates",
+    { eventId: normalizedEventId }
+  )
 
-  return templates.map(mapTemplate)
+  return templates
+    .filter((t) => t.isActive ?? true)
+    .sort((a, b) => a.ticketTypeLabel.localeCompare(b.ticketTypeLabel))
+    .map(mapTemplate)
 }
 
 export type TemplateMatchResult = {
@@ -240,15 +296,17 @@ type AttendeeForMatch = {
 }
 
 export async function matchTemplateForAttendee(
-  attendee: AttendeeForMatch,
+  attendee: AttendeeForMatch
 ): Promise<TemplateMatchResult> {
   const providerOrderId = attendee.providerOrderId.trim()
   if (!providerOrderId) {
     throw new Error("Invalid attendee. 'providerOrderId' is required.")
   }
 
-  // Priority 1: attendee-level amount override
-  if (attendee.tikkieAmountOverrideMinor !== null && attendee.tikkieAmountOverrideMinor > 0) {
+  if (
+    attendee.tikkieAmountOverrideMinor !== null &&
+    attendee.tikkieAmountOverrideMinor > 0
+  ) {
     const description = `Order ${providerOrderId}`.slice(0, 35)
     const expiryDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
       .toISOString()
@@ -265,26 +323,25 @@ export async function matchTemplateForAttendee(
     }
   }
 
-  // Priority 2: ticket-type template
   if (attendee.ticketTypeLabel && attendee.ticketTypeLabel.trim()) {
-    const template = await prisma.tikkiePaymentTemplate.findUnique({
-      where: {
-        eventId_ticketTypeLabel: {
-          eventId: attendee.eventId,
-          ticketTypeLabel: attendee.ticketTypeLabel.trim(),
-        },
-      },
+    const template = await convexQuery<
+      { eventId: string; ticketTypeLabel: string },
+      ConvexTemplate | null
+    >("tikkie:getTemplateByEventAndTicketType", {
+      eventId: attendee.eventId,
+      ticketTypeLabel: attendee.ticketTypeLabel.trim(),
     })
 
-    if (template && template.isActive) {
-      // Substitute placeholders in description template
+    if (template && (template.isActive ?? true)) {
       const description = template.descriptionTemplate
         .replace(/\{\{name\}\}/gi, "attendee")
         .replace(/\{\{email\}\}/gi, "contact")
         .replace(/\{\{ticketType\}\}/gi, attendee.ticketTypeLabel ?? "")
         .slice(0, 35)
 
-      const expiryDate = new Date(Date.now() + template.expiryDays * 24 * 60 * 60 * 1000)
+      const expiryDate = new Date(
+        Date.now() + (template.expiryDays ?? 14) * 24 * 60 * 60 * 1000
+      )
         .toISOString()
         .slice(0, 10)
 
@@ -296,12 +353,11 @@ export async function matchTemplateForAttendee(
         expiryDate,
         referenceId: providerOrderId.slice(0, 35),
         source: "template",
-        templateId: template.id,
+        templateId: template._id,
       }
     }
   }
 
-  // Priority 3: default (no template, no override)
   const description = `Order ${providerOrderId}`.slice(0, 35)
   const expiryDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
     .toISOString()
@@ -325,37 +381,43 @@ export type TemplateSummary = {
   attendeeCount: number
 }
 
-export async function getTemplatesWithAttendeeCounts(eventId: string): Promise<TemplateSummary[]> {
+export async function getTemplatesWithAttendeeCounts(
+  eventId: string
+): Promise<TemplateSummary[]> {
   const normalizedEventId = normalizeEventId(eventId)
 
-  // Get all unique ticket type labels for attendees in this event
-  const attendeeTicketTypes = await prisma.ticketTailorAttendee.groupBy({
-    by: ["ticketTypeLabel"],
-    where: {
-      eventId: normalizedEventId,
-      ticketTypeLabel: { not: null },
-    },
-    _count: { _all: true },
-  })
+  const attendees = await convexQuery<
+    { eventId: string },
+    { ticketTypeLabel?: string }[]
+  >("attendees:getAttendeesByEvent", { eventId: normalizedEventId })
 
-  // Get active templates for this event
-  const templates = await prisma.tikkiePaymentTemplate.findMany({
-    where: {
-      eventId: normalizedEventId,
-      isActive: true,
-    },
-  })
+  const ticketTypeMap = new Map<string, number>()
+  for (const attendee of attendees) {
+    if (attendee.ticketTypeLabel) {
+      ticketTypeMap.set(
+        attendee.ticketTypeLabel,
+        (ticketTypeMap.get(attendee.ticketTypeLabel) ?? 0) + 1
+      )
+    }
+  }
 
-  const templateByLabel = new Map(templates.map((t) => [t.ticketTypeLabel, mapTemplate(t)]))
+  const templates = await convexQuery<{ eventId: string }, ConvexTemplate[]>(
+    "tikkie:getPaymentTemplates",
+    { eventId: normalizedEventId }
+  )
 
-  // Build summary including ticket types with and without templates
-  return attendeeTicketTypes
-    .filter((at) => at.ticketTypeLabel)
-    .map((at) => ({
+  const templateByLabel = new Map(
+    templates
+      .filter((t) => t.isActive ?? true)
+      .map((t) => [t.ticketTypeLabel, mapTemplate(t)])
+  )
+
+  return Array.from(ticketTypeMap.entries()).map(
+    ([ticketTypeLabel, attendeeCount]) => ({
       eventId: normalizedEventId,
-      ticketTypeLabel: at.ticketTypeLabel!,
-      template: templateByLabel.get(at.ticketTypeLabel!) ?? null,
-      attendeeCount: at._count._all,
-    }))
-    .sort((a, b) => a.ticketTypeLabel.localeCompare(b.ticketTypeLabel))
+      ticketTypeLabel,
+      template: templateByLabel.get(ticketTypeLabel) ?? null,
+      attendeeCount,
+    })
+  )
 }
