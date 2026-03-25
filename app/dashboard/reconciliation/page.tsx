@@ -1115,12 +1115,17 @@ function PaymentReconciliationSection() {
   async function handleSyncTikkie() {
     setIsSyncing(true)
     try {
-      // Placeholder for Tikkie sync - actual implementation would sync payments
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      // Call the Tikkie sync API to sync payments and run auto-match
+      const response = await fetch("/api/payments/tikkie/sync", {
+        method: "POST",
+      })
+      if (!response.ok) {
+        console.error("Tikkie sync failed:", response.status)
+      }
       // Reload summary after sync
-      const response = await fetch("/api/reconciliation")
-      if (response.ok) {
-        const data = await response.json()
+      const summaryResponse = await fetch("/api/reconciliation")
+      if (summaryResponse.ok) {
+        const data = await summaryResponse.json()
         setSummary(data)
       }
     } catch (error) {
