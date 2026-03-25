@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in-progress
-stopped_at: Completed plan 11-03 (convex functions)
-last_updated: "2026-03-25T16:00:00.000Z"
+stopped_at: Completed plan 11-05 (API routes migrated to Convex)
+last_updated: "2026-03-25T17:45:22.000Z"
 progress:
   total_phases: 13
   completed_phases: 10
@@ -24,8 +24,8 @@ See: `.planning/PROJECT.md` (updated 2026-03-18)
 ## Current Position
 
 Phase: 11 (use-convex)
-Plan: 3 of 5 complete
-Status: In progress - Functions written, need commit + API routes (11-04)
+Plan: 5 of 5 complete (API routes migrated)
+Status: In progress - API routes done, e2e verify + deploy remaining (11-05 tasks 2-4)
 
 ## Performance Metrics
 
@@ -124,6 +124,9 @@ Recent decisions affecting current work:
 - [11-03] Orders domain expanded from 3 to 13 functions — search, pagination, reconciliation, payment status, provider upserts.
 - [11-03] Sync domain expanded from 2 to 23 functions — webhook events, Ticket Tailor upserts, attendee family groups.
 - [11-03] Functions operate directly on Convex ctx.db with typed v.\* argument validation — no intermediate service layer.
+- [11-05] API routes use direct HTTP fetch to Convex URL via convexQuery/convexMutation helpers instead of ConvexClient.
+- [11-05] Payments list route delegates to domain layer (listPayments) rather than calling Convex directly, maintaining abstraction.
+- [11-05] Tikkie sync route inlines its own convexQuery helper rather than importing from lib/convex/server.ts.
 
 ### Roadmap Evolution
 
@@ -141,7 +144,9 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-- Convex function files (convex/functions/\*.ts) are UNTRACKED — must be committed before proceeding to 11-04
+- API routes migrated to Convex but changes are UNTRACKED — must commit before deploying
+- E2E verification and production deploy still pending (11-05 tasks 2-4)
+- `lib/prisma.ts` and `lib/auth.ts` still use Prisma for better-auth adapter (expected, intentional)
 - Phase 6 complete. All Tikkie operator workflows shipped.
 - Real provider verification for Tikkie still depends on `TIKKIE_API_KEY`, `TIKKIE_APP_TOKEN`, and the active webhook callback subscription being configured.
 - Non-blocking lint warnings in various files should be cleaned during future hygiene work.
@@ -160,6 +165,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-03-25T16:00:00Z
-Stopped at: Completed plan 11-03 (convex functions)
+Last session: 2026-03-25T17:45:22Z
+Stopped at: Completed plan 11-05 (API routes migrated to Convex)
 Resume file: None
