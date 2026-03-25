@@ -1,10 +1,24 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowRight, CircleAlert, HandCoins, SearchCheck } from "lucide-react"
+import {
+  ArrowRight,
+  CircleAlert,
+  HandCoins,
+  SearchCheck,
+  Wallet,
+  AlertCircle,
+  CheckCircle2,
+  HelpCircle,
+  Plus,
+  RefreshCw,
+} from "lucide-react"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { OrderAttendeeBreakdown } from "@/components/dashboard/order-attendee-breakdown"
+import { PaymentList } from "@/components/payments/payment-list"
+import { AssignDialog } from "@/components/payments/assign-dialog"
+import { ManualPaymentEntryForm } from "@/components/payments/manual-entry-form"
 
 import {
   TikkieLinkDialog,
@@ -26,6 +40,7 @@ import {
 
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Input } from "@/components/ui/input"
 
 type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 
@@ -1023,6 +1038,266 @@ export default function ReconciliationPage() {
           await handleGenerateLink(dialogRow, values)
         }}
       />
+
+      {/* Payment Reconciliation Section */}
+      <PaymentReconciliationSection />
+    </section>
+  )
+}
+
+type PaymentSource = "tikkie" | "bank_transfer" | "cash"
+type PaymentMatchStatus =
+  | "unassigned"
+  | "ambiguous"
+  | "manual_assignment"
+  | "auto_matched"
+
+type PaymentSummary = {
+  summary: {
+    unassigned: number
+    ambiguous: number
+    manual_assignment: number
+    auto_matched: number
+    total: number
+  }
+  totalAmountMinor: number
+  bySource: {
+    tikkie: number
+    bank_transfer: number
+    cash: number
+  }
+}
+
+type Payment = {
+  id: string
+  source: PaymentSource
+  payerName: string
+  payerAccountNumber: string | null
+  amountMinor: number
+  paidAt: string
+  status: PaymentMatchStatus
+}
+
+function PaymentReconciliationSection() {
+  const [summary, setSummary] = useState<PaymentSummary | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [showEntryForm, setShowEntryForm] = useState(false)
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false)
+  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
+  const [isSyncing, setIsSyncing] = useState(false)
+
+  useEffect(() => {
+    async function loadSummary() {
+      try {
+        const response = await fetch("/api/reconciliation")
+        if (response.ok) {
+          const data = await response.json()
+          setSummary(data)
+        }
+      } catch (error) {
+        console.error("Failed to load payment summary:", error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadSummary()
+  }, [])
+
+  async function handleSyncTikkie() {
+    setIsSyncing(true)
+    try {
+      // Placeholder for Tikkie sync - actual implementation would sync payments
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      // Reload summary after sync
+      const response = await fetch("/api/reconciliation")
+      if (response.ok) {
+        const data = await response.json()
+        setSummary(data)
+      }
+    } catch (error) {
+      console.error("Failed to sync Tikkie payments:", error)
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  function handleAssign(payment: Payment) {
+    setSelectedPayment(payment)
+    setAssignDialogOpen(true)
+  }
+
+  function handleAssigned() {
+    // Reload summary and list
+    window.location.reload()
+  }
+
+  function formatMoney(minor: number) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "EUR",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(minor / 100)
+  }
+
+  return (
+    <section className="space-y-6">
+      <div className="flex items-center gap-2">
+        <Wallet className="size-5" />
+        <h2 className="text-xl font-semibold">Payment Reconciliation</h2>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card className="border border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-lg bg-yellow-100 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-400">
+                <AlertCircle className="size-5" />
+              </span>
+              <div>
+                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                  Unassigned
+                </p>
+                <p className="mt-1 text-lg font-semibold text-foreground">
+                  {isLoading ? "--" : (summary?.summary.unassigned ?? 0)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  Needs attention
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-lg bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400">
+                <HelpCircle className="size-5" />
+              </span>
+              <div>
+                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                  Ambiguous
+                </p>
+                <p className="mt-1 text-lg font-semibold text-foreground">
+                  {isLoading ? "--" : (summary?.summary.ambiguous ?? 0)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  Review needed
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+                <HandCoins className="size-5" />
+              </span>
+              <div>
+                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                  Manual
+                </p>
+                <p className="mt-1 text-lg font-semibold text-foreground">
+                  {isLoading ? "--" : (summary?.summary.manual_assignment ?? 0)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  Manually assigned
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-lg bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400">
+                <CheckCircle2 className="size-5" />
+              </span>
+              <div>
+                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                  Auto-matched
+                </p>
+                <p className="mt-1 text-lg font-semibold text-foreground">
+                  {isLoading ? "--" : (summary?.summary.auto_matched ?? 0)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  Automatically matched
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          onClick={() => setShowEntryForm(!showEntryForm)}
+          className="gap-2"
+        >
+          <Plus className="size-4" />
+          Add Payment
+        </Button>
+        <Button
+          variant="outline"
+          onClick={handleSyncTikkie}
+          disabled={isSyncing}
+          className="gap-2"
+        >
+          <RefreshCw className={`size-4 ${isSyncing ? "animate-spin" : ""}`} />
+          {isSyncing ? "Syncing..." : "Sync Tikkie"}
+        </Button>
+      </div>
+
+      {/* Manual Entry Form */}
+      {showEntryForm && (
+        <Card className="border border-border">
+          <CardHeader>
+            <CardTitle>Record Manual Payment</CardTitle>
+            <CardDescription>
+              Enter bank transfer or cash payment details
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ManualPaymentEntryForm
+              onSuccess={() => {
+                setShowEntryForm(false)
+                window.location.reload()
+              }}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Payment List */}
+      <Card className="border border-border">
+        <CardHeader>
+          <CardTitle>Payments</CardTitle>
+          <CardDescription>
+            All payments with filtering by status and source
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PaymentList onAssign={handleAssign} />
+        </CardContent>
+      </Card>
+
+      {/* Assign Dialog */}
+      {selectedPayment && (
+        <AssignDialog
+          payment={selectedPayment}
+          open={assignDialogOpen}
+          onOpenChange={setAssignDialogOpen}
+          onAssigned={handleAssigned}
+        />
+      )}
     </section>
   )
 }
