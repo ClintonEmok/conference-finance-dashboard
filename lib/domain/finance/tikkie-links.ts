@@ -206,6 +206,14 @@ export function mapTikkiePaymentLink(
         ? link.createdAt
         : new Date(link.createdAt as unknown as string).getTime()
       : statusUpdated
+  const providerLastCheckedAt =
+    "providerLastCheckedAt" in link && link.providerLastCheckedAt
+      ? typeof link.providerLastCheckedAt === "number"
+        ? new Date(link.providerLastCheckedAt).toISOString()
+        : new Date(
+            link.providerLastCheckedAt as unknown as string
+          ).toISOString()
+      : null
 
   return {
     id: linkId,
@@ -221,7 +229,7 @@ export function mapTikkiePaymentLink(
     expiryDate: new Date(expiry).toISOString(),
     referenceId: link.referenceId,
     providerPayload: link.providerPayload,
-    providerLastCheckedAt: null,
+    providerLastCheckedAt,
     statusUpdatedAt: new Date(statusUpdated).toISOString(),
     createdAt: new Date(createdAt).toISOString(),
     updatedAt: new Date(statusUpdated).toISOString(),

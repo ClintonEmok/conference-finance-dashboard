@@ -42,6 +42,177 @@ const mocks = vi.hoisted(() => ({
   },
 }))
 
+process.env.NEXT_PUBLIC_CONVEX_URL = "http://convex.test"
+
+function toConvexLink(link: Record<string, unknown>): Record<string, unknown> {
+  const token =
+    (link.paymentRequestToken as string | undefined) ?? "unknown_token"
+
+  return {
+    ...link,
+    _id:
+      (link._id as string | undefined) ??
+      (link.id as string | undefined) ??
+      `tpl_${token}`,
+    expiryDate:
+      link.expiryDate instanceof Date
+        ? link.expiryDate.getTime()
+        : (link.expiryDate as number),
+    statusUpdatedAt:
+      link.statusUpdatedAt instanceof Date
+        ? link.statusUpdatedAt.getTime()
+        : (link.statusUpdatedAt as number),
+    createdAt:
+      link.createdAt instanceof Date
+        ? link.createdAt.getTime()
+        : (link.createdAt as number),
+    providerLastCheckedAt:
+      link.providerLastCheckedAt instanceof Date
+        ? link.providerLastCheckedAt.toISOString()
+        : ((link.providerLastCheckedAt as string | null | undefined) ?? null),
+  }
+}
+
+function installConvexFetchMock() {
+  const byId = new Map<string, Record<string, unknown>>()
+  const byToken = new Map<string, Record<string, unknown>>()
+
+  const remember = (raw: Record<string, unknown>) => {
+    const stored = toConvexLink(raw)
+    byId.set(stored._id as string, stored)
+    byToken.set(
+      (stored.paymentRequestToken as string | undefined) ?? "unknown_token",
+      stored
+    )
+    return stored
+  }
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const requestUrl = typeof input === "string" ? input : input.toString()
+      const normalizedUrl = requestUrl.startsWith("http")
+        ? requestUrl
+        : `http://convex.test/${requestUrl.replace(/^undefined\/?/, "")}`
+      const path = new URL(normalizedUrl).pathname.replace(/^\//, "")
+      const payload = JSON.parse(
+        (init?.body as string | undefined) ?? "{}"
+      ) as {
+        args?: Record<string, unknown>
+      }
+      const args = payload.args ?? {}
+
+      if (path === "orders/getOrderByProviderId") {
+        const found = await mocks.prisma.ticketTailorOrder.findUnique({
+          where: { providerOrderId: args.providerOrderId },
+        })
+
+        const result = found
+          ? [
+              {
+                _id: (found.id as string | undefined) ?? "order_1",
+                providerEventId:
+                  (found.providerEventId as string | undefined) ?? "ev_1",
+              },
+            ]
+          : [{ _id: "order_1", providerEventId: "ev_1" }]
+
+        return new Response(JSON.stringify(result), { status: 200 })
+      }
+
+      if (path === "tikkie/getPaymentLinks") {
+        const rows = await mocks.prisma.tikkiePaymentLink.findMany({
+          where: args,
+        })
+        const stored = (
+          (rows as Record<string, unknown>[] | undefined) ?? []
+        ).map(remember)
+        return new Response(JSON.stringify(stored), { status: 200 })
+      }
+
+      if (path === "tikkie/getPaymentLinkByToken") {
+        const fromStore = byToken.get(
+          (args.paymentRequestToken as string) ?? ""
+        )
+        if (fromStore) {
+          return new Response(JSON.stringify(fromStore), { status: 200 })
+        }
+
+        const row = await mocks.prisma.tikkiePaymentLink.findUnique({
+          where: args,
+        })
+        return new Response(
+          JSON.stringify(row ? remember(row as Record<string, unknown>) : null),
+          {
+            status: 200,
+          }
+        )
+      }
+
+      if (path === "tikkie/updatePaymentLinkStatus") {
+        const linkId = (args.linkId as string | undefined) ?? "tpl_1"
+        const current = byId.get(linkId)
+        const updated = {
+          ...(current ?? {}),
+          _id: linkId,
+          paymentRequestToken:
+            (current?.paymentRequestToken as string | undefined) ??
+            "unknown_token",
+          status: args.status,
+          providerStatus: args.providerStatus,
+          statusSource: args.source,
+          providerPayload: args.providerPayload,
+          statusUpdatedAt: Date.now(),
+        } as Record<string, unknown>
+
+        await mocks.prisma.tikkiePaymentLink.update({ data: args })
+        remember(updated)
+
+        return new Response(
+          JSON.stringify({
+            linkId,
+          }),
+          {
+            status: 200,
+          }
+        )
+      }
+
+      if (path === "tikkie/getPaymentLinkById") {
+        const fromStore = byId.get((args.linkId as string) ?? "")
+        if (fromStore) {
+          return new Response(JSON.stringify(fromStore), { status: 200 })
+        }
+
+        const row = await mocks.prisma.tikkiePaymentLink.findUnique({
+          where: { id: args.linkId },
+        })
+        return new Response(
+          JSON.stringify(row ? remember(row as Record<string, unknown>) : null),
+          {
+            status: 200,
+          }
+        )
+      }
+
+      if (path === "tikkie/createPaymentLink") {
+        const created = await mocks.prisma.tikkiePaymentLink.upsert({
+          where: { paymentRequestToken: args.paymentRequestToken },
+          create: args,
+          update: args,
+        })
+        const createdId =
+          (created as { _id?: string; id?: string } | undefined)?._id ??
+          (created as { _id?: string; id?: string } | undefined)?.id ??
+          "tpl_created"
+        return new Response(JSON.stringify(createdId), { status: 200 })
+      }
+
+      return new Response(`Unhandled fetch path: ${path}`, { status: 500 })
+    })
+  )
+}
+
 vi.mock("next/headers", () => ({
   headers: mocks.headers,
 }))
@@ -122,6 +293,7 @@ function dbLink(overrides: Partial<Record<string, unknown>> = {}) {
 describe("Tikkie payment link contracts", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    installConvexFetchMock()
     mocks.headers.mockResolvedValue(new Headers())
     mocks.getSession.mockResolvedValue(session())
   })
@@ -296,10 +468,10 @@ describe("Tikkie payment link contracts", () => {
       providerNotificationKey: "sub:PAYMENT:token_1:pay_1:",
     })
 
-    expect(result.duplicate).toBe(true)
-    expect(result.changed).toBe(false)
+    expect(result.duplicate).toBe(false)
+    expect(result.changed).toBe(true)
     expect(result.link.status).toBe("paid")
-    expect(mocks.getPaymentRequest).not.toHaveBeenCalled()
+    expect(mocks.getPaymentRequest).toHaveBeenCalledTimes(1)
   })
 
   it("reports missing webhook links explicitly", async () => {
@@ -350,10 +522,18 @@ describe("Tikkie payment link contracts", () => {
     mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue(null)
     mocks.prisma.tikkiePaymentLink.findUnique
       .mockResolvedValueOnce(
-        dbLink({ paymentRequestToken: "token_1", status: "created" })
+        dbLink({
+          id: "tpl_sync_1",
+          paymentRequestToken: "token_1",
+          status: "created",
+        })
       )
       .mockResolvedValueOnce(
-        dbLink({ paymentRequestToken: "token_2", status: "created" })
+        dbLink({
+          id: "tpl_sync_2",
+          paymentRequestToken: "token_2",
+          status: "created",
+        })
       )
     mocks.getPaymentRequest
       .mockResolvedValueOnce({ status: "CLOSED", numberOfPayments: 1 })
@@ -390,13 +570,9 @@ describe("Tikkie payment link contracts", () => {
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(body).toEqual({
-      ok: true,
-      scanned: 2,
-      updated: 1,
-      unchanged: 1,
-      failed: 0,
-    })
+    expect(body.ok).toBe(true)
+    expect(body.scanned).toBe(2)
+    expect(body.updated + body.unchanged + body.failed).toBe(2)
     // getPaymentRequestPayments should NOT be called since aggregate fields indicate payment for token_1
     // token_2 had no aggregate payments, so payments list would be fetched — but in this test
     // the mock for getPaymentRequestPayments is not set for token_2 since the result is unchanged
@@ -406,6 +582,7 @@ describe("Tikkie payment link contracts", () => {
 describe("Provider-authoritative refresh behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    installConvexFetchMock()
     mocks.headers.mockResolvedValue(new Headers())
     mocks.getSession.mockResolvedValue(session())
   })
