@@ -1,13 +1,6 @@
-import { Prisma } from "@prisma/client"
-
-import { prisma } from "@/lib/prisma"
+import { convexQuery, convexMutation } from "@/lib/convex/server"
 
 type RoomAvailability = "all" | "empty" | "available" | "full"
-
-type RoomAllocationBoardRoom = RoomAllocationBoard["rooms"][number]
-type RoomAllocationBoardAttendee =
-  RoomAllocationBoard["unassignedAttendees"][number]
-type RoomAllocationBoardSummary = RoomAllocationBoard["summary"]
 
 export type RoomAllocationBoardFilters = {
   eventId?: string | null
@@ -15,7 +8,6 @@ export type RoomAllocationBoardFilters = {
   hotelId?: string | null
   roomTypeId?: string | null
   availability?: RoomAvailability
-  // Signal-aware filters
   genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
   familyGroupId?: string | null
   location?: string | null
@@ -31,7 +23,6 @@ export type RoomAllocationBoard = {
     hotelId: string | null
     roomTypeId: string | null
     availability: RoomAvailability
-    // Signal-aware filters
     genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
     familyGroupId: string | null
     location: string | null
@@ -88,652 +79,23 @@ export type RoomAllocationBoard = {
     providerEventId: string
     eventName: string | null
     ticketTypeLabel: string | null
-    matchingRoomCount: number
-    // Signal fields for UI display
     genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+    allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
     location: string | null
     remarks: string | null
-    allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
-    familyGroupId: string | null
+    hasFamily: boolean
   }>
   summary: {
     totalRooms: number
     emptyRooms: number
     availableRooms: number
     fullRooms: number
-    unassignedAttendees: number
+    totalBeds: number
+    occupiedBeds: number
+    availableBeds: number
+    unassignedAttendeesCount: number
   }
 }
-
-function normalizeRequiredString(value: string, fieldName: string) {
-  const normalized = value.trim()
-
-  if (!normalized) {
-    throw new Error(`Invalid '${fieldName}'. Value is required.`)
-  }
-
-  return normalized
-}
-
-function normalizeOptionalString(value: string | null | undefined) {
-  const normalized = value?.trim()
-  return normalized ? normalized : null
-}
-
-function normalizeAvailability(value: string | null | undefined) {
-  if (!value) {
-    return "all" as const
-  }
-
-  if (
-    value === "all" ||
-    value === "empty" ||
-    value === "available" ||
-    value === "full"
-  ) {
-    return value
-  }
-
-  throw new Error(
-    "Invalid 'availability'. Expected one of: all, empty, available, full."
-  )
-}
-
-function normalizeGenderType(value: string | null | undefined) {
-  if (!value) {
-    return null
-  }
-
-  if (
-    value === "MALE" ||
-    value === "FEMALE" ||
-    value === "MIXED" ||
-    value === "UNKNOWN"
-  ) {
-    return value
-  }
-
-  return null
-}
-
-function normalizeAllocationPriority(value: string | null | undefined) {
-  if (!value) {
-    return null
-  }
-
-  if (
-    value === "CRITICAL" ||
-    value === "HIGH" ||
-    value === "NORMAL" ||
-    value === "LOW"
-  ) {
-    return value
-  }
-
-  return null
-}
-
-function normalizeBoolean(value: string | boolean | null | undefined) {
-  if (value === true) {
-    return true
-  }
-
-  if (value === false) {
-    return false
-  }
-
-  if (!value || value === "null" || value === "undefined") {
-    return null
-  }
-
-  if (value === "true") {
-    return true
-  }
-
-  if (value === "false") {
-    return false
-  }
-
-  return null
-}
-
-function deriveAvailability(occupiedBeds: number, capacity: number) {
-  if (occupiedBeds <= 0) {
-    return "empty" as const
-  }
-
-  if (occupiedBeds >= capacity) {
-    return "full" as const
-  }
-
-  return "available" as const
-}
-
-function matchesSearch(
-  value: string | null | undefined,
-  search: string | null
-) {
-  if (!search) {
-    return true
-  }
-
-  return (value ?? "").toLocaleLowerCase().includes(search.toLocaleLowerCase())
-}
-
-function attendeeMatchesSearch(
-  attendee: {
-    attendeeName: string | null
-    attendeeEmail: string | null
-    providerOrderId: string
-    providerEventId: string
-    eventName: string | null
-    ticketTypeLabel: string | null
-  },
-  search: string | null
-) {
-  if (!search) {
-    return true
-  }
-
-  return [
-    attendee.attendeeName,
-    attendee.attendeeEmail,
-    attendee.providerOrderId,
-    attendee.providerEventId,
-    attendee.eventName,
-    attendee.ticketTypeLabel,
-  ].some((value) => matchesSearch(value, search))
-}
-
-export async function getRoomAllocationBoard(
-  filters: RoomAllocationBoardFilters = {}
-): Promise<RoomAllocationBoard> {
-  const eventId = normalizeOptionalString(filters.eventId)
-  const search = normalizeOptionalString(filters.search)
-  const hotelId = normalizeOptionalString(filters.hotelId)
-  const roomTypeId = normalizeOptionalString(filters.roomTypeId)
-  const availability = normalizeAvailability(filters.availability)
-
-  // Signal-aware filter parsing
-  const genderType = normalizeGenderType(filters.genderType ?? undefined)
-  const familyGroupId = normalizeOptionalString(filters.familyGroupId)
-  const location = normalizeOptionalString(filters.location)
-  const allocationPriority = normalizeAllocationPriority(
-    filters.allocationPriority ?? undefined
-  )
-  const hasPriority = normalizeBoolean(filters.hasPriority ?? undefined)
-
-  const availableEvents = await prisma.ticketTailorEvent.findMany({
-    orderBy: [{ startsAt: "asc" }, { name: "asc" }],
-    select: {
-      providerEventId: true,
-      name: true,
-      accommodationHotels: {
-        select: {
-          hotelId: true,
-        },
-      },
-    },
-  })
-
-  const selectedEventHotelIds =
-    availableEvents
-      .find((event) => event.providerEventId === eventId)
-      ?.accommodationHotels.map((link) => link.hotelId) ?? []
-
-  const scopedHotelIds =
-    eventId && selectedEventHotelIds.length > 0 ? selectedEventHotelIds : null
-
-  const [hotels, roomTypes, rooms, unassignedAttendees] = await Promise.all([
-    prisma.accommodationHotel.findMany({
-      where: scopedHotelIds ? { id: { in: scopedHotelIds } } : undefined,
-      orderBy: [{ name: "asc" }],
-      select: {
-        id: true,
-        name: true,
-        eventLinks: {
-          select: {
-            event: {
-              select: {
-                providerEventId: true,
-              },
-            },
-          },
-        },
-      },
-    }),
-    prisma.accommodationRoomType.findMany({
-      orderBy: [{ label: "asc" }],
-      select: {
-        id: true,
-        label: true,
-        defaultCapacity: true,
-      },
-    }),
-    prisma.accommodationRoom.findMany({
-      where: {
-        ...(scopedHotelIds ? { hotelId: { in: scopedHotelIds } } : {}),
-        ...(hotelId ? { hotelId } : {}),
-        ...(roomTypeId ? { roomTypeId } : {}),
-      },
-      orderBy: [{ hotel: { name: "asc" } }, { label: "asc" }],
-      include: {
-        hotel: {
-          select: {
-            id: true,
-            name: true,
-            city: true,
-          },
-        },
-        roomType: {
-          select: {
-            id: true,
-            label: true,
-            defaultCapacity: true,
-          },
-        },
-        attendees: {
-          where: {
-            ...(eventId ? { providerEventId: eventId } : {}),
-          },
-          orderBy: [{ name: "asc" }, { email: "asc" }, { createdAt: "asc" }],
-          include: {
-            event: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
-      },
-    }),
-    prisma.ticketTailorAttendee.findMany({
-      where: {
-        assignedRoomId: null,
-        ...(eventId ? { providerEventId: eventId } : {}),
-        // Signal-aware filters
-        ...(genderType ? { genderType } : {}),
-        ...(allocationPriority
-          ? { allocationPriority }
-          : hasPriority
-            ? {
-                allocationPriority: { in: ["CRITICAL", "HIGH"] },
-              }
-            : {}),
-      },
-      orderBy: [
-        // Prioritize high-priority attendees first
-        { allocationPriority: "asc" },
-        { name: "asc" },
-        { email: "asc" },
-        { createdAt: "asc" },
-      ],
-      include: {
-        event: {
-          select: {
-            name: true,
-          },
-        },
-        familyGroupMember: {
-          select: {
-            familyGroupId: true,
-          },
-        },
-      },
-    }),
-  ])
-
-  const mappedRooms: RoomAllocationBoard["rooms"] = rooms
-    .map((room): RoomAllocationBoardRoom & { matchesSearch: boolean } => {
-      const occupants = room.attendees.map((attendee) => ({
-        attendeeId: attendee.id,
-        attendeeName: attendee.name ?? null,
-        attendeeEmail: attendee.email ?? null,
-        providerOrderId: attendee.providerOrderId,
-        providerEventId: attendee.providerEventId,
-        eventName: attendee.event?.name ?? null,
-        ticketTypeLabel: attendee.ticketTypeLabel ?? null,
-      }))
-      const searchedOccupants = search
-        ? occupants.filter((occupant) =>
-            attendeeMatchesSearch(occupant, search)
-          )
-        : occupants
-      const occupiedBeds = occupants.length
-      const availableBeds = Math.max(0, room.capacity - occupiedBeds)
-      const roomAvailability = deriveAvailability(occupiedBeds, room.capacity)
-
-      return {
-        id: room.id,
-        label: room.label,
-        capacity: room.capacity,
-        occupiedBeds,
-        availableBeds,
-        availability: roomAvailability,
-        notes: room.notes ?? null,
-        hotel: room.hotel,
-        roomType: room.roomType,
-        occupants: searchedOccupants,
-        matchesSearch:
-          !search ||
-          matchesSearch(room.label, search) ||
-          matchesSearch(room.hotel.name, search) ||
-          matchesSearch(room.hotel.city, search) ||
-          matchesSearch(room.roomType.label, search) ||
-          searchedOccupants.length > 0,
-      }
-    })
-    .filter((room) => room.matchesSearch)
-    .filter(
-      (room) => availability === "all" || room.availability === availability
-    )
-    .map((room) => ({
-      id: room.id,
-      label: room.label,
-      capacity: room.capacity,
-      occupiedBeds: room.occupiedBeds,
-      availableBeds: room.availableBeds,
-      availability: room.availability,
-      notes: room.notes,
-      hotel: room.hotel,
-      roomType: room.roomType,
-      occupants: room.occupants,
-    }))
-
-  const candidateRooms = mappedRooms.filter((room) => room.availableBeds > 0)
-
-  const filteredUnassignedAttendees: RoomAllocationBoard["unassignedAttendees"] =
-    unassignedAttendees
-      .map((attendee): RoomAllocationBoardAttendee | null => {
-        // Extract location from customAnswers JSON
-        const customAnswers = attendee.customAnswers as
-          | { location?: string; remarks?: string }
-          | null
-          | undefined
-        const attendeeLocation = customAnswers?.location ?? null
-        const attendeeRemarks = customAnswers?.remarks ?? null
-
-        // Filter by location if specified
-        const locationMatch =
-          !location ||
-          (attendeeLocation &&
-            attendeeLocation.toLowerCase().includes(location.toLowerCase()))
-
-        if (!locationMatch) {
-          return null
-        }
-
-        // Get family group info if available
-        const familyGroupId = attendee.familyGroupMember?.familyGroupId ?? null
-
-        const result: RoomAllocationBoardAttendee = {
-          attendeeId: attendee.id,
-          attendeeName: attendee.name ?? null,
-          attendeeEmail: attendee.email ?? null,
-          providerOrderId: attendee.providerOrderId,
-          providerEventId: attendee.providerEventId,
-          eventName: attendee.event?.name ?? null,
-          ticketTypeLabel: attendee.ticketTypeLabel ?? null,
-          matchingRoomCount: candidateRooms.length,
-          // Signal fields for UI display
-          genderType: attendee.genderType ?? null,
-          location: attendeeLocation,
-          remarks: attendeeRemarks,
-          allocationPriority: attendee.allocationPriority ?? null,
-          familyGroupId,
-        }
-
-        return result
-      })
-      .filter(
-        (attendee): attendee is RoomAllocationBoardAttendee => attendee !== null
-      )
-      .filter((attendee) => attendeeMatchesSearch(attendee, search))
-      .filter((attendee) =>
-        availability === "full"
-          ? false
-          : attendee.matchingRoomCount > 0 || availability === "all"
-      )
-      .filter((attendee) => attendeeMatchesSearch(attendee, search))
-      .filter((attendee) =>
-        availability === "full"
-          ? false
-          : attendee.matchingRoomCount > 0 || availability === "all"
-      )
-
-  const summary = mappedRooms.reduce<RoomAllocationBoardSummary>(
-    (counts, room) => {
-      counts.totalRooms += 1
-      if (room.availability === "empty") {
-        counts.emptyRooms += 1
-      }
-      if (room.availability === "available") {
-        counts.availableRooms += 1
-      }
-      if (room.availability === "full") {
-        counts.fullRooms += 1
-      }
-      return counts
-    },
-    {
-      totalRooms: 0,
-      emptyRooms: 0,
-      availableRooms: 0,
-      fullRooms: 0,
-      unassignedAttendees: filteredUnassignedAttendees.length,
-    }
-  )
-
-  summary.unassignedAttendees = filteredUnassignedAttendees.length
-
-  return {
-    generatedAt: new Date().toISOString(),
-    filters: {
-      eventId,
-      search,
-      hotelId,
-      roomTypeId,
-      availability,
-      genderType,
-      familyGroupId,
-      location,
-      allocationPriority,
-      hasPriority,
-    },
-    availableEvents,
-    hotels: hotels.map((hotel) => ({
-      id: hotel.id,
-      name: hotel.name,
-      assignedEventIds: hotel.eventLinks.map(
-        (link) => link.event.providerEventId
-      ),
-    })),
-    roomTypes,
-    rooms: mappedRooms,
-    unassignedAttendees: filteredUnassignedAttendees,
-    summary,
-  }
-}
-
-async function syncRoomOccupancy(tx: Prisma.TransactionClient, roomId: string) {
-  const occupiedBeds = await tx.ticketTailorAttendee.count({
-    where: {
-      assignedRoomId: roomId,
-    },
-  })
-
-  await tx.accommodationRoom.update({
-    where: {
-      id: roomId,
-    },
-    data: {
-      occupiedBeds,
-    },
-  })
-}
-
-export async function assignAttendeeToRoom(input: {
-  attendeeId: string
-  roomId: string
-}) {
-  const attendeeId = normalizeRequiredString(input.attendeeId, "attendeeId")
-  const roomId = normalizeRequiredString(input.roomId, "roomId")
-
-  return prisma.$transaction(async (tx) => {
-    const attendee = await tx.ticketTailorAttendee.findUnique({
-      where: {
-        id: attendeeId,
-      },
-      select: {
-        id: true,
-        assignedRoomId: true,
-        providerEventId: true,
-        eventId: true,
-      },
-    })
-
-    if (!attendee) {
-      throw new Error("Invalid 'attendeeId'. Attendee not found.")
-    }
-
-    const room = await tx.accommodationRoom.findUnique({
-      where: {
-        id: roomId,
-      },
-      select: {
-        id: true,
-        capacity: true,
-        hotelId: true,
-      },
-    })
-
-    if (!room) {
-      throw new Error("Invalid 'roomId'. Room not found.")
-    }
-
-    if (attendee.assignedRoomId === room.id) {
-      throw new Error(
-        "Invalid assignment. Attendee is already assigned to this room."
-      )
-    }
-
-    const eventHotelLinks = await tx.accommodationEventHotel.findMany({
-      where: {
-        eventId: attendee.eventId,
-      },
-      select: {
-        hotelId: true,
-      },
-    })
-
-    if (
-      eventHotelLinks.length > 0 &&
-      !eventHotelLinks.some((link) => link.hotelId === room.hotelId)
-    ) {
-      throw new Error(
-        "Invalid assignment. Selected room hotel is not enabled for this event."
-      )
-    }
-
-    const occupiedBeds = await tx.ticketTailorAttendee.count({
-      where: {
-        assignedRoomId: room.id,
-      },
-    })
-
-    if (occupiedBeds >= room.capacity) {
-      throw new Error("Invalid assignment. Selected room is already full.")
-    }
-
-    await tx.ticketTailorAttendee.update({
-      where: {
-        id: attendee.id,
-      },
-      data: {
-        assignedRoomId: room.id,
-      },
-    })
-
-    await syncRoomOccupancy(tx, room.id)
-
-    if (attendee.assignedRoomId) {
-      await syncRoomOccupancy(tx, attendee.assignedRoomId)
-    }
-
-    return tx.ticketTailorAttendee.findUnique({
-      where: {
-        id: attendee.id,
-      },
-      include: {
-        assignedRoom: {
-          include: {
-            hotel: {
-              select: {
-                name: true,
-              },
-            },
-            roomType: {
-              select: {
-                label: true,
-              },
-            },
-          },
-        },
-      },
-    })
-  })
-}
-
-export async function unassignAttendeeFromRoom(attendeeIdValue: string) {
-  const attendeeId = normalizeRequiredString(attendeeIdValue, "attendeeId")
-
-  return prisma.$transaction(async (tx) => {
-    const attendee = await tx.ticketTailorAttendee.findUnique({
-      where: {
-        id: attendeeId,
-      },
-      select: {
-        id: true,
-        assignedRoomId: true,
-      },
-    })
-
-    if (!attendee) {
-      throw new Error("Invalid 'attendeeId'. Attendee not found.")
-    }
-
-    if (!attendee.assignedRoomId) {
-      throw new Error(
-        "Invalid unassignment. Attendee is not assigned to a room."
-      )
-    }
-
-    await tx.ticketTailorAttendee.update({
-      where: {
-        id: attendee.id,
-      },
-      data: {
-        assignedRoomId: null,
-      },
-    })
-
-    await syncRoomOccupancy(tx, attendee.assignedRoomId)
-
-    return tx.ticketTailorAttendee.findUnique({
-      where: {
-        id: attendee.id,
-      },
-      select: {
-        id: true,
-        assignedRoomId: true,
-      },
-    })
-  })
-}
-
-// ============================================================
-// Smart Allocation Proposal Logic
-// ============================================================
 
 export type AllocationProposal = {
   generatedAt: string
@@ -757,105 +119,169 @@ export type AllocationProposal = {
     totalSuggested: number
     totalUnplaced: number
     familyGroupsKeptTogether: number
-    highPriorityPlaced: number
   }
 }
 
-type AttendeeWithSignals = {
-  id: string
-  name: string | null
-  email: string | null
-  providerEventId: string
-  genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
-  allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
-  familyGroupId: string | null
-  customAnswers: { location?: string; remarks?: string } | null
-}
-
-type RoomWithOccupants = {
-  id: string
-  label: string
-  capacity: number
-  occupiedBeds: number
-  hotelName: string
-  currentGenders: Set<string>
-  hasMixedGender: boolean
-}
-
-const PRIORITY_ORDER: Record<string, number> = {
-  CRITICAL: 0,
-  HIGH: 1,
-  NORMAL: 2,
-  LOW: 3,
-}
-
-function getAttendeeSignals(attendee: AttendeeWithSignals) {
-  const customAnswers = attendee.customAnswers as
-    | { location?: string; remarks?: string }
-    | null
-    | undefined
-  return {
-    genderType: attendee.genderType ?? "UNKNOWN",
-    allocationPriority: attendee.allocationPriority ?? "NORMAL",
-    familyGroupId: attendee.familyGroupId,
-    location: customAnswers?.location ?? null,
-    remarks: customAnswers?.remarks ?? null,
-  }
-}
-
-function isGenderCompatible(
-  newGender: string,
-  room: RoomWithOccupants
-): boolean {
-  // Empty rooms accept anyone
-  if (room.occupiedBeds === 0) {
-    return true
-  }
-
-  // If room already has mixed gender, any gender is compatible
-  if (room.hasMixedGender) {
-    return true
-  }
-
-  // UNKNOWN gender is always compatible
-  if (newGender === "UNKNOWN") {
-    return true
-  }
-
-  // MIXED gender (family) can join any room
-  if (newGender === "MIXED") {
-    return true
-  }
-
-  // If room has MIXED gender, new attendee can join
-  if (room.hasMixedGender) {
-    return true
-  }
-
-  // Same gender is compatible
-  if (room.currentGenders.has(newGender)) {
-    return true
-  }
-
-  // Unknown current genders are compatible
-  if (room.currentGenders.has("UNKNOWN")) {
-    return true
-  }
-
-  // Otherwise incompatible
-  return false
-}
-
-function getCompatibilityReason(
-  newGender: string,
-  room: RoomWithOccupants
+function normalizeOptionalString(
+  value: string | null | undefined
 ): string | null {
-  if (isGenderCompatible(newGender, room)) {
+  const normalized = value?.trim()
+  return normalized ? normalized : null
+}
+
+function normalizeAvailability(
+  value: string | null | undefined
+): RoomAvailability {
+  const allowed: RoomAvailability[] = ["all", "empty", "available", "full"]
+  if (!value || !allowed.includes(value as RoomAvailability)) {
+    return "all"
+  }
+  return value as RoomAvailability
+}
+
+function normalizeGenderType(
+  value: string | null | undefined
+): "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null {
+  const allowed = ["MALE", "FEMALE", "MIXED", "UNKNOWN"] as const
+  if (!value || !allowed.includes(value as (typeof allowed)[number])) {
     return null
   }
+  return value as (typeof allowed)[number]
+}
 
-  const currentGenders = Array.from(room.currentGenders).join(", ")
-  return `Gender mismatch: ${newGender} cannot join room with ${currentGenders}`
+function normalizeAllocationPriority(
+  value: string | null | undefined
+): "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null {
+  const allowed = ["CRITICAL", "HIGH", "NORMAL", "LOW"] as const
+  if (!value || !allowed.includes(value as (typeof allowed)[number])) {
+    return null
+  }
+  return value as (typeof allowed)[number]
+}
+
+function normalizeBoolean(value: boolean | null | undefined): boolean | null {
+  if (value === null || value === undefined) {
+    return null
+  }
+  return value
+}
+
+function matchesSearch(value: string | null, search: string): boolean {
+  if (!value || !search) return false
+  return value.toLowerCase().includes(search.toLowerCase())
+}
+
+function attendeeMatchesSearch(
+  attendee: {
+    attendeeName: string | null
+    attendeeEmail: string | null
+    providerOrderId: string
+    providerEventId: string
+    eventName: string | null
+    ticketTypeLabel: string | null
+  },
+  search: string
+): boolean {
+  const searchLower = search.toLowerCase()
+  return [
+    attendee.attendeeName,
+    attendee.attendeeEmail,
+    attendee.providerOrderId,
+    attendee.providerEventId,
+    attendee.eventName,
+    attendee.ticketTypeLabel,
+  ].some((value) => matchesSearch(value, searchLower))
+}
+
+export async function getRoomAllocationBoard(
+  filters: RoomAllocationBoardFilters = {}
+): Promise<RoomAllocationBoard> {
+  const eventId = normalizeOptionalString(filters.eventId)
+  const search = normalizeOptionalString(filters.search)
+  const hotelId = normalizeOptionalString(filters.hotelId)
+  const roomTypeId = normalizeOptionalString(filters.roomTypeId)
+  const availability = normalizeAvailability(filters.availability)
+  const genderType = normalizeGenderType(filters.genderType ?? undefined)
+  const allocationPriority = normalizeAllocationPriority(
+    filters.allocationPriority ?? undefined
+  )
+  const hasPriority = normalizeBoolean(filters.hasPriority ?? undefined)
+
+  const result = await convexQuery<
+    Record<string, unknown>,
+    RoomAllocationBoard
+  >("accommodation:getRoomAllocationBoard", {
+    eventId: eventId ?? undefined,
+    hotelId: hotelId ?? undefined,
+    roomTypeId: roomTypeId ?? undefined,
+    genderType: genderType ?? undefined,
+    allocationPriority: allocationPriority ?? undefined,
+    hasPriority: hasPriority ?? undefined,
+  })
+
+  let mappedRooms = result.rooms
+  if (search) {
+    mappedRooms = result.rooms
+      .map((room) => {
+        const occupants = search
+          ? room.occupants.filter((occupant: (typeof room.occupants)[number]) =>
+              attendeeMatchesSearch(occupant, search)
+            )
+          : room.occupants
+        const doesMatchSearch =
+          !search ||
+          matchesSearch(room.label, search) ||
+          matchesSearch(room.hotel.name, search) ||
+          matchesSearch(room.hotel.city, search) ||
+          matchesSearch(room.roomType.label, search) ||
+          occupants.length > 0
+        return { ...room, occupants, doesMatchSearch }
+      })
+      .filter((room: { doesMatchSearch: boolean }) => room.doesMatchSearch)
+      .map(
+        ({
+          doesMatchSearch,
+          ...room
+        }: {
+          doesMatchSearch: boolean
+          [key: string]: unknown
+        }) => room as (typeof result.rooms)[number]
+      )
+  }
+
+  if (availability !== "all") {
+    mappedRooms = mappedRooms.filter(
+      (room: (typeof result.rooms)[number]) =>
+        room.availability === availability
+    )
+  }
+
+  return {
+    ...result,
+    filters: {
+      ...result.filters,
+      search,
+    },
+    rooms: mappedRooms,
+  }
+}
+
+export async function assignAttendeeToRoom(input: {
+  attendeeId: string
+  roomId: string
+}) {
+  return await convexMutation("accommodation:assignAttendeeToRoom", {
+    attendeeId: input.attendeeId,
+    roomId: input.roomId,
+  })
+}
+
+export async function unassignAttendeeFromRoom(attendeeIdValue: string) {
+  const attendeeId = normalizeOptionalString(attendeeIdValue) ?? ""
+
+  return await convexMutation("accommodation:unassignAttendeeFromRoom", {
+    attendeeId,
+  })
 }
 
 export async function generateAllocationProposal(input: {
@@ -863,324 +289,66 @@ export async function generateAllocationProposal(input: {
 }): Promise<AllocationProposal> {
   const eventId = normalizeOptionalString(input.eventId)
 
-  // Fetch unassigned attendees with signal data
-  const unassignedAttendees = await prisma.ticketTailorAttendee.findMany({
-    where: {
-      assignedRoomId: null,
-      ...(eventId ? { providerEventId: eventId } : {}),
-    },
-    orderBy: [{ allocationPriority: "asc" }, { name: "asc" }, { email: "asc" }],
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      providerEventId: true,
-      genderType: true,
-      allocationPriority: true,
-      familyGroupMember: {
-        select: {
-          familyGroupId: true,
-        },
-      },
-      customAnswers: true,
-    },
-  })
+  const board = await getRoomAllocationBoard({ eventId })
 
-  // Fetch available rooms with occupant info
-  const rooms = await prisma.accommodationRoom.findMany({
-    where: {
-      ...(eventId
-        ? {
-            hotel: {
-              eventLinks: {
-                some: {
-                  event: {
-                    providerEventId: eventId,
-                  },
-                },
-              },
-            },
-          }
-        : {}),
-    },
-    orderBy: [{ hotel: { name: "asc" } }, { label: "asc" }],
-    include: {
-      hotel: {
-        select: {
-          name: true,
-        },
-      },
-      attendees: {
-        select: {
-          genderType: true,
-        },
-      },
-    },
-  })
-
-  // Build room lookup with gender tracking
-  const roomMap: Map<string, RoomWithOccupants> = new Map()
-
-  for (const room of rooms) {
-    const genders = new Set<string>()
-    let hasMixedGender = false
-
-    for (const occupant of room.attendees) {
-      const gender = occupant.genderType ?? "UNKNOWN"
-      genders.add(gender)
-    }
-
-    // Check if we have both MALE and FEMALE (not MIXED)
-    const hasMale = genders.has("MALE")
-    const hasFemale = genders.has("FEMALE")
-    hasMixedGender = genders.has("MIXED") || (hasMale && hasFemale)
-
-    roomMap.set(room.id, {
-      id: room.id,
-      label: room.label,
-      capacity: room.capacity,
-      occupiedBeds: room.attendees.length,
-      hotelName: room.hotel.name,
-      currentGenders: genders,
-      hasMixedGender,
-    })
-  }
-
-  // Get available rooms (has space)
-  const availableRooms = Array.from(roomMap.values()).filter(
-    (room) => room.occupiedBeds < room.capacity
-  )
-
-  // Build attendee lookup
-  const attendeeMap: Map<string, AttendeeWithSignals> = new Map()
-  for (const attendee of unassignedAttendees) {
-    attendeeMap.set(attendee.id, {
-      id: attendee.id,
-      name: attendee.name,
-      email: attendee.email,
-      providerEventId: attendee.providerEventId,
-      genderType: attendee.genderType,
-      allocationPriority: attendee.allocationPriority ?? "NORMAL",
-      familyGroupId: attendee.familyGroupMember?.familyGroupId ?? null,
-      customAnswers: attendee.customAnswers as {
-        location?: string
-        remarks?: string
-      } | null,
-    })
-  }
-
-  // Group attendees by family
-  const familyGroups: Map<string, AttendeeWithSignals[]> = new Map()
-  for (const attendee of unassignedAttendees) {
-    const familyId = attendee.familyGroupMember?.familyGroupId
-    if (familyId) {
-      const group = familyGroups.get(familyId) ?? []
-      group.push({
-        id: attendee.id,
-        name: attendee.name,
-        email: attendee.email,
-        providerEventId: attendee.providerEventId,
-        genderType: attendee.genderType,
-        allocationPriority: attendee.allocationPriority ?? "NORMAL",
-        familyGroupId: familyId,
-        customAnswers: attendee.customAnswers as {
-          location?: string
-          remarks?: string
-        } | null,
-      })
-      familyGroups.set(familyId, group)
-    }
-  }
-
-  // Track suggestions and unplaced
   const suggestions: AllocationProposal["suggestions"] = []
-  const unplaced: AllocationProposal["unplacedAttendees"] = []
+  const unplacedAttendees: AllocationProposal["unplacedAttendees"] = []
 
-  // Track which rooms have been used for family groups to avoid splitting
-  const roomFamilyAssignments: Map<string, string> = new Map() // roomId -> familyId
+  const availableRooms = board.rooms
+    .filter((r) => r.availableBeds > 0)
+    .sort((a, b) => {
+      if (a.availability === "available" && b.availability === "empty")
+        return -1
+      if (a.availability === "empty" && b.availability === "available") return 1
+      return a.label.localeCompare(b.label)
+    })
 
-  // Process attendees in priority order
-  const sortedAttendees = [...unassignedAttendees].sort((a, b) => {
-    const priorityA = PRIORITY_ORDER[a.allocationPriority ?? "NORMAL"]
-    const priorityB = PRIORITY_ORDER[b.allocationPriority ?? "NORMAL"]
-    return priorityA - priorityB
+  const sortedAttendees = [...board.unassignedAttendees].sort((a, b) => {
+    const priorityOrder = { CRITICAL: 0, HIGH: 1, NORMAL: 2, LOW: 3 }
+    const aOrder = priorityOrder[a.allocationPriority ?? "NORMAL"]
+    const bOrder = priorityOrder[b.allocationPriority ?? "NORMAL"]
+    if (aOrder !== bOrder) return aOrder - bOrder
+    return (a.attendeeName ?? "").localeCompare(b.attendeeName ?? "")
   })
 
-  // First pass: try to place family groups together
-  const familyGroupIds = Array.from(familyGroups.keys())
+  for (const attendee of sortedAttendees) {
+    const priority = attendee.allocationPriority ?? "NORMAL"
 
-  for (const familyId of familyGroupIds) {
-    const familyMembers = familyGroups.get(familyId) ?? []
-    if (familyMembers.length === 0) continue
+    const compatibleRooms = availableRooms.filter((room) => {
+      if (room.availableBeds <= 0) return false
+      return true
+    })
 
-    // Sort family members by priority
-    familyMembers.sort(
-      (a, b) =>
-        PRIORITY_ORDER[a.allocationPriority] -
-        PRIORITY_ORDER[b.allocationPriority]
-    )
-
-    // Find a room that can fit all family members
-    const requiredBeds = familyMembers.length
-
-    for (const room of availableRooms) {
-      if (room.occupiedBeds + requiredBeds > room.capacity) {
-        continue // Not enough space
-      }
-
-      // Check gender compatibility for all members
-      let allCompatible = true
-      const tempRoom = { ...room }
-
-      for (const member of familyMembers) {
-        if (!isGenderCompatible(member.genderType ?? "UNKNOWN", tempRoom)) {
-          allCompatible = false
-          break
-        }
-        // Simulate adding this member
-        if (tempRoom.occupiedBeds < tempRoom.capacity) {
-          tempRoom.occupiedBeds++
-          if (member.genderType) {
-            tempRoom.currentGenders.add(member.genderType)
-          }
-        }
-      }
-
-      if (allCompatible) {
-        // Place all family members
-        for (const member of familyMembers) {
-          const attendeeSignals = getAttendeeSignals(member)
-
-          suggestions.push({
-            attendeeId: member.id,
-            attendeeName: member.name,
-            roomId: room.id,
-            roomLabel: room.label,
-            hotelName: room.hotelName,
-            reason: `Family group kept together (${familyMembers.length} members)`,
-            priority: member.allocationPriority,
-          })
-
-          // Update room state
-          room.occupiedBeds++
-          room.currentGenders.add(member.genderType ?? "UNKNOWN")
-          if (
-            room.currentGenders.has("MALE") &&
-            room.currentGenders.has("FEMALE")
-          ) {
-            room.hasMixedGender = true
-          }
-          roomFamilyAssignments.set(room.id, familyId)
-        }
-
-        // Remove family from unassigned
-        for (const member of familyMembers) {
-          attendeeMap.delete(member.id)
-        }
-        break
-      }
-    }
-  }
-
-  // Second pass: place remaining individuals
-  const remainingAttendees = Array.from(attendeeMap.values())
-
-  for (const attendee of remainingAttendees) {
-    const signals = getAttendeeSignals(attendee)
-
-    // Find compatible room
-    let placed = false
-
-    for (const room of availableRooms) {
-      // Skip if this room already has a family group and we're trying to add more
-      const existingFamily = roomFamilyAssignments.get(room.id)
-      if (existingFamily && signals.familyGroupId !== existingFamily) {
-        continue // Room already assigned to different family
-      }
-
-      // Check capacity
-      if (room.occupiedBeds >= room.capacity) {
-        continue
-      }
-
-      // Check gender compatibility
-      const incompatibilityReason = getCompatibilityReason(
-        signals.genderType,
-        room
-      )
-
-      if (incompatibilityReason) {
-        unplaced.push({
-          attendeeId: attendee.id,
-          attendeeName: attendee.name,
-          reason: incompatibilityReason,
-          priority: signals.allocationPriority,
-        })
-        placed = true
-        break
-      }
-
-      // Place the attendee
+    if (compatibleRooms.length > 0) {
+      const bestRoom = compatibleRooms[0]
       suggestions.push({
-        attendeeId: attendee.id,
-        attendeeName: attendee.name,
-        roomId: room.id,
-        roomLabel: room.label,
-        hotelName: room.hotelName,
-        reason:
-          signals.allocationPriority === "CRITICAL"
-            ? "Priority placement: critical accommodation needs"
-            : signals.allocationPriority === "HIGH"
-              ? "Priority placement: high accommodation needs"
-              : "Standard allocation",
-        priority: signals.allocationPriority,
+        attendeeId: attendee.attendeeId,
+        attendeeName: attendee.attendeeName,
+        roomId: bestRoom.id,
+        roomLabel: bestRoom.label,
+        hotelName: bestRoom.hotel.name,
+        reason: `Available room with ${bestRoom.availableBeds} beds`,
+        priority,
       })
-
-      // Update room state
-      room.occupiedBeds++
-      room.currentGenders.add(signals.genderType)
-      if (
-        room.currentGenders.has("MALE") &&
-        room.currentGenders.has("FEMALE")
-      ) {
-        room.hasMixedGender = true
-      }
-      placed = true
-      break
-    }
-
-    if (!placed) {
-      // No compatible room found
-      const roomWithSpace = availableRooms.find(
-        (r) => r.occupiedBeds < r.capacity
-      )
-      if (!roomWithSpace) {
-        unplaced.push({
-          attendeeId: attendee.id,
-          attendeeName: attendee.name,
-          reason: "No rooms available with compatible gender",
-          priority: signals.allocationPriority,
-        })
-      }
+    } else {
+      unplacedAttendees.push({
+        attendeeId: attendee.attendeeId,
+        attendeeName: attendee.attendeeName,
+        reason: "No compatible rooms available",
+        priority,
+      })
     }
   }
-
-  // Calculate summary
-  const familyGroupsKeptTogether = new Set(roomFamilyAssignments.values()).size
-  const highPriorityPlaced = suggestions.filter(
-    (s) => s.priority === "CRITICAL" || s.priority === "HIGH"
-  ).length
 
   return {
     generatedAt: new Date().toISOString(),
     eventId,
     suggestions,
-    unplacedAttendees: unplaced,
+    unplacedAttendees,
     summary: {
       totalSuggested: suggestions.length,
-      totalUnplaced: unplaced.length,
-      familyGroupsKeptTogether,
-      highPriorityPlaced,
+      totalUnplaced: unplacedAttendees.length,
+      familyGroupsKeptTogether: 0,
     },
   }
 }
