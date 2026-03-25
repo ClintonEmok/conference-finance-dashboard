@@ -1,3 +1,4 @@
+import { ClerkProvider } from "@clerk/nextjs"
 import { Geist, Geist_Mono, Outfit } from "next/font/google"
 
 import "./globals.css"
@@ -30,11 +31,13 @@ export default function RootLayout({
       )}
     >
       <body>
-        <ConvexClientProvider>
-          <QueryProvider>
-            <ThemeProvider>{children}</ThemeProvider>
-          </QueryProvider>
-        </ConvexClientProvider>
+        <ClerkProvider>
+          <ConvexClientProvider>
+            <QueryProvider>
+              <ThemeProvider>{children}</ThemeProvider>
+            </QueryProvider>
+          </ConvexClientProvider>
+        </ClerkProvider>
       </body>
     </html>
   )

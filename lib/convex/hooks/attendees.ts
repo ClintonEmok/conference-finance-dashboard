@@ -1,7 +1,7 @@
 "use client"
 
 import { useQuery, useMutation } from "convex/react"
-import { api } from "convex/functions/_generated/api"
+import { api } from "@/lib/convex/api"
 
 export function useAttendees(args?: {
   eventId?: string
