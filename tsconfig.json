@@ -20,7 +20,9 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@convex/*": ["./convex/*"],
+      "convex/*": ["./convex/*"]
     }
   },
   "include": [
