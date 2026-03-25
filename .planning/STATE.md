@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: milestone
 status: in-progress
 stopped_at: Completed plan 11-05 (API routes migrated to Convex)
-last_updated: "2026-03-25T17:45:22.000Z"
+last_updated: "2026-03-25T18:00:00.000Z"
 progress:
   total_phases: 13
   completed_phases: 10
   total_plans: 24
-  completed_plans: 25
+  completed_plans: 26
 ---
 
 # Project State
@@ -124,6 +124,10 @@ Recent decisions affecting current work:
 - [11-03] Orders domain expanded from 3 to 13 functions — search, pagination, reconciliation, payment status, provider upserts.
 - [11-03] Sync domain expanded from 2 to 23 functions — webhook events, Ticket Tailor upserts, attendee family groups.
 - [11-03] Functions operate directly on Convex ctx.db with typed v.\* argument validation — no intermediate service layer.
+- [11-04] Created lib/convex/ bridge layer (client, server helpers, React hooks) between Convex functions and app code.
+- [11-04] Server-side API routes use convexQuery/convexMutation HTTP helpers rather than importing Convex functions directly.
+- [11-04] Defined Prisma-dependent types locally (GenderType, AllocationPriority, PrismaTikkiePaymentLink) to avoid Prisma imports.
+- [11-04] API routes updated in same plan as domain migration — downstream consumers changed simultaneously with domain layer.
 - [11-05] API routes use direct HTTP fetch to Convex URL via convexQuery/convexMutation helpers instead of ConvexClient.
 - [11-05] Payments list route delegates to domain layer (listPayments) rather than calling Convex directly, maintaining abstraction.
 - [11-05] Tikkie sync route inlines its own convexQuery helper rather than importing from lib/convex/server.ts.
@@ -144,7 +148,6 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-- API routes migrated to Convex but changes are UNTRACKED — must commit before deploying
 - E2E verification and production deploy still pending (11-05 tasks 2-4)
 - `lib/prisma.ts` and `lib/auth.ts` still use Prisma for better-auth adapter (expected, intentional)
 - Phase 6 complete. All Tikkie operator workflows shipped.
