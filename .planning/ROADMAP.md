@@ -221,11 +221,12 @@ Plans:
 
 ### Phase 12: migrate auth to convex
 
-**Goal:** [To be planned]
+**Goal:** Finance admins can sign in, keep protected dashboard sessions, and sign out using Convex-backed Better Auth with Prisma removed entirely.
 **Requirements**: TBD
 **Depends on:** Phase 11
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
 
-- [ ] TBD (run /gsd:plan-phase 12 to break down)
+- [ ] 12-01-PLAN.md — Activate Better Auth on Convex and preserve the app auth entrypoints
+- [ ] 12-02-PLAN.md — Prove the Convex auth cutover works and remove Prisma completely
