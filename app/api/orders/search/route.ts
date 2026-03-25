@@ -2,7 +2,7 @@ import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
+import { convexQuery } from "@/lib/convex/server"
 
 function unauthorized() {
   return NextResponse.json(
@@ -33,24 +33,15 @@ export async function GET(request: Request) {
   )
 
   try {
-    const orders = await prisma.ticketTailorOrder.findMany({
-      where: search
-        ? {
-            OR: [
-              { buyerName: { contains: search } },
-              { providerOrderId: { contains: search } },
-            ],
-          }
-        : {},
-      select: {
-        id: true,
-        providerOrderId: true,
-        buyerName: true,
-        totalAmountMinor: true,
-      },
-      take: limit,
-      orderBy: { orderedAt: "desc" },
-    })
+    const orders = await convexQuery<
+      { search: string; limit: number },
+      Array<{
+        id: string
+        providerOrderId: string
+        buyerName: string | null
+        totalAmountMinor: number
+      }>
+    >("orders:searchOrders", { search, limit })
 
     return NextResponse.json({ orders })
   } catch (error) {

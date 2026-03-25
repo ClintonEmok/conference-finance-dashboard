@@ -2,13 +2,13 @@ import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
+import { convexMutation } from "@/lib/convex/server"
 
 export const dynamic = "force-dynamic"
 
 export async function PATCH(
   request: Request,
-  context: { params: Promise<{ attendeeId: string }> },
+  context: { params: Promise<{ attendeeId: string }> }
 ) {
   const session = await auth.api.getSession({
     headers: await headers(),
@@ -22,7 +22,7 @@ export async function PATCH(
           message: "Authentication required",
         },
       },
-      { status: 401 },
+      { status: 401 }
     )
   }
 
@@ -38,7 +38,7 @@ export async function PATCH(
             message: "Invalid attendeeId",
           },
         },
-        { status: 400 },
+        { status: 400 }
       )
     }
 
@@ -52,7 +52,7 @@ export async function PATCH(
             message: "Request body must be a JSON object",
           },
         },
-        { status: 400 },
+        { status: 400 }
       )
     }
 
@@ -66,12 +66,16 @@ export async function PATCH(
       if (field in input) {
         const value = input[field]
         if (value === null || value === undefined) {
-          updateData[field] = null
-        } else if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+          updateData[field] = undefined
+        } else if (
+          typeof value === "number" &&
+          Number.isInteger(value) &&
+          value >= 0
+        ) {
           updateData[field] = value
         } else if (typeof value === "number" && value === 0) {
           // Allow 0 to clear the override
-          updateData[field] = null
+          updateData[field] = undefined
         }
       }
     }
@@ -81,28 +85,28 @@ export async function PATCH(
         {
           error: {
             code: "BAD_REQUEST",
-            message: "No valid fields to update. Allowed fields: tikkieAmountOverrideMinor",
+            message:
+              "No valid fields to update. Allowed fields: tikkieAmountOverrideMinor",
           },
         },
-        { status: 400 },
+        { status: 400 }
       )
     }
 
-    const updated = await prisma.ticketTailorAttendee.update({
-      where: {
-        id: normalizedAttendeeId,
-      },
-      data: updateData as { tikkieAmountOverrideMinor: number | null },
-      select: {
-        id: true,
-        tikkieAmountOverrideMinor: true,
-      },
+    const attendee = await convexMutation<
+      { attendeeId: string; tikkieAmountOverrideMinor?: number },
+      { id: string; tikkieAmountOverrideMinor: number | null }
+    >("attendees:updateAttendee", {
+      attendeeId: normalizedAttendeeId,
+      tikkieAmountOverrideMinor: updateData.tikkieAmountOverrideMinor as
+        | number
+        | undefined,
     })
 
     return NextResponse.json({
       attendee: {
-        id: updated.id,
-        tikkieAmountOverrideMinor: updated.tikkieAmountOverrideMinor,
+        id: attendee.id,
+        tikkieAmountOverrideMinor: attendee.tikkieAmountOverrideMinor,
       },
     })
   } catch (error) {
@@ -116,7 +120,7 @@ export async function PATCH(
             message: "Attendee not found",
           },
         },
-        { status: 404 },
+        { status: 404 }
       )
     }
 
@@ -128,7 +132,7 @@ export async function PATCH(
             message,
           },
         },
-        { status: 400 },
+        { status: 400 }
       )
     }
 
@@ -139,7 +143,7 @@ export async function PATCH(
           message: "Failed to update attendee",
         },
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

@@ -6,7 +6,28 @@ import {
   syncTikkiePayments,
   autoMatchPayments,
 } from "@/lib/domain/finance/payments"
-import { prisma } from "@/lib/prisma"
+
+const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
+
+async function convexQuery<Args extends Record<string, unknown>, Response>(
+  path: string,
+  args: Args
+): Promise<Response> {
+  const response = await fetch(`${CONVEX_URL}/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ args }),
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Convex query failed: ${error}`)
+  }
+
+  return response.json()
+}
 
 function unauthorized() {
   return NextResponse.json(
@@ -26,13 +47,11 @@ export async function POST() {
     errors: [] as string[],
   }
 
-  // Find all paid Tikkie payment requests (open payments)
-  const paymentLinks = await prisma.tikkiePaymentLink.findMany({
-    where: { status: "paid" },
-    select: { paymentRequestToken: true },
-  })
+  const paymentLinks = await convexQuery<
+    { status: "paid" },
+    Array<{ paymentRequestToken: string }>
+  >("tikkie/getPaymentLinks", { status: "paid" })
 
-  // Sync payments from each payment request
   for (const link of paymentLinks) {
     try {
       const syncResult = await syncTikkiePayments(link.paymentRequestToken)
@@ -43,7 +62,6 @@ export async function POST() {
     }
   }
 
-  // Run auto-matching on all unassigned payments
   const matchResult = await autoMatchPayments()
   result.matched = matchResult.autoMatched
   result.ambiguous = matchResult.ambiguous

@@ -2,7 +2,7 @@ import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
+import { convexQuery } from "@/lib/convex/server"
 
 export const dynamic = "force-dynamic"
 
@@ -32,49 +32,34 @@ export async function GET(
     )
   }
 
-  const order = await prisma.ticketTailorOrder.findFirst({
-    where: {
-      OR: [{ providerOrderId: orderId }, { id: orderId }],
-      providerEventId: eventId,
-    },
-    select: {
-      id: true,
-      providerOrderId: true,
-      normalizedStatus: true,
-      totalAmountMinor: true,
-      orderedAt: true,
-      attendees: {
-        select: {
-          id: true,
-          name: true,
-          ticketTypeLabel: true,
-          ticketStatus: true,
-        },
-        orderBy: { createdAt: "asc" },
-      },
-    },
+  const result = await convexQuery<
+    { providerOrderId: string; providerEventId: string },
+    {
+      order: {
+        id: string
+        providerOrderId: string
+        normalizedStatus: string | undefined
+        totalAmountMinor: number | undefined
+        orderedAt: string | null
+      }
+      attendees: Array<{
+        id: string
+        name: string
+        ticketTypeLabel: string
+        normalizedStatus: string
+      }>
+    } | null
+  >("orders:getOrderWithAttendeesByProviderId", {
+    providerOrderId: orderId,
+    providerEventId: eventId,
   })
 
-  if (!order) {
+  if (!result) {
     return NextResponse.json(
       { error: { message: "Order not found." } },
       { status: 404 }
     )
   }
 
-  return NextResponse.json({
-    order: {
-      id: order.id,
-      providerOrderId: order.providerOrderId,
-      normalizedStatus: order.normalizedStatus,
-      totalAmountMinor: order.totalAmountMinor,
-      orderedAt: order.orderedAt?.toISOString() ?? null,
-    },
-    attendees: order.attendees.map((a) => ({
-      id: a.id,
-      name: a.name ?? "Unnamed attendee",
-      ticketTypeLabel: a.ticketTypeLabel ?? "-",
-      normalizedStatus: a.ticketStatus ?? "pending",
-    })),
-  })
+  return NextResponse.json(result)
 }

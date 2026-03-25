@@ -2,7 +2,7 @@ import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
+import { convexQuery } from "@/lib/convex/server"
 
 export async function GET() {
   const session = await auth.api.getSession({
@@ -17,30 +17,27 @@ export async function GET() {
           message: "Authentication required",
         },
       },
-      { status: 401 },
+      { status: 401 }
     )
   }
 
-  const events = await prisma.ticketTailorWebhookEvent.findMany({
-    orderBy: {
-      receivedAt: "desc",
-    },
-    take: 25,
-    select: {
-      id: true,
-      providerEventId: true,
-      eventType: true,
-      status: true,
-      deliveryCount: true,
-      attempts: true,
-      lastError: true,
-      nextRetryAt: true,
-      canonicalFetchedAt: true,
-      processedAt: true,
-      receivedAt: true,
-      lastReceivedAt: true,
-    },
-  })
+  const events = await convexQuery<
+    {},
+    Array<{
+      _id: string
+      providerEventId: string
+      eventType: string
+      status?: "pending" | "processed" | "failed"
+      deliveryCount?: number
+      attempts?: number
+      lastError?: string
+      nextRetryAt?: number
+      canonicalFetchedAt?: number
+      processedAt?: number
+      receivedAt?: number
+      lastReceivedAt?: number
+    }>
+  >("sync:getWebhookEvents", {})
 
   return NextResponse.json({
     count: events.length,

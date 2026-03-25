@@ -4,6 +4,7 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import QueryProvider from "@/app/providers"
 import { cn } from "@/lib/utils"
+import { ConvexClientProvider } from "../lib/convex/client"
 
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-sans" })
 
@@ -29,9 +30,11 @@ export default function RootLayout({
       )}
     >
       <body>
-        <QueryProvider>
-          <ThemeProvider>{children}</ThemeProvider>
-        </QueryProvider>
+        <ConvexClientProvider>
+          <QueryProvider>
+            <ThemeProvider>{children}</ThemeProvider>
+          </QueryProvider>
+        </ConvexClientProvider>
       </body>
     </html>
   )

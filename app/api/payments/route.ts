@@ -2,7 +2,7 @@ import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
+import { listPayments } from "@/lib/domain/finance/payments"
 import type {
   PaymentMatchStatus,
   PaymentSource,
@@ -67,67 +67,37 @@ export async function GET(request: Request) {
   try {
     const { status, source, orderId, page, limit } = parseFilters(request)
 
-    const where: Parameters<typeof prisma.payment.findMany>[0]["where"] = {}
+    const result = await listPayments({ status, source, orderId })
 
-    if (status) {
-      where.status = status
-    }
-
-    if (source) {
-      where.source = source
-    }
-
-    if (orderId) {
-      where.orderId = orderId
-    }
-
-    const [payments, total] = await Promise.all([
-      prisma.payment.findMany({
-        where,
-        include: {
-          order: {
-            select: {
-              id: true,
-              providerOrderId: true,
-              buyerName: true,
-              totalAmountMinor: true,
-            },
-          },
-        },
-        orderBy: { createdAt: "desc" },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      prisma.payment.count({ where }),
-    ])
+    const paginatedPayments = result.payments.slice(
+      (page - 1) * limit,
+      page * limit
+    )
 
     return NextResponse.json({
-      payments: payments.map((p) => ({
-        id: p.id,
+      payments: paginatedPayments.map((p) => ({
+        id: p._id,
         source: p.source,
         sourceId: p.sourceId,
         payerName: p.payerName,
         payerAccountNumber: p.payerAccountNumber,
         amountMinor: p.amountMinor,
-        paidAt: p.paidAt.toISOString(),
+        paidAt: new Date(p.paidAt).toISOString(),
         orderId: p.orderId,
         status: p.status,
-        matchedAt: p.matchedAt?.toISOString() ?? null,
+        matchedAt: p.matchedAt ? new Date(p.matchedAt).toISOString() : null,
         matchedBy: p.matchedBy,
         reference: p.reference,
         notes: p.notes,
-        createdAt: p.createdAt.toISOString(),
-        updatedAt: p.updatedAt.toISOString(),
-        order: p.order
-          ? {
-              id: p.order.id,
-              providerOrderId: p.order.providerOrderId,
-              buyerName: p.order.buyerName,
-              totalAmountMinor: p.order.totalAmountMinor,
-            }
-          : null,
+        createdAt: p.paidAt
+          ? new Date(p.paidAt).toISOString()
+          : new Date().toISOString(),
+        updatedAt: p.paidAt
+          ? new Date(p.paidAt).toISOString()
+          : new Date().toISOString(),
+        order: null,
       })),
-      total,
+      total: result.total,
       page,
       limit,
     })
