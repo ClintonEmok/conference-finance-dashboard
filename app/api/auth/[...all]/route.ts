@@ -1,5 +1,17 @@
-import { toNextJsHandler } from "better-auth/next-js"
+import { convexBetterAuth } from "better-convex/auth/nextjs"
+import { api } from "@/convex/functions/_generated/api"
 
-import { auth } from "@/lib/auth"
+const convexSiteUrl =
+  process.env.NEXT_PUBLIC_CONVEX_SITE_URL ??
+  process.env.NEXT_PUBLIC_CONVEX_URL?.replace(".convex.cloud", ".convex.site")
 
-export const { GET, POST } = toNextJsHandler(auth)
+if (!convexSiteUrl) {
+  throw new Error("NEXT_PUBLIC_CONVEX_SITE_URL is not set")
+}
+
+const { handler } = convexBetterAuth({
+  api,
+  convexSiteUrl,
+})
+
+export const { GET, POST } = handler

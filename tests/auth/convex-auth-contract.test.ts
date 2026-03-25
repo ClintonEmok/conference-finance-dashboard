@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const toNextJsHandlerMock = vi.fn(() => ({
-  GET: vi.fn(),
-  POST: vi.fn(),
+const convexBetterAuthMock = vi.fn(() => ({
+  createCaller: vi.fn(),
+  createContext: vi.fn(),
+  handler: {
+    GET: vi.fn(),
+    POST: vi.fn(),
+  },
 }))
 const createAuthClientMock = vi.fn(() => ({
   signIn: { email: vi.fn() },
@@ -22,8 +26,8 @@ vi.mock("@/lib/auth", () => ({
   },
 }))
 
-vi.mock("better-auth/next-js", () => ({
-  toNextJsHandler: toNextJsHandlerMock,
+vi.mock("better-convex/auth/nextjs", () => ({
+  convexBetterAuth: convexBetterAuthMock,
 }))
 
 vi.mock("better-auth/react", () => ({
@@ -87,10 +91,13 @@ describe("Convex auth route/session contract", () => {
     })
   })
 
-  it("keeps /api/auth/[...all] route contract via toNextJsHandler(auth)", async () => {
-    await import("@/app/api/auth/[...all]/route")
+  it("keeps /api/auth/[...all] route contract via Convex auth handler", async () => {
+    process.env.NEXT_PUBLIC_CONVEX_SITE_URL = "https://example.convex.site"
+    const routeModule = await import("@/app/api/auth/[...all]/route")
 
-    expect(toNextJsHandlerMock).toHaveBeenCalledWith(auth)
+    expect(convexBetterAuthMock).toHaveBeenCalledOnce()
+    expect(routeModule.GET).toEqual(expect.any(Function))
+    expect(routeModule.POST).toEqual(expect.any(Function))
   })
 
   it("keeps Better Auth client contract for sign in/sign up/sign out", async () => {
