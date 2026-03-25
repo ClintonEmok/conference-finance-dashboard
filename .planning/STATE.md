@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Plan 10-03 completed
-last_updated: "2026-03-25T11:55:00Z"
+stopped_at: Plans 10-04, 10-05 gap closure complete
+last_updated: "2026-03-25T12:00:00Z"
 progress:
   total_phases: 13
   completed_phases: 9
   total_plans: 21
-  completed_plans: 22
+  completed_plans: 24
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-18)
 ## Current Position
 
 Phase: 10 (payment-reconciliation) — COMPLETE
-Plan: 3 of 3 (Plan 10-03 complete)
+Plan: 5 of 5 (Plans 10-01 through 10-05 complete, including gap closure 10-04, 10-05)
 
 ## Performance Metrics
 
@@ -105,6 +105,11 @@ Recent decisions affecting current work:
 - [10-02] Tab-based UI for bank transfer vs cash entry with distinct fields (IBAN/reference for bank, notes for cash).
 - [10-03] Payment reconciliation added as section in existing reconciliation dashboard page.
 - [10-03] Used native HTML select for filters since shadcn Select component not available.
+- [10-04] Use case-insensitive exact match for payerName → buyerName matching.
+- [10-04] Mark as ambiguous when multiple orders match (requires manual review).
+- [10-05] Calculate payment status at order level, not payment level.
+- [10-05] Use order totalAmountMinor vs sum of linked payments.
+- [10-05] Keep legacy payment-level counts for backward compatibility.
 
 ### Roadmap Evolution
 
