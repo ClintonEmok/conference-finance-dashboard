@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed quick task 260326-163 (Clerk App Router wiring)
-last_updated: "2026-03-26T00:08:29Z"
+status: in_progress
+stopped_at: Completed 12-01-PLAN.md
+last_updated: "2026-03-26T00:33:20Z"
 progress:
-  total_phases: 13
-  completed_phases: 11
+  total_phases: 15
+  completed_phases: 8
   total_plans: 28
-  completed_plans: 29
+  completed_plans: 28
 ---
 
 # Project State
@@ -19,19 +19,18 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 **Core value:** One trusted dashboard for church conference finance operations.
-**Current focus:** Phase 11 — use-convex (migrating from Prisma/SQLite to Convex)
+**Current focus:** Phase 12 — use-clerk-as-only-auth-remove-stale-better-auth
 
 ## Current Position
 
-Phase: 999.1
-Plan: Quick task 260326-163 complete
-Status: In progress - quick Clerk shell wiring complete; phase 11 e2e verify + deploy and phase 12 auth migration still pending
+Phase: 12 (use-clerk-as-only-auth-remove-stale-better-auth) — EXECUTING
+Plan: 2 of 4
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 12
+- Total plans completed: 13
 - Average duration: 59 min
 - Total execution time: 10.5 hours
 
@@ -50,8 +49,8 @@ Status: In progress - quick Clerk shell wiring complete; phase 11 e2e verify + d
 
 **Recent Trend:**
 
-- Last 5 completed plans: 10-01, 10-02, 10-03
-- Phase 10 complete: Payment reconciliation (Tikkie, bank, cash) fully implemented
+- Last 5 completed plans: 10-02, 10-03, 12-01
+- Current execution: Phase 12 Clerk-only auth migration in progress
 
 ## Accumulated Context
 
@@ -59,6 +58,8 @@ Status: In progress - quick Clerk shell wiring complete; phase 11 e2e verify + d
 
 Recent decisions affecting current work:
 
+- [12-01] Preserve the existing `UNAUTHORIZED` JSON contract in one shared Clerk server helper so API consumers do not change during auth migration.
+- [12-01] Forward Clerk session state to Convex with `ConvexProviderWithClerk` + `useAuth` while keeping `ClerkProvider` outermost in the root provider stack.
 - [01-01] Use Better Auth + Prisma adapter with SQLite local datasource and migration-friendly env-driven DB configuration.
 - [01-01] Enforce protected access with middleware redirect UX and server-authoritative `auth.api.getSession` checks.
 - [01-02] Keep integration config validation non-fatal and return typed status for Ticket Tailor/Tikkie.
@@ -141,7 +142,7 @@ Recent decisions affecting current work:
 - Phase 8 replaced: Attendee Follow-up & Reconciliation UX (5 targeted UX improvements)
 - Phase 9 added: Smart Allocation & Attendee Signals (moved from original Phase 8)
 - Phase 10 added: Payment reconciliation with Tikkie open, bank transfers, and cash entries
-- Phase 12 added: migrate auth to convex
+- Phase 12 added: use clerk as only auth remove stale better auth
 
 ### Pending Todos
 
@@ -153,7 +154,7 @@ Recent decisions affecting current work:
 
 - E2E verification and production deploy still pending (11-05 tasks 2-4)
 - Repo-wide lint still has unrelated existing errors outside the Clerk quick-task files.
-- `lib/prisma.ts` and `lib/auth.ts` still use Prisma for better-auth adapter (expected, intentional)
+- `lib/prisma.ts` and `lib/auth.ts` still use Prisma for the current auth adapter (expected, intentional)
 - Phase 6 complete. All Tikkie operator workflows shipped.
 - Real provider verification for Tikkie still depends on `TIKKIE_API_KEY`, `TIKKIE_APP_TOKEN`, and the active webhook callback subscription being configured.
 - Non-blocking lint warnings in various files should be cleaned during future hygiene work.
@@ -173,6 +174,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-03-26T00:08:29Z
-Stopped at: Completed quick task 260326-163 (Clerk App Router wiring)
+Last session: 2026-03-26T00:33:20Z
+Stopped at: Completed 12-01-PLAN.md
 Resume file: None
