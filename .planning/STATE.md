@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: complete
-stopped_at: Completed 260326-i7e-PLAN.md
-last_updated: "2026-03-26T12:19:57Z"
+stopped_at: Completed 260326-ijx-PLAN.md
+last_updated: "2026-03-26T12:30:35Z"
 progress:
   total_phases: 16
   completed_phases: 9
@@ -70,6 +70,7 @@ Recent decisions that future work should preserve:
 - [260326-hit] Centralize reconciliation follow-up href generation and prefer `/dashboard/attendees/[attendeeId]` when attendee ids resolve, preserving source/order/event context with a safe attendees-list fallback.
 - [260326-ib1] Keep accommodation destructive actions guard-first: block room deletion when attendees are assigned and block hotel deletion while rooms or event-scope links exist, with explicit `Cannot delete...` API feedback.
 - [260326-i7e] Treat `providerOrderId` as canonical for manual payment links, while preserving legacy Convex-id payment compatibility through read-time order resolution in reconciliation and payments APIs.
+- [260326-ijx] Add dedicated unassigned payments page at `/dashboard/reconciliation/payments` with source/date filtering and AssignDialog integration.
 
 ## Active Patterns / Constraints
 
@@ -104,6 +105,7 @@ Recent decisions that future work should preserve:
 | 260326-hit | the open atteendee followup should open attendee detail                                              | 2026-03-26 | 3b06738 | [260326-hit-the-open-atteendee-followup-should-open-](./quick/260326-hit-the-open-atteendee-followup-should-open-/) |
 | 260326-ib1 | for room inventory we need to be to able to delete rooms and hotels if they have no assinged to them | 2026-03-26 | 93cf05b | [260326-ib1-for-room-inventory-we-need-to-be-to-able](./quick/260326-ib1-for-room-inventory-we-need-to-be-to-able/) |
 | 260326-i7e | the manual payment didnt update the outstanding totals                                               | 2026-03-26 | 3431335 | [260326-i7e-the-manual-payment-didnt-update-the-outs](./quick/260326-i7e-the-manual-payment-didnt-update-the-outs/) |
+| 260326-ijx | create the ui for reconciliation route                                                               | 2026-03-26 | 4af536d | [260326-ijx-create-the-ui-for-reconciliation-route-t](./quick/260326-ijx-create-the-ui-for-reconciliation-route-t/) |
 
 ## Accumulated Context
 
@@ -115,8 +117,8 @@ Recent decisions that future work should preserve:
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-26 - Completed quick task 260326-i7e: manual payment links now update reconciliation outstanding totals and payment order context
-- **Last session:** 2026-03-26T12:19:57Z
-- **Stopped at:** Completed 260326-i7e-PLAN.md
+- **Last activity:** 2026-03-26 - Completed quick task 260326-ijx: dedicated unassigned payments assignment page at /dashboard/reconciliation/payments
+- **Last session:** 2026-03-26T12:30:35Z
+- **Stopped at:** Completed 260326-ijx-PLAN.md
 - **Resume file:** None
 - **Next recommended plan:** Review `.planning/ROADMAP.md` for next phase or add new phases
