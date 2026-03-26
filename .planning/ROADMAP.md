@@ -110,20 +110,20 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 
 ## Progress
 
-| Phase                                               | Plans Complete | Status      | Completed  |
-| --------------------------------------------------- | -------------- | ----------- | ---------- |
-| 1. Foundation & Secure Access                       | 2/2            | Complete    | 2026-03-18 |
-| 2. Ticket Data Reliability                          | 2/2            | Complete    | 2026-03-19 |
-| 3. Finance Visibility & Outstanding Balances        | 2/2            | Complete    | 2026-03-19 |
-| 4. Attendee Data & Accommodation Foundations        | 2/2            | Complete    | 2026-03-19 |
-| 5. Room Allocation & Operator Flow Polish           | 2/2            | Complete    | 2026-03-19 |
-| 6. Tikkie Integration                               | 3/3            | Complete    | 2026-03-21 |
-| 7. Complete Tikkie Integration                      | 2/2            | Complete    | 2026-03-21 |
-| 8. Attendee Follow-up & Reconciliation UX           | 0/1            | Planned     | -          |
-| 9. Smart Allocation & Attendee Signals              | 0/2            | Planned     | -          |
-| 10. Payment Reconciliation                          | 0/1            | Complete    | 2026-03-25 |
-| 11. Use Supabase                                    | 0/1            | Complete    | 2026-03-25 |
-| 12. use clerk as only auth remove stale better auth | 3/4            | In Progress |            |
+| Phase                                               | Plans Complete | Status   | Completed  |
+| --------------------------------------------------- | -------------- | -------- | ---------- |
+| 1. Foundation & Secure Access                       | 2/2            | Complete | 2026-03-18 |
+| 2. Ticket Data Reliability                          | 2/2            | Complete | 2026-03-19 |
+| 3. Finance Visibility & Outstanding Balances        | 2/2            | Complete | 2026-03-19 |
+| 4. Attendee Data & Accommodation Foundations        | 2/2            | Complete | 2026-03-19 |
+| 5. Room Allocation & Operator Flow Polish           | 2/2            | Complete | 2026-03-19 |
+| 6. Tikkie Integration                               | 3/3            | Complete | 2026-03-21 |
+| 7. Complete Tikkie Integration                      | 2/2            | Complete | 2026-03-21 |
+| 8. Attendee Follow-up & Reconciliation UX           | 0/1            | Planned  | -          |
+| 9. Smart Allocation & Attendee Signals              | 0/2            | Planned  | -          |
+| 10. Payment Reconciliation                          | 0/1            | Complete | 2026-03-25 |
+| 11. Use Supabase                                    | 0/1            | Complete | 2026-03-25 |
+| 12. use clerk as only auth remove stale better auth | 4/4            | Complete | 2026-03-26 |
 
 ### Phase 6: Tikkie Integration
 
@@ -225,11 +225,11 @@ Plans:
 **Goal:** Dashboard pages and protected app routes use Clerk as the only auth system, Better Auth runtime artifacts are removed, and Convex receives Clerk identity tokens.
 **Requirements**: TBD
 **Depends on:** Phase 11
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans executed
 
 Plans:
 
 - [x] 12-01-PLAN.md — Create Clerk server auth helpers and wire Convex to authenticated Clerk sessions
 - [x] 12-02-PLAN.md — Protect dashboard routes with Clerk and replace the old login/logout flow
 - [x] 12-03-PLAN.md — Migrate protected API route guards and auth-sensitive tests from Better Auth to Clerk
-- [ ] 12-04-PLAN.md — Remove stale Better Auth runtime files/packages and run final Clerk auth verification
+- [x] 12-04-PLAN.md — Remove stale Better Auth runtime files/packages and run final Clerk auth verification
