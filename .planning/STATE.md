@@ -120,6 +120,7 @@ Recent decisions that future work should preserve:
 - Phase 13: rebuild convex mutation and api layer from clean contracts (complete)
 - Phase 14: Event-Level Tikkie + Payment Tracking (complete)
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
+- Phase 16 added: Fix Tikkie sync mapping and reconciliation outstanding flow
 
 ## Session Continuity
 

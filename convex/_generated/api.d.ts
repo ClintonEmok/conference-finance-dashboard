@@ -581,6 +581,12 @@ export declare const api: {
       { eventId: string },
       any
     >;
+    cleanupLegacyTikkiePayments: FunctionReference<
+      "mutation",
+      "public",
+      {},
+      any
+    >;
     createPayment: FunctionReference<
       "mutation",
       "public",
@@ -676,6 +682,19 @@ export declare const api: {
       "mutation",
       "public",
       { paymentId: Id<"payments"> },
+      any
+    >;
+    upsertTikkiePayment: FunctionReference<
+      "mutation",
+      "public",
+      {
+        amountMinor: number;
+        paidAt: number;
+        payerAccountNumber?: string;
+        payerName: string;
+        providerPayload?: any;
+        sourceId: string;
+      },
       any
     >;
   };

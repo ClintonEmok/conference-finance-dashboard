@@ -62,8 +62,11 @@ export type ListPaymentsResult = {
 }
 
 export type SyncTikkiePaymentsResult = {
+  paymentsFetched: number
   newPayments: number
   existingPayments: number
+  updatedPayments: number
+  skippedInvalid: number
   errors: string[]
 }
 
@@ -282,43 +285,80 @@ export async function syncTikkiePayments(
   paymentRequestToken: string
 ): Promise<SyncTikkiePaymentsResult> {
   const result: SyncTikkiePaymentsResult = {
+    paymentsFetched: 0,
     newPayments: 0,
     existingPayments: 0,
+    updatedPayments: 0,
+    skippedInvalid: 0,
     errors: [],
   }
 
   try {
     const tikkieResponse = await getPaymentRequestPayments(paymentRequestToken)
 
-    const tikkiePayments = tikkieResponse.payments as Array<{
-      paymentId: string
-      payerName: string
-      payerAccountNumber?: string
-      amountPaidInCents: number
-      paidAt: string
-    }>
+    const tikkiePayments = tikkieResponse.payments as Array<
+      Record<string, unknown>
+    >
+    result.paymentsFetched = tikkiePayments.length
 
     for (const tPayment of tikkiePayments) {
-      const existing = await convexQuery(api.payments.getPayments, {
-        source: "tikkie",
-        sourceId: tPayment.paymentId,
-      })
+      const sourceId =
+        typeof tPayment.paymentToken === "string"
+          ? tPayment.paymentToken.trim()
+          : ""
+      const payerName =
+        typeof tPayment.counterPartyName === "string"
+          ? tPayment.counterPartyName.trim()
+          : ""
+      const payerAccountNumber =
+        typeof tPayment.counterPartyAccountNumber === "string"
+          ? tPayment.counterPartyAccountNumber
+          : undefined
+      const amountMinor =
+        typeof tPayment.amountInCents === "number" &&
+        Number.isInteger(tPayment.amountInCents) &&
+        tPayment.amountInCents >= 0
+          ? tPayment.amountInCents
+          : null
+      const paidAtSource =
+        typeof tPayment.createdDateTime === "string"
+          ? Date.parse(tPayment.createdDateTime)
+          : Number.NaN
 
-      if (existing.length > 0) {
-        result.existingPayments++
+      if (
+        !sourceId ||
+        !payerName ||
+        amountMinor === null ||
+        !Number.isFinite(paidAtSource)
+      ) {
+        result.skippedInvalid += 1
+        result.errors.push(
+          `Invalid payment payload for request ${paymentRequestToken}; token=${sourceId || "missing"}`
+        )
         continue
       }
 
-      await convexMutation(api.payments.createPayment, {
-        source: "tikkie",
-        sourceId: tPayment.paymentId,
-        payerName: tPayment.payerName,
-        payerAccountNumber: tPayment.payerAccountNumber,
-        amountMinor: tPayment.amountPaidInCents,
-        paidAt: new Date(tPayment.paidAt).getTime(),
-        providerPayload: tPayment,
-      })
-      result.newPayments++
+      const upsertResult = await convexMutation(
+        api.payments.upsertTikkiePayment,
+        {
+          sourceId,
+          payerName,
+          payerAccountNumber,
+          amountMinor,
+          paidAt: paidAtSource,
+          providerPayload: tPayment,
+        }
+      )
+
+      if (upsertResult.inserted) {
+        result.newPayments += 1
+        continue
+      }
+
+      result.existingPayments += 1
+      if (upsertResult.updated) {
+        result.updatedPayments += 1
+      }
     }
   } catch (error) {
     result.errors.push(error instanceof Error ? error.message : "Unknown error")

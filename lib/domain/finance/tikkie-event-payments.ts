@@ -44,16 +44,39 @@ export async function fetchAndStoreTikkiePayments(
     const paymentToken = p.paymentToken as string
     if (!paymentToken) continue
 
+    const counterPartyName =
+      typeof p.counterPartyName === "string" ? p.counterPartyName.trim() : ""
+    const amountMinor =
+      typeof p.amountInCents === "number" &&
+      Number.isInteger(p.amountInCents) &&
+      p.amountInCents >= 0
+        ? p.amountInCents
+        : null
+    const paidAtRaw =
+      typeof p.createdDateTime === "string"
+        ? Date.parse(p.createdDateTime)
+        : Number.NaN
+
+    if (
+      !counterPartyName ||
+      amountMinor === null ||
+      !Number.isFinite(paidAtRaw)
+    ) {
+      skipped++
+      continue
+    }
+
     const result = await convexMutation(api.tikkie.upsertTikkiePayment, {
       paymentLinkId,
       paymentRequestToken,
       paymentToken,
-      payerName: (p.payerName as string) ?? "Unknown",
-      payerAccountNumber: (p.payerAccountNumber as string) ?? undefined,
-      amountMinor: (p.amountInCents as number) ?? 0,
-      paidAt: p.paymentDateTime
-        ? new Date(p.paymentDateTime as string).getTime()
-        : Date.now(),
+      payerName: counterPartyName,
+      payerAccountNumber:
+        typeof p.counterPartyAccountNumber === "string"
+          ? p.counterPartyAccountNumber
+          : undefined,
+      amountMinor,
+      paidAt: paidAtRaw,
       description: (p.description as string) ?? undefined,
       providerPayload: p,
     })

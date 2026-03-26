@@ -49,6 +49,7 @@ type PaymentListProps = {
     source?: PaymentSource
   }
   onAssign?: (payment: Payment) => void
+  refreshKey?: number
 }
 
 function formatMoney(minor: number) {
@@ -132,7 +133,11 @@ function StatusBadge({ status }: { status: PaymentMatchStatus }) {
   }
 }
 
-export function PaymentList({ filters, onAssign }: PaymentListProps) {
+export function PaymentList({
+  filters,
+  onAssign,
+  refreshKey,
+}: PaymentListProps) {
   const [payments, setPayments] = useState<Payment[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -174,7 +179,7 @@ export function PaymentList({ filters, onAssign }: PaymentListProps) {
     }
 
     loadPayments()
-  }, [page, statusFilter, sourceFilter])
+  }, [page, statusFilter, sourceFilter, refreshKey])
 
   const totalPages = Math.ceil(total / limit)
 

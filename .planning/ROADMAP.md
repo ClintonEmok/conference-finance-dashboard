@@ -275,3 +275,14 @@ Plans:
 
 - [x] 15-01-PLAN.md — Add event Tikkie section to financial page with event picker, payment list, manual assignment, and link creation
 - [x] 15-02-PLAN.md — Remove per-attendee and per-order Tikkie UI from attendee detail and reconciliation pages
+
+### Phase 16: Fix Tikkie sync mapping and reconciliation outstanding flow
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 15
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd:plan-phase 16 to break down)

@@ -32,7 +32,6 @@ import {
 
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Input } from "@/components/ui/input"
 
 type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 
@@ -743,6 +742,19 @@ type Payment = {
   status: PaymentMatchStatus
 }
 
+type TikkieSyncFeedback = {
+  status: "success" | "partial" | "failed"
+  linksScanned: number
+  paymentsFetched: number
+  newPayments: number
+  existingPayments: number
+  updatedPayments: number
+  skippedInvalid: number
+  matched: number
+  ambiguous: number
+  errors: string[]
+}
+
 function PaymentReconciliationSection() {
   const [summary, setSummary] = useState<PaymentSummary | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -750,43 +762,142 @@ function PaymentReconciliationSection() {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [syncFeedback, setSyncFeedback] = useState<TikkieSyncFeedback | null>(
+    null
+  )
+  const [toastMessage, setToastMessage] = useState<{
+    tone: "success" | "warning" | "danger"
+    text: string
+  } | null>(null)
+
+  const loadSummary = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const response = await fetch("/api/reconciliation")
+      if (response.ok) {
+        const data = await response.json()
+        setSummary(data)
+      }
+    } catch (error) {
+      console.error("Failed to load payment summary:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    async function loadSummary() {
-      try {
-        const response = await fetch("/api/reconciliation")
-        if (response.ok) {
-          const data = await response.json()
-          setSummary(data)
-        }
-      } catch (error) {
-        console.error("Failed to load payment summary:", error)
-      } finally {
-        setIsLoading(false)
-      }
+    loadSummary()
+  }, [loadSummary, refreshKey])
+
+  useEffect(() => {
+    if (!toastMessage) {
+      return
     }
 
-    loadSummary()
-  }, [])
+    const timeout = window.setTimeout(() => {
+      setToastMessage(null)
+    }, 4000)
+
+    return () => {
+      window.clearTimeout(timeout)
+    }
+  }, [toastMessage])
 
   async function handleSyncTikkie() {
     setIsSyncing(true)
     try {
-      // Call the Tikkie sync API to sync payments and run auto-match
       const response = await fetch("/api/payments/tikkie/sync", {
         method: "POST",
       })
+
+      const body = (await response.json().catch(() => null)) as Record<
+        string,
+        unknown
+      > | null
+
       if (!response.ok) {
-        console.error("Tikkie sync failed:", response.status)
+        const errorObject =
+          typeof body?.error === "object" &&
+          body.error !== null &&
+          !Array.isArray(body.error)
+            ? (body.error as Record<string, unknown>)
+            : null
+        const message =
+          typeof errorObject?.message === "string"
+            ? errorObject.message
+            : `Tikkie sync failed (${response.status}).`
+        setSyncFeedback({
+          status: "failed",
+          linksScanned: 0,
+          paymentsFetched: 0,
+          newPayments: 0,
+          existingPayments: 0,
+          updatedPayments: 0,
+          skippedInvalid: 0,
+          matched: 0,
+          ambiguous: 0,
+          errors: [message],
+        })
+        setToastMessage({ tone: "danger", text: message })
+        return
       }
-      // Reload summary after sync
-      const summaryResponse = await fetch("/api/reconciliation")
-      if (summaryResponse.ok) {
-        const data = await summaryResponse.json()
-        setSummary(data)
+
+      const feedback: TikkieSyncFeedback = {
+        status: body?.status === "partial" ? "partial" : "success",
+        linksScanned:
+          typeof body?.linksScanned === "number" ? body.linksScanned : 0,
+        paymentsFetched:
+          typeof body?.paymentsFetched === "number" ? body.paymentsFetched : 0,
+        newPayments:
+          typeof body?.newPayments === "number" ? body.newPayments : 0,
+        existingPayments:
+          typeof body?.existingPayments === "number"
+            ? body.existingPayments
+            : 0,
+        updatedPayments:
+          typeof body?.updatedPayments === "number" ? body.updatedPayments : 0,
+        skippedInvalid:
+          typeof body?.skippedInvalid === "number" ? body.skippedInvalid : 0,
+        matched: typeof body?.matched === "number" ? body.matched : 0,
+        ambiguous: typeof body?.ambiguous === "number" ? body.ambiguous : 0,
+        errors: Array.isArray(body?.errors)
+          ? body.errors.filter((e): e is string => typeof e === "string")
+          : [],
+      }
+
+      setSyncFeedback(feedback)
+      setRefreshKey((previous) => previous + 1)
+
+      if (feedback.status === "partial") {
+        setToastMessage({
+          tone: "warning",
+          text: `Sync completed with warnings (${feedback.errors.length} issue${feedback.errors.length === 1 ? "" : "s"}).`,
+        })
+      } else {
+        setToastMessage({
+          tone: "success",
+          text: `Sync complete. ${feedback.newPayments} new payment${feedback.newPayments === 1 ? "" : "s"} stored.`,
+        })
       }
     } catch (error) {
       console.error("Failed to sync Tikkie payments:", error)
+      setSyncFeedback({
+        status: "failed",
+        linksScanned: 0,
+        paymentsFetched: 0,
+        newPayments: 0,
+        existingPayments: 0,
+        updatedPayments: 0,
+        skippedInvalid: 0,
+        matched: 0,
+        ambiguous: 0,
+        errors: ["Network error while syncing Tikkie payments."],
+      })
+      setToastMessage({
+        tone: "danger",
+        text: "Network error while syncing Tikkie payments.",
+      })
     } finally {
       setIsSyncing(false)
     }
@@ -798,17 +909,7 @@ function PaymentReconciliationSection() {
   }
 
   function handleAssigned() {
-    // Reload summary and list
-    window.location.reload()
-  }
-
-  function formatMoney(minor: number) {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "EUR",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(minor / 100)
+    setRefreshKey((previous) => previous + 1)
   }
 
   return (
@@ -924,6 +1025,37 @@ function PaymentReconciliationSection() {
         </Button>
       </div>
 
+      {syncFeedback && (
+        <div
+          className={`rounded-md border px-3 py-2 text-sm ${
+            syncFeedback.status === "failed"
+              ? "border-destructive/30 bg-destructive/10 text-destructive"
+              : syncFeedback.status === "partial"
+                ? "border-yellow-300 bg-yellow-50 text-yellow-900 dark:border-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-200"
+                : "border-green-300 bg-green-50 text-green-900 dark:border-green-700 dark:bg-green-900/20 dark:text-green-200"
+          }`}
+        >
+          <p className="font-medium">
+            {syncFeedback.status === "failed"
+              ? "Tikkie sync failed"
+              : syncFeedback.status === "partial"
+                ? "Tikkie sync completed with partial success"
+                : "Tikkie sync completed"}
+          </p>
+          <p className="mt-1 text-xs">
+            Links scanned: {syncFeedback.linksScanned}. Payments fetched:{" "}
+            {syncFeedback.paymentsFetched}. New: {syncFeedback.newPayments}.
+            Existing: {syncFeedback.existingPayments}. Updated:{" "}
+            {syncFeedback.updatedPayments}. Skipped invalid:{" "}
+            {syncFeedback.skippedInvalid}. Auto-matched: {syncFeedback.matched}.
+            Ambiguous: {syncFeedback.ambiguous}.
+          </p>
+          {syncFeedback.errors.length > 0 && (
+            <p className="mt-1 text-xs">Errors: {syncFeedback.errors.length}</p>
+          )}
+        </div>
+      )}
+
       {/* Manual Entry Form */}
       {showEntryForm && (
         <Card className="border border-border">
@@ -937,7 +1069,7 @@ function PaymentReconciliationSection() {
             <ManualPaymentEntryForm
               onSuccess={() => {
                 setShowEntryForm(false)
-                window.location.reload()
+                setRefreshKey((previous) => previous + 1)
               }}
             />
           </CardContent>
@@ -953,7 +1085,7 @@ function PaymentReconciliationSection() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <PaymentList onAssign={handleAssign} />
+          <PaymentList onAssign={handleAssign} refreshKey={refreshKey} />
         </CardContent>
       </Card>
 
@@ -965,6 +1097,20 @@ function PaymentReconciliationSection() {
           onOpenChange={setAssignDialogOpen}
           onAssigned={handleAssigned}
         />
+      )}
+
+      {toastMessage && (
+        <div
+          className={`fixed right-4 bottom-4 z-50 rounded-md border px-4 py-2 text-sm shadow-lg ${
+            toastMessage.tone === "danger"
+              ? "text-destructive-foreground border-destructive/30 bg-destructive"
+              : toastMessage.tone === "warning"
+                ? "border-yellow-400 bg-yellow-100 text-yellow-900"
+                : "border-green-400 bg-green-100 text-green-900"
+          }`}
+        >
+          {toastMessage.text}
+        </div>
       )}
     </section>
   )
