@@ -33,6 +33,8 @@ function parseFilters(request: Request) {
   const orderIdParam = params.get("orderId")
   const pageParam = params.get("page")
   const limitParam = params.get("limit")
+  const fromParam = params.get("from")
+  const toParam = params.get("to")
 
   const status =
     statusParam && allowedStatuses.includes(statusParam as PaymentMatchStatus)
@@ -52,7 +54,10 @@ function parseFilters(request: Request) {
     ? Math.min(100, Math.max(1, parseInt(limitParam, 10) || 20))
     : 20
 
-  return { status, source, orderId, page, limit }
+  const from = fromParam ? new Date(fromParam) : null
+  const to = toParam ? new Date(toParam) : null
+
+  return { status, source, orderId, page, limit, from, to }
 }
 
 function mapResolvedOrder(order: {
@@ -118,11 +123,28 @@ export async function GET(request: Request) {
   }
 
   try {
-    const { status, source, orderId, page, limit } = parseFilters(request)
+    const { status, source, orderId, page, limit, from, to } =
+      parseFilters(request)
 
     const result = await listPayments({ status, source, orderId })
 
-    const paginatedPayments = result.payments.slice(
+    let filteredPayments = result.payments
+    if (from) {
+      const fromMs = from.getTime()
+      filteredPayments = filteredPayments.filter(
+        (p) => new Date(p.paidAt).getTime() >= fromMs
+      )
+    }
+    if (to) {
+      const toMs = to.getTime() + 24 * 60 * 60 * 1000 // Include full day
+      filteredPayments = filteredPayments.filter(
+        (p) => new Date(p.paidAt).getTime() <= toMs
+      )
+    }
+
+    const total = filteredPayments.length
+
+    const paginatedPayments = filteredPayments.slice(
       (page - 1) * limit,
       page * limit
     )
@@ -165,7 +187,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       payments,
-      total: result.total,
+      total,
       page,
       limit,
     })

@@ -424,7 +424,7 @@ export default function ReconciliationPage() {
         </Card>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-1">
         <Card className="border border-border">
           <CardContent className="p-5">
             <div className="flex items-center gap-3">
@@ -444,7 +444,7 @@ export default function ReconciliationPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border border-border">
+        {/* <Card className="border border-border">
           <CardContent className="p-5">
             <div className="flex items-center gap-3">
               <span className="flex size-10 items-center justify-center rounded-lg bg-muted text-primary">
@@ -460,13 +460,13 @@ export default function ReconciliationPage() {
               </div>
             </div>
           </CardContent>
-        </Card>
-        <Card className="border border-border">
+        </Card> */}
+        {/* <Card className="border border-border">
           <CardContent className="p-5 text-sm leading-5 text-muted-foreground">
             Open attendee follow-up from any row to preserve order context and
             avoid backtracking.
           </CardContent>
-        </Card>
+        </Card> */}
       </section>
 
       {errorMessage && (
@@ -831,7 +831,11 @@ function PaymentReconciliationSection() {
                   Unassigned
                 </p>
                 <p className="mt-1 text-lg font-semibold text-foreground">
-                  {isLoading ? "--" : (summary?.summary.unassigned ?? 0)}
+                  {isLoading
+                    ? "--"
+                    : (summary?.legacyPaymentStatus?.unassigned ??
+                      summary?.summary.unassigned ??
+                      0)}
                 </p>
                 <p className="text-[10px] text-muted-foreground">
                   No payments linked
