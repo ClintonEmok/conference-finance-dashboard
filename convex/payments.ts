@@ -1,33 +1,74 @@
 import { query, mutation, action } from "./_generated/server"
 import { v } from "convex/values"
 
+const paymentSourceValidator = v.union(
+  v.literal("tikkie"),
+  v.literal("bank_transfer"),
+  v.literal("cash")
+)
+
+const paymentStatusValidator = v.union(
+  v.literal("auto_matched"),
+  v.literal("manual_assignment"),
+  v.literal("ambiguous"),
+  v.literal("unassigned")
+)
+
+const paymentDocValidator = v.object({
+  _id: v.id("payments"),
+  _creationTime: v.number(),
+  source: paymentSourceValidator,
+  sourceId: v.optional(v.string()),
+  payerName: v.string(),
+  payerAccountNumber: v.optional(v.string()),
+  amountMinor: v.number(),
+  paidAt: v.number(),
+  orderId: v.optional(v.string()),
+  status: v.optional(paymentStatusValidator),
+  matchedAt: v.optional(v.number()),
+  matchedBy: v.optional(v.string()),
+  reference: v.optional(v.string()),
+  notes: v.optional(v.string()),
+  providerPayload: v.optional(v.any()),
+})
+
 export const getPayments = query({
   args: {
     orderId: v.optional(v.string()),
-    source: v.optional(
-      v.union(
-        v.literal("tikkie"),
-        v.literal("bank_transfer"),
-        v.literal("cash")
-      )
-    ),
-    status: v.optional(
-      v.union(
-        v.literal("auto_matched"),
-        v.literal("manual_assignment"),
-        v.literal("ambiguous"),
-        v.literal("unassigned")
-      )
-    ),
+    source: v.optional(paymentSourceValidator),
+    sourceId: v.optional(v.string()),
+    status: v.optional(paymentStatusValidator),
   },
+  returns: v.array(paymentDocValidator),
   handler: async (ctx, args) => {
-    let payments = await ctx.db.query("payments").collect()
+    let payments =
+      args.source && args.sourceId
+        ? await ctx.db
+            .query("payments")
+            .withIndex("source_sourceId", (q) =>
+              q.eq("source", args.source!).eq("sourceId", args.sourceId!)
+            )
+            .collect()
+        : args.orderId
+          ? await ctx.db
+              .query("payments")
+              .withIndex("orderId", (q) => q.eq("orderId", args.orderId!))
+              .collect()
+          : args.status
+            ? await ctx.db
+                .query("payments")
+                .withIndex("status", (q) => q.eq("status", args.status!))
+                .collect()
+            : await ctx.db.query("payments").collect()
 
     if (args.orderId) {
       payments = payments.filter((p) => p.orderId === args.orderId)
     }
     if (args.source) {
       payments = payments.filter((p) => p.source === args.source)
+    }
+    if (args.sourceId) {
+      payments = payments.filter((p) => p.sourceId === args.sourceId)
     }
     if (args.status) {
       payments = payments.filter((p) => p.status === args.status)
@@ -39,6 +80,7 @@ export const getPayments = query({
 
 export const getPaymentById = query({
   args: { paymentId: v.id("payments") },
+  returns: v.union(paymentDocValidator, v.null()),
   handler: async (ctx, args) => {
     return await ctx.db.get("payments", args.paymentId)
   },
@@ -54,24 +96,25 @@ export const getUnassignedPayments = query({
 
 export const createPayment = mutation({
   args: {
-    source: v.union(
-      v.literal("tikkie"),
-      v.literal("bank_transfer"),
-      v.literal("cash")
-    ),
+    source: paymentSourceValidator,
     sourceId: v.optional(v.string()),
+    orderId: v.optional(v.string()),
     payerName: v.string(),
     payerAccountNumber: v.optional(v.string()),
     amountMinor: v.number(),
     paidAt: v.number(),
     reference: v.optional(v.string()),
     notes: v.optional(v.string()),
+    status: v.optional(paymentStatusValidator),
+    matchedBy: v.optional(v.string()),
     providerPayload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const id = await ctx.db.insert("payments", {
       ...args,
-      status: "unassigned",
+      status:
+        args.status ?? (args.orderId ? "manual_assignment" : "unassigned"),
+      matchedAt: args.orderId ? Date.now() : undefined,
     })
     return id
   },
@@ -158,7 +201,10 @@ export const getPaymentSummary = query({
       )
       .reduce((sum, p) => sum + p.amountMinor, 0)
 
-    const order = await ctx.db.get("ticketTailorOrders", args.orderId as any)
+    const orderId = ctx.db.normalizeId("ticketTailorOrders", args.orderId)
+    const order = orderId
+      ? await ctx.db.get("ticketTailorOrders", orderId)
+      : null
     const orderTotal = order?.totalAmountMinor ?? 0
 
     return {

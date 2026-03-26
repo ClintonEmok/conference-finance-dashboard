@@ -209,17 +209,14 @@ export async function getAttendeeLedger(
     allHotels,
     allRoomTypes,
   ] = (await Promise.all([
-    convexQuery<{ eventId?: string }, ConvexAttendee[]>(
-      "attendees/getAttendees",
-      {
-        eventId: eventId ?? undefined,
-      }
-    ),
-    convexQuery<{}, ConvexEvent[]>("events/getEvents", {}),
+    convexQuery(api.attendees.getAttendees, {
+      eventId: eventId ?? undefined,
+    }),
+    convexQuery(api.events.getEvents, {}),
     convexQuery(api.orders.getOrders, {}),
-    convexQuery<{}, ConvexRoom[]>("accommodation/getRooms", {}),
-    convexQuery<{}, ConvexHotel[]>("accommodation/getHotels", {}),
-    convexQuery<{}, ConvexRoomType[]>("accommodation/getRoomTypes", {}),
+    convexQuery(api.accommodation.getRooms, {}),
+    convexQuery(api.accommodation.getHotels, {}),
+    convexQuery(api.accommodation.getRoomTypes, {}),
   ])) as [
     ConvexAttendee[],
     ConvexEvent[],

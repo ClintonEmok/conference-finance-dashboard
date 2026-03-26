@@ -5,6 +5,7 @@ import {
 } from "@/lib/integrations/tikkie/client"
 import { api } from "@/lib/convex/api"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export type AppTikkieLinkStatus = "created" | "paid" | "expired"
 
@@ -407,10 +408,9 @@ export async function createTikkiePaymentLink(
   const appStatus = mapProviderStatus(providerResponse.status)
   const now = Date.now()
 
-  const existingLinks = await convexQuery<
-    { orderId: string },
-    DbTikkiePaymentLink[]
-  >("tikkie/getPaymentLinks", { orderId: order._id })
+  const existingLinks = (await convexQuery(api.tikkie.getPaymentLinks, {
+    orderId: order._id,
+  })) as DbTikkiePaymentLink[]
 
   const existingToken = existingLinks.find(
     (l) => l.paymentRequestToken === providerResponse.paymentRequestToken
@@ -423,22 +423,7 @@ export async function createTikkiePaymentLink(
     }
   }
 
-  const linkId = await convexMutation<
-    {
-      providerOrderId: string
-      providerEventId: string
-      orderId: string
-      paymentRequestToken: string
-      paymentRequestUrl: string
-      providerStatus: string
-      amountMinor: number
-      description: string
-      expiryDate: number
-      referenceId?: string
-      providerPayload?: unknown
-    },
-    string
-  >("tikkie/createPaymentLink", {
+  const linkId = await convexMutation(api.tikkie.createPaymentLink, {
     providerOrderId,
     providerEventId,
     orderId: order._id,
@@ -491,10 +476,9 @@ export async function listTikkiePaymentLinksByOrder(
   const orderId = orders[0]?._id
 
   const links = orderId
-    ? await convexQuery<{ orderId: string }, DbTikkiePaymentLink[]>(
-        "tikkie/getPaymentLinks",
-        { orderId }
-      )
+    ? ((await convexQuery(api.tikkie.getPaymentLinks, {
+        orderId,
+      })) as DbTikkiePaymentLink[])
     : []
 
   const mappedLinks = links
@@ -564,10 +548,9 @@ export async function refreshTikkiePaymentLinkStatus(
     "paymentRequestToken"
   )
 
-  const existing = await convexQuery<
-    { paymentRequestToken: string },
-    DbTikkiePaymentLink | null
-  >("tikkie/getPaymentLinkByToken", { paymentRequestToken })
+  const existing = (await convexQuery(api.tikkie.getPaymentLinkByToken, {
+    paymentRequestToken,
+  })) as DbTikkiePaymentLink | null
 
   if (!existing) {
     throw new Error("Payment link not found for given 'paymentRequestToken'.")
@@ -597,19 +580,8 @@ export async function refreshTikkiePaymentLinkStatus(
     : currentStatus
 
   if (nextStatus !== currentStatus) {
-    await convexMutation<
-      {
-        linkId: string
-        status: "created" | "paid" | "expired"
-        providerStatus: string
-        source: "create" | "webhook" | "poll"
-        reason?: string
-        providerNotificationKey?: string
-        providerPayload?: unknown
-      },
-      { linkId: string }
-    >("tikkie/updatePaymentLinkStatus", {
-      linkId: existing._id,
+    await convexMutation(api.tikkie.updatePaymentLinkStatus, {
+      linkId: existing._id as Id<"tikkiePaymentLinks">,
       status: nextStatus,
       providerStatus: request.status,
       source: input.source as "create" | "webhook" | "poll",
@@ -623,10 +595,9 @@ export async function refreshTikkiePaymentLinkStatus(
     })
   }
 
-  const updatedLink = await convexQuery<
-    { linkId: string },
-    DbTikkiePaymentLink | null
-  >("tikkie/getPaymentLinkById", { linkId: existing._id })
+  const updatedLink = (await convexQuery(api.tikkie.getPaymentLinkById, {
+    linkId: existing._id as Id<"tikkiePaymentLinks">,
+  })) as DbTikkiePaymentLink | null
 
   if (!updatedLink) {
     throw new Error("Failed to retrieve updated payment link")
@@ -647,10 +618,9 @@ export async function syncPendingTikkiePaymentLinks({
   const safeLimit =
     Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 100) : 25
 
-  const pending = await convexQuery<{ status: string }, DbTikkiePaymentLink[]>(
-    "tikkie/getPaymentLinks",
-    { status: "created" }
-  )
+  const pending = (await convexQuery(api.tikkie.getPaymentLinks, {
+    status: "created",
+  })) as DbTikkiePaymentLink[]
 
   const limitedPending = pending
     .sort((a, b) => a.statusUpdatedAt - b.statusUpdatedAt)

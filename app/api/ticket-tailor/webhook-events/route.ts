@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireApiUser } from "@/lib/auth/server"
+import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 
 export async function GET() {
@@ -10,23 +11,7 @@ export async function GET() {
     return authResult
   }
 
-  const events = await convexQuery<
-    {},
-    Array<{
-      _id: string
-      providerEventId: string
-      eventType: string
-      status?: "pending" | "processed" | "failed"
-      deliveryCount?: number
-      attempts?: number
-      lastError?: string
-      nextRetryAt?: number
-      canonicalFetchedAt?: number
-      processedAt?: number
-      receivedAt?: number
-      lastReceivedAt?: number
-    }>
-  >("sync:getWebhookEvents", {})
+  const events = await convexQuery(api.sync.getWebhookEvents, {})
 
   return NextResponse.json({
     count: events.length,

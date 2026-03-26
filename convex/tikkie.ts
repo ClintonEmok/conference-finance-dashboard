@@ -82,6 +82,7 @@ export const updatePaymentLinkStatus = mutation({
       v.literal("poll")
     ),
     reason: v.optional(v.string()),
+    providerNotificationKey: v.optional(v.string()),
     providerPayload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
@@ -93,6 +94,7 @@ export const updatePaymentLinkStatus = mutation({
       fromStatus: link.status ?? "created",
       toStatus: args.status,
       source: args.source,
+      providerNotificationKey: args.providerNotificationKey,
       providerStatus: args.providerStatus,
       reason: args.reason,
       providerPayload: args.providerPayload,
@@ -111,13 +113,16 @@ export const updatePaymentLinkStatus = mutation({
 })
 
 export const getPaymentTemplates = query({
-  args: { eventId: v.string() },
+  args: { eventId: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const templates = await ctx.db
-      .query("tikkiePaymentTemplates")
-      .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
-      .collect()
-    return templates
+    if (args.eventId) {
+      return await ctx.db
+        .query("tikkiePaymentTemplates")
+        .withIndex("eventId", (q) => q.eq("eventId", args.eventId!))
+        .collect()
+    }
+
+    return await ctx.db.query("tikkiePaymentTemplates").collect()
   },
 })
 

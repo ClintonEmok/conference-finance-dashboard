@@ -39,7 +39,8 @@ export const getOrderById = query({
   args: { orderId: v.string() },
   handler: async (ctx, args) => {
     try {
-      return await ctx.db.get("ticketTailorOrders", args.orderId as any)
+      const orderId = ctx.db.normalizeId("ticketTailorOrders", args.orderId)
+      return orderId ? await ctx.db.get("ticketTailorOrders", orderId) : null
     } catch {
       return null
     }

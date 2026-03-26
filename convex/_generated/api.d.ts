@@ -586,7 +586,9 @@ export declare const api: {
       "public",
       {
         amountMinor: number;
+        matchedBy?: string;
         notes?: string;
+        orderId?: string;
         paidAt: number;
         payerAccountNumber?: string;
         payerName: string;
@@ -594,21 +596,6 @@ export declare const api: {
         reference?: string;
         source: "tikkie" | "bank_transfer" | "cash";
         sourceId?: string;
-      },
-      any
-    >;
-    getPaymentById: FunctionReference<
-      "query",
-      "public",
-      { paymentId: Id<"payments"> },
-      any
-    >;
-    getPayments: FunctionReference<
-      "query",
-      "public",
-      {
-        orderId?: string;
-        source?: "tikkie" | "bank_transfer" | "cash";
         status?:
           | "auto_matched"
           | "manual_assignment"
@@ -616,6 +603,67 @@ export declare const api: {
           | "unassigned";
       },
       any
+    >;
+    getPaymentById: FunctionReference<
+      "query",
+      "public",
+      { paymentId: Id<"payments"> },
+      {
+        _creationTime: number;
+        _id: Id<"payments">;
+        amountMinor: number;
+        matchedAt?: number;
+        matchedBy?: string;
+        notes?: string;
+        orderId?: string;
+        paidAt: number;
+        payerAccountNumber?: string;
+        payerName: string;
+        providerPayload?: any;
+        reference?: string;
+        source: "tikkie" | "bank_transfer" | "cash";
+        sourceId?: string;
+        status?:
+          | "auto_matched"
+          | "manual_assignment"
+          | "ambiguous"
+          | "unassigned";
+      } | null
+    >;
+    getPayments: FunctionReference<
+      "query",
+      "public",
+      {
+        orderId?: string;
+        source?: "tikkie" | "bank_transfer" | "cash";
+        sourceId?: string;
+        status?:
+          | "auto_matched"
+          | "manual_assignment"
+          | "ambiguous"
+          | "unassigned";
+      },
+      Array<{
+        _creationTime: number;
+        _id: Id<"payments">;
+        amountMinor: number;
+        matchedAt?: number;
+        matchedBy?: string;
+        notes?: string;
+        orderId?: string;
+        paidAt: number;
+        payerAccountNumber?: string;
+        payerName: string;
+        providerPayload?: any;
+        reference?: string;
+        source: "tikkie" | "bank_transfer" | "cash";
+        sourceId?: string;
+        status?:
+          | "auto_matched"
+          | "manual_assignment"
+          | "ambiguous"
+          | "unassigned";
+      }>
     >;
     getPaymentSummary: FunctionReference<
       "query",
@@ -902,7 +950,7 @@ export declare const api: {
     getPaymentTemplates: FunctionReference<
       "query",
       "public",
-      { eventId: string },
+      { eventId?: string },
       any
     >;
     getTemplateByEventAndTicketType: FunctionReference<
@@ -916,6 +964,7 @@ export declare const api: {
       "public",
       {
         linkId: Id<"tikkiePaymentLinks">;
+        providerNotificationKey?: string;
         providerPayload?: any;
         providerStatus: string;
         reason?: string;
@@ -947,6 +996,15 @@ export declare const api: {
  * const myFunctionReference = internal.myModule.myFunction;
  * ```
  */
-export declare const internal: {};
+export declare const internal: {
+  accommodation: {
+    recalculateRoomOccupancy: FunctionReference<
+      "mutation",
+      "internal",
+      { roomId: string },
+      any
+    >;
+  };
+};
 
 export declare const components: {};

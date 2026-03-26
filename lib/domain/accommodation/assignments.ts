@@ -1,3 +1,4 @@
+import { api } from "@/lib/convex/api"
 import { convexQuery, convexMutation } from "@/lib/convex/server"
 
 type RoomAvailability = "all" | "empty" | "available" | "full"
@@ -207,10 +208,7 @@ export async function getRoomAllocationBoard(
   )
   const hasPriority = normalizeBoolean(filters.hasPriority ?? undefined)
 
-  const result = await convexQuery<
-    Record<string, unknown>,
-    RoomAllocationBoard
-  >("accommodation:getRoomAllocationBoard", {
+  const result = await convexQuery(api.accommodation.getRoomAllocationBoard, {
     eventId: eventId ?? undefined,
     hotelId: hotelId ?? undefined,
     roomTypeId: roomTypeId ?? undefined,
@@ -222,7 +220,7 @@ export async function getRoomAllocationBoard(
   let mappedRooms = result.rooms
   if (search) {
     mappedRooms = result.rooms
-      .map((room) => {
+      .map((room: RoomAllocationBoard["rooms"][number]) => {
         const occupants = search
           ? room.occupants.filter((occupant: (typeof room.occupants)[number]) =>
               attendeeMatchesSearch(occupant, search)
@@ -270,7 +268,7 @@ export async function assignAttendeeToRoom(input: {
   attendeeId: string
   roomId: string
 }) {
-  return await convexMutation("accommodation:assignAttendeeToRoom", {
+  return await convexMutation(api.accommodation.assignAttendeeToRoom, {
     attendeeId: input.attendeeId,
     roomId: input.roomId,
   })
@@ -279,7 +277,7 @@ export async function assignAttendeeToRoom(input: {
 export async function unassignAttendeeFromRoom(attendeeIdValue: string) {
   const attendeeId = normalizeOptionalString(attendeeIdValue) ?? ""
 
-  return await convexMutation("accommodation:unassignAttendeeFromRoom", {
+  return await convexMutation(api.accommodation.unassignAttendeeFromRoom, {
     attendeeId,
   })
 }

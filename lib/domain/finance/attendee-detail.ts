@@ -157,97 +157,58 @@ export async function getAttendeeDetail(
 ): Promise<AttendeeDetail> {
   const normalizedAttendeeId = normalizeAttendeeId(attendeeId)
 
-  const attendee = await convexQuery<
-    { attendeeId: string },
-    {
-      _id: string
-      name: string | null
-      email: string | null
-      ticketTypeLabel: string | null
-      ticketStatus: string | null
-      checkedInAt: number | null
-      providerIssuedTicketId: string | null
-      providerOrderId: string
-      providerEventId: string
-      eventId: string
-      orderId: string
-      assignedRoomId: string | null
-      customAnswers: Record<string, unknown> | null
-      genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
-      allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
-      priorityReason: string | null
-      ageGroup: string | null
-      ticketCategory: string | null
-      tikkieAmountOverrideMinor: number | null
-    } | null
-  >("attendees/getAttendeeByStringId", { attendeeId: normalizedAttendeeId })
+  const attendee = (await convexQuery(api.attendees.getAttendeeByStringId, {
+    attendeeId: normalizedAttendeeId,
+  })) as {
+    _id: string
+    name: string | null
+    email: string | null
+    ticketTypeLabel: string | null
+    ticketStatus: string | null
+    checkedInAt: number | null
+    providerIssuedTicketId: string | null
+    providerOrderId: string
+    providerEventId: string
+    eventId: string
+    orderId: string
+    assignedRoomId: string | null
+    customAnswers: Record<string, unknown> | null
+    genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+    allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
+    priorityReason: string | null
+    ageGroup: string | null
+    ticketCategory: string | null
+    tikkieAmountOverrideMinor: number | null
+  } | null
 
   if (!attendee) {
     throw new Error("Attendee not found.")
   }
 
-  const [
-    event,
-    order,
-    paymentLinks,
-    assignedRoomData,
-    hotelData,
-    roomTypeData,
-  ] = await Promise.all([
-    convexQuery<
-      { eventId: string },
-      { _id: string; name: string | null } | null
-    >("events/getEventById", { eventId: attendee.eventId }),
+  const assignedRoomPromise = attendee.assignedRoomId
+    ? convexQuery(api.accommodation.getRoomById, {
+        roomId: attendee.assignedRoomId,
+      })
+    : Promise.resolve(null)
+
+  const [event, order, paymentLinks, assignedRoomData] = await Promise.all([
+    convexQuery(api.events.getEventById, { eventId: attendee.eventId }),
     convexQuery(api.orders.getOrderById, { orderId: attendee.orderId }),
-    convexQuery<
-      { orderId: string },
-      Array<{
-        _id: string
-        paymentRequestToken: string
-        status: "created" | "paid" | "expired"
-        providerStatus: string
-        amountMinor: number
-        description: string
-        expiryDate: number
-        referenceId: string | null
-        providerPayload: unknown
-        providerLastCheckedAt: number | null
-        statusUpdatedAt: number
-        createdAt: number
-        transitionEvents: Array<{
-          _id: string
-          fromStatus: string
-          toStatus: string
-          source: string
-          providerStatus: string
-          reason: string | null
-          createdAt: number
-        }>
-      }>
-    >("tikkie/getPaymentLinksByOrderId", { orderId: attendee.orderId }),
-    attendee.assignedRoomId
-      ? convexQuery<
-          { roomId: string },
-          {
-            _id: string
-            label: string
-            hotelId: string
-            roomTypeId: string
-          } | null
-        >("accommodation/getRoomById", { roomId: attendee.assignedRoomId })
+    convexQuery(api.tikkie.getPaymentLinksByOrderId, {
+      orderId: attendee.orderId,
+    }),
+    assignedRoomPromise,
+  ])
+
+  const [hotelData, roomTypeData] = await Promise.all([
+    assignedRoomData
+      ? convexQuery(api.accommodation.getHotelById, {
+          hotelId: assignedRoomData.hotelId,
+        })
       : Promise.resolve(null),
-    attendee.assignedRoomId
-      ? convexQuery<{ hotelId: string }, { _id: string; name: string } | null>(
-          "accommodation/getHotelById",
-          { hotelId: attendee.assignedRoomId }
-        )
-      : Promise.resolve(null),
-    attendee.assignedRoomId
-      ? convexQuery<
-          { roomTypeId: string },
-          { _id: string; label: string } | null
-        >("accommodation/getRoomTypeById", {
-          roomTypeId: attendee.assignedRoomId,
+    assignedRoomData
+      ? convexQuery(api.accommodation.getRoomTypeById, {
+          roomTypeId: assignedRoomData.roomTypeId,
         })
       : Promise.resolve(null),
   ])
@@ -272,48 +233,57 @@ export async function getAttendeeDetail(
     paidAmountMinor,
   })
 
-  const paymentHistory = paymentLinks.flatMap((link) => [
-    {
-      id: `link-${link._id}`,
-      type: "payment-link" as const,
-      title: `Payment link ${link.paymentRequestToken}`,
-      status: link.status,
-      amountMinor: link.amountMinor,
-      happenedAt: new Date(link.createdAt).toISOString(),
-      note: link.description,
-      url: null,
-    },
-    ...link.transitionEvents.map((event) => ({
-      id: `transition-${event._id}`,
-      type: "status-transition" as const,
-      title: `${event.fromStatus} -> ${event.toStatus}`,
-      status: event.toStatus,
-      amountMinor: link.amountMinor,
-      happenedAt: new Date(event.createdAt).toISOString(),
-      note: event.reason ?? event.providerStatus,
-      url: null,
-    })),
-  ])
-
-  paymentHistory.sort((left, right) =>
-    right.happenedAt.localeCompare(left.happenedAt)
+  const paymentHistory = paymentLinks.flatMap(
+    (link: (typeof paymentLinks)[number]) => [
+      {
+        id: `link-${link._id}`,
+        type: "payment-link" as const,
+        title: `Payment link ${link.paymentRequestToken}`,
+        status: link.status,
+        amountMinor: link.amountMinor,
+        happenedAt: new Date(link.createdAt).toISOString(),
+        note: link.description,
+        url: null,
+      },
+      ...link.transitionEvents.map(
+        (event: (typeof link.transitionEvents)[number]) => ({
+          id: `transition-${event._id}`,
+          type: "status-transition" as const,
+          title: `${event.fromStatus} -> ${event.toStatus}`,
+          status: event.toStatus,
+          amountMinor: link.amountMinor,
+          happenedAt: new Date(event.createdAt).toISOString(),
+          note: event.reason ?? event.providerStatus,
+          url: null,
+        })
+      ),
+    ]
   )
 
-  const tikkieLinks = paymentLinks.map((link) => {
-    const mapped = mapTikkiePaymentLink({
-      ...link,
-      statusUpdatedAt: link.statusUpdatedAt,
-      createdAt: link.createdAt,
-    } as any)
+  paymentHistory.sort(
+    (
+      left: (typeof paymentHistory)[number],
+      right: (typeof paymentHistory)[number]
+    ) => right.happenedAt.localeCompare(left.happenedAt)
+  )
 
-    return {
-      ...mapped,
-      checkState: deriveTikkieLinkCheckState({
-        status: mapped.status,
-        providerLastCheckedAt: mapped.providerLastCheckedAt,
-      }),
+  const tikkieLinks = paymentLinks.map(
+    (link: (typeof paymentLinks)[number]) => {
+      const mapped = mapTikkiePaymentLink({
+        ...link,
+        statusUpdatedAt: link.statusUpdatedAt,
+        createdAt: link.createdAt,
+      } as Parameters<typeof mapTikkiePaymentLink>[0])
+
+      return {
+        ...mapped,
+        checkState: deriveTikkieLinkCheckState({
+          status: mapped.status,
+          providerLastCheckedAt: mapped.providerLastCheckedAt,
+        }),
+      }
     }
-  })
+  )
 
   const latestLink = tikkieLinks[0] ?? null
   const templateMatch = await matchTemplateForAttendee({
@@ -432,11 +402,15 @@ export async function getAttendeeDetail(
       paidAmountMinor,
       installmentProgress: {
         totalLinks: paymentLinks.length,
-        paidLinks: paymentLinks.filter((link) => link.status === "paid").length,
-        openLinks: paymentLinks.filter((link) => link.status === "created")
-          .length,
-        expiredLinks: paymentLinks.filter((link) => link.status === "expired")
-          .length,
+        paidLinks: paymentLinks.filter(
+          (link: (typeof paymentLinks)[number]) => link.status === "paid"
+        ).length,
+        openLinks: paymentLinks.filter(
+          (link: (typeof paymentLinks)[number]) => link.status === "created"
+        ).length,
+        expiredLinks: paymentLinks.filter(
+          (link: (typeof paymentLinks)[number]) => link.status === "expired"
+        ).length,
       },
     },
     tikkie: {

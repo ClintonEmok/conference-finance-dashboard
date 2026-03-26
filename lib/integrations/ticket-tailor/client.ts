@@ -44,8 +44,16 @@ function buildUrl(path: string, query?: TicketTailorFetchOptions["query"]) {
 }
 
 function buildAuthorizationHeader(apiKey: string) {
-  const encoded = Buffer.from(`${apiKey}:`).toString("base64")
+  const encoded = Buffer.from(apiKey).toString("base64")
   return `Basic ${encoded}`
+}
+
+function buildRequestHeaders(apiKey: string) {
+  return {
+    Authorization: buildAuthorizationHeader(apiKey),
+    Accept: "application/json",
+    "User-Agent": "conference-finance-dashboard/1.0",
+  }
 }
 
 export async function ticketTailorFetch<T>(
@@ -60,10 +68,7 @@ export async function ticketTailorFetch<T>(
 
   const response = await fetch(url, {
     method: options.method ?? "GET",
-    headers: {
-      Authorization: buildAuthorizationHeader(config.values.apiKey),
-      Accept: "application/json",
-    },
+    headers: buildRequestHeaders(config.values.apiKey),
     cache: "no-store",
   })
 
@@ -192,6 +197,31 @@ function inferHasNextPage(
   return itemCount >= pageSize
 }
 
+function extractNextPageQuery(payload: unknown) {
+  const root = asRecord(payload)
+  const links = asRecord(root.links)
+  const next = typeof links.next === "string" ? links.next : null
+
+  if (!next) {
+    return null
+  }
+
+  try {
+    const url = new URL(next, "https://api.tickettailor.com")
+    const startingAfter = url.searchParams.get("starting_after")
+    const endingBefore = url.searchParams.get("ending_before")
+    const limit = url.searchParams.get("limit")
+
+    return {
+      starting_after: startingAfter ?? undefined,
+      ending_before: endingBefore ?? undefined,
+      limit: limit ?? undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
 async function fetchPaginatedCollection<T extends JsonRecord>(
   path: string,
   options: PaginationOptions = {}
@@ -202,13 +232,13 @@ async function fetchPaginatedCollection<T extends JsonRecord>(
   const allItems: T[] = []
   let page = 1
   let pagesFetched = 0
+  let cursorQuery: Record<string, string | number | undefined> = {
+    limit: pageSize,
+  }
 
   while (page <= maxPages) {
     const payload = await ticketTailorFetch<unknown>(path, {
-      query: {
-        page,
-        per_page: pageSize,
-      },
+      query: cursorQuery,
     })
 
     pagesFetched += 1
@@ -220,10 +250,18 @@ async function fetchPaginatedCollection<T extends JsonRecord>(
 
     allItems.push(...items)
 
-    const hasNext = inferHasNextPage(payload, page, pageSize, items.length)
+    const nextPageQuery = extractNextPageQuery(payload)
+    const hasNext = nextPageQuery
+      ? true
+      : inferHasNextPage(payload, page, pageSize, items.length)
 
     if (!hasNext) {
       break
+    }
+
+    cursorQuery = nextPageQuery ?? {
+      page: page + 1,
+      per_page: pageSize,
     }
 
     page += 1

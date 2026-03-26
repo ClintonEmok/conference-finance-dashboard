@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireApiUser } from "@/lib/auth/server"
+import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 import {
   syncTikkiePayments,
@@ -21,10 +22,9 @@ export async function POST() {
     errors: [] as string[],
   }
 
-  const paymentLinks = await convexQuery<
-    { status: "paid" },
-    Array<{ paymentRequestToken: string }>
-  >("tikkie/getPaymentLinks", { status: "paid" })
+  const paymentLinks = (await convexQuery(api.tikkie.getPaymentLinks, {
+    status: "paid",
+  })) as Array<{ paymentRequestToken: string }>
 
   for (const link of paymentLinks) {
     try {

@@ -29,11 +29,8 @@ export const getEvents = query({
 export const getEventById = query({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
-    try {
-      return await ctx.db.get("ticketTailorEvents", args.eventId as any)
-    } catch {
-      return null
-    }
+    const eventId = ctx.db.normalizeId("ticketTailorEvents", args.eventId)
+    return eventId ? await ctx.db.get("ticketTailorEvents", eventId) : null
   },
 })
 

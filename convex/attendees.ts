@@ -1,6 +1,40 @@
 import { query, mutation } from "./_generated/server"
 import { v } from "convex/values"
-import { Id } from "./_generated/dataModel"
+
+function filterAttendees(
+  attendees: Array<{
+    assignedRoomId?: string
+    genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+    allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+  }>,
+  args: {
+    assignedRoomId?: string
+    genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+    allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+  }
+) {
+  return attendees.filter((attendee) => {
+    if (args.assignedRoomId !== undefined) {
+      const assignedRoomId = attendee.assignedRoomId ?? undefined
+      if (assignedRoomId !== args.assignedRoomId) {
+        return false
+      }
+    }
+
+    if (args.genderType && attendee.genderType !== args.genderType) {
+      return false
+    }
+
+    if (
+      args.allocationPriority &&
+      attendee.allocationPriority !== args.allocationPriority
+    ) {
+      return false
+    }
+
+    return true
+  })
+}
 
 export const getAttendees = query({
   args: {
@@ -38,25 +72,11 @@ export const getAttendees = query({
         .withIndex("eventId", (q) => q.eq("eventId", args.eventId!))
         .collect()
 
-      let filtered = attendees
-
-      if (args.assignedRoomId !== undefined) {
-        filtered = filtered.filter(
-          (a) => a.assignedRoomId === args.assignedRoomId
-        )
-      }
-      if (args.genderType) {
-        filtered = filtered.filter((a) => a.genderType === args.genderType)
-      }
-      if (args.allocationPriority) {
-        filtered = filtered.filter(
-          (a) => a.allocationPriority === args.allocationPriority
-        )
-      }
-      return filtered
+      return filterAttendees(attendees, args)
     }
 
-    return await ctx.db.query("ticketTailorAttendees").collect()
+    const attendees = await ctx.db.query("ticketTailorAttendees").collect()
+    return filterAttendees(attendees, args)
   },
 })
 
@@ -241,13 +261,15 @@ export const checkInAttendee = mutation({
 export const getAttendeeByStringId = query({
   args: { attendeeId: v.string() },
   handler: async (ctx, args) => {
-    try {
-      return await ctx.db.get(
-        "ticketTailorAttendees",
-        args.attendeeId as Id<"ticketTailorAttendees">
-      )
-    } catch {
+    const attendeeId = ctx.db.normalizeId(
+      "ticketTailorAttendees",
+      args.attendeeId
+    )
+
+    if (!attendeeId) {
       return null
     }
+
+    return await ctx.db.get("ticketTailorAttendees", attendeeId)
   },
 })

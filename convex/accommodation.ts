@@ -1,5 +1,100 @@
-import { query, mutation } from "./_generated/server"
+import { internalMutation, query, mutation } from "./_generated/server"
 import { v } from "convex/values"
+import type { Doc, Id } from "./_generated/dataModel"
+
+type DocTables = {
+  accommodationHotels: Doc<"accommodationHotels">
+  accommodationRoomTypes: Doc<"accommodationRoomTypes">
+  accommodationRooms: Doc<"accommodationRooms">
+  ticketTailorAttendees: Doc<"ticketTailorAttendees">
+}
+
+function normalizeDocId<TableName extends keyof DocTables>(
+  ctx: {
+    db: {
+      normalizeId: <T extends keyof DocTables>(
+        tableName: T,
+        id: string
+      ) => Id<T> | null
+    }
+  },
+  tableName: TableName,
+  id: string,
+  errorMessage: string
+) {
+  const normalizedId = ctx.db.normalizeId(tableName, id)
+
+  if (!normalizedId) {
+    throw new Error(errorMessage)
+  }
+
+  return normalizedId
+}
+
+async function getAccommodationHotelByStringId(ctx: any, hotelId: string) {
+  const normalizedHotelId = ctx.db.normalizeId("accommodationHotels", hotelId)
+  return normalizedHotelId
+    ? await ctx.db.get("accommodationHotels", normalizedHotelId)
+    : null
+}
+
+async function getAccommodationRoomByStringId(ctx: any, roomId: string) {
+  const normalizedRoomId = ctx.db.normalizeId("accommodationRooms", roomId)
+  return normalizedRoomId
+    ? await ctx.db.get("accommodationRooms", normalizedRoomId)
+    : null
+}
+
+async function getAccommodationRoomTypeByStringId(
+  ctx: any,
+  roomTypeId: string
+) {
+  const normalizedRoomTypeId = ctx.db.normalizeId(
+    "accommodationRoomTypes",
+    roomTypeId
+  )
+  return normalizedRoomTypeId
+    ? await ctx.db.get("accommodationRoomTypes", normalizedRoomTypeId)
+    : null
+}
+
+async function getAttendeeByStringId(ctx: any, attendeeId: string) {
+  const normalizedAttendeeId = ctx.db.normalizeId(
+    "ticketTailorAttendees",
+    attendeeId
+  )
+  return normalizedAttendeeId
+    ? await ctx.db.get("ticketTailorAttendees", normalizedAttendeeId)
+    : null
+}
+
+export const recalculateRoomOccupancy = internalMutation({
+  args: { roomId: v.string() },
+  handler: async (ctx, args) => {
+    const roomId = normalizeDocId(
+      ctx,
+      "accommodationRooms",
+      args.roomId,
+      "Room not found"
+    )
+    const room = await ctx.db.get("accommodationRooms", roomId)
+
+    if (!room) {
+      throw new Error("Room not found")
+    }
+
+    const occupants = await ctx.db
+      .query("ticketTailorAttendees")
+      .withIndex("assignedRoomId", (q) => q.eq("assignedRoomId", args.roomId))
+      .collect()
+
+    await ctx.db.patch("accommodationRooms", roomId, {
+      occupiedBeds: occupants.length,
+    })
+
+    return { ok: true, occupiedBeds: occupants.length }
+  },
+})
 
 export const getRoomAllocationBoard = query({
   args: {
@@ -358,11 +453,7 @@ export const listAccommodationInventory = query({
 export const getHotelById = query({
   args: { hotelId: v.string() },
   handler: async (ctx, args) => {
-    try {
-      return await ctx.db.get("accommodationHotels", args.hotelId as any)
-    } catch {
-      return null
-    }
+    return await getAccommodationHotelByStringId(ctx, args.hotelId)
   },
 })
 
@@ -386,11 +477,7 @@ export const getRooms = query({
 export const getRoomById = query({
   args: { roomId: v.string() },
   handler: async (ctx, args) => {
-    try {
-      return await ctx.db.get("accommodationRooms", args.roomId as any)
-    } catch {
-      return null
-    }
+    return await getAccommodationRoomByStringId(ctx, args.roomId)
   },
 })
 
@@ -404,11 +491,7 @@ export const getRoomTypes = query({
 export const getRoomTypeById = query({
   args: { roomTypeId: v.string() },
   handler: async (ctx, args) => {
-    try {
-      return await ctx.db.get("accommodationRoomTypes", args.roomTypeId as any)
-    } catch {
-      return null
-    }
+    return await getAccommodationRoomTypeByStringId(ctx, args.roomTypeId)
   },
 })
 
@@ -450,10 +533,10 @@ export const createRooms = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const hotel = await ctx.db.get("accommodationHotels", args.hotelId as any)
-    const roomType = await ctx.db.get(
-      "accommodationRoomTypes",
-      args.roomTypeId as any
+    const hotel = await getAccommodationHotelByStringId(ctx, args.hotelId)
+    const roomType = await getAccommodationRoomTypeByStringId(
+      ctx,
+      args.roomTypeId
     )
 
     if (!hotel) throw new Error("Hotel not found")
@@ -464,7 +547,7 @@ export const createRooms = mutation({
         .replace(/[^a-zA-Z0-9]+/g, " ")
         .trim()
         .split(/\s+/)
-        .map((part) => part.slice(0, 2).toUpperCase())
+        .map((part: string) => part.slice(0, 2).toUpperCase())
         .join("")
         .slice(0, 6) || "HTL"
 
@@ -473,7 +556,7 @@ export const createRooms = mutation({
         .replace(/[^a-zA-Z0-9]+/g, " ")
         .trim()
         .split(/\s+/)
-        .map((part) => part.slice(0, 2).toUpperCase())
+        .map((part: string) => part.slice(0, 2).toUpperCase())
         .join("")
         .slice(0, 6) || "RM"
 
@@ -523,13 +606,22 @@ export const assignRoomToAttendee = mutation({
     roomId: v.string(),
   },
   handler: async (ctx, args) => {
-    const room = await ctx.db.get("accommodationRooms", args.roomId as any)
+    const roomId = normalizeDocId(
+      ctx,
+      "accommodationRooms",
+      args.roomId,
+      "Room not found"
+    )
+    const attendeeId = normalizeDocId(
+      ctx,
+      "ticketTailorAttendees",
+      args.attendeeId,
+      "Attendee not found"
+    )
+    const room = await ctx.db.get("accommodationRooms", roomId)
     if (!room) throw new Error("Room not found")
 
-    const attendee = await ctx.db.get(
-      "ticketTailorAttendees",
-      args.attendeeId as any
-    )
+    const attendee = await ctx.db.get("ticketTailorAttendees", attendeeId)
     if (!attendee) throw new Error("Attendee not found")
 
     const eventHotelLinks = await ctx.db
@@ -555,11 +647,11 @@ export const assignRoomToAttendee = mutation({
       throw new Error("Room is already full")
     }
 
-    await ctx.db.patch("ticketTailorAttendees", args.attendeeId as any, {
+    await ctx.db.patch("ticketTailorAttendees", attendeeId, {
       assignedRoomId: args.roomId,
     })
 
-    await ctx.db.patch("accommodationRooms", args.roomId as any, {
+    await ctx.db.patch("accommodationRooms", roomId, {
       occupiedBeds: (room.occupiedBeds ?? 0) + 1,
     })
 
@@ -573,13 +665,22 @@ export const assignAttendeeToRoom = mutation({
     roomId: v.string(),
   },
   handler: async (ctx, args) => {
-    const room = await ctx.db.get("accommodationRooms", args.roomId as any)
+    const roomId = normalizeDocId(
+      ctx,
+      "accommodationRooms",
+      args.roomId,
+      "Room not found"
+    )
+    const attendeeId = normalizeDocId(
+      ctx,
+      "ticketTailorAttendees",
+      args.attendeeId,
+      "Attendee not found"
+    )
+    const room = await ctx.db.get("accommodationRooms", roomId)
     if (!room) throw new Error("Room not found")
 
-    const attendee = await ctx.db.get(
-      "ticketTailorAttendees",
-      args.attendeeId as any
-    )
+    const attendee = await ctx.db.get("ticketTailorAttendees", attendeeId)
     if (!attendee) throw new Error("Attendee not found")
 
     if (attendee.assignedRoomId === args.roomId) {
@@ -609,11 +710,11 @@ export const assignAttendeeToRoom = mutation({
       throw new Error("Room is already full")
     }
 
-    await ctx.db.patch("ticketTailorAttendees", args.attendeeId as any, {
+    await ctx.db.patch("ticketTailorAttendees", attendeeId, {
       assignedRoomId: args.roomId,
     })
 
-    await ctx.db.patch("accommodationRooms", args.roomId as any, {
+    await ctx.db.patch("accommodationRooms", roomId, {
       occupiedBeds: (room.occupiedBeds ?? 0) + 1,
     })
 
@@ -626,23 +727,26 @@ export const unassignRoomFromAttendee = mutation({
     attendeeId: v.string(),
   },
   handler: async (ctx, args) => {
-    const attendee = await ctx.db.get(
+    const attendeeId = normalizeDocId(
+      ctx,
       "ticketTailorAttendees",
-      args.attendeeId as any
+      args.attendeeId,
+      "Attendee not found or not assigned to any room"
     )
+    const attendee = await ctx.db.get("ticketTailorAttendees", attendeeId)
     if (!attendee || !attendee.assignedRoomId) return { ok: true }
 
-    const room = await ctx.db.get(
-      "accommodationRooms",
-      attendee.assignedRoomId as any
+    const room = await getAccommodationRoomByStringId(
+      ctx,
+      attendee.assignedRoomId
     )
     if (room) {
-      await ctx.db.patch("accommodationRooms", attendee.assignedRoomId as any, {
+      await ctx.db.patch("accommodationRooms", room._id, {
         occupiedBeds: Math.max(0, (room.occupiedBeds ?? 1) - 1),
       })
     }
 
-    await ctx.db.patch("ticketTailorAttendees", args.attendeeId as any, {
+    await ctx.db.patch("ticketTailorAttendees", attendeeId, {
       assignedRoomId: undefined,
     })
 
@@ -655,25 +759,28 @@ export const unassignAttendeeFromRoom = mutation({
     attendeeId: v.string(),
   },
   handler: async (ctx, args) => {
-    const attendee = await ctx.db.get(
+    const attendeeId = normalizeDocId(
+      ctx,
       "ticketTailorAttendees",
-      args.attendeeId as any
+      args.attendeeId,
+      "Attendee not found or not assigned to any room"
     )
+    const attendee = await ctx.db.get("ticketTailorAttendees", attendeeId)
     if (!attendee || !attendee.assignedRoomId) {
       throw new Error("Attendee not found or not assigned to any room")
     }
 
-    const room = await ctx.db.get(
-      "accommodationRooms",
-      attendee.assignedRoomId as any
+    const room = await getAccommodationRoomByStringId(
+      ctx,
+      attendee.assignedRoomId
     )
     if (room) {
-      await ctx.db.patch("accommodationRooms", attendee.assignedRoomId as any, {
+      await ctx.db.patch("accommodationRooms", room._id, {
         occupiedBeds: Math.max(0, (room.occupiedBeds ?? 1) - 1),
       })
     }
 
-    await ctx.db.patch("ticketTailorAttendees", args.attendeeId as any, {
+    await ctx.db.patch("ticketTailorAttendees", attendeeId, {
       assignedRoomId: undefined,
     })
 
@@ -690,9 +797,7 @@ export const getEventHotels = query({
       .collect()
 
     const hotels = await Promise.all(
-      eventHotels.map((eh) =>
-        ctx.db.get("accommodationHotels", eh.hotelId as any)
-      )
+      eventHotels.map((eh) => getAccommodationHotelByStringId(ctx, eh.hotelId))
     )
 
     return hotels.filter(Boolean)
@@ -754,8 +859,14 @@ export const updateHotel = mutation({
   },
   handler: async (ctx, args) => {
     const { hotelId, ...data } = args
-    await ctx.db.patch("accommodationHotels", hotelId as any, data)
-    return await ctx.db.get("accommodationHotels", hotelId as any)
+    const normalizedHotelId = normalizeDocId(
+      ctx,
+      "accommodationHotels",
+      hotelId,
+      "Hotel not found"
+    )
+    await ctx.db.patch("accommodationHotels", normalizedHotelId, data)
+    return await ctx.db.get("accommodationHotels", normalizedHotelId)
   },
 })
 
@@ -780,7 +891,13 @@ export const deleteHotel = mutation({
       await ctx.db.delete("accommodationEventHotels", eh._id)
     }
 
-    await ctx.db.delete("accommodationHotels", args.hotelId as any)
+    const hotelId = normalizeDocId(
+      ctx,
+      "accommodationHotels",
+      args.hotelId,
+      "Hotel not found"
+    )
+    await ctx.db.delete("accommodationHotels", hotelId)
     return { ok: true }
   },
 })
@@ -791,17 +908,29 @@ export const updateRoomLabel = mutation({
     label: v.string(),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch("accommodationRooms", args.roomId as any, {
+    const roomId = normalizeDocId(
+      ctx,
+      "accommodationRooms",
+      args.roomId,
+      "Room not found"
+    )
+    await ctx.db.patch("accommodationRooms", roomId, {
       label: args.label,
     })
-    return await ctx.db.get("accommodationRooms", args.roomId as any)
+    return await ctx.db.get("accommodationRooms", roomId)
   },
 })
 
 export const deleteRoom = mutation({
   args: { roomId: v.string() },
   handler: async (ctx, args) => {
-    const room = await ctx.db.get("accommodationRooms", args.roomId as any)
+    const roomId = normalizeDocId(
+      ctx,
+      "accommodationRooms",
+      args.roomId,
+      "Room not found"
+    )
+    const room = await ctx.db.get("accommodationRooms", roomId)
     if (!room) throw new Error("Room not found")
 
     const attendees = await ctx.db
@@ -815,7 +944,7 @@ export const deleteRoom = mutation({
       })
     }
 
-    await ctx.db.delete("accommodationRooms", args.roomId as any)
+    await ctx.db.delete("accommodationRooms", roomId)
     return { ok: true }
   },
 })
@@ -829,8 +958,14 @@ export const updateRoomType = mutation({
   },
   handler: async (ctx, args) => {
     const { roomTypeId, ...data } = args
-    await ctx.db.patch("accommodationRoomTypes", roomTypeId as any, data)
-    return await ctx.db.get("accommodationRoomTypes", roomTypeId as any)
+    const normalizedRoomTypeId = normalizeDocId(
+      ctx,
+      "accommodationRoomTypes",
+      roomTypeId,
+      "Room type not found"
+    )
+    await ctx.db.patch("accommodationRoomTypes", normalizedRoomTypeId, data)
+    return await ctx.db.get("accommodationRoomTypes", normalizedRoomTypeId)
   },
 })
 
@@ -846,7 +981,13 @@ export const deleteRoomType = mutation({
       throw new Error("Cannot delete room type with existing rooms")
     }
 
-    await ctx.db.delete("accommodationRoomTypes", args.roomTypeId as any)
+    const roomTypeId = normalizeDocId(
+      ctx,
+      "accommodationRoomTypes",
+      args.roomTypeId,
+      "Room type not found"
+    )
+    await ctx.db.delete("accommodationRoomTypes", roomTypeId)
     return { ok: true }
   },
 })

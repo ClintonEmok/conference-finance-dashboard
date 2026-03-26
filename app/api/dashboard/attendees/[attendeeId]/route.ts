@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 
 import { requireApiUser } from "@/lib/auth/server"
+import { api } from "@/lib/convex/api"
 import { convexMutation } from "@/lib/convex/server"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export const dynamic = "force-dynamic"
 
@@ -82,11 +84,8 @@ export async function PATCH(
       )
     }
 
-    const attendee = await convexMutation<
-      { attendeeId: string; tikkieAmountOverrideMinor?: number },
-      { id: string; tikkieAmountOverrideMinor: number | null }
-    >("attendees:updateAttendee", {
-      attendeeId: normalizedAttendeeId,
+    const attendee = await convexMutation(api.attendees.updateAttendee, {
+      attendeeId: normalizedAttendeeId as Id<"ticketTailorAttendees">,
       tikkieAmountOverrideMinor: updateData.tikkieAmountOverrideMinor as
         | number
         | undefined,
