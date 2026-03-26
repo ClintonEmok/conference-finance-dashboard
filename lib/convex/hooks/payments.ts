@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation } from "convex/react"
 import { api } from "@/lib/convex/api"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export function usePayments(args?: {
   orderId?: string
@@ -11,7 +12,7 @@ export function usePayments(args?: {
   return useQuery(api.payments.getPayments, args ?? {})
 }
 
-export function usePaymentById(paymentId: string) {
+export function usePaymentById(paymentId: Id<"payments">) {
   return useQuery(api.payments.getPaymentById, { paymentId })
 }
 

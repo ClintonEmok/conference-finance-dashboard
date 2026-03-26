@@ -2,10 +2,11 @@
 
 import { useQuery, useMutation } from "convex/react"
 import { api } from "@/lib/convex/api"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export function useAttendees(args?: {
   eventId?: string
-  orderId?: string
+  orderId?: Id<"ticketTailorOrders">
   genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
   allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
   assignedRoomId?: string
@@ -17,7 +18,7 @@ export function useAttendees(args?: {
 }
 
 export function useAttendeeById(attendeeId: string) {
-  return useQuery(api.attendees.getAttendeeById, {
+  return useQuery(api.attendees.getAttendeeByStringId, {
     attendeeId,
   })
 }

@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation } from "convex/react"
 import { api } from "@/lib/convex/api"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export function usePaymentLinks(args?: {
   orderId?: string
@@ -10,7 +11,7 @@ export function usePaymentLinks(args?: {
   return useQuery(api.tikkie.getPaymentLinks, args ?? {})
 }
 
-export function usePaymentLinkById(linkId: string) {
+export function usePaymentLinkById(linkId: Id<"tikkiePaymentLinks">) {
   return useQuery(api.tikkie.getPaymentLinkById, { linkId })
 }
 

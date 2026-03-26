@@ -73,12 +73,24 @@ export const completeSyncRun = mutation({
       v.literal("failed")
     ),
     errorSummary: v.optional(v.string()),
+    diagnostics: v.optional(v.any()),
+    eventsScanned: v.optional(v.number()),
+    ordersFetched: v.optional(v.number()),
+    ordersUpserted: v.optional(v.number()),
+    normalizedFallbackCount: v.optional(v.number()),
+    failedItems: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await ctx.db.patch("ticketTailorSyncRuns", args.runId, {
       status: args.status,
       finishedAt: Date.now(),
       errorSummary: args.errorSummary,
+      diagnostics: args.diagnostics,
+      eventsScanned: args.eventsScanned,
+      ordersFetched: args.ordersFetched,
+      ordersUpserted: args.ordersUpserted,
+      normalizedFallbackCount: args.normalizedFallbackCount,
+      failedItems: args.failedItems,
     })
     return args.runId
   },
