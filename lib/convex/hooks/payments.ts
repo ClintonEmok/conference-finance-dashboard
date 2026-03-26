@@ -12,7 +12,7 @@ export function usePayments(args?: {
 }
 
 export function usePaymentById(paymentId: string) {
-  return useQuery(api.payments.getPaymentById, { paymentId: paymentId as any })
+  return useQuery(api.payments.getPaymentById, { paymentId })
 }
 
 export function useUnassignedPayments() {

@@ -8,7 +8,7 @@ export function useEvents() {
 }
 
 export function useEventById(eventId: string) {
-  return useQuery(api.events.getEventById, { eventId: eventId as any })
+  return useQuery(api.events.getEventById, { eventId })
 }
 
 export function useEventByProviderId(providerEventId: string) {

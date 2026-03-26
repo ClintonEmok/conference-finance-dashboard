@@ -11,7 +11,7 @@ export function useOrders(args?: {
 }
 
 export function useOrderById(orderId: string) {
-  return useQuery(api.orders.getOrderById, { orderId: orderId as any })
+  return useQuery(api.orders.getOrderById, { orderId })
 }
 
 export function useOrderByProviderId(providerOrderId: string) {

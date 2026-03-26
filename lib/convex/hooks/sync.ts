@@ -8,7 +8,7 @@ export function useSyncRuns() {
 }
 
 export function useSyncRunById(runId: string) {
-  return useQuery(api.sync.getSyncRunById, { runId: runId as any })
+  return useQuery(api.sync.getSyncRunById, { runId })
 }
 
 export function useLatestSyncRun() {

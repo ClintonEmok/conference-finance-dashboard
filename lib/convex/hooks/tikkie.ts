@@ -11,7 +11,7 @@ export function usePaymentLinks(args?: {
 }
 
 export function usePaymentLinkById(linkId: string) {
-  return useQuery(api.tikkie.getPaymentLinkById, { linkId: linkId as any })
+  return useQuery(api.tikkie.getPaymentLinkById, { linkId })
 }
 
 export function usePaymentLinkByToken(paymentRequestToken: string) {

@@ -8,7 +8,7 @@ export function useHotels() {
 }
 
 export function useHotelById(hotelId: string) {
-  return useQuery(api.accommodation.getHotelById, { hotelId: hotelId as any })
+  return useQuery(api.accommodation.getHotelById, { hotelId })
 }
 
 export function useEventHotels(eventId: string) {
@@ -20,7 +20,7 @@ export function useRooms(args?: { hotelId?: string; roomTypeId?: string }) {
 }
 
 export function useRoomById(roomId: string) {
-  return useQuery(api.accommodation.getRoomById, { roomId: roomId as any })
+  return useQuery(api.accommodation.getRoomById, { roomId })
 }
 
 export function useRoomTypes() {

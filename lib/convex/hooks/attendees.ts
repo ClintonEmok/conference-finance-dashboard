@@ -12,13 +12,13 @@ export function useAttendees(args?: {
 }) {
   return useQuery(api.attendees.getAttendees, {
     ...args,
-    orderId: args?.orderId as any,
+    orderId: args?.orderId,
   })
 }
 
 export function useAttendeeById(attendeeId: string) {
   return useQuery(api.attendees.getAttendeeById, {
-    attendeeId: attendeeId as any,
+    attendeeId,
   })
 }
 
