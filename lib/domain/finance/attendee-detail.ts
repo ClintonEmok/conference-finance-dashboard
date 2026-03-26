@@ -1,5 +1,6 @@
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
+import { buildMatchedTotalsByProviderOrderId } from "@/lib/domain/finance/matched-payments"
 import { matchTemplateForAttendee } from "@/lib/domain/finance/tikkie-templates"
 import {
   buildTikkieGenerationDefaults,
@@ -22,6 +23,28 @@ type RoomStatus =
       hotelName: null
       roomTypeLabel: null
     }
+
+type PaymentMatchStatus =
+  | "auto_matched"
+  | "manual_assignment"
+  | "ambiguous"
+  | "unassigned"
+
+type PaymentSource = "tikkie" | "bank_transfer" | "cash"
+
+type PaymentRecord = {
+  _id: string
+  amountMinor: number
+  paidAt: number
+  orderId?: string | null
+  status?: PaymentMatchStatus | null
+  source: PaymentSource
+  payerName: string
+  reference?: string | null
+  notes?: string | null
+  matchedAt?: number | null
+  _creationTime: number
+}
 
 export type AttendeeDetail = {
   attendee: {
@@ -70,6 +93,7 @@ export type AttendeeDetail = {
   finance: {
     outstandingAmountMinor: number
     paidAmountMinor: number
+    overpaidAmountMinor: number
     installmentProgress: {
       totalLinks: number
       paidLinks: number
@@ -105,7 +129,7 @@ export type AttendeeDetail = {
   }
   paymentHistory: Array<{
     id: string
-    type: "payment-link" | "status-transition"
+    type: "payment-link" | "status-transition" | "assigned-payment"
     title: string
     status: string
     amountMinor: number | null
@@ -124,17 +148,6 @@ function normalizeAttendeeId(attendeeId: string) {
   }
 
   return normalized
-}
-
-function derivePaidAmount(
-  totalAmountMinor: number,
-  links: Array<{ status: string; amountMinor: number }>
-) {
-  const paidAmount = links
-    .filter((link) => link.status === "paid")
-    .reduce((sum, link) => sum + link.amountMinor, 0)
-
-  return Math.min(totalAmountMinor, paidAmount)
 }
 
 function deriveOutstandingAmount(params: {
@@ -191,14 +204,16 @@ export async function getAttendeeDetail(
       })
     : Promise.resolve(null)
 
-  const [event, order, paymentLinks, assignedRoomData] = await Promise.all([
-    convexQuery(api.events.getEventById, { eventId: attendee.eventId }),
-    convexQuery(api.orders.getOrderById, { orderId: attendee.orderId }),
-    convexQuery(api.tikkie.getPaymentLinksByOrderId, {
-      orderId: attendee.orderId,
-    }),
-    assignedRoomPromise,
-  ])
+  const [event, order, paymentLinks, allPayments, assignedRoomData] =
+    await Promise.all([
+      convexQuery(api.events.getEventById, { eventId: attendee.eventId }),
+      convexQuery(api.orders.getOrderById, { orderId: attendee.orderId }),
+      convexQuery(api.tikkie.getPaymentLinksByOrderId, {
+        orderId: attendee.orderId,
+      }),
+      convexQuery(api.payments.getPayments, {}),
+      assignedRoomPromise,
+    ])
 
   const [hotelData, roomTypeData] = await Promise.all([
     assignedRoomData
@@ -226,14 +241,24 @@ export async function getAttendeeDetail(
   }
 
   const totalAmountMinor = order.totalAmountMinor ?? 0
-  const paidAmountMinor = derivePaidAmount(totalAmountMinor, paymentLinks)
+  const matchedTotalsByProviderOrderId =
+    await buildMatchedTotalsByProviderOrderId([
+      {
+        providerOrderId: order.providerOrderId,
+      },
+    ])
+  const paidAmountMinor = Math.max(
+    0,
+    matchedTotalsByProviderOrderId.get(order.providerOrderId) ?? 0
+  )
+  const overpaidAmountMinor = Math.max(0, paidAmountMinor - totalAmountMinor)
   const outstandingAmountMinor = deriveOutstandingAmount({
     normalizedStatus: order.normalizedStatus,
     totalAmountMinor,
     paidAmountMinor,
   })
 
-  const paymentHistory = paymentLinks.flatMap(
+  const paymentHistoryFromTikkie = paymentLinks.flatMap(
     (link: (typeof paymentLinks)[number]) => [
       {
         id: `link-${link._id}`,
@@ -259,6 +284,94 @@ export async function getAttendeeDetail(
       ),
     ]
   )
+
+  const assignedPayments: PaymentRecord[] = []
+  const legacyLookupCache = new Map<string, string | null>()
+
+  for (const payment of (allPayments ?? []) as PaymentRecord[]) {
+    if (
+      !payment ||
+      !Number.isFinite(payment.amountMinor) ||
+      payment.amountMinor <= 0
+    ) {
+      continue
+    }
+
+    if (payment.status === "unassigned" || payment.status === "ambiguous") {
+      continue
+    }
+
+    const rawOrderId =
+      typeof payment.orderId === "string" ? payment.orderId.trim() : ""
+
+    if (!rawOrderId) {
+      continue
+    }
+
+    let providerOrderId: string | null = null
+
+    if (rawOrderId === order.providerOrderId) {
+      providerOrderId = rawOrderId
+    } else if (rawOrderId === order._id) {
+      providerOrderId = order.providerOrderId
+    } else if (legacyLookupCache.has(rawOrderId)) {
+      providerOrderId = legacyLookupCache.get(rawOrderId) ?? null
+    } else {
+      const legacyOrder = await convexQuery(api.orders.getOrderById, {
+        orderId: rawOrderId,
+      })
+
+      const fallbackProviderOrderId =
+        legacyOrder && typeof legacyOrder.providerOrderId === "string"
+          ? legacyOrder.providerOrderId.trim()
+          : ""
+
+      providerOrderId = fallbackProviderOrderId || null
+      legacyLookupCache.set(rawOrderId, providerOrderId)
+    }
+
+    if (providerOrderId !== order.providerOrderId) {
+      continue
+    }
+
+    assignedPayments.push(payment)
+  }
+
+  const paymentHistoryFromAssignments = assignedPayments.map((payment) => {
+    const sourceLabel =
+      payment.source === "bank_transfer"
+        ? "Bank transfer"
+        : payment.source === "cash"
+          ? "Cash"
+          : "Tikkie"
+
+    const noteParts = [
+      payment.payerName,
+      payment.reference,
+      payment.notes,
+    ].filter(
+      (part): part is string =>
+        typeof part === "string" && part.trim().length > 0
+    )
+
+    return {
+      id: `payment-${payment._id}`,
+      type: "assigned-payment" as const,
+      title: `${sourceLabel} payment assigned`,
+      status: payment.status ?? "manual_assignment",
+      amountMinor: payment.amountMinor,
+      happenedAt: new Date(
+        payment.paidAt ?? payment._creationTime
+      ).toISOString(),
+      note: noteParts.length > 0 ? noteParts.join(" • ") : null,
+      url: null,
+    }
+  })
+
+  const paymentHistory = [
+    ...paymentHistoryFromAssignments,
+    ...paymentHistoryFromTikkie,
+  ]
 
   paymentHistory.sort(
     (
@@ -400,6 +513,7 @@ export async function getAttendeeDetail(
     finance: {
       outstandingAmountMinor,
       paidAmountMinor,
+      overpaidAmountMinor,
       installmentProgress: {
         totalLinks: paymentLinks.length,
         paidLinks: paymentLinks.filter(

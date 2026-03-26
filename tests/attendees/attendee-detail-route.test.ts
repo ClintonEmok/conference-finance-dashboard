@@ -101,6 +101,7 @@ describe("/api/dashboard/attendees/[attendeeId] route", () => {
       finance: {
         outstandingAmountMinor: 2500,
         paidAmountMinor: 2500,
+        overpaidAmountMinor: 0,
         installmentProgress: {
           totalLinks: 1,
           paidLinks: 0,
@@ -172,6 +173,7 @@ describe("/api/dashboard/attendees/[attendeeId] route", () => {
       attendee: {
         id: "attendee_1",
         tikkieAmountOverrideMinor: 1900,
+        genderType: null,
       },
     })
     expect(convexMutation).toHaveBeenCalledTimes(1)

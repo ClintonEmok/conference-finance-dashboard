@@ -10,4 +10,11 @@ crons.interval(
   {}
 )
 
+crons.interval(
+  "tikkie-payments-auto-sync",
+  { minutes: 15 },
+  internal.autoSync.autoSyncTikkiePayments,
+  {}
+)
+
 export default crons

@@ -1,7 +1,6 @@
 "use client"
 
 import Link from "next/link"
-import { Check } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
@@ -14,9 +13,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { cn } from "@/lib/utils"
+
+type GenderType = "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
 
 type AttendeesPayload = {
   generatedAt: string
@@ -47,6 +46,7 @@ type AttendeesPayload = {
     eventName: string | null
     attendeeName: string | null
     attendeeEmail: string | null
+    genderType: GenderType | null
     ticketTypeLabel: string | null
     normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
     totalAmountMinor: number
@@ -87,13 +87,12 @@ function toIsoBoundary(value: string, boundary: "start" | "end") {
   return parsed.toISOString()
 }
 
-function formatMoney(minor: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(minor / 100)
+function formatGenderLabel(value: GenderType | null) {
+  if (value === "MALE") return "Male"
+  if (value === "FEMALE") return "Female"
+  if (value === "MIXED") return "Mixed"
+  if (value === "UNKNOWN") return "Unknown"
+  return "Not set"
 }
 
 export default function AttendeesPage() {
@@ -117,6 +116,12 @@ export default function AttendeesPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [payload, setPayload] = useState<AttendeesPayload | null>(null)
+  const [genderDraftByAttendeeId, setGenderDraftByAttendeeId] = useState<
+    Record<string, "" | GenderType>
+  >({})
+  const [savingGenderByAttendeeId, setSavingGenderByAttendeeId] = useState<
+    Record<string, boolean>
+  >({})
 
   const source = searchParams.get("source")
   const focusedOrderId = searchParams.get("orderId")
@@ -222,6 +227,19 @@ export default function AttendeesPage() {
     }
   }, [appliedEventId, appliedFrom, appliedSearch, appliedTo, page])
 
+  useEffect(() => {
+    if (!payload) {
+      setGenderDraftByAttendeeId({})
+      return
+    }
+
+    const nextDrafts: Record<string, "" | GenderType> = {}
+    for (const row of payload.rows) {
+      nextDrafts[row.attendeeId] = row.genderType ?? ""
+    }
+    setGenderDraftByAttendeeId(nextDrafts)
+  }, [payload])
+
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -264,6 +282,59 @@ export default function AttendeesPage() {
     }
 
     return <span className="text-xs text-muted-foreground">Unassigned</span>
+  }
+
+  async function saveGender(attendeeId: string) {
+    const selectedGender = genderDraftByAttendeeId[attendeeId] ?? ""
+
+    setSavingGenderByAttendeeId((current) => ({
+      ...current,
+      [attendeeId]: true,
+    }))
+
+    try {
+      const response = await fetch(`/api/dashboard/attendees/${attendeeId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          genderType: selectedGender || null,
+        }),
+      })
+
+      const body = (await response.json().catch(() => null)) as {
+        error?: { message?: string }
+      } | null
+
+      if (!response.ok) {
+        setErrorMessage(body?.error?.message ?? "Failed to update gender.")
+        return
+      }
+
+      setPayload((current) => {
+        if (!current) {
+          return current
+        }
+
+        return {
+          ...current,
+          rows: current.rows.map((row) =>
+            row.attendeeId === attendeeId
+              ? { ...row, genderType: selectedGender || null }
+              : row
+          ),
+        }
+      })
+      setErrorMessage(null)
+    } catch {
+      setErrorMessage("Network error while updating gender.")
+    } finally {
+      setSavingGenderByAttendeeId((current) => ({
+        ...current,
+        [attendeeId]: false,
+      }))
+    }
   }
 
   return (
@@ -425,16 +496,10 @@ export default function AttendeesPage() {
                       Attendee
                     </TableHead>
                     <TableHead className="font-medium text-muted-foreground">
-                      Ticket
+                      Gender
                     </TableHead>
                     <TableHead className="font-medium text-muted-foreground">
                       Order
-                    </TableHead>
-                    <TableHead className="font-medium text-muted-foreground">
-                      Status
-                    </TableHead>
-                    <TableHead className="font-medium text-muted-foreground">
-                      Amounts
                     </TableHead>
                     <TableHead className="font-medium text-muted-foreground">
                       Room
@@ -476,13 +541,54 @@ export default function AttendeesPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="text-xs">
-                          {row.ticketTypeLabel ?? "-"}
+                        <div
+                          className="flex items-center gap-2"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <select
+                            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                            value={
+                              genderDraftByAttendeeId[row.attendeeId] ?? ""
+                            }
+                            onChange={(event) =>
+                              setGenderDraftByAttendeeId((current) => ({
+                                ...current,
+                                [row.attendeeId]: event.target.value as
+                                  | ""
+                                  | GenderType,
+                              }))
+                            }
+                          >
+                            <option value="">Not set</option>
+                            <option value="MALE">Male</option>
+                            <option value="FEMALE">Female</option>
+                            <option value="MIXED">Mixed</option>
+                            <option value="UNKNOWN">Unknown</option>
+                          </select>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 px-2 text-xs"
+                            disabled={
+                              Boolean(
+                                savingGenderByAttendeeId[row.attendeeId]
+                              ) ||
+                              (genderDraftByAttendeeId[row.attendeeId] ??
+                                "") === (row.genderType ?? "")
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void saveGender(row.attendeeId)
+                            }}
+                          >
+                            {savingGenderByAttendeeId[row.attendeeId]
+                              ? "Saving"
+                              : "Save"}
+                          </Button>
                         </div>
                         <div className="text-[11px] text-muted-foreground">
-                          {row.orderedAt
-                            ? new Date(row.orderedAt).toLocaleString()
-                            : "Order date unavailable"}
+                          Current: {formatGenderLabel(row.genderType)}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -492,35 +598,11 @@ export default function AttendeesPage() {
                         <div className="text-[11px] text-muted-foreground">
                           {row.eventName ?? row.providerEventId}
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={
-                            row.normalizedStatus === "cancelled"
-                              ? "destructive"
-                              : row.normalizedStatus === "refunded"
-                                ? "outline"
-                                : "secondary"
-                          }
-                        >
-                          {row.normalizedStatus}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-xs">
-                          Total {formatMoney(row.totalAmountMinor)}
+                        <div className="text-[11px] text-muted-foreground">
+                          {row.orderedAt
+                            ? new Date(row.orderedAt).toLocaleString()
+                            : "Order date unavailable"}
                         </div>
-                        {row.outstandingAmountMinor > 0 ? (
-                          <div className="text-[11px] text-muted-foreground">
-                            Outstanding{" "}
-                            {formatMoney(row.outstandingAmountMinor)}
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                            <Check className="size-3" />
-                            Paid
-                          </div>
-                        )}
                       </TableCell>
                       <TableCell>{renderRoomStatus(row.roomStatus)}</TableCell>
                     </TableRow>

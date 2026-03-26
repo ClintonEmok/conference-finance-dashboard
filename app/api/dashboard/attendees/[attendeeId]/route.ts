@@ -20,6 +20,8 @@ function badRequest(message: string) {
   )
 }
 
+const GENDER_VALUES = new Set(["MALE", "FEMALE", "MIXED", "UNKNOWN"])
+
 async function getNormalizedAttendeeId(context: {
   params: Promise<{ attendeeId: string }>
 }) {
@@ -103,45 +105,60 @@ export async function PATCH(
 
     const input = body as Record<string, unknown>
 
-    // Only allow updating specific fields
-    const allowedFields: string[] = ["tikkieAmountOverrideMinor"]
+    const updateData: {
+      tikkieAmountOverrideMinor?: number
+      genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+    } = {}
 
-    const updateData: Record<string, unknown> = {}
-    for (const field of allowedFields) {
-      if (field in input) {
-        const value = input[field]
-        if (value === null || value === undefined) {
-          updateData[field] = undefined
-        } else if (
-          typeof value === "number" &&
-          Number.isInteger(value) &&
-          value >= 0
-        ) {
-          updateData[field] = value
-        } else if (typeof value === "number" && value === 0) {
-          // Allow 0 to clear the override
-          updateData[field] = undefined
-        }
+    if ("tikkieAmountOverrideMinor" in input) {
+      const value = input.tikkieAmountOverrideMinor
+
+      if (value === null || value === undefined || value === 0) {
+        updateData.tikkieAmountOverrideMinor = undefined
+      } else if (
+        typeof value === "number" &&
+        Number.isInteger(value) &&
+        value > 0
+      ) {
+        updateData.tikkieAmountOverrideMinor = value
+      } else {
+        return badRequest(
+          "Invalid tikkieAmountOverrideMinor. Expected a positive integer or null to clear."
+        )
+      }
+    }
+
+    if ("genderType" in input) {
+      const value = input.genderType
+
+      if (value === null || value === undefined || value === "") {
+        updateData.genderType = undefined
+      } else if (typeof value === "string" && GENDER_VALUES.has(value)) {
+        updateData.genderType = value as "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+      } else {
+        return badRequest(
+          "Invalid genderType. Expected one of: MALE, FEMALE, MIXED, UNKNOWN."
+        )
       }
     }
 
     if (Object.keys(updateData).length === 0) {
       return badRequest(
-        "No valid fields to update. Allowed fields: tikkieAmountOverrideMinor"
+        "No valid fields to update. Allowed fields: tikkieAmountOverrideMinor, genderType"
       )
     }
 
-    const attendee = await convexMutation(api.attendees.updateAttendee, {
+    await convexMutation(api.attendees.updateAttendee, {
       attendeeId: normalizedAttendeeId as Id<"ticketTailorAttendees">,
-      tikkieAmountOverrideMinor: updateData.tikkieAmountOverrideMinor as
-        | number
-        | undefined,
+      tikkieAmountOverrideMinor: updateData.tikkieAmountOverrideMinor,
+      genderType: updateData.genderType,
     })
 
     return NextResponse.json({
       attendee: {
-        id: attendee.id,
-        tikkieAmountOverrideMinor: attendee.tikkieAmountOverrideMinor,
+        id: normalizedAttendeeId,
+        tikkieAmountOverrideMinor: updateData.tikkieAmountOverrideMinor ?? null,
+        genderType: updateData.genderType ?? null,
       },
     })
   } catch (error) {

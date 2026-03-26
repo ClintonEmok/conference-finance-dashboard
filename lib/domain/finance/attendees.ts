@@ -1,5 +1,6 @@
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
+import { buildMatchedTotalsByProviderOrderId } from "@/lib/domain/finance/matched-payments"
 
 export type AttendeeLedgerFilters = {
   eventId?: string | null
@@ -122,16 +123,33 @@ function normalizePagination(page?: number, pageSize?: number) {
   }
 }
 
-function deriveOutstandingAmount(
+function deriveOrderOutstandingAmount(
   status: CanonicalOrderStatus,
   totalAmountMinor: number,
-  attendeeCount: number
+  matchedAmountMinor: number
 ) {
   if (status !== "pending" && status !== "cancelled") {
     return 0
   }
 
-  return Math.max(0, Math.round(totalAmountMinor / Math.max(attendeeCount, 1)))
+  return Math.max(0, totalAmountMinor - matchedAmountMinor)
+}
+
+function deriveAttendeeOutstandingAmount(
+  orderOutstandingAmountMinor: number,
+  attendeeCount: number,
+  attendeePosition: number
+) {
+  if (orderOutstandingAmountMinor <= 0) {
+    return 0
+  }
+
+  const safeAttendeeCount = Math.max(attendeeCount, 1)
+  const safeAttendeePosition = Math.max(attendeePosition, 0)
+  const baseAmount = Math.floor(orderOutstandingAmountMinor / safeAttendeeCount)
+  const remainder = orderOutstandingAmountMinor % safeAttendeeCount
+
+  return baseAmount + (safeAttendeePosition < remainder ? 1 : 0)
 }
 
 type ConvexAttendee = {
@@ -232,6 +250,25 @@ export async function getAttendeeLedger(
   const hotelMap = new Map(allHotels.map((h) => [h._id, h]))
   const roomTypeMap = new Map(allRoomTypes.map((rt) => [rt._id, rt]))
 
+  const attendeeIdsByOrderId = new Map<string, string[]>()
+  for (const attendee of allAttendees) {
+    const existingIds = attendeeIdsByOrderId.get(attendee.orderId) ?? []
+    existingIds.push(attendee._id)
+    attendeeIdsByOrderId.set(attendee.orderId, existingIds)
+  }
+
+  const attendeePositionByOrderId = new Map<string, Map<string, number>>()
+  for (const [orderId, attendeeIds] of attendeeIdsByOrderId.entries()) {
+    const sortedIds = [...attendeeIds].sort((left, right) =>
+      left.localeCompare(right)
+    )
+    attendeeIdsByOrderId.set(orderId, sortedIds)
+    attendeePositionByOrderId.set(
+      orderId,
+      new Map(sortedIds.map((attendeeId, index) => [attendeeId, index]))
+    )
+  }
+
   const fromTime = from.getTime()
   const toTime = to.getTime()
 
@@ -253,6 +290,15 @@ export async function getAttendeeLedger(
     )
   }
 
+  const matchedTotalsByProviderOrderId =
+    await buildMatchedTotalsByProviderOrderId(
+      filteredAttendees.map((attendee) => ({
+        providerOrderId:
+          orderMap.get(attendee.orderId)?.providerOrderId ??
+          attendee.providerOrderId,
+      }))
+    )
+
   const totalRows = filteredAttendees.length
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
   const paginatedAttendees = filteredAttendees.slice(
@@ -272,9 +318,18 @@ export async function getAttendeeLedger(
     const totalAmountMinor = order?.totalAmountMinor ?? 0
     const normalizedStatus = (order?.normalizedStatus ??
       "pending") as CanonicalOrderStatus
-    const attendeeCount = allAttendees.filter(
-      (a) => a.orderId === attendee.orderId
-    ).length
+    const attendeeIds = attendeeIdsByOrderId.get(attendee.orderId) ?? []
+    const attendeeCount = attendeeIds.length
+    const attendeePosition =
+      attendeePositionByOrderId.get(attendee.orderId)?.get(attendee._id) ?? 0
+    const providerOrderId = order?.providerOrderId ?? attendee.providerOrderId
+    const matchedAmountMinor =
+      matchedTotalsByProviderOrderId.get(providerOrderId) ?? 0
+    const orderOutstandingAmountMinor = deriveOrderOutstandingAmount(
+      normalizedStatus,
+      totalAmountMinor,
+      matchedAmountMinor
+    )
 
     return {
       attendeeId: attendee._id,
@@ -288,10 +343,10 @@ export async function getAttendeeLedger(
       ticketTypeLabel: attendee.ticketTypeLabel ?? null,
       normalizedStatus,
       totalAmountMinor,
-      outstandingAmountMinor: deriveOutstandingAmount(
-        normalizedStatus,
-        totalAmountMinor,
-        attendeeCount
+      outstandingAmountMinor: deriveAttendeeOutstandingAmount(
+        orderOutstandingAmountMinor,
+        attendeeCount,
+        attendeePosition
       ),
       genderType: attendee.genderType,
       location:

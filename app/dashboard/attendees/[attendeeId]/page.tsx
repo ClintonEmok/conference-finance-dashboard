@@ -60,6 +60,7 @@ type AttendeeDetailPayload = {
   finance: {
     outstandingAmountMinor: number
     paidAmountMinor: number
+    overpaidAmountMinor: number
     installmentProgress: {
       totalLinks: number
       paidLinks: number
@@ -69,7 +70,7 @@ type AttendeeDetailPayload = {
   }
   paymentHistory: Array<{
     id: string
-    type: "payment-link" | "status-transition"
+    type: "payment-link" | "status-transition" | "assigned-payment"
     title: string
     status: string
     amountMinor: number | null
@@ -103,6 +104,8 @@ type AttendeeDetailPayload = {
   }
 }
 
+type GenderType = "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+
 function formatMoney(minor: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -134,10 +137,38 @@ function formatStatusLabel(value: string | null) {
   return value.replace(/[-_]/g, " ")
 }
 
+function formatGenderLabel(value: GenderType | null) {
+  if (!value) {
+    return "Not set"
+  }
+
+  if (value === "MALE") {
+    return "Male"
+  }
+
+  if (value === "FEMALE") {
+    return "Female"
+  }
+
+  if (value === "MIXED") {
+    return "Mixed"
+  }
+
+  return "Unknown"
+}
+
 function paymentMethodLabel(
   entry: AttendeeDetailPayload["paymentHistory"][number]
 ) {
-  return entry.type === "payment-link" ? "Tikkie" : "Status update"
+  if (entry.type === "payment-link") {
+    return "Tikkie"
+  }
+
+  if (entry.type === "assigned-payment") {
+    return "Assigned payment"
+  }
+
+  return "Status update"
 }
 
 function paymentMethodClasses(
@@ -145,6 +176,10 @@ function paymentMethodClasses(
 ) {
   if (entry.type === "payment-link") {
     return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+  }
+
+  if (entry.type === "assigned-payment") {
+    return "bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300"
   }
 
   return "bg-slate-100 text-slate-700 dark:bg-slate-900/60 dark:text-slate-300"
@@ -171,6 +206,11 @@ export default function AttendeeDetailPage({ params }: PageProps) {
     }>
   >([])
   const [isLoadingPayments, setIsLoadingPayments] = useState(false)
+  const [selectedGender, setSelectedGender] = useState<"" | GenderType>("")
+  const [isSavingGender, setIsSavingGender] = useState(false)
+  const [genderSaveMessage, setGenderSaveMessage] = useState<string | null>(
+    null
+  )
 
   const attendeeSearch = searchParams.get("search")
   const eventId = searchParams.get("eventId")
@@ -309,6 +349,52 @@ export default function AttendeeDetailPage({ params }: PageProps) {
     .join("")
 
   useEffect(() => {
+    if (!payload) {
+      return
+    }
+
+    setSelectedGender(payload.signals.genderType ?? "")
+    setGenderSaveMessage(null)
+  }, [payload])
+
+  async function handleSaveGender() {
+    if (!attendeeId) {
+      return
+    }
+
+    setIsSavingGender(true)
+    setGenderSaveMessage(null)
+
+    try {
+      const response = await fetch(`/api/dashboard/attendees/${attendeeId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          genderType: selectedGender || null,
+        }),
+      })
+
+      const body = (await response.json().catch(() => null)) as {
+        error?: { message?: string }
+      } | null
+
+      if (!response.ok) {
+        setGenderSaveMessage(body?.error?.message ?? "Failed to update gender.")
+        return
+      }
+
+      setGenderSaveMessage("Gender updated.")
+      await loadAttendeeDetail(attendeeId, { silent: true })
+    } catch {
+      setGenderSaveMessage("Network error while updating gender.")
+    } finally {
+      setIsSavingGender(false)
+    }
+  }
+
+  useEffect(() => {
     if (!payload?.attendee.providerEventId || !payload?.order.id) {
       return
     }
@@ -437,7 +523,7 @@ export default function AttendeeDetailPage({ params }: PageProps) {
                 </span>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-4">
                   <div>
                     <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
                       Total amount due
@@ -448,7 +534,7 @@ export default function AttendeeDetailPage({ params }: PageProps) {
                   </div>
                   <div>
                     <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                      Amount paid
+                      Amount matched
                     </p>
                     <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-700 dark:text-emerald-300">
                       {formatMoney(payload.finance.paidAmountMinor)}
@@ -460,6 +546,14 @@ export default function AttendeeDetailPage({ params }: PageProps) {
                     </p>
                     <p className="mt-2 text-3xl font-semibold tracking-tight text-rose-600 dark:text-rose-300">
                       {formatMoney(payload.finance.outstandingAmountMinor)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                      Overpaid
+                    </p>
+                    <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-600 dark:text-amber-300">
+                      {formatMoney(payload.finance.overpaidAmountMinor)}
                     </p>
                   </div>
                 </div>
@@ -662,11 +756,57 @@ export default function AttendeeDetailPage({ params }: PageProps) {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 text-sm">
+                <div className="rounded-lg border border-border/70 bg-background px-3 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
+                      Gender
+                    </p>
+                    <Badge variant="outline" className="uppercase">
+                      {formatGenderLabel(payload.signals.genderType)}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <select
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                      value={selectedGender}
+                      onChange={(event) =>
+                        setSelectedGender(event.target.value as "" | GenderType)
+                      }
+                    >
+                      <option value="">Not set</option>
+                      <option value="MALE">Male</option>
+                      <option value="FEMALE">Female</option>
+                      <option value="MIXED">Mixed</option>
+                      <option value="UNKNOWN">Unknown</option>
+                    </select>
+                    <Button
+                      size="sm"
+                      onClick={handleSaveGender}
+                      disabled={
+                        isSavingGender ||
+                        (payload.signals.genderType ?? "") === selectedGender
+                      }
+                    >
+                      {isSavingGender ? "Saving..." : "Save gender"}
+                    </Button>
+                  </div>
+                  {genderSaveMessage && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {genderSaveMessage}
+                    </p>
+                  )}
+                </div>
+
                 {[
                   {
                     label: "Email",
                     value: payload.attendee.email ?? "-",
                     icon: Mail,
+                  },
+                  {
+                    label: "Gender",
+                    value: formatGenderLabel(payload.signals.genderType),
+                    icon: UserRound,
                   },
                   {
                     label: "Buyer",

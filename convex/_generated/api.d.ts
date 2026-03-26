@@ -1100,6 +1100,7 @@ export declare const internal: {
   };
   autoSync: {
     autoSyncTicketTailor: FunctionReference<"action", "internal", {}, any>;
+    autoSyncTikkiePayments: FunctionReference<"action", "internal", {}, any>;
   };
 };
 
