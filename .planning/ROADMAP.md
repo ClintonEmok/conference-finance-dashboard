@@ -124,6 +124,9 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 10. Payment Reconciliation                          | 0/1            | Complete | 2026-03-25 |
 | 11. Use Supabase                                    | 0/1            | Complete | 2026-03-25 |
 | 12. use clerk as only auth remove stale better auth | 4/4            | Complete | 2026-03-26 |
+| 13. rebuild convex mutation and api layer           | 5/5            | Complete | -          |
+| 14. Event-Level Tikkie + Payment Tracking           | 0/2            | Planned  | -          |
+| 15. Event-level Tikkie UI + attendee Tikkie cleanup | 0/0            | Planned  | -          |
 
 ### Phase 6: Tikkie Integration
 
@@ -248,3 +251,27 @@ Plans:
 - [x] 13-03-PLAN.md — Rebuild attendee and accommodation contracts on focused public/internal Convex surfaces
 - [x] 13-04-PLAN.md — Rebuild payments and Tikkie mutation/API contracts on typed Convex refs
 - [x] 13-05-PLAN.md — Clean up sync/webhook contracts, remove legacy dispatch wrappers, and run full regression
+
+### Phase 14: Event-Level Tikkie + Payment Tracking
+
+**Goal:** Finance admins can create one open Tikkie payment link per event. Individual payments are fetched from the Tikkie API, stored in a dedicated table, and auto-matched to orders by payer name. Manual assignment is available for unmatched payments.
+**Requirements**: TBD
+**Depends on:** Phase 13
+**Plans:** 2 plans
+
+Plans:
+
+- [ ] 14-01-PLAN.md — Schema + Convex functions for event-level Tikkie links and payment tracking
+- [ ] 14-02-PLAN.md — Domain logic + API routes for event Tikkie + payment tracking
+
+### Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup
+
+**Goal:** Add event-level Tikkie payment tracking UI to the financial page and remove per-attendee/per-order Tikkie link creation from attendee detail and reconciliation pages.
+**Requirements**: TBD
+**Depends on:** Phase 14
+**Plans:** 2 plans
+
+Plans:
+
+- [ ] 15-01-PLAN.md — Add event Tikkie section to financial page with event picker, payment list, manual assignment, and link creation
+- [ ] 15-02-PLAN.md — Remove per-attendee and per-order Tikkie UI from attendee detail and reconciliation pages
