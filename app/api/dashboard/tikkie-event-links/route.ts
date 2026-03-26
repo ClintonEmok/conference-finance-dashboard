@@ -1,10 +1,66 @@
 import { NextResponse } from "next/server"
 import { requireApiUser } from "@/lib/auth/server"
 import { createEventTikkieLink } from "@/lib/domain/finance/tikkie-event-links"
-import { manuallyMatchTikkiePayment } from "@/lib/domain/finance/tikkie-event-payments"
 import { TikkieApiError } from "@/lib/integrations/tikkie/client"
 import { api } from "@/lib/convex/api"
-import { convexQuery } from "@/lib/convex/server"
+import { convexMutation, convexQuery } from "@/lib/convex/server"
+import type { Id } from "@/convex/_generated/dataModel"
+
+type UnifiedPayment = {
+  _id: string
+  source: "tikkie" | "bank_transfer" | "cash"
+  sourceId?: string
+  payerName: string
+  payerAccountNumber?: string
+  amountMinor: number
+  paidAt: number
+  orderId?: string
+  status?: "auto_matched" | "manual_assignment" | "ambiguous" | "unassigned"
+  providerPayload?: unknown
+}
+
+type EventTikkiePayment = {
+  _id: string
+  paymentLinkId: string
+  paymentToken: string
+  payerName: string
+  amountMinor: number
+  paidAt: number
+  matchStatus: "unmatched" | "auto_matched" | "manual"
+  orderId?: string
+}
+
+function readPaymentRequestToken(providerPayload: unknown): string | null {
+  if (
+    typeof providerPayload !== "object" ||
+    providerPayload === null ||
+    Array.isArray(providerPayload)
+  ) {
+    return null
+  }
+
+  const token = (providerPayload as Record<string, unknown>).paymentRequestToken
+  if (typeof token !== "string") {
+    return null
+  }
+
+  const normalized = token.trim()
+  return normalized || null
+}
+
+function mapStatus(
+  status: UnifiedPayment["status"]
+): EventTikkiePayment["matchStatus"] {
+  if (status === "auto_matched") {
+    return "auto_matched"
+  }
+
+  if (status === "manual_assignment") {
+    return "manual"
+  }
+
+  return "unmatched"
+}
 
 function badRequest(message: string) {
   return NextResponse.json(
@@ -119,13 +175,41 @@ export async function GET(request: Request) {
       })
     }
 
-    const paymentGroups = await Promise.all(
-      links.map((link) =>
-        convexQuery(api.tikkie.getTikkiePaymentsByLink, {
-          paymentLinkId: String(link._id),
+    const tikkiePayments = (await convexQuery(api.payments.getPayments, {
+      source: "tikkie",
+    })) as UnifiedPayment[]
+
+    const paymentGroups = links.map((link) => {
+      const linkToken =
+        typeof link.paymentRequestToken === "string"
+          ? link.paymentRequestToken
+          : ""
+
+      return tikkiePayments
+        .filter((payment) => {
+          const sourceId =
+            typeof payment.sourceId === "string" ? payment.sourceId.trim() : ""
+          if (!sourceId) {
+            return false
+          }
+
+          const paymentRequestToken = readPaymentRequestToken(
+            payment.providerPayload
+          )
+
+          return paymentRequestToken === linkToken
         })
-      )
-    )
+        .map((payment) => ({
+          _id: payment._id,
+          paymentLinkId: String(link._id),
+          paymentToken: payment.sourceId ?? payment._id,
+          payerName: payment.payerName,
+          amountMinor: payment.amountMinor,
+          paidAt: payment.paidAt,
+          matchStatus: mapStatus(payment.status),
+          orderId: payment.orderId,
+        }))
+    })
 
     const payments = paymentGroups.flat()
 
@@ -245,7 +329,12 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const result = await manuallyMatchTikkiePayment(paymentId, orderId)
+    const result = await convexMutation(api.payments.assignPaymentToOrder, {
+      paymentId: paymentId as Id<"payments">,
+      orderId,
+      status: "manual_assignment",
+      matchedBy: "dashboard",
+    })
     return NextResponse.json({ ok: true, result })
   } catch (error) {
     const message =

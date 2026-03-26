@@ -346,7 +346,10 @@ export async function syncTikkiePayments(
           payerAccountNumber,
           amountMinor,
           paidAt: paidAtSource,
-          providerPayload: tPayment,
+          providerPayload: {
+            ...tPayment,
+            paymentRequestToken,
+          },
         }
       )
 

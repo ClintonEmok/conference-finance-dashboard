@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await convexMutation(api.tikkie.autoMatchTikkiePayments, {
+    const result = await convexMutation(api.payments.autoMatchPayments, {
       eventId,
     })
     return NextResponse.json({ ok: true, result })
