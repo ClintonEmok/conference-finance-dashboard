@@ -88,16 +88,16 @@ Recent decisions that future work should preserve:
 
 ### Quick Tasks Completed
 
-| #          | Description                                                                              | Date       | Commit  | Directory                                                                                                           |
-| ---------- | ---------------------------------------------------------------------------------------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
-| 260326-di7 | fix the ticket tailor sync feature                                                       | 2026-03-26 | 5df71b4 | [260326-di7-fix-the-ticket-tailor-sync-feature](./quick/260326-di7-fix-the-ticket-tailor-sync-feature/)             |
-| 260326-do9 | fix received NaN for the attribute in app accommodation inventory                        | 2026-03-26 | c909cbd | [260326-do9-fix-received-nan-for-the-attribute-in-ap](./quick/260326-do9-fix-received-nan-for-the-attribute-in-ap/) |
-| 260326-e0r | fix the attendeedetail page the api returns 405. i want the attendee details to be shown | 2026-03-26 | fca8087 | [260326-e0r-fix-the-attendeedetail-page-the-api-retu](./quick/260326-e0r-fix-the-attendeedetail-page-the-api-retu/) |
-| 260326-edp | show the custom answers on the attendee detail page                                      | 2026-03-26 | 97a0463 | [260326-edp-show-the-custom-answers-on-the-attendee-](./quick/260326-edp-show-the-custom-answers-on-the-attendee-/) |
-| 260326-hfn | fix event tikkie create link button open                                                 | 2026-03-26 | c731fd3 | [260326-hfn-fix-event-tikkie-create-link-button-open](./quick/260326-hfn-fix-event-tikkie-create-link-button-open/) |
-| 260326-hgy | fix the manual payment entry select order flow                                           | 2026-03-26 | b7fdca6 | [260326-hgy-fix-the-manual-payment-entry-select-orde](./quick/260326-hgy-fix-the-manual-payment-entry-select-orde/) |
-| 260326-hit | the open atteendee followup should open attendee detail                                  | 2026-03-26 | 3b06738 | [260326-hit-the-open-atteendee-followup-should-open-](./quick/260326-hit-the-open-atteendee-followup-should-open-/) |
-| 260326-ib1 | for room inventory we need to be to able                                                 | 2026-03-26 | 534b7d2 | [260326-ib1-for-room-inventory-we-need-to-be-to-able](./quick/260326-ib1-for-room-inventory-we-need-to-be-to-able/) |
+| #          | Description                                                                                          | Date       | Commit  | Directory                                                                                                           |
+| ---------- | ---------------------------------------------------------------------------------------------------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
+| 260326-di7 | fix the ticket tailor sync feature                                                                   | 2026-03-26 | 5df71b4 | [260326-di7-fix-the-ticket-tailor-sync-feature](./quick/260326-di7-fix-the-ticket-tailor-sync-feature/)             |
+| 260326-do9 | fix received NaN for the attribute in app accommodation inventory                                    | 2026-03-26 | c909cbd | [260326-do9-fix-received-nan-for-the-attribute-in-ap](./quick/260326-do9-fix-received-nan-for-the-attribute-in-ap/) |
+| 260326-e0r | fix the attendeedetail page the api returns 405. i want the attendee details to be shown             | 2026-03-26 | fca8087 | [260326-e0r-fix-the-attendeedetail-page-the-api-retu](./quick/260326-e0r-fix-the-attendeedetail-page-the-api-retu/) |
+| 260326-edp | show the custom answers on the attendee detail page                                                  | 2026-03-26 | 97a0463 | [260326-edp-show-the-custom-answers-on-the-attendee-](./quick/260326-edp-show-the-custom-answers-on-the-attendee-/) |
+| 260326-hfn | fix event tikkie create link button open                                                             | 2026-03-26 | c731fd3 | [260326-hfn-fix-event-tikkie-create-link-button-open](./quick/260326-hfn-fix-event-tikkie-create-link-button-open/) |
+| 260326-hgy | fix the manual payment entry select order flow                                                       | 2026-03-26 | b7fdca6 | [260326-hgy-fix-the-manual-payment-entry-select-orde](./quick/260326-hgy-fix-the-manual-payment-entry-select-orde/) |
+| 260326-hit | the open atteendee followup should open attendee detail                                              | 2026-03-26 | 3b06738 | [260326-hit-the-open-atteendee-followup-should-open-](./quick/260326-hit-the-open-atteendee-followup-should-open-/) |
+| 260326-ib1 | for room inventory we need to be to able to delete rooms and hotels if they have no assinged to them | 2026-03-26 | 93cf05b | [260326-ib1-for-room-inventory-we-need-to-be-to-able](./quick/260326-ib1-for-room-inventory-we-need-to-be-to-able/) |
 
 ## Accumulated Context
 
@@ -109,7 +109,7 @@ Recent decisions that future work should preserve:
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-26 - Completed 260326-ib1 quick task (guarded room/hotel inventory delete flow)
+- **Last activity:** 2026-03-26 - Completed quick task 260326-ib1: for room inventory we need to be to able to delete rooms and hotels if they have no assinged to them
 - **Last session:** 2026-03-26T12:19:00Z
 - **Stopped at:** Completed 260326-ib1-PLAN.md
 - **Resume file:** None
