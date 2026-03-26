@@ -123,7 +123,7 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 9. Smart Allocation & Attendee Signals              | 0/2            | Planned  | -          |
 | 10. Payment Reconciliation                          | 0/1            | Complete | 2026-03-25 |
 | 11. Use Supabase                                    | 0/1            | Complete | 2026-03-25 |
-| 12. use clerk as only auth remove stale better auth | 4/4            | Complete    | 2026-03-26 |
+| 12. use clerk as only auth remove stale better auth | 4/4            | Complete | 2026-03-26 |
 
 ### Phase 6: Tikkie Integration
 
@@ -233,3 +233,18 @@ Plans:
 - [x] 12-02-PLAN.md — Protect dashboard routes with Clerk and replace the old login/logout flow
 - [x] 12-03-PLAN.md — Migrate protected API route guards and auth-sensitive tests from Better Auth to Clerk
 - [x] 12-04-PLAN.md — Remove stale Better Auth runtime files/packages and run final Clerk auth verification
+
+### Phase 13: rebuild convex mutation and api layer from clean contracts
+
+**Goal:** Convex reads and writes run through one canonical typed contract layer, so dashboard routes and integrations no longer depend on nested generated imports, raw string-path dispatch, or oversized public Convex modules.
+**Requirements**: TBD
+**Depends on:** Phase 12
+**Plans:** 5 plans
+
+Plans:
+
+- [ ] 13-01-PLAN.md — Canonicalize the Convex app tree and build the typed Clerk-aware server bridge foundation
+- [ ] 13-02-PLAN.md — Rebuild orders, reporting, and reconciliation read contracts on bounded typed Convex APIs
+- [ ] 13-03-PLAN.md — Rebuild attendee and accommodation contracts on focused public/internal Convex surfaces
+- [ ] 13-04-PLAN.md — Rebuild payments and Tikkie mutation/API contracts on typed Convex refs
+- [ ] 13-05-PLAN.md — Clean up sync/webhook contracts, remove legacy dispatch wrappers, and run full regression
