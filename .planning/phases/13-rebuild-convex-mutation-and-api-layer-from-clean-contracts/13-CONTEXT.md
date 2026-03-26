@@ -28,10 +28,10 @@ Rebuild the Convex mutation and API layer so reads and writes flow through one c
 
 ### Diagnostics and operator feedback
 
-- **D-08:** Preserve counters and diagnostic fields that are already depended on by routes or tests. Do not simplify them unless they are provably unused.
-- **D-09:** Keep operator/admin-facing error and status messages close to current detail levels; this phase should not replace actionable operational feedback with vague summaries.
-- **D-10:** For sync and webhook flows, keep high-signal diagnostics in API responses, but verbose plumbing detail may move behind internal helpers or logs if the externally observed contract stays intact.
-- **D-11:** If cleaner contracts conflict with diagnostic preservation, keep the diagnostics already relied on by tests/routes and clean up only the hidden/internal detail.
+- **D-08:** Do not preserve counters or diagnostics just for their own sake. Keep them only where existing routes or tests currently depend on them.
+- **D-09:** Keep operator/admin-facing success and failure responses clear, but prefer simpler contracts over detailed operational diagnostics.
+- **D-10:** For sync and webhook flows, verbose diagnostics may be removed or simplified as long as required route/test behavior still passes.
+- **D-11:** If cleaner contracts conflict with diagnostic preservation, prefer cleaner contracts unless a route or test explicitly depends on the existing fields.
 
 ### the agent's Discretion
 
@@ -118,7 +118,7 @@ Rebuild the Convex mutation and API layer so reads and writes flow through one c
 
 - Product-level dashboard redesign or payload simplification beyond current contract preservation.
 - New finance capabilities or new operator workflows unrelated to backend contract cleanup.
-- Broader observability redesign beyond preserving existing operator-visible diagnostics.
+- Broader observability redesign beyond the minimal success/failure signals needed for current routes and tests.
 
 </deferred>
 
