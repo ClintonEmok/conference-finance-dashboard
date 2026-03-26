@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: complete
-stopped_at: Completed 13-05-PLAN.md
-last_updated: "2026-03-26T09:34:00.000Z"
+stopped_at: Completed 260326-di7-PLAN.md
+last_updated: "2026-03-26T08:54:29.000Z"
 progress:
   total_phases: 16
   completed_phases: 9
@@ -19,12 +19,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Phase 13 complete — Convex contract rebuild finished
+- **Current focus:** Phase 13 complete, plus the Ticket Tailor manual sync repair shipped as a quick task
 
 ## Current Position
 
 Phase: 13 (rebuild-convex-mutation-and-api-layer-from-clean-contracts) — COMPLETE
 Plan: 5 of 5
+Quick task: 260326-di7 (fix-the-ticket-tailor-sync-feature) — COMPLETE
 
 ## Alignment Status
 
@@ -33,6 +34,7 @@ Plan: 5 of 5
 - Operator-facing protected API routes now use Clerk's shared server helper instead of Better Auth sessions.
 - Better Auth runtime files and packages are removed from the app runtime and dependency graph.
 - Browser verification for signed-out access, sign-in, dashboard access, signed-in shell, and sign-out was approved.
+- Ticket Tailor manual sync now reuses returned Convex ids correctly, records terminal sync-run status, and surfaces attendee counts/diagnostics in the operator sync page.
 
 ## Key Decisions
 
@@ -51,6 +53,7 @@ Recent decisions that future work should preserve:
 - [06-01] Keep latest-link-first Tikkie presentation and freshness metadata centralized in backend contracts.
 - [10-05] Calculate payment status at the order level using order total vs linked payment sums.
 - [11-04] Keep server-side API routes on the `lib/convex` bridge rather than importing Convex functions directly into route handlers.
+- [260326-di7] Treat `api.sync.*` upsert mutations as id-returning boundaries and add Convex `returns` validators so generated refs no longer hide that contract as `any`.
 
 ## Active Patterns / Constraints
 
@@ -58,6 +61,7 @@ Recent decisions that future work should preserve:
 - Dashboard sign-out should use Clerk `SignOutButton` with an explicit redirect target.
 - Landing-page Clerk `SignInButton` and `SignUpButton` should redirect to `/dashboard` after modal completion.
 - Public webhook routes must remain outside Clerk protection.
+- Manual Ticket Tailor sync UI should read attendee counts and diagnostics from the route payload instead of assuming an orders-only summary.
 
 ## Blockers / Concerns
 
@@ -72,7 +76,7 @@ Recent decisions that future work should preserve:
 
 ## Session Continuity
 
-- **Last session:** 2026-03-26T09:34:00Z
-- **Stopped at:** Completed 13-05-PLAN.md
+- **Last session:** 2026-03-26T08:54:29Z
+- **Stopped at:** Completed 260326-di7-PLAN.md
 - **Resume file:** None
-- **Next recommended plan:** Review `.planning/ROADMAP.md` for the next planned phase.
+- **Next recommended plan:** Review `.planning/ROADMAP.md` for the next planned phase or execute the next queued quick task.
