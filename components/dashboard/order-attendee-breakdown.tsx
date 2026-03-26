@@ -28,6 +28,24 @@ type OrderAttendeeBreakdownData = {
 type OrderAttendeeBreakdownProps = {
   orderId: string
   eventId: string
+  onResolvedAttendeeId?: (resolution: {
+    providerOrderId: string
+    attendeeId: string | null
+  }) => void
+}
+
+function resolveAttendeeIdCandidate(
+  attendees: AttendeeBreakdownAttendee[]
+): string | null {
+  if (attendees.length === 0) {
+    return null
+  }
+
+  const firstStableId = attendees
+    .map((attendee) => attendee.id.trim())
+    .find((id) => id.length > 0)
+
+  return firstStableId ?? null
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -47,6 +65,7 @@ function StatusBadge({ status }: { status: string }) {
 export function OrderAttendeeBreakdown({
   orderId,
   eventId,
+  onResolvedAttendeeId,
 }: OrderAttendeeBreakdownProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [data, setData] = useState<OrderAttendeeBreakdownData | null>(null)
@@ -92,6 +111,17 @@ export function OrderAttendeeBreakdown({
       cancelled = true
     }
   }, [orderId, eventId])
+
+  useEffect(() => {
+    if (!onResolvedAttendeeId || isLoading) {
+      return
+    }
+
+    onResolvedAttendeeId({
+      providerOrderId: data?.order.providerOrderId ?? orderId,
+      attendeeId: data ? resolveAttendeeIdCandidate(data.attendees) : null,
+    })
+  }, [data, isLoading, onResolvedAttendeeId, orderId])
 
   if (isLoading || !data) {
     return (
