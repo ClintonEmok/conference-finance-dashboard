@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: complete
-stopped_at: Completed 260326-do9-PLAN.md
-last_updated: "2026-03-26T08:57:04.000Z"
+stopped_at: Completed 260326-e0r-PLAN.md
+last_updated: "2026-03-26T09:12:10.000Z"
 progress:
   total_phases: 16
   completed_phases: 9
@@ -19,13 +19,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Phase 13 complete, plus quick-task hardening for Ticket Tailor sync and accommodation inventory rendering
+- **Current focus:** Phase 13 complete, plus quick-task hardening for Ticket Tailor sync, accommodation inventory rendering, and attendee detail API route recovery
 
 ## Current Position
 
 Phase: 13 (rebuild-convex-mutation-and-api-layer-from-clean-contracts) — COMPLETE
 Plan: 5 of 5
-Quick task: 260326-do9 (fix-received-nan-for-the-attribute-in-ap) — COMPLETE
+Quick task: 260326-e0r (fix-the-attendeedetail-page-the-api-retu) — COMPLETE
 
 ## Alignment Status
 
@@ -36,6 +36,7 @@ Quick task: 260326-do9 (fix-received-nan-for-the-attribute-in-ap) — COMPLETE
 - Browser verification for signed-out access, sign-in, dashboard access, signed-in shell, and sign-out was approved.
 - Ticket Tailor manual sync now reuses returned Convex ids correctly, records terminal sync-run status, and surfaces attendee counts/diagnostics in the operator sync page.
 - Accommodation inventory rendering now sanitizes malformed room metrics locally so grouped hotel Available beds totals never surface `NaN` in React.
+- Attendee detail API reads now share the existing protected attendee route with PATCH overrides, so the detail page fetch no longer fails with a 405.
 
 ## Key Decisions
 
@@ -56,6 +57,7 @@ Recent decisions that future work should preserve:
 - [11-04] Keep server-side API routes on the `lib/convex` bridge rather than importing Convex functions directly into route handlers.
 - [260326-di7] Treat `api.sync.*` upsert mutations as id-returning boundaries and add Convex `returns` validators so generated refs no longer hide that contract as `any`.
 - [260326-do9] Keep malformed accommodation inventory number handling at the dashboard render boundary for this quick repair, deriving fallback available beds from sanitized capacity and occupied counts.
+- [260326-e0r] Keep attendee detail page loads and Tikkie override PATCH updates on the same protected `/api/dashboard/attendees/[attendeeId]` route, reusing `getAttendeeDetail` for the GET payload.
 
 ## Active Patterns / Constraints
 
@@ -65,6 +67,7 @@ Recent decisions that future work should preserve:
 - Public webhook routes must remain outside Clerk protection.
 - Manual Ticket Tailor sync UI should read attendee counts and diagnostics from the route payload instead of assuming an orders-only summary.
 - Accommodation inventory hotel blocks should sum sanitized per-room metrics instead of raw available-bed payload fields.
+- Shared dashboard detail routes should keep GET and PATCH on the same URL when the page already depends on that endpoint contract.
 
 ## Blockers / Concerns
 
@@ -77,6 +80,7 @@ Recent decisions that future work should preserve:
 | ---------- | ----------------------------------------------------------------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
 | 260326-di7 | fix the ticket tailor sync feature                                | 2026-03-26 | 5df71b4 | [260326-di7-fix-the-ticket-tailor-sync-feature](./quick/260326-di7-fix-the-ticket-tailor-sync-feature/)             |
 | 260326-do9 | fix received NaN for the attribute in app accommodation inventory | 2026-03-26 | c909cbd | [260326-do9-fix-received-nan-for-the-attribute-in-ap](./quick/260326-do9-fix-received-nan-for-the-attribute-in-ap/) |
+| 260326-e0r | fix the attendeedetail page the api returned 405                  | 2026-03-26 | 714db89 | [260326-e0r-fix-the-attendeedetail-page-the-api-retu](./quick/260326-e0r-fix-the-attendeedetail-page-the-api-retu/) |
 
 ## Accumulated Context
 
@@ -86,8 +90,8 @@ Recent decisions that future work should preserve:
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-26 - Completed quick task 260326-do9: fix received NaN for the attribute in app accommodation inventory
-- **Last session:** 2026-03-26T08:57:04Z
-- **Stopped at:** Completed 260326-do9-PLAN.md
+- **Last activity:** 2026-03-26 - Completed quick task 260326-e0r: fix the attendeedetail page the api returned 405
+- **Last session:** 2026-03-26T09:12:10Z
+- **Stopped at:** Completed 260326-e0r-PLAN.md
 - **Resume file:** None
 - **Next recommended plan:** Review `.planning/ROADMAP.md` for the next planned phase or execute the next queued quick task.
