@@ -239,12 +239,12 @@ Plans:
 **Goal:** Convex reads and writes run through one canonical typed contract layer, so dashboard routes and integrations no longer depend on nested generated imports, raw string-path dispatch, or oversized public Convex modules.
 **Requirements**: TBD
 **Depends on:** Phase 12
-**Plans:** 5 plans
+**Plans:** 2/5 plans executed
 
 Plans:
 
-- [ ] 13-01-PLAN.md — Canonicalize the Convex app tree and build the typed Clerk-aware server bridge foundation
-- [ ] 13-02-PLAN.md — Rebuild orders, reporting, and reconciliation read contracts on bounded typed Convex APIs
+- [x] 13-01-PLAN.md — Canonicalize the Convex app tree and build the typed Clerk-aware server bridge foundation
+- [x] 13-02-PLAN.md — Rebuild orders, reporting, and reconciliation read contracts on bounded typed Convex APIs
 - [ ] 13-03-PLAN.md — Rebuild attendee and accommodation contracts on focused public/internal Convex surfaces
 - [ ] 13-04-PLAN.md — Rebuild payments and Tikkie mutation/API contracts on typed Convex refs
 - [ ] 13-05-PLAN.md — Clean up sync/webhook contracts, remove legacy dispatch wrappers, and run full regression
