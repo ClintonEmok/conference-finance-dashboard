@@ -1,4 +1,5 @@
 import type { CanonicalOrderStatus } from "@/lib/domain/finance/order-ledger"
+import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 
 export type ReconciliationFilters = {
@@ -127,35 +128,13 @@ export async function getReconciliationRows(
   const toMs = to.getTime()
 
   const [orders, availableEvents] = await Promise.all([
-    convexQuery<
-      {
-        eventId?: string
-        from?: number
-        to?: number
-        status?: CanonicalOrderStatus
-      },
-      Array<{
-        providerOrderId: string
-        providerEventId: string
-        eventName: string | null
-        normalizedStatus: CanonicalOrderStatus
-        totalAmountMinor: number
-        currency: string | null
-        orderedAt: string | null
-        refundedAt: string | null
-        buyerName: string | null
-        buyerEmail: string | null
-      }>
-    >("orders/getOrdersForReconciliation", {
+    convexQuery(api.orders.getOrdersForReconciliation, {
       eventId: eventId ?? undefined,
       from: fromMs,
       to: toMs,
       status: status ?? undefined,
     }),
-    convexQuery<{}, Array<{ providerEventId: string; name: string | null }>>(
-      "events/getEventsForLedger",
-      {}
-    ),
+    convexQuery(api.events.getEventsForLedger, {}),
   ])
 
   const rows: ReconciliationRow[] = []

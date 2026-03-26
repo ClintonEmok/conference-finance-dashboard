@@ -1,3 +1,4 @@
+import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 import { matchTemplateForAttendee } from "@/lib/domain/finance/tikkie-templates"
 import {
@@ -197,19 +198,7 @@ export async function getAttendeeDetail(
       { eventId: string },
       { _id: string; name: string | null } | null
     >("events/getEventById", { eventId: attendee.eventId }),
-    convexQuery<
-      { orderId: string },
-      {
-        _id: string
-        providerOrderId: string
-        providerEventId: string
-        buyerName: string | null
-        buyerEmail: string | null
-        normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
-        orderedAt: number | null
-        totalAmountMinor: number | null
-      } | null
-    >("orders/getOrderById", { orderId: attendee.orderId }),
+    convexQuery(api.orders.getOrderById, { orderId: attendee.orderId }),
     convexQuery<
       { orderId: string },
       Array<{

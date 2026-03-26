@@ -1,3 +1,4 @@
+import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 
 export type RevenueTrendGranularity = "day"
@@ -87,6 +88,19 @@ function normalizeRange(filters: RevenueOverviewFilters) {
 export async function getRevenueOverview(
   filters: RevenueOverviewFilters = {}
 ): Promise<RevenueOverview> {
+  type RevenueOrderProjection = {
+    providerOrderId: string
+    providerEventId: string
+    eventName: string | null
+    normalizedStatus: CanonicalStatus
+    totalAmountMinor: number
+    currency: string | null
+    orderedAt: string | null
+    refundedAt: string | null
+    buyerName: string | null
+    buyerEmail: string | null
+  }
+
   const eventId =
     typeof filters.eventId === "string" && filters.eventId.trim()
       ? filters.eventId.trim()
@@ -97,35 +111,17 @@ export async function getRevenueOverview(
   const fromMs = from.getTime()
   const toMs = to.getTime()
 
-  const [orders, availableEvents] = await Promise.all([
-    convexQuery<
-      {
-        eventId?: string
-        from?: number
-        to?: number
-      },
-      Array<{
-        providerOrderId: string
-        providerEventId: string
-        eventName: string | null
-        normalizedStatus: CanonicalStatus
-        totalAmountMinor: number
-        currency: string | null
-        orderedAt: string | null
-        refundedAt: string | null
-        buyerName: string | null
-        buyerEmail: string | null
-      }>
-    >("orders/getOrdersForReconciliation", {
+  const [orders, availableEvents] = (await Promise.all([
+    convexQuery(api.orders.getOrdersForReconciliation, {
       eventId: eventId ?? undefined,
       from: fromMs,
       to: toMs,
     }),
-    convexQuery<{}, Array<{ providerEventId: string; name: string | null }>>(
-      "events/getEventsForLedger",
-      {}
-    ),
-  ])
+    convexQuery(api.events.getEventsForLedger, {}),
+  ])) as [
+    RevenueOrderProjection[],
+    Array<{ providerEventId: string; name: string | null }>,
+  ]
 
   const statusCounts: Record<CanonicalStatus, number> = {
     paid: 0,

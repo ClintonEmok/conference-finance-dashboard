@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireApiUser } from "@/lib/auth/server"
+import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 
 type ReconciliationResult = {
@@ -33,10 +34,10 @@ export async function GET() {
   }
 
   try {
-    const result = await convexQuery<{}, ReconciliationResult>(
-      "orders:getOrderPaymentStatus",
+    const result = (await convexQuery(
+      api.orders.getOrderPaymentStatus,
       {}
-    )
+    )) as ReconciliationResult
 
     return NextResponse.json(result)
   } catch (error) {

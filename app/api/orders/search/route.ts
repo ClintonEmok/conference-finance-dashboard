@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireApiUser } from "@/lib/auth/server"
+import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 
 function unauthorized() {
@@ -30,15 +31,7 @@ export async function GET(request: Request) {
   )
 
   try {
-    const orders = await convexQuery<
-      { search: string; limit: number },
-      Array<{
-        id: string
-        providerOrderId: string
-        buyerName: string | null
-        totalAmountMinor: number
-      }>
-    >("orders:searchOrders", { search, limit })
+    const orders = await convexQuery(api.orders.searchOrders, { search, limit })
 
     return NextResponse.json({ orders })
   } catch (error) {

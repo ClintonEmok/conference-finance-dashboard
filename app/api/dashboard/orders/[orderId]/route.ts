@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireApiUser } from "@/lib/auth/server"
+import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 
 export const dynamic = "force-dynamic"
@@ -26,27 +27,13 @@ export async function GET(
     )
   }
 
-  const result = await convexQuery<
-    { providerOrderId: string; providerEventId: string },
+  const result = await convexQuery(
+    api.orders.getOrderWithAttendeesByProviderId,
     {
-      order: {
-        id: string
-        providerOrderId: string
-        normalizedStatus: string | undefined
-        totalAmountMinor: number | undefined
-        orderedAt: string | null
-      }
-      attendees: Array<{
-        id: string
-        name: string
-        ticketTypeLabel: string
-        normalizedStatus: string
-      }>
-    } | null
-  >("orders:getOrderWithAttendeesByProviderId", {
-    providerOrderId: orderId,
-    providerEventId: eventId,
-  })
+      providerOrderId: orderId,
+      providerEventId: eventId,
+    }
+  )
 
   if (!result) {
     return NextResponse.json(

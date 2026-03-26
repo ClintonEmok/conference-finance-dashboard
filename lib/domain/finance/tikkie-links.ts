@@ -3,6 +3,7 @@ import {
   getPaymentRequest,
   getPaymentRequestPayments,
 } from "@/lib/integrations/tikkie/client"
+import { api } from "@/lib/convex/api"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
 
 export type AppTikkieLinkStatus = "created" | "paid" | "expired"
@@ -363,10 +364,9 @@ function mapProviderStatus(providerStatus: string) {
 }
 
 async function resolveOrder(providerOrderId: string, providerEventId: string) {
-  const orders = await convexQuery<
-    { providerOrderId: string },
-    { _id: string; providerEventId: string }[]
-  >("orders/getOrderByProviderId", { providerOrderId })
+  const orders = (await convexQuery(api.orders.getOrderByProviderId, {
+    providerOrderId,
+  })) as { _id: string; providerEventId: string }[]
 
   const order = orders[0]
 
@@ -484,10 +484,9 @@ export async function listTikkiePaymentLinksByOrder(
     "providerOrderId"
   )
 
-  const orders = await convexQuery<
-    { providerOrderId: string },
-    { _id: string }[]
-  >("orders/getOrderByProviderId", { providerOrderId })
+  const orders = (await convexQuery(api.orders.getOrderByProviderId, {
+    providerOrderId,
+  })) as { _id: string }[]
 
   const orderId = orders[0]?._id
 

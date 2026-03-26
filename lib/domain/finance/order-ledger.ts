@@ -1,3 +1,4 @@
+import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 
 export type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
@@ -126,31 +127,7 @@ export async function getOrderLedger(
   const toMs = to.getTime()
 
   const [ordersResult, availableEvents] = await Promise.all([
-    convexQuery<
-      {
-        eventId?: string
-        from?: number
-        to?: number
-        status?: CanonicalOrderStatus
-        page?: number
-        pageSize?: number
-      },
-      {
-        totalRows: number
-        totalPages: number
-        orders: Array<{
-          providerOrderId: string
-          providerEventId: string
-          eventName: string | null
-          normalizedStatus: CanonicalOrderStatus
-          totalAmountMinor: number
-          currency: string | null
-          orderedAt: string | null
-          buyerName: string | null
-          buyerEmail: string | null
-        }>
-      }
-    >("orders/getOrdersWithFilters", {
+    convexQuery(api.orders.getOrdersWithFilters, {
       eventId: eventId ?? undefined,
       from: fromMs,
       to: toMs,
@@ -158,10 +135,7 @@ export async function getOrderLedger(
       page,
       pageSize,
     }),
-    convexQuery<{}, Array<{ providerEventId: string; name: string | null }>>(
-      "events/getEventsForLedger",
-      {}
-    ),
+    convexQuery(api.events.getEventsForLedger, {}),
   ])
 
   return {

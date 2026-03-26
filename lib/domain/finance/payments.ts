@@ -1,4 +1,5 @@
 import { getPaymentRequestPayments } from "@/lib/integrations/tikkie/client"
+import { api } from "@/lib/convex/api"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
 
 export type PaymentSource = "tikkie" | "bank_transfer" | "cash"
@@ -330,10 +331,9 @@ export async function autoMatchPayments(): Promise<AutoMatchResult> {
   )
 
   for (const payment of unassignedPayments) {
-    const matchingOrders = await convexQuery<
-      { status: "paid" },
-      Array<{ _id: string; buyerName: string | null }>
-    >("orders/getOrders", { status: "paid" })
+    const matchingOrders = (await convexQuery(api.orders.getOrders, {
+      status: "paid",
+    })) as Array<{ _id: string; buyerName: string | null }>
 
     const matches = matchingOrders.filter(
       (o) => o.buyerName?.toLowerCase() === payment.payerName.toLowerCase()

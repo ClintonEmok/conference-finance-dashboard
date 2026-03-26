@@ -1,3 +1,4 @@
+import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 
 export type AttendeeLedgerFilters = {
@@ -207,7 +208,7 @@ export async function getAttendeeLedger(
     allRooms,
     allHotels,
     allRoomTypes,
-  ] = await Promise.all([
+  ] = (await Promise.all([
     convexQuery<{ eventId?: string }, ConvexAttendee[]>(
       "attendees/getAttendees",
       {
@@ -215,11 +216,18 @@ export async function getAttendeeLedger(
       }
     ),
     convexQuery<{}, ConvexEvent[]>("events/getEvents", {}),
-    convexQuery<{}, ConvexOrder[]>("orders/getOrders", {}),
+    convexQuery(api.orders.getOrders, {}),
     convexQuery<{}, ConvexRoom[]>("accommodation/getRooms", {}),
     convexQuery<{}, ConvexHotel[]>("accommodation/getHotels", {}),
     convexQuery<{}, ConvexRoomType[]>("accommodation/getRoomTypes", {}),
-  ])
+  ])) as [
+    ConvexAttendee[],
+    ConvexEvent[],
+    ConvexOrder[],
+    ConvexRoom[],
+    ConvexHotel[],
+    ConvexRoomType[],
+  ]
 
   const orderMap = new Map(allOrders.map((o) => [o._id, o]))
   const eventMap = new Map(availableEvents.map((e) => [e.providerEventId, e]))
