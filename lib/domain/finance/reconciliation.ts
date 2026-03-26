@@ -48,6 +48,7 @@ export type ReconciliationResult = {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const MATCHED_PAYMENT_STATUSES = new Set(["manual_assignment", "auto_matched"])
 
 function parseDate(
   value: Date | string | null | undefined,
@@ -85,8 +86,10 @@ function deriveReconciliation(order: {
   normalizedStatus: CanonicalOrderStatus
   totalAmountMinor: number | null
   refundedAt: Date | null
+  matchedAmountMinor: number
 }) {
   const amount = order.totalAmountMinor ?? 0
+  const remainingAmount = Math.max(0, amount - order.matchedAmountMinor)
   const reasons: ReconciliationReason[] = []
   let outstandingMinor = 0
 
@@ -96,12 +99,12 @@ function deriveReconciliation(order: {
 
   if (order.normalizedStatus === "pending") {
     reasons.push("pending-payment")
-    outstandingMinor = Math.max(0, amount)
+    outstandingMinor = remainingAmount
   }
 
   if (order.normalizedStatus === "cancelled" && amount > 0) {
     reasons.push("cancelled-with-amount")
-    outstandingMinor = Math.max(outstandingMinor, amount)
+    outstandingMinor = Math.max(outstandingMinor, remainingAmount)
   }
 
   if (order.normalizedStatus === "refunded" && !order.refundedAt) {
@@ -112,6 +115,83 @@ function deriveReconciliation(order: {
     reasons,
     outstandingMinor,
   }
+}
+
+type PaymentMatchStatus =
+  | "auto_matched"
+  | "manual_assignment"
+  | "ambiguous"
+  | "unassigned"
+
+type PaymentForReconciliation = {
+  amountMinor: number
+  orderId?: string | null
+  status?: PaymentMatchStatus | null
+}
+
+async function buildMatchedTotalsByProviderOrderId(
+  orders: Array<{ providerOrderId: string }>
+): Promise<Map<string, number>> {
+  const payments = (await convexQuery(api.payments.getPayments, {})) as
+    | PaymentForReconciliation[]
+    | null
+    | undefined
+
+  const matchedTotalsByProviderOrderId = new Map<string, number>()
+  const knownProviderOrderIds = new Set(
+    orders.map((order) => order.providerOrderId).filter(Boolean)
+  )
+  const legacyLookupCache = new Map<string, string | null>()
+
+  for (const payment of payments ?? []) {
+    if (
+      !payment ||
+      !MATCHED_PAYMENT_STATUSES.has(payment.status ?? "unassigned") ||
+      !Number.isFinite(payment.amountMinor) ||
+      payment.amountMinor <= 0
+    ) {
+      continue
+    }
+
+    const rawOrderId =
+      typeof payment.orderId === "string" ? payment.orderId : ""
+    const normalizedOrderId = rawOrderId.trim()
+
+    if (!normalizedOrderId) {
+      continue
+    }
+
+    let providerOrderId: string | null = null
+
+    if (knownProviderOrderIds.has(normalizedOrderId)) {
+      providerOrderId = normalizedOrderId
+    } else if (legacyLookupCache.has(normalizedOrderId)) {
+      providerOrderId = legacyLookupCache.get(normalizedOrderId) ?? null
+    } else {
+      const legacyOrder = await convexQuery(api.orders.getOrderById, {
+        orderId: normalizedOrderId,
+      })
+      const fallbackProviderOrderId =
+        legacyOrder && typeof legacyOrder.providerOrderId === "string"
+          ? legacyOrder.providerOrderId.trim()
+          : ""
+
+      providerOrderId = fallbackProviderOrderId || null
+      legacyLookupCache.set(normalizedOrderId, providerOrderId)
+    }
+
+    if (!providerOrderId || !knownProviderOrderIds.has(providerOrderId)) {
+      continue
+    }
+
+    matchedTotalsByProviderOrderId.set(
+      providerOrderId,
+      (matchedTotalsByProviderOrderId.get(providerOrderId) ?? 0) +
+        payment.amountMinor
+    )
+  }
+
+  return matchedTotalsByProviderOrderId
 }
 
 export async function getReconciliationRows(
@@ -137,6 +217,9 @@ export async function getReconciliationRows(
     convexQuery(api.events.getEventsForLedger, {}),
   ])
 
+  const matchedTotalsByProviderOrderId =
+    await buildMatchedTotalsByProviderOrderId(orders)
+
   const rows: ReconciliationRow[] = []
   let outstandingMinor = 0
 
@@ -147,6 +230,8 @@ export async function getReconciliationRows(
       normalizedStatus: order.normalizedStatus,
       totalAmountMinor: order.totalAmountMinor,
       refundedAt: refundedAtDate,
+      matchedAmountMinor:
+        matchedTotalsByProviderOrderId.get(order.providerOrderId) ?? 0,
     })
 
     if (reconciliation.reasons.length === 0) {
