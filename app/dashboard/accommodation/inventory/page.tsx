@@ -133,6 +133,10 @@ export default function RoomInventoryPage() {
   const [errors, setErrors] = useState<InventoryErrorState>(emptyErrors)
   const [isLoading, setIsLoading] = useState(true)
   const [isMutating, setIsMutating] = useState(false)
+  const [deletingHotelId, setDeletingHotelId] = useState<string | null>(null)
+  const [hotelDeleteErrors, setHotelDeleteErrors] = useState<
+    Record<string, string>
+  >({})
 
   const [hotelName, setHotelName] = useState("")
   const [hotelCity, setHotelCity] = useState("")
@@ -399,6 +403,58 @@ export default function RoomInventoryPage() {
       await loadInventory()
     } finally {
       setIsMutating(false)
+    }
+  }
+
+  async function deleteHotelFromInventory(hotelId: string, hotelName: string) {
+    const shouldDelete = window.confirm(
+      `Delete hotel "${hotelName}"? This only succeeds when the hotel has no rooms and no linked event scope.`
+    )
+
+    if (!shouldDelete) {
+      return
+    }
+
+    setDeletingHotelId(hotelId)
+    setHotelDeleteErrors((current) => {
+      if (!current[hotelId]) {
+        return current
+      }
+
+      const next = { ...current }
+      delete next[hotelId]
+      return next
+    })
+
+    try {
+      const response = await fetch(
+        `/api/dashboard/accommodation/hotels/${hotelId}`,
+        {
+          method: "DELETE",
+        }
+      )
+
+      const body = (await response.json().catch(() => null)) as {
+        error?: { message?: string }
+      } | null
+
+      if (!response.ok) {
+        setHotelDeleteErrors((current) => ({
+          ...current,
+          [hotelId]:
+            body?.error?.message ?? "Failed to delete hotel. Please try again.",
+        }))
+        return
+      }
+
+      await loadInventory()
+    } catch {
+      setHotelDeleteErrors((current) => ({
+        ...current,
+        [hotelId]: "Network error while deleting hotel.",
+      }))
+    } finally {
+      setDeletingHotelId(null)
     }
   }
 
@@ -722,12 +778,32 @@ export default function RoomInventoryPage() {
                           </CardDescription>
                         </div>
                       </div>
-                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-medium tracking-[0.14em] text-emerald-700 uppercase dark:bg-emerald-950/30 dark:text-emerald-300">
-                        Active
-                      </span>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-medium tracking-[0.14em] text-emerald-700 uppercase dark:bg-emerald-950/30 dark:text-emerald-300">
+                          Active
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="text-red-600 hover:text-red-600 dark:text-red-400"
+                          disabled={isMutating || deletingHotelId !== null}
+                          onClick={() =>
+                            void deleteHotelFromInventory(hotel.id, hotel.name)
+                          }
+                        >
+                          {deletingHotelId === hotel.id
+                            ? "Deleting..."
+                            : "Delete hotel"}
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="pt-5">
+                    {hotelDeleteErrors[hotel.id] && (
+                      <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
+                        {hotelDeleteErrors[hotel.id]}
+                      </p>
+                    )}
                     {hotelRooms.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
                         No room stock configured for this hotel yet.
