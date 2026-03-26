@@ -885,8 +885,15 @@ export const deleteHotel = mutation({
       .withIndex("hotelId_label", (q) => q.eq("hotelId", args.hotelId))
       .collect()
 
-    if (rooms.length > 0) {
-      throw new Error("Cannot delete hotel with existing rooms")
+    for (const room of rooms) {
+      const assignedAttendee = await ctx.db
+        .query("ticketTailorAttendees")
+        .withIndex("assignedRoomId", (q) => q.eq("assignedRoomId", room._id))
+        .first()
+
+      if (assignedAttendee) {
+        throw new Error("Cannot delete hotel with assigned attendees")
+      }
     }
 
     const eventHotels = await ctx.db
@@ -894,8 +901,12 @@ export const deleteHotel = mutation({
       .withIndex("hotelId", (q) => q.eq("hotelId", args.hotelId))
       .collect()
 
-    if (eventHotels.length > 0) {
-      throw new Error("Cannot delete hotel with linked event scopes")
+    for (const room of rooms) {
+      await ctx.db.delete("accommodationRooms", room._id)
+    }
+
+    for (const eventHotel of eventHotels) {
+      await ctx.db.delete("accommodationEventHotels", eventHotel._id)
     }
 
     await ctx.db.delete("accommodationHotels", hotelId)
