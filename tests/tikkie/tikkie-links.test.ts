@@ -51,10 +51,6 @@ vi.mock("@/lib/auth/server", () => ({
   requireApiUser: mocks.requireApiUser,
 }))
 
-vi.mock("@/lib/prisma", () => ({
-  prisma: mocks.prisma,
-}))
-
 vi.mock("@/lib/integrations/tikkie/client", () => ({
   createPaymentRequest: mocks.createPaymentRequest,
   getPaymentRequest: mocks.getPaymentRequest,
