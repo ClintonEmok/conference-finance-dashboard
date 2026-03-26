@@ -219,13 +219,16 @@ Plans:
 
 - [ ] TBD (promote with /gsd-review-backlog when ready)
 
-### Phase 12: migrate auth to convex
+### Phase 12: use clerk as only auth remove stale better auth
 
-**Goal:** [To be planned]
+**Goal:** Dashboard pages and protected app routes use Clerk as the only auth system, Better Auth runtime artifacts are removed, and Convex receives Clerk identity tokens.
 **Requirements**: TBD
 **Depends on:** Phase 11
-**Plans:** 0 plans
+**Plans:** 4 plans
 
 Plans:
 
-- [ ] TBD (run /gsd:plan-phase 12 to break down)
+- [ ] 12-01-PLAN.md — Create Clerk server auth helpers and wire Convex to authenticated Clerk sessions
+- [ ] 12-02-PLAN.md — Protect dashboard routes with Clerk and replace the old login/logout flow
+- [ ] 12-03-PLAN.md — Migrate protected API route guards and auth-sensitive tests from Better Auth to Clerk
+- [ ] 12-04-PLAN.md — Remove stale Better Auth runtime files/packages and run final Clerk auth verification
