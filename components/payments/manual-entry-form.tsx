@@ -156,7 +156,7 @@ export function ManualPaymentEntryForm({ onSuccess }: ManualEntryFormProps) {
 
   function handleSelectOrder(order: Order) {
     setSelectedOrder(order)
-    setValues((current) => ({ ...current, orderId: order.id }))
+    setValues((current) => ({ ...current, orderId: order.providerOrderId }))
     setOrderSearch(order.buyerName || order.providerOrderId)
     setShowDropdown(false)
   }
@@ -180,7 +180,7 @@ export function ManualPaymentEntryForm({ onSuccess }: ManualEntryFormProps) {
           ? "/api/payments/bank-transfer"
           : "/api/payments/cash"
       const body = {
-        orderId: values.orderId,
+        orderId: selectedOrder?.providerOrderId ?? values.orderId,
         amountMinor: values.amountMinor,
         paidAt: values.paidAt,
         payerName: values.payerName.trim(),

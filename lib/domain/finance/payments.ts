@@ -91,6 +91,9 @@ type ConvexPayment = {
 }
 
 function mapPaymentDto(payment: ConvexPayment): PaymentDto {
+  const normalizedOrderId =
+    typeof payment.orderId === "string" ? payment.orderId.trim() : ""
+
   return {
     _id: payment._id,
     source: payment.source,
@@ -99,7 +102,7 @@ function mapPaymentDto(payment: ConvexPayment): PaymentDto {
     payerAccountNumber: payment.payerAccountNumber ?? null,
     amountMinor: payment.amountMinor,
     paidAt: payment.paidAt,
-    orderId: payment.orderId ?? null,
+    orderId: normalizedOrderId || null,
     status: payment.status ?? null,
     matchedAt: payment.matchedAt ?? null,
     matchedBy: payment.matchedBy ?? null,
@@ -107,6 +110,16 @@ function mapPaymentDto(payment: ConvexPayment): PaymentDto {
     notes: payment.notes ?? null,
     providerPayload: payment.providerPayload ?? null,
   }
+}
+
+function normalizeRequiredOrderId(value: string): string {
+  const normalized = value.trim()
+
+  if (!normalized) {
+    throw new Error("Invalid 'orderId'. Value is required.")
+  }
+
+  return normalized
 }
 
 function normalizeAmountMinor(value: number): number {
@@ -139,7 +152,7 @@ export async function createBankTransferPayment(
   userId: string
 ): Promise<PaymentDto> {
   const validated = {
-    orderId: input.orderId.trim(),
+    orderId: normalizeRequiredOrderId(input.orderId),
     amountMinor: normalizeAmountMinor(input.amountMinor),
     paidAt: normalizePaidAt(input.paidAt),
     payerName: normalizePayerName(input.payerName),
@@ -176,7 +189,7 @@ export async function createCashPayment(
   userId: string
 ): Promise<PaymentDto> {
   const validated = {
-    orderId: input.orderId.trim(),
+    orderId: normalizeRequiredOrderId(input.orderId),
     amountMinor: normalizeAmountMinor(input.amountMinor),
     paidAt: normalizePaidAt(input.paidAt),
     payerName: normalizePayerName(input.payerName),
@@ -209,7 +222,7 @@ export async function assignPaymentToOrder(
   input: AssignPaymentInput,
   userId: string
 ): Promise<PaymentDto> {
-  const validatedOrderId = input.orderId.trim()
+  const validatedOrderId = normalizeRequiredOrderId(input.orderId)
 
   await convexMutation(api.payments.assignPaymentToOrder, {
     paymentId: paymentId as Id<"payments">,

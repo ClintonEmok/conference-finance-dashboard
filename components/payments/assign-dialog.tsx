@@ -121,7 +121,7 @@ export function AssignDialog({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          orderId: selectedOrder.id,
+          orderId: selectedOrder.providerOrderId,
         }),
       })
 
