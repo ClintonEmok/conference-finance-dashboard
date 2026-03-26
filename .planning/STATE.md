@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed plan 11-05 (API routes migrated to Convex)
-last_updated: "2026-03-25T17:53:21.258Z"
+stopped_at: Completed quick task 260326-163 (Clerk App Router wiring)
+last_updated: "2026-03-26T00:08:29Z"
 progress:
   total_phases: 13
   completed_phases: 11
@@ -24,8 +24,8 @@ See: `.planning/PROJECT.md` (updated 2026-03-18)
 ## Current Position
 
 Phase: 999.1
-Plan: Not started
-Status: In progress - API routes done, e2e verify + deploy remaining (11-05 tasks 2-4)
+Plan: Quick task 260326-163 complete
+Status: In progress - quick Clerk shell wiring complete; phase 11 e2e verify + deploy and phase 12 auth migration still pending
 
 ## Performance Metrics
 
@@ -131,6 +131,8 @@ Recent decisions affecting current work:
 - [11-05] API routes use direct HTTP fetch to Convex URL via convexQuery/convexMutation helpers instead of ConvexClient.
 - [11-05] Payments list route delegates to domain layer (listPayments) rather than calling Convex directly, maintaining abstraction.
 - [11-05] Tikkie sync route inlines its own convexQuery helper rather than importing from lib/convex/server.ts.
+- [260326-163] Use Clerk's App Router quickstart with proxy.ts + ClerkProvider in keyless mode before deeper auth migration work.
+- [260326-163] Remove legacy Better Auth middleware when switching the root auth entry to Clerk to avoid conflicting route guards.
 
 ### Roadmap Evolution
 
@@ -150,6 +152,7 @@ Recent decisions affecting current work:
 ### Blockers/Concerns
 
 - E2E verification and production deploy still pending (11-05 tasks 2-4)
+- Repo-wide lint still has unrelated existing errors outside the Clerk quick-task files.
 - `lib/prisma.ts` and `lib/auth.ts` still use Prisma for better-auth adapter (expected, intentional)
 - Phase 6 complete. All Tikkie operator workflows shipped.
 - Real provider verification for Tikkie still depends on `TIKKIE_API_KEY`, `TIKKIE_APP_TOKEN`, and the active webhook callback subscription being configured.
@@ -166,9 +169,10 @@ Recent decisions affecting current work:
 | 260322-14a | refactor financial page align colours          | 2026-03-22 | 40d652c | [260322-14a-refactor-financial-page-align-colours-wi](./quick/260322-14a-refactor-financial-page-align-colours-wi/) |
 | 260322-xao | redesign reconciliation page mobile-friendly   | 2026-03-22 | 57fbf7e | [260322-xao-design-reconciliation-page-mobile-friend](./quick/260322-xao-design-reconciliation-page-mobile-friend/) |
 | 260323-07i | redesign reconciliation desktop into card grid | 2026-03-23 | 7d9b1cf | [260323-07i-redesign-desktop-reconciliation-table-in](./quick/260323-07i-redesign-desktop-reconciliation-table-in/) |
+| 260326-163 | add Clerk to Next.js App Router                | 2026-03-26 | 0629e57 | [260326-163-add-clerk-to-next-js-app-router](./quick/260326-163-add-clerk-to-next-js-app-router/)                   |
 
 ## Session Continuity
 
-Last session: 2026-03-25T17:45:22Z
-Stopped at: Completed plan 11-05 (API routes migrated to Convex)
+Last session: 2026-03-26T00:08:29Z
+Stopped at: Completed quick task 260326-163 (Clerk App Router wiring)
 Resume file: None
