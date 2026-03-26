@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: complete
-stopped_at: Completed 260326-ijx-PLAN.md
-last_updated: "2026-03-26T12:30:35Z"
+stopped_at: Completed 260326-it5-PLAN.md
+last_updated: "2026-03-26T12:39:09Z"
 progress:
   total_phases: 16
   completed_phases: 9
@@ -25,7 +25,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 Phase: 13 (rebuild-convex-mutation-and-api-layer-from-clean-contracts) — COMPLETE
 Plan: 5 of 5
-Quick task: 260326-i7e (the-manual-payment-didnt-update-the-outs) — COMPLETE
+Quick task: 260326-it5 (allow-hotels-to-be-deleted-if-there-aree) — COMPLETE
 
 ## Alignment Status
 
@@ -44,6 +44,8 @@ Quick task: 260326-i7e (the-manual-payment-didnt-update-the-outs) — COMPLETE
 - Manual payment creation and assignment now link orders using `providerOrderId`, keeping new payment/order references consistent across finance views.
 - Reconciliation outstanding totals now subtract matched manual/auto payments by provider order id with legacy Convex-id fallback resolution.
 - Payments API rows now enrich linked payments with resolved order blocks (`id`, `providerOrderId`, `buyerName`, `totalAmountMinor`) using provider-first lookup.
+- Hotel deletion guards now use real attendee assignments (`assignedRoomId`) as the blocker condition, not `occupiedBeds` counters.
+- Accommodation inventory now exposes room-type delete actions end-to-end (UI -> protected API -> domain), with clear blocked-state feedback when rooms still use the type.
 
 ## Key Decisions
 
@@ -71,6 +73,7 @@ Recent decisions that future work should preserve:
 - [260326-ib1] Keep accommodation destructive actions guard-first: block room deletion when attendees are assigned and block hotel deletion while rooms or event-scope links exist, with explicit `Cannot delete...` API feedback.
 - [260326-i7e] Treat `providerOrderId` as canonical for manual payment links, while preserving legacy Convex-id payment compatibility through read-time order resolution in reconciliation and payments APIs.
 - [260326-ijx] Add dedicated unassigned payments page at `/dashboard/reconciliation/payments` with source/date filtering and AssignDialog integration.
+- [260326-it5] Block hotel deletion only when attendees are assigned to its rooms, and expose room-type deletion through protected API and inventory UI with explicit `Cannot delete...` messaging.
 
 ## Active Patterns / Constraints
 
@@ -86,6 +89,8 @@ Recent decisions that future work should preserve:
 - Reconciliation follow-up links should be generated via shared helper logic and upgrade to attendee-detail routes as attendee ids resolve per row.
 - Accommodation inventory delete actions must require explicit operator confirmation and display backend `Cannot delete...` reasons inline when dependency guards block deletion.
 - Manual payment writes should persist Ticket Tailor `providerOrderId`; read paths must support provider-id first with Convex-id fallback for pre-existing payment records.
+- Hotel delete checks should use attendee assignment truth (`ticketTailorAttendees.assignedRoomId`) rather than `occupiedBeds` counters.
+- Room-type inventory cards should provide delete actions with confirm prompts, in-flight disablement, and inline server error feedback.
 
 ## Blockers / Concerns
 
@@ -106,6 +111,7 @@ Recent decisions that future work should preserve:
 | 260326-ib1 | for room inventory we need to be to able to delete rooms and hotels if they have no assinged to them | 2026-03-26 | 93cf05b | [260326-ib1-for-room-inventory-we-need-to-be-to-able](./quick/260326-ib1-for-room-inventory-we-need-to-be-to-able/) |
 | 260326-i7e | the manual payment didnt update the outstanding totals                                               | 2026-03-26 | 3431335 | [260326-i7e-the-manual-payment-didnt-update-the-outs](./quick/260326-i7e-the-manual-payment-didnt-update-the-outs/) |
 | 260326-ijx | create the ui for reconciliation route                                                               | 2026-03-26 | 4af536d | [260326-ijx-create-the-ui-for-reconciliation-route-t](./quick/260326-ijx-create-the-ui-for-reconciliation-route-t/) |
+| 260326-it5 | allow hotels to be deleted if there aree                                                             | 2026-03-26 | 8dbce91 | [260326-it5-allow-hotels-to-be-deleted-if-there-aree](./quick/260326-it5-allow-hotels-to-be-deleted-if-there-aree/) |
 
 ## Accumulated Context
 
@@ -117,8 +123,8 @@ Recent decisions that future work should preserve:
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-26 - Completed quick task 260326-ijx: dedicated unassigned payments assignment page at /dashboard/reconciliation/payments
-- **Last session:** 2026-03-26T12:30:35Z
-- **Stopped at:** Completed 260326-ijx-PLAN.md
+- **Last activity:** 2026-03-26 - Completed quick task 260326-it5: hotel delete guard now checks assigned attendees and room-type delete is available from inventory UI
+- **Last session:** 2026-03-26T12:39:09Z
+- **Stopped at:** Completed 260326-it5-PLAN.md
 - **Resume file:** None
 - **Next recommended plan:** Review `.planning/ROADMAP.md` for next phase or add new phases
