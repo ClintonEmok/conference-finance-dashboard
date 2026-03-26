@@ -35,6 +35,7 @@ type InventoryPayload = {
     id: string
     label: string
     defaultCapacity: number
+    roomCount: number
   }>
   rooms: Array<{
     id: string
@@ -135,6 +136,12 @@ export default function RoomInventoryPage() {
   const [isMutating, setIsMutating] = useState(false)
   const [deletingHotelId, setDeletingHotelId] = useState<string | null>(null)
   const [hotelDeleteErrors, setHotelDeleteErrors] = useState<
+    Record<string, string>
+  >({})
+  const [deletingRoomTypeId, setDeletingRoomTypeId] = useState<string | null>(
+    null
+  )
+  const [roomTypeDeleteErrors, setRoomTypeDeleteErrors] = useState<
     Record<string, string>
   >({})
 
@@ -408,7 +415,7 @@ export default function RoomInventoryPage() {
 
   async function deleteHotelFromInventory(hotelId: string, hotelName: string) {
     const shouldDelete = window.confirm(
-      `Delete hotel "${hotelName}"? This only succeeds when the hotel has no rooms and no linked event scope.`
+      `Delete hotel "${hotelName}"? This only succeeds when no attendees are assigned to any room in this hotel.`
     )
 
     if (!shouldDelete) {
@@ -455,6 +462,62 @@ export default function RoomInventoryPage() {
       }))
     } finally {
       setDeletingHotelId(null)
+    }
+  }
+
+  async function deleteRoomTypeFromInventory(
+    roomTypeId: string,
+    roomTypeLabel: string
+  ) {
+    const shouldDelete = window.confirm(
+      `Delete room type "${roomTypeLabel}"? This only succeeds when no rooms use this type.`
+    )
+
+    if (!shouldDelete) {
+      return
+    }
+
+    setDeletingRoomTypeId(roomTypeId)
+    setRoomTypeDeleteErrors((current) => {
+      if (!current[roomTypeId]) {
+        return current
+      }
+
+      const next = { ...current }
+      delete next[roomTypeId]
+      return next
+    })
+
+    try {
+      const response = await fetch(
+        `/api/dashboard/accommodation/room-types/${roomTypeId}`,
+        {
+          method: "DELETE",
+        }
+      )
+
+      const body = (await response.json().catch(() => null)) as {
+        error?: { message?: string }
+      } | null
+
+      if (!response.ok) {
+        setRoomTypeDeleteErrors((current) => ({
+          ...current,
+          [roomTypeId]:
+            body?.error?.message ??
+            "Failed to delete room type. Please try again.",
+        }))
+        return
+      }
+
+      await loadInventory()
+    } catch {
+      setRoomTypeDeleteErrors((current) => ({
+        ...current,
+        [roomTypeId]: "Network error while deleting room type.",
+      }))
+    } finally {
+      setDeletingRoomTypeId(null)
     }
   }
 
@@ -714,6 +777,65 @@ export default function RoomInventoryPage() {
           </CardContent>
         </Card>
       </section>
+
+      <Card className="bg-background/88 backdrop-blur">
+        <CardHeader>
+          <CardDescription className="text-[11px] font-semibold tracking-[0.18em] text-primary/70 uppercase">
+            Room type catalog
+          </CardDescription>
+          <CardTitle className="text-xl font-semibold tracking-tight">
+            Manage room templates
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {payload.roomTypes.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No room types configured yet.
+            </p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {payload.roomTypes.map((roomType) => (
+                <article
+                  key={roomType.id}
+                  className="rounded-lg border border-border/70 bg-background p-4"
+                >
+                  <p className="font-medium text-foreground">
+                    {roomType.label}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Capacity {roomType.defaultCapacity} · {roomType.roomCount}{" "}
+                    room
+                    {roomType.roomCount === 1 ? "" : "s"}
+                  </p>
+
+                  {roomTypeDeleteErrors[roomType.id] && (
+                    <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
+                      {roomTypeDeleteErrors[roomType.id]}
+                    </p>
+                  )}
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-4 w-full text-red-600 hover:text-red-600 dark:text-red-400"
+                    disabled={isMutating || deletingRoomTypeId !== null}
+                    onClick={() =>
+                      void deleteRoomTypeFromInventory(
+                        roomType.id,
+                        roomType.label
+                      )
+                    }
+                  >
+                    {deletingRoomTypeId === roomType.id
+                      ? "Deleting..."
+                      : "Delete room type"}
+                  </Button>
+                </article>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <section className="space-y-4">
         <div className="space-y-4">
