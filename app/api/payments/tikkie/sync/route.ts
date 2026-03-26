@@ -1,7 +1,6 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
+import { requireApiUser } from "@/lib/auth/server"
 import {
   syncTikkiePayments,
   autoMatchPayments,
@@ -37,8 +36,11 @@ function unauthorized() {
 }
 
 export async function POST() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session) return unauthorized()
+  const authResult = await requireApiUser()
+
+  if (authResult instanceof NextResponse) {
+    return authResult
+  }
 
   const result = {
     synced: 0,

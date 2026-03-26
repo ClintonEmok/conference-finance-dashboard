@@ -1,26 +1,15 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
+import { requireApiUser } from "@/lib/auth/server"
 import { getTikkieConfig } from "@/lib/integrations/tikkie/config"
 import { subscribePaymentRequestNotifications } from "@/lib/integrations/tikkie/client"
 
 export async function POST(_request: Request) {
   // Authenticate request
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        },
-      },
-      { status: 401 }
-    )
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   // Check if subscription setup is enabled

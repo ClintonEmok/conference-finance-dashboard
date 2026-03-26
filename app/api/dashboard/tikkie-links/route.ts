@@ -1,7 +1,6 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
+import { requireApiUser } from "@/lib/auth/server"
 import {
   createTikkiePaymentLink,
   listTikkiePaymentLinksByOrder,
@@ -91,12 +90,10 @@ function parseCreateBody(body: CreateBody) {
 }
 
 export async function GET(request: Request) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return unauthorized()
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   const url = new URL(request.url)
@@ -142,12 +139,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return unauthorized()
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   let payload: CreateBody

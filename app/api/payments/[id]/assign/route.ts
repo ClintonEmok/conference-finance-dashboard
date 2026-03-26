@@ -1,7 +1,6 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
+import { requireApiUser } from "@/lib/auth/server"
 import { assignPaymentToOrder } from "@/lib/domain/finance/payments"
 
 type AssignBody = {
@@ -68,12 +67,10 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return unauthorized()
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   const { id: paymentId } = await params
@@ -95,7 +92,7 @@ export async function PATCH(
     const payment = await assignPaymentToOrder(
       paymentId,
       input,
-      session.user.id
+      authResult.userId
     )
 
     return NextResponse.json({
