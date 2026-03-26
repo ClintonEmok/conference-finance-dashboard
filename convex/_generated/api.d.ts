@@ -688,7 +688,7 @@ export declare const api: {
         familyGroupId: Id<"attendeeFamilyGroups">;
         relationship?: string;
       },
-      any
+      Id<"attendeeFamilyMembers">
     >;
     completeSyncRun: FunctionReference<
       "mutation",
@@ -704,19 +704,19 @@ export declare const api: {
         runId: Id<"ticketTailorSyncRuns">;
         status: "success" | "partial" | "failed";
       },
-      any
+      Id<"ticketTailorSyncRuns">
     >;
     createAttendeeFamilyGroup: FunctionReference<
       "mutation",
       "public",
       { label?: string; primaryAttendeeId: string },
-      any
+      Id<"attendeeFamilyGroups">
     >;
     createWebhookEvent: FunctionReference<
       "mutation",
       "public",
       { eventType: string; payload: any; providerEventId: string },
-      any
+      Id<"ticketTailorWebhookEvents">
     >;
     getAttendeeFamilyGroupByPrimaryId: FunctionReference<
       "query",
@@ -790,7 +790,12 @@ export declare const api: {
       },
       any
     >;
-    startSyncRun: FunctionReference<"mutation", "public", {}, any>;
+    startSyncRun: FunctionReference<
+      "mutation",
+      "public",
+      {},
+      Id<"ticketTailorSyncRuns">
+    >;
     updateSyncRun: FunctionReference<
       "mutation",
       "public",
@@ -804,7 +809,7 @@ export declare const api: {
         ordersUpserted?: number;
         runId: Id<"ticketTailorSyncRuns">;
       },
-      any
+      Id<"ticketTailorSyncRuns">
     >;
     updateWebhookEvent: FunctionReference<
       "mutation",
@@ -847,7 +852,7 @@ export declare const api: {
         ticketStatus?: string;
         ticketTypeLabel?: string;
       },
-      any
+      Id<"ticketTailorAttendees">
     >;
     upsertTicketTailorEvent: FunctionReference<
       "mutation",
@@ -861,7 +866,7 @@ export declare const api: {
         startsAt?: number;
         timezone?: string;
       },
-      any
+      Id<"ticketTailorEvents">
     >;
     upsertTicketTailorOrder: FunctionReference<
       "mutation",
@@ -882,7 +887,7 @@ export declare const api: {
         refundedAt?: number;
         totalAmountMinor?: number;
       },
-      any
+      Id<"ticketTailorOrders">
     >;
   };
   tikkie: {

@@ -305,7 +305,6 @@ function isOrderInScope(orderDate: Date | null, scope: NormalizedScope) {
 }
 
 async function linkAttendeesAsFamily(
-  eventId: string,
   orderId: string,
   attendeeCount: number
 ): Promise<void> {
@@ -429,18 +428,15 @@ export async function runTicketTailorSync(
       const endDateTime =
         parseDate(eventPayload.end_date) ?? parseDate(eventPayload.ends_at)
 
-      const eventRecord = await convexMutation(
-        api.sync.upsertTicketTailorEvent,
-        {
-          providerEventId,
-          name: extractEventName(eventPayload) ?? undefined,
-          startsAt: startDateTime ? startDateTime.getTime() : undefined,
-          endsAt: endDateTime ? endDateTime.getTime() : undefined,
-          timezone: extractEventTimezone(eventPayload) ?? undefined,
-          currency: extractEventCurrency(eventPayload) ?? undefined,
-          rawPayload: eventPayload,
-        }
-      )
+      const eventId = await convexMutation(api.sync.upsertTicketTailorEvent, {
+        providerEventId,
+        name: extractEventName(eventPayload) ?? undefined,
+        startsAt: startDateTime ? startDateTime.getTime() : undefined,
+        endsAt: endDateTime ? endDateTime.getTime() : undefined,
+        timezone: extractEventTimezone(eventPayload) ?? undefined,
+        currency: extractEventCurrency(eventPayload) ?? undefined,
+        rawPayload: eventPayload,
+      })
 
       const ordersResult = await fetchTicketTailorOrdersByEventPaginated(
         providerEventId,
@@ -482,26 +478,23 @@ export async function runTicketTailorSync(
           }
         }
 
-        const orderRecord = await convexMutation(
-          api.sync.upsertTicketTailorOrder,
-          {
-            providerOrderId,
-            providerEventId: orderProviderEventId,
-            eventId: eventRecord._id,
-            normalizedStatus: normalization.normalizedStatus,
-            providerStatus:
-              statusSignals.find((signal) => Boolean(signal)) ?? undefined,
-            normalizationNote: normalization.note ?? undefined,
-            buyerEmail: extractBuyerEmail(orderPayload) ?? undefined,
-            buyerName: extractBuyerName(orderPayload) ?? undefined,
-            currency: extractOrderCurrency(orderPayload) ?? undefined,
-            totalAmountMinor: extractOrderTotalMinor(orderPayload) ?? undefined,
-            orderedAt: orderedAt ? orderedAt.getTime() : undefined,
-            refundedAt: extractRefundedAt(orderPayload) ?? undefined,
-            cancelledAt: extractCancelledAt(orderPayload) ?? undefined,
-            rawPayload: orderPayload,
-          }
-        )
+        const orderId = await convexMutation(api.sync.upsertTicketTailorOrder, {
+          providerOrderId,
+          providerEventId: orderProviderEventId,
+          eventId,
+          normalizedStatus: normalization.normalizedStatus,
+          providerStatus:
+            statusSignals.find((signal) => Boolean(signal)) ?? undefined,
+          normalizationNote: normalization.note ?? undefined,
+          buyerEmail: extractBuyerEmail(orderPayload) ?? undefined,
+          buyerName: extractBuyerName(orderPayload) ?? undefined,
+          currency: extractOrderCurrency(orderPayload) ?? undefined,
+          totalAmountMinor: extractOrderTotalMinor(orderPayload) ?? undefined,
+          orderedAt: orderedAt ? orderedAt.getTime() : undefined,
+          refundedAt: extractRefundedAt(orderPayload) ?? undefined,
+          cancelledAt: extractCancelledAt(orderPayload) ?? undefined,
+          rawPayload: orderPayload,
+        })
 
         ordersUpserted += 1
 
@@ -563,8 +556,8 @@ export async function runTicketTailorSync(
               extractTicketTypeId(attendeePayload) ?? undefined,
             providerEventId: attendeeProviderEventId,
             providerOrderId: attendeeProviderOrderId,
-            eventId: eventRecord._id,
-            orderId: orderRecord._id,
+            eventId,
+            orderId,
             name: extractAttendeeName(attendeePayload) ?? undefined,
             email: extractAttendeeEmail(attendeePayload) ?? undefined,
             ticketTypeLabel,
@@ -582,11 +575,7 @@ export async function runTicketTailorSync(
         }
 
         if (attendeeResult.items.length > 1) {
-          await linkAttendeesAsFamily(
-            eventRecord._id,
-            orderRecord._id,
-            attendeeResult.items.length
-          )
+          await linkAttendeesAsFamily(orderId, attendeeResult.items.length)
         }
       }
     }

@@ -32,6 +32,7 @@ export const getLatestSyncRun = query({
 
 export const startSyncRun = mutation({
   args: {},
+  returns: v.id("ticketTailorSyncRuns"),
   handler: async (ctx) => {
     const id = await ctx.db.insert("ticketTailorSyncRuns", {
       status: "running",
@@ -57,6 +58,7 @@ export const updateSyncRun = mutation({
     errorSummary: v.optional(v.string()),
     diagnostics: v.optional(v.any()),
   },
+  returns: v.id("ticketTailorSyncRuns"),
   handler: async (ctx, args) => {
     const { runId, ...updates } = args
     await ctx.db.patch("ticketTailorSyncRuns", runId, updates)
@@ -80,6 +82,7 @@ export const completeSyncRun = mutation({
     normalizedFallbackCount: v.optional(v.number()),
     failedItems: v.optional(v.number()),
   },
+  returns: v.id("ticketTailorSyncRuns"),
   handler: async (ctx, args) => {
     await ctx.db.patch("ticketTailorSyncRuns", args.runId, {
       status: args.status,
@@ -136,6 +139,7 @@ export const createWebhookEvent = mutation({
     eventType: v.string(),
     payload: v.any(),
   },
+  returns: v.id("ticketTailorWebhookEvents"),
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("ticketTailorWebhookEvents")
@@ -173,6 +177,7 @@ export const upsertTicketTailorEvent = mutation({
     currency: v.optional(v.string()),
     rawPayload: v.any(),
   },
+  returns: v.id("ticketTailorEvents"),
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("ticketTailorEvents")
@@ -228,6 +233,7 @@ export const upsertTicketTailorOrder = mutation({
     cancelledAt: v.optional(v.number()),
     rawPayload: v.any(),
   },
+  returns: v.id("ticketTailorOrders"),
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("ticketTailorOrders")
@@ -294,6 +300,7 @@ export const upsertTicketTailorAttendee = mutation({
     ),
     priorityReason: v.optional(v.string()),
   },
+  returns: v.id("ticketTailorAttendees"),
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("ticketTailorAttendees")
@@ -334,6 +341,7 @@ export const createAttendeeFamilyGroup = mutation({
     label: v.optional(v.string()),
     primaryAttendeeId: v.string(),
   },
+  returns: v.id("attendeeFamilyGroups"),
   handler: async (ctx, args) => {
     const id = await ctx.db.insert("attendeeFamilyGroups", args)
     return id
@@ -359,6 +367,7 @@ export const addAttendeeToFamilyGroup = mutation({
     attendeeId: v.string(),
     relationship: v.optional(v.string()),
   },
+  returns: v.id("attendeeFamilyMembers"),
   handler: async (ctx, args) => {
     const id = await ctx.db.insert("attendeeFamilyMembers", args)
     return id
