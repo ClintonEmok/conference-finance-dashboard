@@ -1,8 +1,10 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
-import { attachHotelToEvent, detachHotelFromEvent } from "@/lib/domain/accommodation/inventory"
+import { requireApiUser } from "@/lib/auth/server"
+import {
+  attachHotelToEvent,
+  detachHotelFromEvent,
+} from "@/lib/domain/accommodation/inventory"
 
 function unauthorized() {
   return NextResponse.json(
@@ -12,7 +14,7 @@ function unauthorized() {
         message: "Authentication required",
       },
     },
-    { status: 401 },
+    { status: 401 }
   )
 }
 
@@ -24,27 +26,25 @@ function badRequest(message: string) {
         message,
       },
     },
-    { status: 400 },
+    { status: 400 }
   )
 }
 
 async function requireSession() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return null
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
-  return session
+  return authResult
 }
 
 export async function POST(request: Request) {
   const session = await requireSession()
 
-  if (!session) {
-    return unauthorized()
+  if (session instanceof NextResponse) {
+    return session
   }
 
   let body: { eventId?: unknown; hotelId?: unknown }
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
           message: "Failed to attach hotel to event",
         },
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }
@@ -84,8 +84,8 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const session = await requireSession()
 
-  if (!session) {
-    return unauthorized()
+  if (session instanceof NextResponse) {
+    return session
   }
 
   let body: { eventId?: unknown; hotelId?: unknown }
@@ -117,7 +117,7 @@ export async function DELETE(request: Request) {
           message: "Failed to detach hotel from event",
         },
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

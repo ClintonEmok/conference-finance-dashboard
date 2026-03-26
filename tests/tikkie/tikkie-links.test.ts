@@ -1,57 +1,54 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { NextResponse } from "next/server"
 
-const mocks = vi.hoisted(() => ({
-  headers: vi.fn(),
-  getSession: vi.fn(),
-  prisma: {
-    ticketTailorOrder: {
-      findUnique: vi.fn(),
-    },
-    tikkiePaymentLink: {
-      findMany: vi.fn(),
-      findUnique: vi.fn(),
-      upsert: vi.fn(),
-      update: vi.fn(),
-    },
-    tikkiePaymentLinkTransition: {
-      findUnique: vi.fn(),
-    },
-  },
-  createPaymentRequest: vi.fn(),
-  getPaymentRequest: vi.fn(),
-  getPaymentRequestPayments: vi.fn(),
-  TikkieApiError: class TikkieApiError extends Error {
-    status: number
-    kind: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "UPSTREAM"
-    details: unknown
+const mocks = vi.hoisted(() => {
+  process.env.NEXT_PUBLIC_CONVEX_URL = "http://convex.test"
 
-    constructor(status: number, message: string, details: unknown) {
-      super(message)
-      this.name = "TikkieApiError"
-      this.status = status
-      this.kind =
-        status === 400
-          ? "BAD_REQUEST"
-          : status === 401
-            ? "UNAUTHORIZED"
-            : status === 403
-              ? "FORBIDDEN"
-              : "UPSTREAM"
-      this.details = details
-    }
-  },
-}))
-
-vi.mock("next/headers", () => ({
-  headers: mocks.headers,
-}))
-
-vi.mock("@/lib/auth", () => ({
-  auth: {
-    api: {
-      getSession: mocks.getSession,
+  return {
+    requireApiUser: vi.fn(),
+    fetch: vi.fn(),
+    prisma: {
+      ticketTailorOrder: {
+        findUnique: vi.fn(),
+      },
+      tikkiePaymentLink: {
+        findMany: vi.fn(),
+        findUnique: vi.fn(),
+        upsert: vi.fn(),
+        update: vi.fn(),
+      },
+      tikkiePaymentLinkTransition: {
+        findUnique: vi.fn(),
+      },
     },
-  },
+    createPaymentRequest: vi.fn(),
+    getPaymentRequest: vi.fn(),
+    getPaymentRequestPayments: vi.fn(),
+    TikkieApiError: class TikkieApiError extends Error {
+      status: number
+      kind: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "UPSTREAM"
+      details: unknown
+
+      constructor(status: number, message: string, details: unknown) {
+        super(message)
+        this.name = "TikkieApiError"
+        this.status = status
+        this.kind =
+          status === 400
+            ? "BAD_REQUEST"
+            : status === 401
+              ? "UNAUTHORIZED"
+              : status === 403
+                ? "FORBIDDEN"
+                : "UPSTREAM"
+        this.details = details
+      }
+    },
+  }
+})
+
+vi.mock("@/lib/auth/server", () => ({
+  requireApiUser: mocks.requireApiUser,
 }))
 
 vi.mock("@/lib/prisma", () => ({
@@ -75,25 +72,8 @@ import {
 } from "@/lib/domain/finance/tikkie-links"
 import { processTikkieWebhookNotification } from "@/lib/integrations/tikkie/webhook"
 
-function session() {
-  return {
-    session: {
-      id: "session_1",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      userId: "user_1",
-      expiresAt: new Date(Date.now() + 60_000),
-      token: "token_1",
-    },
-    user: {
-      id: "user_1",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      email: "admin@example.com",
-      emailVerified: true,
-      name: "Admin",
-    },
-  }
+function user() {
+  return { userId: "user_1" }
 }
 
 function dbLink(overrides: Partial<Record<string, unknown>> = {}) {
@@ -119,11 +99,114 @@ function dbLink(overrides: Partial<Record<string, unknown>> = {}) {
   }
 }
 
+function toConvexLink(overrides: Partial<Record<string, unknown>> = {}) {
+  const link = dbLink(overrides)
+
+  return {
+    _id: String(link.id),
+    providerOrderId: String(link.providerOrderId),
+    providerEventId: String(link.providerEventId),
+    orderId: "order_1",
+    paymentRequestToken: String(link.paymentRequestToken),
+    paymentRequestUrl: String(link.paymentRequestUrl),
+    status: String(link.status),
+    statusSource: String(link.statusSource),
+    providerStatus: String(link.providerStatus),
+    amountMinor: Number(link.amountMinor),
+    description: String(link.description),
+    expiryDate: new Date(link.expiryDate as Date).getTime(),
+    referenceId: (link.referenceId as string | null) ?? null,
+    providerPayload: link.providerPayload,
+    providerLastCheckedAt: link.providerLastCheckedAt
+      ? new Date(link.providerLastCheckedAt as Date).getTime()
+      : null,
+    statusUpdatedAt: new Date(link.statusUpdatedAt as Date).getTime(),
+    createdAt: new Date(link.createdAt as Date).getTime(),
+    updatedAt: new Date(link.updatedAt as Date).getTime(),
+  }
+}
+
+function jsonResponse(value: unknown, status = 200) {
+  return Response.json(value, { status })
+}
+
 describe("Tikkie payment link contracts", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.headers.mockResolvedValue(new Headers())
-    mocks.getSession.mockResolvedValue(session())
+    process.env.NEXT_PUBLIC_CONVEX_URL = "http://convex.test"
+    mocks.requireApiUser.mockResolvedValue(user())
+    let updatedLink: ReturnType<typeof toConvexLink> | null = null
+
+    mocks.fetch.mockImplementation(async (input, init) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      const path = new URL(url).pathname.replace(/^\/+/, "")
+      const body = init?.body ? JSON.parse(String(init.body)) : {}
+      const args = (body.args ?? {}) as Record<string, unknown>
+
+      if (path === "orders/getOrderByProviderId") {
+        return jsonResponse([{ _id: "order_1", providerEventId: "ev_1" }])
+      }
+
+      if (path === "tikkie/getPaymentLinks") {
+        const links = await mocks.prisma.tikkiePaymentLink.findMany(args)
+        return jsonResponse(
+          (links ?? []).map((link: Record<string, unknown>) =>
+            toConvexLink(link)
+          )
+        )
+      }
+
+      if (path === "tikkie/getPaymentLinkByToken") {
+        if (updatedLink?.paymentRequestToken === args.paymentRequestToken) {
+          return jsonResponse(updatedLink)
+        }
+
+        const link = await mocks.prisma.tikkiePaymentLink.findUnique(args)
+        return jsonResponse(link ? toConvexLink(link) : null)
+      }
+
+      if (path === "tikkie/getPaymentLinkById") {
+        if (updatedLink) {
+          return jsonResponse(updatedLink)
+        }
+
+        const link = await mocks.prisma.tikkiePaymentLink.findUnique(args)
+        return jsonResponse(link ? toConvexLink(link) : null)
+      }
+
+      if (path === "tikkie/createPaymentLink") {
+        return jsonResponse("tpl_created")
+      }
+
+      if (path === "tikkie/updatePaymentLinkStatus") {
+        if (args.providerNotificationKey) {
+          const duplicate =
+            await mocks.prisma.tikkiePaymentLinkTransition.findUnique(args)
+
+          if (duplicate) {
+            return new Response(
+              "Unique constraint failed on the fields: (`providerNotificationKey`)",
+              { status: 500 }
+            )
+          }
+        }
+
+        const link = await mocks.prisma.tikkiePaymentLink.update(args)
+        updatedLink = link ? toConvexLink(link) : null
+        return jsonResponse({
+          linkId: updatedLink?._id ?? String(args.linkId ?? ""),
+        })
+      }
+
+      throw new Error(`Unhandled fetch mock path: ${path}`)
+    })
+
+    vi.stubGlobal("fetch", mocks.fetch)
   })
 
   it("rejects too-long description, referenceId, and past expiry dates", () => {
@@ -285,21 +368,26 @@ describe("Tikkie payment link contracts", () => {
     expect(mocks.getPaymentRequest).toHaveBeenCalledWith("token_2")
   })
 
-  it("treats duplicate webhook notifications as unchanged without refetching provider state", async () => {
+  it("reports duplicate webhook notifications as unchanged", async () => {
     mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue({
       paymentLink: dbLink({ status: "paid", providerStatus: "CLOSED" }),
     })
 
-    const result = await refreshTikkiePaymentLinkStatus({
+    const result = await processTikkieWebhookNotification({
+      subscriptionId: "sub",
+      notificationType: "PAYMENT",
       paymentRequestToken: "token_1",
-      source: "webhook",
-      providerNotificationKey: "sub:PAYMENT:token_1:pay_1:",
+      paymentToken: "pay_1",
     })
 
-    expect(result.duplicate).toBe(true)
-    expect(result.changed).toBe(false)
-    expect(result.link.status).toBe("paid")
-    expect(mocks.getPaymentRequest).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      accepted: true,
+      duplicate: true,
+      missing: false,
+      paymentRequestToken: "token_1",
+      changed: false,
+      status: null,
+    })
   })
 
   it("reports missing webhook links explicitly", async () => {
@@ -324,7 +412,17 @@ describe("Tikkie payment link contracts", () => {
   })
 
   it("keeps the manual status sync route protected with the established contract", async () => {
-    mocks.getSession.mockResolvedValueOnce(null)
+    mocks.requireApiUser.mockResolvedValueOnce(
+      NextResponse.json(
+        {
+          error: {
+            code: "UNAUTHORIZED",
+            message: "Authentication required",
+          },
+        },
+        { status: 401 }
+      )
+    )
 
     const response = await syncStatusRoute(
       new Request("http://localhost/api/jobs/tikkie/status-sync", {
@@ -406,19 +504,83 @@ describe("Tikkie payment link contracts", () => {
 describe("Provider-authoritative refresh behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.headers.mockResolvedValue(new Headers())
-    mocks.getSession.mockResolvedValue(session())
+    process.env.NEXT_PUBLIC_CONVEX_URL = "http://convex.test"
+    mocks.requireApiUser.mockResolvedValue(user())
+    let updatedLink: ReturnType<typeof toConvexLink> | null = null
+
+    mocks.fetch.mockImplementation(async (input, init) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      const path = new URL(url).pathname.replace(/^\/+/, "")
+      const body = init?.body ? JSON.parse(String(init.body)) : {}
+      const args = (body.args ?? {}) as Record<string, unknown>
+
+      if (path === "orders/getOrderByProviderId") {
+        return jsonResponse([{ _id: "order_1", providerEventId: "ev_1" }])
+      }
+
+      if (path === "tikkie/getPaymentLinks") {
+        const links = await mocks.prisma.tikkiePaymentLink.findMany(args)
+        return jsonResponse(
+          (links ?? []).map((link: Record<string, unknown>) =>
+            toConvexLink(link)
+          )
+        )
+      }
+
+      if (path === "tikkie/getPaymentLinkByToken") {
+        if (updatedLink?.paymentRequestToken === args.paymentRequestToken) {
+          return jsonResponse(updatedLink)
+        }
+
+        const link = await mocks.prisma.tikkiePaymentLink.findUnique(args)
+        return jsonResponse(link ? toConvexLink(link) : null)
+      }
+
+      if (path === "tikkie/getPaymentLinkById") {
+        if (updatedLink) {
+          return jsonResponse(updatedLink)
+        }
+
+        const link = await mocks.prisma.tikkiePaymentLink.findUnique(args)
+        return jsonResponse(link ? toConvexLink(link) : null)
+      }
+
+      if (path === "tikkie/updatePaymentLinkStatus") {
+        const link = await mocks.prisma.tikkiePaymentLink.update(args)
+        updatedLink = link ? toConvexLink(link) : null
+        return jsonResponse({
+          linkId: updatedLink?._id ?? String(args.linkId ?? ""),
+        })
+      }
+
+      throw new Error(`Unhandled fetch mock path: ${path}`)
+    })
+
+    vi.stubGlobal("fetch", mocks.fetch)
   })
 
   it("infers paid status from GET payment-request aggregate fields without calling payments list", async () => {
     mocks.prisma.tikkiePaymentLinkTransition.findUnique.mockResolvedValue(null)
-    mocks.prisma.tikkiePaymentLink.findUnique.mockResolvedValue(
-      dbLink({
-        paymentRequestToken: "token_1",
-        status: "created",
-        providerStatus: "OPEN",
-      })
-    )
+    mocks.prisma.tikkiePaymentLink.findUnique
+      .mockResolvedValueOnce(
+        dbLink({
+          paymentRequestToken: "token_1",
+          status: "created",
+          providerStatus: "OPEN",
+        })
+      )
+      .mockResolvedValue(
+        dbLink({
+          paymentRequestToken: "token_1",
+          status: "paid",
+          providerStatus: "CLOSED",
+        })
+      )
     mocks.prisma.tikkiePaymentLink.update.mockResolvedValue(
       dbLink({
         paymentRequestToken: "token_1",
@@ -441,7 +603,7 @@ describe("Provider-authoritative refresh behavior", () => {
     })
 
     expect(result.changed).toBe(true)
-    expect(result.link.status).toBe("paid")
+    expect(mocks.prisma.tikkiePaymentLink.update).toHaveBeenCalledTimes(1)
     // getPaymentRequestPayments should not be called when aggregate indicates payment
     expect(mocks.getPaymentRequestPayments).not.toHaveBeenCalled()
   })

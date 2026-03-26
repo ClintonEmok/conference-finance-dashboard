@@ -148,7 +148,10 @@ type DbTikkiePaymentLink = {
   expiryDate: number
   referenceId: string | null
   providerPayload: unknown
+  providerLastCheckedAt?: number | null
   statusUpdatedAt: number
+  createdAt?: number
+  updatedAt?: number
 }
 
 type PrismaTikkiePaymentLink = {
@@ -221,10 +224,24 @@ export function mapTikkiePaymentLink(
     expiryDate: new Date(expiry).toISOString(),
     referenceId: link.referenceId,
     providerPayload: link.providerPayload,
-    providerLastCheckedAt: null,
+    providerLastCheckedAt:
+      "providerLastCheckedAt" in link
+        ? typeof link.providerLastCheckedAt === "number"
+          ? new Date(link.providerLastCheckedAt).toISOString()
+          : link.providerLastCheckedAt instanceof Date
+            ? link.providerLastCheckedAt.toISOString()
+            : null
+        : null,
     statusUpdatedAt: new Date(statusUpdated).toISOString(),
     createdAt: new Date(createdAt).toISOString(),
-    updatedAt: new Date(statusUpdated).toISOString(),
+    updatedAt:
+      "updatedAt" in link
+        ? typeof link.updatedAt === "number"
+          ? new Date(link.updatedAt).toISOString()
+          : link.updatedAt instanceof Date
+            ? link.updatedAt.toISOString()
+            : new Date(statusUpdated).toISOString()
+        : new Date(statusUpdated).toISOString(),
   }
 }
 
@@ -629,6 +646,7 @@ export async function refreshTikkiePaymentLinkStatus(
         providerStatus: string
         source: "create" | "webhook" | "poll"
         reason?: string
+        providerNotificationKey?: string
         providerPayload?: unknown
       },
       { linkId: string }
@@ -638,6 +656,7 @@ export async function refreshTikkiePaymentLinkStatus(
       providerStatus: request.status,
       source: input.source as "create" | "webhook" | "poll",
       reason: input.reason,
+      providerNotificationKey: input.providerNotificationKey,
       providerPayload: {
         paymentRequest: request,
         payments,

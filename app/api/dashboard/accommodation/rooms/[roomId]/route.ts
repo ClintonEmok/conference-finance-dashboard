@@ -1,7 +1,6 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
+import { requireApiUser } from "@/lib/auth/server"
 import { updateRoomLabel } from "@/lib/domain/accommodation/inventory"
 
 function unauthorized() {
@@ -32,12 +31,10 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ roomId: string }> },
 ) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return unauthorized()
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   let body: { label?: unknown }
