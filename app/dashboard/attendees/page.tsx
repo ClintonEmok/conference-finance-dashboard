@@ -116,12 +116,6 @@ export default function AttendeesPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [payload, setPayload] = useState<AttendeesPayload | null>(null)
-  const [genderDraftByAttendeeId, setGenderDraftByAttendeeId] = useState<
-    Record<string, "" | GenderType>
-  >({})
-  const [savingGenderByAttendeeId, setSavingGenderByAttendeeId] = useState<
-    Record<string, boolean>
-  >({})
 
   const source = searchParams.get("source")
   const focusedOrderId = searchParams.get("orderId")
@@ -227,19 +221,6 @@ export default function AttendeesPage() {
     }
   }, [appliedEventId, appliedFrom, appliedSearch, appliedTo, page])
 
-  useEffect(() => {
-    if (!payload) {
-      setGenderDraftByAttendeeId({})
-      return
-    }
-
-    const nextDrafts: Record<string, "" | GenderType> = {}
-    for (const row of payload.rows) {
-      nextDrafts[row.attendeeId] = row.genderType ?? ""
-    }
-    setGenderDraftByAttendeeId(nextDrafts)
-  }, [payload])
-
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -282,59 +263,6 @@ export default function AttendeesPage() {
     }
 
     return <span className="text-xs text-muted-foreground">Unassigned</span>
-  }
-
-  async function saveGender(attendeeId: string) {
-    const selectedGender = genderDraftByAttendeeId[attendeeId] ?? ""
-
-    setSavingGenderByAttendeeId((current) => ({
-      ...current,
-      [attendeeId]: true,
-    }))
-
-    try {
-      const response = await fetch(`/api/dashboard/attendees/${attendeeId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          genderType: selectedGender || null,
-        }),
-      })
-
-      const body = (await response.json().catch(() => null)) as {
-        error?: { message?: string }
-      } | null
-
-      if (!response.ok) {
-        setErrorMessage(body?.error?.message ?? "Failed to update gender.")
-        return
-      }
-
-      setPayload((current) => {
-        if (!current) {
-          return current
-        }
-
-        return {
-          ...current,
-          rows: current.rows.map((row) =>
-            row.attendeeId === attendeeId
-              ? { ...row, genderType: selectedGender || null }
-              : row
-          ),
-        }
-      })
-      setErrorMessage(null)
-    } catch {
-      setErrorMessage("Network error while updating gender.")
-    } finally {
-      setSavingGenderByAttendeeId((current) => ({
-        ...current,
-        [attendeeId]: false,
-      }))
-    }
   }
 
   return (
@@ -541,55 +469,9 @@ export default function AttendeesPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div
-                          className="flex items-center gap-2"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <select
-                            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-                            value={
-                              genderDraftByAttendeeId[row.attendeeId] ?? ""
-                            }
-                            onChange={(event) =>
-                              setGenderDraftByAttendeeId((current) => ({
-                                ...current,
-                                [row.attendeeId]: event.target.value as
-                                  | ""
-                                  | GenderType,
-                              }))
-                            }
-                          >
-                            <option value="">Not set</option>
-                            <option value="MALE">Male</option>
-                            <option value="FEMALE">Female</option>
-                            <option value="MIXED">Mixed</option>
-                            <option value="UNKNOWN">Unknown</option>
-                          </select>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-8 px-2 text-xs"
-                            disabled={
-                              Boolean(
-                                savingGenderByAttendeeId[row.attendeeId]
-                              ) ||
-                              (genderDraftByAttendeeId[row.attendeeId] ??
-                                "") === (row.genderType ?? "")
-                            }
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              void saveGender(row.attendeeId)
-                            }}
-                          >
-                            {savingGenderByAttendeeId[row.attendeeId]
-                              ? "Saving"
-                              : "Save"}
-                          </Button>
-                        </div>
-                        <div className="text-[11px] text-muted-foreground">
-                          Current: {formatGenderLabel(row.genderType)}
-                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {formatGenderLabel(row.genderType)}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <div className="font-mono text-xs">
