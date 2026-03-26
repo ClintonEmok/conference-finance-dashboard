@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: complete
-stopped_at: Completed 260326-hgy-PLAN.md
-last_updated: "2026-03-26T11:43:09.000Z"
+stopped_at: Completed 260326-hit-PLAN.md
+last_updated: "2026-03-26T11:44:52Z"
 progress:
   total_phases: 16
   completed_phases: 9
@@ -19,13 +19,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Phase 13 complete, plus quick-task hardening for Ticket Tailor sync, accommodation inventory rendering, and attendee detail API route recovery
+- **Current focus:** Phase 13 complete, plus quick-task hardening for Ticket Tailor sync, accommodation inventory rendering, attendee detail API route recovery, and reconciliation follow-up detail routing
 
 ## Current Position
 
 Phase: 13 (rebuild-convex-mutation-and-api-layer-from-clean-contracts) — COMPLETE
 Plan: 5 of 5
-Quick task: 260326-hgy (fix-the-manual-payment-entry-select-orde) — COMPLETE
+Quick task: 260326-hit (the-open-atteendee-followup-should-open-) — COMPLETE
 
 ## Alignment Status
 
@@ -39,6 +39,7 @@ Quick task: 260326-hgy (fix-the-manual-payment-entry-select-orde) — COMPLETE
 - Attendee detail API reads now share the existing protected attendee route with PATCH overrides, so the detail page fetch no longer fails with a 405.
 - Event-level Tikkie create-link CTA now opens an amount-entry modal, converts euros to `amountMinor`, and supports explicit open-amount creation with `0`.
 - Manual payment entry order lookup now uses deterministic search dropdown states, and `/api/orders/search` accepts both `search` and `q` query variants.
+- Reconciliation follow-up now opens attendee detail routes when attendee ids are available, while preserving context query params and fallback list navigation.
 
 ## Key Decisions
 
@@ -62,6 +63,7 @@ Recent decisions that future work should preserve:
 - [260326-e0r] Keep attendee detail page loads and Tikkie override PATCH updates on the same protected `/api/dashboard/attendees/[attendeeId]` route, reusing `getAttendeeDetail` for the GET payload.
 - [260326-hfn] Require modal amount entry before creating event-level Tikkie links, and enforce optional `amountMinor` as a non-negative integer (including `0`) at the route boundary.
 - [260326-hgy] Keep manual payment order lookup resilient by normalizing `search`/`q` query aliases and requiring explicit dropdown selection before persisting `orderId`.
+- [260326-hit] Centralize reconciliation follow-up href generation and prefer `/dashboard/attendees/[attendeeId]` when attendee ids resolve, preserving source/order/event context with a safe attendees-list fallback.
 
 ## Active Patterns / Constraints
 
@@ -74,6 +76,7 @@ Recent decisions that future work should preserve:
 - Shared dashboard detail routes should keep GET and PATCH on the same URL when the page already depends on that endpoint contract.
 - Event-level Tikkie create-link should use a modal confirmation/input step and submit explicit cent amounts (`amountMinor`) to the protected route.
 - Manual payment order pickers should display min-char/loading/empty/error states and clear stale selected ids whenever the search input changes.
+- Reconciliation follow-up links should be generated via shared helper logic and upgrade to attendee-detail routes as attendee ids resolve per row.
 
 ## Blockers / Concerns
 
@@ -90,6 +93,7 @@ Recent decisions that future work should preserve:
 | 260326-edp | show the custom answers on the attendee detail page                                      | 2026-03-26 | 97a0463 | [260326-edp-show-the-custom-answers-on-the-attendee-](./quick/260326-edp-show-the-custom-answers-on-the-attendee-/) |
 | 260326-hfn | fix event tikkie create link button open                                                 | 2026-03-26 | c731fd3 | [260326-hfn-fix-event-tikkie-create-link-button-open](./quick/260326-hfn-fix-event-tikkie-create-link-button-open/) |
 | 260326-hgy | fix the manual payment entry select order flow                                           | 2026-03-26 | b7fdca6 | [260326-hgy-fix-the-manual-payment-entry-select-orde](./quick/260326-hgy-fix-the-manual-payment-entry-select-orde/) |
+| 260326-hit | the open atteendee followup should open attendee detail                                  | 2026-03-26 | 3b06738 | [260326-hit-the-open-atteendee-followup-should-open-](./quick/260326-hit-the-open-atteendee-followup-should-open-/) |
 
 ## Accumulated Context
 
@@ -101,8 +105,8 @@ Recent decisions that future work should preserve:
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-26 - Completed 260326-hgy quick task (manual payment order search dropdown + route query compatibility)
-- **Last session:** 2026-03-26T11:43:09Z
-- **Stopped at:** Completed 260326-hgy-PLAN.md
+- **Last activity:** 2026-03-26 - Completed 260326-hit quick task (reconciliation attendee follow-up detail routing)
+- **Last session:** 2026-03-26T11:44:52Z
+- **Stopped at:** Completed 260326-hit-PLAN.md
 - **Resume file:** None
 - **Next recommended plan:** Review `.planning/ROADMAP.md` for next phase or add new phases
