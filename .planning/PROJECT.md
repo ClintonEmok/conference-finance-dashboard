@@ -68,3 +68,10 @@ Finance admin can open the dashboard, trust conference revenue figures from Tick
 
 - **Phase 7 (2026-03-21):** Tikkie integration complete — provider-authoritative refresh via GET payment retrieval and guarded webhook subscription setup path. Status trust gap closed.
 - **Phase 11 (2026-03-25):** Backend migrated from Prisma/SQLite to Convex — 101 Convex functions, all domain/integration files converted, API routes updated. Better Auth preserved.
+- **Phase 12 (2026-03-26):** Clerk is now the only auth runtime — dashboard pages, protected APIs, Convex auth wiring, and landing-page sign-in flows all use Clerk; stale Better Auth and Prisma auth glue removed.
+
+## Current State
+
+- Phase 12 complete — Clerk is the sole auth provider for operator sign-in, dashboard access, protected routes, and Convex-authenticated sessions.
+
+Last updated: 2026-03-26
