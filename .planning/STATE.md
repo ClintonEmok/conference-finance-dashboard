@@ -81,18 +81,20 @@ Recent decisions that future work should preserve:
 | 260326-di7 | fix the ticket tailor sync feature                                                       | 2026-03-26 | 5df71b4 | [260326-di7-fix-the-ticket-tailor-sync-feature](./quick/260326-di7-fix-the-ticket-tailor-sync-feature/)             |
 | 260326-do9 | fix received NaN for the attribute in app accommodation inventory                        | 2026-03-26 | c909cbd | [260326-do9-fix-received-nan-for-the-attribute-in-ap](./quick/260326-do9-fix-received-nan-for-the-attribute-in-ap/) |
 | 260326-e0r | fix the attendeedetail page the api returns 405. i want the attendee details to be shown | 2026-03-26 | fca8087 | [260326-e0r-fix-the-attendeedetail-page-the-api-retu](./quick/260326-e0r-fix-the-attendeedetail-page-the-api-retu/) |
+| 260326-edp | show the custom answers on the attendee detail page                                      | 2026-03-26 | 97a0463 | [260326-edp-show-the-custom-answers-on-the-attendee-](./quick/260326-edp-show-the-custom-answers-on-the-attendee-/) |
 
 ## Accumulated Context
 
 ### Roadmap Evolution
 
 - Phase 13 added: rebuild convex mutation and api layer from clean contracts
-- Phase 1000 added: Event-Level Tikkie + Payment Tracking
+- Phase 14 added: rebuild convex mutation and api layer from clean contracts (renumbered from 13)
+- Phase 13 added: Event-Level Tikkie + Payment Tracking
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-26 - Completed quick task 260326-e0r: fix the attendeedetail page the api returns 405. i want the attendee details to be shown
+- **Last activity:** 2026-03-26 - Completed quick task 260326-edp: show the custom answers on the attendee detail page
 - **Last session:** 2026-03-26T10:11:00Z
-- **Stopped at:** Phase 1000 added to roadmap
+- **Stopped at:** Quick task complete
 - **Resume file:** None
-- **Next recommended plan:** Run `/gsd-plan-phase 1000` to break down Event-Level Tikkie + Payment Tracking
+- **Next recommended plan:** Run `/gsd-plan-phase 13` to break down Event-Level Tikkie + Payment Tracking
