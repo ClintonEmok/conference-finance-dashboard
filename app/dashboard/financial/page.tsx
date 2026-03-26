@@ -11,6 +11,7 @@ import {
 import { useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { EventTikkieSection } from "@/components/dashboard/event-tikkie-section"
 
 type RevenueResponse = {
   totals: {
@@ -32,6 +33,10 @@ type BalanceResponse = {
     rows: number
     outstandingMinor: number
   }
+  availableEvents: Array<{
+    providerEventId: string
+    name: string | null
+  }>
   rows: Array<{
     providerOrderId: string
     eventName: string | null
@@ -53,6 +58,9 @@ function formatMoney(minor: number) {
 export default function FinancialPage() {
   const [revenue, setRevenue] = useState<RevenueResponse | null>(null)
   const [balances, setBalances] = useState<BalanceResponse | null>(null)
+  const [events, setEvents] = useState<
+    Array<{ providerEventId: string; name: string | null }>
+  >([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -82,7 +90,9 @@ export default function FinancialPage() {
         }
 
         setRevenue((await revenueResponse.json()) as RevenueResponse)
-        setBalances((await balancesResponse.json()) as BalanceResponse)
+        const balancesData = (await balancesResponse.json()) as BalanceResponse
+        setBalances(balancesData)
+        setEvents(balancesData.availableEvents ?? [])
       } catch {
         setErrorMessage("Network error while loading the financial workspace.")
       } finally {
@@ -177,6 +187,8 @@ export default function FinancialPage() {
           {errorMessage}
         </article>
       )}
+
+      <EventTikkieSection events={events} />
 
       <section className="grid gap-6 xl:grid-cols-[1.3fr_0.9fr]">
         <article className="rounded-lg border border-border bg-card p-6">

@@ -20,6 +20,7 @@ type Event = {
 
 type TikkiePayment = {
   _id: string
+  paymentLinkId: string
   paymentToken: string
   payerName: string
   amountMinor: number
@@ -33,12 +34,16 @@ type TikkieLink = {
   paymentRequestUrl: string
   paymentRequestToken: string
   status?: string
+  providerStatus?: string
   amountMinor: number
   description: string
+  expiryDate?: number
+  _creationTime?: number
 }
 
 type EventData = {
   link: TikkieLink | null
+  links: TikkieLink[]
   payments: TikkiePayment[]
   stats: {
     totalPayments: number
@@ -72,6 +77,13 @@ function formatDate(epochMs: number) {
   })
 }
 
+function toDateInputValue(date: Date) {
+  const year = date.getUTCFullYear()
+  const month = `${date.getUTCMonth() + 1}`.padStart(2, "0")
+  const day = `${date.getUTCDate()}`.padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
 function MatchBadge({ status }: { status: string }) {
   if (status === "unmatched") {
     return (
@@ -97,10 +109,14 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
   const [actionError, setActionError] = useState<string | null>(null)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [createAmountEuro, setCreateAmountEuro] = useState("")
+  const [createDescription, setCreateDescription] = useState("")
+  const [createExpiryDate, setCreateExpiryDate] = useState("")
   const [createAmountError, setCreateAmountError] = useState<string | null>(
     null
   )
   const [isCreatingLink, setIsCreatingLink] = useState(false)
+  const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null)
+  const [failedCopyLinkId, setFailedCopyLinkId] = useState<string | null>(null)
 
   // Assign modal state
   const [assigningPaymentId, setAssigningPaymentId] = useState<string | null>(
@@ -111,6 +127,21 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [isAssigning, setIsAssigning] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
+
+  useEffect(() => {
+    if (events.length === 0) {
+      setSelectedEventId("")
+      return
+    }
+
+    const selectedExists = events.some(
+      (event) => event.providerEventId === selectedEventId
+    )
+
+    if (!selectedEventId || !selectedExists) {
+      setSelectedEventId(events[0].providerEventId)
+    }
+  }, [events, selectedEventId])
 
   const fetchData = useCallback(async (eventId: string) => {
     if (!eventId) return
@@ -180,6 +211,8 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
   function closeCreateModal() {
     setIsCreateModalOpen(false)
     setCreateAmountEuro("")
+    setCreateDescription("")
+    setCreateExpiryDate("")
     setCreateAmountError(null)
   }
 
@@ -210,7 +243,11 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
     return { amountMinor: Math.round(euros * 100) }
   }
 
-  async function handleCreateLink(amountMinor: number) {
+  async function handleCreateLink(params: {
+    amountEuro: string
+    description: string
+    expiryDate: string
+  }) {
     if (!selectedEventId) return
     setActionError(null)
     setIsCreatingLink(true)
@@ -221,7 +258,9 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
         body: JSON.stringify({
           eventId: selectedEventId,
           providerEventId: selectedEventId,
-          amountMinor,
+          amountEuro: params.amountEuro,
+          description: params.description.trim() || undefined,
+          expiryDate: params.expiryDate,
         }),
       })
       if (!res.ok) {
@@ -246,8 +285,39 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
       return
     }
 
+    if (!createExpiryDate) {
+      setCreateAmountError("Pick an expiration date.")
+      return
+    }
+
     setCreateAmountError(null)
-    await handleCreateLink(parsedAmount.amountMinor)
+    await handleCreateLink({
+      amountEuro: createAmountEuro.trim(),
+      description: createDescription,
+      expiryDate: createExpiryDate,
+    })
+  }
+
+  async function handleCopyLink(link: TikkieLink) {
+    const url = link.paymentRequestUrl
+    if (!url) return
+
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopiedLinkId(link._id)
+      setFailedCopyLinkId(null)
+      setTimeout(() => {
+        setCopiedLinkId((current) => (current === link._id ? null : current))
+      }, 1800)
+    } catch {
+      setFailedCopyLinkId(link._id)
+      setCopiedLinkId(null)
+      setTimeout(() => {
+        setFailedCopyLinkId((current) =>
+          current === link._id ? null : current
+        )
+      }, 2500)
+    }
   }
 
   async function handleAssign(paymentId: string) {
@@ -293,7 +363,8 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
     }
   }
 
-  const hasLink = !!eventData?.link
+  const links = eventData?.links ?? []
+  const hasLink = links.length > 0
 
   return (
     <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
@@ -336,6 +407,12 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
             onClick={() => {
               setCreateAmountError(null)
               setCreateAmountEuro("")
+              setCreateDescription("")
+              setCreateExpiryDate(
+                toDateInputValue(
+                  new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
+                )
+              )
               setIsCreateModalOpen(true)
             }}
             disabled={!selectedEventId}
@@ -368,9 +445,8 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
             </p>
           )}
 
-          {!isLoading && hasLink && eventData && (
+          {!isLoading && eventData && hasLink && (
             <>
-              {/* Summary bar */}
               <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
                 <span>
                   Total payments:{" "}
@@ -399,57 +475,170 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
                 </Button>
               </div>
 
-              {/* Payment list */}
-              {eventData.payments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No payments received yet on this link.
-                </p>
-              ) : (
-                <div className="overflow-x-auto rounded-lg border border-border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Payer</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {eventData.payments.map((p) => (
-                        <TableRow key={p._id}>
-                          <TableCell className="font-medium">
-                            {p.payerName}
-                          </TableCell>
-                          <TableCell>{formatMoney(p.amountMinor)}</TableCell>
-                          <TableCell>{formatDate(p.paidAt)}</TableCell>
-                          <TableCell>
-                            <MatchBadge status={p.matchStatus} />
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {p.matchStatus === "unmatched" && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setAssigningPaymentId(p._id)}
-                              >
-                                Assign
-                              </Button>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
+              <div className="space-y-3">
+                {links.map((link, index) => {
+                  const linkPayments = eventData.payments.filter(
+                    (payment) => payment.paymentLinkId === link._id
+                  )
+                  const matchedCount = linkPayments.filter(
+                    (payment) => payment.matchStatus !== "unmatched"
+                  ).length
+                  const unmatchedCount = linkPayments.length - matchedCount
+                  const paidTotalMinor = linkPayments.reduce(
+                    (sum, payment) => sum + payment.amountMinor,
+                    0
+                  )
+
+                  return (
+                    <details
+                      key={link._id}
+                      open={index === 0}
+                      className="rounded-lg border border-border bg-background"
+                    >
+                      <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-4 py-3">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">
+                            Tikkie link #{links.length - index}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Created{" "}
+                            {formatDate(link._creationTime ?? Date.now())} ·{" "}
+                            {formatMoney(link.amountMinor)} requested
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{linkPayments.length} payments</span>
+                          <span>•</span>
+                          <span>{matchedCount} matched</span>
+                          <span>•</span>
+                          <span>{unmatchedCount} unmatched</span>
+                        </div>
+                      </summary>
+
+                      <div className="space-y-4 border-t border-border px-4 py-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold text-foreground">
+                              Payment request details
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Token:{" "}
+                              <span className="font-mono">
+                                {link.paymentRequestToken}
+                              </span>
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleCopyLink(link)}
+                          >
+                            {copiedLinkId === link._id
+                              ? "Copied"
+                              : failedCopyLinkId === link._id
+                                ? "Copy failed"
+                                : "Copy link"}
+                          </Button>
+                        </div>
+
+                        <div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
+                          <p>
+                            Status:{" "}
+                            <strong className="text-foreground">
+                              {link.providerStatus ?? link.status ?? "unknown"}
+                            </strong>
+                          </p>
+                          <p>
+                            Requested amount:{" "}
+                            <strong className="text-foreground">
+                              {formatMoney(link.amountMinor)}
+                            </strong>
+                          </p>
+                          <p>
+                            Expires:{" "}
+                            <strong className="text-foreground">
+                              {link.expiryDate
+                                ? formatDate(link.expiryDate)
+                                : "unknown"}
+                            </strong>
+                          </p>
+                          <p>
+                            Received total:{" "}
+                            <strong className="text-foreground">
+                              {formatMoney(paidTotalMinor)}
+                            </strong>
+                          </p>
+                          <p className="md:col-span-2">
+                            Description:{" "}
+                            <strong className="text-foreground">
+                              {link.description}
+                            </strong>
+                          </p>
+                        </div>
+
+                        {linkPayments.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            No payments received yet on this link.
+                          </p>
+                        ) : (
+                          <div className="overflow-x-auto rounded-lg border border-border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Payer</TableHead>
+                                  <TableHead>Amount</TableHead>
+                                  <TableHead>Date</TableHead>
+                                  <TableHead>Status</TableHead>
+                                  <TableHead className="text-right">
+                                    Action
+                                  </TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {linkPayments.map((p) => (
+                                  <TableRow key={p._id}>
+                                    <TableCell className="font-medium">
+                                      {p.payerName}
+                                    </TableCell>
+                                    <TableCell>
+                                      {formatMoney(p.amountMinor)}
+                                    </TableCell>
+                                    <TableCell>
+                                      {formatDate(p.paidAt)}
+                                    </TableCell>
+                                    <TableCell>
+                                      <MatchBadge status={p.matchStatus} />
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      {p.matchStatus === "unmatched" && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() =>
+                                            setAssigningPaymentId(p._id)
+                                          }
+                                        >
+                                          Assign
+                                        </Button>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  )
+                })}
+              </div>
             </>
           )}
         </div>
       )}
 
-      {/* Assign modal */}
+      {/* Create link modal */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
@@ -477,6 +666,39 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
                 placeholder="e.g. 25.00 or 0"
                 value={createAmountEuro}
                 onChange={(e) => setCreateAmountEuro(e.target.value)}
+                disabled={isCreatingLink}
+              />
+            </div>
+
+            <div className="mt-4">
+              <label
+                htmlFor="create-tikkie-description"
+                className="mb-2 block text-sm font-medium"
+              >
+                Description
+              </label>
+              <Input
+                id="create-tikkie-description"
+                type="text"
+                placeholder="e.g. Conference event contribution"
+                value={createDescription}
+                onChange={(e) => setCreateDescription(e.target.value)}
+                disabled={isCreatingLink}
+              />
+            </div>
+
+            <div className="mt-4">
+              <label
+                htmlFor="create-tikkie-expiry"
+                className="mb-2 block text-sm font-medium"
+              >
+                Expiration date
+              </label>
+              <Input
+                id="create-tikkie-expiry"
+                type="date"
+                value={createExpiryDate}
+                onChange={(e) => setCreateExpiryDate(e.target.value)}
                 disabled={isCreatingLink}
               />
               {createAmountError && (

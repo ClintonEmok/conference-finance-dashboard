@@ -21,15 +21,7 @@ import {
   Users,
 } from "lucide-react"
 
-import {
-  TikkieLinkDialog,
-  type TikkieLinkDialogDefaults,
-  type TikkieLinkDialogValues,
-} from "@/components/dashboard/tikkie-link-dialog"
-import {
-  TikkieLinkSummary,
-  type TikkieLinkSummaryRecord,
-} from "@/components/dashboard/tikkie-link-summary"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -50,7 +42,6 @@ type AttendeeDetailPayload = {
     providerIssuedTicketId: string | null
     providerOrderId: string
     providerEventId: string
-    tikkieAmountOverrideMinor: number | null
   }
   event: {
     id: string
@@ -74,30 +65,6 @@ type AttendeeDetailPayload = {
       paidLinks: number
       openLinks: number
       expiredLinks: number
-    }
-  }
-  tikkie: {
-    latestLink: TikkieLinkSummaryRecord | null
-    history: TikkieLinkSummaryRecord[]
-    providerLastCheckedAt: string | null
-    latestLinkCheckState: "fresh" | "stale" | null
-    generationDefaults: {
-      amountMinor: number
-      expiryDate: string
-      description: string
-      referenceId: string
-    }
-    templateFallback: {
-      hasTemplate: boolean
-      source: "override" | "template" | "default"
-      amountMinor: number | null
-      description: string | null
-    } | null
-    actions: {
-      createEndpoint: string
-      listEndpoint: string
-      refreshEndpoint: string
-      updateOverrideEndpoint: string
     }
   }
   paymentHistory: Array<{
@@ -195,15 +162,15 @@ export default function AttendeeDetailPage({ params }: PageProps) {
   const [payload, setPayload] = useState<AttendeeDetailPayload | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [isTikkieDialogOpen, setIsTikkieDialogOpen] = useState(false)
-  const [isSubmittingTikkie, setIsSubmittingTikkie] = useState(false)
-  const [isRefreshingTikkie, setIsRefreshingTikkie] = useState(false)
-  const [isCopyingLatestLink, setIsCopyingLatestLink] = useState(false)
-  const [tikkieError, setTikkieError] = useState<string | null>(null)
-  const [isEditingOverride, setIsEditingOverride] = useState(false)
-  const [overrideValue, setOverrideValue] = useState<string>("")
-  const [isSavingOverride, setIsSavingOverride] = useState(false)
-  const [overrideError, setOverrideError] = useState<string | null>(null)
+  const [matchedPayments, setMatchedPayments] = useState<
+    Array<{
+      _id: string
+      payerName: string
+      amountMinor: number
+      paidAt: number
+    }>
+  >([])
+  const [isLoadingPayments, setIsLoadingPayments] = useState(false)
 
   const attendeeSearch = searchParams.get("search")
   const eventId = searchParams.get("eventId")
@@ -341,179 +308,46 @@ export default function AttendeeDetailPage({ params }: PageProps) {
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("")
 
-  const tikkieDialogDefaults: TikkieLinkDialogDefaults | null = payload
-    ? {
-        providerOrderId: payload.attendee.providerOrderId,
-        providerEventId: payload.attendee.providerEventId,
-        ...payload.tikkie.generationDefaults,
-      }
-    : null
-
-  async function handleCreateTikkieLink(values: TikkieLinkDialogValues) {
-    if (!payload) {
+  useEffect(() => {
+    if (!payload?.attendee.providerEventId || !payload?.order.id) {
       return
     }
 
-    setIsSubmittingTikkie(true)
-    setTikkieError(null)
+    let cancelled = false
 
-    try {
-      const response = await fetch(payload.tikkie.actions.createEndpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          providerOrderId: payload.attendee.providerOrderId,
-          providerEventId: payload.attendee.providerEventId,
-          amountMinor: values.amountMinor,
-          description: values.description,
-          expiryDate: values.expiryDate,
-          referenceId: values.referenceId,
-        }),
-      })
-      const body = (await response.json().catch(() => null)) as {
-        error?: { message?: string }
-      } | null
-
-      if (!response.ok) {
-        setTikkieError(
-          body?.error?.message ?? `Failed to create link (${response.status}).`
+    async function fetchMatchedPayments() {
+      setIsLoadingPayments(true)
+      try {
+        const res = await fetch(
+          `/api/dashboard/tikkie-event-links?eventId=${encodeURIComponent(payload!.attendee.providerEventId)}`
         )
-        return
-      }
-
-      setIsTikkieDialogOpen(false)
-      await loadAttendeeDetail(payload.attendee.id, { silent: true })
-    } catch {
-      setTikkieError("Network error while creating link.")
-    } finally {
-      setIsSubmittingTikkie(false)
-    }
-  }
-
-  async function handleRefreshTikkie() {
-    if (!payload) {
-      return
-    }
-
-    setIsRefreshingTikkie(true)
-    setTikkieError(null)
-
-    try {
-      const response = await fetch(payload.tikkie.actions.refreshEndpoint)
-      const body = (await response.json().catch(() => null)) as {
-        error?: { message?: string }
-      } | null
-
-      if (!response.ok) {
-        setTikkieError(
-          body?.error?.message ??
-            `Failed to refresh link status (${response.status}).`
-        )
-        return
-      }
-
-      await loadAttendeeDetail(payload.attendee.id, { silent: true })
-    } catch {
-      setTikkieError("Network error while refreshing Tikkie status.")
-    } finally {
-      setIsRefreshingTikkie(false)
-    }
-  }
-
-  async function handleCopyLatestLink(url: string) {
-    setIsCopyingLatestLink(true)
-    setTikkieError(null)
-
-    try {
-      await navigator.clipboard.writeText(url)
-    } catch {
-      setTikkieError("Clipboard permission denied. Copy the URL manually.")
-    } finally {
-      setIsCopyingLatestLink(false)
-    }
-  }
-
-  async function handleSaveOverride() {
-    if (!payload) {
-      return
-    }
-
-    const euros = Number.parseFloat(overrideValue.trim())
-    if (isNaN(euros) || euros <= 0) {
-      setOverrideError("Please enter a valid positive amount in euros.")
-      return
-    }
-
-    setIsSavingOverride(true)
-    setOverrideError(null)
-
-    try {
-      const response = await fetch(
-        payload.tikkie.actions.updateOverrideEndpoint,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            tikkieAmountOverrideMinor: Math.round(euros * 100),
-          }),
+        if (!res.ok) return
+        const data = (await res.json()) as {
+          payments: Array<{
+            _id: string
+            payerName: string
+            amountMinor: number
+            paidAt: number
+            orderId?: string
+          }>
         }
-      )
-
-      if (!response.ok) {
-        const body = (await response.json()) as {
-          error?: { message?: string }
-        } | null
-        throw new Error(body?.error?.message ?? "Failed to save override")
-      }
-
-      setIsEditingOverride(false)
-      await loadAttendeeDetail(payload.attendee.id, { silent: true })
-    } catch (err) {
-      setOverrideError(
-        err instanceof Error ? err.message : "Failed to save override"
-      )
-    } finally {
-      setIsSavingOverride(false)
-    }
-  }
-
-  async function handleClearOverride() {
-    if (!payload) {
-      return
-    }
-
-    setIsSavingOverride(true)
-    setOverrideError(null)
-
-    try {
-      const response = await fetch(
-        payload.tikkie.actions.updateOverrideEndpoint,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tikkieAmountOverrideMinor: null }),
+        if (!cancelled) {
+          setMatchedPayments(
+            data.payments.filter((p) => p.orderId === payload!.order.id)
+          )
         }
-      )
-
-      if (!response.ok) {
-        const body = (await response.json()) as {
-          error?: { message?: string }
-        } | null
-        throw new Error(body?.error?.message ?? "Failed to clear override")
+      } catch {
+        // silently fail
+      } finally {
+        if (!cancelled) setIsLoadingPayments(false)
       }
-
-      setIsEditingOverride(false)
-      await loadAttendeeDetail(payload.attendee.id, { silent: true })
-    } catch (err) {
-      setOverrideError(
-        err instanceof Error ? err.message : "Failed to clear override"
-      )
-    } finally {
-      setIsSavingOverride(false)
     }
-  }
+
+    void fetchMatchedPayments()
+    return () => {
+      cancelled = true
+    }
+  }, [payload])
 
   return (
     <section className="space-y-6">
@@ -651,184 +485,33 @@ export default function AttendeeDetailPage({ params }: PageProps) {
                 </div>
 
                 <div className="space-y-4 rounded-2xl border border-border/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,0.88))] p-4 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.68),rgba(17,24,39,0.76))]">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-semibold tracking-[0.2em] text-cyan-700 uppercase dark:text-cyan-300">
-                        Tikkie follow-up
-                      </p>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Keep the latest link visible here so payment follow-up
-                        stays in the same attendee context.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={
-                        isSubmittingTikkie ||
-                        payload.finance.outstandingAmountMinor <= 0
-                      }
-                      onClick={() => {
-                        setTikkieError(null)
-                        setIsTikkieDialogOpen(true)
-                      }}
-                    >
-                      {isSubmittingTikkie
-                        ? "Generating..."
-                        : "Generate Tikkie link"}
-                    </Button>
-                  </div>
-
-                  {/* Amount Override Section */}
-                  <div className="rounded-lg border border-slate-200/80 bg-white/60 p-3 dark:border-slate-800 dark:bg-slate-900/40">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex-1">
-                        <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase dark:text-slate-400">
-                          Amount override
-                        </p>
-                        {payload.attendee.tikkieAmountOverrideMinor !== null ? (
-                          <div className="mt-1">
-                            <p className="text-lg font-semibold text-foreground">
-                              {formatMoney(
-                                payload.attendee.tikkieAmountOverrideMinor
-                              )}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Custom amount for this attendee (overrides
-                              template/default)
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="mt-1">
-                            <p className="text-sm text-muted-foreground">
-                              No override set
-                            </p>
-                            {payload.tikkie.templateFallback && (
-                              <p className="text-xs text-muted-foreground">
-                                Template fallback:{" "}
-                                {formatMoney(
-                                  payload.tikkie.templateFallback.amountMinor ??
-                                    0
-                                )}
-                                {payload.tikkie.templateFallback.source ===
-                                  "template" && " from ticket type template"}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      {!isEditingOverride ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setOverrideValue(
-                              payload.attendee.tikkieAmountOverrideMinor !==
-                                null
-                                ? (
-                                    payload.attendee.tikkieAmountOverrideMinor /
-                                    100
-                                  ).toFixed(2)
-                                : ""
-                            )
-                            setOverrideError(null)
-                            setIsEditingOverride(true)
-                          }}
-                        >
-                          {payload.attendee.tikkieAmountOverrideMinor !== null
-                            ? "Edit override"
-                            : "Set override"}
-                        </Button>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setIsEditingOverride(false)
-                              setOverrideError(null)
-                            }}
-                            disabled={isSavingOverride}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              void handleClearOverride()
-                            }}
-                            disabled={isSavingOverride}
-                          >
-                            Clear
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    {isEditingOverride && (
-                      <form
-                        className="mt-3 flex items-end gap-2"
-                        onSubmit={(e) => {
-                          e.preventDefault()
-                          void handleSaveOverride()
-                        }}
-                      >
-                        <div className="flex-1">
-                          <label htmlFor="overrideAmount" className="sr-only">
-                            Amount in cents
-                          </label>
-                          <input
-                            id="overrideAmount"
-                            type="number"
-                            min={1}
-                            step={1}
-                            value={overrideValue}
-                            onChange={(e) => setOverrideValue(e.target.value)}
-                            placeholder="Amount in cents (e.g. 2500 for €25.00)"
-                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                            disabled={isSavingOverride}
-                          />
-                        </div>
-                        <Button
-                          type="submit"
-                          size="sm"
-                          disabled={isSavingOverride || !overrideValue.trim()}
-                        >
-                          {isSavingOverride ? "Saving..." : "Save"}
-                        </Button>
-                      </form>
-                    )}
-
-                    {overrideError && (
-                      <div className="mt-2 text-xs text-rose-600 dark:text-rose-300">
-                        {overrideError}
-                      </div>
-                    )}
-                  </div>
-
-                  {payload.finance.outstandingAmountMinor <= 0 && (
+                  <p className="text-[11px] font-semibold tracking-[0.2em] text-cyan-700 uppercase dark:text-cyan-300">
+                    Event payments
+                  </p>
+                  {isLoadingPayments ? (
+                    <div className="h-8 w-48 animate-pulse rounded bg-muted" />
+                  ) : matchedPayments.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      No remaining balance to generate a new payment link.
+                      No matched payments yet.
                     </p>
-                  )}
-
-                  <TikkieLinkSummary
-                    latestLink={payload.tikkie.latestLink}
-                    history={payload.tikkie.history}
-                    isLoading={isRefreshingTikkie}
-                    isCopying={isCopyingLatestLink}
-                    emptyState="No Tikkie link has been generated for this order yet."
-                    onCopy={(url) => void handleCopyLatestLink(url)}
-                    onRefresh={() => void handleRefreshTikkie()}
-                  />
-
-                  {tikkieError && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200">
-                      {tikkieError}
+                  ) : (
+                    <div className="space-y-2">
+                      {matchedPayments.map((p) => (
+                        <div
+                          key={p._id}
+                          className="flex items-center justify-between rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
+                        >
+                          <div>
+                            <p className="font-medium">{p.payerName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(p.paidAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <p className="font-semibold text-emerald-700 dark:text-emerald-300">
+                            {formatMoney(p.amountMinor)}
+                          </p>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -1129,21 +812,6 @@ export default function AttendeeDetailPage({ params }: PageProps) {
           No attendee selected.
         </article>
       )}
-
-      <TikkieLinkDialog
-        key={payload ? payload.attendee.id : "attendee-tikkie-closed"}
-        open={isTikkieDialogOpen}
-        defaults={tikkieDialogDefaults}
-        submitting={isSubmittingTikkie}
-        error={tikkieError}
-        onOpenChange={(open) => {
-          setIsTikkieDialogOpen(open)
-          if (!open) {
-            setTikkieError(null)
-          }
-        }}
-        onSubmit={handleCreateTikkieLink}
-      />
     </section>
   )
 }

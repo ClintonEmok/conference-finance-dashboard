@@ -11,7 +11,7 @@ type TikkieRequestOptions = {
 }
 
 export type TikkieCreatePaymentRequestInput = {
-  amountInCents: number
+  amountInCents?: number
   description: string
   expiryDate: string
   referenceId?: string
@@ -167,7 +167,9 @@ export async function createPaymentRequest(
   return tikkieFetch<TikkiePaymentRequest>("/paymentrequests", {
     method: "POST",
     body: {
-      amountInCents: input.amountInCents,
+      ...(typeof input.amountInCents === "number"
+        ? { amountInCents: input.amountInCents }
+        : {}),
       description: input.description,
       expiryDate: input.expiryDate,
       ...(input.referenceId ? { referenceId: input.referenceId } : {}),

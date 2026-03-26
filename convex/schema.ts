@@ -222,7 +222,9 @@ export default defineSchema({
     v.object({
       providerOrderId: v.string(),
       providerEventId: v.string(),
-      orderId: v.string(),
+      orderId: v.optional(v.string()),
+      eventId: v.optional(v.string()),
+      linkType: v.optional(v.union(v.literal("event"), v.literal("order"))),
       paymentRequestToken: v.string(),
       paymentRequestUrl: v.string(),
       status: v.optional(
@@ -244,7 +246,8 @@ export default defineSchema({
     .index("paymentRequestToken", ["paymentRequestToken"])
     .index("providerOrderEvent", ["providerOrderId", "providerEventId"])
     .index("status_updated", ["status", "statusUpdatedAt"])
-    .index("orderId", ["orderId"]),
+    .index("orderId", ["orderId"])
+    .index("eventId", ["eventId"]),
 
   tikkiePaymentLinkTransitions: defineTable(
     v.object({
@@ -272,6 +275,32 @@ export default defineSchema({
   )
     .index("paymentLinkId", ["paymentLinkId"])
     .index("providerNotificationKey", ["providerNotificationKey"]),
+
+  tikkiePayments: defineTable(
+    v.object({
+      paymentLinkId: v.string(),
+      paymentRequestToken: v.string(),
+      paymentToken: v.string(),
+      payerName: v.string(),
+      payerAccountNumber: v.optional(v.string()),
+      amountMinor: v.number(),
+      paidAt: v.number(),
+      description: v.optional(v.string()),
+      orderId: v.optional(v.string()),
+      matchStatus: v.union(
+        v.literal("unmatched"),
+        v.literal("auto_matched"),
+        v.literal("manual")
+      ),
+      matchedAt: v.optional(v.number()),
+      providerPayload: v.optional(v.any()),
+    })
+  )
+    .index("paymentLinkId", ["paymentLinkId"])
+    .index("paymentRequestToken", ["paymentRequestToken"])
+    .index("matchStatus", ["matchStatus"])
+    .index("paymentToken", ["paymentToken"])
+    .index("orderId", ["orderId"]),
 
   ticketTailorSyncRuns: defineTable(
     v.object({

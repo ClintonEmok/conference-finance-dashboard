@@ -125,8 +125,8 @@ Deferred work already started in `.planning/deferred-phases/04-tikkie-collection
 | 11. Use Supabase                                    | 0/1            | Complete | 2026-03-25 |
 | 12. use clerk as only auth remove stale better auth | 4/4            | Complete | 2026-03-26 |
 | 13. rebuild convex mutation and api layer           | 5/5            | Complete | -          |
-| 14. Event-Level Tikkie + Payment Tracking           | 0/2            | Planned  | -          |
-| 15. Event-level Tikkie UI + attendee Tikkie cleanup | 0/0            | Planned  | -          |
+| 14. Event-Level Tikkie + Payment Tracking           | 2/2            | Complete | 2026-03-26 |
+| 15. Event-level Tikkie UI + attendee Tikkie cleanup | 2/2            | Complete | 2026-03-26 |
 
 ### Phase 6: Tikkie Integration
 
@@ -261,8 +261,8 @@ Plans:
 
 Plans:
 
-- [ ] 14-01-PLAN.md — Schema + Convex functions for event-level Tikkie links and payment tracking
-- [ ] 14-02-PLAN.md — Domain logic + API routes for event Tikkie + payment tracking
+- [x] 14-01-PLAN.md — Schema + Convex functions for event-level Tikkie links and payment tracking
+- [x] 14-02-PLAN.md — Domain logic + API routes for event Tikkie + payment tracking
 
 ### Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup
 
@@ -273,5 +273,5 @@ Plans:
 
 Plans:
 
-- [ ] 15-01-PLAN.md — Add event Tikkie section to financial page with event picker, payment list, manual assignment, and link creation
-- [ ] 15-02-PLAN.md — Remove per-attendee and per-order Tikkie UI from attendee detail and reconciliation pages
+- [x] 15-01-PLAN.md — Add event Tikkie section to financial page with event picker, payment list, manual assignment, and link creation
+- [x] 15-02-PLAN.md — Remove per-attendee and per-order Tikkie UI from attendee detail and reconciliation pages

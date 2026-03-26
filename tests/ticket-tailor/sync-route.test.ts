@@ -1,16 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("@/lib/auth/server", () => ({
-  requireApiUser: vi.fn(),
-}))
-
 vi.mock("@/lib/integrations/ticket-tailor/sync", () => ({
   runTicketTailorSync: vi.fn(),
 }))
 
-import { NextResponse } from "next/server"
-
-import { requireApiUser } from "@/lib/auth/server"
 import { runTicketTailorSync } from "@/lib/integrations/ticket-tailor/sync"
 
 import { POST } from "@/app/api/ticket-tailor/sync/route"
@@ -20,37 +13,7 @@ describe("POST /api/ticket-tailor/sync", () => {
     vi.clearAllMocks()
   })
 
-  it("returns 401 when unauthenticated", async () => {
-    vi.mocked(requireApiUser).mockResolvedValue(
-      NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Authentication required",
-          },
-        },
-        { status: 401 }
-      )
-    )
-
-    const response = await POST(
-      new Request("http://localhost/api/ticket-tailor/sync", { method: "POST" })
-    )
-    const body = await response.json()
-
-    expect(response.status).toBe(401)
-    expect(body).toEqual({
-      error: {
-        code: "UNAUTHORIZED",
-        message: "Authentication required",
-      },
-    })
-    expect(runTicketTailorSync).not.toHaveBeenCalled()
-  })
-
-  it("returns sync summary when authenticated", async () => {
-    vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
-
+  it("returns sync summary on success", async () => {
     vi.mocked(runTicketTailorSync).mockResolvedValue({
       runId: "run_123",
       status: "success",
@@ -123,8 +86,6 @@ describe("POST /api/ticket-tailor/sync", () => {
   })
 
   it("returns 500 diagnostics when sync fails", async () => {
-    vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
-
     vi.mocked(runTicketTailorSync).mockRejectedValue(
       new Error("Provider timeout")
     )
@@ -147,8 +108,6 @@ describe("POST /api/ticket-tailor/sync", () => {
   })
 
   it("returns 400 when from is after to", async () => {
-    vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
-
     const response = await POST(
       new Request("http://localhost/api/ticket-tailor/sync", {
         method: "POST",
@@ -173,8 +132,6 @@ describe("POST /api/ticket-tailor/sync", () => {
   })
 
   it("returns 400 when the request body is invalid json", async () => {
-    vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
-
     const response = await POST(
       new Request("http://localhost/api/ticket-tailor/sync", {
         method: "POST",

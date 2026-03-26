@@ -4,6 +4,9 @@ import {
   processTikkieWebhookNotification,
   verifyTikkieWebhook,
 } from "@/lib/integrations/tikkie/webhook"
+import { fetchAndStoreTikkiePayments } from "@/lib/domain/finance/tikkie-event-payments"
+import { api } from "@/lib/convex/api"
+import { convexQuery } from "@/lib/convex/server"
 
 function badPayload(message: string) {
   return NextResponse.json(
@@ -13,7 +16,7 @@ function badPayload(message: string) {
         message,
       },
     },
-    { status: 400 },
+    { status: 400 }
   )
 }
 
@@ -25,7 +28,7 @@ function invalidSignature() {
         message: "Webhook signature verification failed",
       },
     },
-    { status: 401 },
+    { status: 401 }
   )
 }
 
@@ -47,14 +50,28 @@ export async function POST(request: Request) {
   try {
     const result = await processTikkieWebhookNotification(payload)
 
+    // For event-level links, also fetch individual payments
+    if (!result.missing && result.changed) {
+      const link = await convexQuery(api.tikkie.getPaymentLinkByToken, {
+        paymentRequestToken: result.paymentRequestToken,
+      })
+      if (link && (link as Record<string, unknown>).linkType === "event") {
+        await fetchAndStoreTikkiePayments(
+          (link as Record<string, unknown>)._id as string,
+          result.paymentRequestToken
+        )
+      }
+    }
+
     return NextResponse.json(
       {
         ...result,
       },
-      { status: 200 },
+      { status: 200 }
     )
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Invalid webhook payload"
+    const message =
+      error instanceof Error ? error.message : "Invalid webhook payload"
 
     if (message.startsWith("Invalid webhook payload")) {
       return badPayload(message)
@@ -67,7 +84,7 @@ export async function POST(request: Request) {
           message: "Failed to process Tikkie webhook",
         },
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

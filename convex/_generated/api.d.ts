@@ -891,6 +891,29 @@ export declare const api: {
     >;
   };
   tikkie: {
+    autoMatchTikkiePayments: FunctionReference<
+      "mutation",
+      "public",
+      { eventId: string },
+      any
+    >;
+    createEventPaymentLink: FunctionReference<
+      "mutation",
+      "public",
+      {
+        amountMinor: number;
+        description: string;
+        eventId: string;
+        expiryDate: number;
+        paymentRequestToken: string;
+        paymentRequestUrl: string;
+        providerEventId: string;
+        providerPayload?: any;
+        providerStatus: string;
+        referenceId?: string;
+      },
+      any
+    >;
     createPaymentLink: FunctionReference<
       "mutation",
       "public",
@@ -926,6 +949,12 @@ export declare const api: {
       "mutation",
       "public",
       { templateId: Id<"tikkiePaymentTemplates"> },
+      any
+    >;
+    getEventPaymentLink: FunctionReference<
+      "query",
+      "public",
+      { eventId: string },
       any
     >;
     getPaymentLinkById: FunctionReference<
@@ -964,6 +993,30 @@ export declare const api: {
       { eventId: string; ticketTypeLabel: string },
       any
     >;
+    getTikkiePaymentByToken: FunctionReference<
+      "query",
+      "public",
+      { paymentToken: string },
+      any
+    >;
+    getTikkiePaymentsByLink: FunctionReference<
+      "query",
+      "public",
+      { paymentLinkId: string },
+      any
+    >;
+    getTikkiePaymentsByStatus: FunctionReference<
+      "query",
+      "public",
+      { matchStatus: "unmatched" | "auto_matched" | "manual" },
+      any
+    >;
+    matchTikkiePayment: FunctionReference<
+      "mutation",
+      "public",
+      { orderId: string; paymentId: Id<"tikkiePayments"> },
+      any
+    >;
     updatePaymentLinkStatus: FunctionReference<
       "mutation",
       "public",
@@ -990,6 +1043,22 @@ export declare const api: {
       },
       any
     >;
+    upsertTikkiePayment: FunctionReference<
+      "mutation",
+      "public",
+      {
+        amountMinor: number;
+        description?: string;
+        paidAt: number;
+        payerAccountNumber?: string;
+        payerName: string;
+        paymentLinkId: string;
+        paymentRequestToken: string;
+        paymentToken: string;
+        providerPayload?: any;
+      },
+      any
+    >;
   };
 };
 
@@ -1009,6 +1078,9 @@ export declare const internal: {
       { roomId: string },
       any
     >;
+  };
+  autoSync: {
+    autoSyncTicketTailor: FunctionReference<"action", "internal", {}, any>;
   };
 };
 

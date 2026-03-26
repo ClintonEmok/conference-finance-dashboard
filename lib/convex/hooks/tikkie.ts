@@ -34,3 +34,21 @@ export function useCreatePaymentTemplate() {
 export function useUpdatePaymentLinkStatus() {
   return useMutation(api.tikkie.updatePaymentLinkStatus)
 }
+
+// --- Event-level Tikkie ---
+
+export function useEventPaymentLink(eventId: string) {
+  return useQuery(api.tikkie.getEventPaymentLink, { eventId })
+}
+
+export function useTikkiePaymentsByLink(paymentLinkId: string) {
+  return useQuery(api.tikkie.getTikkiePaymentsByLink, { paymentLinkId })
+}
+
+export function useAutoMatchTikkiePayments() {
+  return useMutation(api.tikkie.autoMatchTikkiePayments)
+}
+
+export function useMatchTikkiePayment() {
+  return useMutation(api.tikkie.matchTikkiePayment)
+}

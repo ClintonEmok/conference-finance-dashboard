@@ -68,6 +68,7 @@ describe("/api/dashboard/tikkie-event-links POST", () => {
       providerEventId: "event_1",
       amountMinor: 0,
       description: undefined,
+      expiryDate: undefined,
       expiryDays: undefined,
     })
     expect(body).toEqual({

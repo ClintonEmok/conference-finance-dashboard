@@ -515,8 +515,10 @@ export type DataModel = {
     document: {
       amountMinor: number;
       description: string;
+      eventId?: string;
       expiryDate: number;
-      orderId: string;
+      linkType?: "event" | "order";
+      orderId?: string;
       paymentRequestToken: string;
       paymentRequestUrl: string;
       providerEventId: string;
@@ -536,7 +538,9 @@ export type DataModel = {
       | "_id"
       | "amountMinor"
       | "description"
+      | "eventId"
       | "expiryDate"
+      | "linkType"
       | "orderId"
       | "paymentRequestToken"
       | "paymentRequestUrl"
@@ -552,6 +556,7 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      eventId: ["eventId", "_creationTime"];
       orderId: ["orderId", "_creationTime"];
       paymentRequestToken: ["paymentRequestToken", "_creationTime"];
       providerOrderEvent: [
@@ -593,6 +598,50 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       paymentLinkId: ["paymentLinkId", "_creationTime"];
       providerNotificationKey: ["providerNotificationKey", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  tikkiePayments: {
+    document: {
+      amountMinor: number;
+      description?: string;
+      matchStatus: "unmatched" | "auto_matched" | "manual";
+      matchedAt?: number;
+      orderId?: string;
+      paidAt: number;
+      payerAccountNumber?: string;
+      payerName: string;
+      paymentLinkId: string;
+      paymentRequestToken: string;
+      paymentToken: string;
+      providerPayload?: any;
+      _id: Id<"tikkiePayments">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "amountMinor"
+      | "description"
+      | "matchedAt"
+      | "matchStatus"
+      | "orderId"
+      | "paidAt"
+      | "payerAccountNumber"
+      | "payerName"
+      | "paymentLinkId"
+      | "paymentRequestToken"
+      | "paymentToken"
+      | "providerPayload";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      matchStatus: ["matchStatus", "_creationTime"];
+      orderId: ["orderId", "_creationTime"];
+      paymentLinkId: ["paymentLinkId", "_creationTime"];
+      paymentRequestToken: ["paymentRequestToken", "_creationTime"];
+      paymentToken: ["paymentToken", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
