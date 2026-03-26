@@ -31,7 +31,7 @@ export default function Page() {
 
           <div className="mt-6 space-y-3">
             <Show when="signed-out">
-              <SignInButton mode="modal">
+              <SignInButton mode="modal" forceRedirectUrl="/dashboard">
                 <Button className="w-full rounded-lg bg-white font-medium text-primary hover:bg-white/92">
                   Sign in to dashboard
                   <ArrowRight className="ml-2 size-4" />
@@ -40,7 +40,7 @@ export default function Page() {
             </Show>
 
             <Show when="signed-out">
-              <SignUpButton mode="modal">
+              <SignUpButton mode="modal" forceRedirectUrl="/dashboard">
                 <Button
                   variant="outline"
                   className="w-full rounded-lg border-white/35 bg-transparent font-medium text-white hover:bg-white/10 hover:text-white"
