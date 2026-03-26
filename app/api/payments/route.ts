@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 
 import { requireApiUser } from "@/lib/auth/server"
+import { api } from "@/lib/convex/api"
+import { convexQuery } from "@/lib/convex/server"
 import { listPayments } from "@/lib/domain/finance/payments"
 import type {
   PaymentMatchStatus,
@@ -15,6 +17,13 @@ const allowedStatuses: PaymentMatchStatus[] = [
 ]
 
 const allowedSources: PaymentSource[] = ["tikkie", "bank_transfer", "cash"]
+
+type ResolvedOrder = {
+  id: string
+  providerOrderId: string
+  buyerName: string
+  totalAmountMinor: number
+}
 
 function parseFilters(request: Request) {
   const params = new URL(request.url).searchParams
@@ -46,6 +55,61 @@ function parseFilters(request: Request) {
   return { status, source, orderId, page, limit }
 }
 
+function mapResolvedOrder(order: {
+  _id: string
+  providerOrderId: string
+  buyerName?: string | null
+  totalAmountMinor?: number | null
+}): ResolvedOrder {
+  return {
+    id: order._id,
+    providerOrderId: order.providerOrderId,
+    buyerName: order.buyerName ?? "Unknown",
+    totalAmountMinor: order.totalAmountMinor ?? 0,
+  }
+}
+
+async function resolvePaymentOrder(
+  rawOrderId: string | null,
+  byProviderOrderIdCache: Map<string, ResolvedOrder | null>,
+  byOrderIdCache: Map<string, ResolvedOrder | null>
+): Promise<ResolvedOrder | null> {
+  const orderId = rawOrderId?.trim()
+
+  if (!orderId) {
+    return null
+  }
+
+  if (byProviderOrderIdCache.has(orderId)) {
+    return byProviderOrderIdCache.get(orderId) ?? null
+  }
+
+  const byProviderOrder = await convexQuery(api.orders.getOrderByProviderId, {
+    providerOrderId: orderId,
+  })
+
+  if (byProviderOrder) {
+    const mappedOrder = mapResolvedOrder(byProviderOrder)
+    byProviderOrderIdCache.set(orderId, mappedOrder)
+    return mappedOrder
+  }
+
+  byProviderOrderIdCache.set(orderId, null)
+
+  if (byOrderIdCache.has(orderId)) {
+    return byOrderIdCache.get(orderId) ?? null
+  }
+
+  const byOrderId = await convexQuery(api.orders.getOrderById, {
+    orderId,
+  })
+
+  const mappedByOrderId = byOrderId ? mapResolvedOrder(byOrderId) : null
+  byOrderIdCache.set(orderId, mappedByOrderId)
+
+  return mappedByOrderId
+}
+
 export async function GET(request: Request) {
   const authResult = await requireApiUser()
 
@@ -63,29 +127,44 @@ export async function GET(request: Request) {
       page * limit
     )
 
+    const byProviderOrderIdCache = new Map<string, ResolvedOrder | null>()
+    const byOrderIdCache = new Map<string, ResolvedOrder | null>()
+
+    const payments = await Promise.all(
+      paginatedPayments.map(async (p) => {
+        const order = await resolvePaymentOrder(
+          p.orderId,
+          byProviderOrderIdCache,
+          byOrderIdCache
+        )
+
+        return {
+          id: p._id,
+          source: p.source,
+          sourceId: p.sourceId,
+          payerName: p.payerName,
+          payerAccountNumber: p.payerAccountNumber,
+          amountMinor: p.amountMinor,
+          paidAt: new Date(p.paidAt).toISOString(),
+          orderId: p.orderId,
+          status: p.status,
+          matchedAt: p.matchedAt ? new Date(p.matchedAt).toISOString() : null,
+          matchedBy: p.matchedBy,
+          reference: p.reference,
+          notes: p.notes,
+          createdAt: p.paidAt
+            ? new Date(p.paidAt).toISOString()
+            : new Date().toISOString(),
+          updatedAt: p.paidAt
+            ? new Date(p.paidAt).toISOString()
+            : new Date().toISOString(),
+          order,
+        }
+      })
+    )
+
     return NextResponse.json({
-      payments: paginatedPayments.map((p) => ({
-        id: p._id,
-        source: p.source,
-        sourceId: p.sourceId,
-        payerName: p.payerName,
-        payerAccountNumber: p.payerAccountNumber,
-        amountMinor: p.amountMinor,
-        paidAt: new Date(p.paidAt).toISOString(),
-        orderId: p.orderId,
-        status: p.status,
-        matchedAt: p.matchedAt ? new Date(p.matchedAt).toISOString() : null,
-        matchedBy: p.matchedBy,
-        reference: p.reference,
-        notes: p.notes,
-        createdAt: p.paidAt
-          ? new Date(p.paidAt).toISOString()
-          : new Date().toISOString(),
-        updatedAt: p.paidAt
-          ? new Date(p.paidAt).toISOString()
-          : new Date().toISOString(),
-        order: null,
-      })),
+      payments,
       total: result.total,
       page,
       limit,
