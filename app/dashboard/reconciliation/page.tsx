@@ -836,6 +836,12 @@ function PaymentReconciliationSection() {
                 <p className="text-[10px] text-muted-foreground">
                   No payments linked
                 </p>
+                <Link
+                  href="/dashboard/reconciliation/payments"
+                  className="mt-2 block text-xs font-medium text-primary hover:underline"
+                >
+                  Assign payments →
+                </Link>
               </div>
             </div>
           </CardContent>
