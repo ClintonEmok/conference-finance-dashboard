@@ -74,11 +74,13 @@ function validate(values: FormValues, activeTab: "bank" | "cash") {
 }
 
 export function ManualPaymentEntryForm({ onSuccess }: ManualEntryFormProps) {
+  const MIN_SEARCH_CHARS = 3
   const [activeTab, setActiveTab] = useState<"bank" | "cash">("bank")
   const [orderSearch, setOrderSearch] = useState("")
   const [orders, setOrders] = useState<Order[]>([])
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [isSearching, setIsSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
   const [showDropdown, setShowDropdown] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -96,30 +98,61 @@ export function ManualPaymentEntryForm({ onSuccess }: ManualEntryFormProps) {
   const [errors, setErrors] = useState<FormErrors>({})
 
   useEffect(() => {
-    if (!orderSearch.trim()) {
+    const trimmedSearch = orderSearch.trim()
+
+    if (!trimmedSearch) {
       setOrders([])
+      setSearchError(null)
+      setIsSearching(false)
+      setShowDropdown(false)
       return
     }
 
+    if (trimmedSearch.length < MIN_SEARCH_CHARS) {
+      setOrders([])
+      setSearchError(null)
+      setIsSearching(false)
+      setShowDropdown(true)
+      return
+    }
+
+    const controller = new AbortController()
     const timer = setTimeout(async () => {
       setIsSearching(true)
+      setSearchError(null)
+      setShowDropdown(true)
+
       try {
-        const params = new URLSearchParams({ search: orderSearch })
-        const response = await fetch(`/api/orders/search?${params}`)
-        if (response.ok) {
-          const data = await response.json()
-          setOrders(data.orders || [])
-          setShowDropdown(true)
+        const params = new URLSearchParams({ search: trimmedSearch })
+        const response = await fetch(`/api/orders/search?${params}`, {
+          signal: controller.signal,
+        })
+
+        if (!response.ok) {
+          throw new Error("Failed to search orders")
         }
+
+        const data = await response.json()
+        setOrders(Array.isArray(data.orders) ? data.orders : [])
       } catch {
+        if (controller.signal.aborted) {
+          return
+        }
+
         setOrders([])
+        setSearchError("Unable to search orders right now. Try again.")
       } finally {
-        setIsSearching(false)
+        if (!controller.signal.aborted) {
+          setIsSearching(false)
+        }
       }
     }, 300)
 
-    return () => clearTimeout(timer)
-  }, [orderSearch])
+    return () => {
+      controller.abort()
+      clearTimeout(timer)
+    }
+  }, [orderSearch, MIN_SEARCH_CHARS])
 
   function handleSelectOrder(order: Order) {
     setSelectedOrder(order)
@@ -250,35 +283,71 @@ export function ManualPaymentEntryForm({ onSuccess }: ManualEntryFormProps) {
               type="text"
               value={orderSearch}
               onChange={(e) => {
-                setOrderSearch(e.target.value)
+                const nextSearch = e.target.value
+                setOrderSearch(nextSearch)
                 setSelectedOrder(null)
                 setValues((current) => ({ ...current, orderId: "" }))
+                setShowDropdown(Boolean(nextSearch.trim()))
               }}
-              onFocus={() => orders.length > 0 && setShowDropdown(true)}
+              onFocus={() => setShowDropdown(Boolean(orderSearch.trim()))}
               placeholder="Search by buyer name or order ID..."
               className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pl-10 text-sm shadow-sm ring-0 transition outline-none focus:border-emerald-500 dark:border-slate-800 dark:bg-slate-950"
             />
             <Search className="absolute top-[34px] left-3 size-4 text-slate-400" />
-            {showDropdown && orders.length > 0 && (
+            {showDropdown && orderSearch.trim() && (
               <div className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
-                {orders.map((order) => (
-                  <button
-                    key={order.id}
-                    type="button"
-                    onClick={() => handleSelectOrder(order)}
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-                  >
-                    <div className="font-medium text-slate-900 dark:text-slate-100">
-                      {order.buyerName || "Unknown"}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      {order.providerOrderId} ·{" "}
-                      {order.totalAmountMinor
-                        ? formatMoney(order.totalAmountMinor)
-                        : "N/A"}
-                    </div>
-                  </button>
-                ))}
+                {orderSearch.trim().length < MIN_SEARCH_CHARS ? (
+                  <p className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">
+                    Type at least {MIN_SEARCH_CHARS} characters to search.
+                  </p>
+                ) : null}
+
+                {orderSearch.trim().length >= MIN_SEARCH_CHARS &&
+                isSearching ? (
+                  <p className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">
+                    Searching orders...
+                  </p>
+                ) : null}
+
+                {orderSearch.trim().length >= MIN_SEARCH_CHARS &&
+                !isSearching &&
+                searchError ? (
+                  <p className="px-3 py-2 text-sm text-rose-600 dark:text-rose-400">
+                    {searchError}
+                  </p>
+                ) : null}
+
+                {orderSearch.trim().length >= MIN_SEARCH_CHARS &&
+                !isSearching &&
+                !searchError &&
+                orders.length === 0 ? (
+                  <p className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">
+                    No matching orders found.
+                  </p>
+                ) : null}
+
+                {orderSearch.trim().length >= MIN_SEARCH_CHARS &&
+                !isSearching &&
+                !searchError
+                  ? orders.map((order) => (
+                      <button
+                        key={order.id}
+                        type="button"
+                        onClick={() => handleSelectOrder(order)}
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                      >
+                        <div className="font-medium text-slate-900 dark:text-slate-100">
+                          {order.buyerName || "Unknown"}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {order.providerOrderId} ·{" "}
+                          {order.totalAmountMinor
+                            ? formatMoney(order.totalAmountMinor)
+                            : "N/A"}
+                        </div>
+                      </button>
+                    ))
+                  : null}
               </div>
             )}
             {selectedOrder && (
