@@ -8,6 +8,19 @@ import { v } from "convex/values"
 
 export const getEvents = query({
   args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("ticketTailorEvents"),
+      _creationTime: v.number(),
+      providerEventId: v.string(),
+      name: v.optional(v.string()),
+      startsAt: v.optional(v.number()),
+      endsAt: v.optional(v.number()),
+      timezone: v.optional(v.string()),
+      currency: v.optional(v.string()),
+      rawPayload: v.any(),
+    })
+  ),
   handler: async (ctx) => {
     return await ctx.db.query("ticketTailorEvents").collect()
   },
@@ -82,6 +95,12 @@ export const upsertEvent = mutation({
 
 export const getEventsForLedger = query({
   args: {},
+  returns: v.array(
+    v.object({
+      providerEventId: v.string(),
+      name: v.union(v.string(), v.null()),
+    })
+  ),
   handler: async (ctx) => {
     const events = await ctx.db.query("ticketTailorEvents").collect()
 
@@ -94,7 +113,7 @@ export const getEventsForLedger = query({
 
     return sorted.map((e) => ({
       providerEventId: e.providerEventId,
-      name: e.name,
+      name: e.name ?? null,
     }))
   },
 })

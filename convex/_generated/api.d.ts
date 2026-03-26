@@ -336,8 +336,28 @@ export declare const api: {
       { providerEventId: string },
       any
     >;
-    getEvents: FunctionReference<"query", "public", {}, any>;
-    getEventsForLedger: FunctionReference<"query", "public", {}, any>;
+    getEvents: FunctionReference<
+      "query",
+      "public",
+      {},
+      Array<{
+        _creationTime: number;
+        _id: Id<"ticketTailorEvents">;
+        currency?: string;
+        endsAt?: number;
+        name?: string;
+        providerEventId: string;
+        rawPayload: any;
+        startsAt?: number;
+        timezone?: string;
+      }>
+    >;
+    getEventsForLedger: FunctionReference<
+      "query",
+      "public",
+      {},
+      Array<{ name: string | null; providerEventId: string }>
+    >;
     upsertEvent: FunctionReference<
       "mutation",
       "public",
@@ -401,7 +421,28 @@ export declare const api: {
       { eventId: string },
       any
     >;
-    getOrderPaymentStatus: FunctionReference<"query", "public", {}, any>;
+    getOrderPaymentStatus: FunctionReference<
+      "query",
+      "public",
+      {},
+      {
+        bySource: { bank_transfer: number; cash: number; tikkie: number };
+        legacyPaymentStatus: {
+          ambiguous: number;
+          auto_matched: number;
+          manual_assignment: number;
+          unassigned: number;
+        };
+        summary: {
+          overpaid: number;
+          paid: number;
+          partial: number;
+          totalOrders: number;
+          unassigned: number;
+        };
+        totalAmountMinor: number;
+      }
+    >;
     getOrders: FunctionReference<
       "query",
       "public",
@@ -420,7 +461,19 @@ export declare const api: {
         status?: "paid" | "refunded" | "cancelled" | "pending";
         to?: number;
       },
-      any
+      Array<{
+        buyerEmail: string | null;
+        buyerName: string | null;
+        currency: string | null;
+        eventId: string;
+        eventName: string | null;
+        normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
+        orderedAt: string | null;
+        providerEventId: string;
+        providerOrderId: string;
+        refundedAt: string | null;
+        totalAmountMinor: number;
+      }>
     >;
     getOrdersWithFilters: FunctionReference<
       "query",
@@ -433,19 +486,54 @@ export declare const api: {
         status?: "paid" | "refunded" | "cancelled" | "pending";
         to?: number;
       },
-      any
+      {
+        orders: Array<{
+          buyerEmail: string | null;
+          buyerName: string | null;
+          currency: string | null;
+          eventId: string;
+          eventName: string | null;
+          normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
+          orderedAt: string | null;
+          providerEventId: string;
+          providerOrderId: string;
+          refundedAt: string | null;
+          totalAmountMinor: number;
+        }>;
+        totalPages: number;
+        totalRows: number;
+      }
     >;
     getOrderWithAttendeesByProviderId: FunctionReference<
       "query",
       "public",
       { providerEventId: string; providerOrderId: string },
-      any
+      {
+        attendees: Array<{
+          id: Id<"ticketTailorAttendees">;
+          name: string;
+          normalizedStatus: string;
+          ticketTypeLabel: string;
+        }>;
+        order: {
+          id: Id<"ticketTailorOrders">;
+          normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
+          orderedAt: string | null;
+          providerOrderId: string;
+          totalAmountMinor?: number;
+        };
+      } | null
     >;
     searchOrders: FunctionReference<
       "query",
       "public",
       { eventId?: string; limit?: number; search: string },
-      any
+      Array<{
+        buyerName: string | null;
+        id: Id<"ticketTailorOrders">;
+        providerOrderId: string;
+        totalAmountMinor: number;
+      }>
     >;
     updateOrderStatus: FunctionReference<
       "mutation",
