@@ -873,13 +873,20 @@ export const updateHotel = mutation({
 export const deleteHotel = mutation({
   args: { hotelId: v.string() },
   handler: async (ctx, args) => {
+    const hotelId = normalizeDocId(
+      ctx,
+      "accommodationHotels",
+      args.hotelId,
+      "Hotel not found"
+    )
+
     const rooms = await ctx.db
       .query("accommodationRooms")
       .withIndex("hotelId_label", (q) => q.eq("hotelId", args.hotelId))
       .collect()
 
-    for (const room of rooms) {
-      await ctx.db.delete("accommodationRooms", room._id)
+    if (rooms.length > 0) {
+      throw new Error("Cannot delete hotel with existing rooms")
     }
 
     const eventHotels = await ctx.db
@@ -887,16 +894,10 @@ export const deleteHotel = mutation({
       .withIndex("hotelId", (q) => q.eq("hotelId", args.hotelId))
       .collect()
 
-    for (const eh of eventHotels) {
-      await ctx.db.delete("accommodationEventHotels", eh._id)
+    if (eventHotels.length > 0) {
+      throw new Error("Cannot delete hotel with linked event scopes")
     }
 
-    const hotelId = normalizeDocId(
-      ctx,
-      "accommodationHotels",
-      args.hotelId,
-      "Hotel not found"
-    )
     await ctx.db.delete("accommodationHotels", hotelId)
     return { ok: true }
   },
@@ -938,10 +939,8 @@ export const deleteRoom = mutation({
       .withIndex("assignedRoomId", (q) => q.eq("assignedRoomId", args.roomId))
       .collect()
 
-    for (const attendee of attendees) {
-      await ctx.db.patch("ticketTailorAttendees", attendee._id, {
-        assignedRoomId: undefined,
-      })
+    if (attendees.length > 0) {
+      throw new Error("Cannot delete room with assigned attendees")
     }
 
     await ctx.db.delete("accommodationRooms", roomId)

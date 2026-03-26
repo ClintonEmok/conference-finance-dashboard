@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server"
 
 import { requireApiUser } from "@/lib/auth/server"
-import { updateRoomLabel } from "@/lib/domain/accommodation/inventory"
+import {
+  deleteRoom,
+  updateRoomLabel,
+} from "@/lib/domain/accommodation/inventory"
 
 function unauthorized() {
   return NextResponse.json(
@@ -11,7 +14,7 @@ function unauthorized() {
         message: "Authentication required",
       },
     },
-    { status: 401 },
+    { status: 401 }
   )
 }
 
@@ -23,13 +26,13 @@ function badRequest(message: string) {
         message,
       },
     },
-    { status: 400 },
+    { status: 400 }
   )
 }
 
 export async function PATCH(
   request: Request,
-  context: { params: Promise<{ roomId: string }> },
+  context: { params: Promise<{ roomId: string }> }
 ) {
   const authResult = await requireApiUser()
 
@@ -67,7 +70,45 @@ export async function PATCH(
           message: "Failed to update room label",
         },
       },
-      { status: 500 },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ roomId: string }> }
+) {
+  const authResult = await requireApiUser()
+
+  if (authResult instanceof NextResponse) {
+    return authResult
+  }
+
+  try {
+    const { roomId } = await context.params
+    await deleteRoom({ roomId })
+
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Invalid request"
+
+    if (
+      message.startsWith("Invalid") ||
+      message.includes("not found") ||
+      message.startsWith("Cannot delete")
+    ) {
+      return badRequest(message)
+    }
+
+    return NextResponse.json(
+      {
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to delete room",
+        },
+      },
+      { status: 500 }
     )
   }
 }
