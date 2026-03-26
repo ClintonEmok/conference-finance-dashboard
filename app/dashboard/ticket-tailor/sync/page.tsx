@@ -18,6 +18,9 @@ type SyncResult = {
     ordersFetched: number
     ordersUpserted: number
     ordersSkippedByScope: number
+    attendeesFetched: number
+    attendeesUpserted: number
+    attendeesSkipped: number
     normalizedFallbackCount: number
     failedItems: number
   }
@@ -31,6 +34,9 @@ type SyncError = {
   error: {
     code: string
     message: string
+  }
+  diagnostics?: {
+    detail?: string
   }
 }
 
@@ -68,7 +74,11 @@ export default function TicketTailorSyncPage() {
       return "Enter valid dates for from/to."
     }
 
-    if (fromDate && toDate && new Date(fromDate).getTime() > new Date(toDate).getTime()) {
+    if (
+      fromDate &&
+      toDate &&
+      new Date(fromDate).getTime() > new Date(toDate).getTime()
+    ) {
       return "From date must be before or equal to To date."
     }
 
@@ -100,10 +110,16 @@ export default function TicketTailorSyncPage() {
       })
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as SyncError | null
+        const payload = (await response
+          .json()
+          .catch(() => null)) as SyncError | null
         const fallbackMessage = `Sync failed with status ${response.status}`
         setResult(null)
-        setErrorMessage(payload?.error?.message ?? fallbackMessage)
+        setErrorMessage(
+          payload?.diagnostics?.detail
+            ? `${payload.error.message}: ${payload.diagnostics.detail}`
+            : (payload?.error?.message ?? fallbackMessage)
+        )
         return
       }
 
@@ -174,7 +190,10 @@ export default function TicketTailorSyncPage() {
           )}
 
           <div>
-            <Button type="submit" disabled={isSubmitting || Boolean(inlineDateValidationError)}>
+            <Button
+              type="submit"
+              disabled={isSubmitting || Boolean(inlineDateValidationError)}
+            >
               {isSubmitting ? "Syncing…" : "Run scoped sync"}
             </Button>
           </div>
@@ -185,64 +204,132 @@ export default function TicketTailorSyncPage() {
         <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
           <h3 className="text-base font-semibold">Last run result</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Run <span className="font-mono">{result.runId}</span> completed with status <strong>{result.status}</strong>.
+            Run <span className="font-mono">{result.runId}</span> completed with
+            status <strong>{result.status}</strong>.
           </p>
 
           <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
             <div className="rounded-md border border-border/70 p-3">
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Scope event</dt>
-              <dd className="mt-1 font-mono text-xs">{result.scope.eventId ?? "Any"}</dd>
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Scope event
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {result.scope.eventId ?? "Any"}
+              </dd>
             </div>
             <div className="rounded-md border border-border/70 p-3">
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Scope from</dt>
-              <dd className="mt-1 font-mono text-xs">{formatScopeDate(result.scope.from)}</dd>
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Scope from
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {formatScopeDate(result.scope.from)}
+              </dd>
             </div>
             <div className="rounded-md border border-border/70 p-3">
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Scope to</dt>
-              <dd className="mt-1 font-mono text-xs">{formatScopeDate(result.scope.to)}</dd>
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Scope to
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {formatScopeDate(result.scope.to)}
+              </dd>
             </div>
             <div className="rounded-md border border-border/70 p-3">
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Events scanned</dt>
-              <dd className="mt-1 font-mono text-xs">{result.counts.eventsScanned}</dd>
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Events scanned
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {result.counts.eventsScanned}
+              </dd>
             </div>
             <div className="rounded-md border border-border/70 p-3">
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Orders fetched</dt>
-              <dd className="mt-1 font-mono text-xs">{result.counts.ordersFetched}</dd>
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Orders fetched
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {result.counts.ordersFetched}
+              </dd>
             </div>
             <div className="rounded-md border border-border/70 p-3">
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Orders upserted</dt>
-              <dd className="mt-1 font-mono text-xs">{result.counts.ordersUpserted}</dd>
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Orders upserted
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {result.counts.ordersUpserted}
+              </dd>
             </div>
             <div className="rounded-md border border-border/70 p-3">
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Skipped by scope</dt>
-              <dd className="mt-1 font-mono text-xs">{result.counts.ordersSkippedByScope}</dd>
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Skipped by scope
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {result.counts.ordersSkippedByScope}
+              </dd>
             </div>
             <div className="rounded-md border border-border/70 p-3">
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Fallback mappings</dt>
-              <dd className="mt-1 font-mono text-xs">{result.counts.normalizedFallbackCount}</dd>
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Attendees fetched
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {result.counts.attendeesFetched}
+              </dd>
             </div>
             <div className="rounded-md border border-border/70 p-3">
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Failed items</dt>
-              <dd className="mt-1 font-mono text-xs">{result.counts.failedItems}</dd>
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Attendees upserted
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {result.counts.attendeesUpserted}
+              </dd>
+            </div>
+            <div className="rounded-md border border-border/70 p-3">
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Attendees skipped
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {result.counts.attendeesSkipped}
+              </dd>
+            </div>
+            <div className="rounded-md border border-border/70 p-3">
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Fallback mappings
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {result.counts.normalizedFallbackCount}
+              </dd>
+            </div>
+            <div className="rounded-md border border-border/70 p-3">
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Failed items
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {result.counts.failedItems}
+              </dd>
             </div>
           </dl>
 
-          {(result.diagnostics.fallbackNotes.length > 0 || result.diagnostics.errors.length > 0) && (
+          {(result.diagnostics.fallbackNotes.length > 0 ||
+            result.diagnostics.errors.length > 0) && (
             <div className="mt-4 space-y-2 rounded-md border border-border/70 p-3 text-sm">
               <p className="font-medium">Diagnostics</p>
               {result.diagnostics.fallbackNotes.length > 0 && (
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Fallback notes</p>
+                  <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                    Fallback notes
+                  </p>
                   <ul className="mt-1 list-inside list-disc">
-                    {result.diagnostics.fallbackNotes.slice(0, 5).map((note) => (
-                      <li key={note}>{note}</li>
-                    ))}
+                    {result.diagnostics.fallbackNotes
+                      .slice(0, 5)
+                      .map((note) => (
+                        <li key={note}>{note}</li>
+                      ))}
                   </ul>
                 </div>
               )}
               {result.diagnostics.errors.length > 0 && (
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Errors</p>
+                  <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                    Errors
+                  </p>
                   <ul className="mt-1 list-inside list-disc">
                     {result.diagnostics.errors.slice(0, 5).map((error) => (
                       <li key={error}>{error}</li>
