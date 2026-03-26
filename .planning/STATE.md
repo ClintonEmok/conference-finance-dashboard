@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: complete
-stopped_at: Completed 260326-e0r-PLAN.md
-last_updated: "2026-03-26T09:12:10.000Z"
+stopped_at: Completed 260326-hfn-PLAN.md
+last_updated: "2026-03-26T11:41:31.000Z"
 progress:
   total_phases: 16
   completed_phases: 9
@@ -25,7 +25,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 Phase: 13 (rebuild-convex-mutation-and-api-layer-from-clean-contracts) — COMPLETE
 Plan: 5 of 5
-Quick task: 260326-e0r (fix-the-attendeedetail-page-the-api-retu) — COMPLETE
+Quick task: 260326-hfn (fix-event-tikkie-create-link-button-open) — COMPLETE
 
 ## Alignment Status
 
@@ -37,6 +37,7 @@ Quick task: 260326-e0r (fix-the-attendeedetail-page-the-api-retu) — COMPLETE
 - Ticket Tailor manual sync now reuses returned Convex ids correctly, records terminal sync-run status, and surfaces attendee counts/diagnostics in the operator sync page.
 - Accommodation inventory rendering now sanitizes malformed room metrics locally so grouped hotel Available beds totals never surface `NaN` in React.
 - Attendee detail API reads now share the existing protected attendee route with PATCH overrides, so the detail page fetch no longer fails with a 405.
+- Event-level Tikkie create-link CTA now opens an amount-entry modal, converts euros to `amountMinor`, and supports explicit open-amount creation with `0`.
 
 ## Key Decisions
 
@@ -58,6 +59,7 @@ Recent decisions that future work should preserve:
 - [260326-di7] Treat `api.sync.*` upsert mutations as id-returning boundaries and add Convex `returns` validators so generated refs no longer hide that contract as `any`.
 - [260326-do9] Keep malformed accommodation inventory number handling at the dashboard render boundary for this quick repair, deriving fallback available beds from sanitized capacity and occupied counts.
 - [260326-e0r] Keep attendee detail page loads and Tikkie override PATCH updates on the same protected `/api/dashboard/attendees/[attendeeId]` route, reusing `getAttendeeDetail` for the GET payload.
+- [260326-hfn] Require modal amount entry before creating event-level Tikkie links, and enforce optional `amountMinor` as a non-negative integer (including `0`) at the route boundary.
 
 ## Active Patterns / Constraints
 
@@ -68,6 +70,7 @@ Recent decisions that future work should preserve:
 - Manual Ticket Tailor sync UI should read attendee counts and diagnostics from the route payload instead of assuming an orders-only summary.
 - Accommodation inventory hotel blocks should sum sanitized per-room metrics instead of raw available-bed payload fields.
 - Shared dashboard detail routes should keep GET and PATCH on the same URL when the page already depends on that endpoint contract.
+- Event-level Tikkie create-link should use a modal confirmation/input step and submit explicit cent amounts (`amountMinor`) to the protected route.
 
 ## Blockers / Concerns
 
@@ -82,19 +85,20 @@ Recent decisions that future work should preserve:
 | 260326-do9 | fix received NaN for the attribute in app accommodation inventory                        | 2026-03-26 | c909cbd | [260326-do9-fix-received-nan-for-the-attribute-in-ap](./quick/260326-do9-fix-received-nan-for-the-attribute-in-ap/) |
 | 260326-e0r | fix the attendeedetail page the api returns 405. i want the attendee details to be shown | 2026-03-26 | fca8087 | [260326-e0r-fix-the-attendeedetail-page-the-api-retu](./quick/260326-e0r-fix-the-attendeedetail-page-the-api-retu/) |
 | 260326-edp | show the custom answers on the attendee detail page                                      | 2026-03-26 | 97a0463 | [260326-edp-show-the-custom-answers-on-the-attendee-](./quick/260326-edp-show-the-custom-answers-on-the-attendee-/) |
+| 260326-hfn | fix event tikkie create link button open                                                 | 2026-03-26 | c731fd3 | [260326-hfn-fix-event-tikkie-create-link-button-open](./quick/260326-hfn-fix-event-tikkie-create-link-button-open/) |
 
 ## Accumulated Context
 
 ### Roadmap Evolution
 
-- Phase 13 added: rebuild convex mutation and api layer from clean contracts
-- Phase 14 added: rebuild convex mutation and api layer from clean contracts (renumbered from 13)
-- Phase 13 added: Event-Level Tikkie + Payment Tracking
+- Phase 13: rebuild convex mutation and api layer from clean contracts (complete)
+- Phase 14: Event-Level Tikkie + Payment Tracking (complete)
+- Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-26 - Completed quick task 260326-edp: show the custom answers on the attendee detail page
-- **Last session:** 2026-03-26T10:11:00Z
-- **Stopped at:** Quick task complete
+- **Last activity:** 2026-03-26 - Completed 260326-hfn quick task (event Tikkie create-link modal + zero amount validation)
+- **Last session:** 2026-03-26T11:41:31Z
+- **Stopped at:** Completed 260326-hfn-PLAN.md
 - **Resume file:** None
-- **Next recommended plan:** Run `/gsd-plan-phase 13` to break down Event-Level Tikkie + Payment Tracking
+- **Next recommended plan:** Review `.planning/ROADMAP.md` for next phase or add new phases
