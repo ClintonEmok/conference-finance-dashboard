@@ -7,8 +7,11 @@ import {
   ArrowRight,
   BedDouble,
   Building2,
+  Check,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
+  MapPin,
   RefreshCcw,
   Search,
   Sparkles,
@@ -177,6 +180,19 @@ export default function AccommodationPage() {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const [selectedAttendeeIds, setSelectedAttendeeIds] = useState<string[]>([])
+  
+  const selectedAttendeeId = selectedAttendeeIds[0] || null
+
+  const toggleAttendeeSelection = (id: string) => {
+    setSelectedAttendeeIds(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(item => item !== id)
+      }
+      return [...prev, id]
+    })
+  }
+
   const [payload, setPayload] =
     useState<AccommodationWorkspacePayload>(emptyPayload)
   const [errors, setErrors] = useState<InventoryErrorState>(emptyErrors)
@@ -246,8 +262,6 @@ export default function AccommodationPage() {
   const [selectedRoomByAttendee, setSelectedRoomByAttendee] = useState<
     Record<string, string>
   >({})
-
-  const selectedAttendeeId = searchParams.get("attendeeId")
 
   const syncUrlState = useCallback(
     (next: {
@@ -417,60 +431,6 @@ export default function AccommodationPage() {
     [payload.rooms]
   )
 
-  const selectedAttendeeContext = useMemo(() => {
-    if (!selectedAttendeeId) {
-      return null
-    }
-
-    const unassignedAttendee = payload.unassignedAttendees.find(
-      (attendee) => attendee.attendeeId === selectedAttendeeId
-    )
-
-    if (unassignedAttendee) {
-      return {
-        status: "unassigned" as const,
-        attendeeName: unassignedAttendee.attendeeName,
-        attendeeEmail: unassignedAttendee.attendeeEmail,
-        detailHref: `/dashboard/attendees/${unassignedAttendee.attendeeId}?search=${encodeURIComponent(
-          appliedSearch ||
-            unassignedAttendee.attendeeName ||
-            unassignedAttendee.providerOrderId
-        )}&eventId=${encodeURIComponent(appliedEventId || unassignedAttendee.providerEventId)}`,
-      }
-    }
-
-    for (const room of payload.rooms) {
-      const occupant = room.occupants.find(
-        (attendee) => attendee.attendeeId === selectedAttendeeId
-      )
-
-      if (occupant) {
-        return {
-          status: "assigned" as const,
-          attendeeName: occupant.attendeeName,
-          attendeeEmail: occupant.attendeeEmail,
-          roomLabel: room.label,
-          hotelName: room.hotel.name,
-          detailHref: `/dashboard/attendees/${occupant.attendeeId}?search=${encodeURIComponent(
-            appliedSearch || occupant.attendeeName || occupant.providerOrderId
-          )}&eventId=${encodeURIComponent(appliedEventId || occupant.providerEventId)}`,
-        }
-      }
-    }
-
-    return {
-      status: "hidden" as const,
-      attendeeName: null,
-      attendeeEmail: null,
-      detailHref: "/dashboard/attendees",
-    }
-  }, [
-    appliedEventId,
-    appliedSearch,
-    payload.rooms,
-    payload.unassignedAttendees,
-    selectedAttendeeId,
-  ])
 
   const totalCapacity = useMemo(
     () => payload.rooms.reduce((sum, room) => sum + room.capacity, 0),
@@ -487,37 +447,6 @@ export default function AccommodationPage() {
       ? 0
       : Math.round((occupiedCapacity / totalCapacity) * 100)
 
-  const highlightedSuggestion = useMemo(() => {
-    if (
-      payload.unassignedAttendees.length === 0 ||
-      assignableRooms.length === 0
-    ) {
-      return null
-    }
-
-    const attendee = payload.unassignedAttendees[0]
-    const room = assignableRooms[0]
-    const attendeeDisplayName =
-      attendee.attendeeName?.trim() ||
-      attendee.attendeeEmail ||
-      attendee.providerOrderId
-
-    return {
-      attendeeName: attendeeDisplayName,
-      roomLabel: room.label,
-      hotelName: room.hotel.name,
-    }
-  }, [assignableRooms, payload.unassignedAttendees])
-
-  const selectedEventHotelCount = useMemo(() => {
-    if (!eventIdInput) {
-      return 0
-    }
-
-    return payload.hotels.filter((hotel) =>
-      hotel.assignedEventIds.includes(eventIdInput)
-    ).length
-  }, [eventIdInput, payload.hotels])
 
   const roomsPerPage = 8
 
@@ -629,6 +558,32 @@ export default function AccommodationPage() {
     }
   }
 
+  async function assignMultipleAttendeesToRoom(attendeeIds: string[], roomId: string) {
+    if (!roomId || attendeeIds.length === 0) return
+    
+    setIsMutating(true)
+    setAssignmentMessage(null)
+    
+    try {
+      // Loop or use a bulk endpoint if available. For now, sequential per current API pattern
+      for (const id of attendeeIds) {
+        await fetch("/api/dashboard/accommodation/assignments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ attendeeId: id, roomId }),
+        })
+      }
+      
+      setAssignmentMessage(`Assigned ${attendeeIds.length} attendees.`)
+      setSelectedAttendeeIds([])
+      await loadWorkspace()
+    } catch (e) {
+      setErrors(prev => ({ ...prev, assignments: "Bulk assignment failed." }))
+    } finally {
+      setIsMutating(false)
+    }
+  }
+
   async function unassignAttendee(attendeeId: string) {
     setIsMutating(true)
     setAssignmentMessage(null)
@@ -663,101 +618,78 @@ export default function AccommodationPage() {
     }
   }
 
-  function jumpToAssignmentQueue() {
-    const target = document.getElementById("assignment-queue")
-    target?.scrollIntoView({ behavior: "smooth", block: "start" })
-  }
+
 
   return (
     <section className="space-y-6">
-      <section className="rounded-3xl border border-primary/12 bg-[radial-gradient(circle_at_top_left,rgba(145,118,255,0.3),transparent_38%),linear-gradient(180deg,rgba(57,47,92,0.96)_0%,rgba(72,60,112,0.92)_36%,rgba(92,79,136,0.9)_100%)] p-6 shadow-[0_24px_70px_rgba(40,24,82,0.16)]">
-        <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-          <div className="max-w-3xl">
-            <p className="text-xs font-semibold tracking-[0.24em] text-primary-foreground/55 uppercase">
-              Rooms
-            </p>
-            <h2 className="mt-2 text-4xl font-semibold tracking-tight text-primary-foreground">
-              Room allocation manager
-            </h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-primary-foreground/72">
-              Track hotel capacity, assign attendees, and keep accommodation
-              decisions visible in one operator workflow.
+      <header className="mb-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight text-foreground">Room allocation</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Track hotel capacity, assign attendees, and keep accommodation decisions visible.
             </p>
           </div>
-
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2">
             <Button
               asChild
               variant="outline"
-              className="rounded-full border-white/20 bg-white/8 text-primary-foreground hover:bg-white/14 hover:text-primary-foreground"
+              size="sm"
+              className="rounded-xl bg-background/50 backdrop-blur"
             >
               <Link href="/dashboard/accommodation/inventory">
-                Open room stock
+                Open stock
               </Link>
             </Button>
             <Button
               type="button"
-              className="rounded-full border border-white/10 bg-white/92 text-primary shadow-sm hover:bg-white"
-              onClick={jumpToAssignmentQueue}
+              size="sm"
+              className="rounded-xl bg-[linear-gradient(135deg,#7154ff,#5238aa)] text-white shadow-sm hover:opacity-90 transition-opacity"
+              disabled={isLoadingProposal || payload.unassignedAttendees.length === 0}
+              onClick={async () => {
+                setIsLoadingProposal(true)
+                try {
+                  const response = await fetch(
+                    "/api/dashboard/accommodation/auto-allocate",
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        eventId: appliedEventId || null,
+                      }),
+                    }
+                  )
+                  if (response.ok) {
+                    const data = await response.json()
+                    setProposal(data)
+                    setShowProposal(true)
+                  }
+                } finally {
+                  setIsLoadingProposal(false)
+                }
+              }}
             >
-              Bulk assign
+              <Sparkles className="mr-1.5 size-3.5" />
+              {isLoadingProposal ? "Generating..." : "Auto-allocate"}
             </Button>
           </div>
         </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <article className="rounded-2xl border border-white/10 bg-black/18 p-5 shadow-[0_18px_40px_rgba(12,8,24,0.24)] backdrop-blur-sm">
-            <p className="text-xs font-semibold tracking-[0.2em] text-primary-foreground/58 uppercase">
-              Total capacity
-            </p>
-            <p className="mt-3 text-3xl font-semibold text-primary-foreground">
-              {totalCapacity.toLocaleString()}
-            </p>
-            <p className="mt-2 text-sm text-primary-foreground/68">
-              {payload.summary.totalRooms} rooms in active scope
-            </p>
-          </article>
-          <article className="rounded-2xl border border-white/10 bg-black/18 p-5 shadow-[0_18px_40px_rgba(12,8,24,0.24)] backdrop-blur-sm">
-            <p className="text-xs font-semibold tracking-[0.2em] text-primary-foreground/58 uppercase">
-              Occupied beds
-            </p>
-            <p className="mt-3 text-3xl font-semibold text-primary-foreground">
-              {occupiedCapacity.toLocaleString()}
-            </p>
-            <div className="mt-3 h-2 rounded-full bg-white/10">
-              <div
-                className="h-2 rounded-full bg-[linear-gradient(90deg,rgba(255,255,255,0.82),rgba(190,168,255,0.98))]"
-                style={{ width: `${occupancyPercent}%` }}
-              />
-            </div>
-            <p className="mt-2 text-sm text-primary-foreground/68">
-              {occupancyPercent}% of current room capacity in use
-            </p>
-          </article>
-          <article className="rounded-2xl border border-white/10 bg-black/18 p-5 shadow-[0_18px_40px_rgba(12,8,24,0.24)] backdrop-blur-sm">
-            <p className="text-xs font-semibold tracking-[0.2em] text-primary-foreground/58 uppercase">
-              Unassigned attendees
-            </p>
-            <p className="mt-3 text-3xl font-semibold text-primary-foreground">
-              {payload.summary.unassignedAttendees}
-            </p>
-            <p className="mt-2 text-sm text-primary-foreground/68">
-              People still waiting for a room
-            </p>
-          </article>
-          <article className="rounded-2xl border border-white/10 bg-black/18 p-5 shadow-[0_18px_40px_rgba(12,8,24,0.24)] backdrop-blur-sm">
-            <p className="text-xs font-semibold tracking-[0.2em] text-primary-foreground/58 uppercase">
-              Room mix
-            </p>
-            <p className="mt-3 text-3xl font-semibold text-primary-foreground">
-              {payload.roomTypes.length}
-            </p>
-            <p className="mt-2 text-sm text-primary-foreground/68">
-              Across {payload.hotels.length} hotels
-            </p>
-          </article>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { label: "Total capacity", value: totalCapacity.toLocaleString(), sub: `${payload.summary.totalRooms} rooms` },
+            { label: "Occupancy", value: `${occupancyPercent}%`, sub: `${occupiedCapacity} beds used` },
+            { label: "Unassigned", value: payload.summary.unassignedAttendees, sub: "Waiting list" },
+            { label: "Inventory", value: payload.roomTypes.length, sub: `${payload.hotels.length} Hoteliers` },
+          ].map((metric) => (
+            <article key={metric.label} className="relative flex flex-col justify-center overflow-hidden rounded-2xl border border-[rgba(113,84,255,0.4)] bg-[linear-gradient(145deg,rgba(113,84,255,0.92),rgba(83,56,171,0.88))] p-5 shadow-[0_8px_30px_rgb(113,84,255,0.2)] transition-transform hover:scale-[1.02]">
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60 relative z-10">{metric.label}</p>
+              <p className="mt-2 text-2xl font-bold text-white relative z-10">{metric.value}</p>
+              <p className="mt-1 text-[11px] font-medium text-white/50 relative z-10">{metric.sub}</p>
+            </article>
+          ))}
         </div>
-      </section>
+      </header>
 
       {(errors.global || errors.assignments || assignmentMessage) && (
         <div className="space-y-3">
@@ -779,315 +711,10 @@ export default function AccommodationPage() {
         </div>
       )}
 
-      <section className="grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="space-y-6">
-          <article className="rounded-3xl border border-border/70 bg-card/95 p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-2xl bg-primary/8 text-primary">
-                <Search className="size-4" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase">
-                  Refine view
-                </p>
-                <h3 className="text-lg font-semibold text-foreground">
-                  Filter the allocation board
-                </h3>
-              </div>
-            </div>
+      <section className="flex flex-col gap-8">
+        <div className="space-y-6">
 
-            <form className="mt-5 space-y-4" onSubmit={applyFilters}>
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">
-                  Search rooms or attendees
-                </span>
-                <input
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder="Room, hotel, attendee, order"
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                />
-              </label>
 
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Event</span>
-                <select
-                  value={eventIdInput}
-                  onChange={(event) => setEventIdInput(event.target.value)}
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                >
-                  <option value="">All events</option>
-                  {payload.availableEvents.map((event) => (
-                    <option
-                      key={event.providerEventId}
-                      value={event.providerEventId}
-                    >
-                      {event.name?.trim() || event.providerEventId}
-                    </option>
-                  ))}
-                </select>
-                {eventIdInput && (
-                  <p className="text-xs text-muted-foreground">
-                    {selectedEventHotelCount > 0
-                      ? `This event is currently scoped to ${selectedEventHotelCount} hotel${selectedEventHotelCount === 1 ? "" : "s"}.`
-                      : "No hotel scope is configured for this event yet, so all hotels remain visible."}
-                  </p>
-                )}
-              </label>
-
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Hotel</span>
-                <select
-                  value={hotelFilter}
-                  onChange={(event) => setHotelFilter(event.target.value)}
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                >
-                  <option value="">All hotels</option>
-                  {payload.hotels.map((hotel) => (
-                    <option key={hotel.id} value={hotel.id}>
-                      {hotel.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Room type</span>
-                <select
-                  value={roomTypeFilter}
-                  onChange={(event) => setRoomTypeFilter(event.target.value)}
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                >
-                  <option value="">All room types</option>
-                  {payload.roomTypes.map((type) => (
-                    <option key={type.id} value={type.id}>
-                      {type.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Gender</span>
-                <select
-                  value={genderFilter}
-                  onChange={(event) => setGenderFilter(event.target.value)}
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                >
-                  <option value="">All genders</option>
-                  <option value="MALE">Male</option>
-                  <option value="FEMALE">Female</option>
-                  <option value="MIXED">Mixed (Family)</option>
-                  <option value="UNKNOWN">Unknown</option>
-                </select>
-              </label>
-
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Priority</span>
-                <select
-                  value={priorityFilter}
-                  onChange={(event) => setPriorityFilter(event.target.value)}
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                >
-                  <option value="">All priorities</option>
-                  <option value="CRITICAL">Critical</option>
-                  <option value="HIGH">High</option>
-                  <option value="NORMAL">Normal</option>
-                  <option value="LOW">Low</option>
-                </select>
-              </label>
-
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Location</span>
-                <input
-                  value={locationFilter}
-                  onChange={(event) => setLocationFilter(event.target.value)}
-                  placeholder="Filter by location"
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                />
-              </label>
-
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={hasPriorityFilter}
-                  onChange={(event) =>
-                    setHasPriorityFilter(event.target.checked)
-                  }
-                  className="size-4 rounded border-input"
-                />
-                <span className="font-medium text-foreground">
-                  Priority only
-                </span>
-              </label>
-
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Status</span>
-                <select
-                  value={availabilityFilter}
-                  onChange={(event) =>
-                    setAvailabilityFilter(
-                      event.target.value as AvailabilityFilter
-                    )
-                  }
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                >
-                  <option value="all">All rooms</option>
-                  <option value="empty">Empty</option>
-                  <option value="available">Available</option>
-                  <option value="full">Occupied</option>
-                </select>
-              </label>
-
-              <div className="flex gap-2 pt-2">
-                <Button
-                  type="submit"
-                  disabled={isLoading || isMutating}
-                  className="flex-1 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
-                >
-                  Apply
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-xl"
-                  disabled={isLoading || isMutating}
-                  onClick={() => {
-                    setEventIdInput("")
-                    setSearchInput("")
-                    setHotelFilter("")
-                    setRoomTypeFilter("")
-                    setAvailabilityFilter("all")
-                    setGenderFilter("")
-                    setPriorityFilter("")
-                    setHasPriorityFilter(false)
-                    setLocationFilter("")
-                    setAssignmentMessage(null)
-                    syncUrlState({
-                      attendeeId: selectedAttendeeId,
-                      eventId: null,
-                      search: null,
-                      hotelId: null,
-                      roomTypeId: null,
-                      availability: "all",
-                      genderType: null,
-                      allocationPriority: null,
-                      hasPriority: null,
-                      location: null,
-                      source: searchParams.get("source"),
-                    })
-                  }}
-                >
-                  Reset
-                </Button>
-              </div>
-            </form>
-          </article>
-
-          {selectedAttendeeId && selectedAttendeeContext && (
-            <article className="rounded-3xl border border-primary/12 bg-primary/6 p-5 shadow-sm">
-              <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase">
-                Selected attendee
-              </p>
-              <h3 className="mt-2 text-lg font-semibold text-foreground">
-                {selectedAttendeeContext.attendeeName ?? "Focused attendee"}
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                {selectedAttendeeContext.status === "assigned"
-                  ? `${selectedAttendeeContext.attendeeName ?? "This attendee"} is already assigned to ${selectedAttendeeContext.roomLabel} at ${selectedAttendeeContext.hotelName}.`
-                  : selectedAttendeeContext.status === "unassigned"
-                    ? `${selectedAttendeeContext.attendeeName ?? "This attendee"} is unassigned and ready for room placement.`
-                    : "This attendee is outside the current filters. Clear the filters or reopen from attendee detail."}
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Button
-                  asChild
-                  variant="outline"
-                  className="rounded-xl bg-background text-primary"
-                >
-                  <Link href={selectedAttendeeContext.detailHref}>
-                    Open attendee detail
-                  </Link>
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="rounded-xl text-primary"
-                  onClick={() =>
-                    syncUrlState({
-                      attendeeId: null,
-                      eventId: appliedEventId,
-                      search: appliedSearch,
-                      hotelId: appliedHotelFilter,
-                      roomTypeId: appliedRoomTypeFilter,
-                      availability: appliedAvailability,
-                      source: searchParams.get("source"),
-                    })
-                  }
-                >
-                  Clear focus
-                </Button>
-              </div>
-            </article>
-          )}
-
-          <article className="rounded-3xl border border-primary/20 bg-primary p-5 text-primary-foreground shadow-[0_24px_54px_rgba(83,56,171,0.28)]">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="flex size-10 items-center justify-center rounded-2xl bg-white/12">
-                  <Sparkles className="size-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold tracking-[0.2em] text-primary-foreground/70 uppercase">
-                    Suggestion
-                  </p>
-                  <h3 className="text-lg font-semibold">Smart allocation</h3>
-                </div>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="border-white/20 bg-white/10 text-primary-foreground hover:bg-white/20"
-                disabled={
-                  isLoadingProposal || payload.unassignedAttendees.length === 0
-                }
-                onClick={async () => {
-                  setIsLoadingProposal(true)
-                  try {
-                    const response = await fetch(
-                      "/api/dashboard/accommodation/auto-allocate",
-                      {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          eventId: appliedEventId || null,
-                        }),
-                      }
-                    )
-                    if (response.ok) {
-                      const data = await response.json()
-                      setProposal(data)
-                      setShowProposal(true)
-                    }
-                  } finally {
-                    setIsLoadingProposal(false)
-                  }
-                }}
-              >
-                {isLoadingProposal ? "Generating..." : "Generate proposal"}
-              </Button>
-            </div>
-            <p className="mt-4 text-sm leading-6 text-primary-foreground/85">
-              {highlightedSuggestion
-                ? `${highlightedSuggestion.attendeeName} can likely be placed in ${highlightedSuggestion.roomLabel} at ${highlightedSuggestion.hotelName} based on the active scope.`
-                : "No suggestion yet. Add more inventory or widen the current filters to reveal available room matches."}
-            </p>
-            <div className="mt-5 flex items-center justify-between text-sm text-primary-foreground/75">
-              <span>{payload.summary.unassignedAttendees} waiting</span>
-              <span>{assignableRooms.length} rooms open</span>
-            </div>
-          </article>
 
           {/* Smart Allocation Proposal Display */}
           {showProposal && proposal && (
@@ -1226,21 +853,114 @@ export default function AccommodationPage() {
               )}
             </article>
           )}
-        </aside>
+        </div>
 
-        <div className="space-y-6">
-          <article
-            id="assignment-queue"
-            className="rounded-3xl border border-border/70 bg-card/95 p-6 shadow-sm"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 xl:gap-8 items-start">
+          {/* PANE 1: Inbox of unassigned attendees */}
+          <div className="flex flex-col rounded-2xl border border-border/60 bg-card/40 shadow-sm backdrop-blur-xl overflow-hidden h-[800px]">
+            <div className="border-b border-border/60 bg-muted/30 px-5 py-4 flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase">
-                  Allocation board
+                <h3 className="font-bold text-sm tracking-tight text-foreground">Inbox</h3>
+                <p className="text-[10px] uppercase font-semibold tracking-wider text-muted-foreground mt-0.5">
+                  {payload.unassignedAttendees.length} Waiting
                 </p>
-                <h3 className="mt-2 text-2xl font-semibold text-foreground">
-                  Room overview and occupancy
-                </h3>
+              </div>
+              <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Users className="size-4" />
+              </div>
+            </div>
+            <div className={`flex-1 overflow-y-auto p-3 space-y-2 transition-opacity duration-200 ${isLoading || isMutating ? "opacity-50 pointer-events-none" : ""}`}>
+              {isLoading && payload.unassignedAttendees.length === 0 ? (
+                <div className="p-8 flex items-center justify-center text-sm text-muted-foreground m-2">
+                  Loading inbox...
+                </div>
+              ) : payload.unassignedAttendees.length === 0 ? (
+                <div className="p-8 text-center text-sm text-muted-foreground border border-dashed border-border/60 rounded-xl m-2 bg-background/50">
+                  Inbox empty! All attendees have been placed.
+                </div>
+              ) : (
+                payload.unassignedAttendees.map((attendee) => {
+                  const isSelected = selectedAttendeeIds.includes(attendee.attendeeId)
+                  return (
+                    <div
+                      key={attendee.attendeeId}
+                      className={`group relative w-full flex flex-col items-start p-4 rounded-xl border transition-all cursor-pointer select-none ${
+                        isSelected
+                          ? "border-[rgba(113,84,255,0.6)] bg-[rgba(113,84,255,0.08)] shadow-[0_0_20px_rgba(113,84,255,0.1)] selected-attendee"
+                          : "border-border/40 bg-background/50 hover:bg-muted/30"
+                      }`}
+                      onClick={() => toggleAttendeeSelection(attendee.attendeeId)}
+                    >
+                      <div className="flex w-full items-start justify-between">
+                        <div className="flex items-center gap-2 truncate">
+                          <div className={`flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
+                            isSelected 
+                              ? "bg-primary border-primary text-primary-foreground" 
+                              : "border-border bg-background"
+                          }`}>
+                            {isSelected && <Check className="size-3" />}
+                          </div>
+                          <p className="font-semibold text-sm text-foreground truncate">
+                            {attendee.attendeeName ?? "Unnamed"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Link 
+                            href={`/dashboard/attendees/${attendee.attendeeId}?search=${encodeURIComponent(
+                              appliedSearch ||
+                                attendee.attendeeName ||
+                                attendee.providerOrderId
+                            )}&eventId=${encodeURIComponent(appliedEventId || attendee.providerEventId)}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="p-1 text-muted-foreground hover:text-primary transition-colors"
+                          >
+                            <ExternalLink className="size-3.5" />
+                          </Link>
+                          {attendee.allocationPriority === "CRITICAL" && (
+                            <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-medium text-red-500">Crit</span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <p className="mt-1 ml-7 text-xs text-muted-foreground truncate opacity-70">
+                        {attendee.ticketTypeLabel ?? attendee.eventName}
+                      </p>
+                      
+                      <div className="mt-3 ml-7 flex flex-wrap gap-1.5">
+                        {attendee.genderType && attendee.genderType !== "UNKNOWN" && (
+                          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize ${
+                            attendee.genderType === "MALE" 
+                              ? "bg-blue-500/10 text-blue-500 border-blue-500/20" 
+                              : attendee.genderType === "FEMALE"
+                                ? "bg-pink-500/10 text-pink-500 border-pink-500/20"
+                                : "bg-muted/30 text-muted-foreground/80 border-border/40"
+                          }`}>
+                            {attendee.genderType.toLowerCase()}
+                          </span>
+                        )}
+                        {attendee.location && (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
+                            <MapPin className="size-2.5" />
+                            {attendee.location}
+                          </span>
+                        )}
+                        {shouldRenderFamilyBadge(attendee) && (
+                          <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600">Group</span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
+          {/* PANE 2: Visual Room Board */}
+          <div id="assignment-queue" className="flex flex-col gap-4">
+            <div className="flex items-center justify-between mb-4 px-1">
+              <div>
+                <h3 className="text-xl font-bold tracking-tight text-foreground">Room availability</h3>
+                <p className="text-xs text-muted-foreground font-medium">{payload.rooms.length} filtered rooms</p>
               </div>
               <Button
                 type="button"
@@ -1254,7 +974,7 @@ export default function AccommodationPage() {
               </Button>
             </div>
 
-            {isLoading ? (
+            {isLoading && payload.rooms.length === 0 ? (
               <p className="mt-5 text-sm text-muted-foreground">
                 Loading room overview...
               </p>
@@ -1263,325 +983,117 @@ export default function AccommodationPage() {
                 No room stock matches the current filters.
               </p>
             ) : (
-              <div className="mt-5 overflow-hidden rounded-2xl border border-border/70">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-border/70 text-sm">
-                    <thead className="bg-muted/35">
-                      <tr className="text-left">
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Room
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Hotel
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Type
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Occupancy
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Guests
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Status
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60 bg-background/80">
-                      {paginatedRooms.map((room) => (
-                        <tr
-                          key={room.id}
-                          className="cursor-pointer align-top transition-colors hover:bg-primary/5"
-                          onClick={() =>
-                            router.push(
-                              `/dashboard/accommodation/rooms/${room.id}`
-                            )
-                          }
-                        >
-                          <td className="px-4 py-4">
-                            <div className="flex items-start gap-3">
-                              <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/8 text-primary">
-                                <Building2 className="size-4" />
-                              </div>
-                              <div>
-                                <p className="font-semibold text-foreground">
-                                  {room.label}
-                                </p>
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  {room.availableBeds} bed
-                                  {room.availableBeds === 1 ? "" : "s"} free
-                                </p>
-                              </div>
+              <div className={`grid gap-4 sm:grid-cols-2 2xl:grid-cols-3 transition-opacity duration-200 ${isLoading || isMutating ? "opacity-50 pointer-events-none" : ""}`}>
+                {paginatedRooms.map((room) => (
+                  <article key={room.id} className="flex flex-col rounded-2xl border border-border/70 bg-card/95 shadow-sm overflow-hidden transition-all hover:border-[rgba(113,84,255,0.3)] hover:shadow-md">
+                    <div className="flex items-center justify-between border-b border-border/50 bg-muted/20 px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                          <Building2 className="size-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-sm text-foreground leading-none">{room.label}</p>
+                            <span className={`inline-flex px-1.5 min-w-5 justify-center py-0.5 rounded text-[10px] font-medium ${room.availableBeds === 0 ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-600"}`}>
+                              {room.availableBeds} free
+                            </span>
+                          </div>
+                          <p className="mt-1 text-[11px] text-muted-foreground leading-none truncate max-w-[160px]">{room.hotel.name}</p>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex-1 flex flex-col gap-2 p-3 bg-background/50 min-h-0">
+                      {/* Render Occupied Slots */}
+                      {room.occupants.map((occupant) => (
+                        <div key={occupant.attendeeId} className="flex items-center justify-between group rounded-xl border border-border/40 bg-card p-2 shadow-sm transition-colors hover:border-border/80">
+                          <div className="flex items-center gap-2 truncate">
+                            <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                              <Users className="size-3.5 text-muted-foreground" />
                             </div>
-                          </td>
-                          <td className="px-4 py-4 text-muted-foreground">
-                            <p>{room.hotel.name}</p>
-                            <p className="mt-1 text-xs">
-                              {room.hotel.city ?? "City not set"}
+                            <p className="text-xs font-medium text-foreground truncate">
+                              {occupant.attendeeName ?? occupant.attendeeEmail ?? "Unnamed"}
                             </p>
-                          </td>
-                          <td className="px-4 py-4">
-                            <span className="inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                              {room.roomType.label}
-                            </span>
-                          </td>
-                          <td className="px-4 py-4 text-muted-foreground">
-                            <p className="font-medium text-foreground">
-                              {room.occupiedBeds}/{room.capacity}
-                            </p>
-                            <p className="mt-1 text-xs">occupied beds</p>
-                          </td>
-                          <td className="px-4 py-4">
-                            {room.occupants.length === 0 ? (
-                              <span className="text-muted-foreground">
-                                No attendees
-                              </span>
-                            ) : (
-                              <div className="flex flex-wrap gap-2">
-                                {room.occupants.slice(0, 2).map((occupant) => (
-                                  <span
-                                    key={occupant.attendeeId}
-                                    className="rounded-full border border-border/80 bg-muted/20 px-2.5 py-1 text-xs text-muted-foreground"
-                                  >
-                                    {occupant.attendeeName ??
-                                      occupant.attendeeEmail ??
-                                      occupant.providerOrderId}
-                                  </span>
-                                ))}
-                                {room.occupants.length > 2 && (
-                                  <span className="rounded-full border border-border/80 bg-muted/20 px-2.5 py-1 text-xs text-muted-foreground">
-                                    +{room.occupants.length - 2} more
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-4">
-                            <span
-                              className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${availabilityClasses(room.availability)}`}
-                            >
-                              {availabilityLabel(room.availability)}
-                            </span>
-                          </td>
-                        </tr>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="size-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10 hover:text-destructive shrink-0"
+                            onClick={() => void unassignAttendee(occupant.attendeeId)}
+                          >
+                            <span className="sr-only">Remove</span>
+                            <span aria-hidden="true">&times;</span>
+                          </Button>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
 
-                <div className="flex flex-col gap-3 border-t border-border/70 bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-muted-foreground">
-                    Showing {(roomsPage - 1) * roomsPerPage + 1}-
-                    {Math.min(roomsPage * roomsPerPage, payload.rooms.length)}{" "}
-                    of {payload.rooms.length} rooms
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="rounded-xl"
-                      disabled={roomsPage === 1}
-                      onClick={() =>
-                        setRoomsPage((current) => Math.max(1, current - 1))
-                      }
-                    >
-                      <ChevronLeft className="size-4" />
-                    </Button>
-                    <span className="text-sm text-muted-foreground">
-                      Page {roomsPage} of {totalRoomPages}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="rounded-xl"
-                      disabled={roomsPage === totalRoomPages}
-                      onClick={() =>
-                        setRoomsPage((current) =>
-                          Math.min(totalRoomPages, current + 1)
-                        )
-                      }
-                    >
-                      <ChevronRight className="size-4" />
-                    </Button>
-                  </div>
-                </div>
+                      {/* Render Empty Slots */}
+                      {Array.from({ length: room.availableBeds }).map((_, i) => (
+                        <button
+                          key={`empty-${room.id}-${i}`}
+                          type="button"
+                          disabled={!selectedAttendeeId || isMutating}
+                          onClick={() => {
+                            if (selectedAttendeeIds.length > 0) {
+                               assignMultipleAttendeesToRoom(selectedAttendeeIds, room.id)
+                            }
+                          }}
+                          className={`flex h-[46px] items-center justify-center rounded-xl border border-dashed transition-all ${
+                            selectedAttendeeIds.length > 0 
+                              ? "border-[rgba(113,84,255,0.4)] bg-[rgba(113,84,255,0.05)] text-[rgba(113,84,255,0.8)] hover:bg-[rgba(113,84,255,0.1)] hover:border-[rgba(113,84,255,0.6)] cursor-pointer" 
+                              : "border-border/40 bg-background/50 text-muted-foreground/50 cursor-not-allowed"
+                          }`}
+                        >
+                          <span className="text-xs font-medium">
+                            {selectedAttendeeIds.length > 0 
+                              ? `+ Assign ${selectedAttendeeIds.length > 1 ? `${selectedAttendeeIds.length} items` : "selected"}` 
+                              : "+ Empty bed"}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </article>
+                ))}
               </div>
             )}
-          </article>
 
-          <article className="rounded-3xl border border-border/70 bg-card/95 p-6 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                  Assignment queue
+            {/* Pagination */}
+            {totalRoomPages > 1 && (
+              <div className="mt-2 flex items-center justify-between border-t border-border/70 pt-4">
+                <p className="text-sm text-muted-foreground">
+                  Showing {(roomsPage - 1) * roomsPerPage + 1}-
+                  {Math.min(roomsPage * roomsPerPage, payload.rooms.length)}{" "}
+                  of {payload.rooms.length} rooms
                 </p>
-                <h3 className="mt-2 text-2xl font-semibold text-foreground">
-                  Unassigned attendees
-                </h3>
-              </div>
-              <div className="flex items-center gap-2 rounded-full bg-primary/8 px-4 py-2 text-sm text-primary">
-                <Users className="size-4" />
-                {payload.unassignedAttendees.length} waiting
-              </div>
-            </div>
-
-            {payload.unassignedAttendees.length === 0 ? (
-              <p className="mt-5 rounded-xl border border-dashed border-border/80 px-4 py-5 text-sm text-muted-foreground">
-                No unassigned attendees match the current filters.
-              </p>
-            ) : (
-              <div className="mt-5 overflow-hidden rounded-2xl border border-border/70">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-border/70 text-sm">
-                    <thead className="bg-muted/35">
-                      <tr className="text-left">
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Attendee
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Event
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Suggested scope
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Assign to room
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60 bg-background/80">
-                      {payload.unassignedAttendees.map((attendee) => (
-                        <tr
-                          key={attendee.attendeeId}
-                          className={
-                            attendee.attendeeId === selectedAttendeeId
-                              ? "bg-primary/5 align-top"
-                              : "align-top"
-                          }
-                        >
-                          <td className="px-4 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="flex size-10 items-center justify-center rounded-xl bg-primary/8 text-primary">
-                                <BedDouble className="size-4" />
-                              </div>
-                              <div>
-                                <p className="font-semibold text-foreground">
-                                  {attendee.attendeeName ?? "Unnamed attendee"}
-                                </p>
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  {attendee.attendeeEmail ??
-                                    attendee.providerOrderId}
-                                </p>
-                                {/* Signal badges */}
-                                <div className="mt-2 flex flex-wrap gap-1">
-                                  {attendee.allocationPriority ===
-                                    "CRITICAL" && (
-                                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300">
-                                      Critical
-                                    </span>
-                                  )}
-                                  {attendee.allocationPriority === "HIGH" && (
-                                    <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
-                                      High
-                                    </span>
-                                  )}
-                                  {attendee.genderType === "MALE" && (
-                                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-                                      Male
-                                    </span>
-                                  )}
-                                  {attendee.genderType === "FEMALE" && (
-                                    <span className="rounded-full bg-pink-100 px-2 py-0.5 text-xs font-medium text-pink-700 dark:bg-pink-900/30 dark:text-pink-300">
-                                      Female
-                                    </span>
-                                  )}
-                                  {attendee.genderType === "MIXED" && (
-                                    <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
-                                      Family
-                                    </span>
-                                  )}
-                                  {shouldRenderFamilyBadge(attendee) && (
-                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                                      Group
-                                    </span>
-                                  )}
-                                  {attendee.location && (
-                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                                      {attendee.location}
-                                    </span>
-                                  )}
-                                </div>
-                                <Link
-                                  className="mt-2 inline-flex items-center text-xs font-medium text-primary"
-                                  href={`/dashboard/attendees/${attendee.attendeeId}?search=${encodeURIComponent(attendee.attendeeName ?? attendee.providerOrderId)}&eventId=${encodeURIComponent(attendee.providerEventId)}&source=room-allocation`}
-                                >
-                                  Open attendee detail
-                                  <ArrowRight className="ml-1 size-3" />
-                                </Link>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-4 py-4 text-muted-foreground">
-                            <p>
-                              {attendee.eventName ?? attendee.providerEventId}
-                            </p>
-                            <p className="mt-1 text-xs">
-                              {attendee.ticketTypeLabel ?? "No ticket type"}
-                            </p>
-                          </td>
-                          <td className="px-4 py-4 text-muted-foreground">
-                            {attendee.matchingRoomCount} room
-                            {attendee.matchingRoomCount === 1 ? "" : "s"} fit
-                            the active filters.
-                          </td>
-                          <td className="px-4 py-4">
-                            <div className="flex min-w-[260px] flex-col gap-2">
-                              <select
-                                value={
-                                  selectedRoomByAttendee[attendee.attendeeId] ??
-                                  ""
-                                }
-                                onChange={(event) =>
-                                  setSelectedRoomByAttendee((current) => ({
-                                    ...current,
-                                    [attendee.attendeeId]: event.target.value,
-                                  }))
-                                }
-                                className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                              >
-                                <option value="">Select room unit</option>
-                                {assignableRooms.map((room) => (
-                                  <option key={room.id} value={room.id}>
-                                    {room.label} · {room.hotel.name} ·{" "}
-                                    {room.availableBeds} free
-                                  </option>
-                                ))}
-                              </select>
-                              <Button
-                                type="button"
-                                className="w-full rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
-                                disabled={
-                                  isMutating || assignableRooms.length === 0
-                                }
-                                onClick={() =>
-                                  void assignAttendee(attendee.attendeeId)
-                                }
-                              >
-                                Assign attendee
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl shadow-sm"
+                    disabled={roomsPage === 1}
+                    onClick={() => setRoomsPage((current) => Math.max(1, current - 1))}
+                  >
+                    <ChevronLeft className="size-4 mr-1" /> Prev
+                  </Button>
+                  <span className="text-sm font-medium text-muted-foreground px-2">
+                    Page {roomsPage} of {totalRoomPages}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl shadow-sm"
+                    disabled={roomsPage === totalRoomPages}
+                    onClick={() => setRoomsPage((current) => Math.min(totalRoomPages, current + 1))}
+                  >
+                    Next <ChevronRight className="size-4 ml-1" />
+                  </Button>
                 </div>
               </div>
             )}
-          </article>
+          </div>
         </div>
       </section>
     </section>

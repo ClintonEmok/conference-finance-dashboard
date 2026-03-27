@@ -3,22 +3,12 @@
 import Link from "next/link"
 import {
   ArrowRight,
-  CircleAlert,
   HandCoins,
   SearchCheck,
-  Wallet,
-  AlertCircle,
-  CheckCircle2,
-  HelpCircle,
-  Plus,
-  RefreshCw,
 } from "lucide-react"
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
 
 import { OrderAttendeeBreakdown } from "@/components/dashboard/order-attendee-breakdown"
-import { PaymentList } from "@/components/payments/payment-list"
-import { AssignDialog } from "@/components/payments/assign-dialog"
-import { ManualPaymentEntryForm } from "@/components/payments/manual-entry-form"
 import { buildReconciliationFollowUpHref } from "@/lib/domain/finance/reconciliation-follow-up"
 
 import { Button } from "@/components/ui/button"
@@ -68,6 +58,8 @@ type ReconciliationPayload = {
       | "refund-without-refunded-at"
     >
   }>
+  cursor: string | null
+  hasMore: boolean
 }
 
 function toDateInputValue(date: Date) {
@@ -133,8 +125,10 @@ export default function ReconciliationPage() {
   const [appliedTo, setAppliedTo] = useState(toInput)
 
   const [isLoading, setIsLoading] = useState(true)
+  const [isFetchingMore, setIsFetchingMore] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [payload, setPayload] = useState<ReconciliationPayload | null>(null)
+  const [rows, setRows] = useState<ReconciliationPayload["rows"]>([])
   const [resolvedAttendeeIdsByOrderId, setResolvedAttendeeIdsByOrderId] =
     useState<Record<string, string>>({})
 
@@ -187,78 +181,66 @@ export default function ReconciliationPage() {
     return null
   }, [fromInput, toInput])
 
-  useEffect(() => {
+  const loadReconciliation = useCallback(async (isInitial: boolean) => {
     const fromIso = toIsoBoundary(appliedFrom, "start")
     const toIso = toIsoBoundary(appliedTo, "end")
 
     if (!fromIso || !toIso) {
       setErrorMessage("Active filter dates are invalid.")
-      setPayload(null)
-      setIsLoading(false)
       return
     }
 
-    const safeFromIso = fromIso
-    const safeToIso = toIso
-    const controller = new AbortController()
-
-    async function loadReconciliation() {
+    if (isInitial) {
       setIsLoading(true)
-      setErrorMessage(null)
-      setResolvedAttendeeIdsByOrderId({})
-
-      try {
-        const query = new URLSearchParams()
-        query.set("from", safeFromIso)
-        query.set("to", safeToIso)
-
-        if (appliedEventId.trim()) {
-          query.set("eventId", appliedEventId.trim())
-        }
-
-        if (appliedStatus !== "all") {
-          query.set("status", appliedStatus)
-        }
-
-        const response = await fetch(
-          `/api/dashboard/reconciliation?${query.toString()}`,
-          {
-            signal: controller.signal,
-          }
-        )
-
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as {
-            error?: { message?: string }
-          } | null
-          setPayload(null)
-          setErrorMessage(
-            body?.error?.message ??
-              `Failed to load reconciliation data (${response.status}).`
-          )
-          return
-        }
-
-        const body = (await response.json()) as ReconciliationPayload
-        setPayload(body)
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") {
-          return
-        }
-
-        setPayload(null)
-        setErrorMessage("Network error while loading reconciliation rows.")
-      } finally {
-        setIsLoading(false)
-      }
+      setRows([])
+    } else {
+      setIsFetchingMore(true)
     }
 
-    loadReconciliation()
+    setErrorMessage(null)
 
-    return () => {
-      controller.abort()
+    try {
+      const query = new URLSearchParams()
+      query.set("from", fromIso)
+      query.set("to", toIso)
+      if (appliedEventId.trim()) query.set("eventId", appliedEventId.trim())
+      if (appliedStatus !== "all") query.set("status", appliedStatus)
+      if (!isInitial && payload?.cursor) query.set("cursor", payload.cursor)
+
+      const response = await fetch(`/api/dashboard/reconciliation?${query.toString()}`)
+      if (!response.ok) throw new Error("Failed to load data")
+
+      const body = (await response.json()) as ReconciliationPayload
+      setPayload(body)
+      setRows((prev) => (isInitial ? body.rows : [...prev, ...body.rows]))
+    } catch (error) {
+      setErrorMessage("Error loading reconciliation data.")
+    } finally {
+      setIsLoading(false)
+      setIsFetchingMore(false)
     }
+  }, [appliedEventId, appliedFrom, appliedStatus, appliedTo, payload?.cursor])
+
+  useEffect(() => {
+    loadReconciliation(true)
   }, [appliedEventId, appliedFrom, appliedStatus, appliedTo])
+
+  // Infinite scroll observer
+  const observerTarget = useCallback((node: HTMLDivElement | null) => {
+    if (!node || isFetchingMore || !payload?.hasMore) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadReconciliation(false)
+        }
+      },
+      { threshold: 0.1 }
+    )
+
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [isFetchingMore, payload?.hasMore, loadReconciliation])
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -276,840 +258,127 @@ export default function ReconciliationPage() {
 
   return (
     <section className="space-y-8">
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.9fr)]">
-        <Card className="border border-border p-6 md:p-7">
-          <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-            <div className="max-w-2xl">
-              <p className="text-xs font-semibold tracking-[0.22em] text-muted-foreground uppercase">
-                Outstanding balances
-              </p>
-              <h2 className="mt-2.5 text-2xl font-semibold tracking-tight text-foreground md:text-[2rem]">
-                Resolve the orders that still need payment or operator
-                attention.
-              </h2>
-              <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
-                Start here when a balance needs action, then carry the order
-                context straight into attendee follow-up and room assignment.
-              </p>
-            </div>
 
-            <div className="grid min-w-[220px] gap-3 sm:grid-cols-2 sm:grid-rows-2">
-              <div className="rounded-lg border border-border bg-muted/40 p-4 sm:col-span-2">
-                <p className="text-xs text-muted-foreground">Flagged rows</p>
-                <p className="mt-1.5 text-2xl font-semibold text-foreground">
-                  {payload?.totals.rows ?? "--"}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border bg-muted/40 p-4">
-                <p className="text-xs text-muted-foreground">Outstanding</p>
-                <p className="mt-1.5 text-base font-semibold text-foreground">
-                  {payload
-                    ? formatMoney(payload.totals.outstandingMinor)
-                    : "--"}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border bg-muted/40 p-4">
-                <p className="text-xs text-muted-foreground">Status view</p>
-                <p className="mt-1.5 text-base font-semibold text-foreground">
-                  {appliedStatus === "all" ? "All" : appliedStatus}
-                </p>
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="border border-border">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-md bg-primary/10 text-primary dark:bg-white/10 dark:text-primary-foreground">
-                <SearchCheck className="size-5" />
-              </span>
-              <div>
-                <CardDescription className="text-[11px] font-semibold tracking-[0.2em] text-primary/70 uppercase">
-                  Refine list
-                </CardDescription>
-                <CardTitle className="mt-1 text-lg">
-                  Find the balances that need attention
-                </CardTitle>
-              </div>
-            </div>
-          </CardHeader>
-
-          <CardContent>
-            <form className="flex flex-col gap-4" onSubmit={applyFilters}>
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="flex flex-col gap-2 text-sm">
-                  <span className="text-xs font-medium text-foreground">
-                    Event ID
-                  </span>
-                  <select
-                    value={eventIdInput}
-                    onChange={(event) => setEventIdInput(event.target.value)}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
-                  >
-                    <option value="">All events</option>
-                    {(payload?.availableEvents ?? []).map((event) => (
-                      <option
-                        key={event.providerEventId}
-                        value={event.providerEventId}
-                      >
-                        {event.name?.trim() || event.providerEventId}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="flex flex-col gap-2 text-sm">
-                  <span className="text-xs font-medium text-foreground">
-                    Status
-                  </span>
-                  <select
-                    value={statusInput}
-                    onChange={(event) =>
-                      setStatusInput(
-                        event.target.value as "all" | CanonicalOrderStatus
-                      )
-                    }
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
-                  >
-                    <option value="all">All statuses</option>
-                    <option value="paid">Paid</option>
-                    <option value="refunded">Refunded</option>
-                    <option value="cancelled">Cancelled</option>
-                    <option value="pending">Pending</option>
-                  </select>
-                </label>
-
-                <label className="flex flex-col gap-2 text-sm">
-                  <span className="text-xs font-medium text-foreground">
-                    From
-                  </span>
-                  <input
-                    type="date"
-                    value={fromInput}
-                    onChange={(event) => setFromInput(event.target.value)}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
-                  />
-                </label>
-
-                <label className="flex flex-col gap-2 text-sm">
-                  <span className="text-xs font-medium text-foreground">
-                    To
-                  </span>
-                  <input
-                    type="date"
-                    value={toInput}
-                    onChange={(event) => setToInput(event.target.value)}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
-                  />
-                </label>
-              </div>
-
-              {dateValidationError && (
-                <p className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-900/20 dark:text-yellow-200">
-                  {dateValidationError}
-                </p>
-              )}
-
-              <Button
-                className="h-10 w-full rounded-md text-xs"
-                type="submit"
-                disabled={Boolean(dateValidationError) || isLoading}
-              >
-                {isLoading ? "Loading..." : "Apply follow-up filters"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-1">
-        <Card className="border border-border">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-lg bg-muted text-primary">
-                <HandCoins className="size-5" />
-              </span>
-              <div>
-                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                  Outstanding
-                </p>
-                <p className="mt-1 text-lg font-semibold text-foreground">
-                  {payload
-                    ? formatMoney(payload.totals.outstandingMinor)
-                    : "--"}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        {/* <Card className="border border-border">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-lg bg-muted text-primary">
-                <CircleAlert className="size-5" />
-              </span>
-              <div>
-                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                  Flagged rows
-                </p>
-                <p className="mt-1 text-lg font-semibold text-foreground">
-                  {payload?.totals.rows ?? "--"}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card> */}
-        {/* <Card className="border border-border">
-          <CardContent className="p-5 text-sm leading-5 text-muted-foreground">
-            Open attendee follow-up from any row to preserve order context and
-            avoid backtracking.
-          </CardContent>
-        </Card> */}
-      </section>
 
       {errorMessage && (
-        <div className="rounded-md border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {errorMessage}
-        </div>
+        <article className="rounded-2xl border border-destructive/20 bg-destructive/5 px-6 py-4 text-sm font-medium text-destructive animate-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <div className="size-2 rounded-full bg-destructive animate-pulse" />
+            {errorMessage}
+          </div>
+        </article>
       )}
 
-      {!errorMessage && isLoading && (
-        <Card className="border border-border">
-          <CardContent className="p-5">
-            <div className="flex flex-col gap-3">
-              <Skeleton className="h-4 w-[150px]" />
-              <div className="flex flex-col gap-2">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="flex items-center gap-4">
-                    <Skeleton className="h-16 w-[120px]" />
-                    <Skeleton className="h-16 w-[100px]" />
-                    <Skeleton className="h-16 w-[70px]" />
-                    <Skeleton className="h-16 w-[80px]" />
-                    <Skeleton className="h-16 w-[80px]" />
-                    <Skeleton className="h-16 w-[150px]" />
-                    <Skeleton className="h-16 w-[100px]" />
-                    <Skeleton className="h-16 w-[120px]" />
-                  </div>
-                ))}
+      {!errorMessage && payload && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between px-1">
+            <h3 className="text-xl font-bold tracking-tight text-foreground">Flagged Orders</h3>
+            <p className="text-xs font-medium text-muted-foreground">{payload.totals.rows} items found</p>
+          </div>
+          
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {rows.length === 0 && !isLoading ? (
+              <div className="col-span-full rounded-3xl border border-dashed border-border/50 bg-card/20 p-12 text-center">
+                <p className="text-sm font-medium text-muted-foreground">All clear! No reconciliation candidates found.</p>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {!errorMessage && !isLoading && payload && (
-        <Card className="border border-border">
-          <CardContent className="p-4 lg:p-6">
-            {payload.rows.length === 0 ? (
-              <p className="rounded-lg border border-border/70 p-4 text-sm text-muted-foreground">
-                No outstanding or mismatch candidates found for the selected
-                filters.
-              </p>
             ) : (
-              <>
-                <div className="hidden md:block">
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    {payload.rows.map((row) => {
-                      const followUpHref = buildReconciliationFollowUpHref({
-                        attendeeId:
-                          resolvedAttendeeIdsByOrderId[row.providerOrderId] ??
-                          null,
-                        providerOrderId: row.providerOrderId,
-                        providerEventId: row.providerEventId,
-                      })
+              rows.map((row) => {
+                const followUpHref = buildReconciliationFollowUpHref({
+                  attendeeId: resolvedAttendeeIdsByOrderId[row.providerOrderId] ?? null,
+                  providerOrderId: row.providerOrderId,
+                  providerEventId: row.providerEventId,
+                })
 
-                      return (
-                        <Card
-                          key={row.providerOrderId}
-                          className="flex flex-col gap-3 border border-border p-4"
+                return (
+                  <article 
+                    key={row.providerOrderId}
+                    className="flex flex-col overflow-hidden rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl transition-all hover:border-primary/30"
+                  >
+                    <div className="p-5 pb-0">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-primary/70">
+                            {row.providerOrderId}
+                          </p>
+                          <h4 className="mt-1 truncate font-bold text-foreground">
+                            {row.eventName ?? "Unknown event"}
+                          </h4>
+                          <p className="text-[10px] font-medium text-muted-foreground mt-0.5">
+                            {row.orderedAt ? new Date(row.orderedAt).toLocaleString() : "Recently ordered"}
+                          </p>
+                        </div>
+                        <Badge
+                          variant={
+                            row.normalizedStatus === "cancelled"
+                              ? "destructive"
+                              : row.normalizedStatus === "refunded"
+                                ? "outline"
+                                : "secondary"
+                          }
+                          className="rounded-lg h-6 text-[10px] font-bold uppercase tracking-wider"
                         >
-                          <div className="flex min-w-0 items-start justify-between gap-3">
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate font-mono text-xs font-medium text-foreground">
-                                {row.providerOrderId}
-                              </p>
-                              <p className="truncate text-[11px] text-muted-foreground">
-                                {row.eventName ?? "Unknown event"}
-                              </p>
-                              {row.orderedAt && (
-                                <p className="mt-0.5 text-[10px] text-muted-foreground">
-                                  {new Date(row.orderedAt).toLocaleString()}
-                                </p>
-                              )}
-                            </div>
-                            <Badge
-                              variant={
-                                row.normalizedStatus === "cancelled"
-                                  ? "destructive"
-                                  : row.normalizedStatus === "refunded"
-                                    ? "outline"
-                                    : "secondary"
-                              }
-                              className="shrink-0 capitalize"
-                            >
-                              {row.normalizedStatus}
-                            </Badge>
-                          </div>
+                          {row.normalizedStatus}
+                        </Badge>
+                      </div>
 
-                          <div className="flex items-baseline justify-between gap-3 rounded-md border border-border bg-muted/30 p-3">
-                            <div>
-                              <p className="text-[10px] font-semibold tracking-[0.15em] text-muted-foreground uppercase">
-                                Amount
-                              </p>
-                              <p className="mt-0.5 text-sm text-foreground">
-                                {formatMoney(row.totalAmountMinor)}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-[10px] font-semibold tracking-[0.15em] text-muted-foreground uppercase">
-                                Outstanding
-                              </p>
-                              <p className="mt-0.5 text-base font-semibold text-foreground">
-                                {formatMoney(row.outstandingMinor)}
-                              </p>
-                            </div>
-                          </div>
-
-                          {row.reasons.length > 0 && (
-                            <ul className="flex flex-col gap-1 text-[11px] text-muted-foreground">
-                              {row.reasons.map((reason) => (
-                                <li key={reason}>{formatReason(reason)}</li>
-                              ))}
-                            </ul>
-                          )}
-
-                          <OrderAttendeeBreakdown
-                            orderId={row.providerOrderId}
-                            eventId={row.providerEventId}
-                            onResolvedAttendeeId={handleResolvedAttendeeId}
-                          />
-
-                          <div className="flex flex-col gap-1.5 border-t border-border/50 pt-1">
-                            <Button
-                              asChild
-                              className="h-9 justify-between rounded-md px-3 text-[11px]"
-                              size="sm"
-                            >
-                              <Link href={followUpHref}>
-                                Open attendee follow-up
-                                <ArrowRight className="size-4" />
-                              </Link>
-                            </Button>
-                          </div>
-                        </Card>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <div className="block divide-y divide-border md:hidden">
-                  {payload.rows.map((row) => {
-                    const followUpHref = buildReconciliationFollowUpHref({
-                      attendeeId:
-                        resolvedAttendeeIdsByOrderId[row.providerOrderId] ??
-                        null,
-                      providerOrderId: row.providerOrderId,
-                      providerEventId: row.providerEventId,
-                    })
-
-                    return (
-                      <div
-                        key={row.providerOrderId}
-                        className="flex flex-col gap-3 p-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate font-mono text-xs text-foreground">
-                              {row.providerOrderId}
-                            </p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {row.eventName ?? "Unknown event"}
-                            </p>
-                          </div>
-                          <Badge
-                            variant={
-                              row.normalizedStatus === "cancelled"
-                                ? "destructive"
-                                : row.normalizedStatus === "refunded"
-                                  ? "outline"
-                                  : "secondary"
-                            }
-                          >
-                            {row.normalizedStatus}
-                          </Badge>
+                      <div className="mt-6 grid grid-cols-2 gap-3 rounded-2xl border border-border/40 bg-background/30 p-4">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">Amount</p>
+                          <p className="mt-0.5 font-bold text-foreground">{formatMoney(row.totalAmountMinor)}</p>
                         </div>
-
-                        <div className="flex items-baseline justify-between gap-3">
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              Amount
-                            </p>
-                            <p className="text-sm text-foreground">
-                              {formatMoney(row.totalAmountMinor)}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs text-muted-foreground">
-                              Outstanding
-                            </p>
-                            <p className="text-base font-semibold text-foreground">
-                              {formatMoney(row.outstandingMinor)}
-                            </p>
-                          </div>
+                        <div className="text-right">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">Outstanding</p>
+                          <p className="mt-0.5 font-bold text-orange-600">{formatMoney(row.outstandingMinor)}</p>
                         </div>
+                      </div>
+                    </div>
 
-                        {row.reasons.length > 0 && (
-                          <div className="text-xs text-muted-foreground">
-                            {row.reasons.map((reason) => (
-                              <p key={reason}>{formatReason(reason)}</p>
-                            ))}
-                          </div>
-                        )}
+                    <div className="p-5 pt-4 space-y-4">
+                      {row.reasons.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {row.reasons.map((reason) => (
+                            <span key={reason} className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground border border-border/30">
+                              {formatReason(reason)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
 
+                      <div className="rounded-2xl border border-border/30 bg-background/20 p-1">
                         <OrderAttendeeBreakdown
                           orderId={row.providerOrderId}
                           eventId={row.providerEventId}
                           onResolvedAttendeeId={handleResolvedAttendeeId}
                         />
-
-                        <div className="flex flex-col gap-2 pt-1">
-                          <Button
-                            asChild
-                            className="w-full justify-between rounded-md text-xs"
-                            size="sm"
-                          >
-                            <Link href={followUpHref}>
-                              Open attendee follow-up
-                              <ArrowRight className="size-4" />
-                            </Link>
-                          </Button>
-                        </div>
                       </div>
-                    )
-                  })}
-                </div>
-              </>
+
+                      <Button asChild className="w-full rounded-2xl h-10 shadow-sm" size="sm">
+                        <Link href={followUpHref}>
+                          Open Follow-up
+                          <ArrowRight className="ml-2 size-4" />
+                        </Link>
+                      </Button>
+                    </div>
+                  </article>
+                )
+              })
             )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Payment Reconciliation Section */}
-      <PaymentReconciliationSection />
-    </section>
-  )
-}
-
-type PaymentSource = "tikkie" | "bank_transfer" | "cash"
-type PaymentMatchStatus =
-  | "unassigned"
-  | "ambiguous"
-  | "manual_assignment"
-  | "auto_matched"
-
-type OrderPaymentStatus = "unassigned" | "partial" | "paid" | "overpaid"
-
-type PaymentSummary = {
-  summary: {
-    unassigned: number
-    partial: number
-    paid: number
-    overpaid: number
-    totalOrders: number
-  }
-  totalAmountMinor: number
-  bySource: {
-    tikkie: number
-    bank_transfer: number
-    cash: number
-  }
-  legacyPaymentStatus?: {
-    unassigned: number
-    ambiguous: number
-    manual_assignment: number
-    auto_matched: number
-  }
-}
-
-type Payment = {
-  id: string
-  source: PaymentSource
-  payerName: string
-  payerAccountNumber: string | null
-  amountMinor: number
-  paidAt: string
-  status: PaymentMatchStatus
-}
-
-type TikkieSyncFeedback = {
-  status: "success" | "partial" | "failed"
-  linksScanned: number
-  paymentsFetched: number
-  newPayments: number
-  existingPayments: number
-  updatedPayments: number
-  skippedInvalid: number
-  matched: number
-  ambiguous: number
-  errors: string[]
-}
-
-function PaymentReconciliationSection() {
-  const [summary, setSummary] = useState<PaymentSummary | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [showEntryForm, setShowEntryForm] = useState(false)
-  const [assignDialogOpen, setAssignDialogOpen] = useState(false)
-  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
-  const [isSyncing, setIsSyncing] = useState(false)
-  const [refreshKey, setRefreshKey] = useState(0)
-  const [syncFeedback, setSyncFeedback] = useState<TikkieSyncFeedback | null>(
-    null
-  )
-  const [toastMessage, setToastMessage] = useState<{
-    tone: "success" | "warning" | "danger"
-    text: string
-  } | null>(null)
-
-  const loadSummary = useCallback(async () => {
-    setIsLoading(true)
-    try {
-      const response = await fetch("/api/reconciliation")
-      if (response.ok) {
-        const data = await response.json()
-        setSummary(data)
-      }
-    } catch (error) {
-      console.error("Failed to load payment summary:", error)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    loadSummary()
-  }, [loadSummary, refreshKey])
-
-  useEffect(() => {
-    if (!toastMessage) {
-      return
-    }
-
-    const timeout = window.setTimeout(() => {
-      setToastMessage(null)
-    }, 4000)
-
-    return () => {
-      window.clearTimeout(timeout)
-    }
-  }, [toastMessage])
-
-  async function handleSyncTikkie() {
-    setIsSyncing(true)
-    try {
-      const response = await fetch("/api/payments/tikkie/sync", {
-        method: "POST",
-      })
-
-      const body = (await response.json().catch(() => null)) as Record<
-        string,
-        unknown
-      > | null
-
-      if (!response.ok) {
-        const errorObject =
-          typeof body?.error === "object" &&
-          body.error !== null &&
-          !Array.isArray(body.error)
-            ? (body.error as Record<string, unknown>)
-            : null
-        const message =
-          typeof errorObject?.message === "string"
-            ? errorObject.message
-            : `Tikkie sync failed (${response.status}).`
-        setSyncFeedback({
-          status: "failed",
-          linksScanned: 0,
-          paymentsFetched: 0,
-          newPayments: 0,
-          existingPayments: 0,
-          updatedPayments: 0,
-          skippedInvalid: 0,
-          matched: 0,
-          ambiguous: 0,
-          errors: [message],
-        })
-        setToastMessage({ tone: "danger", text: message })
-        return
-      }
-
-      const feedback: TikkieSyncFeedback = {
-        status: body?.status === "partial" ? "partial" : "success",
-        linksScanned:
-          typeof body?.linksScanned === "number" ? body.linksScanned : 0,
-        paymentsFetched:
-          typeof body?.paymentsFetched === "number" ? body.paymentsFetched : 0,
-        newPayments:
-          typeof body?.newPayments === "number" ? body.newPayments : 0,
-        existingPayments:
-          typeof body?.existingPayments === "number"
-            ? body.existingPayments
-            : 0,
-        updatedPayments:
-          typeof body?.updatedPayments === "number" ? body.updatedPayments : 0,
-        skippedInvalid:
-          typeof body?.skippedInvalid === "number" ? body.skippedInvalid : 0,
-        matched: typeof body?.matched === "number" ? body.matched : 0,
-        ambiguous: typeof body?.ambiguous === "number" ? body.ambiguous : 0,
-        errors: Array.isArray(body?.errors)
-          ? body.errors.filter((e): e is string => typeof e === "string")
-          : [],
-      }
-
-      setSyncFeedback(feedback)
-      setRefreshKey((previous) => previous + 1)
-
-      if (feedback.status === "partial") {
-        setToastMessage({
-          tone: "warning",
-          text: `Sync completed with warnings (${feedback.errors.length} issue${feedback.errors.length === 1 ? "" : "s"}).`,
-        })
-      } else {
-        setToastMessage({
-          tone: "success",
-          text: `Sync complete. ${feedback.newPayments} new payment${feedback.newPayments === 1 ? "" : "s"} stored.`,
-        })
-      }
-    } catch (error) {
-      console.error("Failed to sync Tikkie payments:", error)
-      setSyncFeedback({
-        status: "failed",
-        linksScanned: 0,
-        paymentsFetched: 0,
-        newPayments: 0,
-        existingPayments: 0,
-        updatedPayments: 0,
-        skippedInvalid: 0,
-        matched: 0,
-        ambiguous: 0,
-        errors: ["Network error while syncing Tikkie payments."],
-      })
-      setToastMessage({
-        tone: "danger",
-        text: "Network error while syncing Tikkie payments.",
-      })
-    } finally {
-      setIsSyncing(false)
-    }
-  }
-
-  function handleAssign(payment: Payment) {
-    setSelectedPayment(payment)
-    setAssignDialogOpen(true)
-  }
-
-  function handleAssigned() {
-    setRefreshKey((previous) => previous + 1)
-  }
-
-  return (
-    <section className="space-y-6">
-      <div className="flex items-center gap-2">
-        <Wallet className="size-5" />
-        <h2 className="text-xl font-semibold">Payment Reconciliation</h2>
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card className="border border-border">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-lg bg-yellow-100 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-400">
-                <AlertCircle className="size-5" />
-              </span>
-              <div>
-                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                  Unpaid
-                </p>
-                <p className="mt-1 text-lg font-semibold text-foreground">
-                  {isLoading ? "--" : (summary?.summary.unassigned ?? 0)}
-                </p>
-                <p className="text-[10px] text-muted-foreground">
-                  No payments linked
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border border-border">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-lg bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400">
-                <HelpCircle className="size-5" />
-              </span>
-              <div>
-                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                  Partial
-                </p>
-                <p className="mt-1 text-lg font-semibold text-foreground">
-                  {isLoading ? "--" : (summary?.summary.partial ?? 0)}
-                </p>
-                <p className="text-[10px] text-muted-foreground">
-                  Partially paid
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border border-border">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-lg bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400">
-                <CheckCircle2 className="size-5" />
-              </span>
-              <div>
-                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                  Paid
-                </p>
-                <p className="mt-1 text-lg font-semibold text-foreground">
-                  {isLoading ? "--" : (summary?.summary.paid ?? 0)}
-                </p>
-                <p className="text-[10px] text-muted-foreground">Fully paid</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border border-border">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-lg bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
-                <CircleAlert className="size-5" />
-              </span>
-              <div>
-                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                  Overpaid
-                </p>
-                <p className="mt-1 text-lg font-semibold text-foreground">
-                  {isLoading ? "--" : (summary?.summary.overpaid ?? 0)}
-                </p>
-                <p className="text-[10px] text-muted-foreground">
-                  Excess payment
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          onClick={() => setShowEntryForm(!showEntryForm)}
-          className="gap-2"
-        >
-          <Plus className="size-4" />
-          Add Payment
-        </Button>
-        <Button
-          variant="outline"
-          onClick={handleSyncTikkie}
-          disabled={isSyncing}
-          className="gap-2"
-        >
-          <RefreshCw className={`size-4 ${isSyncing ? "animate-spin" : ""}`} />
-          {isSyncing ? "Syncing..." : "Sync Tikkie"}
-        </Button>
-      </div>
-
-      {syncFeedback && (
-        <div
-          className={`rounded-md border px-3 py-2 text-sm ${
-            syncFeedback.status === "failed"
-              ? "border-destructive/30 bg-destructive/10 text-destructive"
-              : syncFeedback.status === "partial"
-                ? "border-yellow-300 bg-yellow-50 text-yellow-900 dark:border-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-200"
-                : "border-green-300 bg-green-50 text-green-900 dark:border-green-700 dark:bg-green-900/20 dark:text-green-200"
-          }`}
-        >
-          <p className="font-medium">
-            {syncFeedback.status === "failed"
-              ? "Tikkie sync failed"
-              : syncFeedback.status === "partial"
-                ? "Tikkie sync completed with partial success"
-                : "Tikkie sync completed"}
-          </p>
-          <p className="mt-1 text-xs">
-            Links scanned: {syncFeedback.linksScanned}. Payments fetched:{" "}
-            {syncFeedback.paymentsFetched}. New: {syncFeedback.newPayments}.
-            Existing: {syncFeedback.existingPayments}. Updated:{" "}
-            {syncFeedback.updatedPayments}. Skipped invalid:{" "}
-            {syncFeedback.skippedInvalid}. Auto-matched: {syncFeedback.matched}.
-            Ambiguous: {syncFeedback.ambiguous}.
-          </p>
-          {syncFeedback.errors.length > 0 && (
-            <p className="mt-1 text-xs">Errors: {syncFeedback.errors.length}</p>
-          )}
-        </div>
-      )}
-
-      {/* Manual Entry Form */}
-      {showEntryForm && (
-        <Card className="border border-border">
-          <CardHeader>
-            <CardTitle>Record Manual Payment</CardTitle>
-            <CardDescription>
-              Enter bank transfer or cash payment details
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ManualPaymentEntryForm
-              onSuccess={() => {
-                setShowEntryForm(false)
-                setRefreshKey((previous) => previous + 1)
-              }}
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Payment List */}
-      <Card className="border border-border">
-        <CardHeader>
-          <CardTitle>Payments</CardTitle>
-          <CardDescription>
-            All payments with filtering by status and source
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <PaymentList onAssign={handleAssign} refreshKey={refreshKey} />
-        </CardContent>
-      </Card>
-
-      {/* Assign Dialog */}
-      {selectedPayment && (
-        <AssignDialog
-          payment={selectedPayment}
-          open={assignDialogOpen}
-          onOpenChange={setAssignDialogOpen}
-          onAssigned={handleAssigned}
-        />
-      )}
-
-      {toastMessage && (
-        <div
-          className={`fixed right-4 bottom-4 z-50 rounded-md border px-4 py-2 text-sm shadow-lg ${
-            toastMessage.tone === "danger"
-              ? "text-destructive-foreground border-destructive/30 bg-destructive"
-              : toastMessage.tone === "warning"
-                ? "border-yellow-400 bg-yellow-100 text-yellow-900"
-                : "border-green-400 bg-green-100 text-green-900"
-          }`}
-        >
-          {toastMessage.text}
+            
+            {(isLoading || isFetchingMore) && (
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="rounded-3xl border border-border/50 bg-card/20 p-5 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-6 w-16 ml-auto" />
+                  </div>
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-16 w-full rounded-2xl" />
+                  <Skeleton className="h-10 w-full rounded-2xl" />
+                </div>
+              ))
+            )}
+            <div ref={observerTarget} className="h-10 col-span-full opacity-0" />
+          </div>
         </div>
       )}
     </section>

@@ -65,12 +65,12 @@ const navigationSections: NavigationSection[] = [
             label: "Reconciliation",
           },
           {
-            href: "/dashboard/orders",
-            label: "Orders",
+            href: "/dashboard/payments",
+            label: "Payments",
           },
           {
-            href: "/dashboard/reconciliation/payments",
-            label: "Unassigned payments",
+            href: "/dashboard/orders",
+            label: "Orders",
           },
         ],
       },

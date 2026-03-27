@@ -1,19 +1,24 @@
 "use client"
 
-import { FormEvent, useEffect, useMemo, useState } from "react"
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
+import {
+  FileDown,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  Search,
+  Calendar,
+  Layers,
+  ShoppingBag,
+  ExternalLink,
+  Archive,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 
 type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 
@@ -58,18 +63,10 @@ function toDateInputValue(date: Date) {
 }
 
 function toIsoBoundary(value: string, boundary: "start" | "end") {
-  if (!value.trim()) {
-    return null
-  }
-
+  if (!value.trim()) return null
   const suffix = boundary === "start" ? "T00:00:00.000Z" : "T23:59:59.999Z"
   const parsed = new Date(`${value}${suffix}`)
-
-  if (Number.isNaN(parsed.getTime())) {
-    return null
-  }
-
-  return parsed.toISOString()
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
 }
 
 function formatMoney(minor: number) {
@@ -84,20 +81,15 @@ function formatMoney(minor: number) {
 export default function OrdersPage() {
   const router = useRouter()
   const [eventIdInput, setEventIdInput] = useState("")
-  const [statusInput, setStatusInput] = useState<"all" | CanonicalOrderStatus>(
-    "all"
-  )
+  const [statusInput, setStatusInput] = useState<"all" | CanonicalOrderStatus>("all")
   const [fromInput, setFromInput] = useState(() => {
     const today = new Date()
-    const from = new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000)
-    return toDateInputValue(from)
+    return toDateInputValue(new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000))
   })
   const [toInput, setToInput] = useState(() => toDateInputValue(new Date()))
 
   const [appliedEventId, setAppliedEventId] = useState("")
-  const [appliedStatus, setAppliedStatus] = useState<
-    "all" | CanonicalOrderStatus
-  >("all")
+  const [appliedStatus, setAppliedStatus] = useState<"all" | CanonicalOrderStatus>("all")
   const [appliedFrom, setAppliedFrom] = useState(fromInput)
   const [appliedTo, setAppliedTo] = useState(toInput)
   const [page, setPage] = useState(1)
@@ -109,100 +101,48 @@ export default function OrdersPage() {
   const dateValidationError = useMemo(() => {
     const fromIso = toIsoBoundary(fromInput, "start")
     const toIso = toIsoBoundary(toInput, "end")
-
-    if (!fromIso || !toIso) {
-      return "Select valid from/to dates."
-    }
-
-    if (new Date(fromIso).getTime() > new Date(toIso).getTime()) {
-      return "From date must be before or equal to To date."
-    }
-
+    if (!fromIso || !toIso) return "Select valid from/to dates."
+    if (new Date(fromIso).getTime() > new Date(toIso).getTime()) return "From date must be before or equal to To date."
     return null
   }, [fromInput, toInput])
 
   useEffect(() => {
     const fromIso = toIsoBoundary(appliedFrom, "start")
     const toIso = toIsoBoundary(appliedTo, "end")
+    if (!fromIso || !toIso) return
 
-    if (!fromIso || !toIso) {
-      setErrorMessage("Active filter dates are invalid.")
-      setPayload(null)
-      setIsLoading(false)
-      return
-    }
-
-    const safeFromIso = fromIso
-    const safeToIso = toIso
     const controller = new AbortController()
-
     async function loadOrders() {
       setIsLoading(true)
       setErrorMessage(null)
-
       try {
-        const query = new URLSearchParams()
-        query.set("from", safeFromIso)
-        query.set("to", safeToIso)
-        query.set("page", String(page))
-        query.set("pageSize", "25")
+        const query = new URLSearchParams({
+          from: fromIso!,
+          to: toIso!,
+          page: String(page),
+          pageSize: "25",
+        })
+        if (appliedEventId.trim()) query.set("eventId", appliedEventId.trim())
+        if (appliedStatus !== "all") query.set("status", appliedStatus)
 
-        if (appliedEventId.trim()) {
-          query.set("eventId", appliedEventId.trim())
-        }
-
-        if (appliedStatus !== "all") {
-          query.set("status", appliedStatus)
-        }
-
-        const response = await fetch(
-          `/api/dashboard/orders?${query.toString()}`,
-          {
-            signal: controller.signal,
-          }
-        )
-
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as {
-            error?: { message?: string }
-          } | null
-          setPayload(null)
-          setErrorMessage(
-            body?.error?.message ??
-              `Failed to load orders (${response.status}).`
-          )
-          return
-        }
-
+        const response = await fetch(`/api/dashboard/orders?${query.toString()}`, { signal: controller.signal })
+        if (!response.ok) throw new Error("Failed to load orders")
         const body = (await response.json()) as OrdersPayload
         setPayload(body)
       } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") {
-          return
-        }
-
-        setPayload(null)
+        if (error instanceof Error && error.name === "AbortError") return
         setErrorMessage("Network error while loading order ledger.")
       } finally {
         setIsLoading(false)
       }
     }
-
     loadOrders()
-
-    return () => {
-      controller.abort()
-    }
+    return () => controller.abort()
   }, [appliedEventId, appliedFrom, appliedStatus, appliedTo, page])
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-
-    if (dateValidationError) {
-      setErrorMessage(dateValidationError)
-      return
-    }
-
+    if (dateValidationError) return
     setAppliedEventId(eventIdInput)
     setAppliedStatus(statusInput)
     setAppliedFrom(fromInput)
@@ -213,286 +153,266 @@ export default function OrdersPage() {
   function exportCsv() {
     const fromIso = toIsoBoundary(appliedFrom, "start")
     const toIso = toIsoBoundary(appliedTo, "end")
-
-    if (!fromIso || !toIso) {
-      setErrorMessage("Cannot export CSV because active dates are invalid.")
-      return
-    }
-
-    const query = new URLSearchParams()
-    query.set("from", fromIso)
-    query.set("to", toIso)
-
-    if (appliedEventId.trim()) {
-      query.set("eventId", appliedEventId.trim())
-    }
-
-    if (appliedStatus !== "all") {
-      query.set("status", appliedStatus)
-    }
-
+    if (!fromIso || !toIso) return
+    const query = new URLSearchParams({ from: fromIso, to: toIso })
+    if (appliedEventId.trim()) query.set("eventId", appliedEventId.trim())
+    if (appliedStatus !== "all") query.set("status", appliedStatus)
     window.location.assign(`/api/dashboard/orders/export?${query.toString()}`)
   }
 
   return (
-    <section className="space-y-6">
-      <header>
-        <h2 className="text-xl font-semibold">Order drilldown</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Inspect filtered Ticket Tailor order rows and export the current
-          scope.
-        </p>
+    <div className="space-y-8 animate-in fade-in duration-700">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between px-1">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
+            Orders
+            {payload && (
+              <Badge variant="outline" className="ml-2 font-mono text-[10px] uppercase tracking-wider h-5 flex items-center">
+                {payload.page.totalRows} Total
+              </Badge>
+            )}
+          </h1>
+          <p className="text-muted-foreground mt-1">Unified view of all attendee purchases and ledger states.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={exportCsv}
+            className="rounded-2xl h-11 px-5 shadow-sm active:scale-95 transition-all"
+          >
+            <FileDown className="mr-2 size-4 text-primary" />
+            Export CSV
+          </Button>
+        </div>
       </header>
 
-      <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
-        <form className="space-y-4" onSubmit={applyFilters}>
-          <div className="grid gap-4 md:grid-cols-4">
-            <label className="space-y-1">
-              <span className="text-sm font-medium">Event ID</span>
-              <select
-                value={eventIdInput}
-                onChange={(event) => setEventIdInput(event.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="">All events</option>
-                {(payload?.availableEvents ?? []).map((event) => (
-                  <option
-                    key={event.providerEventId}
-                    value={event.providerEventId}
-                  >
-                    {event.name?.trim() || event.providerEventId}
-                  </option>
-                ))}
-              </select>
-            </label>
+      {/* Quick Summary / Status Stats at Top */}
+      {payload && (
+        <div className="grid gap-4 sm:grid-cols-3">
+           <article className="rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl p-6">
+              <div className="flex items-center gap-3">
+                 <div className="size-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
+                    <ShoppingBag className="size-5" />
+                 </div>
+                 <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Transaction Value</p>
+                    <p className="text-xl font-bold mt-0.5">{formatMoney(payload.rows.reduce((acc, r) => acc + r.totalAmountMinor, 0))}</p>
+                    <p className="text-[9px] text-muted-foreground/60 italic font-medium mt-0.5">Current page total</p>
+                 </div>
+              </div>
+           </article>
+           <article className="rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl p-6">
+              <div className="flex items-center gap-3">
+                 <div className="size-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+                    <ExternalLink className="size-5" />
+                 </div>
+                 <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Settled Rate</p>
+                    <p className="text-xl font-bold mt-0.5">{Math.round((payload.rows.filter(r => r.normalizedStatus === "paid").length / payload.rows.length) * 100 || 0)}%</p>
+                    <p className="text-[9px] text-muted-foreground/60 italic font-medium mt-0.5">Paid vs Total (Page)</p>
+                 </div>
+              </div>
+           </article>
+           <article className="rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl p-6 overflow-hidden flex items-center">
+              <div className="text-muted-foreground/40 italic text-[11px] font-medium leading-tight p-2">
+                 Detailed charts and forecasting available in the Financial Overview.
+              </div>
+           </article>
+        </div>
+      )}
 
-            <label className="space-y-1">
-              <span className="text-sm font-medium">Status</span>
-              <select
-                value={statusInput}
-                onChange={(event) =>
-                  setStatusInput(
-                    event.target.value as "all" | CanonicalOrderStatus
-                  )
-                }
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="all">All statuses</option>
-                <option value="paid">Paid</option>
-                <option value="refunded">Refunded</option>
-                <option value="cancelled">Cancelled</option>
-                <option value="pending">Pending</option>
-              </select>
+      {/* Filter Bar */}
+      <article className="rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl p-6">
+        <form className="flex flex-wrap items-end gap-4" onSubmit={applyFilters}>
+          <div className="flex-1 min-w-[200px] space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-1.5">
+              <Layers className="size-3" /> Event context
             </label>
+            <select
+              value={eventIdInput}
+              onChange={(e) => setEventIdInput(e.target.value)}
+              className="w-full h-11 rounded-2xl border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
+            >
+              <option value="">All Events</option>
+              {payload?.availableEvents.map((e) => (
+                <option key={e.providerEventId} value={e.providerEventId}>
+                  {e.name?.trim() || e.providerEventId}
+                </option>
+              ))}
+            </select>
+          </div>
 
-            <label className="space-y-1">
-              <span className="text-sm font-medium">From</span>
+          <div className="flex-1 min-w-[150px] space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-1.5">
+              <Filter className="size-3" /> Status
+            </label>
+            <select
+              value={statusInput}
+              onChange={(e) => setStatusInput(e.target.value as any)}
+              className="w-full h-11 rounded-2xl border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
+            >
+               <option value="all">All Statuses</option>
+               <option value="paid">Paid</option>
+               <option value="refunded">Refunded</option>
+               <option value="cancelled">Cancelled</option>
+               <option value="pending">Pending</option>
+            </select>
+          </div>
+
+          <div className="flex-1 min-w-[280px] space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-1.5">
+              <Calendar className="size-3" /> Date range
+            </label>
+            <div className="grid grid-cols-2 gap-2">
               <input
                 type="date"
                 value={fromInput}
-                onChange={(event) => setFromInput(event.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                onChange={(e) => setFromInput(e.target.value)}
+                className="w-full h-11 rounded-2xl border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
               />
-            </label>
-
-            <label className="space-y-1">
-              <span className="text-sm font-medium">To</span>
               <input
                 type="date"
                 value={toInput}
-                onChange={(event) => setToInput(event.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                onChange={(e) => setToInput(e.target.value)}
+                className="w-full h-11 rounded-2xl border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
               />
-            </label>
+            </div>
           </div>
 
-          {dateValidationError && (
-            <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
-              {dateValidationError}
-            </p>
-          )}
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="submit"
-              disabled={Boolean(dateValidationError) || isLoading}
-            >
-              {isLoading ? "Loading…" : "Apply filters"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={exportCsv}
-              disabled={isLoading}
-            >
-              Export CSV
-            </Button>
-          </div>
+          <Button type="submit" disabled={isLoading} className="h-11 px-8 rounded-2xl bg-primary text-white shadow-lg shadow-primary/20 active:scale-95 transition-all">
+            <Search className="mr-2 size-4" />
+            Apply Filters
+          </Button>
         </form>
+        {dateValidationError && <p className="mt-3 text-[11px] font-bold text-destructive px-1">{dateValidationError}</p>}
       </article>
 
       {errorMessage && (
-        <article className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
+        <article className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-bold text-destructive animate-in slide-in-from-top-2">
           {errorMessage}
         </article>
       )}
 
-      {!errorMessage && isLoading && (
-        <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
-          <div className="space-y-3">
-            <Skeleton className="h-4 w-[200px]" />
-            <div className="flex flex-col gap-2">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="flex items-center gap-4">
-                  <Skeleton className="h-12 w-[140px]" />
-                  <Skeleton className="h-12 w-[100px]" />
-                  <Skeleton className="h-12 w-[120px]" />
-                  <Skeleton className="h-12 w-[80px]" />
-                  <Skeleton className="h-12 w-[100px]" />
-                  <Skeleton className="h-12 w-[120px]" />
-                </div>
-              ))}
-            </div>
-          </div>
-        </article>
-      )}
+      {/* Main Content Area */}
+      <article className="rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-left text-sm">
+            <thead className="border-b border-border/30 bg-muted/50">
+              <tr>
+                <th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider text-muted-foreground/70">Order ID / Date</th>
+                <th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider text-muted-foreground/70">Buyer Context</th>
+                <th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider text-muted-foreground/70">Event</th>
+                <th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider text-muted-foreground/70 text-right">Amount</th>
+                <th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider text-muted-foreground/70 text-center">Status</th>
+                <th className="px-6 py-4 w-10"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/20">
+              {isLoading ? (
+                Array.from({ length: 8 }).map((_, i) => (
+                  <tr key={i}>
+                    <td className="px-6 py-5"><Skeleton className="h-4 w-24 mb-2" /><Skeleton className="h-3 w-32" /></td>
+                    <td className="px-6 py-5"><Skeleton className="h-4 w-32 mb-2" /><Skeleton className="h-3 w-40" /></td>
+                    <td className="px-6 py-5"><Skeleton className="h-4 w-28" /></td>
+                    <td className="px-6 py-5 text-right"><Skeleton className="h-4 w-16 ml-auto" /></td>
+                    <td className="px-6 py-5"><Skeleton className="h-6 w-16 mx-auto rounded-lg" /></td>
+                    <td className="px-6 py-5"><Skeleton className="h-8 w-8 rounded-full" /></td>
+                  </tr>
+                ))
+              ) : payload?.rows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground font-medium italic">
+                    No orders found matching the criteria.
+                  </td>
+                </tr>
+              ) : (
+                payload?.rows.map((row) => (
+                  <tr 
+                    key={row.providerOrderId}
+                    onClick={() => router.push(`/dashboard/orders/${row.providerOrderId}?eventId=${row.providerEventId}`)}
+                    className="group cursor-pointer hover:bg-muted/30 transition-colors"
+                  >
+                    <td className="px-6 py-5">
+                      <div className="font-mono text-[10px] font-bold text-primary/70">{row.providerOrderId}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                         {row.orderedAt ? new Date(row.orderedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="font-bold text-foreground">{row.buyerName || "Anonymous"}</div>
+                      <div className="text-[11px] text-muted-foreground/60">{row.buyerEmail}</div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="text-xs font-semibold">{row.eventName ?? "Unknown event"}</div>
+                    </td>
+                    <td className="px-6 py-5 text-right font-bold tabular-nums">
+                      {formatMoney(row.totalAmountMinor)}
+                    </td>
+                    <td className="px-6 py-5 text-center">
+                      <div className="flex flex-col items-center gap-1.5">
+                        <Badge 
+                          variant={row.normalizedStatus === "paid" ? "secondary" : row.normalizedStatus === "cancelled" ? "destructive" : "outline"}
+                          className={cn(
+                            "rounded-lg px-2 h-6 text-[10px] font-bold uppercase tracking-wider",
+                            row.normalizedStatus === "paid" && "bg-emerald-500/10 text-emerald-600 border-none",
+                            row.normalizedStatus === "pending" && "bg-orange-500/10 text-orange-600 border-none"
+                          )}
+                        >
+                          {row.normalizedStatus}
+                        </Badge>
+                        {row.isArchived && (
+                          <div className="flex items-center gap-1 text-[9px] font-bold uppercase text-muted-foreground/50">
+                            <Archive className="size-2.5" /> Archived
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="flex size-8 items-center justify-center rounded-full bg-muted/40 text-muted-foreground/40 group-hover:bg-primary/10 group-hover:text-primary transition-all">
+                        <ChevronRight className="size-4" />
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
 
-      {!errorMessage && !isLoading && payload && (
-        <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">
-              Showing page {payload.page.number} of {payload.page.totalPages} (
-              {payload.page.totalRows} rows)
+        {/* Pagination Footer */}
+        {payload && payload.page.totalPages > 1 && (
+          <footer className="border-t border-border/30 px-8 py-5 flex items-center justify-between bg-muted/20">
+            <p className="text-xs font-medium text-muted-foreground">
+              Showing <span className="text-foreground">{payload.rows.length}</span> of <span className="text-foreground">{payload.page.totalRows}</span> entries
             </p>
             <div className="flex items-center gap-2">
               <Button
-                type="button"
                 variant="outline"
-                disabled={payload.page.number <= 1 || isLoading}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                size="sm"
+                disabled={payload.page.number <= 1}
+                onClick={() => setPage((p) => p - 1)}
+                className="rounded-xl h-9 px-4 active:scale-95 transition-all"
               >
+                <ChevronLeft className="mr-2 size-4" />
                 Previous
               </Button>
+              <div className="px-4 text-xs font-bold text-muted-foreground/60 uppercase tracking-widest">
+                {payload.page.number} / {payload.page.totalPages}
+              </div>
               <Button
-                type="button"
                 variant="outline"
-                disabled={
-                  payload.page.number >= payload.page.totalPages || isLoading
-                }
-                onClick={() => setPage((current) => current + 1)}
+                size="sm"
+                disabled={payload.page.number >= payload.page.totalPages}
+                onClick={() => setPage((p) => p + 1)}
+                className="rounded-xl h-9 px-4 active:scale-95 transition-all"
               >
                 Next
+                <ChevronRight className="ml-2 size-4" />
               </Button>
             </div>
-          </div>
-
-          {payload.rows.length === 0 ? (
-            <p className="rounded-md border border-border/70 p-3 text-sm text-muted-foreground">
-              No orders found for the selected filters.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="font-medium text-muted-foreground">
-                      Ordered
-                    </TableHead>
-                    <TableHead className="font-medium text-muted-foreground">
-                      Order
-                    </TableHead>
-                    <TableHead className="font-medium text-muted-foreground">
-                      Event
-                    </TableHead>
-                    <TableHead className="font-medium text-muted-foreground">
-                      Status
-                    </TableHead>
-                    <TableHead className="font-medium text-muted-foreground">
-                      Amount
-                    </TableHead>
-                    <TableHead className="font-medium text-muted-foreground">
-                      Buyer
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {payload.rows.map((row) => (
-                    <TableRow
-                      key={row.providerOrderId}
-                      role="link"
-                      tabIndex={0}
-                      className="cursor-pointer"
-                      onClick={() => {
-                        const params = new URLSearchParams({
-                          eventId: row.providerEventId,
-                        })
-                        router.push(
-                          `/dashboard/orders/${encodeURIComponent(row.providerOrderId)}?${params.toString()}`
-                        )
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Enter" && event.key !== " ") {
-                          return
-                        }
-
-                        event.preventDefault()
-                        const params = new URLSearchParams({
-                          eventId: row.providerEventId,
-                        })
-                        router.push(
-                          `/dashboard/orders/${encodeURIComponent(row.providerOrderId)}?${params.toString()}`
-                        )
-                      }}
-                    >
-                      <TableCell className="font-mono text-xs">
-                        {row.orderedAt
-                          ? new Date(row.orderedAt).toLocaleString()
-                          : "-"}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {row.providerOrderId}
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-xs">
-                          {row.eventName ?? "Unknown event"}
-                        </div>
-                        <div className="font-mono text-[11px] text-muted-foreground">
-                          {row.providerEventId}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <Badge
-                            variant={
-                              row.normalizedStatus === "cancelled"
-                                ? "destructive"
-                                : row.normalizedStatus === "refunded"
-                                  ? "outline"
-                                  : "secondary"
-                            }
-                          >
-                            {row.normalizedStatus}
-                          </Badge>
-                          {row.isArchived && (
-                            <Badge variant="outline">Archived</Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>{formatMoney(row.totalAmountMinor)}</TableCell>
-                      <TableCell>
-                        <div className="text-xs">{row.buyerName ?? "-"}</div>
-                        <div className="text-[11px] text-muted-foreground">
-                          {row.buyerEmail ?? "-"}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </article>
-      )}
-    </section>
+          </footer>
+        )}
+      </article>
+    </div>
   )
 }

@@ -6,9 +6,11 @@ import {
   FileOutput,
   HandCoins,
   ReceiptText,
+  Sparkles,
   WalletCards,
 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
+import { Skeleton } from "@/components/ui/skeleton"
 
 import { Button } from "@/components/ui/button"
 import { EventTikkieSection } from "@/components/dashboard/event-tikkie-section"
@@ -53,6 +55,34 @@ function formatMoney(minor: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(minor / 100)
+}
+
+function FinancialSkeleton() {
+  return (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      <div className="rounded-2xl border border-border/50 bg-card/30 p-8 backdrop-blur-xl">
+        <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+          <div className="max-w-3xl space-y-4">
+            <Skeleton className="h-10 w-full max-w-md" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-10 w-28 rounded-xl" />
+            <Skeleton className="h-10 w-28 rounded-xl" />
+          </div>
+        </div>
+        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-32 rounded-2xl" />
+          ))}
+        </div>
+      </div>
+      
+      <div className="space-y-6">
+        <Skeleton className="h-48 rounded-3xl" />
+        <Skeleton className="h-64 rounded-3xl" />
+      </div>
+    </div>
+  )
 }
 
 export default function FinancialPage() {
@@ -103,208 +133,147 @@ export default function FinancialPage() {
     void load()
   }, [])
 
-  const cards = useMemo(
-    () => [
-      {
-        label: "Total revenue",
-        value: revenue ? formatMoney(revenue.totals.grossMinor) : "--",
-        detail: revenue
-          ? `${revenue.statusCounts.paid} paid orders`
-          : "Loading",
-      },
-      {
-        label: "Net collected",
-        value: revenue ? formatMoney(revenue.totals.netMinor) : "--",
-        detail: revenue
-          ? `${revenue.statusCounts.refunded} refunded`
-          : "Loading",
-      },
-      {
-        label: "Outstanding",
-        value: balances ? formatMoney(balances.totals.outstandingMinor) : "--",
-        detail: balances
-          ? `${balances.totals.rows} rows need follow-up`
-          : "Loading",
-      },
-      {
-        label: "Pending orders",
-        value: revenue ? revenue.statusCounts.pending.toLocaleString() : "--",
-        detail: "Current collections queue",
-      },
-    ],
-    [balances, revenue]
-  )
+  if (isLoading) return <FinancialSkeleton />
 
   return (
-    <section className="space-y-8">
-      <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
-        <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-          <div className="max-w-3xl space-y-3">
-            <p className="text-xs font-semibold tracking-[0.28em] text-primary uppercase">
-              Financial workspace
-            </p>
-            <h2 className="text-4xl font-semibold tracking-tight text-foreground">
-              Keep revenue, ledger, and balance follow-up in one place.
+    <section className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-700">
+      <header className="rounded-3xl border border-border/50 bg-card/40 p-8 shadow-sm backdrop-blur-xl overflow-hidden relative">
+        <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+          <WalletCards className="size-48 rotate-12" />
+        </div>
+        
+        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-3xl space-y-4">
+            <h2 className="text-4xl font-bold tracking-tight text-foreground lg:text-5xl">
+              Ledger, Revenue & <br className="hidden lg:block" />
+              <span className="text-primary">Balance follow-up.</span>
             </h2>
-            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-              This route gives operators a clear starting point for finance work
-              before they jump into detailed order review or attendee follow-up.
-            </p>
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Button asChild>
+            <Button asChild className="rounded-xl h-11 px-6 shadow-lg shadow-primary/20">
               <Link href="/dashboard/orders">Open ledger</Link>
             </Button>
-            <Button asChild variant="outline">
+            <Button asChild variant="outline" className="rounded-xl h-11 px-6 bg-background/50 backdrop-blur">
               <Link href="/dashboard/reconciliation">Review outstanding</Link>
             </Button>
           </div>
         </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {cards.map((card) => (
+        <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            {
+              label: "Total revenue",
+              value: revenue ? formatMoney(revenue.totals.grossMinor) : "--",
+              sub: revenue ? `${revenue.statusCounts.paid} paid orders` : "Calculated gross",
+              trend: "up"
+            },
+            {
+              label: "Net collected",
+              value: revenue ? formatMoney(revenue.totals.netMinor) : "--",
+              sub: revenue ? `${revenue.statusCounts.refunded} refunded` : "Final liquidity",
+              trend: "stable"
+            },
+            {
+              label: "Outstanding",
+              value: balances ? formatMoney(balances.totals.outstandingMinor) : "--",
+              sub: balances ? `${balances.totals.rows} rows pending` : "Reconciliation required",
+              trend: "down",
+              isWarning: balances && balances.totals.outstandingMinor > 0
+            },
+            {
+              label: "Pending",
+              value: revenue ? revenue.statusCounts.pending.toLocaleString() : "--",
+              sub: "Processing queue",
+              trend: "none"
+            },
+          ].map((card) => (
             <article
               key={card.label}
-              className="rounded-lg border border-border bg-muted/40 p-5"
+              className={`group overflow-hidden rounded-2xl border transition-all hover:scale-[1.02] ${
+                card.isWarning 
+                  ? "border-orange-500/20 bg-orange-500/5 shadow-[0_8px_30px_rgb(249,115,22,0.08)]" 
+                  : "border-[rgba(113,84,255,0.3)] bg-[linear-gradient(145deg,rgba(113,84,255,0.05),rgba(113,84,255,0.02))] shadow-sm"
+              } p-6`}
             >
-              <p className="text-xs font-semibold tracking-[0.22em] text-muted-foreground uppercase">
-                {card.label}
-              </p>
-              <p className="mt-3 text-3xl font-semibold text-foreground">
+              <div className="flex items-center justify-between">
+                <p className={`text-[10px] font-bold uppercase tracking-[0.2em] ${card.isWarning ? "text-orange-600/70" : "text-primary/70"}`}>
+                  {card.label}
+                </p>
+              </div>
+              <p className="mt-4 text-3xl font-bold tracking-tight text-foreground">
                 {card.value}
               </p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {card.detail}
+              <p className="mt-2 text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
+                <span className={`size-1.5 rounded-full ${card.isWarning ? "bg-orange-500" : "bg-primary"}`} />
+                {card.sub}
               </p>
             </article>
           ))}
         </div>
-      </section>
+      </header>
 
       {errorMessage && (
-        <article className="rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {errorMessage}
+        <article className="rounded-2xl border border-destructive/20 bg-destructive/5 px-6 py-4 text-sm font-medium text-destructive animate-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <div className="size-2 rounded-full bg-destructive animate-pulse" />
+            {errorMessage}
+          </div>
         </article>
       )}
 
+
+
       <EventTikkieSection events={events} />
 
-      <section className="grid gap-6 xl:grid-cols-[1.3fr_0.9fr]">
-        <article className="rounded-lg border border-border bg-card p-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold tracking-[0.22em] text-muted-foreground uppercase">
-                Daily finance loop
-              </p>
-              <h3 className="mt-2 text-2xl font-semibold text-foreground">
-                Choose the next financial action
-              </h3>
-            </div>
-          </div>
+      <article className="rounded-3xl border border-border/50 bg-card/40 p-8 shadow-sm backdrop-blur-xl">
+        <div className="mb-8">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
+            Quick Actions
+          </p>
+          <h3 className="mt-2 text-2xl font-bold text-foreground">
+            Execute financial workflows
+          </h3>
+        </div>
 
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-3">
+          {[
+            {
+              href: "/dashboard/orders",
+              icon: ReceiptText,
+              title: "Ledger",
+              desc: "Review logs & exports."
+            },
+            {
+              href: "/dashboard/reconciliation",
+              icon: HandCoins,
+              title: "Collections",
+              desc: "Reconcile balances."
+            },
+            {
+              href: "/dashboard/orders",
+              icon: FileOutput,
+              title: "Bank Export",
+              desc: "Generate exports."
+            }
+          ].map((action) => (
             <Link
-              href="/dashboard/orders"
-              className="rounded-lg border border-border bg-muted/40 p-4 transition hover:-translate-y-0.5 hover:bg-muted/60"
+              key={action.title}
+              href={action.href}
+              className="group relative rounded-2xl border border-border/40 bg-background/50 p-6 transition-all hover:border-primary/40 hover:bg-muted/30"
             >
-              <ReceiptText className="size-5 text-primary" />
-              <p className="mt-3 text-lg font-semibold text-foreground">
-                Ledger
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Review transaction rows, statuses, and exports.
-              </p>
-            </Link>
-            <Link
-              href="/dashboard/reconciliation"
-              className="rounded-lg border border-border bg-muted/40 p-4 transition hover:-translate-y-0.5 hover:bg-muted/60"
-            >
-              <HandCoins className="size-5 text-primary" />
-              <p className="mt-3 text-lg font-semibold text-foreground">
-                Outstanding balances
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Work the collection queue and push into attendee follow-up.
+              <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary transition-transform group-hover:scale-110">
+                <action.icon className="size-5" />
+              </div>
+              <h4 className="mt-4 font-bold text-foreground">{action.title}</h4>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground font-medium">
+                {action.desc}
               </p>
             </Link>
-            <Link
-              href="/dashboard/orders"
-              className="rounded-lg border border-border bg-muted/40 p-4 transition hover:-translate-y-0.5 hover:bg-muted/60"
-            >
-              <FileOutput className="size-5 text-primary" />
-              <p className="mt-3 text-lg font-semibold text-foreground">
-                Export
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Jump into the ledger and export the exact filtered scope you
-                need.
-              </p>
-            </Link>
-          </div>
-        </article>
-
-        <article className="rounded-lg border border-border bg-card p-6">
-          <div className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-xl bg-muted text-primary">
-              <WalletCards className="size-5" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold tracking-[0.22em] text-muted-foreground uppercase">
-                Collections queue
-              </p>
-              <h3 className="text-xl font-semibold text-foreground">
-                Priority rows
-              </h3>
-            </div>
-          </div>
-
-          <div className="mt-5 flex flex-col gap-3">
-            {isLoading && (
-              <p className="text-sm text-muted-foreground">
-                Loading finance summary...
-              </p>
-            )}
-            {!isLoading && balances && balances.rows.length === 0 && (
-              <p className="rounded-lg border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
-                No outstanding rows in the current 30-day snapshot.
-              </p>
-            )}
-            {!isLoading &&
-              balances?.rows.slice(0, 5).map((row) => (
-                <div
-                  key={row.providerOrderId}
-                  className="rounded-lg border border-border bg-muted/40 px-4 py-3"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-foreground">
-                        {row.eventName ?? row.providerOrderId}
-                      </p>
-                      <p className="mt-1 text-xs tracking-[0.18em] text-muted-foreground uppercase">
-                        {row.normalizedStatus}
-                      </p>
-                    </div>
-                    <p className="text-sm font-semibold text-primary">
-                      {formatMoney(row.outstandingMinor)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-          </div>
-
-          <Button
-            asChild
-            variant="ghost"
-            className="mt-5 px-0 text-primary hover:bg-transparent hover:text-primary/80"
-          >
-            <Link href="/dashboard/reconciliation">
-              Open the full outstanding balances board
-              <ArrowRight className="ml-2 size-4" />
-            </Link>
-          </Button>
-        </article>
-      </section>
+          ))}
+        </div>
+      </article>
     </section>
   )
 }
+
