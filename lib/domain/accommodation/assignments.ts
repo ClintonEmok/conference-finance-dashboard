@@ -123,6 +123,19 @@ export type AllocationProposal = {
   }
 }
 
+type AllocationPriority = "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+type AttendeeGender = "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+
+type ProposalAttendee = RoomAllocationBoard["unassignedAttendees"][number]
+type ProposalRoom = RoomAllocationBoard["rooms"][number]
+
+type RoomState = {
+  room: ProposalRoom
+  remainingBeds: number
+  projectedGenders: Set<Exclude<AttendeeGender, null>>
+  projectedOrderIds: Set<string>
+}
+
 function normalizeOptionalString(
   value: string | null | undefined
 ): string | null {
@@ -192,6 +205,121 @@ function attendeeMatchesSearch(
     attendee.eventName,
     attendee.ticketTypeLabel,
   ].some((value) => matchesSearch(value, searchLower))
+}
+
+function priorityRank(priority: AllocationPriority | null | undefined): number {
+  const priorityOrder: Record<AllocationPriority, number> = {
+    CRITICAL: 0,
+    HIGH: 1,
+    NORMAL: 2,
+    LOW: 3,
+  }
+
+  return priorityOrder[priority ?? "NORMAL"]
+}
+
+function normalizeAttendeeGender(
+  gender: AttendeeGender
+): Exclude<AttendeeGender, null> {
+  return gender ?? "UNKNOWN"
+}
+
+function isGenderCompatible(
+  attendeeGender: Exclude<AttendeeGender, null>,
+  roomGenders: Set<Exclude<AttendeeGender, null>>
+): boolean {
+  if (roomGenders.size === 0) {
+    return true
+  }
+
+  const roomAllowsMixed =
+    attendeeGender === "MIXED" ||
+    attendeeGender === "UNKNOWN" ||
+    roomGenders.has("MIXED") ||
+    roomGenders.has("UNKNOWN")
+
+  if (roomAllowsMixed) {
+    return true
+  }
+
+  if (attendeeGender === "MALE" && roomGenders.has("FEMALE")) {
+    return false
+  }
+
+  if (attendeeGender === "FEMALE" && roomGenders.has("MALE")) {
+    return false
+  }
+
+  return true
+}
+
+function rankGenderFit(
+  attendeeGender: Exclude<AttendeeGender, null>,
+  roomGenders: Set<Exclude<AttendeeGender, null>>
+): number {
+  if (roomGenders.size === 0) {
+    return 3
+  }
+
+  if (attendeeGender === "MIXED" || attendeeGender === "UNKNOWN") {
+    return 2
+  }
+
+  if (roomGenders.has(attendeeGender)) {
+    return 3
+  }
+
+  if (roomGenders.has("MIXED") || roomGenders.has("UNKNOWN")) {
+    return 2
+  }
+
+  return 1
+}
+
+function getFamilyCohesionRank(
+  attendee: ProposalAttendee,
+  roomState: RoomState
+): number {
+  const hasGroupInRoom = roomState.projectedOrderIds.has(
+    attendee.providerOrderId
+  )
+  if (hasGroupInRoom) {
+    return 3
+  }
+
+  if (attendee.hasFamily && roomState.room.occupiedBeds === 0) {
+    return 2
+  }
+
+  return 1
+}
+
+function buildPlacementReason(input: {
+  attendee: ProposalAttendee
+  roomState: RoomState
+  priority: AllocationPriority
+  familyMatch: boolean
+  genderFitRank: number
+}): string {
+  const gender = normalizeAttendeeGender(input.attendee.genderType)
+  const rationale: string[] = []
+
+  if (input.familyMatch) {
+    rationale.push("keeps family/order group together")
+  }
+
+  if (input.genderFitRank >= 3) {
+    rationale.push(`matches ${gender.toLowerCase()} room profile`)
+  } else {
+    rationale.push("passes mixed/unknown gender guardrail")
+  }
+
+  rationale.push(`priority ${input.priority}`)
+  rationale.push(
+    `${input.roomState.remainingBeds} bed(s) remain after placement`
+  )
+
+  return `Compatibility placement: ${rationale.join("; ")}`
 }
 
 export async function getRoomAllocationBoard(
@@ -304,43 +432,157 @@ export async function generateAllocationProposal(input: {
       if (a.availability === "empty" && b.availability === "available") return 1
       return a.label.localeCompare(b.label)
     })
+    .map<RoomState>((room) => ({
+      room,
+      remainingBeds: room.availableBeds,
+      projectedGenders: new Set<Exclude<AttendeeGender, null>>(),
+      projectedOrderIds: new Set(
+        room.occupants.map((occupant) => occupant.providerOrderId)
+      ),
+    }))
+
+  const attendeeCountByOrderId = new Map<string, number>()
+  for (const attendee of board.unassignedAttendees) {
+    attendeeCountByOrderId.set(
+      attendee.providerOrderId,
+      (attendeeCountByOrderId.get(attendee.providerOrderId) ?? 0) + 1
+    )
+  }
 
   const sortedAttendees = [...board.unassignedAttendees].sort((a, b) => {
-    const priorityOrder = { CRITICAL: 0, HIGH: 1, NORMAL: 2, LOW: 3 }
-    const aOrder = priorityOrder[a.allocationPriority ?? "NORMAL"]
-    const bOrder = priorityOrder[b.allocationPriority ?? "NORMAL"]
-    if (aOrder !== bOrder) return aOrder - bOrder
-    return (a.attendeeName ?? "").localeCompare(b.attendeeName ?? "")
+    const aPriority = priorityRank(a.allocationPriority)
+    const bPriority = priorityRank(b.allocationPriority)
+    if (aPriority !== bPriority) return aPriority - bPriority
+
+    const aGroupSize = attendeeCountByOrderId.get(a.providerOrderId) ?? 0
+    const bGroupSize = attendeeCountByOrderId.get(b.providerOrderId) ?? 0
+    if (aGroupSize !== bGroupSize) {
+      return bGroupSize - aGroupSize
+    }
+
+    const orderComparison = a.providerOrderId.localeCompare(b.providerOrderId)
+    if (orderComparison !== 0) return orderComparison
+
+    const nameComparison = (a.attendeeName ?? "").localeCompare(
+      b.attendeeName ?? ""
+    )
+    if (nameComparison !== 0) return nameComparison
+
+    return a.attendeeId.localeCompare(b.attendeeId)
   })
 
   for (const attendee of sortedAttendees) {
     const priority = attendee.allocationPriority ?? "NORMAL"
+    const attendeeGender = normalizeAttendeeGender(attendee.genderType)
 
-    const compatibleRooms = availableRooms.filter((room) => {
-      if (room.availableBeds <= 0) return false
-      return true
-    })
+    const rankedRooms = availableRooms
+      .filter((roomState) => roomState.remainingBeds > 0)
+      .filter((roomState) =>
+        isGenderCompatible(attendeeGender, roomState.projectedGenders)
+      )
+      .map((roomState) => {
+        const familyRank = getFamilyCohesionRank(attendee, roomState)
+        const genderRank = rankGenderFit(
+          attendeeGender,
+          roomState.projectedGenders
+        )
+        const availabilityRank =
+          roomState.room.availability === "available" ? 1 : 0
+        const remainingBedsAfterPlacement = roomState.remainingBeds - 1
 
-    if (compatibleRooms.length > 0) {
-      const bestRoom = compatibleRooms[0]
+        return {
+          roomState,
+          familyRank,
+          genderRank,
+          availabilityRank,
+          remainingBedsAfterPlacement,
+        }
+      })
+      .sort((a, b) => {
+        if (a.familyRank !== b.familyRank) return b.familyRank - a.familyRank
+        if (a.genderRank !== b.genderRank) return b.genderRank - a.genderRank
+        if (a.availabilityRank !== b.availabilityRank) {
+          return b.availabilityRank - a.availabilityRank
+        }
+        if (a.remainingBedsAfterPlacement !== b.remainingBedsAfterPlacement) {
+          return a.remainingBedsAfterPlacement - b.remainingBedsAfterPlacement
+        }
+        return a.roomState.room.label.localeCompare(b.roomState.room.label)
+      })
+
+    if (rankedRooms.length > 0) {
+      const bestCandidate = rankedRooms[0]
+      const bestRoom = bestCandidate.roomState
+
+      bestRoom.remainingBeds -= 1
+      bestRoom.projectedGenders.add(attendeeGender)
+      bestRoom.projectedOrderIds.add(attendee.providerOrderId)
+
       suggestions.push({
         attendeeId: attendee.attendeeId,
         attendeeName: attendee.attendeeName,
-        roomId: bestRoom.id,
-        roomLabel: bestRoom.label,
-        hotelName: bestRoom.hotel.name,
-        reason: `Available room with ${bestRoom.availableBeds} beds`,
+        roomId: bestRoom.room.id,
+        roomLabel: bestRoom.room.label,
+        hotelName: bestRoom.room.hotel.name,
+        reason: buildPlacementReason({
+          attendee,
+          roomState: bestRoom,
+          priority,
+          familyMatch: bestCandidate.familyRank >= 3,
+          genderFitRank: bestCandidate.genderRank,
+        }),
         priority,
       })
     } else {
+      const hasAnyBeds = availableRooms.some(
+        (roomState) => roomState.remainingBeds > 0
+      )
       unplacedAttendees.push({
         attendeeId: attendee.attendeeId,
         attendeeName: attendee.attendeeName,
-        reason: "No compatible rooms available",
+        reason: hasAnyBeds
+          ? "No compatible rooms available after gender guardrails"
+          : "No rooms with available beds",
         priority,
       })
     }
   }
+
+  const suggestionsByAttendeeId = new Map(
+    suggestions.map((suggestion) => [suggestion.attendeeId, suggestion])
+  )
+  const familyGroups = new Map<string, string[]>()
+
+  for (const attendee of sortedAttendees) {
+    if (!attendee.hasFamily) continue
+    const existing = familyGroups.get(attendee.providerOrderId) ?? []
+    existing.push(attendee.attendeeId)
+    familyGroups.set(attendee.providerOrderId, existing)
+  }
+
+  const familyGroupsKeptTogether = [...familyGroups.values()].reduce(
+    (sum, attendeeIds) => {
+      if (attendeeIds.length < 2) {
+        return sum
+      }
+
+      const placements = attendeeIds
+        .map((attendeeId) => suggestionsByAttendeeId.get(attendeeId))
+        .filter((placement): placement is NonNullable<typeof placement> =>
+          Boolean(placement)
+        )
+
+      if (placements.length !== attendeeIds.length) {
+        return sum
+      }
+
+      const distinctRoomIds = new Set(
+        placements.map((placement) => placement.roomId)
+      )
+      return distinctRoomIds.size === 1 ? sum + 1 : sum
+    },
+    0
+  )
 
   return {
     generatedAt: new Date().toISOString(),
@@ -350,7 +592,7 @@ export async function generateAllocationProposal(input: {
     summary: {
       totalSuggested: suggestions.length,
       totalUnplaced: unplacedAttendees.length,
-      familyGroupsKeptTogether: 0,
+      familyGroupsKeptTogether,
     },
   }
 }
