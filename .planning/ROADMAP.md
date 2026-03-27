@@ -2,9 +2,34 @@
 
 ## Overview
 
-This roadmap now prioritizes getting the operator-facing screens, navigation, attendee data, and accommodation workflow correct before investing further in payment-link automation and production hardening. The current MVP path focuses on trusted Ticket Tailor data, clear finance views, actual attendee visibility, and room allocation flow. Tikkie automation and operational hardening remain valuable, but are explicitly deferred until the core UX and workflow are settled.
+The finance command-center foundation is complete and stays in place.
 
-All MVP-path phases are now complete. Future work should route through the deferred post-MVP tracks rather than reopening the finished command-center flow.
+The next milestone is now **v2: Event Signup + Dual-Source Events**, expanding from operator-only finance workflows to a public signup surface and source-flexible event operations:
+
+- `integration` events: backed by external providers (existing Ticket Tailor path)
+- `internal` events: managed fully in-app (event setup, ticket types, registrations)
+
+This roadmap therefore shifts from pure dashboard hardening to a controlled expansion: keep finance/reconciliation stable while adding public event signup and unified event contracts.
+
+## Milestone v2.0
+
+### Objective
+
+Allow the team to run conference registrations from either external integrations or internal tooling, while preserving one consistent dashboard/finance experience.
+
+### Scope
+
+- Add public event listing + event detail + signup flow
+- Add internal event/ticket type/registration data model
+- Add source-aware admin controls for choosing integration vs internal event mode
+- Add source-agnostic read models for dashboard pages that currently assume integration-only events
+- Keep existing Ticket Tailor/Tikkie flows functional and backwards compatible
+
+### Out of Scope (for this milestone)
+
+- Multi-tenant/public attendee account management
+- Full self-service attendee profile editing after signup
+- Replacing provider integrations as source of truth for integration-backed events
 
 ## Phases
 
@@ -13,6 +38,26 @@ All MVP-path phases are now complete. Future work should route through the defer
 - [x] **Phase 3: Finance Visibility & Outstanding Balances** - Deliver dashboard reporting, ledger visibility, and balance follow-up surfaces.
 - [x] **Phase 4: Attendee Data & Accommodation Foundations** - Sync issued ticket attendees and define hotel/room inventory foundations.
 - [x] **Phase 5: Room Allocation & Operator Flow Polish** - Finalize attendee detail, room assignment, and cross-screen workflow clarity.
+- [ ] **Phase 16: v1 Milestone Gap Closure** - Close milestone audit blockers in sync security and accommodation allocation logic.
+- [ ] **Phase 17: Dual-Source Event Signup Platform** - Add public signup and source-flexible event architecture.
+
+### Phase 17: Dual-Source Event Signup Platform
+
+**Goal:** Launch an MVP public signup flow and support both integration-backed and internal event operations without breaking current finance workflows.
+**Depends on:** Phase 16
+**Requirements**: ES-01, ES-02, ES-03, ES-04, ES-05
+**Success Criteria** (what must be TRUE):
+
+1. Admin can create/select event source mode (`integration` or `internal`) and manage internal event publishing.
+2. Public users can browse published internal events and submit signups successfully.
+3. Dashboard/finance reads can represent both source types through a unified event contract.
+4. Existing Ticket Tailor and Tikkie finance flows continue to operate for integration-backed events.
+
+Plans:
+
+- [ ] 17-01-PLAN.md — Schema + Convex contracts for internal events, ticket types, and registrations
+- [ ] 17-02-PLAN.md — Public `/events` listing, event detail, and signup submission flow
+- [ ] 17-03-PLAN.md — Admin source selector + unified dashboard event read model and compatibility checks
 
 ## Phase Details
 
@@ -276,13 +321,15 @@ Plans:
 - [x] 15-01-PLAN.md — Add event Tikkie section to financial page with event picker, payment list, manual assignment, and link creation
 - [x] 15-02-PLAN.md — Remove per-attendee and per-order Tikkie UI from attendee detail and reconciliation pages
 
-### Phase 16: Fix Tikkie sync mapping and reconciliation outstanding flow
+### Phase 16: v1 Milestone Gap Closure
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Close remaining v1.0 milestone audit blockers so operator sync actions are protected and accommodation filtering/allocation fulfills family and compatibility requirements.
+**Requirements**: SEC-01, TT-02, ACC-04, ACC-05, ACC-06
 **Depends on:** Phase 15
-**Plans:** 0 plans
+**Plans:** 3 plans
 
 Plans:
 
-- [ ] TBD (run /gsd:plan-phase 16 to break down)
+- [ ] 16-01-PLAN.md — Protect `/api/ticket-tailor/sync` with shared Clerk auth guard and route regression tests
+- [ ] 16-02-PLAN.md — Wire accommodation family/location filters end-to-end and return real family indicators
+- [ ] 16-03-PLAN.md — Upgrade auto-allocation to compatibility-aware strategy with family cohesion metrics
