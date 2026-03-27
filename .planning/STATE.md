@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: complete
-stopped_at: Completed 260326-it5-PLAN.md
-last_updated: "2026-03-26T12:39:09Z"
+milestone: v2.0
+milestone_name: event-signup-dual-source
+status: active
+stopped_at: Milestone reset for v2 event-signup planning
+last_updated: "2026-03-27T11:25:20Z"
 progress:
-  total_phases: 16
+  total_phases: 17
   completed_phases: 9
-  total_plans: 33
-  completed_plans: 33
+  total_plans: 40
+  completed_plans: 37
 ---
 
 # Project State
@@ -19,13 +19,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Phase 13 complete, plus quick-task hardening for Ticket Tailor sync, accommodation inventory rendering, attendee detail API route recovery, reconciliation follow-up detail routing, guarded accommodation inventory deletes, and manual payment/reconciliation linkage correctness
+- **Current focus:** Kick off v2 milestone for public event signup and dual-source event operations (integration + internal)
 
 ## Current Position
 
-Phase: 13 (rebuild-convex-mutation-and-api-layer-from-clean-contracts) — COMPLETE
-Plan: 5 of 5
-Quick task: 260326-it5 (allow-hotels-to-be-deleted-if-there-aree) — COMPLETE
+Milestone: v1.0 (milestone-gap-closure) — ACTIVE
+Phase: 16 (v1-milestone-gap-closure) — IN PROGRESS
+Plan: 1 of 3 (16-01 complete)
+Status: In progress
+Last activity: 2026-03-27 - Completed 16-01-PLAN.md
+
+Progress: █████████░ 93% (37/40 plans)
 
 ## Alignment Status
 
@@ -46,6 +50,7 @@ Quick task: 260326-it5 (allow-hotels-to-be-deleted-if-there-aree) — COMPLETE
 - Payments API rows now enrich linked payments with resolved order blocks (`id`, `providerOrderId`, `buyerName`, `totalAmountMinor`) using provider-first lookup.
 - Hotel deletion guards now use real attendee assignments (`assignedRoomId`) as the blocker condition, not `occupiedBeds` counters.
 - Accommodation inventory now exposes room-type delete actions end-to-end (UI -> protected API -> domain), with clear blocked-state feedback when rooms still use the type.
+- Manual Ticket Tailor sync endpoint now enforces shared Clerk API auth guard (`requireApiUser`) and returns the standard unauthorized contract before any sync execution.
 
 ## Key Decisions
 
@@ -74,6 +79,9 @@ Recent decisions that future work should preserve:
 - [260326-i7e] Treat `providerOrderId` as canonical for manual payment links, while preserving legacy Convex-id payment compatibility through read-time order resolution in reconciliation and payments APIs.
 - [260326-ijx] Add dedicated unassigned payments page at `/dashboard/reconciliation/payments` with source/date filtering and AssignDialog integration.
 - [260326-it5] Block hotel deletion only when attendees are assigned to its rooms, and expose room-type deletion through protected API and inventory UI with explicit `Cannot delete...` messaging.
+- [260327-16a] Protect `POST /api/ticket-tailor/sync` with shared `requireApiUser()` and lock unauthorized/authorized behavior via route-level regression tests.
+- [v2-01] Treat event source as an explicit domain boundary (`integration` vs `internal`) and keep dashboard reads source-agnostic.
+- [v2-02] Preserve existing finance/Tikkie/Ticket Tailor behavior while adding internal signup flows incrementally.
 
 ## Active Patterns / Constraints
 
@@ -91,6 +99,8 @@ Recent decisions that future work should preserve:
 - Manual payment writes should persist Ticket Tailor `providerOrderId`; read paths must support provider-id first with Convex-id fallback for pre-existing payment records.
 - Hotel delete checks should use attendee assignment truth (`ticketTailorAttendees.assignedRoomId`) rather than `occupiedBeds` counters.
 - Room-type inventory cards should provide delete actions with confirm prompts, in-flight disablement, and inline server error feedback.
+- Public event pages must only expose published/internal-safe fields and never leak operator-only finance data.
+- Internal signup writes should be idempotent enough for accidental duplicate submits and enforce capacity constraints at write time.
 
 ## Blockers / Concerns
 
@@ -120,12 +130,12 @@ Recent decisions that future work should preserve:
 - Phase 13: rebuild convex mutation and api layer from clean contracts (complete)
 - Phase 14: Event-Level Tikkie + Payment Tracking (complete)
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
-- Phase 16 added: Fix Tikkie sync mapping and reconciliation outstanding flow
+- Phase 16: v1 milestone gap closure execution started (16-01 complete, 16-02/16-03 pending)
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-26 - Completed quick task 260326-it5: hotel delete guard now checks assigned attendees and room-type delete is available from inventory UI
-- **Last session:** 2026-03-26T12:39:09Z
-- **Stopped at:** Completed 260326-it5-PLAN.md
+- **Last activity:** 2026-03-27 - Completed 16-01-PLAN.md
+- **Last session:** 2026-03-27T11:25:20Z
+- **Stopped at:** Completed 16-01-PLAN.md
 - **Resume file:** None
-- **Next recommended plan:** Review `.planning/ROADMAP.md` for next phase or add new phases
+- **Next recommended plan:** Execute 16-02-PLAN.md (continue v1 gap-closure remaining tasks)
