@@ -124,9 +124,11 @@ export declare const api: {
       {
         allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
         eventId?: string;
+        familyGroupId?: string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
         hasPriority?: boolean;
         hotelId?: string;
+        location?: string;
         roomTypeId?: string;
       },
       any

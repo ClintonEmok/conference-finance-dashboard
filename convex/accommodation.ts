@@ -68,6 +68,101 @@ async function getAttendeeByStringId(ctx: any, attendeeId: string) {
     : null
 }
 
+function normalizeOptionalString(
+  value: string | null | undefined
+): string | null {
+  const normalized = value?.trim()
+  return normalized ? normalized : null
+}
+
+function getAttendeeLocation(customAnswers: unknown): string | null {
+  if (!customAnswers || typeof customAnswers !== "object") {
+    return null
+  }
+
+  const location = (customAnswers as { location?: unknown }).location
+  return typeof location === "string" ? normalizeOptionalString(location) : null
+}
+
+function hasPriorityAttendee(
+  allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null | undefined
+): boolean {
+  return allocationPriority === "CRITICAL" || allocationPriority === "HIGH"
+}
+
+export function attendeeMatchesSignalFilters(input: {
+  attendee: {
+    customAnswers?: unknown
+    genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+    allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+  }
+  attendeeFamilyGroupId: string | null
+  filters: {
+    genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+    familyGroupId?: string
+    location?: string
+    allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+    hasPriority?: boolean
+  }
+}): boolean {
+  if (
+    input.filters.genderType &&
+    input.attendee.genderType !== input.filters.genderType
+  ) {
+    return false
+  }
+
+  if (
+    input.filters.familyGroupId &&
+    input.attendeeFamilyGroupId !== input.filters.familyGroupId
+  ) {
+    return false
+  }
+
+  const normalizedLocationFilter = normalizeOptionalString(
+    input.filters.location
+  )
+  if (normalizedLocationFilter) {
+    const attendeeLocation = getAttendeeLocation(input.attendee.customAnswers)
+    if (
+      !attendeeLocation ||
+      attendeeLocation.toLowerCase() !== normalizedLocationFilter.toLowerCase()
+    ) {
+      return false
+    }
+  }
+
+  if (
+    input.filters.allocationPriority &&
+    input.attendee.allocationPriority !== input.filters.allocationPriority
+  ) {
+    return false
+  }
+
+  if (
+    input.filters.hasPriority !== undefined &&
+    hasPriorityAttendee(input.attendee.allocationPriority ?? null) !==
+      input.filters.hasPriority
+  ) {
+    return false
+  }
+
+  return true
+}
+
+export function hasFamilySignal(input: {
+  attendeeId: string
+  providerOrderId: string
+  attendeeFamilyGroupId: string | null
+  attendeeCountByOrderId: Map<string, number>
+}): boolean {
+  if (input.attendeeFamilyGroupId) {
+    return true
+  }
+
+  return (input.attendeeCountByOrderId.get(input.providerOrderId) ?? 0) > 1
+}
+
 export const recalculateRoomOccupancy = internalMutation({
   args: { roomId: v.string() },
   handler: async (ctx, args) => {
@@ -109,6 +204,8 @@ export const getRoomAllocationBoard = query({
         v.literal("UNKNOWN")
       )
     ),
+    familyGroupId: v.optional(v.string()),
+    location: v.optional(v.string()),
     allocationPriority: v.optional(
       v.union(
         v.literal("CRITICAL"),
@@ -130,13 +227,35 @@ export const getRoomAllocationBoard = query({
         ).map((eh) => eh.hotelId)
       : null
 
-    const [events, hotels, roomTypes, rooms, allAttendees] = await Promise.all([
-      ctx.db.query("ticketTailorEvents").collect(),
-      ctx.db.query("accommodationHotels").collect(),
-      ctx.db.query("accommodationRoomTypes").collect(),
-      ctx.db.query("accommodationRooms").collect(),
-      ctx.db.query("ticketTailorAttendees").collect(),
-    ])
+    const [events, hotels, roomTypes, rooms, allAttendees, familyMembers] =
+      await Promise.all([
+        ctx.db.query("ticketTailorEvents").collect(),
+        ctx.db.query("accommodationHotels").collect(),
+        ctx.db.query("accommodationRoomTypes").collect(),
+        ctx.db.query("accommodationRooms").collect(),
+        ctx.db.query("ticketTailorAttendees").collect(),
+        ctx.db.query("attendeeFamilyMembers").collect(),
+      ])
+
+    const normalizedLocationFilter = normalizeOptionalString(args.location)
+
+    const attendeeFamilyGroupByAttendeeId = new Map<string, string>()
+    for (const familyMember of familyMembers) {
+      if (!attendeeFamilyGroupByAttendeeId.has(familyMember.attendeeId)) {
+        attendeeFamilyGroupByAttendeeId.set(
+          familyMember.attendeeId,
+          familyMember.familyGroupId
+        )
+      }
+    }
+
+    const attendeeCountByOrderId = new Map<string, number>()
+    for (const attendee of allAttendees) {
+      attendeeCountByOrderId.set(
+        attendee.providerOrderId,
+        (attendeeCountByOrderId.get(attendee.providerOrderId) ?? 0) + 1
+      )
+    }
 
     const filteredRooms = rooms.filter((room) => {
       if (scopedHotelIds && !scopedHotelIds.includes(room.hotelId as string))
@@ -149,18 +268,20 @@ export const getRoomAllocationBoard = query({
     const unassignedAttendees = allAttendees.filter((a) => {
       if (a.assignedRoomId) return false
       if (eventId && a.providerEventId !== eventId) return false
-      if (args.genderType && a.genderType !== args.genderType) return false
-      if (
-        args.allocationPriority &&
-        a.allocationPriority !== args.allocationPriority
-      )
-        return false
-      if (
-        args.hasPriority &&
-        !["CRITICAL", "HIGH"].includes(a.allocationPriority ?? "")
-      )
-        return false
-      return true
+      const attendeeFamilyGroupId =
+        attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
+
+      return attendeeMatchesSignalFilters({
+        attendee: a,
+        attendeeFamilyGroupId,
+        filters: {
+          genderType: args.genderType,
+          familyGroupId: args.familyGroupId,
+          location: normalizedLocationFilter ?? undefined,
+          allocationPriority: args.allocationPriority,
+          hasPriority: args.hasPriority,
+        },
+      })
     })
 
     const hotelMap = new Map(hotels.map((h) => [h._id as string, h]))
@@ -225,10 +346,12 @@ export const getRoomAllocationBoard = query({
 
     const mappedUnassignedAttendees = unassignedAttendees.map((a) => {
       const event = eventMap.get(a.providerEventId)
-      const customAnswers = a.customAnswers as
-        | { location?: string; remarks?: string }
-        | null
-        | undefined
+      const customAnswers =
+        a.customAnswers && typeof a.customAnswers === "object"
+          ? (a.customAnswers as { location?: string; remarks?: string })
+          : undefined
+      const attendeeFamilyGroupId =
+        attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
       return {
         attendeeId: a._id,
         attendeeName: a.name ?? null,
@@ -239,9 +362,14 @@ export const getRoomAllocationBoard = query({
         ticketTypeLabel: a.ticketTypeLabel ?? null,
         genderType: a.genderType ?? null,
         allocationPriority: a.allocationPriority ?? null,
-        location: customAnswers?.location ?? null,
+        location: getAttendeeLocation(customAnswers),
         remarks: customAnswers?.remarks ?? null,
-        hasFamily: false,
+        hasFamily: hasFamilySignal({
+          attendeeId: a._id,
+          providerOrderId: a.providerOrderId,
+          attendeeFamilyGroupId,
+          attendeeCountByOrderId,
+        }),
       }
     })
 
@@ -263,8 +391,8 @@ export const getRoomAllocationBoard = query({
         roomTypeId: args.roomTypeId ?? null,
         availability: "all" as const,
         genderType: args.genderType ?? null,
-        familyGroupId: null,
-        location: null,
+        familyGroupId: args.familyGroupId ?? null,
+        location: normalizedLocationFilter,
         allocationPriority: args.allocationPriority ?? null,
         hasPriority: args.hasPriority ?? null,
       },

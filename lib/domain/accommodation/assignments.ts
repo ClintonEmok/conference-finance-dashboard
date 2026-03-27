@@ -203,6 +203,8 @@ export async function getRoomAllocationBoard(
   const roomTypeId = normalizeOptionalString(filters.roomTypeId)
   const availability = normalizeAvailability(filters.availability)
   const genderType = normalizeGenderType(filters.genderType ?? undefined)
+  const familyGroupId = normalizeOptionalString(filters.familyGroupId)
+  const location = normalizeOptionalString(filters.location)
   const allocationPriority = normalizeAllocationPriority(
     filters.allocationPriority ?? undefined
   )
@@ -213,6 +215,8 @@ export async function getRoomAllocationBoard(
     hotelId: hotelId ?? undefined,
     roomTypeId: roomTypeId ?? undefined,
     genderType: genderType ?? undefined,
+    familyGroupId: familyGroupId ?? undefined,
+    location: location ?? undefined,
     allocationPriority: allocationPriority ?? undefined,
     hasPriority: hasPriority ?? undefined,
   })
