@@ -40,6 +40,7 @@ export type TicketTailorSyncSummary = {
     eventsScanned: number
     ordersFetched: number
     ordersUpserted: number
+    ordersArchived: number
     ordersSkippedByScope: number
     attendeesFetched: number
     attendeesUpserted: number
@@ -224,22 +225,41 @@ function extractOrderStatusSignals(
 }
 
 function extractBuyerEmail(order: TicketTailorOrderPayload) {
+  const buyer = asRecord(order.buyer)
+  const buyerDetails = asRecord(order.buyer_details)
+
   return (
-    pickString(order.buyer_email) ?? pickString(asRecord(order.buyer).email)
+    pickString(order.buyer_email) ??
+    pickString(buyer.email) ??
+    pickString(buyerDetails.email)
   )
 }
 
 function extractBuyerName(order: TicketTailorOrderPayload) {
+  const buyer = asRecord(order.buyer)
+  const buyerDetails = asRecord(order.buyer_details)
+
   const first =
     pickString(order.buyer_first_name) ??
-    pickString(asRecord(order.buyer).first_name)
+    pickString(buyer.first_name) ??
+    pickString(buyerDetails.first_name)
   const last =
     pickString(order.buyer_last_name) ??
-    pickString(asRecord(order.buyer).last_name)
+    pickString(buyer.last_name) ??
+    pickString(buyerDetails.last_name)
+
   if (first && last) {
     return `${first} ${last}`
   }
-  return first ?? last ?? pickString(order.buyer_name) ?? null
+
+  return (
+    first ??
+    last ??
+    pickString(order.buyer_name) ??
+    pickString(buyer.name) ??
+    pickString(buyerDetails.name) ??
+    null
+  )
 }
 
 function extractOrderCurrency(order: TicketTailorOrderPayload) {
@@ -391,6 +411,7 @@ export async function runTicketTailorSync(
   let eventsScanned = 0
   let ordersFetched = 0
   let ordersUpserted = 0
+  let ordersArchived = 0
   let ordersSkippedByScope = 0
   let attendeesFetched = 0
   let attendeesUpserted = 0
@@ -445,6 +466,7 @@ export async function runTicketTailorSync(
           maxPages: 200,
         }
       )
+      const seenProviderOrderIds = new Set<string>()
 
       for (const orderPayload of ordersResult.items) {
         const providerOrderId = extractProviderOrderId(orderPayload)
@@ -457,6 +479,7 @@ export async function runTicketTailorSync(
           continue
         }
 
+        seenProviderOrderIds.add(providerOrderId)
         ordersFetched += 1
         const orderedAt = extractOrderDate(orderPayload)
 
@@ -578,6 +601,16 @@ export async function runTicketTailorSync(
           await linkAttendeesAsFamily(orderId, attendeeResult.items.length)
         }
       }
+
+      const archiveResult = await convexMutation(
+        api.sync.archiveMissingOrdersForEvent,
+        {
+          providerEventId,
+          seenProviderOrderIds: Array.from(seenProviderOrderIds),
+          reason: "missing_from_provider_sync",
+        }
+      )
+      ordersArchived += archiveResult.archived
     }
 
     const status = finalizeRunStatus(failedItems, errors)
@@ -597,6 +630,7 @@ export async function runTicketTailorSync(
       eventsScanned,
       ordersFetched,
       ordersUpserted,
+      ordersArchived,
       normalizedFallbackCount,
       failedItems,
     })
@@ -613,6 +647,7 @@ export async function runTicketTailorSync(
         eventsScanned,
         ordersFetched,
         ordersUpserted,
+        ordersArchived,
         ordersSkippedByScope,
         attendeesFetched,
         attendeesUpserted,
@@ -644,6 +679,7 @@ export async function runTicketTailorSync(
       eventsScanned,
       ordersFetched,
       ordersUpserted,
+      ordersArchived,
       normalizedFallbackCount,
       failedItems: failedItems + 1,
     })

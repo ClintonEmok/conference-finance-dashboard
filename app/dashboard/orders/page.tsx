@@ -1,6 +1,7 @@
 "use client"
 
 import { FormEvent, useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -13,7 +14,6 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { cn } from "@/lib/utils"
 
 type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 
@@ -42,6 +42,9 @@ type OrdersPayload = {
     providerEventId: string
     eventName: string | null
     normalizedStatus: CanonicalOrderStatus
+    isArchived: boolean
+    archivedAt: string | null
+    archiveReason: string | null
     totalAmountMinor: number
     currency: string | null
     orderedAt: string | null
@@ -79,6 +82,7 @@ function formatMoney(minor: number) {
 }
 
 export default function OrdersPage() {
+  const router = useRouter()
   const [eventIdInput, setEventIdInput] = useState("")
   const [statusInput, setStatusInput] = useState<"all" | CanonicalOrderStatus>(
     "all"
@@ -413,7 +417,33 @@ export default function OrdersPage() {
                 </TableHeader>
                 <TableBody>
                   {payload.rows.map((row) => (
-                    <TableRow key={row.providerOrderId}>
+                    <TableRow
+                      key={row.providerOrderId}
+                      role="link"
+                      tabIndex={0}
+                      className="cursor-pointer"
+                      onClick={() => {
+                        const params = new URLSearchParams({
+                          eventId: row.providerEventId,
+                        })
+                        router.push(
+                          `/dashboard/orders/${encodeURIComponent(row.providerOrderId)}?${params.toString()}`
+                        )
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") {
+                          return
+                        }
+
+                        event.preventDefault()
+                        const params = new URLSearchParams({
+                          eventId: row.providerEventId,
+                        })
+                        router.push(
+                          `/dashboard/orders/${encodeURIComponent(row.providerOrderId)}?${params.toString()}`
+                        )
+                      }}
+                    >
                       <TableCell className="font-mono text-xs">
                         {row.orderedAt
                           ? new Date(row.orderedAt).toLocaleString()
@@ -431,17 +461,22 @@ export default function OrdersPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={
-                            row.normalizedStatus === "cancelled"
-                              ? "destructive"
-                              : row.normalizedStatus === "refunded"
-                                ? "outline"
-                                : "secondary"
-                          }
-                        >
-                          {row.normalizedStatus}
-                        </Badge>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge
+                            variant={
+                              row.normalizedStatus === "cancelled"
+                                ? "destructive"
+                                : row.normalizedStatus === "refunded"
+                                  ? "outline"
+                                  : "secondary"
+                            }
+                          >
+                            {row.normalizedStatus}
+                          </Badge>
+                          {row.isArchived && (
+                            <Badge variant="outline">Archived</Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>{formatMoney(row.totalAmountMinor)}</TableCell>
                       <TableCell>

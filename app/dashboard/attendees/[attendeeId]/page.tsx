@@ -258,6 +258,24 @@ export default function AttendeeDetailPage({ params }: PageProps) {
     return `/dashboard/accommodation?${params.toString()}`
   })()
 
+  const orderDetailHref = (() => {
+    if (!payload) {
+      return "/dashboard/orders"
+    }
+
+    const params = new URLSearchParams({
+      eventId: payload.order.providerEventId,
+      source: "attendee-detail",
+      attendeeId: payload.attendee.id,
+    })
+
+    if (attendeeSearch) {
+      params.set("search", attendeeSearch)
+    }
+
+    return `/dashboard/orders/${encodeURIComponent(payload.order.providerOrderId)}?${params.toString()}`
+  })()
+
   async function loadAttendeeDetail(
     targetAttendeeId: string,
     options?: { silent?: boolean }
@@ -494,6 +512,9 @@ export default function AttendeeDetailPage({ params }: PageProps) {
               <div className="flex min-w-[250px] flex-col gap-2">
                 <Button asChild variant="outline" className="justify-start">
                   <Link href={backToAttendeesHref}>Back to attendees</Link>
+                </Button>
+                <Button asChild variant="outline" className="justify-start">
+                  <Link href={orderDetailHref}>Open order payment detail</Link>
                 </Button>
                 <Button asChild className="justify-start">
                   <Link href={manageRoomAssignmentHref}>

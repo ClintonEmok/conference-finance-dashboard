@@ -6,11 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
-type PaymentMatchStatus =
-  | "unassigned"
-  | "ambiguous"
-  | "manual_assignment"
-  | "auto_matched"
 
 type Payment = {
   id: string
@@ -24,7 +19,7 @@ type Payment = {
 type Order = {
   id: string
   providerOrderId: string
-  buyerName: string
+  buyerName: string | null
   totalAmountMinor: number
 }
 
@@ -50,6 +45,11 @@ function formatDate(isoString: string) {
     month: "short",
     day: "numeric",
   })
+}
+
+function getBuyerLabel(buyerName: string | null) {
+  const value = buyerName?.trim()
+  return value && value.length > 0 ? value : "Unknown buyer"
 }
 
 export function AssignDialog({
@@ -223,9 +223,12 @@ export function AssignDialog({
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="font-mono text-xs">
-                        {order.providerOrderId}
+                        {order.providerOrderId} -{" "}
+                        {getBuyerLabel(order.buyerName)}
                       </div>
-                      <div className="text-sm">{order.buyerName}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {getBuyerLabel(order.buyerName)}
+                      </div>
                     </div>
                     <div className="text-right">
                       <div className="text-sm font-medium">
@@ -252,7 +255,7 @@ export function AssignDialog({
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Buyer:</span>
-                <span>{selectedOrder.buyerName}</span>
+                <span>{getBuyerLabel(selectedOrder.buyerName)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Total:</span>
