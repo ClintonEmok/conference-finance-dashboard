@@ -16,6 +16,14 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import {
+  appendSignalFiltersToQuery,
+  normalizeSignalFilters,
+  readSignalFiltersFromSearchParams,
+  shouldRenderFamilyBadge,
+  syncSignalFiltersToSearchParams,
+  type AccommodationSignalFilters,
+} from "./filter-state"
 
 type AvailabilityFilter = "all" | "empty" | "available" | "full"
 
@@ -90,7 +98,7 @@ type AccommodationWorkspacePayload = {
     location: string | null
     remarks: string | null
     allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
-    familyGroupId: string | null
+    hasFamily: boolean
   }>
   summary: {
     totalRooms: number
@@ -224,6 +232,16 @@ export default function AccommodationPage() {
   const [appliedAvailability, setAppliedAvailability] =
     useState<AvailabilityFilter>("all")
   const [roomsPage, setRoomsPage] = useState(1)
+  const [appliedSignalFilters, setAppliedSignalFilters] =
+    useState<AccommodationSignalFilters>(
+      normalizeSignalFilters({
+        genderType: null,
+        allocationPriority: null,
+        hasPriority: null,
+        location: null,
+        familyGroupId: null,
+      })
+    )
 
   const [selectedRoomByAttendee, setSelectedRoomByAttendee] = useState<
     Record<string, string>
@@ -243,9 +261,11 @@ export default function AccommodationPage() {
       allocationPriority?: string | null
       hasPriority?: boolean | null
       location?: string | null
+      familyGroupId?: string | null
       source?: string | null
     }) => {
       const params = new URLSearchParams(searchParams.toString())
+      const currentSignals = readSignalFiltersFromSearchParams(searchParams)
 
       const assign = (key: string, value: string | null | undefined) => {
         if (value && value.trim()) {
@@ -262,20 +282,34 @@ export default function AccommodationPage() {
       assign("hotelId", next.hotelId)
       assign("roomTypeId", next.roomTypeId)
       assign("source", next.source)
-      assign("genderType", next.genderType)
-      assign("allocationPriority", next.allocationPriority)
-      assign("location", next.location)
+
+      const nextSignals = normalizeSignalFilters({
+        genderType:
+          next.genderType !== undefined
+            ? next.genderType
+            : currentSignals.genderType,
+        allocationPriority:
+          next.allocationPriority !== undefined
+            ? next.allocationPriority
+            : currentSignals.allocationPriority,
+        hasPriority:
+          next.hasPriority !== undefined
+            ? next.hasPriority
+            : currentSignals.hasPriority,
+        location:
+          next.location !== undefined ? next.location : currentSignals.location,
+        familyGroupId:
+          next.familyGroupId !== undefined
+            ? next.familyGroupId
+            : currentSignals.familyGroupId,
+      })
+
+      syncSignalFiltersToSearchParams(params, nextSignals)
 
       if (next.availability && next.availability !== "all") {
         params.set("availability", next.availability)
       } else {
         params.delete("availability")
-      }
-
-      if (next.hasPriority) {
-        params.set("hasPriority", "true")
-      } else {
-        params.delete("hasPriority")
       }
 
       const query = params.toString()
@@ -291,26 +325,24 @@ export default function AccommodationPage() {
     const nextRoomTypeId = searchParams.get("roomTypeId") ?? ""
     const nextAvailability =
       (searchParams.get("availability") as AvailabilityFilter | null) ?? "all"
-    const nextGender = searchParams.get("genderType") ?? ""
-    const nextPriority = searchParams.get("allocationPriority") ?? ""
-    const nextHasPriority = searchParams.get("hasPriority") === "true"
-    const nextLocation = searchParams.get("location") ?? ""
+    const nextSignals = readSignalFiltersFromSearchParams(searchParams)
 
     setEventIdInput(nextEventId)
     setSearchInput(nextSearch)
     setHotelFilter(nextHotelId)
     setRoomTypeFilter(nextRoomTypeId)
     setAvailabilityFilter(nextAvailability)
-    setGenderFilter(nextGender)
-    setPriorityFilter(nextPriority)
-    setHasPriorityFilter(nextHasPriority)
-    setLocationFilter(nextLocation)
+    setGenderFilter(nextSignals.genderType ?? "")
+    setPriorityFilter(nextSignals.allocationPriority ?? "")
+    setHasPriorityFilter(nextSignals.hasPriority === true)
+    setLocationFilter(nextSignals.location ?? "")
 
     setAppliedEventId(nextEventId)
     setAppliedSearch(nextSearch)
     setAppliedHotelFilter(nextHotelId)
     setAppliedRoomTypeFilter(nextRoomTypeId)
     setAppliedAvailability(nextAvailability)
+    setAppliedSignalFilters(nextSignals)
   }, [searchParams])
 
   const loadWorkspace = useCallback(async () => {
@@ -335,19 +367,7 @@ export default function AccommodationPage() {
       if (appliedAvailability !== "all") {
         query.set("availability", appliedAvailability)
       }
-      // Signal-aware filters
-      if (genderFilter) {
-        query.set("genderType", genderFilter)
-      }
-      if (priorityFilter) {
-        query.set("allocationPriority", priorityFilter)
-      }
-      if (hasPriorityFilter) {
-        query.set("hasPriority", "true")
-      }
-      if (locationFilter.trim()) {
-        query.set("location", locationFilter.trim())
-      }
+      appendSignalFiltersToQuery(query, appliedSignalFilters)
 
       const response = await fetch(
         `/api/dashboard/accommodation/assignments?${query.toString()}`
@@ -385,6 +405,7 @@ export default function AccommodationPage() {
     appliedHotelFilter,
     appliedRoomTypeFilter,
     appliedSearch,
+    appliedSignalFilters,
   ])
 
   useEffect(() => {
@@ -518,6 +539,7 @@ export default function AccommodationPage() {
     appliedHotelFilter,
     appliedRoomTypeFilter,
     appliedSearch,
+    appliedSignalFilters,
   ])
 
   useEffect(() => {
@@ -536,6 +558,10 @@ export default function AccommodationPage() {
       hotelId: hotelFilter,
       roomTypeId: roomTypeFilter,
       availability: availabilityFilter,
+      genderType: genderFilter,
+      allocationPriority: priorityFilter,
+      hasPriority: hasPriorityFilter,
+      location: locationFilter,
       source: searchParams.get("source"),
     })
   }
@@ -1477,7 +1503,7 @@ export default function AccommodationPage() {
                                       Family
                                     </span>
                                   )}
-                                  {attendee.familyGroupId && (
+                                  {shouldRenderFamilyBadge(attendee) && (
                                     <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
                                       Group
                                     </span>
