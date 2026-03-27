@@ -1,12 +1,14 @@
 "use client"
 
-import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs"
+import { SignInButton, SignUpButton, UserButton, useAuth } from "@clerk/nextjs"
 import Link from "next/link"
 import { ArrowRight, HandCoins } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 
 export default function Page() {
+  const { isLoaded, isSignedIn } = useAuth()
+
   return (
     <div className="flex min-h-svh items-center justify-center p-6">
       <div className="max-w-md min-w-0">
@@ -16,9 +18,7 @@ export default function Page() {
               <HandCoins className="size-5" />
             </div>
 
-            <Show when="signed-in">
-              <UserButton />
-            </Show>
+            {isLoaded && isSignedIn ? <UserButton /> : null}
           </div>
 
           <h1 className="mt-5 text-2xl font-semibold tracking-tight">
@@ -30,16 +30,16 @@ export default function Page() {
           </p>
 
           <div className="mt-6 space-y-3">
-            <Show when="signed-out">
+            {!isLoaded || !isSignedIn ? (
               <SignInButton mode="modal" forceRedirectUrl="/dashboard">
                 <Button className="w-full rounded-lg bg-white font-medium text-primary hover:bg-white/92">
                   Sign in to dashboard
                   <ArrowRight className="ml-2 size-4" />
                 </Button>
               </SignInButton>
-            </Show>
+            ) : null}
 
-            <Show when="signed-out">
+            {!isLoaded || !isSignedIn ? (
               <SignUpButton mode="modal" forceRedirectUrl="/dashboard">
                 <Button
                   variant="outline"
@@ -48,9 +48,9 @@ export default function Page() {
                   Create account
                 </Button>
               </SignUpButton>
-            </Show>
+            ) : null}
 
-            <Show when="signed-in">
+            {isLoaded && isSignedIn ? (
               <Button
                 asChild
                 className="w-full rounded-lg bg-white font-medium text-primary hover:bg-white/92"
@@ -60,7 +60,7 @@ export default function Page() {
                   <ArrowRight className="ml-2 size-4" />
                 </Link>
               </Button>
-            </Show>
+            ) : null}
           </div>
         </article>
       </div>
