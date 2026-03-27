@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: event-signup-dual-source
 status: active
-stopped_at: Completed 16-03-PLAN milestone gap closure checks
-last_updated: "2026-03-27T11:54:17Z"
+stopped_at: Completed 16-04-PLAN accommodation signal filter closure
+last_updated: "2026-03-27T12:36:14Z"
 progress:
   total_phases: 17
   completed_phases: 10
-  total_plans: 40
-  completed_plans: 39
+  total_plans: 41
+  completed_plans: 40
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: `.planning/PROJECT.md` (updated 2026-03-18)
 
 Milestone: v2.0 (event-signup-dual-source) — ACTIVE
 Phase: 16 (v1-milestone-gap-closure) — COMPLETE
-Plan: 3 of 3 (16-01, 16-02, 16-03 complete)
+Plan: 4 of 4 (16-01, 16-02, 16-03, 16-04 complete)
 Status: Phase complete
-Last activity: 2026-03-27 - Completed 16-03-PLAN.md
+Last activity: 2026-03-27 - Completed 16-04-PLAN.md
 
-Progress: ██████████ 98% (39/40 plans)
+Progress: ██████████ 98% (40/41 plans)
 
 ## Alignment Status
 
@@ -53,6 +53,8 @@ Progress: ██████████ 98% (39/40 plans)
 - Manual Ticket Tailor sync endpoint now enforces shared Clerk API auth guard (`requireApiUser`) and returns the standard unauthorized contract before any sync execution.
 - Accommodation allocation board now applies family/location attendee filters end-to-end and computes `hasFamily` from persisted family members with provider-order fallback.
 - Accommodation auto-allocation proposals now use compatibility-aware scoring (family/order cohesion + gender guardrails + priority ordering) and compute a real `familyGroupsKeptTogether` metric.
+- Accommodation page apply/reset flows now keep signal filters canonical via shared URL/query serialization, so signal-only changes always trigger board reloads.
+- Accommodation queue family badges now render from backend-provided `hasFamily` contract truth instead of inferred optional fields.
 
 ## Key Decisions
 
@@ -84,6 +86,7 @@ Recent decisions that future work should preserve:
 - [260327-16a] Protect `POST /api/ticket-tailor/sync` with shared `requireApiUser()` and lock unauthorized/authorized behavior via route-level regression tests.
 - [260327-16b] Treat `attendeeFamilyMembers` membership as canonical family truth for allocation board rows, with same-order attendee counts as fallback for `hasFamily`.
 - [260327-16c] Treat `providerOrderId` cohorts as allocation-time family/order group keys and only count `familyGroupsKeptTogether` when all suggested family attendees are co-located in one room.
+- [260327-16d] Keep accommodation signal filter normalization/serialization in a shared helper and base queue family badge rendering on `hasFamily` payload truth.
 - [v2-01] Treat event source as an explicit domain boundary (`integration` vs `internal`) and keep dashboard reads source-agnostic.
 - [v2-02] Preserve existing finance/Tikkie/Ticket Tailor behavior while adding internal signup flows incrementally.
 
@@ -104,6 +107,7 @@ Recent decisions that future work should preserve:
 - Hotel delete checks should use attendee assignment truth (`ticketTailorAttendees.assignedRoomId`) rather than `occupiedBeds` counters.
 - Room-type inventory cards should provide delete actions with confirm prompts, in-flight disablement, and inline server error feedback.
 - Accommodation signal filters (`familyGroupId`, `location`) must be normalized and passed through domain -> Convex boundaries; board payload filter echoes should reflect applied values.
+- Accommodation apply/reset UI and assignment fetch query construction must share one signal-filter helper to prevent dropped signal params in URL-only updates.
 - Accommodation proposal generation should remain deterministic and compatibility-scored, with reasons that cite family/gender/priority rationale rather than generic availability messaging.
 - Public event pages must only expose published/internal-safe fields and never leak operator-only finance data.
 - Internal signup writes should be idempotent enough for accidental duplicate submits and enforce capacity constraints at write time.
@@ -136,12 +140,12 @@ Recent decisions that future work should preserve:
 - Phase 13: rebuild convex mutation and api layer from clean contracts (complete)
 - Phase 14: Event-Level Tikkie + Payment Tracking (complete)
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
-- Phase 16: v1 milestone gap closure execution complete (16-01/16-02/16-03 complete)
+- Phase 16: v1 milestone gap closure execution complete (16-01/16-02/16-03/16-04 complete)
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-27 - Completed 16-03-PLAN.md
-- **Last session:** 2026-03-27T11:54:17Z
-- **Stopped at:** Completed 16-03-PLAN.md
+- **Last activity:** 2026-03-27 - Completed 16-04-PLAN.md
+- **Last session:** 2026-03-27T12:36:14Z
+- **Stopped at:** Completed 16-04-PLAN.md
 - **Resume file:** None
-- **Next recommended plan:** Create/execute Phase 17 plan(s) for dual-source event signup platform
+- **Next recommended plan:** Execute Phase 17 plan(s) for dual-source event signup platform
