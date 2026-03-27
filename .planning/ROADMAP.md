@@ -25,16 +25,116 @@
 
 ## Phases
 
-- [ ] **Phase 17: Dual-Source Event Signup Platform**
+- [ ] **Phase 17: Schema + Canonical Contracts**
+- [ ] **Phase 18: Public Signup Pages**
+- [ ] **Phase 19: Admin Event Management**
+- [ ] **Phase 20: Finance Integration**
 
-### Phase 17: Dual-Source Event Signup Platform
+---
 
-**Goal:** Launch an MVP public signup flow and support both integration-backed and internal event operations without breaking current finance workflows.
-**Depends on:** Completed v1.0 baseline
-**Requirements:** ES-01, ES-02, ES-03, ES-04, ES-05
+### Phase 17: Schema + Canonical Contracts
+
+**Goal:** Establish the canonical event data model that both internal and integration-backed events share, with atomic capacity enforcement and a source-agnostic foundation for all downstream consumers.
+
+**Depends on:** Completed v1.0 baseline (Phase 16)
+
+**Requirements:** ESCH-01, ESCH-02, ESCH-03, ESCH-04
+
+**Success Criteria:**
+
+1. Canonical `events` table exists with `source` discriminator, `slug`, `published`, `startsAt`, `location`, `currency`, and `bannerImageKey` fields and both integration-synced and internal events populate it
+2. `eventTicketTypes` is populated for both sources — one table powers public detail pages and finance views regardless of event source
+3. Registration insert rejects when capacity is full (denormalized counter, atomic in single Convex mutation)
+4. Registration insert rejects duplicate email per event (normalized email comparison, atomic in same mutation as insert)
+5. Admin can upload banner images via Cloudflare R2 presigned URLs; public pages serve images from R2 CDN
 
 Plans:
 
-- [ ] 17-01-PLAN.md — Schema + Convex contracts for internal events, ticket types, and registrations
-- [ ] 17-02-PLAN.md — Public `/events` listing, event detail, and signup submission flow
-- [ ] 17-03-PLAN.md — Admin source selector + unified dashboard event read model and compatibility checks
+- [ ] 17-01-PLAN.md — Canonical schema (`events`, `eventTicketTypes`, `eventRegistrations` tables) + domain types
+- [ ] 17-02-PLAN.md — Cloudflare R2 integration (presigned upload API route + CDN serving helper)
+- [ ] 17-03-PLAN.md — Integration sync adapter (Ticket Tailor → canonical tables) + one-time backfill
+- [ ] 17-04-PLAN.md — Internal event CRUD mutations + source-agnostic Convex queries
+
+---
+
+### Phase 18: Public Signup Pages
+
+**Goal:** Public users can discover published events, view event details, and register with capacity and duplicate protection — no auth required.
+
+**Depends on:** Phase 17 (schema, queries, mutations)
+
+**Requirements:** EPUB-01, EPUB-02, EPUB-03, EPUB-04, EPUB-05
+
+**Success Criteria:**
+
+1. Public user can browse published events at `/events` with banner image thumbnail, title, date, and location visible for each event
+2. Public user can view event detail page showing banner image, description, date, location, and available ticket types with remaining capacity status
+3. Public user can submit a registration form with name, email, phone, and selected ticket type
+4. Registration fails with clear message when event is at capacity — no overbooking occurs
+5. Registration fails with clear message when the same email has already registered for that event
+
+Plans:
+
+- [ ] 18-01-PLAN.md — `/events` route group (listing page + detail page, no auth layout isolation)
+- [ ] 18-02-PLAN.md — Registration form (React Hook Form + Zod) + signup Convex mutation with rate limiting
+- [ ] 18-03-PLAN.md — Confirmation/error UX (success page, capacity-full feedback, duplicate feedback)
+
+---
+
+### Phase 19: Admin Event Management
+
+**Goal:** Admin can manage internal events end-to-end (create, edit ticket types, view registrations) and browse integration events in a unified read-only view.
+
+**Depends on:** Phase 17 (schema, queries, mutations)
+
+**Requirements:** EADM-01, EADM-02, EADM-03, EADM-04, EADM-05
+
+**Success Criteria:**
+
+1. Admin can view a unified event list showing both integration-synced and internal events, distinguished by source badge
+2. Admin can create an internal event with title, description, date, location, slug, publish status, currency, and optional banner image upload
+3. Admin can add, edit, and remove ticket types on internal events (name, price, capacity)
+4. Integration events appear as read-only entries in the admin event list — admin cannot edit them
+5. Admin can view registrations for internal events with attendee name, email, phone, and ticket type
+
+Plans:
+
+- [ ] 19-01-PLAN.md — Dashboard events list page (unified view, source filter, source badges)
+- [ ] 19-02-PLAN.md — Internal event editor + ticket type management (create/edit events, add/edit/remove ticket types)
+- [ ] 19-03-PLAN.md — Registration viewer for internal events (attendee list with details)
+
+---
+
+### Phase 20: Finance Integration
+
+**Goal:** Finance dashboard and reconciliation views show revenue from both Ticket Tailor and internal events transparently, with automatic Tikkie link generation for paid internal registrations.
+
+**Depends on:** Phase 17 (canonical events), Phase 18 (registrations exist)
+
+**Requirements:** EFIN-01, EFIN-02, EFIN-03, EFIN-04
+
+**Success Criteria:**
+
+1. Revenue and orders dashboard shows combined totals from Ticket Tailor and internal events without duplicate or missing data
+2. Reconciliation view displays orders and payments from both sources in a single unified list
+3. Internal registrations automatically create Tikkie payment links using event-level templates (same flow as existing Ticket Tailor orders)
+4. Dashboard event references resolve through canonical `events` table — no finance view breaks when viewing internal events
+
+Plans:
+
+- [ ] 20-01-PLAN.md — `internalOrders` table + shared `OrderDTO` read-time union layer
+- [ ] 20-02-PLAN.md — Source-agnostic revenue/dashboard/reconciliation view updates
+- [ ] 20-03-PLAN.md — Auto-Tikkie flow for paid internal registrations
+
+---
+
+## Progress
+
+| Phase                             | Goal                                                | Requirements                       | Plans | Status  |
+| --------------------------------- | --------------------------------------------------- | ---------------------------------- | ----- | ------- |
+| 17 - Schema + Canonical Contracts | Canonical event data model with dual-source support | ESCH-01, ESCH-02, ESCH-03, ESCH-04 | 4     | Pending |
+| 18 - Public Signup Pages          | Public event discovery and registration flow        | EPUB-01..05                        | 3     | Pending |
+| 19 - Admin Event Management       | Admin CRUD for internal events + unified list       | EADM-01..05                        | 3     | Pending |
+| 20 - Finance Integration          | Source-agnostic finance views + auto-Tikkie         | EFIN-01..04                        | 3     | Pending |
+
+**Totals:** 4 phases, 13 plans, 18 requirements mapped
