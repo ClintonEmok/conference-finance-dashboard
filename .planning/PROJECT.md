@@ -4,74 +4,32 @@
 
 Give church finance admins one reliable place to track conference revenue, reconcile ticket sales with payment collections, and act on outstanding balances quickly.
 
-## Product Goal
+## Current State
 
-Deliver a practical MVP-to-production path for a conference finance dashboard that integrates Ticket Tailor (orders/tickets) and Tikkie (payment links) using the existing Next.js + shadcn foundation.
+- **Shipped milestone:** v1.0 MVP (2026-03-27)
+- **What is operational:** Protected finance dashboard, Ticket Tailor sync, revenue/orders/reconciliation views, attendee detail, room assignment, Tikkie link and payment tracking, Convex backend, Clerk auth.
+- **Known accepted gap:** ACC-05 is still partial at operator UI level (family-group filter control/reset semantics and neutral priority-only behavior need a follow-up polish pass).
 
-## Primary Users
+## Next Milestone Goals (v2.0)
 
-- Finance admin (primary)
-- Event operations lead (secondary, read-only in future)
-
-## In Scope (v1)
-
-- Secure admin-only dashboard access
-- Ticket Tailor event/order sync and data normalization
-- Revenue and reconciliation dashboard views
-- Tikkie payment-link generation and payment status tracking
-- Basic production readiness for observability and recovery
-
-## Out of Scope (v1)
-
-- Public attendee portal
-- Full accounting export suite (beyond CSV)
-- Multi-tenant church support
-- Automated invoicing workflows
+- Deliver public event discovery and signup (`/events`, detail, signup)
+- Support dual event source modes (`integration` and `internal`)
+- Keep dashboard and finance reads source-agnostic
+- Preserve existing Ticket Tailor and Tikkie production behavior while expanding capability
 
 ## Constraints
 
-- Stack: Next.js 16 + React 19 + shadcn/ui
-- Must use Ticket Tailor as source of truth for ticket/order records
-- Must use Tikkie for ad-hoc payment link generation
-- Keep first delivery practical: core finance workflow over feature breadth
+- Stack: Next.js 16 + React 19 + Convex + Clerk + shadcn/ui
+- Ticket Tailor remains source of truth for integration-backed event/order data
+- Prioritize correctness and operator clarity over feature breadth
 
-## Integration Risks (to actively manage)
+## Key Decisions
 
-### Ticket Tailor
+- Keep Clerk as the only auth runtime for dashboard/API boundaries.
+- Keep typed Convex contract boundaries as the canonical backend access path.
+- Keep provider-order-aware payment reconciliation behavior and legacy fallback compatibility.
+- Treat event source as an explicit domain boundary for v2 (`integration` vs `internal`).
 
-- API limits or pagination behavior can cause incomplete syncs
-- Status-model differences (paid/refunded/cancelled) can skew totals if not normalized
-- Event configuration drift may break assumptions in reporting
+---
 
-### Tikkie
-
-- Link lifecycle differences (created/paid/expired) may require fallback polling
-- Webhook reliability/idempotency can produce duplicate state changes
-- Amount/description formatting constraints can block link creation
-
-## Architecture Direction
-
-- Use Next.js App Router with server-first data access for finance views
-- Use typed service boundaries in `lib/`:
-  - `lib/integrations/ticket-tailor/*`
-  - `lib/integrations/tikkie/*`
-  - `lib/domain/finance/*` for normalized business logic
-- Use shadcn/ui components for dashboard consistency and rapid iteration
-- Isolate integration adapters from UI so providers can evolve independently
-- Treat sync jobs and webhook handlers as first-class backend flows with auditability
-
-## Success Definition
-
-Finance admin can open the dashboard, trust conference revenue figures from Ticket Tailor, generate Tikkie links for outstanding balances, and verify payment/reconciliation status without manual spreadsheet stitching.
-
-## Validated Requirements
-
-- **Phase 7 (2026-03-21):** Tikkie integration complete — provider-authoritative refresh via GET payment retrieval and guarded webhook subscription setup path. Status trust gap closed.
-- **Phase 11 (2026-03-25):** Backend migrated from Prisma/SQLite to Convex — 101 Convex functions, all domain/integration files converted, API routes updated. Better Auth preserved.
-- **Phase 12 (2026-03-26):** Clerk is now the only auth runtime — dashboard pages, protected APIs, Convex auth wiring, and landing-page sign-in flows all use Clerk; stale Better Auth and Prisma auth glue removed.
-
-## Current State
-
-- Phase 12 complete — Clerk is the sole auth provider for operator sign-in, dashboard access, protected routes, and Convex-authenticated sessions.
-
-Last updated: 2026-03-26
+_Last updated: 2026-03-27 after v1.0 milestone_

@@ -3,23 +3,25 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: event-signup-dual-source
 status: active
-stopped_at: Completed 16-04-PLAN accommodation signal filter closure
-last_updated: "2026-03-27T12:36:14Z"
+stopped_at: v1.0 milestone archived; v2 planning ready
+last_updated: "2026-03-27T13:30:00Z"
+last_activity: 2026-03-27
 progress:
-  total_phases: 17
-  completed_phases: 10
+  total_phases: 21
+  completed_phases: 11
   total_plans: 41
   completed_plans: 40
+  percent: 98
 ---
 
 # Project State
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-03-18)
+See: `.planning/PROJECT.md` (updated 2026-03-27)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Kick off v2 milestone for public event signup and dual-source event operations (integration + internal)
+- **Current focus:** Plan and execute v2.0 Phase 17 for event signup + dual-source event operations
 
 ## Current Position
 
@@ -144,7 +146,7 @@ Recent decisions that future work should preserve:
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-27 - Completed 16-04-PLAN.md
+- **Last activity:** 2026-03-27
 - **Last session:** 2026-03-27T12:36:14Z
 - **Stopped at:** Completed 16-04-PLAN.md
 - **Resume file:** None
