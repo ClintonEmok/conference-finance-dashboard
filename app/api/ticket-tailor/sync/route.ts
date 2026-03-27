@@ -4,6 +4,7 @@ import {
   runTicketTailorSync,
   type TicketTailorSyncScopeInput,
 } from "@/lib/integrations/ticket-tailor/sync"
+import { requireApiUser } from "@/lib/auth/server"
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0
@@ -78,6 +79,12 @@ async function parseManualSyncScope(
 
 export async function POST(request: Request) {
   try {
+    const user = await requireApiUser()
+
+    if (user instanceof NextResponse) {
+      return user
+    }
+
     const scope = await parseManualSyncScope(request)
     const summary = await runTicketTailorSync(scope)
 
