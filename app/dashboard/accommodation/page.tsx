@@ -231,7 +231,6 @@ export default function AccommodationPage() {
   const [appliedRoomTypeFilter, setAppliedRoomTypeFilter] = useState("")
   const [appliedAvailability, setAppliedAvailability] =
     useState<AvailabilityFilter>("all")
-  const [roomsPage, setRoomsPage] = useState(1)
   const [appliedSignalFilters, setAppliedSignalFilters] =
     useState<AccommodationSignalFilters>(
       normalizeSignalFilters({
@@ -242,6 +241,7 @@ export default function AccommodationPage() {
         familyGroupId: null,
       })
     )
+  const [roomsPage, setRoomsPage] = useState(1)
 
   const [selectedRoomByAttendee, setSelectedRoomByAttendee] = useState<
     Record<string, string>
