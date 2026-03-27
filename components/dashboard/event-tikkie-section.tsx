@@ -45,6 +45,13 @@ type EventData = {
   link: TikkieLink | null
   links: TikkieLink[]
   payments: TikkiePayment[]
+  quota?: {
+    limit: number
+    used: number
+    remaining: number
+    monthStartIso: string
+    monthEndIso: string
+  }
   stats: {
     totalPayments: number
     matchedPayments: number
@@ -365,6 +372,11 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
 
   const links = eventData?.links ?? []
   const hasLink = links.length > 0
+  const quota = eventData?.quota
+  const projectedUsage = quota
+    ? Math.min(quota.limit, quota.used + (quota.remaining > 0 ? 1 : 0))
+    : null
+  const isQuotaExceeded = quota ? quota.remaining <= 0 : false
 
   return (
     <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
@@ -652,6 +664,33 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
               link.
             </p>
 
+            {quota && (
+              <div
+                className={`mt-3 rounded-md border px-3 py-2 text-sm ${
+                  isQuotaExceeded
+                    ? "border-amber-300 bg-amber-50 text-amber-900"
+                    : "border-border bg-muted/40 text-muted-foreground"
+                }`}
+              >
+                <p>
+                  Monthly Tikkie quota: <strong>{quota.used}</strong>/
+                  {quota.limit} used.
+                </p>
+                {projectedUsage !== null && (
+                  <p className="mt-1">
+                    Creating this link moves usage to{" "}
+                    <strong>{projectedUsage}</strong>/{quota.limit}.
+                  </p>
+                )}
+                {isQuotaExceeded && (
+                  <p className="mt-1 font-medium">
+                    Quota reached for this month. No new links can be created
+                    until next month.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="mt-4">
               <label
                 htmlFor="create-tikkie-amount"
@@ -718,9 +757,13 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
               </Button>
               <Button
                 onClick={handleCreateModalSubmit}
-                disabled={isCreatingLink}
+                disabled={isCreatingLink || isQuotaExceeded}
               >
-                {isCreatingLink ? "Creating..." : "Create link"}
+                {isCreatingLink
+                  ? "Creating..."
+                  : isQuotaExceeded
+                    ? "Quota reached"
+                    : "Create link"}
               </Button>
             </div>
           </div>

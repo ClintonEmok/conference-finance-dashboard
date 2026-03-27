@@ -8,6 +8,11 @@ import {
   refreshTikkiePaymentLinkStatus,
   validateCreateTikkiePaymentLinkInput,
 } from "@/lib/domain/finance/tikkie-links"
+import {
+  enforceTikkieMonthlyCreationQuota,
+  getTikkieMonthlyCreationQuotaStatus,
+  TikkieMonthlyQuotaExceededError,
+} from "@/lib/domain/finance/tikkie-quota"
 import { TikkieApiError } from "@/lib/integrations/tikkie/client"
 
 type CreateBody = {
@@ -27,7 +32,7 @@ function badRequest(message: string) {
         message,
       },
     },
-    { status: 400 },
+    { status: 400 }
   )
 }
 
@@ -39,7 +44,7 @@ function unauthorized() {
         message: "Authentication required",
       },
     },
-    { status: 401 },
+    { status: 401 }
   )
 }
 
@@ -72,7 +77,9 @@ function parseOptionalString(value: unknown, fieldName: string) {
 
 function parseAmountMinor(value: unknown) {
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
-    throw new Error("Invalid 'amountMinor'. Expected a positive integer in cents.")
+    throw new Error(
+      "Invalid 'amountMinor'. Expected a positive integer in cents."
+    )
   }
 
   return value
@@ -80,8 +87,14 @@ function parseAmountMinor(value: unknown) {
 
 function parseCreateBody(body: CreateBody) {
   return validateCreateTikkiePaymentLinkInput({
-    providerOrderId: parseRequiredString(body.providerOrderId, "providerOrderId"),
-    providerEventId: parseRequiredString(body.providerEventId, "providerEventId"),
+    providerOrderId: parseRequiredString(
+      body.providerOrderId,
+      "providerOrderId"
+    ),
+    providerEventId: parseRequiredString(
+      body.providerEventId,
+      "providerEventId"
+    ),
     description: parseRequiredString(body.description, "description"),
     expiryDate: parseRequiredString(body.expiryDate, "expiryDate"),
     referenceId: parseOptionalString(body.referenceId, "referenceId"),
@@ -104,9 +117,12 @@ export async function GET(request: Request) {
   }
 
   try {
-    const providerOrderId = normalizeProviderIdentifier(providerOrderIdParam, "providerOrderId")
+    const providerOrderId = normalizeProviderIdentifier(
+      providerOrderIdParam,
+      "providerOrderId"
+    )
     const shouldRefresh = ["1", "true", "yes"].includes(
-      (url.searchParams.get("refresh") ?? "").toLowerCase(),
+      (url.searchParams.get("refresh") ?? "").toLowerCase()
     )
 
     if (shouldRefresh) {
@@ -155,17 +171,38 @@ export async function POST(request: Request) {
 
   try {
     const input = parseCreateBody(payload)
+    const quotaBefore = await enforceTikkieMonthlyCreationQuota()
     const result = await createTikkiePaymentLink(input)
+    const quotaAfter = result.created
+      ? await getTikkieMonthlyCreationQuotaStatus()
+      : quotaBefore
 
     return NextResponse.json(
       {
         ok: true,
         created: result.created,
         link: result.link,
+        quota: {
+          before: quotaBefore,
+          after: quotaAfter,
+        },
       },
-      { status: result.created ? 201 : 200 },
+      { status: result.created ? 201 : 200 }
     )
   } catch (error) {
+    if (error instanceof TikkieMonthlyQuotaExceededError) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "TIKKIE_QUOTA_EXCEEDED",
+            message: error.message,
+          },
+          quota: error.quota,
+        },
+        { status: 429 }
+      )
+    }
+
     if (error instanceof TikkieApiError) {
       const code =
         error.kind === "BAD_REQUEST"
@@ -189,13 +226,17 @@ export async function POST(request: Request) {
         },
         {
           status: error.status >= 500 ? 502 : error.status,
-        },
+        }
       )
     }
 
     const message = error instanceof Error ? error.message : "Invalid request"
 
-    if (message.startsWith("Invalid") || message.includes("required") || message.includes("not found")) {
+    if (
+      message.startsWith("Invalid") ||
+      message.includes("required") ||
+      message.includes("not found")
+    ) {
       return badRequest(message)
     }
 
@@ -206,7 +247,7 @@ export async function POST(request: Request) {
           message: "Failed to create Tikkie payment link",
         },
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

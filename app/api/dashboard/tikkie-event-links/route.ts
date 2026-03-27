@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server"
 import { requireApiUser } from "@/lib/auth/server"
 import { createEventTikkieLink } from "@/lib/domain/finance/tikkie-event-links"
+import {
+  enforceTikkieMonthlyCreationQuota,
+  getTikkieMonthlyCreationQuotaStatus,
+  TikkieMonthlyQuotaExceededError,
+} from "@/lib/domain/finance/tikkie-quota"
 import { TikkieApiError } from "@/lib/integrations/tikkie/client"
 import { api } from "@/lib/convex/api"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
@@ -162,10 +167,12 @@ export async function GET(request: Request) {
       })
 
     if (links.length === 0) {
+      const quota = await getTikkieMonthlyCreationQuotaStatus()
       return NextResponse.json({
         link: null,
         links: [],
         payments: [],
+        quota,
         stats: {
           totalPayments: 0,
           matchedPayments: 0,
@@ -222,11 +229,13 @@ export async function GET(request: Request) {
     const totalAmountMinor = (
       payments as Array<Record<string, unknown>>
     ).reduce((sum, p) => sum + ((p.amountMinor as number) ?? 0), 0)
+    const quota = await getTikkieMonthlyCreationQuotaStatus()
 
     return NextResponse.json({
       link: links[0],
       links,
       payments,
+      quota,
       stats: {
         totalPayments: (payments as unknown[]).length,
         matchedPayments: matchedPayments.length,
@@ -280,6 +289,8 @@ export async function POST(request: Request) {
   }
 
   try {
+    const quotaBefore = await enforceTikkieMonthlyCreationQuota()
+
     const result = await createEventTikkieLink({
       eventId,
       providerEventId,
@@ -291,11 +302,36 @@ export async function POST(request: Request) {
         typeof body.expiryDays === "number" ? body.expiryDays : undefined,
     })
 
+    const quotaAfter = result.created
+      ? await getTikkieMonthlyCreationQuotaStatus()
+      : quotaBefore
+
     return NextResponse.json(
-      { ok: true, created: result.created, link: result.link },
+      {
+        ok: true,
+        created: result.created,
+        link: result.link,
+        quota: {
+          before: quotaBefore,
+          after: quotaAfter,
+        },
+      },
       { status: result.created ? 201 : 200 }
     )
   } catch (error) {
+    if (error instanceof TikkieMonthlyQuotaExceededError) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "TIKKIE_QUOTA_EXCEEDED",
+            message: error.message,
+          },
+          quota: error.quota,
+        },
+        { status: 429 }
+      )
+    }
+
     if (error instanceof TikkieApiError) {
       return NextResponse.json(
         { error: { code: `TIKKIE_${error.kind}`, message: error.message } },
