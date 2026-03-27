@@ -128,6 +128,7 @@ function isPathActive(pathname: string, href: string) {
 
 export function DashboardShell({ userEmail, children }: DashboardShellProps) {
   const pathname = usePathname()
+  const [isCollapsed, setIsCollapsed] = useState(false)
 
   const [expandedByHref, setExpandedByHref] = useState<Record<string, boolean>>(
     () => {
@@ -150,6 +151,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
   )
 
   function toggleExpanded(href: string) {
+    if (isCollapsed) return // Do not allow expanding submenus if sidebar is collapsed
     setExpandedByHref((current) => ({
       ...current,
       [href]: !current[href],
@@ -158,175 +160,169 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
 
   return (
     <div className="min-h-svh bg-black text-foreground">
-      <div className="mx-auto grid min-h-svh gap-4 px-4 py-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:px-6 lg:py-6">
-        <aside className="hidden lg:flex lg:flex-col">
-          <div className="sticky top-6 flex h-[calc(100svh-3rem)] flex-col overflow-hidden rounded-xl border border-white/60 bg-white/82 p-3 shadow-[0_18px_48px_rgba(40,24,82,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-white/6 dark:shadow-[0_18px_48px_rgba(0,0,0,0.2)]">
-            <div className="shrink-0 space-y-2 px-1 pb-4">
-              <p className="text-[10px] font-semibold tracking-[0.22em] text-primary/70 uppercase">
-                Conference finance dashboard
-              </p>
-              <div>
-                <h1 className="text-xl font-semibold tracking-tight text-foreground">
-                  Command center
-                </h1>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Financial follow-up, attendees, and room operations in one
-                  calm workspace.
-                </p>
+      <div 
+        className={cn(
+          "mx-auto grid min-h-svh gap-4 px-4 py-4 lg:px-6 lg:py-6 transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+          isCollapsed ? "lg:grid-cols-[100px_minmax(0,1fr)]" : "lg:grid-cols-[280px_minmax(0,1fr)]"
+        )}
+      >
+        <aside className="hidden lg:flex lg:flex-col relative">
+          <div className="sticky top-6 flex h-[calc(100svh-3rem)] w-full">
+            <div className="flex w-full flex-col overflow-hidden rounded-xl border border-white/60 bg-white/85 shadow-[0_18px_48px_rgba(40,24,82,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-white/8 dark:shadow-[0_18px_48px_rgba(0,0,0,0.2)]">
+              
+              <div className="shrink-0 flex items-center p-6 h-[90px]">
+                 <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[linear-gradient(135deg,#7154ff,#5238aa)] text-white shadow-sm">
+                    <ShieldEllipsis className="size-5" />
+                 </div>
+                 {!isCollapsed && (
+                   <div className="ml-3 flex-1 overflow-hidden whitespace-nowrap">
+                      <h1 className="text-[15px] font-bold tracking-tight text-foreground truncate">Doclines Finance</h1>
+                   </div>
+                 )}
               </div>
-            </div>
 
-            <nav className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
-              {navigationSections.map((section) => (
-                <div key={section.title} className="space-y-1.5">
-                  <p className="px-2.5 text-[10px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-                    {section.title}
-                  </p>
-                  {section.items.map((item) => {
-                    const Icon = item.icon
-                    const hasChildren = Boolean(item.children?.length)
-                    const childActive = Boolean(
-                      item.children?.some((child) =>
-                        isPathActive(pathname, child.href)
+              <nav className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-2">
+                {navigationSections.map((section) => (
+                  <div key={section.title} className="flex flex-col gap-1.5 focus-visible:outline-none">
+                    {!isCollapsed ? (
+                      <p className="px-3 pb-1 text-[10px] font-semibold tracking-[0.15em] text-muted-foreground uppercase whitespace-nowrap">
+                        {section.title}
+                      </p>
+                    ) : (
+                       <hr className="my-2 border-border/40 mx-auto w-8 opacity-50 transition-opacity" />
+                    )}
+
+                    {section.items.map((item) => {
+                      const Icon = item.icon
+                      const hasChildren = Boolean(item.children?.length)
+                      const childActive = Boolean(
+                        item.children?.some((child) => isPathActive(pathname, child.href))
                       )
-                    )
-                    const active =
-                      isPathActive(pathname, item.href) || childActive
-                    const expanded = hasChildren
-                      ? Boolean(expandedByHref[item.href]) || childActive
-                      : false
+                      const active = isPathActive(pathname, item.href) || childActive
+                      const expanded = hasChildren
+                        ? Boolean(expandedByHref[item.href]) || childActive
+                        : false
 
-                    return (
-                      <div key={item.href} className="space-y-1">
-                        <div className="flex items-stretch gap-1">
-                          <Link
-                            href={item.href}
-                            className={cn(
-                              "group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border px-2.5 py-2 transition-all duration-200",
-                              active
-                                ? "border-primary/15 bg-primary text-primary-foreground shadow-[0_10px_24px_rgba(90,58,191,0.22)]"
-                                : "border-transparent bg-transparent text-foreground hover:border-primary/10 hover:bg-primary/6 dark:hover:bg-white/8"
-                            )}
-                          >
-                            <span
+                      return (
+                        <div key={item.href} className="flex flex-col">
+                          <div className="relative group">
+                            <Link
+                              href={item.href}
                               className={cn(
-                                "flex size-8 shrink-0 items-center justify-center rounded-md transition-colors",
+                                "flex items-center rounded-md transition-all duration-200 relative z-10",
+                                isCollapsed ? "h-12 w-12 justify-center mx-auto" : "px-3 py-3 gap-3.5",
                                 active
-                                  ? "bg-white/18 text-primary-foreground"
-                                  : "bg-primary/8 text-primary dark:bg-white/10 dark:text-primary-foreground"
+                                  ? "bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] text-white shadow-md shadow-primary/20"
+                                  : "text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
                               )}
                             >
-                              <Icon className="size-4" />
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block text-xs font-semibold">
-                                {item.label}
-                              </span>
-                              <span
+                              <Icon className="size-[22px] shrink-0" />
+                              {!isCollapsed && (
+                                <span className="flex-1 text-[13px] font-semibold whitespace-nowrap">
+                                  {item.label}
+                                </span>
+                              )}
+                            </Link>
+
+                            {hasChildren && !isCollapsed && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  toggleExpanded(item.href)
+                                }}
                                 className={cn(
-                                  "block text-[10px] leading-4",
-                                  active
-                                    ? "text-primary-foreground/80"
-                                    : "text-muted-foreground"
+                                  "absolute right-2 top-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded-md transition-colors z-20",
+                                  active ? "text-white hover:bg-white/20" : "text-muted-foreground hover:bg-black/5"
                                 )}
                               >
-                                {item.description}
-                              </span>
-                            </span>
-                          </Link>
-                          {hasChildren && (
-                            <button
-                              type="button"
-                              aria-label={
-                                expanded
-                                  ? "Collapse sub-items"
-                                  : "Expand sub-items"
-                              }
-                              aria-expanded={expanded}
-                              onClick={() => toggleExpanded(item.href)}
-                              className={cn(
-                                "flex w-8 items-center justify-center rounded-md border transition-colors",
-                                active
-                                  ? "border-primary/20 bg-primary/15 text-primary-foreground"
-                                  : "border-border/80 bg-background/50 text-muted-foreground hover:bg-primary/6 hover:text-foreground"
-                              )}
-                            >
-                              <ChevronRight
-                                className={cn(
-                                  "size-4 transition-transform",
-                                  expanded && "rotate-90"
-                                )}
-                              />
-                            </button>
+                                <ChevronRight className={cn("size-4 transition-transform duration-200", expanded && "rotate-90")} />
+                              </button>
+                            )}
+                          </div>
+
+                          {hasChildren && expanded && !isCollapsed && (
+                            <div className="ml-7 mt-1.5 flex flex-col gap-1 border-l-2 border-border/50 pl-2">
+                              {item.children?.map((child) => {
+                                const childIsActive = isPathActive(pathname, child.href)
+                                return (
+                                  <Link
+                                    key={child.href}
+                                    href={child.href}
+                                    className={cn(
+                                      "block rounded-md px-3 py-2.5 text-xs font-semibold transition-colors whitespace-nowrap",
+                                      childIsActive
+                                        ? "bg-primary/8 text-primary"
+                                        : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+                                    )}
+                                  >
+                                    {child.label}
+                                  </Link>
+                                )
+                              })}
+                            </div>
                           )}
                         </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </nav>
 
-                        {hasChildren && expanded && (
-                          <div className="ml-11 space-y-1">
-                            {item.children?.map((child) => {
-                              const childIsActive = isPathActive(
-                                pathname,
-                                child.href
-                              )
-
-                              return (
-                                <Link
-                                  key={child.href}
-                                  href={child.href}
-                                  className={cn(
-                                    "block rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors",
-                                    childIsActive
-                                      ? "bg-primary/12 text-primary"
-                                      : "text-muted-foreground hover:bg-primary/6 hover:text-foreground"
-                                  )}
-                                >
-                                  {child.label}
-                                </Link>
-                              )
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
+              <div className="p-4 shrink-0 transition-all duration-300">
+                <div className={cn(
+                  "flex items-center rounded-lg border border-border/40 shadow-sm backdrop-blur overflow-hidden transition-all duration-300",
+                  isCollapsed ? "h-14 w-14 justify-center mx-auto flex-col p-0 border-transparent shadow-none" : "px-3 py-3 justify-between gap-3 bg-white/40 dark:bg-black/20"
+                )}>
+                  {!isCollapsed ? (
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-bold text-foreground">
+                        {userEmail.split('@')[0]}
+                      </p>
+                      <p className="truncate text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mt-0.5">
+                        Conference OP
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="size-[42px] rounded-full bg-[linear-gradient(135deg,rgba(113,84,255,0.9),rgba(82,56,170,0.85))] flex items-center justify-center text-white font-bold text-sm shadow-sm ring-2 ring-white/60">
+                       {userEmail[0].toUpperCase()}
+                    </div>
+                  )}
+                  {!isCollapsed && <LogoutButton className="h-8 rounded-md px-3 text-[11px] font-semibold bg-white hover:bg-muted dark:bg-zinc-800" />}
                 </div>
-              ))}
-            </nav>
-
-            <div className="mt-3 flex shrink-0 items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/70 px-2.5 py-2 backdrop-blur dark:bg-white/6">
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-                  Signed in
-                </p>
-                <p className="truncate text-xs font-medium text-foreground">
-                  {userEmail}
-                </p>
               </div>
-              <LogoutButton className="h-8 rounded-md px-3 text-[11px]" />
+
             </div>
+            
+            <button
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="absolute -right-[14px] top-10 flex size-7 items-center justify-center rounded-full border border-border bg-white shadow-md transition hover:bg-muted text-foreground dark:bg-zinc-800 dark:border-white/10 z-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+            >
+              <ChevronRight className={cn("size-3.5 transition-transform duration-300 text-muted-foreground hover:text-foreground", !isCollapsed && "rotate-180")} />
+            </button>
           </div>
         </aside>
 
-        <div className="min-w-0">
-          <div className="rounded-xl border border-white/60 bg-white/78 p-4 shadow-[0_20px_56px_rgba(40,24,82,0.06)] backdrop-blur-xl lg:p-5 dark:border-white/10 dark:bg-white/6 dark:shadow-[0_20px_56px_rgba(0,0,0,0.18)]">
+        <div className="min-w-0 flex flex-col transition-all duration-300">
+          <div className="flex-1 rounded-xl border border-white/60 bg-white/78 p-4 shadow-[0_20px_56px_rgba(40,24,82,0.06)] backdrop-blur-xl lg:p-7 dark:border-white/10 dark:bg-white/6 dark:shadow-[0_20px_56px_rgba(0,0,0,0.18)]">
             <div className="mb-6 flex flex-col gap-4 lg:hidden">
-              <div className="rounded-[1.75rem] bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] p-5 text-primary-foreground shadow-[0_18px_48px_rgba(74,48,164,0.24)]">
-                <p className="text-xs font-semibold tracking-[0.22em] text-primary-foreground/70 uppercase">
-                  Conference finance dashboard
+              <div className="rounded-xl bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] p-5 text-primary-foreground shadow-[0_18px_48px_rgba(74,48,164,0.24)]">
+                <p className="text-[10px] font-semibold tracking-[0.2em] text-primary-foreground/70 uppercase">
+                  Doclines Finance
                 </p>
-                <h1 className="mt-2 text-2xl font-semibold tracking-tight">
+                <h1 className="mt-2 text-2xl font-bold tracking-tight">
                   Command center
                 </h1>
-                <p className="mt-2 text-sm text-primary-foreground/84">
+                <p className="mt-2 text-[13px] leading-relaxed text-primary-foreground/85">
                   Move from balances to attendee follow-up and room placement
                   without losing context.
                 </p>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {navigationSections.map((section) => (
                   <div key={section.title} className="space-y-2">
-                    <p className="px-1 text-[10px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+                    <p className="px-1 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
                       {section.title}
                     </p>
                     <div className="flex flex-wrap gap-2">
@@ -349,13 +345,13 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                             <Link
                               href={item.href}
                               className={cn(
-                                "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                                "flex items-center gap-2.5 rounded-md border px-3.5 py-[10px] text-[13px] font-semibold transition-colors shadow-sm",
                                 active
-                                  ? "border-primary bg-primary text-primary-foreground"
-                                  : "border-border bg-background/70 text-foreground"
+                                  ? "border-transparent bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] text-white shadow-primary/20"
+                                  : "border-border bg-background/80 text-foreground hover:bg-muted"
                               )}
                             >
-                              <Icon className="size-3.5" />
+                              <Icon className="size-[18px]" />
                               {item.label}
                             </Link>
                             {hasChildren && (
@@ -369,15 +365,15 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                                 aria-expanded={isExpanded}
                                 onClick={() => toggleExpanded(item.href)}
                                 className={cn(
-                                  "flex items-center justify-center rounded-full border px-2 py-1.5",
+                                  "flex items-center justify-center rounded-md border px-2.5 py-[10px] shadow-sm transition-colors",
                                   active
-                                    ? "border-primary/60 bg-primary/12 text-primary"
-                                    : "border-border bg-background/50 text-muted-foreground"
+                                    ? "border-transparent bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] text-white"
+                                    : "border-border bg-background/60 text-muted-foreground hover:bg-muted"
                                 )}
                               >
                                 <ChevronRight
                                   className={cn(
-                                    "size-3.5 transition-transform",
+                                    "size-[14px] transition-transform",
                                     isExpanded && "rotate-90"
                                   )}
                                 />
@@ -406,10 +402,10 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                               key={child.href}
                               href={child.href}
                               className={cn(
-                                "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                                "rounded-md border px-3.5 py-[10px] text-xs font-semibold transition-colors shadow-sm",
                                 active
-                                  ? "border-primary/60 bg-primary/12 text-primary"
-                                  : "border-border/80 bg-background/40 text-muted-foreground"
+                                  ? "border-transparent bg-primary/10 text-primary"
+                                  : "border-border/80 bg-background/40 text-muted-foreground hover:bg-muted hover:text-foreground"
                               )}
                             >
                               {child.label}
@@ -422,16 +418,16 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                 ))}
               </div>
 
-              <div className="flex items-center justify-between rounded-[1.25rem] border border-border/60 bg-background/70 px-4 py-3 dark:bg-white/6">
+              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background/70 px-4 py-3 dark:bg-white/6 shadow-sm">
                 <div>
-                  <p className="text-xs tracking-[0.18em] text-muted-foreground uppercase">
+                  <p className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
                     Signed in
                   </p>
-                  <p className="text-sm font-medium text-foreground">
+                  <p className="text-sm font-semibold text-foreground">
                     {userEmail}
                   </p>
                 </div>
-                <LogoutButton className="h-8 rounded-md px-3 text-[11px]" />
+                <LogoutButton className="h-8 rounded-lg px-3 text-[11px] font-semibold" />
               </div>
             </div>
 

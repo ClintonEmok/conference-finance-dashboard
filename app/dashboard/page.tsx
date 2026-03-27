@@ -42,6 +42,40 @@ type RevenueResponse = {
   }>
 }
 
+type GenderType = "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+
+function formatGenderLabel(value: GenderType | null) {
+  if (value === "MALE") return "Male"
+  if (value === "FEMALE") return "Female"
+  if (value === "MIXED") return "Mixed"
+  if (value === "UNKNOWN") return "Unknown"
+  return "Not set"
+}
+
+type AttendeesSnippetPayload = {
+  rows: Array<{
+    attendeeId: string
+    attendeeName: string | null
+    attendeeEmail: string | null
+    genderType: GenderType | null
+    providerOrderId: string
+    eventName: string | null
+    roomStatus:
+      | {
+          status: "assigned"
+          roomLabel: string
+          hotelName: string
+          roomTypeLabel: string
+        }
+      | {
+          status: "unassigned"
+          roomLabel: null
+          hotelName: null
+          roomTypeLabel: null
+        }
+  }>
+}
+
 function toDateInputValue(date: Date) {
   return date.toISOString().slice(0, 10)
 }
@@ -119,6 +153,7 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [payload, setPayload] = useState<RevenueResponse | null>(null)
+  const [attendeesPayload, setAttendeesPayload] = useState<AttendeesSnippetPayload | null>(null)
 
   const inlineValidationError = useMemo(() => {
     const fromIso = toIsoBoundary(fromDateInput, "start")
@@ -164,17 +199,28 @@ export default function DashboardPage() {
         query.set("from", safeFromIso)
         query.set("to", safeToIso)
 
-        const response = await fetch(`/api/dashboard/revenue?${query.toString()}`, {
-          signal: controller.signal,
-        })
+        const attendeesQuery = new URLSearchParams(query)
+        attendeesQuery.set("page", "1")
+        attendeesQuery.set("pageSize", "6")
+
+        const [response, attResponse] = await Promise.all([
+          fetch(`/api/dashboard/revenue?${query.toString()}`, { signal: controller.signal }),
+          fetch(`/api/dashboard/attendees?${attendeesQuery.toString()}`, { signal: controller.signal })
+        ])
 
         if (!response.ok) {
           const body = (await response.json().catch(() => null)) as
             | { error?: { message?: string } }
             | null
           setPayload(null)
+          setAttendeesPayload(null)
           setErrorMessage(body?.error?.message ?? `Failed to load revenue metrics (${response.status}).`)
           return
+        }
+
+        if (attResponse.ok) {
+          const attBody = (await attResponse.json()) as AttendeesSnippetPayload
+          setAttendeesPayload(attBody)
         }
 
         const body = (await response.json()) as RevenueResponse
@@ -212,181 +258,27 @@ export default function DashboardPage() {
   }
 
   return (
-    <section className="space-y-8">
-      <section className="space-y-4">
-        <article className="overflow-hidden rounded-xl bg-[linear-gradient(145deg,rgba(113,84,255,0.97),rgba(83,56,171,0.94))] p-6 text-primary-foreground shadow-[0_20px_56px_rgba(78,52,166,0.24)] md:p-7">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="max-w-2xl">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary-foreground/70">
-                Overview
-              </p>
-              <h2 className="mt-2.5 text-2xl font-semibold tracking-tight md:text-[2rem]">
-                One live picture of conference finance and operator flow.
-              </h2>
-              <p className="mt-3 max-w-xl text-[13px] leading-6 text-primary-foreground/82 md:text-sm">
-                Start with the current financial picture, then move directly into balances, attendee checks,
-                and room placement without losing the thread.
-              </p>
-            </div>
+    <section className="space-y-6">
+      <header className="mb-4">
+        <h2 className="text-2xl font-bold tracking-tight text-foreground">Overview</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Live snapshot of conference finance and attendee flow.
+        </p>
+      </header>
 
-            <div className="min-w-[210px] rounded-lg border border-white/18 bg-white/10 p-4 backdrop-blur">
-              <p className="text-[10px] uppercase tracking-[0.18em] text-primary-foreground/70">Reporting scope</p>
-              <p className="mt-2 text-xs font-medium">
-                {payload?.filters.eventId ?? "All events"}
-              </p>
-              <div className="mt-3 flex items-start gap-2.5 text-xs text-primary-foreground/82">
-                <CalendarRange className="mt-0.5 size-4 shrink-0" />
-                <div>
-                  <p>{payload ? new Date(payload.filters.from).toLocaleDateString() : appliedFromDate}</p>
-                  <p>{payload ? new Date(payload.filters.to).toLocaleDateString() : appliedToDate}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <article className="rounded-lg bg-white/12 p-4 backdrop-blur-sm">
-              <p className="text-xs text-primary-foreground/68">Gross</p>
-              <p className="mt-1.5 text-xl font-semibold">
-                {payload ? formatMoney(payload.totals.grossMinor) : "--"}
-              </p>
-            </article>
-            <article className="rounded-lg bg-white/12 p-4 backdrop-blur-sm">
-              <p className="text-xs text-primary-foreground/68">Paid</p>
-              <p className="mt-1.5 text-xl font-semibold">
-                {payload ? formatMoney(payload.totals.paidMinor) : "--"}
-              </p>
-            </article>
-            <article className="rounded-lg bg-white/12 p-4 backdrop-blur-sm">
-              <p className="text-xs text-primary-foreground/68">Refunded</p>
-              <p className="mt-1.5 text-xl font-semibold">
-                {payload ? formatMoney(payload.totals.refundedMinor) : "--"}
-              </p>
-            </article>
-            <article className="rounded-lg bg-white/12 p-4 backdrop-blur-sm">
-              <p className="text-xs text-primary-foreground/68">Net</p>
-              <p className="mt-1.5 text-xl font-semibold">
-                {payload ? formatMoney(payload.totals.netMinor) : "--"}
-              </p>
-            </article>
-          </div>
-        </article>
-
-        <Card className="bg-background/85 backdrop-blur">
-          <CardHeader className="pb-3">
-            <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/70">
-              Filter view
-            </CardDescription>
-            <CardTitle className="text-base">Refine the dashboard snapshot</CardTitle>
-          </CardHeader>
-
-          <CardContent>
-          <form className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(180px,0.7fr)_minmax(180px,0.7fr)_150px] lg:items-end" onSubmit={onApplyFilters}>
-            <label className="space-y-2 text-sm">
-              <span className="text-xs font-medium text-foreground">Event ID</span>
-              <select
-                value={eventIdInput}
-                onChange={(event) => setEventIdInput(event.target.value)}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
-              >
-                <option value="">All events</option>
-                {(payload?.availableEvents ?? []).map((event) => (
-                  <option key={event.providerEventId} value={event.providerEventId}>
-                    {event.name?.trim() || event.providerEventId}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2 lg:grid-cols-2">
-              <label className="space-y-2 text-sm">
-                <span className="text-xs font-medium text-foreground">From</span>
-                <input
-                  type="date"
-                  value={fromDateInput}
-                  onChange={(event) => setFromDateInput(event.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
-                />
-              </label>
-
-              <label className="space-y-2 text-sm">
-                <span className="text-xs font-medium text-foreground">To</span>
-                <input
-                  type="date"
-                  value={toDateInput}
-                  onChange={(event) => setToDateInput(event.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
-                />
-              </label>
-            </div>
-
-            {inlineValidationError && (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 lg:col-span-4 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
-                {inlineValidationError}
-              </p>
-            )}
-
-            <Button className="h-9 w-full rounded-md text-xs lg:self-end" type="submit" disabled={Boolean(inlineValidationError) || isLoading}>
-              {isLoading ? "Loading..." : "Apply reporting scope"}
-            </Button>
-          </form>
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-        <article className="rounded-xl bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] p-5 text-primary-foreground shadow-[0_18px_44px_rgba(74,48,164,0.2)]">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary-foreground/70">
-            Today&apos;s focus
-          </p>
-          <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-xl">
-              <h3 className="text-xl font-semibold tracking-tight">Clear balances, confirm attendees, then place the final rooms.</h3>
-              <p className="mt-2 text-xs leading-5 text-primary-foreground/82">
-                Keep the daily operator loop visible in the main dashboard instead of the sidebar.
-              </p>
-            </div>
-
-            <Button asChild variant="secondary" className="h-9 rounded-md bg-white px-3 text-xs text-primary hover:bg-white/92">
-              <Link href="/dashboard/reconciliation">
-                Start follow-up
-                <ArrowRight className="size-4" />
-              </Link>
-            </Button>
-          </div>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <div className="rounded-md bg-white/12 px-4 py-3 text-xs">
-              <p className="text-primary-foreground/70">Flow</p>
-              <p className="mt-1 font-semibold">Balances to rooms</p>
-            </div>
-            <div className="rounded-md bg-white/12 px-4 py-3 text-xs">
-              <p className="text-primary-foreground/70">State</p>
-              <p className="mt-1 font-semibold">MVP-ready loop</p>
-            </div>
-          </div>
-        </article>
-
-        <Card className="bg-background/85 backdrop-blur">
-          <CardHeader>
-            <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/70">
-              Reporting notes
-            </CardDescription>
-            <CardTitle className="text-lg">What to review next</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-xs text-muted-foreground">
-            <div className="rounded-md border border-border/70 bg-background px-3 py-3">
-              Start in outstanding balances when an order still has money to collect.
-            </div>
-            <div className="rounded-md border border-border/70 bg-background px-3 py-3">
-              Use attendee follow-up when a payment issue needs person-level context.
-            </div>
-            <div className="rounded-md border border-border/70 bg-background px-3 py-3">
-              Move to room placement only after attendee and finance context are clear.
-            </div>
-          </CardContent>
-        </Card>
-      </section>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          { label: "Gross", value: payload ? formatMoney(payload.totals.grossMinor) : "--" },
+          { label: "Paid", value: payload ? formatMoney(payload.totals.paidMinor) : "--" },
+          { label: "Refunded", value: payload ? formatMoney(payload.totals.refundedMinor) : "--" },
+          { label: "Net", value: payload ? formatMoney(payload.totals.netMinor) : "--" },
+        ].map((metric) => (
+          <article key={metric.label} className="relative flex flex-col justify-center overflow-hidden rounded-xl border border-[rgba(113,84,255,0.4)] bg-[linear-gradient(145deg,rgba(113,84,255,0.92),rgba(83,56,171,0.88))] p-5 shadow-[0_12px_32px_rgba(78,52,166,0.14)] transition-transform hover:scale-[1.02]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/70 relative z-10">{metric.label}</p>
+            <p className="mt-2 text-2xl font-bold text-white relative z-10">{metric.value}</p>
+          </article>
+        ))}
+      </div>
 
       {errorMessage && (
         <article className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
@@ -402,138 +294,165 @@ export default function DashboardPage() {
 
       {!errorMessage && !isLoading && payload && (
         <>
-          <section className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-            <Card className="bg-background/85 backdrop-blur">
-              <CardHeader>
-                <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/70">
-                  Quick actions
-                </CardDescription>
-                <CardTitle className="text-lg">Move into the next useful workflow</CardTitle>
-              </CardHeader>
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+            {/* Main Data Column */}
+            <div className="space-y-6">
+              <div className="flex flex-col gap-3">
+                <div>
+                  <h3 className="text-[11px] font-semibold text-foreground uppercase tracking-[0.18em] text-muted-foreground">Daily trend</h3>
+                  <p className="text-sm font-semibold text-foreground mt-1 tracking-tight">Movement across the active window</p>
+                </div>
 
-              <CardContent>
-              <div className="grid gap-3 md:grid-cols-2">
-                {quickActions.map((action) => {
-                  const Icon = action.icon
+                {payload.trend.length === 0 ? (
+                  <p className="rounded-xl border border-white/60 bg-white/50 p-4 text-xs text-muted-foreground shadow-sm dark:border-white/10 dark:bg-white/5">
+                    No synced orders found for the default scope.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-white/60 bg-white/40 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5 pb-2">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border/20 text-left text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                          <th className="px-4 py-3 font-semibold">Date</th>
+                          <th className="px-4 py-3 font-semibold">Event</th>
+                          <th className="px-4 py-3 font-semibold text-right">Orders</th>
+                          <th className="px-4 py-3 font-semibold text-right">Gross</th>
+                          <th className="px-4 py-3 font-semibold text-right">Net</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/20">
+                        {payload.trend.map((bucket) => (
+                          <tr key={bucket.bucket} className="transition-colors hover:bg-black/5 dark:hover:bg-white/5">
+                            <td className="px-4 py-3 font-medium text-foreground">{bucket.bucket}</td>
+                            <td className="px-4 py-3 text-muted-foreground truncate max-w-[120px]">{bucket.eventLabel}</td>
+                            <td className="px-4 py-3 text-right tabular-nums font-medium text-muted-foreground">{bucket.orderCount}</td>
+                            <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatMoney(bucket.grossMinor)}</td>
+                            <td className="px-4 py-3 text-right tabular-nums font-semibold text-foreground">{formatMoney(bucket.netMinor)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
 
-                  return (
-                    <Link
-                      key={action.href}
-                      href={action.href}
-                      className="group rounded-lg border border-border/70 bg-white/75 p-4 shadow-sm transition-all duration-200 hover:border-primary/20 hover:shadow-[0_12px_24px_rgba(52,34,120,0.08)] dark:bg-white/6"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary dark:bg-white/10 dark:text-primary-foreground">
-                          <Icon className="size-4" />
-                        </span>
-                        <ArrowRight className="size-4 text-muted-foreground transition-transform duration-200 group-hover:translate-x-1 group-hover:text-primary" />
-                      </div>
-                      <h4 className="mt-4 text-sm font-semibold tracking-tight text-foreground">{action.title}</h4>
-                      <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{action.description}</p>
+              {/* Attendees snippet */}
+              <div className="flex flex-col gap-3 pt-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-[11px] font-semibold text-foreground uppercase tracking-[0.18em] text-muted-foreground">Latest attendees</h3>
+                    <p className="text-sm font-semibold text-foreground mt-1 tracking-tight">Recent signups in scope</p>
+                  </div>
+                  <Button asChild variant="outline" className="h-8 rounded-md text-xs px-3 bg-white/40 border-white/60 dark:bg-white/5 dark:border-white/10 backdrop-blur-md hover:bg-white/60">
+                    <Link href="/dashboard/attendees">
+                      View all <ArrowRight className="ml-1 size-3" />
                     </Link>
-                  )
-                })}
-              </div>
-              </CardContent>
-            </Card>
+                  </Button>
+                </div>
 
-            <Card className="bg-background/85 backdrop-blur">
-              <CardHeader>
-                <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/70">
-                  Order status mix
-                </CardDescription>
-                <CardTitle className="text-lg">How today&apos;s scope is distributed</CardTitle>
-              </CardHeader>
-
-              <CardContent className="space-y-4">
-                {[
-                  ["Paid", payload.statusCounts.paid, "bg-primary"],
-                  ["Pending", payload.statusCounts.pending, "bg-amber-400"],
-                  ["Refunded", payload.statusCounts.refunded, "bg-slate-400"],
-                  ["Cancelled", payload.statusCounts.cancelled, "bg-rose-400"],
-                ].map(([label, value, colorClass]) => {
-                  const total =
-                    payload.statusCounts.paid +
-                    payload.statusCounts.pending +
-                    payload.statusCounts.refunded +
-                    payload.statusCounts.cancelled
-                  const numericValue = Number(value)
-                  const width = total === 0 || numericValue === 0 ? 0 : Math.max(8, Math.round((numericValue / total) * 100))
-
-                  return (
-                    <div key={String(label)}>
-                      <div className="mb-2 flex items-center justify-between text-xs">
-                        <span className="font-medium text-foreground">{label}</span>
-                        <span className="text-muted-foreground">{value}</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-muted">
-                        <div className={`h-2 rounded-full ${colorClass}`} style={{ width: `${width}%` }} />
-                      </div>
-                    </div>
-                  )
-                })}
-              </CardContent>
-
-              <div className="mx-5 mb-5 rounded-lg bg-muted/70 p-3 text-xs text-muted-foreground">
-                Generated {new Date(payload.generatedAt).toLocaleString()} for operator review.
-              </div>
-            </Card>
-          </section>
-
-          <Card className="bg-background/85 backdrop-blur">
-            <CardHeader>
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/70">Daily trend</CardDescription>
-                <CardTitle className="mt-1 text-lg">Finance-safe movement across the selected window</CardTitle>
+                {!attendeesPayload || attendeesPayload.rows.length === 0 ? (
+                  <p className="rounded-xl border border-white/60 bg-white/50 p-4 text-xs text-muted-foreground shadow-sm dark:border-white/10 dark:bg-white/5">
+                    No attendees found for the default scope.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-white/60 bg-white/40 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5 pb-2">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border/20 text-left text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                          <th className="px-4 py-3 font-semibold">Attendee</th>
+                          <th className="px-4 py-3 font-semibold">Event</th>
+                          <th className="px-4 py-3 font-semibold">Room</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/20">
+                        {attendeesPayload.rows.map((row) => (
+                          <tr key={row.attendeeId} className="transition-colors hover:bg-black/5 dark:hover:bg-white/5">
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-foreground">{row.attendeeName ?? "Unnamed attendee"}</div>
+                              <div className="text-muted-foreground truncate max-w-[120px]">{row.attendeeEmail ?? "-"}</div>
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              <div className="truncate max-w-[100px]">{row.eventName ?? "-"}</div>
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {row.roomStatus.status === "assigned" ? (
+                                <div>
+                                  <div className="font-medium text-foreground truncate max-w-[100px]">{row.roomStatus.roomLabel}</div>
+                                  <div className="text-[11px] truncate max-w-[120px]">{row.roomStatus.hotelName}</div>
+                                </div>
+                              ) : (
+                                "Unassigned"
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
-            </CardHeader>
 
-            {payload.trend.length === 0 ? (
-              <CardContent>
-              <p className="rounded-lg border border-border/70 p-4 text-xs text-muted-foreground">
-                No synced orders found for the selected filters.
-              </p>
-              </CardContent>
-            ) : (
-              <CardContent>
-              <div className="overflow-x-auto">
-                <div className="mb-3 text-xs text-muted-foreground">
-                  Daily trend is aggregated across the selected event scope, so the event filter above determines which event data is included.
+            {/* Right Sidebar Column */}
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-[11px] font-semibold text-foreground uppercase tracking-[0.18em] text-muted-foreground">Status mix</h3>
+                <div className="mt-3 space-y-4 rounded-xl border border-white/60 bg-white/40 p-5 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5">
+                  {[
+                    ["Paid", payload.statusCounts.paid, "bg-[linear-gradient(135deg,#7154ff,#5238aa)] text-white"],
+                    ["Pending", payload.statusCounts.pending, "bg-amber-400 text-amber-950"],
+                    ["Refunded", payload.statusCounts.refunded, "bg-slate-300 text-slate-800 dark:bg-slate-600 dark:text-slate-100"],
+                    ["Cancelled", payload.statusCounts.cancelled, "bg-destructive/60 text-destructive"],
+                  ].map(([label, value, colorClass]) => {
+                    const total =
+                      payload.statusCounts.paid +
+                      payload.statusCounts.pending +
+                      payload.statusCounts.refunded +
+                      payload.statusCounts.cancelled
+                    const numericValue = Number(value)
+                    const width = total === 0 || numericValue === 0 ? 0 : Math.max(6, Math.round((numericValue / total) * 100))
+
+                    return (
+                      <div key={String(label)}>
+                        <div className="mb-1.5 flex items-center justify-between text-xs">
+                          <span className="font-semibold text-foreground">{label}</span>
+                          <span className="text-muted-foreground tabular-nums">{value}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-black/5 dark:bg-white/5 overflow-hidden">
+                           <div className={`h-full rounded-full ${colorClass}`} style={{ width: `${width}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-                <table className="min-w-full border-separate border-spacing-y-2.5 text-xs">
-                  <thead>
-                    <tr className="text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                      <th className="px-3 py-2">Date</th>
-                      <th className="px-3 py-2">Event</th>
-                      <th className="px-3 py-2">Orders</th>
-                      <th className="px-3 py-2">Gross</th>
-                      <th className="px-3 py-2">Paid</th>
-                      <th className="px-3 py-2">Refunded</th>
-                      <th className="px-3 py-2">Net</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {payload.trend.map((bucket) => (
-                      <tr key={bucket.bucket} className="rounded-lg bg-white/75 shadow-sm dark:bg-white/6">
-                        <td className="rounded-l-lg px-3 py-3 font-medium text-foreground">{bucket.bucket}</td>
-                        <td className="px-3 py-3 text-muted-foreground">{bucket.eventLabel}</td>
-                        <td className="px-3 py-3 text-muted-foreground">{bucket.orderCount}</td>
-                        <td className="px-3 py-3 text-foreground">{formatMoney(bucket.grossMinor)}</td>
-                        <td className="px-3 py-3 text-foreground">{formatMoney(bucket.paidMinor)}</td>
-                        <td className="px-3 py-3 text-foreground">{formatMoney(bucket.refundedMinor)}</td>
-                        <td className="rounded-r-lg px-3 py-3 font-semibold text-foreground">
-                          {formatMoney(bucket.netMinor)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
-              </CardContent>
-            )}
-          </Card>
+
+              <div>
+                <h3 className="text-[11px] font-semibold text-foreground uppercase tracking-[0.18em] text-muted-foreground">Quick actions</h3>
+                <div className="mt-3 flex flex-col gap-2">
+                  {quickActions.map((action) => {
+                    const Icon = action.icon
+                    return (
+                      <Link
+                        key={action.href}
+                        href={action.href}
+                        className="group flex items-center justify-between rounded-xl border border-white/60 bg-white/40 p-3 shadow-sm backdrop-blur-md transition-all hover:bg-white/80 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[linear-gradient(135deg,#7154ff,#5238aa)] text-white shadow-sm">
+                             <Icon className="size-3.5" />
+                          </div>
+                          <span className="truncate text-[13px] font-semibold text-foreground">
+                            {action.title}
+                          </span>
+                        </div>
+                        <ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground shrink-0" />
+                      </Link>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
         </>
       )}
     </section>
