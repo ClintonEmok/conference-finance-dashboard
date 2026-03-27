@@ -40,6 +40,7 @@ export const startSyncRun = mutation({
       eventsScanned: 0,
       ordersFetched: 0,
       ordersUpserted: 0,
+      ordersArchived: 0,
       normalizedFallbackCount: 0,
       failedItems: 0,
     })
@@ -53,6 +54,7 @@ export const updateSyncRun = mutation({
     eventsScanned: v.optional(v.number()),
     ordersFetched: v.optional(v.number()),
     ordersUpserted: v.optional(v.number()),
+    ordersArchived: v.optional(v.number()),
     normalizedFallbackCount: v.optional(v.number()),
     failedItems: v.optional(v.number()),
     errorSummary: v.optional(v.string()),
@@ -79,6 +81,7 @@ export const completeSyncRun = mutation({
     eventsScanned: v.optional(v.number()),
     ordersFetched: v.optional(v.number()),
     ordersUpserted: v.optional(v.number()),
+    ordersArchived: v.optional(v.number()),
     normalizedFallbackCount: v.optional(v.number()),
     failedItems: v.optional(v.number()),
   },
@@ -92,6 +95,7 @@ export const completeSyncRun = mutation({
       eventsScanned: args.eventsScanned,
       ordersFetched: args.ordersFetched,
       ordersUpserted: args.ordersUpserted,
+      ordersArchived: args.ordersArchived,
       normalizedFallbackCount: args.normalizedFallbackCount,
       failedItems: args.failedItems,
     })
@@ -243,12 +247,70 @@ export const upsertTicketTailorOrder = mutation({
       .collect()
 
     if (existing[0]) {
-      await ctx.db.patch("ticketTailorOrders", existing[0]._id, args)
+      await ctx.db.patch("ticketTailorOrders", existing[0]._id, {
+        ...args,
+        isArchived: false,
+        archiveReason: undefined,
+      })
       return existing[0]._id
     }
 
-    const id = await ctx.db.insert("ticketTailorOrders", args)
+    const id = await ctx.db.insert("ticketTailorOrders", {
+      ...args,
+      isArchived: false,
+    })
     return id
+  },
+})
+
+export const archiveMissingOrdersForEvent = mutation({
+  args: {
+    providerEventId: v.string(),
+    seenProviderOrderIds: v.array(v.string()),
+    reason: v.optional(v.string()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    archived: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const orders = await ctx.db
+      .query("ticketTailorOrders")
+      .withIndex("providerEventId", (q) =>
+        q.eq("providerEventId", args.providerEventId)
+      )
+      .collect()
+
+    const seen = new Set(args.seenProviderOrderIds)
+    const now = Date.now()
+    const reason = args.reason?.trim() || "missing_from_provider_sync"
+    let archived = 0
+
+    for (const order of orders) {
+      if (order.removedAt) {
+        continue
+      }
+
+      if (seen.has(order.providerOrderId)) {
+        continue
+      }
+
+      await ctx.db.patch("ticketTailorOrders", order._id, {
+        isArchived: true,
+        archivedAt: order.archivedAt ?? now,
+        archiveReason: reason,
+        normalizedStatus: "cancelled",
+        cancelledAt: order.cancelledAt ?? now,
+        normalizationNote:
+          "Order missing from latest Ticket Tailor sync; archived locally.",
+      })
+      archived += 1
+    }
+
+    return {
+      scanned: orders.length,
+      archived,
+    }
   },
 })
 

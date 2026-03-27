@@ -13,6 +13,7 @@ const {
       startSyncRun: "sync:startSyncRun",
       upsertTicketTailorEvent: "sync:upsertTicketTailorEvent",
       upsertTicketTailorOrder: "sync:upsertTicketTailorOrder",
+      archiveMissingOrdersForEvent: "sync:archiveMissingOrdersForEvent",
       upsertTicketTailorAttendee: "sync:upsertTicketTailorAttendee",
       completeSyncRun: "sync:completeSyncRun",
       getTicketTailorAttendeesByOrderId:
@@ -88,6 +89,8 @@ describe("runTicketTailorSync", () => {
         case api.sync.upsertTicketTailorOrder:
           expect(args.eventId).toBe("event_doc_1")
           return "order_doc_1"
+        case api.sync.archiveMissingOrdersForEvent:
+          return { scanned: 1, archived: 0 }
         case api.sync.completeSyncRun:
           expect(args.runId).toBe("run_1")
           expect(args.status).toBe("success")
@@ -106,6 +109,7 @@ describe("runTicketTailorSync", () => {
         eventsScanned: 1,
         ordersFetched: 1,
         ordersUpserted: 1,
+        ordersArchived: 0,
         attendeesFetched: 0,
         attendeesUpserted: 0,
         failedItems: 0,

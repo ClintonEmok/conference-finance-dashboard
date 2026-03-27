@@ -17,6 +17,9 @@ export type OrderLedgerRow = {
   providerEventId: string
   eventName: string | null
   normalizedStatus: CanonicalOrderStatus
+  isArchived: boolean
+  archivedAt: string | null
+  archiveReason: string | null
   totalAmountMinor: number
   currency: string | null
   orderedAt: string | null
@@ -165,6 +168,9 @@ export function buildOrderLedgerCsv(rows: OrderLedgerRow[]) {
     "providerEventId",
     "eventName",
     "normalizedStatus",
+    "isArchived",
+    "archivedAt",
+    "archiveReason",
     "totalAmountMinor",
     "currency",
     "orderedAt",

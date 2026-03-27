@@ -462,11 +462,14 @@ export declare const api: {
         to?: number;
       },
       Array<{
+        archiveReason: string | null;
+        archivedAt: string | null;
         buyerEmail: string | null;
         buyerName: string | null;
         currency: string | null;
         eventId: string;
         eventName: string | null;
+        isArchived: boolean;
         normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
         orderedAt: string | null;
         providerEventId: string;
@@ -488,11 +491,14 @@ export declare const api: {
       },
       {
         orders: Array<{
+          archiveReason: string | null;
+          archivedAt: string | null;
           buyerEmail: string | null;
           buyerName: string | null;
           currency: string | null;
           eventId: string;
           eventName: string | null;
+          isArchived: boolean;
           normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
           orderedAt: string | null;
           providerEventId: string;
@@ -516,13 +522,22 @@ export declare const api: {
           ticketTypeLabel: string;
         }>;
         order: {
+          archiveReason: string | null;
+          archivedAt: string | null;
           id: Id<"ticketTailorOrders">;
+          isArchived?: boolean;
           normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
           orderedAt: string | null;
           providerOrderId: string;
           totalAmountMinor?: number;
         };
       } | null
+    >;
+    removeOrderLocally: FunctionReference<
+      "mutation",
+      "public",
+      { orderId: Id<"ticketTailorOrders">; reason?: string },
+      { orderId: Id<"ticketTailorOrders">; removedAt: number }
     >;
     searchOrders: FunctionReference<
       "query",
@@ -709,6 +724,16 @@ export declare const api: {
       },
       Id<"attendeeFamilyMembers">
     >;
+    archiveMissingOrdersForEvent: FunctionReference<
+      "mutation",
+      "public",
+      {
+        providerEventId: string;
+        reason?: string;
+        seenProviderOrderIds: Array<string>;
+      },
+      { archived: number; scanned: number }
+    >;
     completeSyncRun: FunctionReference<
       "mutation",
       "public",
@@ -718,6 +743,7 @@ export declare const api: {
         eventsScanned?: number;
         failedItems?: number;
         normalizedFallbackCount?: number;
+        ordersArchived?: number;
         ordersFetched?: number;
         ordersUpserted?: number;
         runId: Id<"ticketTailorSyncRuns">;
@@ -824,6 +850,7 @@ export declare const api: {
         eventsScanned?: number;
         failedItems?: number;
         normalizedFallbackCount?: number;
+        ordersArchived?: number;
         ordersFetched?: number;
         ordersUpserted?: number;
         runId: Id<"ticketTailorSyncRuns">;

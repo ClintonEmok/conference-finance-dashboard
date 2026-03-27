@@ -386,11 +386,14 @@ export type DataModel = {
   };
   ticketTailorOrders: {
     document: {
+      archiveReason?: string;
+      archivedAt?: number;
       buyerEmail?: string;
       buyerName?: string;
       cancelledAt?: number;
       currency?: string;
       eventId: string;
+      isArchived?: boolean;
       normalizationNote?: string;
       normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
       orderedAt?: number;
@@ -399,6 +402,8 @@ export type DataModel = {
       providerStatus?: string;
       rawPayload: any;
       refundedAt?: number;
+      removedAt?: number;
+      removedReason?: string;
       totalAmountMinor?: number;
       _id: Id<"ticketTailorOrders">;
       _creationTime: number;
@@ -406,11 +411,14 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "archivedAt"
+      | "archiveReason"
       | "buyerEmail"
       | "buyerName"
       | "cancelledAt"
       | "currency"
       | "eventId"
+      | "isArchived"
       | "normalizationNote"
       | "normalizedStatus"
       | "orderedAt"
@@ -419,6 +427,8 @@ export type DataModel = {
       | "providerStatus"
       | "rawPayload"
       | "refundedAt"
+      | "removedAt"
+      | "removedReason"
       | "totalAmountMinor";
     indexes: {
       by_id: ["_id"];
@@ -426,6 +436,7 @@ export type DataModel = {
       eventId: ["eventId", "_creationTime"];
       normalizedStatus: ["normalizedStatus", "_creationTime"];
       orderedAt: ["orderedAt", "_creationTime"];
+      providerEventId: ["providerEventId", "_creationTime"];
       providerOrderId: ["providerOrderId", "_creationTime"];
     };
     searchIndexes: {};
@@ -439,6 +450,7 @@ export type DataModel = {
       failedItems?: number;
       finishedAt?: number;
       normalizedFallbackCount?: number;
+      ordersArchived?: number;
       ordersFetched?: number;
       ordersUpserted?: number;
       startedAt?: number;
@@ -455,6 +467,7 @@ export type DataModel = {
       | "failedItems"
       | "finishedAt"
       | "normalizedFallbackCount"
+      | "ordersArchived"
       | "ordersFetched"
       | "ordersUpserted"
       | "startedAt"

@@ -1,6 +1,14 @@
 import { query, mutation, type QueryCtx } from "./_generated/server"
 import { v } from "convex/values"
 
+function isOrderRemoved(order: any) {
+  return typeof order?.removedAt === "number"
+}
+
+function isOrderVisible(order: any) {
+  return !isOrderRemoved(order)
+}
+
 export const getOrders = query({
   args: {
     eventId: v.optional(v.string()),
@@ -19,14 +27,17 @@ export const getOrders = query({
         .query("ticketTailorOrders")
         .withIndex("eventId", (q) => q.eq("eventId", args.eventId!))
         .collect()
+      const visibleOrders = orders.filter(isOrderVisible)
 
       if (args.status) {
-        return orders.filter((o) => o.normalizedStatus === args.status)
+        return visibleOrders.filter((o) => o.normalizedStatus === args.status)
       }
-      return orders
+      return visibleOrders
     }
 
-    const orders = await ctx.db.query("ticketTailorOrders").collect()
+    const orders = (await ctx.db.query("ticketTailorOrders").collect()).filter(
+      isOrderVisible
+    )
 
     if (args.status) {
       return orders.filter((o) => o.normalizedStatus === args.status)
@@ -40,7 +51,12 @@ export const getOrderById = query({
   handler: async (ctx, args) => {
     try {
       const orderId = ctx.db.normalizeId("ticketTailorOrders", args.orderId)
-      return orderId ? await ctx.db.get("ticketTailorOrders", orderId) : null
+      if (!orderId) {
+        return null
+      }
+
+      const order = await ctx.db.get("ticketTailorOrders", orderId)
+      return order && isOrderVisible(order) ? order : null
     } catch {
       return null
     }
@@ -56,7 +72,7 @@ export const getOrderByProviderId = query({
         q.eq("providerOrderId", args.providerOrderId)
       )
       .collect()
-    return orders[0] ?? null
+    return orders.find(isOrderVisible) ?? null
   },
 })
 
@@ -67,9 +83,10 @@ export const getOrderLedger = query({
       .query("ticketTailorOrders")
       .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
       .collect()
+    const visibleOrders = orders.filter(isOrderVisible)
 
     const ordersWithAttendees = await Promise.all(
-      orders.map(async (order) => {
+      visibleOrders.map(async (order) => {
         const attendees = await ctx.db
           .query("ticketTailorAttendees")
           .withIndex("orderId", (q) => q.eq("orderId", order._id))
@@ -183,6 +200,9 @@ const orderLedgerRowValidator = v.object({
   eventId: v.string(),
   eventName: nullableStringValidator,
   normalizedStatus: canonicalOrderStatusValidator,
+  isArchived: v.boolean(),
+  archivedAt: nullableStringValidator,
+  archiveReason: nullableStringValidator,
   totalAmountMinor: v.number(),
   currency: nullableStringValidator,
   orderedAt: nullableStringValidator,
@@ -204,6 +224,10 @@ type CandidateOrder = {
   providerOrderId: string
   providerEventId: string
   eventId: string
+  isArchived?: boolean
+  archivedAt?: number
+  archiveReason?: string
+  removedAt?: number
   normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending"
   totalAmountMinor?: number
   currency?: string
@@ -341,6 +365,7 @@ export const getOrdersWithFilters = query({
   handler: async (ctx, args) => {
     const candidates = await listCandidateOrders(ctx, args, 500)
     const orders = candidates
+      .filter(isOrderVisible)
       .filter((order) => matchesOrderFilters(order, args))
       .sort(sortOrdersByNewest)
 
@@ -358,6 +383,11 @@ export const getOrdersWithFilters = query({
       eventId: order.eventId,
       eventName: eventNamesById.get(order.eventId) ?? null,
       normalizedStatus: order.normalizedStatus ?? "pending",
+      isArchived: order.isArchived === true,
+      archivedAt: order.archivedAt
+        ? new Date(order.archivedAt).toISOString()
+        : null,
+      archiveReason: order.archiveReason ?? null,
       totalAmountMinor: order.totalAmountMinor ?? 0,
       currency: order.currency ?? null,
       orderedAt: order.orderedAt
@@ -393,7 +423,9 @@ export const getOrderCount = query({
     ),
   },
   handler: async (ctx, args) => {
-    let orders = await ctx.db.query("ticketTailorOrders").collect()
+    let orders = (await ctx.db.query("ticketTailorOrders").collect()).filter(
+      isOrderVisible
+    )
 
     if (args.eventId) {
       orders = orders.filter((o) => o.eventId === args.eventId)
@@ -428,6 +460,7 @@ export const getOrdersForReconciliation = query({
     const eventNamesById = await loadEventNamesById(ctx)
 
     return candidates
+      .filter(isOrderVisible)
       .filter((order) => matchesOrderFilters(order, args))
       .sort(sortOrdersByNewest)
       .map((order) => ({
@@ -436,6 +469,11 @@ export const getOrdersForReconciliation = query({
         eventId: order.eventId,
         eventName: eventNamesById.get(order.eventId) ?? null,
         normalizedStatus: order.normalizedStatus ?? "pending",
+        isArchived: order.isArchived === true,
+        archivedAt: order.archivedAt
+          ? new Date(order.archivedAt).toISOString()
+          : null,
+        archiveReason: order.archiveReason ?? null,
         totalAmountMinor: order.totalAmountMinor ?? 0,
         currency: order.currency ?? null,
         orderedAt: order.orderedAt
@@ -471,6 +509,7 @@ export const searchOrders = query({
 
     const filtered = candidates.filter(
       (o) =>
+        !isOrderRemoved(o) &&
         (!args.eventId || o.providerEventId === args.eventId) &&
         (!search ||
           (o.buyerName && o.buyerName.toLowerCase().includes(search)) ||
@@ -501,6 +540,9 @@ export const getOrderWithAttendeesByProviderId = query({
         id: v.id("ticketTailorOrders"),
         providerOrderId: v.string(),
         normalizedStatus: v.optional(canonicalOrderStatusValidator),
+        isArchived: v.optional(v.boolean()),
+        archivedAt: nullableStringValidator,
+        archiveReason: nullableStringValidator,
         totalAmountMinor: v.optional(v.number()),
         orderedAt: nullableStringValidator,
       }),
@@ -524,7 +566,7 @@ export const getOrderWithAttendeesByProviderId = query({
       .collect()
 
     const order = orders.find((o) => o.providerEventId === args.providerEventId)
-    if (!order) return null
+    if (!order || isOrderRemoved(order)) return null
 
     const attendees = await ctx.db
       .query("ticketTailorAttendees")
@@ -536,6 +578,11 @@ export const getOrderWithAttendeesByProviderId = query({
         id: order._id,
         providerOrderId: order.providerOrderId,
         normalizedStatus: order.normalizedStatus,
+        isArchived: order.isArchived,
+        archivedAt: order.archivedAt
+          ? new Date(order.archivedAt).toISOString()
+          : null,
+        archiveReason: order.archiveReason ?? null,
         totalAmountMinor: order.totalAmountMinor,
         orderedAt: order.orderedAt
           ? new Date(order.orderedAt).toISOString()
@@ -579,6 +626,7 @@ export const getOrderPaymentStatus = query({
       ctx.db.query("ticketTailorOrders").order("desc").take(500),
       ctx.db.query("payments").order("desc").take(1000),
     ])
+    const visibleOrders = orders.filter(isOrderVisible)
 
     const paymentsByOrder: Record<string, number> = {}
     for (const payment of payments) {
@@ -597,7 +645,7 @@ export const getOrderPaymentStatus = query({
 
     let totalPaidAmount = 0
 
-    for (const order of orders) {
+    for (const order of visibleOrders) {
       const orderTotal = order.totalAmountMinor ?? 0
       if (orderTotal <= 0) continue
 
@@ -639,7 +687,8 @@ export const getOrderPaymentStatus = query({
     return {
       summary: {
         ...statusCounts,
-        totalOrders: orders.filter((o) => (o.totalAmountMinor ?? 0) > 0).length,
+        totalOrders: visibleOrders.filter((o) => (o.totalAmountMinor ?? 0) > 0)
+          .length,
       },
       totalAmountMinor: totalPaidAmount,
       bySource: {
@@ -653,6 +702,34 @@ export const getOrderPaymentStatus = query({
         manual_assignment: manualAssignment,
         auto_matched: autoMatched,
       },
+    }
+  },
+})
+
+export const removeOrderLocally = mutation({
+  args: {
+    orderId: v.id("ticketTailorOrders"),
+    reason: v.optional(v.string()),
+  },
+  returns: v.object({
+    orderId: v.id("ticketTailorOrders"),
+    removedAt: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const order = await ctx.db.get("ticketTailorOrders", args.orderId)
+    if (!order) {
+      throw new Error("Order not found")
+    }
+
+    const removedAt = Date.now()
+    await ctx.db.patch("ticketTailorOrders", args.orderId, {
+      removedAt,
+      removedReason: args.reason?.trim() || "removed_by_user",
+    })
+
+    return {
+      orderId: args.orderId,
+      removedAt,
     }
   },
 })

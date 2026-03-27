@@ -92,6 +92,11 @@ export default defineSchema({
       providerOrderId: v.string(),
       providerEventId: v.string(),
       eventId: v.string(),
+      isArchived: v.optional(v.boolean()),
+      archivedAt: v.optional(v.number()),
+      archiveReason: v.optional(v.string()),
+      removedAt: v.optional(v.number()),
+      removedReason: v.optional(v.string()),
       normalizedStatus: v.optional(
         v.union(
           v.literal("paid"),
@@ -113,6 +118,7 @@ export default defineSchema({
     })
   )
     .index("providerOrderId", ["providerOrderId"])
+    .index("providerEventId", ["providerEventId"])
     .index("eventId", ["eventId"])
     .index("orderedAt", ["orderedAt"])
     .index("normalizedStatus", ["normalizedStatus"]),
@@ -317,6 +323,7 @@ export default defineSchema({
       eventsScanned: v.optional(v.number()),
       ordersFetched: v.optional(v.number()),
       ordersUpserted: v.optional(v.number()),
+      ordersArchived: v.optional(v.number()),
       normalizedFallbackCount: v.optional(v.number()),
       failedItems: v.optional(v.number()),
       errorSummary: v.optional(v.string()),
