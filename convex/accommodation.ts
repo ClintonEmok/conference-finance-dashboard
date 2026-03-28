@@ -1,6 +1,7 @@
 import { internalMutation, query, mutation } from "./_generated/server"
 import { v } from "convex/values"
 import type { Doc, Id } from "./_generated/dataModel"
+import { requireIdentity } from "./auth"
 
 type DocTables = {
   accommodationHotels: Doc<"accommodationHotels">
@@ -630,6 +631,7 @@ export const createHotel = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const id = await ctx.db.insert("accommodationHotels", args)
     return id
   },
@@ -644,6 +646,7 @@ export const createRoom = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const id = await ctx.db.insert("accommodationRooms", {
       ...args,
       occupiedBeds: 0,
@@ -661,6 +664,7 @@ export const createRooms = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const hotel = await getAccommodationHotelByStringId(ctx, args.hotelId)
     const roomType = await getAccommodationRoomTypeByStringId(
       ctx,
@@ -723,6 +727,7 @@ export const createRoomType = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const id = await ctx.db.insert("accommodationRoomTypes", args)
     return id
   },
@@ -734,6 +739,7 @@ export const assignRoomToAttendee = mutation({
     roomId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const roomId = normalizeDocId(
       ctx,
       "accommodationRooms",
@@ -793,6 +799,7 @@ export const assignAttendeeToRoom = mutation({
     roomId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const roomId = normalizeDocId(
       ctx,
       "accommodationRooms",
@@ -855,6 +862,7 @@ export const unassignRoomFromAttendee = mutation({
     attendeeId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const attendeeId = normalizeDocId(
       ctx,
       "ticketTailorAttendees",
@@ -887,6 +895,7 @@ export const unassignAttendeeFromRoom = mutation({
     attendeeId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const attendeeId = normalizeDocId(
       ctx,
       "ticketTailorAttendees",
@@ -938,6 +947,7 @@ export const linkHotelToEvent = mutation({
     hotelId: v.id("accommodationHotels"),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const existing = await ctx.db
       .query("accommodationEventHotels")
       .withIndex("eventId_hotelId", (q) =>
@@ -963,6 +973,7 @@ export const unlinkHotelFromEvent = mutation({
     hotelId: v.id("accommodationHotels"),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const link = await ctx.db
       .query("accommodationEventHotels")
       .withIndex("eventId_hotelId", (q) =>
@@ -986,6 +997,7 @@ export const updateHotel = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const { hotelId, ...data } = args
     const normalizedHotelId = normalizeDocId(
       ctx,
@@ -1001,6 +1013,7 @@ export const updateHotel = mutation({
 export const deleteHotel = mutation({
   args: { hotelId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const hotelId = normalizeDocId(
       ctx,
       "accommodationHotels",
@@ -1048,6 +1061,7 @@ export const updateRoomLabel = mutation({
     label: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const roomId = normalizeDocId(
       ctx,
       "accommodationRooms",
@@ -1064,6 +1078,7 @@ export const updateRoomLabel = mutation({
 export const deleteRoom = mutation({
   args: { roomId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const roomId = normalizeDocId(
       ctx,
       "accommodationRooms",
@@ -1095,6 +1110,7 @@ export const updateRoomType = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const { roomTypeId, ...data } = args
     const normalizedRoomTypeId = normalizeDocId(
       ctx,
@@ -1110,6 +1126,7 @@ export const updateRoomType = mutation({
 export const deleteRoomType = mutation({
   args: { roomTypeId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const rooms = await ctx.db
       .query("accommodationRooms")
       .withIndex("roomTypeId", (q) => q.eq("roomTypeId", args.roomTypeId))
@@ -1149,6 +1166,7 @@ export const attachHotelToEventByProviderId = mutation({
     hotelId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const event = await ctx.db
       .query("ticketTailorEvents")
       .withIndex("providerEventId", (q) =>
@@ -1184,6 +1202,7 @@ export const detachHotelFromEventByProviderId = mutation({
     hotelId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const link = await ctx.db
       .query("accommodationEventHotels")
       .withIndex("eventId_hotelId", (q) =>
