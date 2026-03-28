@@ -292,7 +292,7 @@ export default function ReconciliationPage() {
                 return (
                   <article 
                     key={row.providerOrderId}
-                    className="flex flex-col overflow-hidden rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl transition-all hover:border-primary/30"
+                    className="flex flex-col overflow-hidden rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl transition-all hover:border-primary/30"
                   >
                     <div className="p-5 pb-0">
                       <div className="flex items-start justify-between gap-4">

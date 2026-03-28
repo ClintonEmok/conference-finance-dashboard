@@ -175,14 +175,14 @@ export default function PaymentsPage() {
           { label: "Fully Paid", value: summary?.summary.paid ?? 0, icon: CheckCircle2, color: "text-emerald-500", bg: "bg-emerald-500/10", detail: "Settled" },
           { label: "Overpaid", value: summary?.summary.overpaid ?? 0, icon: CircleAlert, color: "text-purple-500", bg: "bg-purple-500/10", detail: "Excess" },
         ].map((stat) => (
-          <article key={stat.label} className="group rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl p-6 transition-all hover:border-primary/20">
+          <article key={stat.label} className="group rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl p-6 transition-all hover:border-primary/20">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">{stat.label}</p>
                 <p className="mt-2 text-3xl font-bold text-foreground">{isLoading ? "--" : stat.value}</p>
                 <p className="mt-1 text-[10px] font-medium text-muted-foreground/50">{stat.detail}</p>
               </div>
-              <div className={`flex size-10 items-center justify-center rounded-xl ${stat.bg} ${stat.color}`}>
+              <div className={`flex size-10 items-center justify-center rounded-lg ${stat.bg} ${stat.color}`}>
                 <stat.icon className="size-5" />
               </div>
             </div>
@@ -191,7 +191,7 @@ export default function PaymentsPage() {
       </div>
 
       {syncFeedback && (
-        <article className={`rounded-3xl border p-6 animate-in slide-in-from-top-4 ${
+        <article className={`rounded-xl border p-6 animate-in slide-in-from-top-4 ${
           syncFeedback.status === "failed" ? "border-destructive/30 bg-destructive/5 text-destructive" :
           syncFeedback.status === "partial" ? "border-yellow-300/30 bg-yellow-50/5 text-yellow-600" :
           "border-emerald-300/30 bg-emerald-50/5 text-emerald-600"
@@ -208,7 +208,7 @@ export default function PaymentsPage() {
       )}
 
       {showEntryForm && (
-        <article className="rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl overflow-hidden animate-in zoom-in-95 duration-300">
+        <article className="rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl overflow-hidden animate-in zoom-in-95 duration-300">
            <div className="p-8 border-b border-border/30">
              <h2 className="text-xl font-bold">Record Manual Payment</h2>
              <p className="text-sm text-muted-foreground">Enter bank transfer or cash payment details</p>
@@ -219,7 +219,7 @@ export default function PaymentsPage() {
         </article>
       )}
 
-      <article className="rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl overflow-hidden">
+      <article className="rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl overflow-hidden">
         <div className="p-8 border-b border-border/30 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold">Payment History</h2>

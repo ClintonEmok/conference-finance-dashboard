@@ -2,13 +2,10 @@
 
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useCallback } from "react"
 import {
   BedDouble,
-  CalendarDays,
-  Calendar,
   ChevronRight,
-  Clock,
   CreditCard,
   FileText,
   Flag,
@@ -19,17 +16,21 @@ import {
   UserRound,
   Utensils,
   Users,
+  Calendar,
+  Clock,
+  ArrowLeft,
+  ExternalLink,
+  ShieldCheck,
+  Zap,
+  CheckCircle2,
+  XCircle,
+  Layers,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 
 type AttendeeDetailPayload = {
   attendee: {
@@ -115,684 +116,258 @@ function formatMoney(minor: number) {
   }).format(minor / 100)
 }
 
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return "-"
-  }
-
-  const parsed = new Date(value)
-
-  if (Number.isNaN(parsed.getTime())) {
-    return value
-  }
-
-  return parsed.toLocaleString()
+function formatStatus(status: string | null) {
+  if (!status) return "-"
+  return status.replace(/[-_]/g, " ")
 }
 
-function formatStatusLabel(value: string | null) {
-  if (!value) {
-    return "-"
-  }
-
-  return value.replace(/[-_]/g, " ")
-}
-
-function formatGenderLabel(value: GenderType | null) {
-  if (!value) {
-    return "Not set"
-  }
-
-  if (value === "MALE") {
-    return "Male"
-  }
-
-  if (value === "FEMALE") {
-    return "Female"
-  }
-
-  if (value === "MIXED") {
-    return "Mixed"
-  }
-
-  return "Unknown"
-}
-
-function paymentMethodLabel(
-  entry: AttendeeDetailPayload["paymentHistory"][number]
-) {
-  if (entry.type === "payment-link") {
-    return "Tikkie"
-  }
-
-  if (entry.type === "assigned-payment") {
-    return "Assigned payment"
-  }
-
-  return "Status update"
-}
-
-function paymentMethodClasses(
-  entry: AttendeeDetailPayload["paymentHistory"][number]
-) {
-  if (entry.type === "payment-link") {
-    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
-  }
-
-  if (entry.type === "assigned-payment") {
-    return "bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300"
-  }
-
-  return "bg-slate-100 text-slate-700 dark:bg-slate-900/60 dark:text-slate-300"
-}
-
-type PageProps = {
-  params: Promise<{
-    attendeeId: string
-  }>
-}
-
-export default function AttendeeDetailPage({ params }: PageProps) {
+export default function AttendeeDetailPage({ params }: { params: Promise<{ attendeeId: string }> }) {
   const searchParams = useSearchParams()
   const [attendeeId, setAttendeeId] = useState<string | null>(null)
   const [payload, setPayload] = useState<AttendeeDetailPayload | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [matchedPayments, setMatchedPayments] = useState<
-    Array<{
-      _id: string
-      payerName: string
-      amountMinor: number
-      paidAt: number
-    }>
-  >([])
-  const [isLoadingPayments, setIsLoadingPayments] = useState(false)
   const [selectedGender, setSelectedGender] = useState<"" | GenderType>("")
   const [isSavingGender, setIsSavingGender] = useState(false)
-  const [genderSaveMessage, setGenderSaveMessage] = useState<string | null>(
-    null
-  )
 
   const attendeeSearch = searchParams.get("search")
   const eventId = searchParams.get("eventId")
-  const source = searchParams.get("source")
 
-  const backToAttendeesHref = (() => {
-    const params = new URLSearchParams()
-
-    if (attendeeSearch) {
-      params.set("search", attendeeSearch)
-    }
-
-    if (eventId) {
-      params.set("eventId", eventId)
-    }
-
-    if (source) {
-      params.set("source", source)
-    }
-
-    const query = params.toString()
-    return query ? `/dashboard/attendees?${query}` : "/dashboard/attendees"
-  })()
-
-  const manageRoomAssignmentHref = (() => {
-    if (!attendeeId) {
-      return "/dashboard/accommodation"
-    }
-
-    const params = new URLSearchParams({
-      attendeeId,
-      source: "attendee-detail",
-    })
-
-    if (payload?.attendee.name) {
-      params.set("search", payload.attendee.name)
-    } else if (attendeeSearch) {
-      params.set("search", attendeeSearch)
-    }
-
-    if (eventId ?? payload?.attendee.providerEventId) {
-      params.set("eventId", eventId ?? payload?.attendee.providerEventId ?? "")
-    }
-
-    return `/dashboard/accommodation?${params.toString()}`
-  })()
-
-  const orderDetailHref = (() => {
-    if (!payload) {
-      return "/dashboard/orders"
-    }
-
-    const params = new URLSearchParams({
-      eventId: payload.order.providerEventId,
-      source: "attendee-detail",
-      attendeeId: payload.attendee.id,
-    })
-
-    if (attendeeSearch) {
-      params.set("search", attendeeSearch)
-    }
-
-    return `/dashboard/orders/${encodeURIComponent(payload.order.providerOrderId)}?${params.toString()}`
-  })()
-
-  async function loadAttendeeDetail(
-    targetAttendeeId: string,
-    options?: { silent?: boolean }
-  ) {
-    if (!options?.silent) {
-      setIsLoading(true)
-    }
-
-    setErrorMessage(null)
-
+  const loadAttendeeDetail = useCallback(async (targetId: string, silent = false) => {
+    if (!silent) setIsLoading(true)
     try {
-      const response = await fetch(
-        `/api/dashboard/attendees/${targetAttendeeId}`
-      )
-      const body = (await response.json().catch(() => null)) as
-        | AttendeeDetailPayload
-        | { error?: { message?: string } }
-        | null
-
-      if (!response.ok) {
-        setPayload(null)
-        setErrorMessage(
-          body && "error" in body
-            ? (body.error?.message ?? "Failed to load attendee detail.")
-            : "Failed to load attendee detail."
-        )
-        return false
-      }
-
-      setPayload(body as AttendeeDetailPayload)
-      return true
+      const res = await fetch(`/api/dashboard/attendees/${targetId}`)
+      if (!res.ok) throw new Error("Failed to load")
+      const data = await res.json()
+      setPayload(data)
+      setSelectedGender(data.signals.genderType ?? "")
     } catch {
-      setPayload(null)
-      setErrorMessage("Network error while loading attendee detail.")
-      return false
+      setErrorMessage("Failed to load attendee information.")
     } finally {
-      if (!options?.silent) {
-        setIsLoading(false)
-      }
+      setIsLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    let cancelled = false
+    params.then(p => {
+      setAttendeeId(p.attendeeId)
+      loadAttendeeDetail(p.attendeeId)
+    })
+  }, [params, loadAttendeeDetail])
 
-    async function resolveParamsAndLoad() {
-      const resolved = await params
-
-      if (cancelled) {
-        return
-      }
-
-      setAttendeeId(resolved.attendeeId)
-      if (!cancelled) {
-        await loadAttendeeDetail(resolved.attendeeId)
-      }
-    }
-
-    void resolveParamsAndLoad()
-
-    return () => {
-      cancelled = true
-    }
-  }, [params])
-
-  const paymentProgress = useMemo(() => {
-    if (!payload || payload.order.totalAmountMinor <= 0) {
-      return 0
-    }
-
-    return Math.max(
-      0,
-      Math.min(
-        100,
-        Math.round(
-          (payload.finance.paidAmountMinor / payload.order.totalAmountMinor) *
-            100
-        )
-      )
-    )
-  }, [payload])
-
-  const attendeeName = payload?.attendee.name ?? "Unnamed attendee"
-  const attendeeInitials = attendeeName
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("")
-
-  useEffect(() => {
-    if (!payload) {
-      return
-    }
-
-    setSelectedGender(payload.signals.genderType ?? "")
-    setGenderSaveMessage(null)
-  }, [payload])
-
-  async function handleSaveGender() {
-    if (!attendeeId) {
-      return
-    }
-
+  const handleSaveGender = async () => {
+    if (!attendeeId) return
     setIsSavingGender(true)
-    setGenderSaveMessage(null)
-
     try {
-      const response = await fetch(`/api/dashboard/attendees/${attendeeId}`, {
+      const res = await fetch(`/api/dashboard/attendees/${attendeeId}`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          genderType: selectedGender || null,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ genderType: selectedGender || null }),
       })
-
-      const body = (await response.json().catch(() => null)) as {
-        error?: { message?: string }
-      } | null
-
-      if (!response.ok) {
-        setGenderSaveMessage(body?.error?.message ?? "Failed to update gender.")
-        return
-      }
-
-      setGenderSaveMessage("Gender updated.")
-      await loadAttendeeDetail(attendeeId, { silent: true })
-    } catch {
-      setGenderSaveMessage("Network error while updating gender.")
+      if (!res.ok) throw new Error()
+      loadAttendeeDetail(attendeeId, true)
     } finally {
       setIsSavingGender(false)
     }
   }
 
-  useEffect(() => {
-    if (!payload?.attendee.providerEventId || !payload?.order.id) {
-      return
-    }
+  if (isLoading) {
+    return (
+      <div className="space-y-8 p-1 animate-pulse">
+        <Skeleton className="h-32 w-full rounded-3xl" />
+        <div className="grid gap-6 lg:grid-cols-3">
+          <Skeleton className="h-96 lg:col-span-2 rounded-3xl" />
+          <Skeleton className="h-96 rounded-3xl" />
+        </div>
+      </div>
+    )
+  }
 
-    let cancelled = false
+  if (!payload) return <div className="p-8 text-center text-muted-foreground">{errorMessage || "Attendee not found."}</div>
 
-    async function fetchMatchedPayments() {
-      setIsLoadingPayments(true)
-      try {
-        const res = await fetch(
-          `/api/dashboard/tikkie-event-links?eventId=${encodeURIComponent(payload!.attendee.providerEventId)}`
-        )
-        if (!res.ok) return
-        const data = (await res.json()) as {
-          payments: Array<{
-            _id: string
-            payerName: string
-            amountMinor: number
-            paidAt: number
-            orderId?: string
-          }>
-        }
-        if (!cancelled) {
-          setMatchedPayments(
-            data.payments.filter((p) => p.orderId === payload!.order.id)
-          )
-        }
-      } catch {
-        // silently fail
-      } finally {
-        if (!cancelled) setIsLoadingPayments(false)
-      }
-    }
-
-    void fetchMatchedPayments()
-    return () => {
-      cancelled = true
-    }
-  }, [payload])
+  const initials = payload.attendee.name?.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
+  const paymentProgress = Math.round((payload.finance.paidAmountMinor / payload.order.totalAmountMinor) * 100) || 0
 
   return (
-    <section className="space-y-6">
-      {errorMessage && (
-        <article className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
-          {errorMessage}
-        </article>
-      )}
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-12">
+      {/* Premium Header */}
+      <header className="relative overflow-hidden rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl p-8 shadow-2xl">
+        <div className="absolute -right-20 -top-20 size-64 rounded-full bg-primary/5 blur-3xl" />
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-center">
+          <div className="relative">
+             <div className="flex size-32 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 shadow-inner border border-primary/20 text-4xl font-bold text-primary">
+               {initials}
+             </div>
+             <div className={cn(
+               "absolute -bottom-1 -right-1 size-8 rounded-full border-4 border-card flex items-center justify-center",
+               payload.attendee.ticketStatus === "checked_in" ? "bg-emerald-500" : "bg-orange-500"
+             )}>
+                {payload.attendee.ticketStatus === "checked_in" ? <ShieldCheck className="size-4 text-white" /> : <Clock className="size-4 text-white" />}
+             </div>
+          </div>
 
-      {!errorMessage && isLoading && (
-        <article className="rounded-xl border border-border bg-background/80 p-5 text-sm text-muted-foreground shadow-sm backdrop-blur">
-          Loading attendee detail...
-        </article>
-      )}
+          <div className="flex-1 space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href="/dashboard/attendees" className="group flex items-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors">
+                <ArrowLeft className="mr-2 size-3 group-hover:-translate-x-1 transition-transform" /> Directory
+              </Link>
+              <ChevronRight className="size-3 text-muted-foreground/30" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">Attendee Detail</span>
+            </div>
 
-      {!errorMessage && !isLoading && payload && (
-        <>
-          <section className="rounded-xl border border-border/70 bg-background/88 p-5 shadow-sm backdrop-blur">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-              <div className="flex gap-4">
-                <div className="flex size-28 shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(145deg,rgba(113,84,255,0.18),rgba(83,56,171,0.12))] text-3xl font-semibold text-primary shadow-inner">
-                  {attendeeInitials || "A"}
+            <div>
+              <h1 className="text-4xl lg:text-5xl font-extrabold tracking-tight text-foreground">
+                {payload.attendee.name}
+              </h1>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Badge variant="outline" className="rounded-xl h-7 px-3 bg-primary/5 text-primary border-primary/20 font-bold uppercase tracking-wider text-[9px]">
+                  {payload.attendee.ticketTypeLabel}
+                </Badge>
+                <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <Mail className="size-4 text-primary/50" />
+                  {payload.attendee.email}
                 </div>
-
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-[0.22em] text-muted-foreground uppercase">
-                    <span>Directory</span>
-                    <ChevronRight className="size-3" />
-                    <span>Attendee details</span>
-                  </div>
-
-                  <div>
-                    <h2 className="text-4xl font-semibold tracking-tight text-primary md:text-5xl">
-                      {attendeeName}
-                    </h2>
-                    <p className="mt-2 text-lg text-muted-foreground">
-                      {payload.attendee.ticketTypeLabel ??
-                        payload.event.name ??
-                        payload.attendee.providerEventId}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <span className="rounded-full border border-border/70 bg-background px-3 py-1.5">
-                      Event:{" "}
-                      {payload.event.name ?? payload.attendee.providerEventId}
-                    </span>
-                    <span className="rounded-full border border-border/70 bg-background px-3 py-1.5">
-                      Order: {payload.order.providerOrderId}
-                    </span>
-                    <span className="rounded-full border border-border/70 bg-background px-3 py-1.5 capitalize">
-                      Status: {payload.order.normalizedStatus}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex min-w-[250px] flex-col gap-2">
-                <Button asChild variant="outline" className="justify-start">
-                  <Link href={backToAttendeesHref}>Back to attendees</Link>
-                </Button>
-                <Button asChild variant="outline" className="justify-start">
-                  <Link href={orderDetailHref}>Open order payment detail</Link>
-                </Button>
-                <Button asChild className="justify-start">
-                  <Link href={manageRoomAssignmentHref}>
-                    Manage room assignment
-                  </Link>
-                </Button>
               </div>
             </div>
-          </section>
+          </div>
 
-          <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_340px]">
-            <Card className="bg-background/88 backdrop-blur">
-              <CardHeader className="flex flex-wrap items-center justify-between gap-3 sm:flex-row">
-                <div>
-                  <CardTitle className="text-2xl text-primary">
-                    Financial status
-                  </CardTitle>
-                  <CardDescription>
-                    Live payment health across Ticket Tailor and Tikkie
-                    activity.
-                  </CardDescription>
-                </div>
-                <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium tracking-[0.18em] text-primary uppercase">
-                  {payload.finance.installmentProgress.totalLinks > 0
-                    ? "Installments active"
-                    : "No installments"}
-                </span>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid gap-4 md:grid-cols-4">
-                  <div>
-                    <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                      Total amount due
-                    </p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight">
-                      {formatMoney(payload.order.totalAmountMinor)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                      Amount matched
-                    </p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-700 dark:text-emerald-300">
-                      {formatMoney(payload.finance.paidAmountMinor)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                      Remaining balance
-                    </p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight text-rose-600 dark:text-rose-300">
-                      {formatMoney(payload.finance.outstandingAmountMinor)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                      Overpaid
-                    </p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-600 dark:text-amber-300">
-                      {formatMoney(payload.finance.overpaidAmountMinor)}
-                    </p>
-                  </div>
-                </div>
+          <div className="flex flex-wrap gap-3">
+             <Button asChild variant="outline" className="rounded-2xl h-12 px-6 shadow-sm hover:bg-primary/5 active:scale-95 transition-all">
+                <Link href={`/dashboard/orders/${payload.order.providerOrderId}?eventId=${payload.order.providerEventId}`}>
+                  <CreditCard className="mr-2 size-4 text-primary" /> Order Detail
+                </Link>
+             </Button>
+             <Button asChild className="rounded-2xl h-12 px-8 bg-primary text-white shadow-lg shadow-primary/20 active:scale-95 transition-all">
+                <Link href={`/dashboard/accommodation?attendeeId=${payload.attendee.id}&search=${encodeURIComponent(payload.attendee.name || "")}`}>
+                  <BedDouble className="mr-2 size-4" /> Room Placement
+                </Link>
+             </Button>
+          </div>
+        </div>
+      </header>
 
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-lg font-medium">Payment progress</p>
-                    <p className="text-2xl font-semibold text-primary">
-                      {paymentProgress}%
-                    </p>
-                  </div>
-                  <div className="h-3 rounded-full bg-muted">
-                    <div
-                      className="h-3 rounded-full bg-[linear-gradient(90deg,#0f6b21,#6bcc74)]"
-                      style={{ width: `${paymentProgress}%` }}
-                    />
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    {payload.finance.installmentProgress.openLinks} open links,{" "}
-                    {payload.finance.installmentProgress.expiredLinks} expired,{" "}
-                    {payload.finance.installmentProgress.paidLinks} paid.
-                  </p>
-                </div>
+      <div className="grid gap-8 lg:grid-cols-3">
+        {/* Left Column: Finance & History */}
+        <div className="lg:col-span-2 space-y-8">
+          {/* Finance Insights */}
+          <article className="rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl p-8 shadow-sm">
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h3 className="text-xl font-bold text-foreground">Order Ledger</h3>
+              </div>
+              <div className="size-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
+                <Zap className="size-5" />
+              </div>
+            </div>
 
-                <div className="space-y-4 rounded-2xl border border-border/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,0.88))] p-4 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.68),rgba(17,24,39,0.76))]">
-                  <p className="text-[11px] font-semibold tracking-[0.2em] text-cyan-700 uppercase dark:text-cyan-300">
-                    Event payments
-                  </p>
-                  {isLoadingPayments ? (
-                    <div className="h-8 w-48 animate-pulse rounded bg-muted" />
-                  ) : matchedPayments.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No matched payments yet.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {matchedPayments.map((p) => (
-                        <div
-                          key={p._id}
-                          className="flex items-center justify-between rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
-                        >
-                          <div>
-                            <p className="font-medium">{p.payerName}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(p.paidAt).toLocaleDateString()}
-                            </p>
+            <div className="grid gap-6 sm:grid-cols-3 mb-8">
+              <div className="p-5 rounded-lg bg-background/40 border border-border/30">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Total Due</p>
+                <p className="text-2xl font-bold text-foreground mt-1">{formatMoney(payload.order.totalAmountMinor)}</p>
+              </div>
+              <div className="p-5 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600/70">Amount Paid</p>
+                <p className="text-2xl font-bold text-emerald-600 mt-1">{formatMoney(payload.finance.paidAmountMinor)}</p>
+              </div>
+              <div className="p-5 rounded-lg bg-orange-500/5 border border-orange-500/10">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-orange-600/70">Outstanding</p>
+                <p className="text-2xl font-bold text-orange-600 mt-1">{formatMoney(payload.finance.outstandingAmountMinor)}</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-foreground">Settlement Progress</span>
+                <span className="text-sm font-black text-primary">{paymentProgress}%</span>
+              </div>
+              <div className="h-3 rounded-full bg-muted/50 overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-primary to-emerald-500 transition-all duration-1000" 
+                  style={{ width: `${paymentProgress}%` }}
+                />
+              </div>
+            </div>
+          </article>
+
+          {/* Activity Ledger */}
+          <article className="rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl overflow-hidden shadow-sm">
+             <div className="p-8 pb-4">
+                <h3 className="text-xl font-bold text-foreground">Activity Ledger</h3>
+                <p className="text-xs font-medium text-muted-foreground mt-0.5">Timeline of payments and status updates</p>
+             </div>
+             <div className="overflow-x-auto">
+               <table className="w-full text-left">
+                  <thead className="bg-muted/30 border-y border-border/20">
+                    <tr>
+                      <th className="px-8 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Event</th>
+                      <th className="px-8 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Date</th>
+                      <th className="px-8 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/10">
+                    {payload.paymentHistory.map((item) => (
+                      <tr key={item.id} className="hover:bg-muted/20 transition-colors">
+                        <td className="px-8 py-5">
+                          <p className="font-bold text-foreground text-sm">{item.title}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                             <Badge variant="outline" className="rounded-lg h-5 px-1.5 text-[9px] font-bold border-primary/20 text-primary/70">{item.type.replace('-', ' ')}</Badge>
+                             {item.url && <a href={item.url} target="_blank" className="text-primary hover:underline flex items-center gap-1 text-[10px] font-bold uppercase tracking-tighter"><ExternalLink className="size-2.5" /> View Tikkie</a>}
                           </div>
-                          <p className="font-semibold text-emerald-700 dark:text-emerald-300">
-                            {formatMoney(p.amountMinor)}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                        </td>
+                        <td className="px-8 py-5 text-xs font-medium text-muted-foreground">
+                          {new Date(item.happenedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="px-8 py-5 text-right font-black tabular-nums text-foreground">
+                          {item.amountMinor ? formatMoney(item.amountMinor) : "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+               </table>
+             </div>
+          </article>
+        </div>
 
-            <article className="overflow-hidden rounded-xl bg-[linear-gradient(145deg,rgba(15,54,138,0.96),rgba(20,64,156,0.92))] text-primary-foreground shadow-[0_20px_56px_rgba(16,43,113,0.24)]">
-              <div className="border-b border-white/10 px-6 py-5">
-                <div className="flex items-center gap-3">
-                  <span className="flex size-10 items-center justify-center rounded-lg bg-white/10">
-                    <BedDouble className="size-5" />
-                  </span>
-                  <h3 className="text-2xl font-semibold tracking-tight">
-                    Accommodation
-                  </h3>
-                </div>
-              </div>
+        {/* Right Column: Context & Stats */}
+        <div className="space-y-8">
+          {/* Accommodation Pulse */}
+          <article className="rounded-xl bg-indigo-600 p-8 text-white shadow-xl shadow-indigo-200 dark:shadow-indigo-950 flex flex-col justify-between min-h-[220px]">
+            <div className="flex items-start justify-between">
+               <div className="size-12 rounded-lg bg-white/10 flex items-center justify-center backdrop-blur-md">
+                 <BedDouble className="size-6" />
+               </div>
+               <Badge className="bg-white/20 hover:bg-white/20 border-none text-[9px] font-black uppercase tracking-widest text-white/90">
+                 {payload.roomStatus.status}
+               </Badge>
+            </div>
+            <div>
+               <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-200/60">Live Accommodation</p>
+               <h3 className="text-2xl font-bold mt-1 text-white truncate">
+                 {payload.roomStatus.status === "assigned" ? payload.roomStatus.hotelName : "Unassigned"}
+               </h3>
+               {payload.roomStatus.status === "assigned" && (
+                 <div className="mt-3 flex items-center gap-4 text-xs font-bold text-indigo-100/80">
+                   <span className="flex items-center gap-1.5"><Layers className="size-3.5 opacity-60" /> {payload.roomStatus.roomLabel}</span>
+                   <span className="flex items-center gap-1.5"><Users className="size-3.5 opacity-60" /> {payload.roomStatus.roomTypeLabel}</span>
+                 </div>
+               )}
+            </div>
+          </article>
 
-              <div className="space-y-5 px-6 py-6 text-sm">
-                <div>
-                  <p className="text-[11px] tracking-[0.2em] text-primary-foreground/70 uppercase">
-                    Assigned hotel
-                  </p>
-                  <p className="mt-2 text-2xl leading-tight font-semibold">
-                    {payload.roomStatus.status === "assigned"
-                      ? payload.roomStatus.hotelName
-                      : "Not assigned yet"}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-[11px] tracking-[0.2em] text-primary-foreground/70 uppercase">
-                      Room
-                    </p>
-                    <p className="mt-2 text-xl font-semibold">
-                      {payload.roomStatus.roomLabel ?? "-"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] tracking-[0.2em] text-primary-foreground/70 uppercase">
-                      Type
-                    </p>
-                    <p className="mt-2 text-xl font-semibold">
-                      {payload.roomStatus.roomTypeLabel ?? "-"}
-                    </p>
-                  </div>
-                </div>
-
-                <Button
-                  asChild
-                  variant="secondary"
-                  className="w-full justify-center bg-white/10 text-primary-foreground hover:bg-white/16"
-                >
-                  <Link href={manageRoomAssignmentHref}>
-                    Manage room assignment
-                  </Link>
-                </Button>
-              </div>
-            </article>
-          </section>
-
-          <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_340px]">
-            <Card className="bg-background/88 backdrop-blur">
-              <CardHeader className="flex flex-wrap items-center justify-between gap-3 sm:flex-row">
-                <div>
-                  <CardTitle className="text-2xl text-primary">
-                    Payment history ledger
-                  </CardTitle>
-                  <CardDescription>
-                    Payment links, transitions, and reminder-ready history for
-                    this attendee&apos;s order.
-                  </CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {payload.paymentHistory.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No Tikkie payment activity recorded yet for this
-                    attendee&apos;s order.
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full border-separate border-spacing-y-2 text-sm">
-                      <thead>
-                        <tr className="text-left text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                          <th className="px-4 py-2">Transaction</th>
-                          <th className="px-4 py-2">Date</th>
-                          <th className="px-4 py-2">Method</th>
-                          <th className="px-4 py-2">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {payload.paymentHistory.map((entry) => (
-                          <tr
-                            key={entry.id}
-                            className="bg-background shadow-sm"
-                          >
-                            <td className="rounded-l-lg px-4 py-4">
-                              <p className="font-medium text-primary">
-                                {entry.title}
-                              </p>
-                              {entry.note && (
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  {entry.note}
-                                </p>
-                              )}
-                              {entry.url && (
-                                <a
-                                  className="mt-2 inline-flex text-xs text-primary underline"
-                                  href={entry.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  Open payment link
-                                </a>
-                              )}
-                            </td>
-                            <td className="px-4 py-4 text-muted-foreground">
-                              {formatDateTime(entry.happenedAt)}
-                            </td>
-                            <td className="px-4 py-4">
-                              <span
-                                className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${paymentMethodClasses(entry)}`}
-                              >
-                                {paymentMethodLabel(entry)}
-                              </span>
-                            </td>
-                            <td className="rounded-r-lg px-4 py-4 text-right font-semibold text-foreground">
-                              {entry.amountMinor === null
-                                ? "-"
-                                : formatMoney(entry.amountMinor)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="bg-background/88 backdrop-blur">
-              <CardHeader>
-                <CardTitle className="text-lg">Attendee snapshot</CardTitle>
-                <CardDescription>
-                  Quick reference for attendee, ticket, and order context.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4 text-sm">
-                <div className="rounded-lg border border-border/70 bg-background px-3 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                      Gender
-                    </p>
-                    <Badge variant="outline" className="uppercase">
-                      {formatGenderLabel(payload.signals.genderType)}
-                    </Badge>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <select
-                      className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          {/* Personal Profile */}
+          <article className="rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl p-8 shadow-sm">
+            <h3 className="text-sm font-black uppercase tracking-widest text-foreground flex items-center gap-2 mb-6">
+               <UserRound className="size-4 text-primary" /> Profile Attributes
+            </h3>
+            
+            <div className="space-y-6">
+               <div className="space-y-2">
+                 <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Gender Signal</label>
+                 <div className="flex gap-2">
+                    <select 
                       value={selectedGender}
-                      onChange={(event) =>
-                        setSelectedGender(event.target.value as "" | GenderType)
-                      }
+                      onChange={(e) => setSelectedGender(e.target.value as any)}
+                      className="flex-1 h-10 rounded-xl border border-border/40 bg-background/50 px-3 text-xs font-bold transition-all"
                     >
                       <option value="">Not set</option>
                       <option value="MALE">Male</option>
@@ -800,179 +375,56 @@ export default function AttendeeDetailPage({ params }: PageProps) {
                       <option value="MIXED">Mixed</option>
                       <option value="UNKNOWN">Unknown</option>
                     </select>
-                    <Button
-                      size="sm"
-                      onClick={handleSaveGender}
-                      disabled={
-                        isSavingGender ||
-                        (payload.signals.genderType ?? "") === selectedGender
-                      }
+                    <Button 
+                      size="sm" 
+                      onClick={handleSaveGender} 
+                      disabled={isSavingGender || payload.signals.genderType === selectedGender}
+                      className="h-10 rounded-xl px-4 active:scale-95 transition-all"
                     >
-                      {isSavingGender ? "Saving..." : "Save gender"}
+                      Save
                     </Button>
-                  </div>
-                  {genderSaveMessage && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {genderSaveMessage}
-                    </p>
-                  )}
-                </div>
+                 </div>
+               </div>
 
-                {[
-                  {
-                    label: "Email",
-                    value: payload.attendee.email ?? "-",
-                    icon: Mail,
-                  },
-                  {
-                    label: "Gender",
-                    value: formatGenderLabel(payload.signals.genderType),
-                    icon: UserRound,
-                  },
-                  {
-                    label: "Buyer",
-                    value:
-                      payload.order.buyerName ??
-                      payload.order.buyerEmail ??
-                      "-",
-                    icon: UserRound,
-                  },
-                  {
-                    label: "Ordered at",
-                    value: formatDateTime(payload.order.orderedAt),
-                    icon: CalendarDays,
-                  },
-                  {
-                    label: "Ticket status",
-                    value: formatStatusLabel(payload.attendee.ticketStatus),
-                    icon: ReceiptText,
-                  },
-                  {
-                    label: "Checked in",
-                    value: formatDateTime(payload.attendee.checkedInAt),
-                    icon: CreditCard,
-                  },
-                ].map((item) => {
-                  const Icon = item.icon
-                  return (
-                    <div
-                      key={item.label}
-                      className="flex gap-3 rounded-lg border border-border/70 bg-background px-3 py-3"
-                    >
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                        <Icon className="size-4" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                          {item.label}
-                        </p>
-                        <p className="mt-1 font-medium break-words text-foreground">
-                          {item.value}
-                        </p>
-                      </div>
+               <div className="grid gap-4">
+                  {[
+                    { label: "Ticket Category", value: payload.signals.ticketCategory, icon: Tag },
+                    { label: "Age Group", value: payload.signals.ageGroup, icon: Calendar },
+                    { label: "Location", value: payload.signals.location, icon: MapPin },
+                    { label: "Dietary", value: payload.signals.dietary, icon: Utensils },
+                    { label: "Roommate", value: payload.signals.roommatePreference, icon: Users },
+                    { label: "Priority", value: payload.signals.allocationPriority, icon: Flag, highlight: payload.signals.allocationPriority === "CRITICAL" },
+                  ].filter(i => i.value).map((item) => (
+                    <div key={item.label} className={cn(
+                      "flex items-center gap-3 p-3 rounded-2xl border transition-all",
+                      item.highlight ? "bg-rose-500/5 border-rose-500/20" : "bg-background/20 border-border/20 hover:border-border/40"
+                    )}>
+                       <div className={cn("size-8 rounded-lg flex items-center justify-center", item.highlight ? "bg-rose-500/10 text-rose-600" : "bg-primary/5 text-primary/60")}>
+                          <item.icon className="size-4" />
+                       </div>
+                       <div className="min-w-0">
+                          <p className="text-[9px] font-bold uppercase tracking-tight text-muted-foreground/60 leading-none">{item.label}</p>
+                          <p className={cn("text-xs font-bold mt-1 truncate", item.highlight ? "text-rose-600" : "text-foreground")}>{item.value}</p>
+                       </div>
                     </div>
-                  )
-                })}
-              </CardContent>
-            </Card>
+                  ))}
+               </div>
+            </div>
+          </article>
 
-            {(payload.signals.location ||
-              payload.signals.remarks ||
-              payload.signals.dietary ||
-              payload.signals.roommatePreference ||
-              payload.signals.allocationPriority ||
-              payload.signals.ageGroup ||
-              payload.signals.ticketCategory) && (
-              <Card className="bg-background/88 backdrop-blur">
-                <CardHeader>
-                  <CardTitle className="text-lg">Custom Answers</CardTitle>
-                  <CardDescription>
-                    Registration form responses from Ticket Tailor.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4 text-sm">
-                  {(
-                    [
-                      payload.signals.location && {
-                        label: "Location",
-                        value: payload.signals.location,
-                        icon: MapPin,
-                      },
-                      payload.signals.remarks && {
-                        label: "Remarks",
-                        value: payload.signals.remarks,
-                        icon: FileText,
-                      },
-                      payload.signals.dietary && {
-                        label: "Dietary",
-                        value: payload.signals.dietary,
-                        icon: Utensils,
-                      },
-                      payload.signals.roommatePreference && {
-                        label: "Roommate",
-                        value: payload.signals.roommatePreference,
-                        icon: Users,
-                      },
-                      payload.signals.allocationPriority && {
-                        label: "Priority",
-                        value: payload.signals.allocationPriority,
-                        icon: Flag,
-                      },
-                      payload.signals.priorityReason && {
-                        label: "Priority Reason",
-                        value: payload.signals.priorityReason,
-                        icon: Clock,
-                      },
-                      payload.signals.ageGroup && {
-                        label: "Age Group",
-                        value: payload.signals.ageGroup,
-                        icon: Calendar,
-                      },
-                      payload.signals.ticketCategory && {
-                        label: "Ticket Category",
-                        value: payload.signals.ticketCategory,
-                        icon: Tag,
-                      },
-                    ].filter(Boolean) as Array<{
-                      label: string
-                      value: string
-                      icon: React.ComponentType<
-                        React.ComponentPropsWithRef<"svg">
-                      >
-                    }>
-                  ).map((item) => {
-                    const Icon = item.icon
-                    return (
-                      <div
-                        key={item.label}
-                        className="flex gap-3 rounded-lg border border-border/70 bg-background px-3 py-3"
-                      >
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                          <Icon className="size-4" />
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                            {item.label}
-                          </p>
-                          <p className="mt-1 font-medium break-words text-foreground">
-                            {item.value}
-                          </p>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </CardContent>
-              </Card>
-            )}
-          </section>
-        </>
-      )}
-
-      {!attendeeId && !isLoading && !payload && !errorMessage && (
-        <article className="rounded-xl border border-border bg-background/80 p-5 text-sm text-muted-foreground shadow-sm backdrop-blur">
-          No attendee selected.
-        </article>
-      )}
-    </section>
+          {/* Remarks / Notes */}
+          {payload.signals.remarks && (
+            <article className="rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl p-8 shadow-sm">
+               <h3 className="text-sm font-black uppercase tracking-widest text-foreground flex items-center gap-2 mb-4">
+                  <FileText className="size-4 text-primary" /> Remarks
+               </h3>
+               <div className="p-4 rounded-lg bg-primary/5 border border-primary/10 italic text-sm text-foreground/80 leading-relaxed shadow-inner">
+                 &ldquo;{payload.signals.remarks}&rdquo;
+               </div>
+            </article>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }

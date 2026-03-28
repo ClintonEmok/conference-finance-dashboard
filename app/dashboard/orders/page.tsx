@@ -189,9 +189,9 @@ export default function OrdersPage() {
       {/* Quick Summary / Status Stats at Top */}
       {payload && (
         <div className="grid gap-4 sm:grid-cols-3">
-           <article className="rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl p-6">
+           <article className="rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl p-6">
               <div className="flex items-center gap-3">
-                 <div className="size-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
+                 <div className="size-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
                     <ShoppingBag className="size-5" />
                  </div>
                  <div>
@@ -201,9 +201,9 @@ export default function OrdersPage() {
                  </div>
               </div>
            </article>
-           <article className="rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl p-6">
+           <article className="rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl p-6">
               <div className="flex items-center gap-3">
-                 <div className="size-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+                 <div className="size-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600">
                     <ExternalLink className="size-5" />
                  </div>
                  <div>
@@ -213,7 +213,7 @@ export default function OrdersPage() {
                  </div>
               </div>
            </article>
-           <article className="rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl p-6 overflow-hidden flex items-center">
+           <article className="rounded-lg border border-border/50 bg-card/40 backdrop-blur-xl p-6 overflow-hidden flex items-center">
               <div className="text-muted-foreground/40 italic text-[11px] font-medium leading-tight p-2">
                  Detailed charts and forecasting available in the Financial Overview.
               </div>
@@ -222,7 +222,7 @@ export default function OrdersPage() {
       )}
 
       {/* Filter Bar */}
-      <article className="rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl p-6">
+      <article className="rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl p-6">
         <form className="flex flex-wrap items-end gap-4" onSubmit={applyFilters}>
           <div className="flex-1 min-w-[200px] space-y-1.5">
             <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-1.5">
@@ -231,7 +231,7 @@ export default function OrdersPage() {
             <select
               value={eventIdInput}
               onChange={(e) => setEventIdInput(e.target.value)}
-              className="w-full h-11 rounded-2xl border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
+              className="w-full h-11 rounded-lg border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
             >
               <option value="">All Events</option>
               {payload?.availableEvents.map((e) => (
@@ -249,7 +249,7 @@ export default function OrdersPage() {
             <select
               value={statusInput}
               onChange={(e) => setStatusInput(e.target.value as any)}
-              className="w-full h-11 rounded-2xl border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
+              className="w-full h-11 rounded-lg border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
             >
                <option value="all">All Statuses</option>
                <option value="paid">Paid</option>
@@ -268,13 +268,13 @@ export default function OrdersPage() {
                 type="date"
                 value={fromInput}
                 onChange={(e) => setFromInput(e.target.value)}
-                className="w-full h-11 rounded-2xl border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
+                className="w-full h-11 rounded-lg border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
               />
               <input
                 type="date"
                 value={toInput}
                 onChange={(e) => setToInput(e.target.value)}
-                className="w-full h-11 rounded-2xl border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
+                className="w-full h-11 rounded-lg border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
               />
             </div>
           </div>
@@ -294,7 +294,7 @@ export default function OrdersPage() {
       )}
 
       {/* Main Content Area */}
-      <article className="rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl overflow-hidden shadow-sm">
+      <article className="rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left text-sm">
             <thead className="border-b border-border/30 bg-muted/50">
