@@ -191,17 +191,16 @@ export default function PaymentsPage() {
       </div>
 
       {syncFeedback && (
-        <article className={`rounded-xl border p-6 animate-in slide-in-from-top-4 ${
-          syncFeedback.status === "failed" ? "border-destructive/30 bg-destructive/5 text-destructive" :
-          syncFeedback.status === "partial" ? "border-yellow-300/30 bg-yellow-50/5 text-yellow-600" :
-          "border-emerald-300/30 bg-emerald-50/5 text-emerald-600"
-        }`}>
+        <article className={`rounded-xl border p-6 animate-in slide-in-from-top-4 ${syncFeedback.status === "failed" ? "border-destructive/30 bg-destructive/5 text-destructive" :
+            syncFeedback.status === "partial" ? "border-yellow-300/30 bg-yellow-50/5 text-yellow-600" :
+              "border-emerald-300/30 bg-emerald-50/5 text-emerald-600"
+          }`}>
           <div className="flex items-center gap-3 mb-2">
             <RefreshCw className="size-4" />
             <p className="font-bold text-sm">Sync Feedback</p>
           </div>
           <p className="text-xs leading-relaxed opacity-80">
-            Links: {syncFeedback.linksScanned} • Fetched: {syncFeedback.paymentsFetched} • New: {syncFeedback.newPayments} • 
+            Links: {syncFeedback.linksScanned} • Fetched: {syncFeedback.paymentsFetched} • New: {syncFeedback.newPayments} •
             Existing: {syncFeedback.existingPayments} • Updated: {syncFeedback.updatedPayments} • Matched: {syncFeedback.matched}
           </p>
         </article>
@@ -209,13 +208,13 @@ export default function PaymentsPage() {
 
       {showEntryForm && (
         <article className="rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl overflow-hidden animate-in zoom-in-95 duration-300">
-           <div className="p-8 border-b border-border/30">
-             <h2 className="text-xl font-bold">Record Manual Payment</h2>
-             <p className="text-sm text-muted-foreground">Enter bank transfer or cash payment details</p>
-           </div>
-           <div className="p-8">
-             <ManualPaymentEntryForm onSuccess={() => { setShowEntryForm(false); setRefreshKey(prev => prev + 1); }} />
-           </div>
+          <div className="p-8 border-b border-border/30">
+            <h2 className="text-xl font-bold">Record Manual Payment</h2>
+            <p className="text-sm text-muted-foreground">Enter bank transfer or cash payment details</p>
+          </div>
+          <div className="p-8">
+            <ManualPaymentEntryForm onSuccess={() => { setShowEntryForm(false); setRefreshKey(prev => prev + 1); }} />
+          </div>
         </article>
       )}
 
@@ -242,11 +241,10 @@ export default function PaymentsPage() {
       )}
 
       {toastMessage && (
-        <div className={`fixed right-6 bottom-6 z-50 rounded-2xl border px-6 py-3 text-sm font-bold shadow-2xl animate-in slide-in-from-right-10 ${
-          toastMessage.tone === "danger" ? "border-destructive/30 bg-destructive text-white" :
-          toastMessage.tone === "warning" ? "border-yellow-400 bg-yellow-400 text-yellow-950" :
-          "border-primary bg-primary text-white"
-        }`}>
+        <div className={`fixed right-6 bottom-6 z-50 rounded-2xl border px-6 py-3 text-sm font-bold shadow-2xl animate-in slide-in-from-right-10 ${toastMessage.tone === "danger" ? "border-destructive/30 bg-destructive text-white" :
+            toastMessage.tone === "warning" ? "border-yellow-400 bg-yellow-400 text-yellow-950" :
+              "border-primary bg-primary text-white"
+          }`}>
           {toastMessage.text}
         </div>
       )}

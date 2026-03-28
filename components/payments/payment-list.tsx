@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { cn } from "@/lib/utils"
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 type PaymentMatchStatus =
@@ -70,64 +71,44 @@ function formatDate(isoString: string) {
 }
 
 function SourceIcon({ source }: { source: PaymentSource }) {
-  switch (source) {
-    case "tikkie":
-      return (
-        <span className="text-xs font-medium text-purple-600 dark:text-purple-400">
-          Tikkie
-        </span>
-      )
-    case "bank_transfer":
-      return (
-        <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
-          Bank
-        </span>
-      )
-    case "cash":
-      return (
-        <span className="text-xs font-medium text-green-600 dark:text-green-400">
-          Cash
-        </span>
-      )
+  const styles = {
+    tikkie: "bg-purple-500/10 text-purple-600 border-purple-500/20",
+    bank_transfer: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+    cash: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
   }
+  const label = source === "bank_transfer" ? "Bank" : source.charAt(0) + source.slice(1)
+  
+  return (
+    <span className={cn("px-2 py-0.5 rounded-md border text-[10px] font-bold uppercase tracking-wider", styles[source])}>
+      {label}
+    </span>
+  )
 }
 
 function StatusBadge({ status }: { status: PaymentMatchStatus }) {
   switch (status) {
     case "unassigned":
       return (
-        <Badge
-          variant="secondary"
-          className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200"
-        >
+        <Badge variant="outline" className="bg-slate-500/5 text-slate-500 border-slate-500/20 text-[10px] h-6 rounded-lg font-bold uppercase tracking-widest">
           Unassigned
         </Badge>
       )
     case "ambiguous":
       return (
-        <Badge
-          variant="secondary"
-          className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-200"
-        >
+        <Badge variant="outline" className="bg-indigo-500/5 text-indigo-500 border-indigo-500/20 text-[10px] h-6 rounded-lg font-bold uppercase tracking-widest">
           Ambiguous
         </Badge>
       )
     case "manual_assignment":
       return (
-        <Badge
-          variant="secondary"
-          className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200"
-        >
+        <Badge variant="outline" className="bg-blue-500/5 text-blue-600 border-blue-500/20 text-[10px] h-6 rounded-lg font-bold uppercase tracking-widest">
           Manual
         </Badge>
       )
     case "auto_matched":
       return (
-        <Badge
-          variant="secondary"
-          className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
-        >
-          Auto-matched
+        <Badge variant="outline" className="bg-emerald-500/5 text-emerald-600 border-emerald-500/20 text-[10px] h-6 rounded-lg font-bold uppercase tracking-widest">
+          Auto
         </Badge>
       )
   }
@@ -185,11 +166,11 @@ export function PaymentList({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-4">
+      <div className="flex flex-wrap gap-3">
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-10 w-[180px] rounded-md border border-input bg-background px-3 text-sm"
+          className="h-10 w-[180px] rounded-lg border border-border/50 bg-background/50 px-3 text-xs font-bold uppercase tracking-wider text-muted-foreground transition-all hover:bg-muted/50 focus:ring-1 focus:ring-primary/20"
         >
           <option value="all">All statuses</option>
           <option value="unassigned">Unassigned</option>
@@ -201,7 +182,7 @@ export function PaymentList({
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value)}
-          className="h-10 w-[180px] rounded-md border border-input bg-background px-3 text-sm"
+          className="h-10 w-[180px] rounded-lg border border-border/50 bg-background/50 px-3 text-xs font-bold uppercase tracking-wider text-muted-foreground transition-all hover:bg-muted/50 focus:ring-1 focus:ring-primary/20"
         >
           <option value="all">All sources</option>
           <option value="tikkie">Tikkie</option>
@@ -210,74 +191,95 @@ export function PaymentList({
         </select>
       </div>
 
-      <div className="rounded-md border">
+      <div className="rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm overflow-hidden shadow-sm">
         <Table>
           <TableHeader>
-            <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>Payer</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Order</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+            <TableRow className="border-border/50 hover:bg-transparent px-2">
+              <TableHead className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 h-10 px-6">Date</TableHead>
+              <TableHead className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 h-10">Source</TableHead>
+              <TableHead className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 h-10">Payer Relation</TableHead>
+              <TableHead className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 h-10 text-right">Settlement</TableHead>
+              <TableHead className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 h-10">Status</TableHead>
+              <TableHead className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 h-10">Matching ID</TableHead>
+              <TableHead className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 h-10 text-right px-6">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">
-                  Loading...
+                <TableCell colSpan={7} className="h-48 text-center px-6">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="size-4 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">Deciphering ledger...</p>
+                  </div>
                 </TableCell>
               </TableRow>
             ) : payments.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">
-                  No payments found
+                <TableCell colSpan={7} className="h-48 text-center px-6">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">No transaction data recorded</p>
                 </TableCell>
               </TableRow>
             ) : (
               payments.map((payment) => (
-                <TableRow key={payment.id}>
-                  <TableCell className="text-sm">
+                <TableRow key={payment.id} className="border-border/30 hover:bg-muted/30 px-2 transition-colors group">
+                  <TableCell className="text-[11px] font-bold text-muted-foreground px-6 py-4">
                     {formatDate(payment.paidAt)}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="py-4">
                     <SourceIcon source={payment.source} />
                   </TableCell>
-                  <TableCell className="text-sm">{payment.payerName}</TableCell>
-                  <TableCell className="text-right text-sm font-medium">
-                    {formatMoney(payment.amountMinor)}
+                  <TableCell className="py-4">
+                    <div>
+                      <p className="text-xs font-bold text-foreground leading-none">{payment.payerName}</p>
+                      <p className="mt-1 text-[10px] text-muted-foreground/60 leading-none truncate max-w-[120px]">
+                        {payment.payerAccountNumber || "Account hidden"}
+                      </p>
+                    </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="text-right py-4">
+                    <span className="text-sm font-black tracking-tight text-foreground">
+                      {formatMoney(payment.amountMinor)}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-4">
                     <StatusBadge status={payment.status} />
                   </TableCell>
-                  <TableCell className="text-sm">
+                  <TableCell className="py-4">
                     {payment.order ? (
-                      <div>
-                        <div className="font-mono text-xs">
-                          {payment.order.providerOrderId}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {payment.order.buyerName}
+                      <div className="flex items-center gap-2">
+                        <div className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-foreground leading-none">
+                            {payment.order.providerOrderId}
+                          </p>
+                          <p className="mt-1 text-[10px] text-muted-foreground/60 leading-none truncate max-w-[100px]">
+                            {payment.order.buyerName}
+                          </p>
                         </div>
                       </div>
                     ) : (
-                      <span className="text-muted-foreground">-</span>
+                      <div className="flex items-center gap-2 opacity-30">
+                        <div className="size-1.5 rounded-full bg-muted-foreground" />
+                        <span className="text-[10px] font-black uppercase tracking-widest">Unlinked</span>
+                      </div>
                     )}
                   </TableCell>
-                  <TableCell className="text-right">
-                    {(payment.status === "unassigned" ||
-                      payment.status === "ambiguous") &&
-                      onAssign && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => onAssign(payment)}
-                        >
-                          Assign
-                        </Button>
-                      )}
+                  <TableCell className="text-right px-6 py-4">
+                    {(payment.status === "unassigned" || payment.status === "ambiguous") && onAssign ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onAssign(payment)}
+                        className="h-8 rounded-lg text-[10px] font-black uppercase tracking-widest border-primary/20 hover:bg-primary/5 hover:text-primary transition-all opacity-0 group-hover:opacity-100"
+                      >
+                        Assign
+                      </Button>
+                    ) : (
+                      <div className="text-[10px] font-black uppercase tracking-widest text-emerald-600/60 flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                         Verified
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))
@@ -287,26 +289,35 @@ export function PaymentList({
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-end space-x-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-          >
-            Previous
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            Page {page} of {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-          >
-            Next
-          </Button>
+        <div className="flex items-center justify-between mt-4">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">
+            Entry {(page - 1) * limit + 1} - {Math.min(page * limit, total)} of {total} transactions
+          </p>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="h-9 rounded-lg px-4 text-[10px] font-black uppercase tracking-widest border-border/50 text-muted-foreground"
+            >
+              Previous
+            </Button>
+            <div className="px-3 h-9 rounded-lg bg-muted/30 flex items-center justify-center border border-border/50">
+               <span className="text-[10px] font-black uppercase tracking-widest text-primary/70">
+                 {page} <span className="text-muted-foreground/30 mx-1">/</span> {totalPages}
+               </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="h-9 rounded-lg px-4 text-[10px] font-black uppercase tracking-widest border-border/50 text-muted-foreground"
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
     </div>
