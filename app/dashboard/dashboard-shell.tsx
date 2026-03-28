@@ -158,21 +158,21 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
 
   return (
     <div className="min-h-svh bg-black text-foreground">
-      <div 
+      <div
         className="mx-auto grid min-h-svh gap-4 px-4 py-4 lg:grid-cols-[240px_minmax(0,1fr)] lg:px-6 lg:py-6 transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]"
       >
         <aside className="hidden lg:flex lg:flex-col relative">
           <div className="sticky top-6 flex h-[calc(100svh-3rem)] w-full">
             <div className="flex w-full flex-col overflow-hidden rounded-xl border border-white/60 bg-white/85 shadow-[0_18px_48px_rgba(40,24,82,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-white/8 dark:shadow-[0_18px_48px_rgba(0,0,0,0.2)]">
-              
+
               <div className="shrink-0 flex items-center p-5 h-[64px]">
-                 <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-lg shadow-primary/20">
-                    <ShieldEllipsis className="size-4" />
-                 </div>
-                 <div className="ml-2.5 flex-1 overflow-hidden">
-                    <h1 className="text-[11px] font-black tracking-tight text-foreground uppercase">Doclines</h1>
-                    <p className="text-[9px] font-bold text-muted-foreground/50 uppercase tracking-widest leading-none">Finance v2.0</p>
-                 </div>
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-lg shadow-primary/20">
+                  <ShieldEllipsis className="size-4" />
+                </div>
+                <div className="ml-2.5 flex-1 overflow-hidden">
+                  <h1 className="text-[11px] font-black tracking-tight text-foreground uppercase">Doclines</h1>
+                  <p className="text-[9px] font-bold text-muted-foreground/50 uppercase tracking-widest leading-none">Finance v2.0</p>
+                </div>
               </div>
 
               <nav className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-2">
@@ -276,7 +276,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
             <div className="mb-6 flex flex-col gap-4 lg:hidden">
               <div className="rounded-xl bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] p-5 text-primary-foreground shadow-[0_18px_48px_rgba(74,48,164,0.24)]">
                 <p className="text-[10px] font-semibold tracking-[0.2em] text-primary-foreground/70 uppercase">
-                  Doclines Finance
+                  DCLM Conference Dashboard
                 </p>
                 <h1 className="mt-2 text-2xl font-bold tracking-tight">
                   Command center
