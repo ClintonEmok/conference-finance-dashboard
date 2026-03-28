@@ -348,7 +348,7 @@ export default function DashboardPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/20">
-                        {payload!.trend.map((bucket) => (
+                        {payload?.trend.map((bucket) => (
                           <tr key={bucket.bucket} className="transition-colors hover:bg-black/5 dark:hover:bg-white/5">
                             <td className="px-4 py-3 font-medium text-foreground">{bucket.bucket}</td>
                             <td className="px-4 py-3 text-muted-foreground truncate max-w-[120px]">{bucket.eventLabel}</td>
@@ -468,7 +468,7 @@ export default function DashboardPage() {
                     ["Refunded", payload.statusCounts.refunded, "bg-slate-300 text-slate-800 dark:bg-slate-600 dark:text-slate-100"],
                     ["Cancelled", payload.statusCounts.cancelled, "bg-destructive/60 text-destructive"],
                   ].map(([label, value, colorClass]) => {
-                    const statusCounts = payload!.statusCounts
+                    const statusCounts = payload?.statusCounts
                     const total =
                       statusCounts.paid +
                       statusCounts.pending +

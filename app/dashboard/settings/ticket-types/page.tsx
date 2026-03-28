@@ -224,7 +224,7 @@ export default function TicketTypesSettingsPage() {
         } | null
         throw new Error(
           body?.error?.message ??
-            `Failed to ${editingTemplateId ? "update" : "create"} template`
+          `Failed to ${editingTemplateId ? "update" : "create"} template`
         )
       }
 

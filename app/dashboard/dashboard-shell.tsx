@@ -128,7 +128,6 @@ function isPathActive(pathname: string, href: string) {
 
 export function DashboardShell({ userEmail, children }: DashboardShellProps) {
   const pathname = usePathname()
-  const [isCollapsed, setIsCollapsed] = useState(false)
 
   const [expandedByHref, setExpandedByHref] = useState<Record<string, boolean>>(
     () => {
@@ -151,7 +150,6 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
   )
 
   function toggleExpanded(href: string) {
-    if (isCollapsed) return // Do not allow expanding submenus if sidebar is collapsed
     setExpandedByHref((current) => ({
       ...current,
       [href]: !current[href],
@@ -161,10 +159,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
   return (
     <div className="min-h-svh bg-black text-foreground">
       <div 
-        className={cn(
-          "mx-auto grid min-h-svh gap-4 px-4 py-4 lg:px-6 lg:py-6 transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
-          isCollapsed ? "lg:grid-cols-[80px_minmax(0,1fr)]" : "lg:grid-cols-[240px_minmax(0,1fr)]"
-        )}
+        className="mx-auto grid min-h-svh gap-4 px-4 py-4 lg:grid-cols-[240px_minmax(0,1fr)] lg:px-6 lg:py-6 transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]"
       >
         <aside className="hidden lg:flex lg:flex-col relative">
           <div className="sticky top-6 flex h-[calc(100svh-3rem)] w-full">
@@ -174,20 +169,16 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-lg shadow-primary/20">
                     <ShieldEllipsis className="size-4" />
                  </div>
-                 {!isCollapsed && (
-                   <div className="ml-2.5 flex-1 overflow-hidden">
-                      <h1 className="text-[11px] font-black tracking-tight text-foreground uppercase">Doclines</h1>
-                      <p className="text-[9px] font-bold text-muted-foreground/50 uppercase tracking-widest leading-none">Finance v2.0</p>
-                   </div>
-                 )}
+                 <div className="ml-2.5 flex-1 overflow-hidden">
+                    <h1 className="text-[11px] font-black tracking-tight text-foreground uppercase">Doclines</h1>
+                    <p className="text-[9px] font-bold text-muted-foreground/50 uppercase tracking-widest leading-none">Finance v2.0</p>
+                 </div>
               </div>
 
               <nav className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-2">
                 {navigationSections.map((section) => (
                   <div key={section.title} className="flex flex-col gap-1 focus-visible:outline-none">
-                    {!isCollapsed && (
-                       <hr className="my-1 border-border/20 mx-3 opacity-30" />
-                    )}
+                    <hr className="my-1 border-border/20 mx-3 opacity-30" />
 
                     {section.items.map((item) => {
                       const Icon = item.icon
@@ -206,22 +197,19 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                             <Link
                               href={item.href}
                               className={cn(
-                                "flex items-center rounded-lg transition-all duration-200 relative z-10",
-                                isCollapsed ? "size-9 justify-center mx-auto mb-1.5" : "px-3 py-2 gap-2.5",
+                                "flex items-center rounded-lg transition-all duration-200 relative z-10 px-3 py-2 gap-2.5",
                                 active
                                   ? "bg-primary text-white shadow-lg shadow-primary/20"
                                   : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                               )}
                             >
-                              <Icon className={cn("shrink-0", isCollapsed ? "size-4.5" : "size-4")} />
-                              {!isCollapsed && (
-                                <span className="flex-1 text-[11px] font-bold uppercase tracking-wider">
-                                  {item.label}
-                                </span>
-                              )}
+                              <Icon className="shrink-0 size-4" />
+                              <span className="flex-1 text-[11px] font-bold uppercase tracking-wider">
+                                {item.label}
+                              </span>
                             </Link>
 
-                            {hasChildren && !isCollapsed && (
+                            {hasChildren && (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -238,7 +226,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                             )}
                           </div>
 
-                          {hasChildren && expanded && !isCollapsed && (
+                          {hasChildren && expanded && (
                             <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-border/30 pl-3">
                               {item.children?.map((child) => {
                                 const childIsActive = isPathActive(pathname, child.href)
@@ -267,36 +255,19 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
               </nav>
 
               <div className="p-4 shrink-0 transition-all duration-300">
-                <div className={cn(
-                  "flex items-center rounded-lg border border-border/40 shadow-sm backdrop-blur overflow-hidden transition-all duration-300",
-                  isCollapsed ? "h-12 w-12 justify-center mx-auto flex-col p-0 border-transparent shadow-none" : "px-2.5 py-2.5 justify-between gap-2 bg-white/40 dark:bg-black/20"
-                )}>
-                  {!isCollapsed ? (
-                    <div className="min-w-0">
-                      <p className="truncate text-[10px] font-black uppercase tracking-widest text-foreground">
-                        {userEmail.split('@')[0]}
-                      </p>
-                      <p className="truncate text-[8px] uppercase tracking-[0.2em] text-muted-foreground/40 font-bold mt-0.5">
-                        Conference OP
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="size-8 rounded-lg bg-muted/50 flex items-center justify-center text-muted-foreground/60 font-black text-[10px] border border-border/50">
-                       {userEmail[0].toUpperCase()}
-                    </div>
-                  )}
-                  {!isCollapsed && <LogoutButton className="h-6 rounded-md px-2 text-[8px] font-black uppercase tracking-widest bg-muted/50 hover:bg-muted transition-colors" />}
+                <div className="flex items-center rounded-lg border border-border/40 shadow-sm backdrop-blur overflow-hidden transition-all duration-300 px-2.5 py-2.5 justify-between gap-2 bg-white/40 dark:bg-black/20">
+                  <div className="min-w-0">
+                    <p className="truncate text-[10px] font-black uppercase tracking-widest text-foreground">
+                      {userEmail.split('@')[0]}
+                    </p>
+                    <p className="truncate text-[8px] uppercase tracking-[0.2em] text-muted-foreground/40 font-bold mt-0.5">
+                      Conference OP
+                    </p>
+                  </div>
+                  <LogoutButton className="h-6 rounded-md px-2 text-[8px] font-black uppercase tracking-widest bg-muted/50 hover:bg-muted transition-colors" />
                 </div>
               </div>
-
             </div>
-            
-            <button
-              onClick={() => setIsCollapsed(!isCollapsed)}
-              className="absolute -right-[14px] top-10 flex size-7 items-center justify-center rounded-full border border-border bg-white shadow-md transition hover:bg-muted text-foreground dark:bg-zinc-800 dark:border-white/10 z-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-            >
-              <ChevronRight className={cn("size-3.5 transition-transform duration-300 text-muted-foreground hover:text-foreground", !isCollapsed && "rotate-180")} />
-            </button>
           </div>
         </aside>
 
