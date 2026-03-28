@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import {
   appendSignalFiltersToQuery,
@@ -872,8 +873,20 @@ export default function AccommodationPage() {
             </div>
             <div className={`flex-1 overflow-y-auto p-3 space-y-2 transition-opacity duration-200 ${isLoading || isMutating ? "opacity-50 pointer-events-none" : ""}`}>
               {isLoading && payload.unassignedAttendees.length === 0 ? (
-                <div className="p-8 flex items-center justify-center text-sm text-muted-foreground m-2">
-                  Loading inbox...
+                <div className="space-y-2 p-1">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="flex flex-col gap-3 rounded-xl border border-border/20 bg-background/30 p-4">
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="size-5 rounded-md" />
+                        <Skeleton className="h-4 w-32 rounded-md" />
+                      </div>
+                      <Skeleton className="ml-7 h-3 w-48 rounded-md" />
+                      <div className="ml-7 flex gap-1.5">
+                         <Skeleton className="h-4 w-12 rounded-md" />
+                         <Skeleton className="h-4 w-16 rounded-md" />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ) : payload.unassignedAttendees.length === 0 ? (
                 <div className="p-8 text-center text-sm text-muted-foreground border border-dashed border-border/60 rounded-xl m-2 bg-background/50">
@@ -974,9 +987,24 @@ export default function AccommodationPage() {
             </div>
 
             {isLoading && payload.rooms.length === 0 ? (
-              <p className="mt-5 text-sm text-muted-foreground">
-                Loading room overview...
-              </p>
+              <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="flex flex-col rounded-2xl border border-border/40 bg-card/60 overflow-hidden h-[240px]">
+                    <div className="flex items-center gap-3 p-4 border-b border-border/10 bg-muted/10">
+                       <Skeleton className="size-8 rounded-lg" />
+                       <div className="space-y-1.5">
+                          <Skeleton className="h-4 w-24 rounded-md" />
+                          <Skeleton className="h-3 w-32 rounded-md" />
+                       </div>
+                    </div>
+                    <div className="p-4 space-y-3">
+                       <Skeleton className="h-10 w-full rounded-xl" />
+                       <Skeleton className="h-10 w-full rounded-xl" />
+                       <Skeleton className="h-10 w-full rounded-xl" />
+                    </div>
+                  </div>
+                ))}
+              </div>
             ) : payload.rooms.length === 0 ? (
               <p className="mt-5 rounded-xl border border-dashed border-border/80 px-4 py-5 text-sm text-muted-foreground">
                 No room stock matches the current filters.

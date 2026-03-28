@@ -310,13 +310,32 @@ export default function OrdersPage() {
             <tbody className="divide-y divide-border/20">
               {isLoading ? (
                 Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i}>
-                    <td className="px-6 py-5"><Skeleton className="h-4 w-24 mb-2" /><Skeleton className="h-3 w-32" /></td>
-                    <td className="px-6 py-5"><Skeleton className="h-4 w-32 mb-2" /><Skeleton className="h-3 w-40" /></td>
+                  <tr key={i} className="border-b border-border/10">
+                    <td className="px-6 py-5">
+                      <div className="space-y-2">
+                        <Skeleton className="h-3 w-24" />
+                        <Skeleton className="h-3 w-32" />
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-3 w-40" />
+                      </div>
+                    </td>
                     <td className="px-6 py-5"><Skeleton className="h-4 w-28" /></td>
-                    <td className="px-6 py-5 text-right"><Skeleton className="h-4 w-16 ml-auto" /></td>
-                    <td className="px-6 py-5"><Skeleton className="h-6 w-16 mx-auto rounded-lg" /></td>
-                    <td className="px-6 py-5"><Skeleton className="h-8 w-8 rounded-full" /></td>
+                    <td className="px-6 py-5">
+                      <div className="flex justify-end">
+                        <Skeleton className="h-4 w-16" />
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="flex flex-col items-center gap-1.5">
+                        <Skeleton className="h-6 w-16 rounded-lg" />
+                        <Skeleton className="h-2 w-10" />
+                      </div>
+                    </td>
+                    <td className="px-6 py-5 text-right"><Skeleton className="size-8 rounded-full ml-auto" /></td>
                   </tr>
                 ))
               ) : payload?.rows.length === 0 ? (

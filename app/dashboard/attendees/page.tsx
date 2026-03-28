@@ -264,12 +264,30 @@ export default function AttendeesPage() {
             <tbody className="divide-y divide-border/20">
               {isLoading ? (
                 Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i}>
-                    <td className="px-8 py-6"><Skeleton className="h-4 w-32 mb-2" /><Skeleton className="h-3 w-48" /></td>
-                    <td className="px-8 py-6"><Skeleton className="h-5 w-16 mx-auto rounded-lg" /></td>
-                    <td className="px-8 py-6"><Skeleton className="h-5 w-20 mx-auto rounded-lg" /></td>
-                    <td className="px-8 py-6"><Skeleton className="h-4 w-28" /></td>
-                    <td className="px-8 py-6"><Skeleton className="h-8 w-8 rounded-full" /></td>
+                  <tr key={i} className="border-b border-border/10">
+                    <td className="px-8 py-6">
+                      <div className="flex items-center gap-4">
+                        <Skeleton className="size-10 rounded-lg" />
+                        <div className="space-y-2">
+                           <Skeleton className="h-4 w-32" />
+                           <Skeleton className="h-3 w-48" />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6"><Skeleton className="h-6 w-16 mx-auto rounded-lg" /></td>
+                    <td className="px-8 py-6">
+                      <div className="flex flex-col items-center gap-1.5">
+                        <Skeleton className="h-6 w-20 rounded-lg" />
+                        <Skeleton className="h-2.5 w-12" />
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="space-y-1.5">
+                        <Skeleton className="h-3.5 w-24" />
+                        <Skeleton className="h-2.5 w-32" />
+                      </div>
+                    </td>
+                    <td className="px-8 py-6 text-right"><Skeleton className="size-8 rounded-full ml-auto" /></td>
                   </tr>
                 ))
               ) : payload?.rows.map((row) => (

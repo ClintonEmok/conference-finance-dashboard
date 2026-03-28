@@ -6,6 +6,8 @@ import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 
 type RevenueResponse = {
   generatedAt: string
@@ -267,7 +269,14 @@ export default function DashboardPage() {
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <article key={i} className="relative flex flex-col justify-center overflow-hidden rounded-xl border border-[rgba(113,84,255,0.4)] bg-[linear-gradient(145deg,rgba(113,84,255,0.92),rgba(83,56,171,0.88))] p-5 shadow-[0_12px_32px_rgba(78,52,166,0.14)]">
+              <Skeleton className="h-3 w-16 bg-white/20" />
+              <Skeleton className="mt-3 h-8 w-24 bg-white/30" />
+            </article>
+          ))
+        ) : [
           { label: "Gross", value: payload ? formatMoney(payload.totals.grossMinor) : "--" },
           { label: "Paid", value: payload ? formatMoney(payload.totals.paidMinor) : "--" },
           { label: "Refunded", value: payload ? formatMoney(payload.totals.refundedMinor) : "--" },
@@ -286,13 +295,7 @@ export default function DashboardPage() {
         </article>
       )}
 
-      {!errorMessage && isLoading && (
-        <article className="rounded-xl border border-border bg-background/80 p-5 text-xs text-muted-foreground shadow-sm backdrop-blur">
-          Loading revenue metrics...
-        </article>
-      )}
-
-      {!errorMessage && !isLoading && payload && (
+      {!errorMessage && (
         <>
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
             {/* Main Data Column */}
@@ -302,8 +305,33 @@ export default function DashboardPage() {
                   <h3 className="text-[11px] font-semibold text-foreground uppercase tracking-[0.18em] text-muted-foreground">Daily trend</h3>
                   <p className="text-sm font-semibold text-foreground mt-1 tracking-tight">Movement across the active window</p>
                 </div>
-
-                {payload.trend.length === 0 ? (
+ 
+                {isLoading ? (
+                   <div className="overflow-x-auto rounded-xl border border-white/60 bg-white/40 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5 pb-2">
+                     <table className="min-w-full text-xs">
+                       <thead>
+                         <tr className="border-b border-border/20 text-left text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                           <th className="px-4 py-3 font-semibold">Date</th>
+                           <th className="px-4 py-3 font-semibold">Event</th>
+                           <th className="px-4 py-3 font-semibold text-right">Orders</th>
+                           <th className="px-4 py-3 font-semibold text-right">Gross</th>
+                           <th className="px-4 py-3 font-semibold text-right">Net</th>
+                         </tr>
+                       </thead>
+                       <tbody className="divide-y divide-border/20">
+                         {Array.from({ length: 5 }).map((_, i) => (
+                           <tr key={i}>
+                             <td className="px-4 py-3"><Skeleton className="h-3 w-20" /></td>
+                             <td className="px-4 py-3"><Skeleton className="h-3 w-24" /></td>
+                             <td className="px-4 py-3 text-right"><Skeleton className="h-3 w-8 ml-auto" /></td>
+                             <td className="px-4 py-3 text-right"><Skeleton className="h-3 w-16 ml-auto" /></td>
+                             <td className="px-4 py-3 text-right"><Skeleton className="h-3 w-16 ml-auto" /></td>
+                           </tr>
+                         ))}
+                       </tbody>
+                     </table>
+                   </div>
+                ) : payload!.trend.length === 0 ? (
                   <p className="rounded-xl border border-white/60 bg-white/50 p-4 text-xs text-muted-foreground shadow-sm dark:border-white/10 dark:bg-white/5">
                     No synced orders found for the default scope.
                   </p>
@@ -320,7 +348,7 @@ export default function DashboardPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/20">
-                        {payload.trend.map((bucket) => (
+                        {payload!.trend.map((bucket) => (
                           <tr key={bucket.bucket} className="transition-colors hover:bg-black/5 dark:hover:bg-white/5">
                             <td className="px-4 py-3 font-medium text-foreground">{bucket.bucket}</td>
                             <td className="px-4 py-3 text-muted-foreground truncate max-w-[120px]">{bucket.eventLabel}</td>
@@ -348,8 +376,35 @@ export default function DashboardPage() {
                     </Link>
                   </Button>
                 </div>
-
-                {!attendeesPayload || attendeesPayload.rows.length === 0 ? (
+ 
+                {isLoading ? (
+                  <div className="overflow-x-auto rounded-xl border border-white/60 bg-white/40 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5 pb-2">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border/20 text-left text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                          <th className="px-4 py-3 font-semibold">Attendee</th>
+                          <th className="px-4 py-3 font-semibold">Event</th>
+                          <th className="px-4 py-3 font-semibold">Room</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/20">
+                        {Array.from({ length: 6 }).map((_, i) => (
+                           <tr key={i}>
+                             <td className="px-4 py-3">
+                               <Skeleton className="h-3 w-24 mb-1.5" />
+                               <Skeleton className="h-2 w-32" />
+                             </td>
+                             <td className="px-4 py-3"><Skeleton className="h-3 w-20" /></td>
+                             <td className="px-4 py-3">
+                               <Skeleton className="h-3 w-16 mb-1.5" />
+                               <Skeleton className="h-2 w-20" />
+                             </td>
+                           </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : !attendeesPayload || attendeesPayload.rows.length === 0 ? (
                   <p className="rounded-xl border border-white/60 bg-white/50 p-4 text-xs text-muted-foreground shadow-sm dark:border-white/10 dark:bg-white/5">
                     No attendees found for the default scope.
                   </p>
@@ -397,20 +452,31 @@ export default function DashboardPage() {
               <div>
                 <h3 className="text-[11px] font-semibold text-foreground uppercase tracking-[0.18em] text-muted-foreground">Status mix</h3>
                 <div className="mt-3 space-y-4 rounded-xl border border-white/60 bg-white/40 p-5 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5">
-                  {[
+                  {isLoading || !payload ? (
+                    Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i}>
+                        <div className="mb-2 flex items-center justify-between">
+                          <Skeleton className="h-2.5 w-12" />
+                          <Skeleton className="h-2.5 w-8" />
+                        </div>
+                        <Skeleton className="h-1.5 w-full rounded-full" />
+                      </div>
+                    ))
+                  ) : [
                     ["Paid", payload.statusCounts.paid, "bg-[linear-gradient(135deg,#7154ff,#5238aa)] text-white"],
                     ["Pending", payload.statusCounts.pending, "bg-amber-400 text-amber-950"],
                     ["Refunded", payload.statusCounts.refunded, "bg-slate-300 text-slate-800 dark:bg-slate-600 dark:text-slate-100"],
                     ["Cancelled", payload.statusCounts.cancelled, "bg-destructive/60 text-destructive"],
                   ].map(([label, value, colorClass]) => {
+                    const statusCounts = payload!.statusCounts
                     const total =
-                      payload.statusCounts.paid +
-                      payload.statusCounts.pending +
-                      payload.statusCounts.refunded +
-                      payload.statusCounts.cancelled
+                      statusCounts.paid +
+                      statusCounts.pending +
+                      statusCounts.refunded +
+                      statusCounts.cancelled
                     const numericValue = Number(value)
                     const width = total === 0 || numericValue === 0 ? 0 : Math.max(6, Math.round((numericValue / total) * 100))
-
+ 
                     return (
                       <div key={String(label)}>
                         <div className="mb-1.5 flex items-center justify-between text-xs">

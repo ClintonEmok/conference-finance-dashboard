@@ -291,8 +291,8 @@ export default function RoomInventoryPage() {
          const resp = await fetch(`/api/dashboard/accommodation/room-types/${id}`, { method: "DELETE" })
          if (!resp.ok) throw new Error("Delete failed")
          await loadInventory()
-      } catch (e: any) {
-         setRoomTypeDeleteErrors(c => ({ ...c, [id]: e.message }))
+      } catch (err: any) {
+         setRoomTypeDeleteErrors(c => ({ ...c, [id]: err.message }))
       } finally { setDeletingRoomTypeId(null) }
    }
 
@@ -332,8 +332,14 @@ export default function RoomInventoryPage() {
                <div className="absolute -right-4 -top-4 size-24 rounded-full bg-primary/5 blur-2xl transition-all group-hover:bg-primary/10" />
                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Total Estate</p>
                <div className="mt-4 flex items-baseline gap-2">
-                  <span className="text-4xl font-black tracking-tight">{payload.summary.totalRooms}</span>
-                  <span className="text-xs font-bold text-muted-foreground/60 tracking-wider">ROOMS</span>
+                  {isLoading ? (
+                     <Skeleton className="h-10 w-24 rounded-lg" />
+                  ) : (
+                     <>
+                        <span className="text-4xl font-black tracking-tight">{payload.summary.totalRooms}</span>
+                        <span className="text-xs font-bold text-muted-foreground/60 tracking-wider">ROOMS</span>
+                     </>
+                  )}
                </div>
             </article>
 
@@ -341,7 +347,11 @@ export default function RoomInventoryPage() {
                <div className="absolute -right-4 -top-4 size-24 rounded-full bg-indigo-500/5 blur-2xl transition-all group-hover:bg-indigo-500/10" />
                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Active Capacity</p>
                <div className="mt-4 flex items-baseline gap-2">
-                  <span className="text-4xl font-black tracking-tight text-indigo-500">{capacityUtilization}%</span>
+                  {isLoading ? (
+                     <Skeleton className="h-10 w-24 rounded-lg" />
+                  ) : (
+                     <span className="text-4xl font-black tracking-tight text-indigo-500">{capacityUtilization}%</span>
+                  )}
                </div>
                <div className="mt-4 flex flex-col gap-2">
                   <div className="h-1.5 w-full rounded-full bg-muted/40 overflow-hidden">
@@ -355,7 +365,11 @@ export default function RoomInventoryPage() {
                <div className="absolute -right-4 -top-4 size-24 rounded-full bg-amber-500/5 blur-2xl transition-all group-hover:bg-amber-500/10" />
                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Ready Supply</p>
                <div className="mt-4 flex items-baseline gap-2">
-                  <span className="text-4xl font-black tracking-tight text-amber-500">{payload.summary.emptyRooms}</span>
+                  {isLoading ? (
+                     <Skeleton className="h-10 w-24 rounded-lg" />
+                  ) : (
+                     <span className="text-4xl font-black tracking-tight text-amber-500">{payload.summary.emptyRooms}</span>
+                  )}
                </div>
             </article>
 
@@ -363,7 +377,11 @@ export default function RoomInventoryPage() {
                <div className="absolute -right-4 -top-4 size-24 rounded-full bg-rose-500/5 blur-2xl transition-all group-hover:bg-rose-500/10" />
                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Spec Diversity</p>
                <div className="mt-4 flex items-baseline gap-2">
-                  <span className="text-4xl font-black tracking-tight text-rose-500">{payload.roomTypes.length}</span>
+                  {isLoading ? (
+                     <Skeleton className="h-10 w-24 rounded-lg" />
+                  ) : (
+                     <span className="text-4xl font-black tracking-tight text-rose-500">{payload.roomTypes.length}</span>
+                  )}
                </div>
             </article>
          </section>
@@ -656,7 +674,29 @@ export default function RoomInventoryPage() {
                   </div>
 
                   <div className="space-y-3 mb-8 max-h-[300px] overflow-y-auto pr-2">
-                     {payload.availableEvents.length === 0 ? (
+                     {isLoading && payload.hotels.length === 0 ? (
+                        <div className="grid gap-6">
+                           {Array.from({ length: 2 }).map((_, i) => (
+                              <div key={i} className="flex flex-col rounded-xl border border-border/40 bg-card/60 p-6 h-[340px]">
+                                 <div className="flex items-center justify-between border-b border-border/10 pb-4">
+                                    <div className="flex items-center gap-3">
+                                       <Skeleton className="size-10 rounded-lg" />
+                                       <div className="space-y-1.5">
+                                          <Skeleton className="h-4 w-48 rounded-md" />
+                                          <Skeleton className="h-3 w-32 rounded-md" />
+                                       </div>
+                                    </div>
+                                    <Skeleton className="h-6 w-24 rounded-lg" />
+                                 </div>
+                                 <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    {Array.from({ length: 4 }).map((_, j) => (
+                                       <Skeleton key={j} className="h-32 rounded-xl" />
+                                    ))}
+                                 </div>
+                              </div>
+                           ))}
+                        </div>
+                     ) : payload.availableEvents.length === 0 ? (
                         <p className="text-sm font-bold text-muted-foreground italic text-center py-6">No events available</p>
                      ) : payload.availableEvents.map(event => {
                         const checked = draftEventIds.includes(event.providerEventId)

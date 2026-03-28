@@ -17,6 +17,7 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
+  CardFooter,
   CardTitle,
 } from "@/components/ui/card"
 
@@ -365,16 +366,33 @@ export default function ReconciliationPage() {
             )}
             
             {(isLoading || isFetchingMore) && (
-              Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="rounded-3xl border border-border/50 bg-card/20 p-5 space-y-4">
-                  <div className="flex items-center gap-3">
-                    <Skeleton className="h-4 w-20" />
-                    <Skeleton className="h-6 w-16 ml-auto" />
-                  </div>
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-16 w-full rounded-2xl" />
-                  <Skeleton className="h-10 w-full rounded-2xl" />
-                </div>
+              Array.from({ length: 6 }).map((_, i) => (
+                <Card key={i} className="flex flex-col overflow-hidden border-border/50 bg-card/40 backdrop-blur-xl">
+                  <CardHeader className="p-5 pb-0 space-y-2">
+                    <Skeleton className="h-3 w-20" />
+                    <Skeleton className="h-5 w-3/4" />
+                    <Skeleton className="h-2.5 w-24" />
+                  </CardHeader>
+                  <CardContent className="p-5 pt-6 space-y-5">
+                    <div className="grid grid-cols-2 gap-3 rounded-2xl border border-border/40 bg-background/30 p-4">
+                      <div className="space-y-1.5">
+                        <Skeleton className="h-2.5 w-12" />
+                        <Skeleton className="h-4 w-16" />
+                      </div>
+                      <div className="space-y-1.5 flex flex-col items-end">
+                        <Skeleton className="h-2.5 w-16" />
+                        <Skeleton className="h-4 w-16" />
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                       <Skeleton className="h-3 w-1/2" />
+                       <Skeleton className="h-20 w-full rounded-2xl" />
+                    </div>
+
+                    <Skeleton className="h-10 w-full rounded-2xl" />
+                  </CardContent>
+                </Card>
               ))
             )}
             <div ref={observerTarget} className="h-10 col-span-full opacity-0" />

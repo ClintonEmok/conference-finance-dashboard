@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
@@ -206,14 +207,30 @@ export function PaymentList({
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={7} className="h-48 text-center px-6">
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="size-4 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">Deciphering ledger...</p>
-                  </div>
-                </TableCell>
-              </TableRow>
+              Array.from({ length: 8 }).map((_, i) => (
+                <TableRow key={i} className="border-border/30 px-2">
+                  <TableCell className="px-6 py-4"><Skeleton className="h-4 w-16" /></TableCell>
+                  <TableCell className="py-4"><Skeleton className="h-5 w-12 rounded-md" /></TableCell>
+                  <TableCell className="py-4">
+                    <div className="space-y-1.5">
+                      <Skeleton className="h-3.5 w-24" />
+                      <Skeleton className="h-2.5 w-32" />
+                    </div>
+                  </TableCell>
+                  <TableCell className="py-4"><div className="flex justify-end"><Skeleton className="h-4 w-14" /></div></TableCell>
+                  <TableCell className="py-4"><Skeleton className="h-6 w-20 rounded-lg" /></TableCell>
+                  <TableCell className="py-4">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="size-1.5 rounded-full" />
+                      <div className="space-y-1">
+                        <Skeleton className="h-2.5 w-20" />
+                        <Skeleton className="h-2 w-16" />
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="px-6 py-4"><div className="flex justify-end"><Skeleton className="h-8 w-16 rounded-lg" /></div></TableCell>
+                </TableRow>
+              ))
             ) : payments.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="h-48 text-center px-6">
