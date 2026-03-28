@@ -44,7 +44,7 @@
 **Success Criteria:**
 
 1. ✅ All Convex mutations enforce authentication via `ctx.auth.getUserIdentity()` — no publicly callable financial operations
-2. Webhook signature verification rejects requests when secrets are not configured
+2. ✅ Webhook signature verification rejects requests when secrets are not configured
 3. Room occupancy uses authoritative count (remove denormalized `occupiedBeds` drift)
 4. Unbounded `.collect()` calls replaced with indexed queries or `.take(N)`/`.paginate()`
 5. ✅ Error boundaries exist for all dashboard routes — no white-screen crashes
@@ -55,7 +55,7 @@
 Plans:
 
 - [x] 17-01-PLAN.md — Convex auth guard on audited public write mutations
-- [ ] 17-02-PLAN.md — Webhook fail-closed behavior + Convex auth config validation
+- [x] 17-02-PLAN.md — Webhook fail-closed behavior + Convex auth config validation (completed 2026-03-28)
 - [ ] 17-03-PLAN.md — Rate limiting, integration timeouts/retries, and auto-sync hardening
 - [ ] 17-04-PLAN.md — Dashboard error/loading boundaries
 - [x] 17-05-PLAN.md — Route-level error and loading fallbacks (completed 2026-03-28)
@@ -166,7 +166,7 @@ Plans:
 
 | Phase                                           | Goal                                                | Requirements                       | Plans | Status  |
 | ----------------------------------------------- | --------------------------------------------------- | ---------------------------------- | ----- | ------- |
-| 17 - Fix Critical Code Review Issues (INSERTED) | Security, auth, data integrity, UI resilience fixes | TBD                                | 2/9   | Active  |
+| 17 - Fix Critical Code Review Issues (INSERTED) | Security, auth, data integrity, UI resilience fixes | TBD                                | 3/9   | Active  |
 | 18 - Schema + Canonical Contracts               | Canonical event data model with dual-source support | ESCH-01, ESCH-02, ESCH-03, ESCH-04 | 4     | Pending |
 | 19 - Public Signup Pages                        | Public event discovery and registration flow        | EPUB-01..05                        | 3     | Pending |
 | 20 - Admin Event Management                     | Admin CRUD for internal events + unified list       | EADM-01..05                        | 3     | Pending |

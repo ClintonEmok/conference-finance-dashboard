@@ -4,14 +4,14 @@ milestone: v2.0
 milestone_name: event-signup-dual-source
 status: active
 stopped_at: Phase 17 Plan 05 complete; error/loading fallbacks for all dashboard routes
-last_updated: "2026-03-28T20:14:04Z"
+last_updated: "2026-03-28T20:21:35Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 21
   completed_phases: 16
   total_plans: 61
-  completed_plans: 42
-  percent: 69
+  completed_plans: 43
+  percent: 70
 ---
 
 # Project State
@@ -26,18 +26,20 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 ## Current Position
 
 Milestone: v2.0 (event-signup-dual-source) — ACTIVE
-Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (2/9 plans complete)
-Plan: 17-05 complete — Route-level error and loading fallbacks
-Status: Dashboard error boundaries and 13 loading skeletons in place; ready for 17-06
-Last activity: 2026-03-28 — Completed 17-05: Route-level error and loading fallbacks
+Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (3/9 plans complete)
+Plan: 17-02 complete — Webhook signature verification and auth config fail-closed
+Status: Webhook verifiers reject on missing secrets; Convex auth config validates env at load; ready for 17-03
+Last activity: 2026-03-28 — Completed 17-02: Webhook signature verification and auth config fail-closed
 
-Progress: ██████░░░░ 69% (42/61 plans)
+Progress: ██████░░░░ 70% (43/61 plans)
 
 ## Alignment Status
 
 - Clerk is now the active auth provider for the root app shell, dashboard middleware, dashboard page guards, and dashboard login/logout UX.
 - Convex already receives Clerk identity tokens through the client provider bridge from 12-01.
 - **Convex auth hardened:** All 54 public write mutations now call `requireIdentity(ctx)` and reject unauthenticated callers (17-01).
+- **Webhook verifiers fail closed:** Both Tikkie and Ticket Tailor webhook verifiers return false (not true) when signing secrets are absent or blank — misconfiguration blocks processing instead of bypassing verification (17-02).
+- **Convex auth config validated:** `CLERK_JWT_ISSUER_DOMAIN` is now checked at module load with a descriptive error; no more TypeScript non-null assertion hiding missing config (17-02).
 - Shared `requireIdentity` helper in `convex/auth.ts` is the canonical Convex auth guard — future mutations must import and use it.
 - Operator-facing protected API routes now use Clerk's shared server helper instead of Better Auth sessions.
 - Better Auth runtime files and packages are removed from the app runtime and dependency graph.
@@ -95,10 +97,14 @@ Recent decisions that future work should preserve:
 - [v2-02] Preserve existing finance/Tikkie/Ticket Tailor behavior while adding internal signup flows incrementally.
 - [17-01] Use shared `requireIdentity(ctx)` helper for Convex mutation auth instead of inline `ctx.auth.getUserIdentity()` calls — allows future guard policy changes in one place.
 - [17-01] No client-side `<Authenticated>` wrapper needed: dashboard layout uses server-side `requirePageUser` preventing unauthenticated access to Convex hook consumers.
+- [17-02] Webhook verifiers fail closed: return false when signing secret env var is absent/blank, never bypass verification.
+- [17-02] Replace TypeScript non-null assertions for critical env vars with explicit runtime validation that throws descriptive errors at module load.
 
 ## Active Patterns / Constraints
 
 - **Convex mutation auth:** All public mutations must `import { requireIdentity } from "./auth"` and call `await requireIdentity(ctx)` as the first handler statement.
+- **Webhook verification fail-closed:** Webhook verifiers must return false when signing secret env vars are absent or blank — never return true to bypass checks.
+- **Env var validation:** Critical env vars should use explicit runtime checks with descriptive errors, not TypeScript non-null assertions.
 - Protected server code should import helpers from `lib/auth/server.ts` rather than calling Better Auth or raw Clerk checks ad hoc.
 - Dashboard sign-out should use Clerk `SignOutButton` with an explicit redirect target.
 - Landing-page Clerk `SignInButton` and `SignUpButton` should redirect to `/dashboard` after modal completion.
@@ -148,7 +154,7 @@ Recent decisions that future work should preserve:
 - Phase 14: Event-Level Tikkie + Payment Tracking (complete)
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
 - Phase 16: v1 milestone gap closure execution complete (16-01/16-02/16-03/16-04 complete)
-- Phase 17: Fix Critical Code Review Issues — inserted before v2.0 schema work (URGENT, 1/9 plans complete: 17-01 Convex auth guards done)
+- Phase 17: Fix Critical Code Review Issues — inserted before v2.0 schema work (URGENT, 3/9 plans complete: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-05 error/loading fallbacks done)
 - Phase 18: Schema + Canonical Contracts (planned — 4 plans)
 - Phase 19: Public Signup Pages (planned — 3 plans)
 - Phase 20: Admin Event Management (planned — 3 plans)
@@ -157,7 +163,7 @@ Recent decisions that future work should preserve:
 ## Session Continuity
 
 - **Last activity:** 2026-03-28
-- **Last session:** 2026-03-28T20:14:04Z
-- **Stopped at:** Completed 17-05-PLAN.md (Route-level error and loading fallbacks)
+- **Last session:** 2026-03-28T20:21:35Z
+- **Stopped at:** Completed 17-02-PLAN.md (Webhook signature verification and auth config fail-closed)
 - **Resume file:** None
-- **Next recommended plan:** Execute `17-06-PLAN.md` or run `/gsd-execute-phase 17`
+- **Next recommended plan:** Execute `17-03-PLAN.md` or run `/gsd-execute-phase 17`
