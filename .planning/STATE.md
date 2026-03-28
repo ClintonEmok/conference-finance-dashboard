@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: event-signup-dual-source
 status: active
-stopped_at: v2.0 roadmap created; ready for Phase 17 planning
-last_updated: "2026-03-27T14:00:00Z"
-last_activity: 2026-03-27
+stopped_at: Phase 17 Plan 01 complete; Convex auth guards applied to 54 public mutations
+last_updated: "2026-03-28T20:02:25Z"
+last_activity: 2026-03-28
 progress:
-  total_phases: 20
+  total_phases: 21
   completed_phases: 16
-  total_plans: 52
-  completed_plans: 40
-  percent: 77
+  total_plans: 61
+  completed_plans: 41
+  percent: 67
 ---
 
 # Project State
@@ -21,22 +21,24 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-27)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Plan and execute v2.0 Phase 17 for event signup + dual-source event operations
+- **Current focus:** Plan and execute v2.0 Phase 17 for critical code review fixes before schema work
 
 ## Current Position
 
 Milestone: v2.0 (event-signup-dual-source) — ACTIVE
-Phase: 17 (Schema + Canonical Contracts) — PENDING
-Plan: Not started
-Status: Roadmap created, awaiting first plan execution
-Last activity: 2026-03-27 - Created v2.0 roadmap (Phases 17-20)
+Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (1/9 plans complete)
+Plan: 17-01 complete — Convex auth guard hardening
+Status: Auth guards applied to 54 public mutations; ready for 17-02
+Last activity: 2026-03-28 — Completed 17-01: Convex auth guard hardening
 
-Progress: ██████░░░░ 77% (40/52 plans)
+Progress: █████░░░░░ 67% (41/61 plans)
 
 ## Alignment Status
 
 - Clerk is now the active auth provider for the root app shell, dashboard middleware, dashboard page guards, and dashboard login/logout UX.
 - Convex already receives Clerk identity tokens through the client provider bridge from 12-01.
+- **Convex auth hardened:** All 54 public write mutations now call `requireIdentity(ctx)` and reject unauthenticated callers (17-01).
+- Shared `requireIdentity` helper in `convex/auth.ts` is the canonical Convex auth guard — future mutations must import and use it.
 - Operator-facing protected API routes now use Clerk's shared server helper instead of Better Auth sessions.
 - Better Auth runtime files and packages are removed from the app runtime and dependency graph.
 - Browser verification for signed-out access, sign-in, dashboard access, signed-in shell, and sign-out was approved.
@@ -91,9 +93,12 @@ Recent decisions that future work should preserve:
 - [260327-16d] Keep accommodation signal filter normalization/serialization in a shared helper and base queue family badge rendering on `hasFamily` payload truth.
 - [v2-01] Treat event source as an explicit domain boundary (`integration` vs `internal`) and keep dashboard reads source-agnostic.
 - [v2-02] Preserve existing finance/Tikkie/Ticket Tailor behavior while adding internal signup flows incrementally.
+- [17-01] Use shared `requireIdentity(ctx)` helper for Convex mutation auth instead of inline `ctx.auth.getUserIdentity()` calls — allows future guard policy changes in one place.
+- [17-01] No client-side `<Authenticated>` wrapper needed: dashboard layout uses server-side `requirePageUser` preventing unauthenticated access to Convex hook consumers.
 
 ## Active Patterns / Constraints
 
+- **Convex mutation auth:** All public mutations must `import { requireIdentity } from "./auth"` and call `await requireIdentity(ctx)` as the first handler statement.
 - Protected server code should import helpers from `lib/auth/server.ts` rather than calling Better Auth or raw Clerk checks ad hoc.
 - Dashboard sign-out should use Clerk `SignOutButton` with an explicit redirect target.
 - Landing-page Clerk `SignInButton` and `SignUpButton` should redirect to `/dashboard` after modal completion.
@@ -143,15 +148,16 @@ Recent decisions that future work should preserve:
 - Phase 14: Event-Level Tikkie + Payment Tracking (complete)
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
 - Phase 16: v1 milestone gap closure execution complete (16-01/16-02/16-03/16-04 complete)
-- Phase 17: Schema + Canonical Contracts (planned — 4 plans)
-- Phase 18: Public Signup Pages (planned — 3 plans)
-- Phase 19: Admin Event Management (planned — 3 plans)
-- Phase 20: Finance Integration (planned — 3 plans)
+- Phase 17: Fix Critical Code Review Issues — inserted before v2.0 schema work (URGENT, 1/9 plans complete: 17-01 Convex auth guards done)
+- Phase 18: Schema + Canonical Contracts (planned — 4 plans)
+- Phase 19: Public Signup Pages (planned — 3 plans)
+- Phase 20: Admin Event Management (planned — 3 plans)
+- Phase 21: Finance Integration (planned — 3 plans)
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-27
-- **Last session:** 2026-03-27T14:00:00Z
-- **Stopped at:** Created v2.0 roadmap (Phases 17-20)
+- **Last activity:** 2026-03-28
+- **Last session:** 2026-03-28T20:02:25Z
+- **Stopped at:** Completed 17-01-PLAN.md (Convex auth guard hardening)
 - **Resume file:** None
-- **Next recommended plan:** Execute `/gsd/plan-phase 17` for Schema + Canonical Contracts
+- **Next recommended plan:** Execute `17-02-PLAN.md` or run `/gsd-execute-phase 17`
