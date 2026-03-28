@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server"
 import { v } from "convex/values"
+import { requireIdentity } from "./auth"
 
 function filterAttendees(
   attendees: Array<{
@@ -133,6 +134,7 @@ export const createAttendee = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const id = await ctx.db.insert("ticketTailorAttendees", args)
     return id
   },
@@ -173,6 +175,7 @@ export const upsertAttendee = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     if (args.providerAttendeeId) {
       const existing = await ctx.db
         .query("ticketTailorAttendees")
@@ -215,6 +218,7 @@ export const updateAttendee = mutation({
     tikkieAmountOverrideMinor: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const { attendeeId, ...updates } = args
     await ctx.db.patch("ticketTailorAttendees", attendeeId, updates)
     return attendeeId
@@ -227,6 +231,7 @@ export const assignRoom = mutation({
     roomId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     await ctx.db.patch("ticketTailorAttendees", args.attendeeId, {
       assignedRoomId: args.roomId,
     })
@@ -239,6 +244,7 @@ export const unassignRoom = mutation({
     attendeeId: v.id("ticketTailorAttendees"),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     await ctx.db.patch("ticketTailorAttendees", args.attendeeId, {
       assignedRoomId: undefined,
     })
@@ -251,6 +257,7 @@ export const checkInAttendee = mutation({
     attendeeId: v.id("ticketTailorAttendees"),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     await ctx.db.patch("ticketTailorAttendees", args.attendeeId, {
       checkedInAt: Date.now(),
     })
