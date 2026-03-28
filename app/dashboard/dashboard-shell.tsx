@@ -166,9 +166,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
             <div className="flex w-full flex-col overflow-hidden rounded-xl border border-white/60 bg-white/85 shadow-[0_18px_48px_rgba(40,24,82,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-white/8 dark:shadow-[0_18px_48px_rgba(0,0,0,0.2)]">
 
               <div className="shrink-0 flex items-center p-5 h-[64px]">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-lg shadow-primary/20">
-                  <ShieldEllipsis className="size-4" />
-                </div>
+
                 <div className="ml-2.5 flex-1 overflow-hidden">
                   <h1 className="text-[11px] font-black tracking-tight text-foreground uppercase">DCLM Netherlands</h1>
                   <p className="text-[9px] font-bold text-muted-foreground/50 uppercase tracking-widest leading-none">Conference Dashboard</p>
