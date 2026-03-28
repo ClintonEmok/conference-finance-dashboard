@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server"
 import { v } from "convex/values"
+import { requireIdentity } from "./auth"
 
 export const getPaymentLinks = query({
   args: {
@@ -57,6 +58,7 @@ export const createPaymentLink = mutation({
     providerPayload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const id = await ctx.db.insert("tikkiePaymentLinks", {
       ...args,
       status: "created",
@@ -86,6 +88,7 @@ export const updatePaymentLinkStatus = mutation({
     providerPayload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const link = await ctx.db.get("tikkiePaymentLinks", args.linkId)
     if (!link) throw new Error("Payment link not found")
 
@@ -136,6 +139,7 @@ export const createPaymentTemplate = mutation({
     isActive: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const existing = await ctx.db
       .query("tikkiePaymentTemplates")
       .withIndex("eventId_ticketType", (q) =>
@@ -174,6 +178,7 @@ export const updatePaymentTemplate = mutation({
     isActive: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const template = await ctx.db.get("tikkiePaymentTemplates", args.templateId)
     if (!template) throw new Error("Template not found")
 
@@ -190,6 +195,7 @@ export const updatePaymentTemplate = mutation({
 export const deletePaymentTemplate = mutation({
   args: { templateId: v.id("tikkiePaymentTemplates") },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const template = await ctx.db.get("tikkiePaymentTemplates", args.templateId)
     if (!template) throw new Error("Template not found")
 
@@ -289,6 +295,7 @@ export const createEventPaymentLink = mutation({
     providerPayload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const id = await ctx.db.insert("tikkiePaymentLinks", {
       providerOrderId: "",
       providerEventId: args.providerEventId,
@@ -365,6 +372,7 @@ export const upsertTikkiePayment = mutation({
     providerPayload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const existing = await ctx.db
       .query("tikkiePayments")
       .withIndex("paymentToken", (q) => q.eq("paymentToken", args.paymentToken))
@@ -397,6 +405,7 @@ export const matchTikkiePayment = mutation({
     orderId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const payment = await ctx.db.get("tikkiePayments", args.paymentId)
     if (!payment) throw new Error("Tikkie payment not found")
 
@@ -413,6 +422,7 @@ export const matchTikkiePayment = mutation({
 export const autoMatchTikkiePayments = mutation({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const links = await ctx.db
       .query("tikkiePaymentLinks")
       .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
