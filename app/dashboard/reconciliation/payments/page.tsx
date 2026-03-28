@@ -44,14 +44,7 @@ function toDateInputValue(date: Date) {
   return date.toISOString().slice(0, 10)
 }
 
-function formatMoney(minor: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(minor / 100)
-}
+import { formatMoney } from "@/lib/format"
 
 function formatDate(isoString: string) {
   return new Date(isoString).toLocaleDateString("en-US", {

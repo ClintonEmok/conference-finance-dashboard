@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import type { FormEvent } from "react"
+import type { SyntheticEvent } from "react"
 import {
   Banknote,
   Calendar,
@@ -38,14 +38,7 @@ type FormValues = {
 
 type FormErrors = Partial<Record<keyof FormValues, string>>
 
-function formatMoney(minor: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(minor / 100)
-}
+import { formatMoney } from "@/lib/format"
 
 function validate(values: FormValues, activeTab: "bank" | "cash") {
   const errors: FormErrors = {}
@@ -161,7 +154,7 @@ export function ManualPaymentEntryForm({ onSuccess }: ManualEntryFormProps) {
     setShowDropdown(false)
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     setError(null)
 

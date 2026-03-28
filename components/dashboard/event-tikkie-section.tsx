@@ -67,14 +67,7 @@ type Order = {
   totalAmountMinor: number
 }
 
-function formatMoney(minor: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(minor / 100)
-}
+import { formatMoney } from "@/lib/format"
 
 function formatDate(epochMs: number) {
   return new Date(epochMs).toLocaleDateString("en-US", {

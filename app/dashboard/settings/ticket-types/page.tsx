@@ -34,14 +34,7 @@ type TemplateSummary = {
   attendeeCount: number
 }
 
-function formatMoney(minor: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(minor / 100)
-}
+import { formatMoney } from "@/lib/format"
 
 type TemplateFormState = {
   ticketTypeLabel: string
@@ -224,7 +217,7 @@ export default function TicketTypesSettingsPage() {
         } | null
         throw new Error(
           body?.error?.message ??
-          `Failed to ${editingTemplateId ? "update" : "create"} template`
+            `Failed to ${editingTemplateId ? "update" : "create"} template`
         )
       }
 
