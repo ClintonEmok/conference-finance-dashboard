@@ -5,6 +5,7 @@ import {
   mutation,
 } from "./_generated/server"
 import { v } from "convex/values"
+import { requireIdentity } from "./auth"
 
 export const getEvents = query({
   args: {},
@@ -58,6 +59,7 @@ export const createEvent = mutation({
     rawPayload: v.any(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const id = await ctx.db.insert("ticketTailorEvents", args)
     return id
   },
@@ -74,6 +76,7 @@ export const upsertEvent = mutation({
     rawPayload: v.any(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const existing = await ctx.db
       .query("ticketTailorEvents")
       .withIndex("providerEventId", (q) =>
