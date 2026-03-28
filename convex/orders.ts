@@ -1,5 +1,6 @@
 import { query, mutation, type QueryCtx } from "./_generated/server"
 import { v } from "convex/values"
+import { requireIdentity } from "./auth"
 
 function isOrderRemoved(order: any) {
   return typeof order?.removedAt === "number"
@@ -121,6 +122,7 @@ export const createOrder = mutation({
     rawPayload: v.any(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const id = await ctx.db.insert("ticketTailorOrders", args)
     return id
   },
@@ -148,6 +150,7 @@ export const upsertOrder = mutation({
     rawPayload: v.any(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const existing = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("providerOrderId", (q) =>
@@ -175,6 +178,7 @@ export const updateOrderStatus = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     await ctx.db.patch("ticketTailorOrders", args.orderId, {
       normalizedStatus: args.normalizedStatus,
       refundedAt: args.normalizedStatus === "refunded" ? Date.now() : undefined,
@@ -716,6 +720,7 @@ export const removeOrderLocally = mutation({
     removedAt: v.number(),
   }),
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const order = await ctx.db.get("ticketTailorOrders", args.orderId)
     if (!order) {
       throw new Error("Order not found")
