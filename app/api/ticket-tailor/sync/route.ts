@@ -5,6 +5,7 @@ import {
   type TicketTailorSyncScopeInput,
 } from "@/lib/integrations/ticket-tailor/sync"
 import { requireApiUser } from "@/lib/auth/server"
+import { enforceRateLimit } from "@/lib/rate-limit"
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0
@@ -78,6 +79,12 @@ async function parseManualSyncScope(
 }
 
 export async function POST(request: Request) {
+  const rateLimited = enforceRateLimit(request, "sync:ticket-tailor", {
+    maxRequests: 10,
+    windowMs: 60_000,
+  })
+  if (rateLimited) return rateLimited
+
   try {
     const user = await requireApiUser()
 

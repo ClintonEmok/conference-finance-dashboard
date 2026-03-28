@@ -7,6 +7,7 @@ import {
 import { fetchAndStoreTikkiePayments } from "@/lib/domain/finance/tikkie-event-payments"
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
+import { enforceRateLimit } from "@/lib/rate-limit"
 
 function badPayload(message: string) {
   return NextResponse.json(
@@ -33,6 +34,12 @@ function invalidSignature() {
 }
 
 export async function POST(request: Request) {
+  const rateLimited = enforceRateLimit(request, "webhook:tikkie", {
+    maxRequests: 120,
+    windowMs: 60_000,
+  })
+  if (rateLimited) return rateLimited
+
   const rawBody = await request.text()
 
   if (!verifyTikkieWebhook(request.headers, rawBody)) {

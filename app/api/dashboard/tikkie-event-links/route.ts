@@ -10,6 +10,7 @@ import { TikkieApiError } from "@/lib/integrations/tikkie/client"
 import { api } from "@/lib/convex/api"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
 import type { Id } from "@/convex/_generated/dataModel"
+import { enforceRateLimit } from "@/lib/rate-limit"
 
 type UnifiedPayment = {
   _id: string
@@ -147,6 +148,12 @@ function parseExpiryDate(
 }
 
 export async function GET(request: Request) {
+  const rateLimited = enforceRateLimit(
+    request,
+    "dashboard:tikkie-event-links:get"
+  )
+  if (rateLimited) return rateLimited
+
   const authResult = await requireApiUser()
   if (authResult instanceof NextResponse) return authResult
 
@@ -253,6 +260,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const rateLimited = enforceRateLimit(
+    request,
+    "dashboard:tikkie-event-links:post"
+  )
+  if (rateLimited) return rateLimited
+
   const authResult = await requireApiUser()
   if (authResult instanceof NextResponse) return authResult
 
@@ -347,6 +360,12 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const rateLimited = enforceRateLimit(
+    request,
+    "dashboard:tikkie-event-links:patch"
+  )
+  if (rateLimited) return rateLimited
+
   const authResult = await requireApiUser()
   if (authResult instanceof NextResponse) return authResult
 

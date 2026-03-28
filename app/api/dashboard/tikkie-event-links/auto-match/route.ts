@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { requireApiUser } from "@/lib/auth/server"
 import { api } from "@/lib/convex/api"
 import { convexMutation } from "@/lib/convex/server"
+import { enforceRateLimit } from "@/lib/rate-limit"
 
 function badRequest(message: string) {
   return NextResponse.json(
@@ -11,6 +12,12 @@ function badRequest(message: string) {
 }
 
 export async function POST(request: Request) {
+  const rateLimited = enforceRateLimit(
+    request,
+    "dashboard:tikkie-event-links:auto-match"
+  )
+  if (rateLimited) return rateLimited
+
   const authResult = await requireApiUser()
   if (authResult instanceof NextResponse) return authResult
 

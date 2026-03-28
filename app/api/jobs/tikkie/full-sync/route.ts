@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { runTikkieSync } from "@/lib/domain/finance/tikkie-sync"
+import { enforceRateLimit } from "@/lib/rate-limit"
 
 function unauthorized() {
   return NextResponse.json(
@@ -15,6 +16,12 @@ function unauthorized() {
 }
 
 export async function POST(request: Request) {
+  const rateLimited = enforceRateLimit(request, "jobs:tikkie-full-sync", {
+    maxRequests: 10,
+    windowMs: 60_000,
+  })
+  if (rateLimited) return rateLimited
+
   const expectedSecret = process.env.TIKKIE_SYNC_CRON_SECRET?.trim()
 
   if (!expectedSecret) {

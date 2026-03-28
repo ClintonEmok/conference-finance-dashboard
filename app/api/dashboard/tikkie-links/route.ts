@@ -14,6 +14,7 @@ import {
   TikkieMonthlyQuotaExceededError,
 } from "@/lib/domain/finance/tikkie-quota"
 import { TikkieApiError } from "@/lib/integrations/tikkie/client"
+import { enforceRateLimit } from "@/lib/rate-limit"
 
 type CreateBody = {
   providerOrderId?: unknown
@@ -103,6 +104,9 @@ function parseCreateBody(body: CreateBody) {
 }
 
 export async function GET(request: Request) {
+  const rateLimited = enforceRateLimit(request, "dashboard:tikkie-links:get")
+  if (rateLimited) return rateLimited
+
   const authResult = await requireApiUser()
 
   if (authResult instanceof NextResponse) {
@@ -155,6 +159,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const rateLimited = enforceRateLimit(request, "dashboard:tikkie-links:post")
+  if (rateLimited) return rateLimited
+
   const authResult = await requireApiUser()
 
   if (authResult instanceof NextResponse) {
