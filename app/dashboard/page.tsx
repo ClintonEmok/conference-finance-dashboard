@@ -63,18 +63,18 @@ type AttendeesSnippetPayload = {
     providerOrderId: string
     eventName: string | null
     roomStatus:
-      | {
-          status: "assigned"
-          roomLabel: string
-          hotelName: string
-          roomTypeLabel: string
-        }
-      | {
-          status: "unassigned"
-          roomLabel: null
-          hotelName: null
-          roomTypeLabel: null
-        }
+    | {
+      status: "assigned"
+      roomLabel: string
+      hotelName: string
+      roomTypeLabel: string
+    }
+    | {
+      status: "unassigned"
+      roomLabel: null
+      hotelName: null
+      roomTypeLabel: null
+    }
   }>
 }
 
@@ -305,33 +305,33 @@ export default function DashboardPage() {
                   <h3 className="text-[11px] font-semibold text-foreground uppercase tracking-[0.18em] text-muted-foreground">Daily trend</h3>
                   <p className="text-sm font-semibold text-foreground mt-1 tracking-tight">Movement across the active window</p>
                 </div>
- 
+
                 {isLoading ? (
-                   <div className="overflow-x-auto rounded-xl border border-white/60 bg-white/40 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5 pb-2">
-                     <table className="min-w-full text-xs">
-                       <thead>
-                         <tr className="border-b border-border/20 text-left text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                           <th className="px-4 py-3 font-semibold">Date</th>
-                           <th className="px-4 py-3 font-semibold">Event</th>
-                           <th className="px-4 py-3 font-semibold text-right">Orders</th>
-                           <th className="px-4 py-3 font-semibold text-right">Gross</th>
-                           <th className="px-4 py-3 font-semibold text-right">Net</th>
-                         </tr>
-                       </thead>
-                       <tbody className="divide-y divide-border/20">
-                         {Array.from({ length: 5 }).map((_, i) => (
-                           <tr key={i}>
-                             <td className="px-4 py-3"><Skeleton className="h-3 w-20" /></td>
-                             <td className="px-4 py-3"><Skeleton className="h-3 w-24" /></td>
-                             <td className="px-4 py-3 text-right"><Skeleton className="h-3 w-8 ml-auto" /></td>
-                             <td className="px-4 py-3 text-right"><Skeleton className="h-3 w-16 ml-auto" /></td>
-                             <td className="px-4 py-3 text-right"><Skeleton className="h-3 w-16 ml-auto" /></td>
-                           </tr>
-                         ))}
-                       </tbody>
-                     </table>
-                   </div>
-                ) : payload!.trend.length === 0 ? (
+                  <div className="overflow-x-auto rounded-xl border border-white/60 bg-white/40 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5 pb-2">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border/20 text-left text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                          <th className="px-4 py-3 font-semibold">Date</th>
+                          <th className="px-4 py-3 font-semibold">Event</th>
+                          <th className="px-4 py-3 font-semibold text-right">Orders</th>
+                          <th className="px-4 py-3 font-semibold text-right">Gross</th>
+                          <th className="px-4 py-3 font-semibold text-right">Net</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/20">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <tr key={i}>
+                            <td className="px-4 py-3"><Skeleton className="h-3 w-20" /></td>
+                            <td className="px-4 py-3"><Skeleton className="h-3 w-24" /></td>
+                            <td className="px-4 py-3 text-right"><Skeleton className="h-3 w-8 ml-auto" /></td>
+                            <td className="px-4 py-3 text-right"><Skeleton className="h-3 w-16 ml-auto" /></td>
+                            <td className="px-4 py-3 text-right"><Skeleton className="h-3 w-16 ml-auto" /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : payload?.trend.length === 0 ? (
                   <p className="rounded-xl border border-white/60 bg-white/50 p-4 text-xs text-muted-foreground shadow-sm dark:border-white/10 dark:bg-white/5">
                     No synced orders found for the default scope.
                   </p>
@@ -376,7 +376,7 @@ export default function DashboardPage() {
                     </Link>
                   </Button>
                 </div>
- 
+
                 {isLoading ? (
                   <div className="overflow-x-auto rounded-xl border border-white/60 bg-white/40 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5 pb-2">
                     <table className="min-w-full text-xs">
@@ -389,17 +389,17 @@ export default function DashboardPage() {
                       </thead>
                       <tbody className="divide-y divide-border/20">
                         {Array.from({ length: 6 }).map((_, i) => (
-                           <tr key={i}>
-                             <td className="px-4 py-3">
-                               <Skeleton className="h-3 w-24 mb-1.5" />
-                               <Skeleton className="h-2 w-32" />
-                             </td>
-                             <td className="px-4 py-3"><Skeleton className="h-3 w-20" /></td>
-                             <td className="px-4 py-3">
-                               <Skeleton className="h-3 w-16 mb-1.5" />
-                               <Skeleton className="h-2 w-20" />
-                             </td>
-                           </tr>
+                          <tr key={i}>
+                            <td className="px-4 py-3">
+                              <Skeleton className="h-3 w-24 mb-1.5" />
+                              <Skeleton className="h-2 w-32" />
+                            </td>
+                            <td className="px-4 py-3"><Skeleton className="h-3 w-20" /></td>
+                            <td className="px-4 py-3">
+                              <Skeleton className="h-3 w-16 mb-1.5" />
+                              <Skeleton className="h-2 w-20" />
+                            </td>
+                          </tr>
                         ))}
                       </tbody>
                     </table>
@@ -476,7 +476,7 @@ export default function DashboardPage() {
                       statusCounts.cancelled
                     const numericValue = Number(value)
                     const width = total === 0 || numericValue === 0 ? 0 : Math.max(6, Math.round((numericValue / total) * 100))
- 
+
                     return (
                       <div key={String(label)}>
                         <div className="mb-1.5 flex items-center justify-between text-xs">
@@ -484,7 +484,7 @@ export default function DashboardPage() {
                           <span className="text-muted-foreground tabular-nums">{value}</span>
                         </div>
                         <div className="h-1.5 rounded-full bg-black/5 dark:bg-white/5 overflow-hidden">
-                           <div className={`h-full rounded-full ${colorClass}`} style={{ width: `${width}%` }} />
+                          <div className={`h-full rounded-full ${colorClass}`} style={{ width: `${width}%` }} />
                         </div>
                       </div>
                     )
@@ -505,7 +505,7 @@ export default function DashboardPage() {
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[linear-gradient(135deg,#7154ff,#5238aa)] text-white shadow-sm">
-                             <Icon className="size-3.5" />
+                            <Icon className="size-3.5" />
                           </div>
                           <span className="truncate text-[13px] font-semibold text-foreground">
                             {action.title}

@@ -163,30 +163,30 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
       <div 
         className={cn(
           "mx-auto grid min-h-svh gap-4 px-4 py-4 lg:px-6 lg:py-6 transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
-          isCollapsed ? "lg:grid-cols-[100px_minmax(0,1fr)]" : "lg:grid-cols-[280px_minmax(0,1fr)]"
+          isCollapsed ? "lg:grid-cols-[80px_minmax(0,1fr)]" : "lg:grid-cols-[240px_minmax(0,1fr)]"
         )}
       >
         <aside className="hidden lg:flex lg:flex-col relative">
           <div className="sticky top-6 flex h-[calc(100svh-3rem)] w-full">
             <div className="flex w-full flex-col overflow-hidden rounded-xl border border-white/60 bg-white/85 shadow-[0_18px_48px_rgba(40,24,82,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-white/8 dark:shadow-[0_18px_48px_rgba(0,0,0,0.2)]">
               
-              <div className="shrink-0 flex items-center p-6 h-[80px]">
-                 <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-white shadow-lg shadow-primary/20">
-                    <ShieldEllipsis className="size-5" />
+              <div className="shrink-0 flex items-center p-5 h-[64px]">
+                 <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-lg shadow-primary/20">
+                    <ShieldEllipsis className="size-4" />
                  </div>
                  {!isCollapsed && (
-                   <div className="ml-3 flex-1 overflow-hidden">
-                      <h1 className="text-sm font-black tracking-tight text-foreground uppercase">Doclines</h1>
-                      <p className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-widest leading-none">Finance v2.0</p>
+                   <div className="ml-2.5 flex-1 overflow-hidden">
+                      <h1 className="text-[11px] font-black tracking-tight text-foreground uppercase">Doclines</h1>
+                      <p className="text-[9px] font-bold text-muted-foreground/50 uppercase tracking-widest leading-none">Finance v2.0</p>
                    </div>
                  )}
               </div>
 
               <nav className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-2">
                 {navigationSections.map((section) => (
-                  <div key={section.title} className="flex flex-col gap-1.5 focus-visible:outline-none">
+                  <div key={section.title} className="flex flex-col gap-1 focus-visible:outline-none">
                     {!isCollapsed && (
-                       <hr className="my-2 border-border/20 mx-3 opacity-30" />
+                       <hr className="my-1 border-border/20 mx-3 opacity-30" />
                     )}
 
                     {section.items.map((item) => {
@@ -207,15 +207,15 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                               href={item.href}
                               className={cn(
                                 "flex items-center rounded-lg transition-all duration-200 relative z-10",
-                                isCollapsed ? "size-10 justify-center mx-auto mb-2" : "px-3 py-2.5 gap-3",
+                                isCollapsed ? "size-9 justify-center mx-auto mb-1.5" : "px-3 py-2 gap-2.5",
                                 active
                                   ? "bg-primary text-white shadow-lg shadow-primary/20"
                                   : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                               )}
                             >
-                              <Icon className={cn("shrink-0", isCollapsed ? "size-5" : "size-4.5")} />
+                              <Icon className={cn("shrink-0", isCollapsed ? "size-4.5" : "size-4")} />
                               {!isCollapsed && (
-                                <span className="flex-1 text-xs font-bold uppercase tracking-widest">
+                                <span className="flex-1 text-[11px] font-bold uppercase tracking-wider">
                                   {item.label}
                                 </span>
                               )}
@@ -239,7 +239,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                           </div>
 
                           {hasChildren && expanded && !isCollapsed && (
-                            <div className="ml-5 mt-1 flex flex-col gap-1 border-l border-border/30 pl-3">
+                            <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-border/30 pl-3">
                               {item.children?.map((child) => {
                                 const childIsActive = isPathActive(pathname, child.href)
                                 return (
@@ -247,7 +247,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                                     key={child.href}
                                     href={child.href}
                                     className={cn(
-                                      "block rounded-md px-3 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors whitespace-nowrap",
+                                      "block rounded-md px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide transition-colors whitespace-nowrap",
                                       childIsActive
                                         ? "text-primary bg-primary/5"
                                         : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30"
@@ -269,23 +269,23 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
               <div className="p-4 shrink-0 transition-all duration-300">
                 <div className={cn(
                   "flex items-center rounded-lg border border-border/40 shadow-sm backdrop-blur overflow-hidden transition-all duration-300",
-                  isCollapsed ? "h-14 w-14 justify-center mx-auto flex-col p-0 border-transparent shadow-none" : "px-3 py-3 justify-between gap-3 bg-white/40 dark:bg-black/20"
+                  isCollapsed ? "h-12 w-12 justify-center mx-auto flex-col p-0 border-transparent shadow-none" : "px-2.5 py-2.5 justify-between gap-2 bg-white/40 dark:bg-black/20"
                 )}>
                   {!isCollapsed ? (
                     <div className="min-w-0">
                       <p className="truncate text-[10px] font-black uppercase tracking-widest text-foreground">
                         {userEmail.split('@')[0]}
                       </p>
-                      <p className="truncate text-[9px] uppercase tracking-[0.2em] text-muted-foreground/40 font-bold mt-0.5">
+                      <p className="truncate text-[8px] uppercase tracking-[0.2em] text-muted-foreground/40 font-bold mt-0.5">
                         Conference OP
                       </p>
                     </div>
                   ) : (
-                    <div className="size-9 rounded-xl bg-muted/50 flex items-center justify-center text-muted-foreground/60 font-black text-[10px] border border-border/50">
+                    <div className="size-8 rounded-lg bg-muted/50 flex items-center justify-center text-muted-foreground/60 font-black text-[10px] border border-border/50">
                        {userEmail[0].toUpperCase()}
                     </div>
                   )}
-                  {!isCollapsed && <LogoutButton className="h-7 rounded-lg px-2 text-[9px] font-black uppercase tracking-widest bg-muted/50 hover:bg-muted transition-colors" />}
+                  {!isCollapsed && <LogoutButton className="h-6 rounded-md px-2 text-[8px] font-black uppercase tracking-widest bg-muted/50 hover:bg-muted transition-colors" />}
                 </div>
               </div>
 
