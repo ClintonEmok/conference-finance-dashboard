@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  LayoutGrid,
   MapPin,
   RefreshCcw,
   Search,
@@ -19,6 +20,7 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import {
   appendSignalFiltersToQuery,
   normalizeSignalFilters,
@@ -181,7 +183,7 @@ export default function AccommodationPage() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [selectedAttendeeIds, setSelectedAttendeeIds] = useState<string[]>([])
-  
+
   const selectedAttendeeId = selectedAttendeeIds[0] || null
 
   const toggleAttendeeSelection = (id: string) => {
@@ -560,10 +562,10 @@ export default function AccommodationPage() {
 
   async function assignMultipleAttendeesToRoom(attendeeIds: string[], roomId: string) {
     if (!roomId || attendeeIds.length === 0) return
-    
+
     setIsMutating(true)
     setAssignmentMessage(null)
-    
+
     try {
       // Loop or use a bulk endpoint if available. For now, sequential per current API pattern
       for (const id of attendeeIds) {
@@ -573,7 +575,7 @@ export default function AccommodationPage() {
           body: JSON.stringify({ attendeeId: id, roomId }),
         })
       }
-      
+
       setAssignmentMessage(`Assigned ${attendeeIds.length} attendees.`)
       setSelectedAttendeeIds([])
       await loadWorkspace()
@@ -635,16 +637,16 @@ export default function AccommodationPage() {
               asChild
               variant="outline"
               size="sm"
-              className="rounded-xl bg-background/50 backdrop-blur"
+              className="rounded-lg h-10 border-border/50 bg-card/40 backdrop-blur font-bold text-xs shadow-sm"
             >
               <Link href="/dashboard/accommodation/inventory">
-                Open stock
+                <LayoutGrid className="mr-2 size-3.5" /> Open stock
               </Link>
             </Button>
             <Button
               type="button"
               size="sm"
-              className="rounded-xl bg-[linear-gradient(135deg,#7154ff,#5238aa)] text-white shadow-sm hover:opacity-90 transition-opacity"
+              className="rounded-lg h-10 bg-primary text-white font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all"
               disabled={isLoadingProposal || payload.unassignedAttendees.length === 0}
               onClick={async () => {
                 setIsLoadingProposal(true)
@@ -669,7 +671,6 @@ export default function AccommodationPage() {
                 }
               }}
             >
-              <Sparkles className="mr-1.5 size-3.5" />
               {isLoadingProposal ? "Generating..." : "Auto-allocate"}
             </Button>
           </div>
@@ -679,7 +680,7 @@ export default function AccommodationPage() {
           {[
             { label: "Total capacity", value: totalCapacity.toLocaleString(), sub: `${payload.summary.totalRooms} rooms` },
             { label: "Occupancy", value: `${occupancyPercent}%`, sub: `${occupiedCapacity} beds used` },
-            { label: "Unassigned", value: payload.summary.unassignedAttendees, sub: "Waiting list" },
+            { label: "Unassigned", value: payload.unassignedAttendees.length, sub: "Waiting list" },
             { label: "Inventory", value: payload.roomTypes.length, sub: `${payload.hotels.length} Hoteliers` },
           ].map((metric) => (
             <article key={metric.label} className="relative flex flex-col justify-center overflow-hidden rounded-2xl border border-[rgba(113,84,255,0.4)] bg-[linear-gradient(145deg,rgba(113,84,255,0.92),rgba(83,56,171,0.88))] p-5 shadow-[0_8px_30px_rgb(113,84,255,0.2)] transition-transform hover:scale-[1.02]">
@@ -884,20 +885,18 @@ export default function AccommodationPage() {
                   return (
                     <div
                       key={attendee.attendeeId}
-                      className={`group relative w-full flex flex-col items-start p-4 rounded-xl border transition-all cursor-pointer select-none ${
-                        isSelected
-                          ? "border-[rgba(113,84,255,0.6)] bg-[rgba(113,84,255,0.08)] shadow-[0_0_20px_rgba(113,84,255,0.1)] selected-attendee"
-                          : "border-border/40 bg-background/50 hover:bg-muted/30"
-                      }`}
+                      className={`group relative w-full flex flex-col items-start p-4 rounded-xl border transition-all cursor-pointer select-none ${isSelected
+                        ? "border-[rgba(113,84,255,0.6)] bg-[rgba(113,84,255,0.08)] shadow-[0_0_20px_rgba(113,84,255,0.1)] selected-attendee"
+                        : "border-border/40 bg-background/50 hover:bg-muted/30"
+                        }`}
                       onClick={() => toggleAttendeeSelection(attendee.attendeeId)}
                     >
                       <div className="flex w-full items-start justify-between">
                         <div className="flex items-center gap-2 truncate">
-                          <div className={`flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
-                            isSelected 
-                              ? "bg-primary border-primary text-primary-foreground" 
-                              : "border-border bg-background"
-                          }`}>
+                          <div className={`flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors ${isSelected
+                            ? "bg-primary border-primary text-primary-foreground"
+                            : "border-border bg-background"
+                            }`}>
                             {isSelected && <Check className="size-3" />}
                           </div>
                           <p className="font-semibold text-sm text-foreground truncate">
@@ -905,11 +904,11 @@ export default function AccommodationPage() {
                           </p>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
-                          <Link 
+                          <Link
                             href={`/dashboard/attendees/${attendee.attendeeId}?search=${encodeURIComponent(
                               appliedSearch ||
-                                attendee.attendeeName ||
-                                attendee.providerOrderId
+                              attendee.attendeeName ||
+                              attendee.providerOrderId
                             )}&eventId=${encodeURIComponent(appliedEventId || attendee.providerEventId)}`}
                             onClick={(e) => e.stopPropagation()}
                             className="p-1 text-muted-foreground hover:text-primary transition-colors"
@@ -921,20 +920,19 @@ export default function AccommodationPage() {
                           )}
                         </div>
                       </div>
-                      
+
                       <p className="mt-1 ml-7 text-xs text-muted-foreground truncate opacity-70">
                         {attendee.ticketTypeLabel ?? attendee.eventName}
                       </p>
-                      
+
                       <div className="mt-3 ml-7 flex flex-wrap gap-1.5">
                         {attendee.genderType && attendee.genderType !== "UNKNOWN" && (
-                          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize ${
-                            attendee.genderType === "MALE" 
-                              ? "bg-blue-500/10 text-blue-500 border-blue-500/20" 
-                              : attendee.genderType === "FEMALE"
-                                ? "bg-pink-500/10 text-pink-500 border-pink-500/20"
-                                : "bg-muted/30 text-muted-foreground/80 border-border/40"
-                          }`}>
+                          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize ${attendee.genderType === "MALE"
+                            ? "bg-blue-500/10 text-blue-500 border-blue-500/20"
+                            : attendee.genderType === "FEMALE"
+                              ? "bg-pink-500/10 text-pink-500 border-pink-500/20"
+                              : "bg-muted/30 text-muted-foreground/80 border-border/40"
+                            }`}>
                             {attendee.genderType.toLowerCase()}
                           </span>
                         )}
@@ -965,11 +963,12 @@ export default function AccommodationPage() {
               <Button
                 type="button"
                 variant="outline"
-                className="rounded-xl text-primary"
+                size="sm"
+                className="rounded-lg h-10 border-border/50 bg-card/40 backdrop-blur font-bold text-xs shadow-sm"
                 disabled={isLoading || isMutating}
                 onClick={() => void loadWorkspace()}
               >
-                <RefreshCcw className="mr-2 size-4" />
+                <RefreshCcw className={cn("mr-2 size-3.5", isLoading && "animate-spin")} />
                 Refresh
               </Button>
             </div>
@@ -1002,7 +1001,7 @@ export default function AccommodationPage() {
                         </div>
                       </div>
                     </div>
-                    
+
                     <div className="flex-1 flex flex-col gap-2 p-3 bg-background/50 min-h-0">
                       {/* Render Occupied Slots */}
                       {room.occupants.map((occupant) => (
@@ -1036,18 +1035,17 @@ export default function AccommodationPage() {
                           disabled={!selectedAttendeeId || isMutating}
                           onClick={() => {
                             if (selectedAttendeeIds.length > 0) {
-                               assignMultipleAttendeesToRoom(selectedAttendeeIds, room.id)
+                              assignMultipleAttendeesToRoom(selectedAttendeeIds, room.id)
                             }
                           }}
-                          className={`flex h-[46px] items-center justify-center rounded-xl border border-dashed transition-all ${
-                            selectedAttendeeIds.length > 0 
-                              ? "border-[rgba(113,84,255,0.4)] bg-[rgba(113,84,255,0.05)] text-[rgba(113,84,255,0.8)] hover:bg-[rgba(113,84,255,0.1)] hover:border-[rgba(113,84,255,0.6)] cursor-pointer" 
-                              : "border-border/40 bg-background/50 text-muted-foreground/50 cursor-not-allowed"
-                          }`}
+                          className={`flex h-[46px] items-center justify-center rounded-xl border border-dashed transition-all ${selectedAttendeeIds.length > 0
+                            ? "border-[rgba(113,84,255,0.4)] bg-[rgba(113,84,255,0.05)] text-[rgba(113,84,255,0.8)] hover:bg-[rgba(113,84,255,0.1)] hover:border-[rgba(113,84,255,0.6)] cursor-pointer"
+                            : "border-border/40 bg-background/50 text-muted-foreground/50 cursor-not-allowed"
+                            }`}
                         >
                           <span className="text-xs font-medium">
-                            {selectedAttendeeIds.length > 0 
-                              ? `+ Assign ${selectedAttendeeIds.length > 1 ? `${selectedAttendeeIds.length} items` : "selected"}` 
+                            {selectedAttendeeIds.length > 0
+                              ? `+ Assign ${selectedAttendeeIds.length > 1 ? `${selectedAttendeeIds.length} items` : "selected"}`
                               : "+ Empty bed"}
                           </span>
                         </button>
