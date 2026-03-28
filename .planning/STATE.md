@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: event-signup-dual-source
 status: active
-stopped_at: Phase 17 Plan 01 complete; Convex auth guards applied to 54 public mutations
-last_updated: "2026-03-28T20:02:25Z"
+stopped_at: Phase 17 Plan 05 complete; error/loading fallbacks for all dashboard routes
+last_updated: "2026-03-28T20:14:04Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 21
   completed_phases: 16
   total_plans: 61
-  completed_plans: 41
-  percent: 67
+  completed_plans: 42
+  percent: 69
 ---
 
 # Project State
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 ## Current Position
 
 Milestone: v2.0 (event-signup-dual-source) — ACTIVE
-Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (1/9 plans complete)
-Plan: 17-01 complete — Convex auth guard hardening
-Status: Auth guards applied to 54 public mutations; ready for 17-02
-Last activity: 2026-03-28 — Completed 17-01: Convex auth guard hardening
+Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (2/9 plans complete)
+Plan: 17-05 complete — Route-level error and loading fallbacks
+Status: Dashboard error boundaries and 13 loading skeletons in place; ready for 17-06
+Last activity: 2026-03-28 — Completed 17-05: Route-level error and loading fallbacks
 
-Progress: █████░░░░░ 67% (41/61 plans)
+Progress: ██████░░░░ 69% (42/61 plans)
 
 ## Alignment Status
 
@@ -157,7 +157,7 @@ Recent decisions that future work should preserve:
 ## Session Continuity
 
 - **Last activity:** 2026-03-28
-- **Last session:** 2026-03-28T20:02:25Z
-- **Stopped at:** Completed 17-01-PLAN.md (Convex auth guard hardening)
+- **Last session:** 2026-03-28T20:14:04Z
+- **Stopped at:** Completed 17-05-PLAN.md (Route-level error and loading fallbacks)
 - **Resume file:** None
-- **Next recommended plan:** Execute `17-02-PLAN.md` or run `/gsd-execute-phase 17`
+- **Next recommended plan:** Execute `17-06-PLAN.md` or run `/gsd-execute-phase 17`
