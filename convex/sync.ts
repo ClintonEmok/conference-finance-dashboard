@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server"
 import { v } from "convex/values"
+import { requireIdentity } from "./auth"
 
 export const getSyncRuns = query({
   args: {},
@@ -34,6 +35,7 @@ export const startSyncRun = mutation({
   args: {},
   returns: v.id("ticketTailorSyncRuns"),
   handler: async (ctx) => {
+    await requireIdentity(ctx)
     const id = await ctx.db.insert("ticketTailorSyncRuns", {
       status: "running",
       startedAt: Date.now(),
@@ -62,6 +64,7 @@ export const updateSyncRun = mutation({
   },
   returns: v.id("ticketTailorSyncRuns"),
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const { runId, ...updates } = args
     await ctx.db.patch("ticketTailorSyncRuns", runId, updates)
     return runId
@@ -87,6 +90,7 @@ export const completeSyncRun = mutation({
   },
   returns: v.id("ticketTailorSyncRuns"),
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     await ctx.db.patch("ticketTailorSyncRuns", args.runId, {
       status: args.status,
       finishedAt: Date.now(),
@@ -128,6 +132,7 @@ export const processWebhookEvent = mutation({
     error: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     await ctx.db.patch("ticketTailorWebhookEvents", args.eventId, {
       status: args.status,
       processedAt: Date.now(),
@@ -145,6 +150,7 @@ export const createWebhookEvent = mutation({
   },
   returns: v.id("ticketTailorWebhookEvents"),
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const existing = await ctx.db
       .query("ticketTailorWebhookEvents")
       .withIndex("providerEventId", (q) =>
@@ -183,6 +189,7 @@ export const upsertTicketTailorEvent = mutation({
   },
   returns: v.id("ticketTailorEvents"),
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const existing = await ctx.db
       .query("ticketTailorEvents")
       .withIndex("providerEventId", (q) =>
@@ -239,6 +246,7 @@ export const upsertTicketTailorOrder = mutation({
   },
   returns: v.id("ticketTailorOrders"),
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const existing = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("providerOrderId", (q) =>
@@ -274,6 +282,7 @@ export const archiveMissingOrdersForEvent = mutation({
     archived: v.number(),
   }),
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const orders = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("providerEventId", (q) =>
@@ -364,6 +373,7 @@ export const upsertTicketTailorAttendee = mutation({
   },
   returns: v.id("ticketTailorAttendees"),
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const existing = await ctx.db
       .query("ticketTailorAttendees")
       .withIndex("providerEventOrder", (q) =>
@@ -405,6 +415,7 @@ export const createAttendeeFamilyGroup = mutation({
   },
   returns: v.id("attendeeFamilyGroups"),
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const id = await ctx.db.insert("attendeeFamilyGroups", args)
     return id
   },
@@ -431,6 +442,7 @@ export const addAttendeeToFamilyGroup = mutation({
   },
   returns: v.id("attendeeFamilyMembers"),
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const id = await ctx.db.insert("attendeeFamilyMembers", args)
     return id
   },
@@ -486,6 +498,7 @@ export const updateWebhookEvent = mutation({
     payload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const { eventId, ...updates } = args
     await ctx.db.patch("ticketTailorWebhookEvents", eventId, updates)
     return eventId
