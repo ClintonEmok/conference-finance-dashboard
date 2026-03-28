@@ -170,8 +170,8 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                   <ShieldEllipsis className="size-4" />
                 </div>
                 <div className="ml-2.5 flex-1 overflow-hidden">
-                  <h1 className="text-[11px] font-black tracking-tight text-foreground uppercase">Doclines</h1>
-                  <p className="text-[9px] font-bold text-muted-foreground/50 uppercase tracking-widest leading-none">Finance v2.0</p>
+                  <h1 className="text-[11px] font-black tracking-tight text-foreground uppercase">DCLM Netherlands</h1>
+                  <p className="text-[9px] font-bold text-muted-foreground/50 uppercase tracking-widest leading-none">Conference Dashboard</p>
                 </div>
               </div>
 
