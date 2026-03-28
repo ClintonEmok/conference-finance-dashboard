@@ -170,13 +170,14 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
           <div className="sticky top-6 flex h-[calc(100svh-3rem)] w-full">
             <div className="flex w-full flex-col overflow-hidden rounded-xl border border-white/60 bg-white/85 shadow-[0_18px_48px_rgba(40,24,82,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-white/8 dark:shadow-[0_18px_48px_rgba(0,0,0,0.2)]">
               
-              <div className="shrink-0 flex items-center p-6 h-[90px]">
-                 <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[linear-gradient(135deg,#7154ff,#5238aa)] text-white shadow-sm">
+              <div className="shrink-0 flex items-center p-6 h-[80px]">
+                 <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-white shadow-lg shadow-primary/20">
                     <ShieldEllipsis className="size-5" />
                  </div>
                  {!isCollapsed && (
-                   <div className="ml-3 flex-1 overflow-hidden whitespace-nowrap">
-                      <h1 className="text-[15px] font-bold tracking-tight text-foreground truncate">Doclines Finance</h1>
+                   <div className="ml-3 flex-1 overflow-hidden">
+                      <h1 className="text-sm font-black tracking-tight text-foreground uppercase">Doclines</h1>
+                      <p className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-widest leading-none">Finance v2.0</p>
                    </div>
                  )}
               </div>
@@ -184,12 +185,8 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
               <nav className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-2">
                 {navigationSections.map((section) => (
                   <div key={section.title} className="flex flex-col gap-1.5 focus-visible:outline-none">
-                    {!isCollapsed ? (
-                      <p className="px-3 pb-1 text-[10px] font-semibold tracking-[0.15em] text-muted-foreground uppercase whitespace-nowrap">
-                        {section.title}
-                      </p>
-                    ) : (
-                       <hr className="my-2 border-border/40 mx-auto w-8 opacity-50 transition-opacity" />
+                    {!isCollapsed && (
+                       <hr className="my-2 border-border/20 mx-3 opacity-30" />
                     )}
 
                     {section.items.map((item) => {
@@ -209,16 +206,16 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                             <Link
                               href={item.href}
                               className={cn(
-                                "flex items-center rounded-md transition-all duration-200 relative z-10",
-                                isCollapsed ? "h-12 w-12 justify-center mx-auto" : "px-3 py-3 gap-3.5",
+                                "flex items-center rounded-lg transition-all duration-200 relative z-10",
+                                isCollapsed ? "size-10 justify-center mx-auto mb-2" : "px-3 py-2.5 gap-3",
                                 active
-                                  ? "bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] text-white shadow-md shadow-primary/20"
-                                  : "text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
+                                  ? "bg-primary text-white shadow-lg shadow-primary/20"
+                                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                               )}
                             >
-                              <Icon className="size-[22px] shrink-0" />
+                              <Icon className={cn("shrink-0", isCollapsed ? "size-5" : "size-4.5")} />
                               {!isCollapsed && (
-                                <span className="flex-1 text-[13px] font-semibold whitespace-nowrap">
+                                <span className="flex-1 text-xs font-bold uppercase tracking-widest">
                                   {item.label}
                                 </span>
                               )}
@@ -242,7 +239,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                           </div>
 
                           {hasChildren && expanded && !isCollapsed && (
-                            <div className="ml-7 mt-1.5 flex flex-col gap-1 border-l-2 border-border/50 pl-2">
+                            <div className="ml-5 mt-1 flex flex-col gap-1 border-l border-border/30 pl-3">
                               {item.children?.map((child) => {
                                 const childIsActive = isPathActive(pathname, child.href)
                                 return (
@@ -250,10 +247,10 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                                     key={child.href}
                                     href={child.href}
                                     className={cn(
-                                      "block rounded-md px-3 py-2.5 text-xs font-semibold transition-colors whitespace-nowrap",
+                                      "block rounded-md px-3 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors whitespace-nowrap",
                                       childIsActive
-                                        ? "bg-primary/8 text-primary"
-                                        : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+                                        ? "text-primary bg-primary/5"
+                                        : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30"
                                     )}
                                   >
                                     {child.label}
@@ -276,19 +273,19 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                 )}>
                   {!isCollapsed ? (
                     <div className="min-w-0">
-                      <p className="truncate text-xs font-bold text-foreground">
+                      <p className="truncate text-[10px] font-black uppercase tracking-widest text-foreground">
                         {userEmail.split('@')[0]}
                       </p>
-                      <p className="truncate text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mt-0.5">
+                      <p className="truncate text-[9px] uppercase tracking-[0.2em] text-muted-foreground/40 font-bold mt-0.5">
                         Conference OP
                       </p>
                     </div>
                   ) : (
-                    <div className="size-[42px] rounded-full bg-[linear-gradient(135deg,rgba(113,84,255,0.9),rgba(82,56,170,0.85))] flex items-center justify-center text-white font-bold text-sm shadow-sm ring-2 ring-white/60">
+                    <div className="size-9 rounded-xl bg-muted/50 flex items-center justify-center text-muted-foreground/60 font-black text-[10px] border border-border/50">
                        {userEmail[0].toUpperCase()}
                     </div>
                   )}
-                  {!isCollapsed && <LogoutButton className="h-8 rounded-md px-3 text-[11px] font-semibold bg-white hover:bg-muted dark:bg-zinc-800" />}
+                  {!isCollapsed && <LogoutButton className="h-7 rounded-lg px-2 text-[9px] font-black uppercase tracking-widest bg-muted/50 hover:bg-muted transition-colors" />}
                 </div>
               </div>
 

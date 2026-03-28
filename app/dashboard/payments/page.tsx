@@ -180,7 +180,6 @@ export default function PaymentsPage() {
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">{stat.label}</p>
                 <p className="mt-2 text-3xl font-bold text-foreground">{isLoading ? "--" : stat.value}</p>
-                <p className="mt-1 text-[10px] font-medium text-muted-foreground/50">{stat.detail}</p>
               </div>
               <div className={`flex size-10 items-center justify-center rounded-lg ${stat.bg} ${stat.color}`}>
                 <stat.icon className="size-5" />
@@ -192,8 +191,8 @@ export default function PaymentsPage() {
 
       {syncFeedback && (
         <article className={`rounded-xl border p-6 animate-in slide-in-from-top-4 ${syncFeedback.status === "failed" ? "border-destructive/30 bg-destructive/5 text-destructive" :
-            syncFeedback.status === "partial" ? "border-yellow-300/30 bg-yellow-50/5 text-yellow-600" :
-              "border-emerald-300/30 bg-emerald-50/5 text-emerald-600"
+          syncFeedback.status === "partial" ? "border-yellow-300/30 bg-yellow-50/5 text-yellow-600" :
+            "border-emerald-300/30 bg-emerald-50/5 text-emerald-600"
           }`}>
           <div className="flex items-center gap-3 mb-2">
             <RefreshCw className="size-4" />
@@ -224,7 +223,6 @@ export default function PaymentsPage() {
             <h2 className="text-xl font-bold">Payment History</h2>
             <p className="text-sm text-muted-foreground">Detailed list of all transactions and assignments</p>
           </div>
-          <Wallet className="size-6 text-primary/40" />
         </div>
         <div className="p-6">
           <PaymentList onAssign={(p) => { setSelectedPayment(p); setAssignDialogOpen(true); }} refreshKey={refreshKey} />
@@ -242,8 +240,8 @@ export default function PaymentsPage() {
 
       {toastMessage && (
         <div className={`fixed right-6 bottom-6 z-50 rounded-2xl border px-6 py-3 text-sm font-bold shadow-2xl animate-in slide-in-from-right-10 ${toastMessage.tone === "danger" ? "border-destructive/30 bg-destructive text-white" :
-            toastMessage.tone === "warning" ? "border-yellow-400 bg-yellow-400 text-yellow-950" :
-              "border-primary bg-primary text-white"
+          toastMessage.tone === "warning" ? "border-yellow-400 bg-yellow-400 text-yellow-950" :
+            "border-primary bg-primary text-white"
           }`}>
           {toastMessage.text}
         </div>
