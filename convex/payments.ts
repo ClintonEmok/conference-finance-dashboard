@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server"
 import { v } from "convex/values"
+import { requireIdentity } from "./auth"
 
 const paymentSourceValidator = v.union(
   v.literal("tikkie"),
@@ -110,6 +111,7 @@ export const createPayment = mutation({
     providerPayload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const id = await ctx.db.insert("payments", {
       ...args,
       status:
@@ -130,6 +132,7 @@ export const upsertTikkiePayment = mutation({
     providerPayload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const existing = await ctx.db
       .query("payments")
       .withIndex("source_sourceId", (q) =>
@@ -167,6 +170,7 @@ export const upsertTikkiePayment = mutation({
 export const cleanupLegacyTikkiePayments = mutation({
   args: {},
   handler: async (ctx) => {
+    await requireIdentity(ctx)
     const payments = await ctx.db
       .query("payments")
       .withIndex("source_sourceId", (q) => q.eq("source", "tikkie"))
@@ -271,6 +275,7 @@ export const assignPaymentToOrder = mutation({
     matchedBy: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     await ctx.db.patch("payments", args.paymentId, {
       orderId: args.orderId,
       status: args.status ?? "manual_assignment",
@@ -286,6 +291,7 @@ export const unassignPayment = mutation({
     paymentId: v.id("payments"),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     await ctx.db.patch("payments", args.paymentId, {
       orderId: undefined,
       status: "unassigned",
@@ -299,6 +305,7 @@ export const unassignPayment = mutation({
 export const autoMatchPayments = mutation({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const orders = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
