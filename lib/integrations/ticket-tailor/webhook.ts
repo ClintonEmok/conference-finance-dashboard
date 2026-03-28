@@ -73,7 +73,7 @@ export function verifyTicketTailorWebhook(
   const expected = process.env.TICKET_TAILOR_WEBHOOK_SECRET?.trim()
 
   if (!expected) {
-    return true
+    return false
   }
 
   const provided =
