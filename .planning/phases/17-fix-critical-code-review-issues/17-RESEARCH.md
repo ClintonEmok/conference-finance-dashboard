@@ -97,6 +97,36 @@ Planning implication:
 - Add a shared formatter module with the exact current behavior.
 - Replace local duplicates without changing copy, locale, or currency output.
 
+### 8. Convex best-practice guardrails should be part of execution acceptance, not post-launch cleanup
+
+The supplied Convex production checklist maps directly to this phase:
+
+- Await all promises, especially `ctx.db.*`, `ctx.scheduler.runAfter`, and `ctx.run*` calls.
+- Avoid query `.filter((q) => ...)`; prefer indexes/search indexes, or TypeScript filtering only after intentionally small reads.
+- Only use `.collect()` when the result set is known small; otherwise use indexes, `.take()`, pagination, denormalization, or batched actions.
+- Audit any new schema indexes for redundant prefixes.
+- Keep validators on every public function, and access control on every non-publicly-readable public function.
+- Only schedule or `ctx.run*` internal functions.
+- Prefer helper functions over many `ctx.runQuery` / `ctx.runMutation` / `ctx.runAction` hops.
+- Always use explicit table names in touched `ctx.db.get/patch/replace/delete` calls.
+- Avoid `Date.now()` inside queries.
+
+Planning implication:
+
+- Phase 17 plans should treat these as mandatory review items for every touched Convex file, not just the headline bug being fixed.
+- Where a plan adds indexes, it should also check whether an older prefix index becomes redundant.
+- Where a plan changes auth or scheduling, it should explicitly verify all `ctx.run*` and cron targets stay internal.
+
+### 9. Interface extraction is a good companion refactor because this phase already touches the affected contracts
+
+The fix list already calls out scattered interfaces as a maintainability and circular-import risk. Phase 17 touches payments, orders, accommodation, Tikkie, attendee, and shared formatting contracts across Convex, domain, API, and UI layers.
+
+Planning implication:
+
+- While refactoring touched modules, extract repeated or implementation-local interfaces into dedicated model type files under `lib/types/`.
+- Prioritize contracts duplicated across pages/components/domain modules or hidden inside large implementation files.
+- Keep this extraction behavior-preserving: move declarations/imports, but do not redesign DTO shapes in the same task.
+
 ## Recommended plan split
 
 1. **Security hardening** — Convex auth guard + fail-closed webhook verification
@@ -113,17 +143,22 @@ This split keeps UI work parallel with backend hardening while keeping overlappi
 - `rg "ctx\.auth\.getUserIdentity\(|assert.*Auth|require.*Identity" convex/attendees.ts convex/orders.ts convex/payments.ts convex/tikkie.ts convex/accommodation.ts convex/events.ts convex/sync.ts` returns matches in every public write module.
 - `npm test -- tests/tikkie/webhook-route.test.ts tests/ticket-tailor/sync-route.test.ts` exits 0.
 - `rg "return true" lib/integrations/tikkie/webhook.ts lib/integrations/ticket-tailor/webhook.ts` returns no missing-secret allow-all branch.
+- `rg "ctx\.scheduler|ctx\.run(Query|Mutation|Action)|internal\." convex` confirms touched scheduler/run targets remain internal.
 
 ### 17-02 Data integrity
 
 - `rg "archiveReason|archivedAt|isArchived" lib/domain/finance/order-ledger.ts` shows both header and row mapping include archive fields.
 - Accommodation assign/unassign paths no longer patch `occupiedBeds` directly.
 - Auto-match/quota flows are executed through a single Convex mutation boundary and route/domain callers stop doing query-then-write preflights.
+- Touched Convex writes use explicit table-name `ctx.db.patch/get/delete` calls.
 
 ### 17-03 Performance
 
 - `rg "\.collect\(" convex/attendees.ts convex/orders.ts convex/payments.ts convex/tikkie.ts convex/accommodation.ts` shows no remaining unbounded table-wide hot-path collects from the audit list.
 - `npm run typecheck` exits 0.
+- Touched Convex queries do not introduce query `.filter((q) => ...)` or `Date.now()` in query handlers.
+- Any new schema indexes are checked against existing prefix indexes before keeping both.
+- Shared model interfaces moved into `lib/types/*.ts` remain importable without changing runtime contracts on touched modules.
 
 ### 17-04 UI resilience
 

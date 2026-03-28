@@ -16,6 +16,7 @@ In scope:
 - Data-integrity repairs for room occupancy, payment auto-match, Tikkie quota enforcement, and CSV export completeness
 - Performance fixes for known unbounded Convex reads and table scans
 - Dashboard resilience fixes: App Router error boundaries/loading states and `formatMoney` consolidation
+- Targeted regression and contract tests for each touched critical path, including Convex auth, webhook verification, occupancy truth, quota/match logic, interface extraction, and UI resilience fallbacks
 
 Out of scope:
 
@@ -47,6 +48,18 @@ Out of scope:
 
 - Replace unbounded `.collect()` calls on growing tables with indexed reads, `.take(N)`, pagination, or async iteration.
 - Preserve current route/domain response shapes while changing query strategy underneath.
+- Avoid Convex query `.filter((q) => ...)` on touched hot paths; prefer `.withIndex` / `.withSearchIndex`, or explicit TypeScript filtering only after intentionally small reads.
+
+### Convex implementation hygiene
+
+- Await every touched Convex promise (`ctx.db.*`, `ctx.scheduler.*`, `ctx.run*`) so writes and schedules cannot fail silently.
+- Keep argument validators on every public function and add return validators where practical on touched contracts.
+- Use `ctx.auth.getUserIdentity()` for access control on all non-anonymous public functions; never trust spoofable args like email for authorization.
+- Keep cron, scheduling, and `ctx.run*` targets on `internal.*` functions only.
+- Prefer plain TypeScript helper functions over unnecessary `ctx.runQuery`, `ctx.runMutation`, and `ctx.runAction` hops.
+- Include the table name in touched `ctx.db.get`, `ctx.db.patch`, `ctx.db.replace`, and `ctx.db.delete` calls.
+- Do not introduce `Date.now()`-dependent query logic; if time-based filtering is needed, pass explicit args or use persisted coarse-grained fields.
+- When adding indexes to remove scans, audit for redundant prefix indexes so the fix does not add avoidable write/storage overhead.
 
 ### UI resilience
 
@@ -89,6 +102,7 @@ Out of scope:
 - Use a small shared Convex auth helper so every public mutation gets the same guard instead of copy-pasted auth logic.
 - Add targeted regression tests for webhook misconfiguration, CSV archive fields, and any new quota/match logic.
 - Keep route URLs and operator-facing JSON envelopes stable while tightening backend behavior.
+- Extract model-specific interfaces/types into dedicated modules like `lib/types/payment.ts`, `lib/types/order.ts`, `lib/types/accommodation.ts`, `lib/types/tikkie.ts`, `lib/types/attendee.ts`, and `lib/types/shared.ts` where Phase 17 touches those contracts.
 
 </specifics>
 
@@ -96,7 +110,6 @@ Out of scope:
 ## Deferred Ideas
 
 - Modal accessibility refactors beyond what is required for current route resilience
-- Broad type-extraction cleanup from the fix list (`lib/types/*`) unless needed to complete the critical work above
 - Cron/timeout/rate-limit improvements not required by the eight roadmap success criteria
 
 </deferred>
