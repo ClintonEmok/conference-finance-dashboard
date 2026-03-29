@@ -225,6 +225,7 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       orderId: ["orderId", "_creationTime"];
+      paidAt: ["paidAt", "_creationTime"];
       source_sourceId: ["source", "sourceId", "_creationTime"];
       status: ["status", "_creationTime"];
     };
@@ -279,6 +280,124 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       token: ["token", "_creationTime"];
       userId: ["userId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  signupAccommodationSlots: {
+    document: {
+      genderPolicy: "male" | "female" | "mixed" | "unknown";
+      hotelId: string;
+      ineligibilityReason?:
+        | "accommodation_disabled"
+        | "no_assignable_inventory"
+        | "event_closed";
+      isAssignable: boolean;
+      roomId: string;
+      signupEventId: string;
+      slotLabel: string;
+      _id: Id<"signupAccommodationSlots">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "genderPolicy"
+      | "hotelId"
+      | "ineligibilityReason"
+      | "isAssignable"
+      | "roomId"
+      | "signupEventId"
+      | "slotLabel";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_signupEventId: ["signupEventId", "_creationTime"];
+      by_signupEventId_and_isAssignable: [
+        "signupEventId",
+        "isAssignable",
+        "_creationTime",
+      ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  signupEvents: {
+    document: {
+      accommodationEnabled: boolean;
+      currency: string;
+      isPublished: boolean;
+      isSignupOpen: boolean;
+      slug: string;
+      source: "integration" | "internal";
+      sourceEventRef: string;
+      startsAt: number;
+      title: string;
+      _id: Id<"signupEvents">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "accommodationEnabled"
+      | "currency"
+      | "isPublished"
+      | "isSignupOpen"
+      | "slug"
+      | "source"
+      | "sourceEventRef"
+      | "startsAt"
+      | "title";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_isPublished_and_isSignupOpen: [
+        "isPublished",
+        "isSignupOpen",
+        "_creationTime",
+      ];
+      by_slug: ["slug", "_creationTime"];
+      by_source_and_sourceEventRef: [
+        "source",
+        "sourceEventRef",
+        "_creationTime",
+      ];
+      by_startsAt_and_title: ["startsAt", "title", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  signupTicketTypes: {
+    document: {
+      availabilityState: "selectable" | "unavailable";
+      isActive: boolean;
+      label: string;
+      priceMinor: number;
+      signupEventId: string;
+      unavailableReason?: "sold_out" | "disabled" | "hidden" | "not_on_sale";
+      visibility: "visible" | "hidden";
+      _id: Id<"signupTicketTypes">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "availabilityState"
+      | "isActive"
+      | "label"
+      | "priceMinor"
+      | "signupEventId"
+      | "unavailableReason"
+      | "visibility";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_signupEventId: ["signupEventId", "_creationTime"];
+      by_signupEventId_and_availabilityState: [
+        "signupEventId",
+        "availabilityState",
+        "_creationTime",
+      ];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -570,6 +689,7 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       eventId: ["eventId", "_creationTime"];
+      linkType: ["linkType", "_creationTime"];
       orderId: ["orderId", "_creationTime"];
       paymentRequestToken: ["paymentRequestToken", "_creationTime"];
       providerOrderEvent: [

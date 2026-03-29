@@ -262,6 +262,14 @@ export declare const api: {
         eventId?: string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
         orderId?: Id<"ticketTailorOrders">;
+        paginationOpts?: {
+          cursor: string | null;
+          endCursor?: string | null;
+          id?: number;
+          maximumBytesRead?: number;
+          maximumRowsRead?: number;
+          numItems: number;
+        };
       },
       any
     >;
@@ -658,6 +666,14 @@ export declare const api: {
       "public",
       {
         orderId?: string;
+        paginationOpts?: {
+          cursor: string | null;
+          endCursor?: string | null;
+          id?: number;
+          maximumBytesRead?: number;
+          maximumRowsRead?: number;
+          numItems: number;
+        };
         source?: "tikkie" | "bank_transfer" | "cash";
         sourceId?: string;
         status?:
@@ -713,6 +729,43 @@ export declare const api: {
         sourceId: string;
       },
       any
+    >;
+  };
+  signupCatalog: {
+    getPublicSignupCatalog: FunctionReference<
+      "query",
+      "public",
+      {},
+      Array<{
+        accommodation: {
+          eligible: boolean;
+          reason:
+            | "accommodation_disabled"
+            | "no_assignable_inventory"
+            | "event_closed"
+            | null;
+          slots: Array<{
+            assignable: boolean;
+            roomLabel: string;
+            roomTypeLabel: string;
+            slotId: Id<"signupAccommodationSlots">;
+          }>;
+        };
+        currency: string;
+        eventId: Id<"signupEvents">;
+        slug: string;
+        source: "integration" | "internal";
+        sourceEventRef: string;
+        startsAt: number;
+        tickets: Array<{
+          label: string;
+          priceMinor: number;
+          reason: "sold_out" | "disabled" | "hidden" | "not_on_sale" | null;
+          selectable: boolean;
+          ticketTypeId: Id<"signupTicketTypes">;
+        }>;
+        title: string;
+      }>
     >;
   };
   sync: {
