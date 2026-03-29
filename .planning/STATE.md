@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Event Signup + Dual-Source Events
-status: Auto-sync decoupled from app HTTP routes; internal mutations established for cron use; ready for 17-08
-stopped_at: Completed 17-04-PLAN.md (Remove circular Convex cron -> HTTP sync path)
-last_updated: "2026-03-29T00:26:38Z"
+status: Finance correctness fixes complete - CSV archive fields, atomic payment matching, atomic Tikkie quota enforcement
+stopped_at: Completed 17-08-PLAN.md (CSV export, payment auto-match, Tikkie quota)
+last_updated: "2026-03-29T00:36:39Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 9
-  completed_plans: 7
-  percent: 78
+  completed_plans: 8
+  percent: 89
 ---
 
 # Project State
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 ## Current Position
 
 Milestone: v2.0 (event-signup-dual-source) — ACTIVE
-Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (7/9 plans complete)
-Plan: 17-04 complete — Removed circular Convex cron -> HTTP -> Convex sync path
-Status: Auto-sync calls internal mutations directly; external APIs fetched from Convex actions; ready for 17-08
-Last activity: 2026-03-29 — Completed 17-04: Remove circular Convex cron to HTTP sync path
+Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (8/9 plans complete)
+Plan: 17-08 complete — CSV archive fields, atomic payment matching, atomic Tikkie quota enforcement
+Status: Finance correctness fixes complete - ready for schema work in Phase 18
+Last activity: 2026-03-29 — Completed 17-08: Finance correctness (CSV, auto-match, quota)
 
-Progress: ████████░░ 78% (46/61 plans)
+Progress: █████████░ 89% (50/61 plans)
 
 ## Alignment Status
 
@@ -109,6 +109,8 @@ Recent decisions that future work should preserve:
 - [17-07] Consolidate room assignment mutations — `attendees.assignRoom`/`unassignRoom` delegate to accommodation mutations so one authoritative implementation enforces capacity and event-hotel checks.
 - [17-04] Convex cron auto-sync must call internal mutations directly via `ctx.runMutation(internal.*)` instead of HTTP-fetching app routes — eliminates circular dependency and removes need for APP_URL/TIKKIE_SYNC_CRON_SECRET in cron context.
 - [17-04] Auth-free `internalMutation`/`internalQuery` wrappers mirror public mutations without `requireIdentity` — system-level cron actions run without user identity context.
+- [17-08] Move Tikkie monthly quota check into mutation boundary for atomic enforcement — eliminates TOCTOU window from API route pre-flight check pattern.
+- [17-08] Payment auto-match requires both normalized buyer name AND exact amount as matching criteria — reduces ambiguous matches compared to name-only matching.
 
 ## Active Patterns / Constraints
 
@@ -166,7 +168,7 @@ Recent decisions that future work should preserve:
 - Phase 14: Event-Level Tikkie + Payment Tracking (complete)
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
 - Phase 16: v1 milestone gap closure execution complete (16-01/16-02/16-03/16-04 complete)
-- Phase 17: Fix Critical Code Review Issues — inserted before v2.0 schema work (URGENT, 7/9 plans complete: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-03 transport hardening, 17-04 circular cron-HTTP path removed, 17-05 error/loading fallbacks, 17-06 formatMoney centralization + dialog accessibility, 17-07 room occupancy single-sourced + mutation consolidation done)
+- Phase 17: Fix Critical Code Review Issues — inserted before v2.0 schema work (8/9 plans complete: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-03 transport hardening, 17-04 circular cron-HTTP path removed, 17-05 error/loading fallbacks, 17-06 formatMoney centralization + dialog accessibility, 17-07 room occupancy single-sourced + mutation consolidation, 17-08 finance correctness done)
 - Phase 18: Schema + Canonical Contracts (planned — 4 plans)
 - Phase 19: Public Signup Pages (planned — 3 plans)
 - Phase 20: Admin Event Management (planned — 3 plans)
@@ -175,7 +177,7 @@ Recent decisions that future work should preserve:
 ## Session Continuity
 
 - **Last activity:** 2026-03-29
-- **Last session:** 2026-03-29T00:26:38Z
-- **Stopped at:** Completed 17-04-PLAN.md (Remove circular Convex cron to HTTP sync path)
+- **Last session:** 2026-03-29T00:36:39Z
+- **Stopped at:** Completed 17-08-PLAN.md (CSV export, payment auto-match, Tikkie quota enforcement)
 - **Resume file:** None
-- **Next recommended plan:** Execute `17-08-PLAN.md` or run `/gsd-execute-phase 17`
+- **Next recommended plan:** Execute `17-09-PLAN.md` or run `/gsd-execute-phase 17`
