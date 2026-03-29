@@ -8,11 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { usePublicSignupCatalog } from "@/lib/convex/hooks/signup"
 import {
   createInitialSignupDraft,
+  deriveAttendeeDraftsFromTicketSelections,
   invalidateDownstreamForTicketChange,
   SIGNUP_STEP_ORDER,
   type SignupDraft,
   type SignupStep,
+  type TicketSelectionDraft,
 } from "@/components/signup/state"
+import { TicketStep } from "@/components/signup/steps/TicketStep"
 
 type SignupFlowShellProps = {
   slug: string
@@ -152,25 +155,39 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     moveToStep(SIGNUP_STEP_ORDER[previousIndex])
   }
 
-  function seedTicketsFromEventCatalog() {
-    if (activeDraft.ticketSelections.length > 0) {
-      return
-    }
+  const effectiveTicketSelections: TicketSelectionDraft[] =
+    activeDraft.ticketSelections.length > 0
+      ? activeDraft.ticketSelections
+      : activeEvent.tickets.map((ticket) => ({
+          ticketTypeId: ticket.ticketTypeId,
+          label: ticket.label,
+          priceMinor: ticket.priceMinor,
+          quantity: 0,
+          selectable: ticket.selectable,
+          reason: ticket.reason,
+        }))
 
-    const seededTickets = activeEvent.tickets.map((ticket) => ({
-      ticketTypeId: ticket.ticketTypeId,
-      label: ticket.label,
-      priceMinor: ticket.priceMinor,
-      quantity: 0,
-      selectable: ticket.selectable,
-      reason: ticket.reason,
-    }))
+  function handleTicketSelectionsChange(
+    nextSelections: TicketSelectionDraft[]
+  ) {
+    setDraft((current) => {
+      if (!current) {
+        return current
+      }
 
-    setDraft((current) =>
-      current
-        ? invalidateDownstreamForTicketChange(current, seededTickets)
-        : current
-    )
+      const attendeeDrafts = deriveAttendeeDraftsFromTicketSelections(
+        nextSelections,
+        current.attendees
+      )
+
+      return invalidateDownstreamForTicketChange(
+        {
+          ...current,
+          attendees: attendeeDrafts,
+        },
+        nextSelections
+      )
+    })
   }
 
   const stepTitle =
@@ -233,14 +250,15 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
         <CardContent className="space-y-4 text-sm text-muted-foreground">
           {activeDraft.step === "tickets" ? (
             <>
-              <p>Select at least one ticket to continue.</p>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={seedTicketsFromEventCatalog}
-              >
-                Initialize ticket selections
-              </Button>
+              <TicketStep
+                ticketSelections={effectiveTicketSelections}
+                onChange={handleTicketSelectionsChange}
+              />
+              {totalSelectedTickets <= 0 ? (
+                <p className="font-medium text-destructive">
+                  Select at least one ticket to continue.
+                </p>
+              ) : null}
             </>
           ) : null}
           {activeDraft.step === "rooms" ? (
