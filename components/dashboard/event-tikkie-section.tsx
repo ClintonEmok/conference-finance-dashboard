@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
   Table,
@@ -644,206 +652,210 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
       )}
 
       {/* Create link modal */}
-      {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={closeCreateModal}
-          />
-          <div className="relative z-10 w-full max-w-md rounded-lg bg-background p-6 shadow-lg">
-            <h2 className="text-lg font-semibold">Create Tikkie link</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
+      <Dialog
+        open={isCreateModalOpen}
+        onOpenChange={(open) => {
+          if (!open) closeCreateModal()
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Tikkie link</DialogTitle>
+            <DialogDescription>
               Enter amount in euros. Use <strong>0</strong> for an open amount
               link.
-            </p>
+            </DialogDescription>
+          </DialogHeader>
 
-            {quota && (
-              <div
-                className={`mt-3 rounded-md border px-3 py-2 text-sm ${
-                  isQuotaExceeded
-                    ? "border-amber-300 bg-amber-50 text-amber-900"
-                    : "border-border bg-muted/40 text-muted-foreground"
-                }`}
-              >
-                <p>
-                  Monthly Tikkie quota: <strong>{quota.used}</strong>/
-                  {quota.limit} used.
+          {quota && (
+            <div
+              className={`rounded-md border px-3 py-2 text-sm ${
+                isQuotaExceeded
+                  ? "border-amber-300 bg-amber-50 text-amber-900"
+                  : "border-border bg-muted/40 text-muted-foreground"
+              }`}
+            >
+              <p>
+                Monthly Tikkie quota: <strong>{quota.used}</strong>/
+                {quota.limit} used.
+              </p>
+              {projectedUsage !== null && (
+                <p className="mt-1">
+                  Creating this link moves usage to{" "}
+                  <strong>{projectedUsage}</strong>/{quota.limit}.
                 </p>
-                {projectedUsage !== null && (
-                  <p className="mt-1">
-                    Creating this link moves usage to{" "}
-                    <strong>{projectedUsage}</strong>/{quota.limit}.
-                  </p>
-                )}
-                {isQuotaExceeded && (
-                  <p className="mt-1 font-medium">
-                    Quota reached for this month. No new links can be created
-                    until next month.
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="mt-4">
-              <label
-                htmlFor="create-tikkie-amount"
-                className="mb-2 block text-sm font-medium"
-              >
-                Amount (EUR)
-              </label>
-              <Input
-                id="create-tikkie-amount"
-                type="text"
-                inputMode="decimal"
-                placeholder="e.g. 25.00 or 0"
-                value={createAmountEuro}
-                onChange={(e) => setCreateAmountEuro(e.target.value)}
-                disabled={isCreatingLink}
-              />
-            </div>
-
-            <div className="mt-4">
-              <label
-                htmlFor="create-tikkie-description"
-                className="mb-2 block text-sm font-medium"
-              >
-                Description
-              </label>
-              <Input
-                id="create-tikkie-description"
-                type="text"
-                placeholder="e.g. Conference event contribution"
-                value={createDescription}
-                onChange={(e) => setCreateDescription(e.target.value)}
-                disabled={isCreatingLink}
-              />
-            </div>
-
-            <div className="mt-4">
-              <label
-                htmlFor="create-tikkie-expiry"
-                className="mb-2 block text-sm font-medium"
-              >
-                Expiration date
-              </label>
-              <Input
-                id="create-tikkie-expiry"
-                type="date"
-                value={createExpiryDate}
-                onChange={(e) => setCreateExpiryDate(e.target.value)}
-                disabled={isCreatingLink}
-              />
-              {createAmountError && (
-                <p className="mt-2 text-sm text-destructive">
-                  {createAmountError}
+              )}
+              {isQuotaExceeded && (
+                <p className="mt-1 font-medium">
+                  Quota reached for this month. No new links can be created
+                  until next month.
                 </p>
               )}
             </div>
+          )}
 
-            <div className="mt-6 flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={closeCreateModal}
-                disabled={isCreatingLink}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleCreateModalSubmit}
-                disabled={isCreatingLink || isQuotaExceeded}
-              >
-                {isCreatingLink
-                  ? "Creating..."
-                  : isQuotaExceeded
-                    ? "Quota reached"
-                    : "Create link"}
-              </Button>
-            </div>
+          <div className="mt-1">
+            <label
+              htmlFor="create-tikkie-amount"
+              className="mb-2 block text-sm font-medium"
+            >
+              Amount (EUR)
+            </label>
+            <Input
+              id="create-tikkie-amount"
+              type="text"
+              inputMode="decimal"
+              placeholder="e.g. 25.00 or 0"
+              value={createAmountEuro}
+              onChange={(e) => setCreateAmountEuro(e.target.value)}
+              disabled={isCreatingLink}
+            />
           </div>
-        </div>
-      )}
 
-      {assigningPaymentId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setAssigningPaymentId(null)}
-          />
-          <div className="relative z-10 w-full max-w-lg rounded-lg bg-background p-6 shadow-lg">
-            <h2 className="mb-4 text-lg font-semibold">
-              Assign Payment to Order
-            </h2>
+          <div>
+            <label
+              htmlFor="create-tikkie-description"
+              className="mb-2 block text-sm font-medium"
+            >
+              Description
+            </label>
+            <Input
+              id="create-tikkie-description"
+              type="text"
+              placeholder="e.g. Conference event contribution"
+              value={createDescription}
+              onChange={(e) => setCreateDescription(e.target.value)}
+              disabled={isCreatingLink}
+            />
+          </div>
 
-            <div className="mb-4">
-              <label className="mb-2 block text-sm font-medium">
-                Search for Order
-              </label>
-              <Input
-                type="text"
-                placeholder="Search by buyer name or order ID..."
-                value={assignSearch}
-                onChange={(e) => setAssignSearch(e.target.value)}
-              />
-            </div>
+          <div>
+            <label
+              htmlFor="create-tikkie-expiry"
+              className="mb-2 block text-sm font-medium"
+            >
+              Expiration date
+            </label>
+            <Input
+              id="create-tikkie-expiry"
+              type="date"
+              value={createExpiryDate}
+              onChange={(e) => setCreateExpiryDate(e.target.value)}
+              disabled={isCreatingLink}
+            />
+            {createAmountError && (
+              <p className="mt-2 text-sm text-destructive">
+                {createAmountError}
+              </p>
+            )}
+          </div>
 
-            <div className="mb-4 max-h-48 overflow-y-auto rounded-md border">
-              {isSearching ? (
-                <div className="p-4 text-center text-sm text-muted-foreground">
-                  Searching...
-                </div>
-              ) : assignOrders.length === 0 && assignSearch ? (
-                <div className="p-4 text-center text-sm text-muted-foreground">
-                  No orders found
-                </div>
-              ) : assignOrders.length === 0 ? (
-                <div className="p-4 text-center text-sm text-muted-foreground">
-                  Type to search for orders
-                </div>
-              ) : (
-                assignOrders.map((order) => (
-                  <div
-                    key={order.id}
-                    className={`cursor-pointer border-b p-3 last:border-b-0 ${
-                      selectedOrder?.id === order.id
-                        ? "bg-primary/10"
-                        : "hover:bg-muted/50"
-                    }`}
-                    onClick={() => setSelectedOrder(order)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-mono text-xs">
-                          {order.providerOrderId}
-                        </div>
-                        <div className="text-sm">{order.buyerName}</div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={closeCreateModal}
+              disabled={isCreatingLink}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateModalSubmit}
+              disabled={isCreatingLink || isQuotaExceeded}
+            >
+              {isCreatingLink
+                ? "Creating..."
+                : isQuotaExceeded
+                  ? "Quota reached"
+                  : "Create link"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign payment modal */}
+      <Dialog
+        open={!!assigningPaymentId}
+        onOpenChange={(open) => {
+          if (!open) setAssigningPaymentId(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Assign Payment to Order</DialogTitle>
+            <DialogDescription>
+              Search for an order to assign this unmatched Tikkie payment.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium">
+              Search for Order
+            </label>
+            <Input
+              type="text"
+              placeholder="Search by buyer name or order ID..."
+              value={assignSearch}
+              onChange={(e) => setAssignSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="max-h-48 overflow-y-auto rounded-md border">
+            {isSearching ? (
+              <div className="p-4 text-center text-sm text-muted-foreground">
+                Searching...
+              </div>
+            ) : assignOrders.length === 0 && assignSearch ? (
+              <div className="p-4 text-center text-sm text-muted-foreground">
+                No orders found
+              </div>
+            ) : assignOrders.length === 0 ? (
+              <div className="p-4 text-center text-sm text-muted-foreground">
+                Type to search for orders
+              </div>
+            ) : (
+              assignOrders.map((order) => (
+                <div
+                  key={order.id}
+                  className={`cursor-pointer border-b p-3 last:border-b-0 ${
+                    selectedOrder?.id === order.id
+                      ? "bg-primary/10"
+                      : "hover:bg-muted/50"
+                  }`}
+                  onClick={() => setSelectedOrder(order)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-mono text-xs">
+                        {order.providerOrderId}
                       </div>
-                      <div className="text-sm font-medium">
-                        {formatMoney(order.totalAmountMinor)}
-                      </div>
+                      <div className="text-sm">{order.buyerName}</div>
+                    </div>
+                    <div className="text-sm font-medium">
+                      {formatMoney(order.totalAmountMinor)}
                     </div>
                   </div>
-                ))
-              )}
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setAssigningPaymentId(null)}
-                disabled={isAssigning}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => handleAssign(assigningPaymentId)}
-                disabled={!selectedOrder || isAssigning}
-              >
-                {isAssigning ? "Assigning..." : "Assign Payment"}
-              </Button>
-            </div>
+                </div>
+              ))
+            )}
           </div>
-        </div>
-      )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setAssigningPaymentId(null)}
+              disabled={isAssigning}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => handleAssign(assigningPaymentId!)}
+              disabled={!selectedOrder || isAssigning}
+            >
+              {isAssigning ? "Assigning..." : "Assign Payment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

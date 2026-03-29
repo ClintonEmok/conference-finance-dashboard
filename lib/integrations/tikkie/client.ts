@@ -127,22 +127,53 @@ function firstErrorMessage(details: JsonObject) {
   return typeof message === "string" ? message : null
 }
 
+const TIKKIE_FETCH_TIMEOUT_MS = Number(
+  process.env.TIKKIE_FETCH_TIMEOUT_MS ?? 15_000
+)
+
+async function fetchWithTimeout(
+  url: URL | string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal })
+    clearTimeout(timer)
+    return response
+  } catch (error) {
+    clearTimeout(timer)
+
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`Tikkie request timed out after ${timeoutMs}ms`)
+    }
+
+    throw error
+  }
+}
+
 async function tikkieFetch<T>(
   path: string,
   options: TikkieRequestOptions = {}
 ): Promise<T> {
   const { url, headers } = buildUrl(path, options.query)
 
-  const response = await fetch(url, {
-    method: options.method ?? "GET",
-    headers: {
-      ...headers,
-      Accept: "application/json",
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: options.method ?? "GET",
+      headers: {
+        ...headers,
+        Accept: "application/json",
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      cache: "no-store",
     },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-    cache: "no-store",
-  })
+    TIKKIE_FETCH_TIMEOUT_MS
+  )
 
   const raw = await response.text()
   const payload = tryJson(raw)

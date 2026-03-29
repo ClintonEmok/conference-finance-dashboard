@@ -3,6 +3,14 @@
 import { useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
@@ -133,23 +141,17 @@ export function AssignDialog({
   }
 
   return (
-    <div
-      className={`fixed inset-0 z-50 flex items-center justify-center ${
-        open ? "visible" : "hidden"
-      }`}
-    >
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50"
-        onClick={() => onOpenChange(false)}
-      />
-
-      {/* Dialog */}
-      <div className="relative z-10 w-full max-w-lg rounded-lg bg-background p-6 shadow-lg">
-        <h2 className="mb-4 text-lg font-semibold">Assign Payment to Order</h2>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Assign Payment to Order</DialogTitle>
+          <DialogDescription>
+            Search for and select an order to assign this payment to.
+          </DialogDescription>
+        </DialogHeader>
 
         {/* Payment details */}
-        <div className="mb-6 rounded-md border bg-muted/50 p-4">
+        <div className="rounded-md border bg-muted/50 p-4">
           <h3 className="mb-2 text-sm font-medium">Payment Details</h3>
           <div className="grid gap-1 text-sm">
             <div className="flex justify-between">
@@ -176,7 +178,7 @@ export function AssignDialog({
         </div>
 
         {/* Order search */}
-        <div className="mb-6">
+        <div>
           <label className="mb-2 block text-sm font-medium">
             Search for Order
           </label>
@@ -237,7 +239,7 @@ export function AssignDialog({
 
         {/* Selected order */}
         {selectedOrder && (
-          <div className="mb-6 rounded-md border border-primary bg-primary/5 p-4">
+          <div className="rounded-md border border-primary bg-primary/5 p-4">
             <h3 className="mb-2 text-sm font-medium">Selected Order</h3>
             <div className="grid gap-1 text-sm">
               <div className="flex justify-between">
@@ -262,13 +264,12 @@ export function AssignDialog({
 
         {/* Error */}
         {error && (
-          <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
             {error}
           </div>
         )}
 
-        {/* Actions */}
-        <div className="flex justify-end gap-2">
+        <DialogFooter>
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
@@ -279,8 +280,8 @@ export function AssignDialog({
           <Button onClick={handleAssign} disabled={!selectedOrder || isLoading}>
             {isLoading ? "Assigning..." : "Assign Payment"}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

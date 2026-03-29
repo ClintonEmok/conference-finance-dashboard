@@ -56,6 +56,33 @@ function buildRequestHeaders(apiKey: string) {
   }
 }
 
+const TICKET_TAILOR_FETCH_TIMEOUT_MS = Number(
+  process.env.TICKET_TAILOR_FETCH_TIMEOUT_MS ?? 15_000
+)
+
+async function fetchWithTimeout(
+  url: URL | string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal })
+    clearTimeout(timer)
+    return response
+  } catch (error) {
+    clearTimeout(timer)
+
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`Ticket Tailor request timed out after ${timeoutMs}ms`)
+    }
+
+    throw error
+  }
+}
+
 export async function ticketTailorFetch<T>(
   path: string,
   options: TicketTailorFetchOptions = {}
@@ -66,11 +93,15 @@ export async function ticketTailorFetch<T>(
     throw new Error("Ticket Tailor is not configured: missing API key")
   }
 
-  const response = await fetch(url, {
-    method: options.method ?? "GET",
-    headers: buildRequestHeaders(config.values.apiKey),
-    cache: "no-store",
-  })
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: options.method ?? "GET",
+      headers: buildRequestHeaders(config.values.apiKey),
+      cache: "no-store",
+    },
+    TICKET_TAILOR_FETCH_TIMEOUT_MS
+  )
 
   if (!response.ok) {
     const text = await response.text()
