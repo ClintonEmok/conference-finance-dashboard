@@ -1,37 +1,37 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.0
-milestone_name: Attendee Signup + Accommodation Self-Assignment
-status: Phase 18 execution in progress; 18-01 and 18-02 complete
-stopped_at: Completed 18-02 plan execution; next step is 18-03 guard + abuse hardening
-last_updated: "2026-03-29T20:56:09Z"
+milestone_name: Event Signup + Dual-Source Events
+status: Phase 18 canonical signup schema and public catalog contract established
+stopped_at: Completed 18-01-PLAN.md (canonical signup schema + bounded public catalog)
+last_updated: "2026-03-29T22:30:01Z"
 last_activity: 2026-03-29
 progress:
-  total_phases: 3
+  total_phases: 5
   completed_phases: 0
-  total_plans: 9
-  completed_plans: 2
-  percent: 22
+  total_plans: 3
+  completed_plans: 1
+  percent: 33
 ---
 
 # Project State
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-03-29)
+See: `.planning/PROJECT.md` (updated 2026-03-27)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Execute final Phase 18 hardening plan (18-03)
+- **Current focus:** Execute Phase 18 canonical signup domain contracts (schema + bounded public reads)
 
 ## Current Position
 
-Milestone: v2.0 (attendee-signup-accommodation) — ACTIVE
-Phase: 18 of 20 (dual-source-event-signup-platform)
-Plan: 02 of 03 complete (18-01/18-02 summaries)
-Status: In progress
-Last activity: 2026-03-29 — Completed 18-02 atomic signup submission mutation + submit route
+Milestone: v2.0 (event-signup-dual-source) — ACTIVE
+Phase: 18 (Dual-Source Event Signup Platform) — IN PROGRESS (1/3 plans complete)
+Plan: 18-01 complete — Canonical signup schema + bounded source-aware public catalog contract
+Status: Phase 18 execution in progress — ready for 18-02 (atomic submission envelope)
+Last activity: 2026-03-29 — Completed 18-01: canonical events/eventSources/ticketTypes/accommodationSlots + signupCatalog
 
-Progress: ██░░░░░░░░ 22% (2/9 plans)
+Progress: ███░░░░░░░ 33% (1/3 plans)
 
 ## Alignment Status
 
@@ -65,10 +65,7 @@ Progress: ██░░░░░░░░ 22% (2/9 plans)
 - Accommodation queue family badges now render from backend-provided `hasFamily` contract truth instead of inferred optional fields.
 - **Room occupancy single-sourced:** Room occupancy is now derived from `ticketTailorAttendees.assignedRoomId` at query time in `getRoomsWithDetails`, `listAccommodationInventory`, and `getRoomAllocationBoard` — no more `occupiedBeds` counter writes from assignment/unassignment mutations (17-07).
 - **Assignment mutations consolidated:** `attendees.assignRoom` and `attendees.unassignRoom` now delegate to accommodation mutations, enforcing capacity checks and event-hotel validation consistently (17-07).
-- **Canonical signup schema introduced (18-01):** Additive `signupEvents`, `signupTicketTypes`, and `signupAccommodationSlots` tables now coexist with legacy `ticketTailor*` entities.
-- **Public signup catalog contract introduced (18-01):** `signupCatalog.getPublicSignupCatalog` returns published+open source-aware events with ticket selectability reasons and accommodation eligibility + assignable slot summaries.
-- **Atomic signup submission introduced (18-02):** `signupSubmission.submitSignupEnvelope` persists canonical envelope header + attendee/ticket/assignment child rows with idempotency metadata.
-- **Public submission route introduced (18-02):** `POST /api/signup/submit` now normalizes payloads through `lib/domain/signup/submission.ts` and returns stable `{ submissionId, bookingRef, submittedAt }` response fields.
+- **Canonical signup read foundation added:** New additive tables (`events`, `eventSources`, `ticketTypes`, `accommodationSlots`) and `signupCatalog.getPublicSignupCatalog` now provide one source-aware public contract for published/open signup events (18-01).
 
 ## Key Decisions
 
@@ -103,12 +100,6 @@ Recent decisions that future work should preserve:
 - [260327-16d] Keep accommodation signal filter normalization/serialization in a shared helper and base queue family badge rendering on `hasFamily` payload truth.
 - [v2-01] Treat event source as an explicit domain boundary (`integration` vs `internal`) and keep dashboard reads source-agnostic.
 - [v2-02] Preserve existing finance/Tikkie/Ticket Tailor behavior while adding internal signup flows incrementally.
-- [18-01] Keep canonical signup data additive (`signup*` tables) and avoid modifying legacy `ticketTailor*` schema contracts.
-- [18-01] Encode public ticket/accommodation availability states with stable lower_snake_case reason-code unions for machine-readable UI behavior.
-- [18-01] Keep public signup catalog reads bounded and index-first (`withIndex` + `.take()`), with explicit Convex returns validators.
-- [18-02] Persist signup submissions in additive canonical tables (`signupSubmissions` + child tables) instead of coupling writes to provider-centric event/order/attendee entities.
-- [18-02] Route payloads must normalize into `SignupSubmissionEnvelope` in domain layer before Convex mutation calls; route boundaries should stay thin and contract-focused.
-- [18-02] Run route-local API tests from `app/api/**/*.test.ts` so endpoint contracts can be validated where they are defined.
 - [17-01] Use shared `requireIdentity(ctx)` helper for Convex mutation auth instead of inline `ctx.auth.getUserIdentity()` calls — allows future guard policy changes in one place.
 - [17-01] No client-side `<Authenticated>` wrapper needed: dashboard layout uses server-side `requirePageUser` preventing unauthenticated access to Convex hook consumers.
 - [17-02] Webhook verifiers fail closed: return false when signing secret env var is absent/blank, never bypass verification.
@@ -123,6 +114,8 @@ Recent decisions that future work should preserve:
 - [17-08] Payment auto-match requires both normalized buyer name AND exact amount as matching criteria — reduces ambiguous matches compared to name-only matching.
 - [17-09] Use .take(N) for intentionally bounded reads where pagination is not appropriate, .paginate() for growing user-facing lists, .first() for single-result indexed lookups.
 - [17-09] Extract shared Convex validators into lib/types/\* for cross-layer type contracts — payments, orders, attendees, accommodation, tikkie.
+- [18-01] Canonical signup public reads resolve from additive non-prefixed tables (`events`, `eventSources`, `ticketTypes`, `accommodationSlots`), while legacy `ticketTailor*` tables remain intact for compatibility.
+- [18-01] Public signup catalog contract exposes machine-readable ticket/accommodation reason codes with strict `returns` validators and bounded indexed reads only.
 
 ## Active Patterns / Constraints
 
@@ -150,6 +143,7 @@ Recent decisions that future work should preserve:
 - Accommodation proposal generation should remain deterministic and compatibility-scored, with reasons that cite family/gender/priority rationale rather than generic availability messaging.
 - Public event pages must only expose published/internal-safe fields and never leak operator-only finance data.
 - Internal signup writes should be idempotent enough for accidental duplicate submits and enforce capacity constraints at write time.
+- Public signup catalog reads must use `api.signupCatalog.getPublicSignupCatalog` and keep event filtering to published + signup-open visibility.
 
 ## Blockers / Concerns
 
@@ -180,16 +174,16 @@ Recent decisions that future work should preserve:
 - Phase 14: Event-Level Tikkie + Payment Tracking (complete)
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
 - Phase 16: v1 milestone gap closure execution complete (16-01/16-02/16-03/16-04 complete)
-- Previous phase 17 (critical fixes) is complete and treated as baseline hardening work.
-- Phase 18: Signup Domain Foundation (in progress — 18-01/18-02 complete, 18-03 pending)
-- Phase 19: Public Multi-Step Signup Experience (planned — 3 plans)
-- Phase 20: Operator Handoff + Compatibility Layer (planned — 3 plans)
+- Phase 17: Fix Critical Code Review Issues — COMPLETE (9/9 plans: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-03 transport hardening, 17-04 circular cron-HTTP path removed, 17-05 error/loading fallbacks, 17-06 formatMoney centralization + dialog accessibility, 17-07 room occupancy single-sourced + mutation consolidation, 17-08 finance correctness, 17-09 pagination + bounded reads + shared types)
+- Phase 18: Schema + Canonical Contracts (in progress — 18-01 complete, 18-02/18-03 planned)
+- Phase 19: Public Signup Pages (planned — 3 plans)
+- Phase 20: Admin Event Management (planned — 3 plans)
+- Phase 21: Finance Integration (planned — 3 plans)
 
 ## Session Continuity
 
 - **Last activity:** 2026-03-29
-- **Last session:** 2026-03-29T20:56:09Z
-- **Stopped at:** Completed 18-02-PLAN.md
-- **Research doc:** `.planning/research/v2.0-attendee-signup-self-assignment.md`
+- **Last session:** 2026-03-29T22:30:01Z
+- **Stopped at:** Completed 18-01-PLAN.md (canonical signup schema + bounded public catalog)
 - **Resume file:** None
-- **Next recommended plan:** Execute `18-03-PLAN.md` (transactional guards + abuse controls)
+- **Next recommended plan:** Continue Phase 18 with `18-02-PLAN.md` (atomic submission envelope persistence)
