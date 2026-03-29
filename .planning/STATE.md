@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Event Signup + Dual-Source Events
-status: verifying
-stopped_at: Completed 17-02-PLAN.md (Webhook signature verification and auth config fail-closed)
-last_updated: "2026-03-29T00:04:40.762Z"
-last_activity: 2026-03-28
+status: Auto-sync decoupled from app HTTP routes; internal mutations established for cron use; ready for 17-08
+stopped_at: Completed 17-04-PLAN.md (Remove circular Convex cron -> HTTP sync path)
+last_updated: "2026-03-29T00:26:38Z"
+last_activity: 2026-03-29
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 9
-  completed_plans: 6
-  percent: 70
+  completed_plans: 7
+  percent: 78
 ---
 
 # Project State
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 ## Current Position
 
 Milestone: v2.0 (event-signup-dual-source) — ACTIVE
-Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (6/9 plans complete)
-Plan: 17-07 complete — Room occupancy single-sourced from attendee assignments
-Status: Room occupancy derived from ticketTailorAttendees.assignedRoomId; attendees.ts mutations delegate to accommodation; ready for 17-08
-Last activity: 2026-03-29 — Completed 17-07: Room occupancy single-sourced from attendee assignments
+Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (7/9 plans complete)
+Plan: 17-04 complete — Removed circular Convex cron -> HTTP -> Convex sync path
+Status: Auto-sync calls internal mutations directly; external APIs fetched from Convex actions; ready for 17-08
+Last activity: 2026-03-29 — Completed 17-04: Remove circular Convex cron to HTTP sync path
 
-Progress: ███████░░░ 74% (45/61 plans)
+Progress: ████████░░ 78% (46/61 plans)
 
 ## Alignment Status
 
@@ -41,6 +41,7 @@ Progress: ███████░░░ 74% (45/61 plans)
 - **Webhook verifiers fail closed:** Both Tikkie and Ticket Tailor webhook verifiers return false (not true) when signing secrets are absent or blank — misconfiguration blocks processing instead of bypassing verification (17-02).
 - **Convex auth config validated:** `CLERK_JWT_ISSUER_DOMAIN` is now checked at module load with a descriptive error; no more TypeScript non-null assertion hiding missing config (17-02).
 - **Transport hardened:** All operator and webhook routes have in-memory rate limiting; Tikkie and Ticket Tailor fetch clients have AbortController timeouts and bounded retry for 5xx/transient failures (17-03).
+- **Auto-sync decoupled:** Convex cron-triggered auto-sync no longer makes HTTP calls back to the app. Ticket Tailor and Tikkie syncs call external APIs directly from Convex actions and write via `ctx.runMutation(internal.*)` (17-04).
 - Shared `requireIdentity` helper in `convex/auth.ts` is the canonical Convex auth guard — future mutations must import and use it.
 - Operator-facing protected API routes now use Clerk's shared server helper instead of Better Auth sessions.
 - Better Auth runtime files and packages are removed from the app runtime and dependency graph.
@@ -106,9 +107,13 @@ Recent decisions that future work should preserve:
 - [17-06] Use Radix Dialog controlled mode for payment/Tikkie modals — preserves parent-driven state management while adding focus trapping, title/description semantics, and Escape-key close.
 - [17-07] Remove direct `occupiedBeds` counter writes — room occupancy is single-sourced from `ticketTailorAttendees.assignedRoomId` at query time, eliminating counter drift risk.
 - [17-07] Consolidate room assignment mutations — `attendees.assignRoom`/`unassignRoom` delegate to accommodation mutations so one authoritative implementation enforces capacity and event-hotel checks.
+- [17-04] Convex cron auto-sync must call internal mutations directly via `ctx.runMutation(internal.*)` instead of HTTP-fetching app routes — eliminates circular dependency and removes need for APP_URL/TIKKIE_SYNC_CRON_SECRET in cron context.
+- [17-04] Auth-free `internalMutation`/`internalQuery` wrappers mirror public mutations without `requireIdentity` — system-level cron actions run without user identity context.
 
 ## Active Patterns / Constraints
 
+- **Cron auto-sync via internal mutations:** Convex cron-triggered actions must call `ctx.runMutation(internal.*)` / `ctx.runQuery(internal.*)` directly instead of HTTP-fetching the app's own API routes. External API calls (Ticket Tailor, Tikkie) are made from the Convex action runtime using `fetch()`.
+- **Auth-free internal wrappers for cron operations:** Internal mutations/queries used by cron actions must NOT call `requireIdentity(ctx)` — they run as system-level operations without user identity context.
 - **Convex mutation auth:** All public mutations must `import { requireIdentity } from "./auth"` and call `await requireIdentity(ctx)` as the first handler statement.
 - **Webhook verification fail-closed:** Webhook verifiers must return false when signing secret env vars are absent or blank — never return true to bypass checks.
 - **Env var validation:** Critical env vars should use explicit runtime checks with descriptive errors, not TypeScript non-null assertions.
@@ -161,7 +166,7 @@ Recent decisions that future work should preserve:
 - Phase 14: Event-Level Tikkie + Payment Tracking (complete)
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
 - Phase 16: v1 milestone gap closure execution complete (16-01/16-02/16-03/16-04 complete)
-- Phase 17: Fix Critical Code Review Issues — inserted before v2.0 schema work (URGENT, 6/9 plans complete: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-03 transport hardening, 17-05 error/loading fallbacks, 17-06 formatMoney centralization + dialog accessibility, 17-07 room occupancy single-sourced + mutation consolidation done)
+- Phase 17: Fix Critical Code Review Issues — inserted before v2.0 schema work (URGENT, 7/9 plans complete: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-03 transport hardening, 17-04 circular cron-HTTP path removed, 17-05 error/loading fallbacks, 17-06 formatMoney centralization + dialog accessibility, 17-07 room occupancy single-sourced + mutation consolidation done)
 - Phase 18: Schema + Canonical Contracts (planned — 4 plans)
 - Phase 19: Public Signup Pages (planned — 3 plans)
 - Phase 20: Admin Event Management (planned — 3 plans)
@@ -170,7 +175,7 @@ Recent decisions that future work should preserve:
 ## Session Continuity
 
 - **Last activity:** 2026-03-29
-- **Last session:** 2026-03-29T00:21:00Z
-- **Stopped at:** Completed 17-07-PLAN.md (Room occupancy single-sourced from attendee assignments)
+- **Last session:** 2026-03-29T00:26:38Z
+- **Stopped at:** Completed 17-04-PLAN.md (Remove circular Convex cron to HTTP sync path)
 - **Resume file:** None
 - **Next recommended plan:** Execute `17-08-PLAN.md` or run `/gsd-execute-phase 17`

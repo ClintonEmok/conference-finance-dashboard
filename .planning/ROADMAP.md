@@ -58,7 +58,7 @@ Plans:
 - [x] 17-01-PLAN.md — Convex auth guard on audited public write mutations
 - [x] 17-02-PLAN.md — Webhook fail-closed behavior + Convex auth config validation (completed 2026-03-28)
 - [x] 17-03-PLAN.md — Rate limiting, integration timeouts/retries, and auto-sync hardening (completed 2026-03-29)
-- [ ] 17-04-PLAN.md — Dashboard error/loading boundaries
+- [x] 17-04-PLAN.md — Remove circular Convex cron -> HTTP -> Convex sync path (completed 2026-03-29)
 - [x] 17-05-PLAN.md — Route-level error and loading fallbacks (completed 2026-03-28)
 - [x] 17-06-PLAN.md — Centralize money formatting + fix modal accessibility (completed 2026-03-29)
 - [x] 17-07-PLAN.md — Room occupancy single-sourced from attendee assignments + mutation consolidation (completed 2026-03-29)
@@ -167,7 +167,7 @@ Plans:
 
 | Phase                                           | Goal                                                | Requirements                       | Plans | Status  |
 | ----------------------------------------------- | --------------------------------------------------- | ---------------------------------- | ----- | ------- |
-| 17 - Fix Critical Code Review Issues (INSERTED) | Security, auth, data integrity, UI resilience fixes | TBD                                | 6/9   | Active  |
+| 17 - Fix Critical Code Review Issues (INSERTED) | Security, auth, data integrity, UI resilience fixes | TBD                                | 7/9   | Active  |
 | 18 - Schema + Canonical Contracts               | Canonical event data model with dual-source support | ESCH-01, ESCH-02, ESCH-03, ESCH-04 | 4     | Pending |
 | 19 - Public Signup Pages                        | Public event discovery and registration flow        | EPUB-01..05                        | 3     | Pending |
 | 20 - Admin Event Management                     | Admin CRUD for internal events + unified list       | EADM-01..05                        | 3     | Pending |
