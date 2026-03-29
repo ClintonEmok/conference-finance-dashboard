@@ -87,6 +87,79 @@ export default defineSchema({
     .index("providerEventId", ["providerEventId"])
     .index("startsAt", ["startsAt"]),
 
+  signupEvents: defineTable(
+    v.object({
+      source: v.union(v.literal("integration"), v.literal("internal")),
+      sourceEventRef: v.string(),
+      slug: v.string(),
+      title: v.string(),
+      startsAt: v.number(),
+      isPublished: v.boolean(),
+      isSignupOpen: v.boolean(),
+      accommodationEnabled: v.boolean(),
+      currency: v.string(),
+    })
+  )
+    .index("by_source_and_sourceEventRef", ["source", "sourceEventRef"])
+    .index("by_slug", ["slug"])
+    .index("by_isPublished_and_isSignupOpen", ["isPublished", "isSignupOpen"])
+    .index("by_startsAt_and_title", ["startsAt", "title"]),
+
+  signupTicketTypes: defineTable(
+    v.object({
+      signupEventId: v.string(),
+      label: v.string(),
+      priceMinor: v.number(),
+      isActive: v.boolean(),
+      visibility: v.union(v.literal("visible"), v.literal("hidden")),
+      availabilityState: v.union(
+        v.literal("selectable"),
+        v.literal("unavailable")
+      ),
+      unavailableReason: v.optional(
+        v.union(
+          v.literal("sold_out"),
+          v.literal("disabled"),
+          v.literal("hidden"),
+          v.literal("not_on_sale")
+        )
+      ),
+    })
+  )
+    .index("by_signupEventId", ["signupEventId"])
+    .index("by_signupEventId_and_availabilityState", [
+      "signupEventId",
+      "availabilityState",
+    ]),
+
+  signupAccommodationSlots: defineTable(
+    v.object({
+      signupEventId: v.string(),
+      hotelId: v.string(),
+      roomId: v.string(),
+      slotLabel: v.string(),
+      genderPolicy: v.union(
+        v.literal("male"),
+        v.literal("female"),
+        v.literal("mixed"),
+        v.literal("unknown")
+      ),
+      isAssignable: v.boolean(),
+      ineligibilityReason: v.optional(
+        v.union(
+          v.literal("accommodation_disabled"),
+          v.literal("no_assignable_inventory"),
+          v.literal("event_closed")
+        )
+      ),
+    })
+  )
+    .index("by_signupEventId", ["signupEventId"])
+    .index("by_signupEventId_and_isAssignable", [
+      "signupEventId",
+      "isAssignable",
+    ]),
+
   ticketTailorOrders: defineTable(
     v.object({
       providerOrderId: v.string(),
