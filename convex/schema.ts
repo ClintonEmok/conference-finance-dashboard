@@ -253,7 +253,8 @@ export default defineSchema({
     .index("providerOrderEvent", ["providerOrderId", "providerEventId"])
     .index("status_updated", ["status", "statusUpdatedAt"])
     .index("orderId", ["orderId"])
-    .index("eventId", ["eventId"]),
+    .index("eventId", ["eventId"])
+    .index("linkType", ["linkType"]),
 
   tikkiePaymentLinkTransitions: defineTable(
     v.object({
@@ -378,7 +379,8 @@ export default defineSchema({
   )
     .index("orderId", ["orderId"])
     .index("source_sourceId", ["source", "sourceId"])
-    .index("status", ["status"]),
+    .index("status", ["status"])
+    .index("paidAt", ["paidAt"]),
 
   roomAllocations: defineTable(
     v.object({
