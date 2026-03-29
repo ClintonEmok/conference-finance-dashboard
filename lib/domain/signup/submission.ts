@@ -282,5 +282,23 @@ export async function submitSignup(
     submissionId: String(result.submissionId),
     bookingRef: result.bookingRef,
     submittedAt: result.submittedAt,
+    restorePayload: result.restorePayload
+      ? {
+          ...result.restorePayload,
+          eventId: String(result.restorePayload.eventId),
+          ticketSelections: result.restorePayload.ticketSelections.map(
+            (selection) => ({
+              attendeeKey: selection.attendeeKey,
+              ticketTypeId: String(selection.ticketTypeId),
+              quantity: 1 as const,
+            })
+          ),
+          assignments: result.restorePayload.assignments.map((assignment) => ({
+            attendeeKey: assignment.attendeeKey,
+            slotId: String(assignment.slotId),
+            assignmentIntent: assignment.assignmentIntent,
+          })),
+        }
+      : undefined,
   }
 }
