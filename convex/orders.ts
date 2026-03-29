@@ -1,6 +1,12 @@
 import { query, mutation, type QueryCtx } from "./_generated/server"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
+import {
+  canonicalOrderStatusValidator,
+  nullableStringValidator,
+  orderLedgerRowValidator,
+  orderSearchRowValidator,
+} from "../lib/types/order"
 
 function isOrderRemoved(order: any) {
   return typeof order?.removedAt === "number"
@@ -191,39 +197,6 @@ export const updateOrderStatus = mutation({
     })
     return args.orderId
   },
-})
-
-const canonicalOrderStatusValidator = v.union(
-  v.literal("paid"),
-  v.literal("refunded"),
-  v.literal("cancelled"),
-  v.literal("pending")
-)
-
-const nullableStringValidator = v.union(v.string(), v.null())
-
-const orderLedgerRowValidator = v.object({
-  providerOrderId: v.string(),
-  providerEventId: v.string(),
-  eventId: v.string(),
-  eventName: nullableStringValidator,
-  normalizedStatus: canonicalOrderStatusValidator,
-  isArchived: v.boolean(),
-  archivedAt: nullableStringValidator,
-  archiveReason: nullableStringValidator,
-  totalAmountMinor: v.number(),
-  currency: nullableStringValidator,
-  orderedAt: nullableStringValidator,
-  refundedAt: nullableStringValidator,
-  buyerName: nullableStringValidator,
-  buyerEmail: nullableStringValidator,
-})
-
-const orderSearchRowValidator = v.object({
-  id: v.id("ticketTailorOrders"),
-  providerOrderId: v.string(),
-  buyerName: nullableStringValidator,
-  totalAmountMinor: v.number(),
 })
 
 type CandidateOrder = {

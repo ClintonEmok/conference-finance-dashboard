@@ -2,37 +2,11 @@ import { query, mutation, internalMutation } from "./_generated/server"
 import { v } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import { requireIdentity } from "./auth"
-
-const paymentSourceValidator = v.union(
-  v.literal("tikkie"),
-  v.literal("bank_transfer"),
-  v.literal("cash")
-)
-
-const paymentStatusValidator = v.union(
-  v.literal("auto_matched"),
-  v.literal("manual_assignment"),
-  v.literal("ambiguous"),
-  v.literal("unassigned")
-)
-
-const paymentDocValidator = v.object({
-  _id: v.id("payments"),
-  _creationTime: v.number(),
-  source: paymentSourceValidator,
-  sourceId: v.optional(v.string()),
-  payerName: v.string(),
-  payerAccountNumber: v.optional(v.string()),
-  amountMinor: v.number(),
-  paidAt: v.number(),
-  orderId: v.optional(v.string()),
-  status: v.optional(paymentStatusValidator),
-  matchedAt: v.optional(v.number()),
-  matchedBy: v.optional(v.string()),
-  reference: v.optional(v.string()),
-  notes: v.optional(v.string()),
-  providerPayload: v.optional(v.any()),
-})
+import {
+  paymentSourceValidator,
+  paymentStatusValidator,
+  paymentDocValidator,
+} from "../lib/types/payment"
 
 export const getPayments = query({
   args: {
