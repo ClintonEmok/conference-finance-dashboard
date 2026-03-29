@@ -1,37 +1,37 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.0
-milestone_name: Event Signup + Dual-Source Events
-status: All Convex hot-path reads now use bounded/paginated patterns, shared types extracted
-stopped_at: Completed 17-09-PLAN.md (pagination, bounded reads, shared types)
-last_updated: "2026-03-29T01:06:59Z"
+milestone_name: Attendee Signup + Accommodation Self-Assignment
+status: Phase 18 execution in progress; 18-01 complete (canonical signup read foundation)
+stopped_at: Completed 18-01 plan execution; next step is 18-02 atomic submission mutation
+last_updated: "2026-03-29T20:45:56Z"
 last_activity: 2026-03-29
 progress:
-  total_phases: 5
+  total_phases: 3
   completed_phases: 0
   total_plans: 9
-  completed_plans: 9
-  percent: 100
+  completed_plans: 1
+  percent: 11
 ---
 
 # Project State
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-03-27)
+See: `.planning/PROJECT.md` (updated 2026-03-29)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Plan and execute v2.0 Phase 17 for critical code review fixes before schema work
+- **Current focus:** Execute Phase 18 signup domain foundation plans (18-02 and 18-03 pending)
 
 ## Current Position
 
-Milestone: v2.0 (event-signup-dual-source) — ACTIVE
-Phase: 17 (Fix Critical Code Review Issues) — COMPLETE (9/9 plans complete)
-Plan: 17-09 complete — Cursor pagination, bounded reads, shared type extraction
-Status: Phase 17 complete — ready for Phase 18 (Schema + Canonical Contracts)
-Last activity: 2026-03-29 — Completed 17-09: Pagination, bounded reads, lib/types extraction
+Milestone: v2.0 (attendee-signup-accommodation) — ACTIVE
+Phase: 18 of 20 (dual-source-event-signup-platform)
+Plan: 01 of 03 complete (18-01-SUMMARY.md)
+Status: In progress
+Last activity: 2026-03-29 — Completed 18-01 canonical signup contracts + public catalog query
 
-Progress: ██████████ 100% (9/9 plans)
+Progress: █░░░░░░░░░ 11% (1/9 plans)
 
 ## Alignment Status
 
@@ -65,6 +65,8 @@ Progress: ██████████ 100% (9/9 plans)
 - Accommodation queue family badges now render from backend-provided `hasFamily` contract truth instead of inferred optional fields.
 - **Room occupancy single-sourced:** Room occupancy is now derived from `ticketTailorAttendees.assignedRoomId` at query time in `getRoomsWithDetails`, `listAccommodationInventory`, and `getRoomAllocationBoard` — no more `occupiedBeds` counter writes from assignment/unassignment mutations (17-07).
 - **Assignment mutations consolidated:** `attendees.assignRoom` and `attendees.unassignRoom` now delegate to accommodation mutations, enforcing capacity checks and event-hotel validation consistently (17-07).
+- **Canonical signup schema introduced (18-01):** Additive `signupEvents`, `signupTicketTypes`, and `signupAccommodationSlots` tables now coexist with legacy `ticketTailor*` entities.
+- **Public signup catalog contract introduced (18-01):** `signupCatalog.getPublicSignupCatalog` returns published+open source-aware events with ticket selectability reasons and accommodation eligibility + assignable slot summaries.
 
 ## Key Decisions
 
@@ -99,6 +101,9 @@ Recent decisions that future work should preserve:
 - [260327-16d] Keep accommodation signal filter normalization/serialization in a shared helper and base queue family badge rendering on `hasFamily` payload truth.
 - [v2-01] Treat event source as an explicit domain boundary (`integration` vs `internal`) and keep dashboard reads source-agnostic.
 - [v2-02] Preserve existing finance/Tikkie/Ticket Tailor behavior while adding internal signup flows incrementally.
+- [18-01] Keep canonical signup data additive (`signup*` tables) and avoid modifying legacy `ticketTailor*` schema contracts.
+- [18-01] Encode public ticket/accommodation availability states with stable lower_snake_case reason-code unions for machine-readable UI behavior.
+- [18-01] Keep public signup catalog reads bounded and index-first (`withIndex` + `.take()`), with explicit Convex returns validators.
 - [17-01] Use shared `requireIdentity(ctx)` helper for Convex mutation auth instead of inline `ctx.auth.getUserIdentity()` calls — allows future guard policy changes in one place.
 - [17-01] No client-side `<Authenticated>` wrapper needed: dashboard layout uses server-side `requirePageUser` preventing unauthenticated access to Convex hook consumers.
 - [17-02] Webhook verifiers fail closed: return false when signing secret env var is absent/blank, never bypass verification.
@@ -170,16 +175,16 @@ Recent decisions that future work should preserve:
 - Phase 14: Event-Level Tikkie + Payment Tracking (complete)
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
 - Phase 16: v1 milestone gap closure execution complete (16-01/16-02/16-03/16-04 complete)
-- Phase 17: Fix Critical Code Review Issues — COMPLETE (9/9 plans: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-03 transport hardening, 17-04 circular cron-HTTP path removed, 17-05 error/loading fallbacks, 17-06 formatMoney centralization + dialog accessibility, 17-07 room occupancy single-sourced + mutation consolidation, 17-08 finance correctness, 17-09 pagination + bounded reads + shared types)
-- Phase 18: Schema + Canonical Contracts (planned — 4 plans)
-- Phase 19: Public Signup Pages (planned — 3 plans)
-- Phase 20: Admin Event Management (planned — 3 plans)
-- Phase 21: Finance Integration (planned — 3 plans)
+- Previous phase 17 (critical fixes) is complete and treated as baseline hardening work.
+- Phase 18: Signup Domain Foundation (in progress — 18-01 complete, 18-02/18-03 pending)
+- Phase 19: Public Multi-Step Signup Experience (planned — 3 plans)
+- Phase 20: Operator Handoff + Compatibility Layer (planned — 3 plans)
 
 ## Session Continuity
 
 - **Last activity:** 2026-03-29
-- **Last session:** 2026-03-29T01:06:59Z
-- **Stopped at:** Completed 17-09-PLAN.md (pagination, bounded reads, shared types)
+- **Last session:** 2026-03-29T20:45:56Z
+- **Stopped at:** Completed 18-01-PLAN.md
+- **Research doc:** `.planning/research/v2.0-attendee-signup-self-assignment.md`
 - **Resume file:** None
-- **Next recommended plan:** Phase 17 complete. Plan Phase 18 (Schema + Canonical Contracts) or run `/gsd-plan-phase 18`
+- **Next recommended plan:** Execute `18-02-PLAN.md` (atomic signup submission mutation)
