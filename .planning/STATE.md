@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Event Signup + Dual-Source Events
-status: Phase 18 complete — canonical signup contracts + guarded submission flow established
-stopped_at: Completed 18-03-PLAN.md (transactional guards + abuse controls)
-last_updated: "2026-03-29T22:46:22Z"
+status: Phase 19 in progress — public event entry + signup shell foundation completed
+stopped_at: Completed 19-01-PLAN.md (public entry routes + ticket-step shell)
+last_updated: "2026-03-29T23:54:56Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 3
-  percent: 100
+  completed_plans: 1
+  percent: 33
 ---
 
 # Project State
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-27)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Begin Phase 19 public signup UI flow using Phase 18 canonical read/write contracts
+- **Current focus:** Continue Phase 19 room-assignment + attendee/review steps on public signup shell foundation
 
 ## Current Position
 
 Milestone: v2.0 (event-signup-dual-source) — ACTIVE
-Phase: 18 (Dual-Source Event Signup Platform) — COMPLETE (3/3 plans complete)
-Plan: 18-03 complete — Transactional guards, idempotent replay restore payload, submit-route abuse controls
-Status: Phase 18 complete — ready for Phase 19 (Public Signup Pages)
-Last activity: 2026-03-29 — Completed 18-03: transactional guard hardening + rate-limit/honeypot/idempotent retry protections
+Phase: 19 (Public Multi-Step Signup Experience) — IN PROGRESS (1/3 plans complete)
+Plan: 19-01 complete — Public event entry route + draft-backed signup shell + ticket-step quantity controls
+Status: Phase 19 in progress — ready for room-assignment implementation (19-02)
+Last activity: 2026-03-29 — Completed 19-01: /events and /signup public routes, linear 4-step shell, ticket-seeded attendee derivation
 
-Progress: ██████████ 100% (3/3 plans)
+Progress: ███░░░░░░░ 33% (1/3 plans)
 
 ## Alignment Status
 
@@ -68,6 +68,7 @@ Progress: ██████████ 100% (3/3 plans)
 - **Canonical signup read foundation added:** New additive tables (`events`, `eventSources`, `ticketTypes`, `accommodationSlots`) and `signupCatalog.getPublicSignupCatalog` now provide one source-aware public contract for published/open signup events (18-01).
 - **Atomic submission boundary added:** `submitSignupEnvelope` now persists canonical submission envelopes (`submissions` + child rows + idempotency) in one mutation transaction and returns stable references (`submissionId`, `bookingRef`, `submittedAt`) (18-02).
 - **Transactional guards + abuse controls active:** Signup submission now enforces in-mutation capacity/selectability checks, idempotent replay returning restore payload, and public-route protection via rate-limit + honeypot + idempotency header propagation (18-03).
+- **Public signup shell foundation live:** `/events/[slug]` and `/signup/[slug]` public routes now expose signup-critical event content + CTA and a draft-backed linear flow shell with ticket quantity controls (19-01).
 
 ## Key Decisions
 
@@ -192,6 +193,6 @@ Recent decisions that future work should preserve:
 
 - **Last activity:** 2026-03-29
 - **Last session:** 2026-03-29T22:46:22Z
-- **Stopped at:** Completed 18-03-PLAN.md (transactional guards + abuse controls)
+- **Stopped at:** Completed 19-01-PLAN.md (public entry routes + ticket-step shell)
 - **Resume file:** None
-- **Next recommended plan:** Start Phase 19 planning/execution for public signup pages (`/gsd-plan-phase 19`)
+- **Next recommended plan:** Execute Phase 19 plan 19-02 (room assignment helpers + drag/drop step)
