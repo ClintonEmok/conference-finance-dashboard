@@ -1,9 +1,10 @@
 import { v } from "convex/values"
-import { mutation } from "./_generated/server"
+import { mutation, type MutationCtx } from "./_generated/server"
 import type { Id } from "./_generated/dataModel"
 import {
   signupGenderValidator,
   signupSourceValidator,
+  type SignupSubmissionErrorCode,
 } from "../lib/types/signup"
 
 const IDEMPOTENCY_WINDOW_MS = 2 * 60 * 60 * 1000
@@ -32,8 +33,34 @@ const assignmentValidator = v.object({
   assignmentIntent: v.union(v.literal("assign"), v.literal("skip")),
 })
 
+const restorePayloadValidator = v.object({
+  eventId: v.string(),
+  source: signupSourceValidator,
+  notes: v.optional(v.string()),
+  booker: v.object({
+    name: v.string(),
+    email: v.string(),
+    phone: v.optional(v.string()),
+  }),
+  attendees: v.array(attendeeValidator),
+  ticketSelections: v.array(
+    v.object({
+      attendeeKey: v.string(),
+      ticketTypeId: v.string(),
+      quantity: v.literal(1),
+    })
+  ),
+  assignments: v.array(
+    v.object({
+      attendeeKey: v.string(),
+      slotId: v.string(),
+      assignmentIntent: v.union(v.literal("assign"), v.literal("skip")),
+    })
+  ),
+})
+
 function throwSubmissionError(
-  code: "SUBMISSION_CONFLICT" | "TICKET_UNAVAILABLE" | "ASSIGNMENT_UNAVAILABLE",
+  code: SignupSubmissionErrorCode,
   message: string
 ): never {
   throw new Error(`${code}: ${message}`)
@@ -83,6 +110,114 @@ function buildBookingRef(input: {
   return `BK-${datePart}-${uniquePart}`
 }
 
+async function buildRestorePayload(
+  ctx: MutationCtx,
+  submissionId: Id<"submissions">
+): Promise<{
+  eventId: string
+  source: "integration" | "internal"
+  notes?: string
+  booker: {
+    name: string
+    email: string
+    phone?: string
+  }
+  attendees: Array<{
+    attendeeKey: string
+    name: string
+    email?: string
+    phone: string
+    gender: "male" | "female" | "mixed" | "unknown"
+    location: string
+    dietaryRestrictions: string
+    roommatePreference: string
+    roommateAvoid: string
+  }>
+  ticketSelections: Array<{
+    attendeeKey: string
+    ticketTypeId: string
+    quantity: 1
+  }>
+  assignments: Array<{
+    attendeeKey: string
+    slotId: string
+    assignmentIntent: "assign" | "skip"
+  }>
+} | null> {
+  const submission = await ctx.db.get(submissionId)
+  if (!submission) {
+    return null
+  }
+
+  const attendees = await ctx.db
+    .query("submissionAttendees")
+    .withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId))
+    .take(500)
+  const attendeeById = new Map(
+    attendees.map((attendee) => [String(attendee._id), attendee])
+  )
+
+  const selections = await ctx.db
+    .query("submissionTicketSelections")
+    .withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId))
+    .take(500)
+
+  const assignments = await ctx.db
+    .query("submissionAssignments")
+    .withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId))
+    .take(500)
+
+  return {
+    eventId: String(submission.eventId),
+    source: submission.source,
+    notes: submission.notes,
+    booker: {
+      name: submission.bookerName,
+      email: submission.bookerEmail,
+      phone: submission.bookerPhone,
+    },
+    attendees: attendees.map((attendee) => ({
+      attendeeKey: attendee.attendeeKey,
+      name: attendee.name,
+      email: attendee.email,
+      phone: attendee.phone,
+      gender: attendee.gender,
+      location: attendee.location,
+      dietaryRestrictions: attendee.dietaryRestrictions,
+      roommatePreference: attendee.roommatePreference,
+      roommateAvoid: attendee.roommateAvoid,
+    })),
+    ticketSelections: selections
+      .map((selection) => {
+        const attendee = attendeeById.get(String(selection.attendeeId))
+        if (!attendee) {
+          return null
+        }
+
+        return {
+          attendeeKey: attendee.attendeeKey,
+          ticketTypeId: String(selection.ticketTypeId),
+          quantity: 1 as const,
+        }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null),
+    assignments: assignments
+      .map((assignment) => {
+        const attendee = attendeeById.get(String(assignment.attendeeId))
+        if (!attendee) {
+          return null
+        }
+
+        return {
+          attendeeKey: attendee.attendeeKey,
+          slotId: String(assignment.slotId),
+          assignmentIntent: assignment.assignmentIntent,
+        }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null),
+  }
+}
+
 export const submitSignupEnvelope = mutation({
   args: {
     eventId: v.id("events"),
@@ -104,6 +239,7 @@ export const submitSignupEnvelope = mutation({
     submissionId: v.id("submissions"),
     bookingRef: v.string(),
     submittedAt: v.string(),
+    restorePayload: restorePayloadValidator,
   }),
   handler: async (ctx, args) => {
     const now = Date.now()
@@ -123,6 +259,63 @@ export const submitSignupEnvelope = mutation({
     )
     const bookerPhone = normalizeOptionalString(args.booker.phone)
     const notes = normalizeOptionalString(args.notes)
+
+    const replayByFingerprint = await ctx.db
+      .query("submissionIdempotency")
+      .withIndex("by_eventId_and_fingerprint", (q) =>
+        q.eq("eventId", args.eventId).eq("fingerprint", payloadFingerprint)
+      )
+      .first()
+
+    if (replayByFingerprint && replayByFingerprint.expiresAt >= now) {
+      const replaySubmission = await ctx.db.get(
+        replayByFingerprint.submissionId
+      )
+      if (replaySubmission) {
+        const restorePayload = await buildRestorePayload(
+          ctx,
+          replayByFingerprint.submissionId
+        )
+        if (restorePayload) {
+          return {
+            submissionId: replaySubmission._id,
+            bookingRef: replaySubmission.bookingRef,
+            submittedAt: new Date(replaySubmission.submittedAt).toISOString(),
+            restorePayload,
+          }
+        }
+      }
+    }
+
+    const idempotencyRecords = await ctx.db
+      .query("submissionIdempotency")
+      .withIndex("by_eventId_and_idempotencyKey", (q) =>
+        q.eq("eventId", args.eventId).eq("idempotencyKey", idempotencyKey)
+      )
+      .take(20)
+
+    const replayByKey = idempotencyRecords.find(
+      (record) =>
+        record.expiresAt >= now && record.fingerprint === payloadFingerprint
+    )
+
+    if (replayByKey) {
+      const replaySubmission = await ctx.db.get(replayByKey.submissionId)
+      if (replaySubmission) {
+        const restorePayload = await buildRestorePayload(
+          ctx,
+          replayByKey.submissionId
+        )
+        if (restorePayload) {
+          return {
+            submissionId: replaySubmission._id,
+            bookingRef: replaySubmission.bookingRef,
+            submittedAt: new Date(replaySubmission.submittedAt).toISOString(),
+            restorePayload,
+          }
+        }
+      }
+    }
 
     const event = await ctx.db.get(args.eventId)
     if (!event) {
@@ -147,20 +340,6 @@ export const submitSignupEnvelope = mutation({
       throwSubmissionError(
         "SUBMISSION_CONFLICT",
         "Invalid 'ticketSelections'. At least one ticket selection is required."
-      )
-    }
-
-    const existingIdempotency = await ctx.db
-      .query("submissionIdempotency")
-      .withIndex("by_eventId_and_idempotencyKey", (q) =>
-        q.eq("eventId", args.eventId).eq("idempotencyKey", idempotencyKey)
-      )
-      .first()
-
-    if (existingIdempotency && existingIdempotency.expiresAt >= now) {
-      throwSubmissionError(
-        "SUBMISSION_CONFLICT",
-        "Duplicate idempotency key in active retry window"
       )
     }
 
@@ -225,6 +404,17 @@ export const submitSignupEnvelope = mutation({
           "Selected ticket type does not belong to this event"
         )
       }
+
+      if (
+        ticketType.availabilityState !== "selectable" ||
+        !ticketType.isActive ||
+        ticketType.visibility !== "public"
+      ) {
+        throwSubmissionError(
+          "TICKET_UNAVAILABLE",
+          "Selected ticket type is no longer selectable"
+        )
+      }
     }
 
     const eventSlots = await ctx.db
@@ -232,6 +422,8 @@ export const submitSignupEnvelope = mutation({
       .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
       .take(1000)
     const slotById = new Map(eventSlots.map((slot) => [slot._id, slot]))
+
+    const requestedAssignedSlotIds = new Set<string>()
 
     for (const assignment of args.assignments) {
       if (!attendeeKeySet.has(assignment.attendeeKey)) {
@@ -246,6 +438,78 @@ export const submitSignupEnvelope = mutation({
         throwSubmissionError(
           "ASSIGNMENT_UNAVAILABLE",
           "Assignment references an unknown accommodation slot"
+        )
+      }
+
+      if (assignment.assignmentIntent === "assign") {
+        if (!slot.isAssignable) {
+          throwSubmissionError(
+            "ASSIGNMENT_UNAVAILABLE",
+            "Selected accommodation slot is no longer assignable"
+          )
+        }
+
+        const slotKey = String(assignment.slotId)
+        if (requestedAssignedSlotIds.has(slotKey)) {
+          throwSubmissionError(
+            "SUBMISSION_CONFLICT",
+            "Submission contains duplicate assignment for the same slot"
+          )
+        }
+        requestedAssignedSlotIds.add(slotKey)
+      }
+    }
+
+    if (event.accommodationEnabled) {
+      const assignableSlotCount = eventSlots.filter(
+        (slot) => slot.isAssignable
+      ).length
+      const requestedTicketCount = args.ticketSelections.length
+
+      if (assignableSlotCount > 0) {
+        const eventSubmissions = await ctx.db
+          .query("submissions")
+          .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+          .take(500)
+
+        let existingTicketCount = 0
+        for (const submission of eventSubmissions) {
+          const existingSelections = await ctx.db
+            .query("submissionTicketSelections")
+            .withIndex("by_submissionId", (q) =>
+              q.eq("submissionId", submission._id)
+            )
+            .take(500)
+          existingTicketCount += existingSelections.length
+        }
+
+        if (existingTicketCount + requestedTicketCount > assignableSlotCount) {
+          throwSubmissionError(
+            "CAPACITY_EXCEEDED",
+            "Ticket capacity exceeded for this event"
+          )
+        }
+      }
+    }
+
+    for (const assignment of args.assignments) {
+      if (assignment.assignmentIntent !== "assign") {
+        continue
+      }
+
+      const existingAssignments = await ctx.db
+        .query("submissionAssignments")
+        .withIndex("by_slotId", (q) => q.eq("slotId", assignment.slotId))
+        .take(20)
+
+      const alreadyAssigned = existingAssignments.some(
+        (existingAssignment) => existingAssignment.assignmentIntent === "assign"
+      )
+
+      if (alreadyAssigned) {
+        throwSubmissionError(
+          "CAPACITY_EXCEEDED",
+          "Selected room slot has already been claimed"
         )
       }
     }
@@ -325,8 +589,12 @@ export const submitSignupEnvelope = mutation({
       })
     }
 
-    if (existingIdempotency) {
-      await ctx.db.patch(existingIdempotency._id, {
+    const expiredRecordByKey = idempotencyRecords.find(
+      (record) => record.expiresAt < now
+    )
+
+    if (expiredRecordByKey) {
+      await ctx.db.patch(expiredRecordByKey._id, {
         fingerprint: payloadFingerprint,
         submissionId,
         expiresAt: now + IDEMPOTENCY_WINDOW_MS,
@@ -345,6 +613,37 @@ export const submitSignupEnvelope = mutation({
       submissionId,
       bookingRef,
       submittedAt: new Date(now).toISOString(),
+      restorePayload: {
+        eventId: String(args.eventId),
+        source: args.source,
+        notes,
+        booker: {
+          name: bookerName,
+          email: bookerEmail,
+          phone: bookerPhone,
+        },
+        attendees: args.attendees.map((attendee) => ({
+          attendeeKey: attendee.attendeeKey,
+          name: attendee.name,
+          email: attendee.email,
+          phone: attendee.phone,
+          gender: attendee.gender,
+          location: attendee.location,
+          dietaryRestrictions: attendee.dietaryRestrictions,
+          roommatePreference: attendee.roommatePreference,
+          roommateAvoid: attendee.roommateAvoid,
+        })),
+        ticketSelections: args.ticketSelections.map((selection) => ({
+          attendeeKey: selection.attendeeKey,
+          ticketTypeId: String(selection.ticketTypeId),
+          quantity: 1 as const,
+        })),
+        assignments: args.assignments.map((assignment) => ({
+          attendeeKey: assignment.attendeeKey,
+          slotId: String(assignment.slotId),
+          assignmentIntent: assignment.assignmentIntent,
+        })),
+      },
     }
   },
 })

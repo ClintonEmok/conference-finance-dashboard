@@ -809,6 +809,33 @@ export declare const api: {
       },
       {
         bookingRef: string;
+        restorePayload: {
+          assignments: Array<{
+            assignmentIntent: "assign" | "skip";
+            attendeeKey: string;
+            slotId: string;
+          }>;
+          attendees: Array<{
+            attendeeKey: string;
+            dietaryRestrictions: string;
+            email?: string;
+            gender: "male" | "female" | "mixed" | "unknown";
+            location: string;
+            name: string;
+            phone: string;
+            roommateAvoid: string;
+            roommatePreference: string;
+          }>;
+          booker: { email: string; name: string; phone?: string };
+          eventId: string;
+          notes?: string;
+          source: "integration" | "internal";
+          ticketSelections: Array<{
+            attendeeKey: string;
+            quantity: 1;
+            ticketTypeId: string;
+          }>;
+        };
         submissionId: Id<"submissions">;
         submittedAt: string;
       }

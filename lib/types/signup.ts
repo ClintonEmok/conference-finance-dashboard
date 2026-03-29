@@ -79,4 +79,29 @@ export type SignupSubmissionResult = {
   submissionId: string
   bookingRef: string
   submittedAt: string
+  restorePayload?: SignupSubmissionRestorePayload
 }
+
+export type SignupSubmissionRestorePayload = {
+  eventId: string
+  source: SignupSource
+  notes?: string
+  booker: {
+    name: string
+    email: string
+    phone?: string
+  }
+  attendees: SignupSubmissionEnvelope["attendees"]
+  ticketSelections: SignupSubmissionEnvelope["ticketSelections"]
+  assignments: SignupSubmissionEnvelope["assignments"]
+}
+
+export const signupSubmissionErrorCodeValues = [
+  "CAPACITY_EXCEEDED",
+  "TICKET_UNAVAILABLE",
+  "ASSIGNMENT_UNAVAILABLE",
+  "SUBMISSION_CONFLICT",
+] as const
+
+export type SignupSubmissionErrorCode =
+  (typeof signupSubmissionErrorCodeValues)[number]
