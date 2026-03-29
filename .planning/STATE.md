@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Attendee Signup + Accommodation Self-Assignment
-status: Phase 18 execution in progress; 18-01 complete (canonical signup read foundation)
-stopped_at: Completed 18-01 plan execution; next step is 18-02 atomic submission mutation
-last_updated: "2026-03-29T20:45:56Z"
+status: Phase 18 execution in progress; 18-01 and 18-02 complete
+stopped_at: Completed 18-02 plan execution; next step is 18-03 guard + abuse hardening
+last_updated: "2026-03-29T20:56:09Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 9
-  completed_plans: 1
-  percent: 11
+  completed_plans: 2
+  percent: 22
 ---
 
 # Project State
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-29)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Execute Phase 18 signup domain foundation plans (18-02 and 18-03 pending)
+- **Current focus:** Execute final Phase 18 hardening plan (18-03)
 
 ## Current Position
 
 Milestone: v2.0 (attendee-signup-accommodation) — ACTIVE
 Phase: 18 of 20 (dual-source-event-signup-platform)
-Plan: 01 of 03 complete (18-01-SUMMARY.md)
+Plan: 02 of 03 complete (18-01/18-02 summaries)
 Status: In progress
-Last activity: 2026-03-29 — Completed 18-01 canonical signup contracts + public catalog query
+Last activity: 2026-03-29 — Completed 18-02 atomic signup submission mutation + submit route
 
-Progress: █░░░░░░░░░ 11% (1/9 plans)
+Progress: ██░░░░░░░░ 22% (2/9 plans)
 
 ## Alignment Status
 
@@ -67,6 +67,8 @@ Progress: █░░░░░░░░░ 11% (1/9 plans)
 - **Assignment mutations consolidated:** `attendees.assignRoom` and `attendees.unassignRoom` now delegate to accommodation mutations, enforcing capacity checks and event-hotel validation consistently (17-07).
 - **Canonical signup schema introduced (18-01):** Additive `signupEvents`, `signupTicketTypes`, and `signupAccommodationSlots` tables now coexist with legacy `ticketTailor*` entities.
 - **Public signup catalog contract introduced (18-01):** `signupCatalog.getPublicSignupCatalog` returns published+open source-aware events with ticket selectability reasons and accommodation eligibility + assignable slot summaries.
+- **Atomic signup submission introduced (18-02):** `signupSubmission.submitSignupEnvelope` persists canonical envelope header + attendee/ticket/assignment child rows with idempotency metadata.
+- **Public submission route introduced (18-02):** `POST /api/signup/submit` now normalizes payloads through `lib/domain/signup/submission.ts` and returns stable `{ submissionId, bookingRef, submittedAt }` response fields.
 
 ## Key Decisions
 
@@ -104,6 +106,9 @@ Recent decisions that future work should preserve:
 - [18-01] Keep canonical signup data additive (`signup*` tables) and avoid modifying legacy `ticketTailor*` schema contracts.
 - [18-01] Encode public ticket/accommodation availability states with stable lower_snake_case reason-code unions for machine-readable UI behavior.
 - [18-01] Keep public signup catalog reads bounded and index-first (`withIndex` + `.take()`), with explicit Convex returns validators.
+- [18-02] Persist signup submissions in additive canonical tables (`signupSubmissions` + child tables) instead of coupling writes to provider-centric event/order/attendee entities.
+- [18-02] Route payloads must normalize into `SignupSubmissionEnvelope` in domain layer before Convex mutation calls; route boundaries should stay thin and contract-focused.
+- [18-02] Run route-local API tests from `app/api/**/*.test.ts` so endpoint contracts can be validated where they are defined.
 - [17-01] Use shared `requireIdentity(ctx)` helper for Convex mutation auth instead of inline `ctx.auth.getUserIdentity()` calls — allows future guard policy changes in one place.
 - [17-01] No client-side `<Authenticated>` wrapper needed: dashboard layout uses server-side `requirePageUser` preventing unauthenticated access to Convex hook consumers.
 - [17-02] Webhook verifiers fail closed: return false when signing secret env var is absent/blank, never bypass verification.
@@ -176,15 +181,15 @@ Recent decisions that future work should preserve:
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
 - Phase 16: v1 milestone gap closure execution complete (16-01/16-02/16-03/16-04 complete)
 - Previous phase 17 (critical fixes) is complete and treated as baseline hardening work.
-- Phase 18: Signup Domain Foundation (in progress — 18-01 complete, 18-02/18-03 pending)
+- Phase 18: Signup Domain Foundation (in progress — 18-01/18-02 complete, 18-03 pending)
 - Phase 19: Public Multi-Step Signup Experience (planned — 3 plans)
 - Phase 20: Operator Handoff + Compatibility Layer (planned — 3 plans)
 
 ## Session Continuity
 
 - **Last activity:** 2026-03-29
-- **Last session:** 2026-03-29T20:45:56Z
-- **Stopped at:** Completed 18-01-PLAN.md
+- **Last session:** 2026-03-29T20:56:09Z
+- **Stopped at:** Completed 18-02-PLAN.md
 - **Research doc:** `.planning/research/v2.0-attendee-signup-self-assignment.md`
 - **Resume file:** None
-- **Next recommended plan:** Execute `18-02-PLAN.md` (atomic signup submission mutation)
+- **Next recommended plan:** Execute `18-03-PLAN.md` (transactional guards + abuse controls)
