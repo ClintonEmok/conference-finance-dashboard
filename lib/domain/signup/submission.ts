@@ -1,6 +1,9 @@
 import { api } from "@/lib/convex/api"
 import { convexMutation } from "@/lib/convex/server"
+import type { Id } from "@/convex/_generated/dataModel"
 import type {
+  SignupGender,
+  SignupSource,
   SignupSubmissionEnvelope,
   SignupSubmissionResult,
 } from "@/lib/types/signup"
@@ -74,9 +77,11 @@ function hashString(input: string): string {
   return Math.abs(hash).toString(36)
 }
 
-function isSignupGender(
-  value: string
-): value is "male" | "female" | "mixed" | "unknown" {
+function isSignupSource(value: string): value is SignupSource {
+  return value === "integration" || value === "internal"
+}
+
+function isSignupGender(value: string): value is SignupGender {
   return (
     value === "male" ||
     value === "female" ||
@@ -96,12 +101,11 @@ function normalizeEnvelope(
   const root = toObject(input, "submission")
 
   const sourceValue = normalizeRequiredString(root.source, "source")
-  if (sourceValue !== "integration" && sourceValue !== "internal") {
+  if (!isSignupSource(sourceValue)) {
     throw new SignupSubmissionValidationError(
       "Invalid 'source'. Expected 'integration' or 'internal'."
     )
   }
-  const source: "integration" | "internal" = sourceValue
 
   const bookerRaw = toObject(root.booker, "booker")
   const attendeesRaw = toArray(root.attendees, "attendees")
@@ -122,32 +126,28 @@ function normalizeEnvelope(
 
   const attendees = attendeesRaw.map((value, index) => {
     const attendee = toObject(value, `attendees[${index}]`)
-    const genderRaw = normalizeRequiredString(
+    const genderValue = normalizeRequiredString(
       attendee.gender,
       `attendees[${index}].gender`
     )
-
-    if (!isSignupGender(genderRaw)) {
+    if (!isSignupGender(genderValue)) {
       throw new SignupSubmissionValidationError(
         `Invalid 'attendees[${index}].gender'.`
       )
     }
-    const gender = genderRaw
 
     return {
       attendeeKey: normalizeRequiredString(
         attendee.attendeeKey,
         `attendees[${index}].attendeeKey`
       ),
-      fullName: normalizeRequiredString(
-        attendee.fullName,
-        `attendees[${index}].fullName`
+      name: normalizeRequiredString(attendee.name, `attendees[${index}].name`),
+      email: normalizeOptionalString(attendee.email),
+      phone: normalizeRequiredString(
+        attendee.phone,
+        `attendees[${index}].phone`
       ),
-      email: normalizeRequiredString(
-        attendee.email,
-        `attendees[${index}].email`
-      ),
-      gender,
+      gender: genderValue,
       location: normalizeRequiredString(
         attendee.location,
         `attendees[${index}].location`
@@ -164,10 +164,6 @@ function normalizeEnvelope(
         attendee.roommateAvoid,
         `attendees[${index}].roommateAvoid`
       ),
-      phone: normalizeRequiredString(
-        attendee.phone,
-        `attendees[${index}].phone`
-      ),
     }
   })
 
@@ -175,24 +171,37 @@ function normalizeEnvelope(
     const selection = toObject(value, `ticketSelections[${index}]`)
     const quantity = Number(selection.quantity)
 
-    if (!Number.isInteger(quantity) || quantity <= 0) {
+    if (quantity !== 1) {
       throw new SignupSubmissionValidationError(
-        `Invalid 'ticketSelections[${index}].quantity'.`
+        `Invalid 'ticketSelections[${index}].quantity'. Expected 1.`
       )
     }
 
     return {
+      attendeeKey: normalizeRequiredString(
+        selection.attendeeKey,
+        `ticketSelections[${index}].attendeeKey`
+      ),
       ticketTypeId: normalizeRequiredString(
         selection.ticketTypeId,
         `ticketSelections[${index}].ticketTypeId`
       ),
-      quantity,
-      attendeeKey: normalizeOptionalString(selection.attendeeKey),
+      quantity: 1 as const,
     }
   })
 
   const assignments = assignmentsRaw.map((value, index) => {
     const assignment = toObject(value, `assignments[${index}]`)
+    const assignmentIntent = normalizeRequiredString(
+      assignment.assignmentIntent,
+      `assignments[${index}].assignmentIntent`
+    )
+
+    if (assignmentIntent !== "assign" && assignmentIntent !== "skip") {
+      throw new SignupSubmissionValidationError(
+        `Invalid 'assignments[${index}].assignmentIntent'.`
+      )
+    }
 
     return {
       attendeeKey: normalizeRequiredString(
@@ -203,12 +212,13 @@ function normalizeEnvelope(
         assignment.slotId,
         `assignments[${index}].slotId`
       ),
+      assignmentIntent: assignmentIntent as "assign" | "skip",
     }
   })
 
   const deterministicPayload = {
-    signupEventId: normalizeRequiredString(root.signupEventId, "signupEventId"),
-    source,
+    eventId: normalizeRequiredString(root.eventId, "eventId"),
+    source: sourceValue,
     notes: normalizeOptionalString(root.notes),
     booker: {
       name: normalizeRequiredString(bookerRaw.name, "booker.name"),
@@ -228,7 +238,7 @@ function normalizeEnvelope(
     ...deterministicPayload,
     idempotencyKey:
       options?.idempotencyKey ??
-      `derived-${hashString(`${deterministicPayload.signupEventId}:${payloadFingerprint}`)}`,
+      `derived-${hashString(`${deterministicPayload.eventId}:${payloadFingerprint}`)}`,
     payloadFingerprint,
     honeypotSeen: Boolean(options?.honeypotSeen),
   }
@@ -247,7 +257,7 @@ export async function submitSignup(
   const result = await convexMutation(
     api.signupSubmission.submitSignupEnvelope,
     {
-      signupEventId: envelope.signupEventId,
+      eventId: envelope.eventId as Id<"events">,
       source: envelope.source,
       idempotencyKey: envelope.idempotencyKey,
       payloadFingerprint: envelope.payloadFingerprint,
@@ -255,13 +265,21 @@ export async function submitSignup(
       notes: envelope.notes,
       booker: envelope.booker,
       attendees: envelope.attendees,
-      ticketSelections: envelope.ticketSelections,
-      assignments: envelope.assignments,
+      ticketSelections: envelope.ticketSelections.map((selection) => ({
+        attendeeKey: selection.attendeeKey,
+        ticketTypeId: selection.ticketTypeId as Id<"ticketTypes">,
+        quantity: 1,
+      })),
+      assignments: envelope.assignments.map((assignment) => ({
+        attendeeKey: assignment.attendeeKey,
+        slotId: assignment.slotId as Id<"accommodationSlots">,
+        assignmentIntent: assignment.assignmentIntent,
+      })),
     }
   )
 
   return {
-    submissionId: result.submissionId,
+    submissionId: String(result.submissionId),
     bookingRef: result.bookingRef,
     submittedAt: result.submittedAt,
   }
