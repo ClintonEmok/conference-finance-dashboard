@@ -179,10 +179,11 @@ export const recalculateRoomOccupancy = internalMutation({
       throw new Error("Room not found")
     }
 
+    // Bounded: one room has limited occupants
     const occupants = await ctx.db
       .query("ticketTailorAttendees")
       .withIndex("assignedRoomId", (q) => q.eq("assignedRoomId", args.roomId))
-      .collect()
+      .take(100)
 
     await ctx.db.patch("accommodationRooms", roomId, {
       occupiedBeds: occupants.length,
@@ -224,18 +225,18 @@ export const getRoomAllocationBoard = query({
           await ctx.db
             .query("accommodationEventHotels")
             .withIndex("eventId_hotelId", (q) => q.eq("eventId", eventId))
-            .collect()
+            .take(200)
         ).map((eh) => eh.hotelId)
       : null
 
     const [events, hotels, roomTypes, rooms, allAttendees, familyMembers] =
       await Promise.all([
-        ctx.db.query("ticketTailorEvents").collect(),
-        ctx.db.query("accommodationHotels").collect(),
-        ctx.db.query("accommodationRoomTypes").collect(),
-        ctx.db.query("accommodationRooms").collect(),
-        ctx.db.query("ticketTailorAttendees").collect(),
-        ctx.db.query("attendeeFamilyMembers").collect(),
+        ctx.db.query("ticketTailorEvents").take(200),
+        ctx.db.query("accommodationHotels").take(200),
+        ctx.db.query("accommodationRoomTypes").take(100),
+        ctx.db.query("accommodationRooms").take(500),
+        ctx.db.query("ticketTailorAttendees").take(2000),
+        ctx.db.query("attendeeFamilyMembers").take(2000),
       ])
 
     const normalizedLocationFilter = normalizeOptionalString(args.location)
@@ -374,7 +375,7 @@ export const getRoomAllocationBoard = query({
       }
     })
 
-    const eventHotels = await ctx.db.query("accommodationEventHotels").collect()
+    const eventHotels = await ctx.db.query("accommodationEventHotels").take(200)
     const eventHotelsByEvent: Record<string, string[]> = {}
     for (const eh of eventHotels) {
       if (!eventHotelsByEvent[eh.eventId]) {
@@ -437,15 +438,17 @@ export const getRoomAllocationBoard = query({
 export const getHotels = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("accommodationHotels").collect()
+    // Bounded: small number of hotels
+    return await ctx.db.query("accommodationHotels").take(200)
   },
 })
 
 export const getRoomTypesWithCount = query({
   args: {},
   handler: async (ctx) => {
-    const roomTypes = await ctx.db.query("accommodationRoomTypes").collect()
-    const rooms = await ctx.db.query("accommodationRooms").collect()
+    // Bounded: small config tables
+    const roomTypes = await ctx.db.query("accommodationRoomTypes").take(100)
+    const rooms = await ctx.db.query("accommodationRooms").take(500)
 
     const roomsByType = rooms.reduce(
       (acc, room) => {
@@ -466,11 +469,12 @@ export const getRoomTypesWithCount = query({
 export const getRoomsWithDetails = query({
   args: {},
   handler: async (ctx) => {
+    // Bounded: config tables capped for inventory view
     const [rooms, hotels, roomTypes, attendees] = await Promise.all([
-      ctx.db.query("accommodationRooms").collect(),
-      ctx.db.query("accommodationHotels").collect(),
-      ctx.db.query("accommodationRoomTypes").collect(),
-      ctx.db.query("ticketTailorAttendees").collect(),
+      ctx.db.query("accommodationRooms").take(500),
+      ctx.db.query("accommodationHotels").take(200),
+      ctx.db.query("accommodationRoomTypes").take(100),
+      ctx.db.query("ticketTailorAttendees").take(2000),
     ])
 
     const hotelMap = new Map(hotels.map((h) => [h._id as string, h]))
@@ -501,16 +505,17 @@ export const getRoomsWithDetails = query({
 export const listAccommodationInventory = query({
   args: {},
   handler: async (ctx) => {
+    // Bounded: config tables capped for inventory view
     const [availableEvents, hotels, roomTypes, rooms, attendees] =
       await Promise.all([
-        ctx.db.query("ticketTailorEvents").collect(),
-        ctx.db.query("accommodationHotels").collect(),
-        ctx.db.query("accommodationRoomTypes").collect(),
-        ctx.db.query("accommodationRooms").collect(),
-        ctx.db.query("ticketTailorAttendees").collect(),
+        ctx.db.query("ticketTailorEvents").take(200),
+        ctx.db.query("accommodationHotels").take(200),
+        ctx.db.query("accommodationRoomTypes").take(100),
+        ctx.db.query("accommodationRooms").take(500),
+        ctx.db.query("ticketTailorAttendees").take(2000),
       ])
 
-    const eventHotels = await ctx.db.query("accommodationEventHotels").collect()
+    const eventHotels = await ctx.db.query("accommodationEventHotels").take(200)
 
     const eventHotelsByHotel = eventHotels.reduce(
       (acc, eh) => {
@@ -621,13 +626,15 @@ export const getRooms = query({
   },
   handler: async (ctx, args) => {
     if (args.hotelId) {
+      // Bounded: one hotel has limited rooms
       const rooms = await ctx.db
         .query("accommodationRooms")
         .withIndex("hotelId_label", (q) => q.eq("hotelId", args.hotelId!))
-        .collect()
+        .take(200)
       return rooms
     }
-    return await ctx.db.query("accommodationRooms").collect()
+    // Bounded: capped for inventory view
+    return await ctx.db.query("accommodationRooms").take(500)
   },
 })
 
@@ -641,7 +648,8 @@ export const getRoomById = query({
 export const getRoomTypes = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("accommodationRoomTypes").collect()
+    // Bounded: small config table
+    return await ctx.db.query("accommodationRoomTypes").take(200)
   },
 })
 
@@ -722,7 +730,7 @@ export const createRooms = mutation({
     const existingRooms = await ctx.db
       .query("accommodationRooms")
       .withIndex("hotelId_label", (q) => q.eq("hotelId", args.hotelId))
-      .collect()
+      .take(200)
 
     const existingCount = existingRooms.length
     const createdIds: string[] = []
@@ -787,7 +795,7 @@ export const assignRoomToAttendee = mutation({
     const eventHotelLinks = await ctx.db
       .query("accommodationEventHotels")
       .withIndex("hotelId", (q) => q.eq("hotelId", room.hotelId as string))
-      .collect()
+      .take(20)
 
     if (eventHotelLinks.length > 0) {
       const eventHasHotel = eventHotelLinks.some(
@@ -801,7 +809,7 @@ export const assignRoomToAttendee = mutation({
     const occupiedCount = await ctx.db
       .query("ticketTailorAttendees")
       .withIndex("assignedRoomId", (q) => q.eq("assignedRoomId", args.roomId))
-      .collect()
+      .take(room.capacity + 1)
 
     if (occupiedCount.length >= room.capacity) {
       throw new Error("Room is already full")
@@ -847,7 +855,7 @@ export const assignAttendeeToRoom = mutation({
     const eventHotelLinks = await ctx.db
       .query("accommodationEventHotels")
       .withIndex("hotelId", (q) => q.eq("hotelId", room.hotelId as string))
-      .collect()
+      .take(20)
 
     if (eventHotelLinks.length > 0) {
       const eventHasHotel = eventHotelLinks.some(
@@ -861,7 +869,7 @@ export const assignAttendeeToRoom = mutation({
     const occupiedCount = await ctx.db
       .query("ticketTailorAttendees")
       .withIndex("assignedRoomId", (q) => q.eq("assignedRoomId", args.roomId))
-      .collect()
+      .take(room.capacity + 1)
 
     if (occupiedCount.length >= room.capacity) {
       throw new Error("Room is already full")
@@ -926,10 +934,11 @@ export const unassignAttendeeFromRoom = mutation({
 export const getEventHotels = query({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
+    // Bounded: one event links to limited hotels
     const eventHotels = await ctx.db
       .query("accommodationEventHotels")
       .withIndex("eventId_hotelId", (q) => q.eq("eventId", args.eventId))
-      .collect()
+      .take(50)
 
     const hotels = await Promise.all(
       eventHotels.map((eh) => getAccommodationHotelByStringId(ctx, eh.hotelId))
@@ -1022,7 +1031,7 @@ export const deleteHotel = mutation({
     const rooms = await ctx.db
       .query("accommodationRooms")
       .withIndex("hotelId_label", (q) => q.eq("hotelId", args.hotelId))
-      .collect()
+      .take(200)
 
     for (const room of rooms) {
       const assignedAttendee = await ctx.db
@@ -1038,7 +1047,7 @@ export const deleteHotel = mutation({
     const eventHotels = await ctx.db
       .query("accommodationEventHotels")
       .withIndex("hotelId", (q) => q.eq("hotelId", args.hotelId))
-      .collect()
+      .take(50)
 
     for (const room of rooms) {
       await ctx.db.delete("accommodationRooms", room._id)
@@ -1089,7 +1098,7 @@ export const deleteRoom = mutation({
     const attendees = await ctx.db
       .query("ticketTailorAttendees")
       .withIndex("assignedRoomId", (q) => q.eq("assignedRoomId", args.roomId))
-      .collect()
+      .take(room.capacity + 1)
 
     if (attendees.length > 0) {
       throw new Error("Cannot delete room with assigned attendees")
@@ -1125,10 +1134,11 @@ export const deleteRoomType = mutation({
   args: { roomTypeId: v.string() },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    // Bounded: one room type has limited rooms
     const rooms = await ctx.db
       .query("accommodationRooms")
       .withIndex("roomTypeId", (q) => q.eq("roomTypeId", args.roomTypeId))
-      .collect()
+      .take(200)
 
     if (rooms.length > 0) {
       throw new Error("Cannot delete room type with existing rooms")

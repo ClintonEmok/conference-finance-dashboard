@@ -1,5 +1,6 @@
 import { query, mutation, internalMutation } from "./_generated/server"
 import { v } from "convex/values"
+import { paginationOptsValidator } from "convex/server"
 import { requireIdentity } from "./auth"
 
 const paymentSourceValidator = v.union(
@@ -39,43 +40,48 @@ export const getPayments = query({
     source: v.optional(paymentSourceValidator),
     sourceId: v.optional(v.string()),
     status: v.optional(paymentStatusValidator),
+    paginationOpts: v.optional(paginationOptsValidator),
   },
   returns: v.array(paymentDocValidator),
   handler: async (ctx, args) => {
-    let payments =
-      args.source && args.sourceId
-        ? await ctx.db
-            .query("payments")
-            .withIndex("source_sourceId", (q) =>
-              q.eq("source", args.source!).eq("sourceId", args.sourceId!)
-            )
-            .collect()
-        : args.orderId
-          ? await ctx.db
-              .query("payments")
-              .withIndex("orderId", (q) => q.eq("orderId", args.orderId!))
-              .collect()
-          : args.status
-            ? await ctx.db
-                .query("payments")
-                .withIndex("status", (q) => q.eq("status", args.status!))
-                .collect()
-            : await ctx.db.query("payments").collect()
+    // Bounded lookups: indexed queries with natural limits
+    if (args.source && args.sourceId) {
+      // Single payment by source+sourceId
+      const payment = await ctx.db
+        .query("payments")
+        .withIndex("source_sourceId", (q) =>
+          q.eq("source", args.source!).eq("sourceId", args.sourceId!)
+        )
+        .first()
+      return payment ? [payment] : []
+    }
 
     if (args.orderId) {
-      payments = payments.filter((p) => p.orderId === args.orderId)
-    }
-    if (args.source) {
-      payments = payments.filter((p) => p.source === args.source)
-    }
-    if (args.sourceId) {
-      payments = payments.filter((p) => p.sourceId === args.sourceId)
-    }
-    if (args.status) {
-      payments = payments.filter((p) => p.status === args.status)
+      // Bounded: one order has limited payments
+      return await ctx.db
+        .query("payments")
+        .withIndex("orderId", (q) => q.eq("orderId", args.orderId!))
+        .take(100)
     }
 
-    return payments
+    if (args.status) {
+      // Bounded: indexed status query, capped
+      return await ctx.db
+        .query("payments")
+        .withIndex("status", (q) => q.eq("status", args.status!))
+        .take(500)
+    }
+
+    // Growing result set: paginated
+    const base = ctx.db.query("payments")
+    if (args.paginationOpts) {
+      // Note: paginate returns {page, isDone, continueCursor} not an array
+      // so callers requesting pagination must handle the shape
+      return (await base.paginate(args.paginationOpts)) as any
+    }
+
+    // Backward-compatible: bounded fallback
+    return await base.take(1000)
   },
 })
 
@@ -90,8 +96,11 @@ export const getPaymentById = query({
 export const getUnassignedPayments = query({
   args: {},
   handler: async (ctx) => {
-    const payments = await ctx.db.query("payments").collect()
-    return payments.filter((p) => p.status === "unassigned")
+    // Bounded: indexed status query, capped
+    return await ctx.db
+      .query("payments")
+      .withIndex("status", (q) => q.eq("status", "unassigned"))
+      .take(500)
   },
 })
 
@@ -138,10 +147,10 @@ export const upsertTikkiePayment = mutation({
       .withIndex("source_sourceId", (q) =>
         q.eq("source", "tikkie").eq("sourceId", args.sourceId)
       )
-      .collect()
+      .first()
 
-    if (existing.length > 0) {
-      await ctx.db.patch(existing[0]._id, {
+    if (existing) {
+      await ctx.db.patch(existing._id, {
         payerName: args.payerName,
         payerAccountNumber: args.payerAccountNumber,
         amountMinor: args.amountMinor,
@@ -149,7 +158,7 @@ export const upsertTikkiePayment = mutation({
         providerPayload: args.providerPayload,
       })
 
-      return { id: existing[0]._id, inserted: false, updated: true }
+      return { id: existing._id, inserted: false, updated: true }
     }
 
     const id = await ctx.db.insert("payments", {
@@ -171,10 +180,11 @@ export const cleanupLegacyTikkiePayments = mutation({
   args: {},
   handler: async (ctx) => {
     await requireIdentity(ctx)
+    // Bounded: indexed source query, capped batch
     const payments = await ctx.db
       .query("payments")
       .withIndex("source_sourceId", (q) => q.eq("source", "tikkie"))
-      .collect()
+      .take(500)
 
     let scanned = 0
     let patched = 0
@@ -306,12 +316,14 @@ export const autoMatchPayments = mutation({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    // Bounded: indexed by event, capped batch
     const orders = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
-      .collect()
+      .take(500)
 
-    const payments = await ctx.db.query("payments").collect()
+    // Bounded: capped batch for auto-match
+    const payments = await ctx.db.query("payments").take(1000)
 
     const unassignedPayments = payments.filter((p) => p.status === "unassigned")
     const matched: string[] = []
@@ -355,9 +367,11 @@ export const autoMatchPayments = mutation({
 export const getPaymentSummary = query({
   args: { orderId: v.string() },
   handler: async (ctx, args) => {
-    const payments = await ctx.db.query("payments").collect()
-
-    const orderPayments = payments.filter((p) => p.orderId === args.orderId)
+    // Bounded: indexed by orderId instead of full table scan
+    const orderPayments = await ctx.db
+      .query("payments")
+      .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
+      .take(100)
 
     const totalPaid = orderPayments
       .filter(
@@ -399,17 +413,17 @@ export const internalUpsertTikkiePayment = internalMutation({
       .withIndex("source_sourceId", (q) =>
         q.eq("source", "tikkie").eq("sourceId", args.sourceId)
       )
-      .collect()
+      .first()
 
-    if (existing.length > 0) {
-      await ctx.db.patch(existing[0]._id, {
+    if (existing) {
+      await ctx.db.patch(existing._id, {
         payerName: args.payerName,
         payerAccountNumber: args.payerAccountNumber,
         amountMinor: args.amountMinor,
         paidAt: args.paidAt,
         providerPayload: args.providerPayload,
       })
-      return { id: existing[0]._id, inserted: false, updated: true }
+      return { id: existing._id, inserted: false, updated: true }
     }
 
     const id = await ctx.db.insert("payments", {
@@ -429,10 +443,11 @@ export const internalUpsertTikkiePayment = internalMutation({
 export const internalCleanupLegacyTikkiePayments = internalMutation({
   args: {},
   handler: async (ctx) => {
+    // Bounded: indexed source query, capped batch
     const payments = await ctx.db
       .query("payments")
       .withIndex("source_sourceId", (q) => q.eq("source", "tikkie"))
-      .collect()
+      .take(500)
 
     let scanned = 0
     let patched = 0

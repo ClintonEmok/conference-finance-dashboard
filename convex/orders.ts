@@ -24,10 +24,11 @@ export const getOrders = query({
   },
   handler: async (ctx, args) => {
     if (args.eventId) {
+      // Bounded: indexed by event, capped at 500
       const orders = await ctx.db
         .query("ticketTailorOrders")
         .withIndex("eventId", (q) => q.eq("eventId", args.eventId!))
-        .collect()
+        .take(500)
       const visibleOrders = orders.filter(isOrderVisible)
 
       if (args.status) {
@@ -36,7 +37,8 @@ export const getOrders = query({
       return visibleOrders
     }
 
-    const orders = (await ctx.db.query("ticketTailorOrders").collect()).filter(
+    // Bounded: capped read for non-paginated query
+    const orders = (await ctx.db.query("ticketTailorOrders").take(500)).filter(
       isOrderVisible
     )
 
@@ -67,31 +69,33 @@ export const getOrderById = query({
 export const getOrderByProviderId = query({
   args: { providerOrderId: v.string() },
   handler: async (ctx, args) => {
-    const orders = await ctx.db
+    const order = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("providerOrderId", (q) =>
         q.eq("providerOrderId", args.providerOrderId)
       )
-      .collect()
-    return orders.find(isOrderVisible) ?? null
+      .first()
+    return order && isOrderVisible(order) ? order : null
   },
 })
 
 export const getOrderLedger = query({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
+    // Bounded: indexed by event, capped at 500
     const orders = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
-      .collect()
+      .take(500)
     const visibleOrders = orders.filter(isOrderVisible)
 
     const ordersWithAttendees = await Promise.all(
       visibleOrders.map(async (order) => {
+        // Bounded: one order has limited attendees
         const attendees = await ctx.db
           .query("ticketTailorAttendees")
           .withIndex("orderId", (q) => q.eq("orderId", order._id))
-          .collect()
+          .take(100)
         return { ...order, attendees }
       })
     )
@@ -156,11 +160,11 @@ export const upsertOrder = mutation({
       .withIndex("providerOrderId", (q) =>
         q.eq("providerOrderId", args.providerOrderId)
       )
-      .collect()
+      .first()
 
-    if (existing[0]) {
-      await ctx.db.patch("ticketTailorOrders", existing[0]._id, args)
-      return existing[0]._id
+    if (existing) {
+      await ctx.db.patch("ticketTailorOrders", existing._id, args)
+      return existing._id
     }
 
     return await ctx.db.insert("ticketTailorOrders", args)
@@ -341,7 +345,8 @@ async function listCandidateOrders(
 async function loadEventNamesById(
   ctx: QueryCtx
 ): Promise<Map<string, string | null>> {
-  const events = await ctx.db.query("ticketTailorEvents").collect()
+  // Bounded: small number of events
+  const events = await ctx.db.query("ticketTailorEvents").take(200)
   return new Map(events.map((event) => [String(event._id), event.name ?? null]))
 }
 
@@ -427,7 +432,8 @@ export const getOrderCount = query({
     ),
   },
   handler: async (ctx, args) => {
-    let orders = (await ctx.db.query("ticketTailorOrders").collect()).filter(
+    // Bounded: capped read for count aggregation
+    let orders = (await ctx.db.query("ticketTailorOrders").take(500)).filter(
       isOrderVisible
     )
 
@@ -562,20 +568,25 @@ export const getOrderWithAttendeesByProviderId = query({
     v.null()
   ),
   handler: async (ctx, args) => {
-    const orders = await ctx.db
+    const order = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("providerOrderId", (q) =>
         q.eq("providerOrderId", args.providerOrderId)
       )
-      .collect()
+      .first()
 
-    const order = orders.find((o) => o.providerEventId === args.providerEventId)
-    if (!order || isOrderRemoved(order)) return null
+    if (
+      !order ||
+      order.providerEventId !== args.providerEventId ||
+      isOrderRemoved(order)
+    )
+      return null
 
+    // Bounded: one order has limited attendees
     const attendees = await ctx.db
       .query("ticketTailorAttendees")
       .withIndex("orderId", (q) => q.eq("orderId", order._id))
-      .collect()
+      .take(100)
 
     return {
       order: {

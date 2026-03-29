@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server"
 import { v } from "convex/values"
+import { paginationOptsValidator } from "convex/server"
 import { requireIdentity } from "./auth"
 import { api } from "./_generated/api"
 
@@ -59,25 +60,39 @@ export const getAttendees = query({
         v.literal("LOW")
       )
     ),
+    paginationOpts: v.optional(paginationOptsValidator),
   },
   handler: async (ctx, args) => {
     if (args.orderId) {
+      // Bounded: one order has a small number of attendees
       return await ctx.db
         .query("ticketTailorAttendees")
         .withIndex("orderId", (q) => q.eq("orderId", args.orderId!))
-        .collect()
+        .take(100)
     }
 
     if (args.eventId) {
-      const attendees = await ctx.db
+      const base = ctx.db
         .query("ticketTailorAttendees")
         .withIndex("eventId", (q) => q.eq("eventId", args.eventId!))
-        .collect()
 
+      if (args.paginationOpts) {
+        return await base.paginate(args.paginationOpts)
+      }
+
+      // Backward-compatible: bounded fallback when no pagination requested
+      const attendees = await base.take(500)
       return filterAttendees(attendees, args)
     }
 
-    const attendees = await ctx.db.query("ticketTailorAttendees").collect()
+    const base = ctx.db.query("ticketTailorAttendees")
+
+    if (args.paginationOpts) {
+      return await base.paginate(args.paginationOpts)
+    }
+
+    // Backward-compatible: bounded fallback
+    const attendees = await base.take(500)
     return filterAttendees(attendees, args)
   },
 })
@@ -92,10 +107,11 @@ export const getAttendeeById = query({
 export const getAttendeeByEmail = query({
   args: { eventId: v.string(), email: v.string() },
   handler: async (ctx, args) => {
+    // Bounded: one email has very few attendees
     const attendees = await ctx.db
       .query("ticketTailorAttendees")
       .withIndex("email", (q) => q.eq("email", args.email))
-      .collect()
+      .take(10)
     return attendees.filter((a) => a.eventId === args.eventId)
   },
 })
@@ -183,10 +199,10 @@ export const upsertAttendee = mutation({
         .withIndex("providerAttendeeId", (q) =>
           q.eq("providerAttendeeId", args.providerAttendeeId!)
         )
-        .collect()
-      if (existing[0]) {
-        await ctx.db.patch("ticketTailorAttendees", existing[0]._id, args)
-        return existing[0]._id
+        .first()
+      if (existing) {
+        await ctx.db.patch("ticketTailorAttendees", existing._id, args)
+        return existing._id
       }
     }
     return await ctx.db.insert("ticketTailorAttendees", args)

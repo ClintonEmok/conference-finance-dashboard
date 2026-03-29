@@ -30,8 +30,8 @@ async function checkMonthlyQuota(
   const limit = getMonthlyCreationQuotaLimit()
   const { startMs, nextMonthMs } = getCurrentUtcMonthBounds()
 
-  // Get all links and filter by creation time in current month
-  const allLinks = await ctx.db.query("tikkiePaymentLinks").collect()
+  // Bounded: quota check needs all links for current month, capped
+  const allLinks = await ctx.db.query("tikkiePaymentLinks").take(500)
   const linksThisMonth = allLinks.filter((link) => {
     const ct = link._creationTime
     return typeof ct === "number" && ct >= startMs && ct < nextMonthMs
@@ -54,7 +54,8 @@ export const getPaymentLinks = query({
     ),
   },
   handler: async (ctx, args) => {
-    let links = await ctx.db.query("tikkiePaymentLinks").collect()
+    // Bounded: capped read for non-paginated query
+    let links = await ctx.db.query("tikkiePaymentLinks").take(500)
 
     if (args.orderId) {
       links = links.filter((l) => l.orderId === args.orderId)
@@ -70,13 +71,13 @@ export const getPaymentLinks = query({
 export const getPaymentLinkByToken = query({
   args: { paymentRequestToken: v.string() },
   handler: async (ctx, args) => {
-    const links = await ctx.db
+    // Single result: indexed exact match
+    return await ctx.db
       .query("tikkiePaymentLinks")
       .withIndex("paymentRequestToken", (q) =>
         q.eq("paymentRequestToken", args.paymentRequestToken)
       )
-      .collect()
-    return links[0] ?? null
+      .first()
   },
 })
 
@@ -172,13 +173,15 @@ export const getPaymentTemplates = query({
   args: { eventId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     if (args.eventId) {
+      // Bounded: indexed by event, small set
       return await ctx.db
         .query("tikkiePaymentTemplates")
         .withIndex("eventId", (q) => q.eq("eventId", args.eventId!))
-        .collect()
+        .take(100)
     }
 
-    return await ctx.db.query("tikkiePaymentTemplates").collect()
+    // Bounded: small config table
+    return await ctx.db.query("tikkiePaymentTemplates").take(200)
   },
 })
 
@@ -193,6 +196,7 @@ export const createPaymentTemplate = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    // Bounded: exact match on composite index
     const existing = await ctx.db
       .query("tikkiePaymentTemplates")
       .withIndex("eventId_ticketType", (q) =>
@@ -200,17 +204,16 @@ export const createPaymentTemplate = mutation({
           .eq("eventId", args.eventId)
           .eq("ticketTypeLabel", args.ticketTypeLabel)
       )
-      .collect()
+      .first()
 
-    if (existing.length > 0) {
-      const existingTemplate = existing[0]
-      await ctx.db.patch("tikkiePaymentTemplates", existingTemplate._id, {
+    if (existing) {
+      await ctx.db.patch("tikkiePaymentTemplates", existing._id, {
         amountMinor: args.amountMinor,
         descriptionTemplate: args.descriptionTemplate,
         expiryDays: args.expiryDays ?? 14,
         isActive: true,
       })
-      return existingTemplate._id
+      return existing._id
     }
 
     const id = await ctx.db.insert("tikkiePaymentTemplates", {
@@ -265,6 +268,7 @@ export const getTemplateByEventAndTicketType = query({
     ticketTypeLabel: v.string(),
   },
   handler: async (ctx, args) => {
+    // Bounded: indexed exact match, find active template
     const templates = await ctx.db
       .query("tikkiePaymentTemplates")
       .withIndex("eventId_ticketType", (q) =>
@@ -272,7 +276,7 @@ export const getTemplateByEventAndTicketType = query({
           .eq("eventId", args.eventId)
           .eq("ticketTypeLabel", args.ticketTypeLabel)
       )
-      .collect()
+      .take(10)
     return templates.find((t) => t.isActive) ?? null
   },
 })
@@ -280,7 +284,8 @@ export const getTemplateByEventAndTicketType = query({
 export const getPaymentLinksByOrderId = query({
   args: { orderId: v.string() },
   handler: async (ctx, args) => {
-    const links = await ctx.db.query("tikkiePaymentLinks").collect()
+    // Bounded: one order has a limited number of payment links
+    const links = await ctx.db.query("tikkiePaymentLinks").take(500)
 
     const orderLinks = links
       .filter((l) => l.orderId === args.orderId)
@@ -296,7 +301,7 @@ export const getPaymentLinksByOrderId = query({
         const transitions = await ctx.db
           .query("tikkiePaymentLinkTransitions")
           .withIndex("paymentLinkId", (q) => q.eq("paymentLinkId", link._id))
-          .collect()
+          .take(20)
 
         const sortedTransitions = transitions.sort((a, b) => {
           const aTime = a._creationTime ?? 0
@@ -317,10 +322,11 @@ export const getPaymentLinksByOrderId = query({
 export const getEventPaymentLink = query({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
+    // Bounded: indexed by event, small set of links per event
     const links = await ctx.db
       .query("tikkiePaymentLinks")
       .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
-      .collect()
+      .take(50)
 
     const eventLinks = links
       .filter((l) => l.linkType === "event")
@@ -385,12 +391,13 @@ export const createEventPaymentLink = mutation({
 export const getTikkiePaymentsByLink = query({
   args: { paymentLinkId: v.string() },
   handler: async (ctx, args) => {
+    // Bounded: one link has limited payments
     return await ctx.db
       .query("tikkiePayments")
       .withIndex("paymentLinkId", (q) =>
         q.eq("paymentLinkId", args.paymentLinkId)
       )
-      .collect()
+      .take(200)
   },
 })
 
@@ -403,21 +410,22 @@ export const getTikkiePaymentsByStatus = query({
     ),
   },
   handler: async (ctx, args) => {
+    // Bounded: indexed status query, capped
     return await ctx.db
       .query("tikkiePayments")
       .withIndex("matchStatus", (q) => q.eq("matchStatus", args.matchStatus))
-      .collect()
+      .take(500)
   },
 })
 
 export const getTikkiePaymentByToken = query({
   args: { paymentToken: v.string() },
   handler: async (ctx, args) => {
-    const results = await ctx.db
+    // Single result: indexed exact match
+    return await ctx.db
       .query("tikkiePayments")
       .withIndex("paymentToken", (q) => q.eq("paymentToken", args.paymentToken))
-      .collect()
-    return results[0] ?? null
+      .first()
   },
 })
 
@@ -435,13 +443,14 @@ export const upsertTikkiePayment = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    // Single result: indexed exact match on paymentToken
     const existing = await ctx.db
       .query("tikkiePayments")
       .withIndex("paymentToken", (q) => q.eq("paymentToken", args.paymentToken))
-      .collect()
+      .first()
 
-    if (existing.length > 0) {
-      return { id: existing[0]._id, inserted: false }
+    if (existing) {
+      return { id: existing._id, inserted: false }
     }
 
     const id = await ctx.db.insert("tikkiePayments", {
@@ -485,10 +494,11 @@ export const autoMatchTikkiePayments = mutation({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    // Bounded: indexed by event, small set of links
     const links = await ctx.db
       .query("tikkiePaymentLinks")
       .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
-      .collect()
+      .take(50)
 
     const eventLinks = links.filter((l) => l.linkType === "event")
     if (eventLinks.length === 0) {
@@ -500,7 +510,7 @@ export const autoMatchTikkiePayments = mutation({
         ctx.db
           .query("tikkiePayments")
           .withIndex("paymentLinkId", (q) => q.eq("paymentLinkId", link._id))
-          .collect()
+          .take(200)
       )
     )
 
@@ -513,7 +523,7 @@ export const autoMatchTikkiePayments = mutation({
     const orders = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
-      .collect()
+      .take(500)
 
     let matchedCount = 0
 
