@@ -1,4 +1,9 @@
-import { query, mutation } from "./_generated/server"
+import {
+  query,
+  mutation,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
 
@@ -542,5 +547,349 @@ export const getPendingWebhookEvents = query({
       nextRetryAt: event.nextRetryAt,
       lastError: event.lastError,
     }))
+  },
+})
+
+// ---------------------------------------------------------------------------
+// Internal (auth-free) mutation wrappers for cron-triggered auto-sync.
+// These mirror the public mutations above but skip requireIdentity so they
+// can be called from Convex internal actions via ctx.runMutation.
+// ---------------------------------------------------------------------------
+
+export const internalStartSyncRun = internalMutation({
+  args: {},
+  returns: v.id("ticketTailorSyncRuns"),
+  handler: async (ctx) => {
+    const id = await ctx.db.insert("ticketTailorSyncRuns", {
+      status: "running",
+      startedAt: Date.now(),
+      eventsScanned: 0,
+      ordersFetched: 0,
+      ordersUpserted: 0,
+      ordersArchived: 0,
+      normalizedFallbackCount: 0,
+      failedItems: 0,
+    })
+    return id
+  },
+})
+
+export const internalCompleteSyncRun = internalMutation({
+  args: {
+    runId: v.id("ticketTailorSyncRuns"),
+    status: v.union(
+      v.literal("success"),
+      v.literal("partial"),
+      v.literal("failed")
+    ),
+    errorSummary: v.optional(v.string()),
+    diagnostics: v.optional(v.any()),
+    eventsScanned: v.optional(v.number()),
+    ordersFetched: v.optional(v.number()),
+    ordersUpserted: v.optional(v.number()),
+    ordersArchived: v.optional(v.number()),
+    normalizedFallbackCount: v.optional(v.number()),
+    failedItems: v.optional(v.number()),
+  },
+  returns: v.id("ticketTailorSyncRuns"),
+  handler: async (ctx, args) => {
+    await ctx.db.patch("ticketTailorSyncRuns", args.runId, {
+      status: args.status,
+      finishedAt: Date.now(),
+      errorSummary: args.errorSummary,
+      diagnostics: args.diagnostics,
+      eventsScanned: args.eventsScanned,
+      ordersFetched: args.ordersFetched,
+      ordersUpserted: args.ordersUpserted,
+      ordersArchived: args.ordersArchived,
+      normalizedFallbackCount: args.normalizedFallbackCount,
+      failedItems: args.failedItems,
+    })
+    return args.runId
+  },
+})
+
+export const internalUpsertTicketTailorEvent = internalMutation({
+  args: {
+    providerEventId: v.string(),
+    name: v.optional(v.string()),
+    startsAt: v.optional(v.number()),
+    endsAt: v.optional(v.number()),
+    timezone: v.optional(v.string()),
+    currency: v.optional(v.string()),
+    rawPayload: v.any(),
+  },
+  returns: v.id("ticketTailorEvents"),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("ticketTailorEvents")
+      .withIndex("providerEventId", (q) =>
+        q.eq("providerEventId", args.providerEventId)
+      )
+      .collect()
+
+    if (existing[0]) {
+      await ctx.db.patch("ticketTailorEvents", existing[0]._id, args)
+      return existing[0]._id
+    }
+
+    return await ctx.db.insert("ticketTailorEvents", args)
+  },
+})
+
+export const internalUpsertTicketTailorOrder = internalMutation({
+  args: {
+    providerOrderId: v.string(),
+    providerEventId: v.string(),
+    eventId: v.string(),
+    normalizedStatus: v.optional(
+      v.union(
+        v.literal("paid"),
+        v.literal("refunded"),
+        v.literal("cancelled"),
+        v.literal("pending")
+      )
+    ),
+    providerStatus: v.optional(v.string()),
+    normalizationNote: v.optional(v.string()),
+    buyerEmail: v.optional(v.string()),
+    buyerName: v.optional(v.string()),
+    currency: v.optional(v.string()),
+    totalAmountMinor: v.optional(v.number()),
+    orderedAt: v.optional(v.number()),
+    refundedAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number()),
+    rawPayload: v.any(),
+  },
+  returns: v.id("ticketTailorOrders"),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("ticketTailorOrders")
+      .withIndex("providerOrderId", (q) =>
+        q.eq("providerOrderId", args.providerOrderId)
+      )
+      .collect()
+
+    if (existing[0]) {
+      await ctx.db.patch("ticketTailorOrders", existing[0]._id, {
+        ...args,
+        isArchived: false,
+        archiveReason: undefined,
+      })
+      return existing[0]._id
+    }
+
+    return await ctx.db.insert("ticketTailorOrders", {
+      ...args,
+      isArchived: false,
+    })
+  },
+})
+
+export const internalUpsertTicketTailorAttendee = internalMutation({
+  args: {
+    providerAttendeeId: v.optional(v.string()),
+    providerIssuedTicketId: v.optional(v.string()),
+    providerTicketTypeId: v.optional(v.string()),
+    providerEventId: v.string(),
+    providerOrderId: v.string(),
+    eventId: v.string(),
+    orderId: v.string(),
+    name: v.optional(v.string()),
+    email: v.optional(v.string()),
+    ticketTypeLabel: v.optional(v.string()),
+    ticketStatus: v.optional(v.string()),
+    rawPayload: v.any(),
+    customAnswers: v.optional(v.any()),
+    genderType: v.optional(
+      v.union(
+        v.literal("MALE"),
+        v.literal("FEMALE"),
+        v.literal("MIXED"),
+        v.literal("UNKNOWN")
+      )
+    ),
+    ageGroup: v.optional(v.string()),
+    ticketCategory: v.optional(v.string()),
+    allocationPriority: v.optional(
+      v.union(
+        v.literal("CRITICAL"),
+        v.literal("HIGH"),
+        v.literal("NORMAL"),
+        v.literal("LOW")
+      )
+    ),
+    priorityReason: v.optional(v.string()),
+  },
+  returns: v.id("ticketTailorAttendees"),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("ticketTailorAttendees")
+      .withIndex("providerEventOrder", (q) =>
+        q
+          .eq("providerEventId", args.providerEventId)
+          .eq("providerOrderId", args.providerOrderId)
+      )
+      .collect()
+
+    const existingById = existing.filter(
+      (a) => a.providerAttendeeId === args.providerAttendeeId
+    )
+
+    if (existingById[0]) {
+      await ctx.db.patch("ticketTailorAttendees", existingById[0]._id, args)
+      return existingById[0]._id
+    }
+
+    return await ctx.db.insert("ticketTailorAttendees", args)
+  },
+})
+
+export const internalArchiveMissingOrdersForEvent = internalMutation({
+  args: {
+    providerEventId: v.string(),
+    seenProviderOrderIds: v.array(v.string()),
+    reason: v.optional(v.string()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    archived: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const orders = await ctx.db
+      .query("ticketTailorOrders")
+      .withIndex("providerEventId", (q) =>
+        q.eq("providerEventId", args.providerEventId)
+      )
+      .collect()
+
+    const seen = new Set(args.seenProviderOrderIds)
+    const now = Date.now()
+    const reason = args.reason?.trim() || "missing_from_provider_sync"
+    let archived = 0
+
+    for (const order of orders) {
+      if (order.removedAt) {
+        continue
+      }
+
+      if (seen.has(order.providerOrderId)) {
+        continue
+      }
+
+      await ctx.db.patch("ticketTailorOrders", order._id, {
+        isArchived: true,
+        archivedAt: order.archivedAt ?? now,
+        archiveReason: reason,
+        normalizedStatus: "cancelled",
+        cancelledAt: order.cancelledAt ?? now,
+        normalizationNote:
+          "Order missing from latest Ticket Tailor sync; archived locally.",
+      })
+      archived += 1
+    }
+
+    return {
+      scanned: orders.length,
+      archived,
+    }
+  },
+})
+
+export const internalCreateAttendeeFamilyGroup = internalMutation({
+  args: {
+    label: v.optional(v.string()),
+    primaryAttendeeId: v.string(),
+  },
+  returns: v.id("attendeeFamilyGroups"),
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("attendeeFamilyGroups", args)
+  },
+})
+
+export const internalAddAttendeeToFamilyGroup = internalMutation({
+  args: {
+    familyGroupId: v.id("attendeeFamilyGroups"),
+    attendeeId: v.string(),
+    relationship: v.optional(v.string()),
+  },
+  returns: v.id("attendeeFamilyMembers"),
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("attendeeFamilyMembers", args)
+  },
+})
+
+// ---------------------------------------------------------------------------
+// Internal (auth-free) query wrappers for cron-triggered auto-sync.
+// ---------------------------------------------------------------------------
+
+export const internalGetTicketTailorAttendeesByOrderId = internalQuery({
+  args: { orderId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("ticketTailorAttendees")
+      .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
+      .collect()
+  },
+})
+
+export const internalGetAttendeeFamilyGroupByPrimaryId = internalQuery({
+  args: { primaryAttendeeId: v.string() },
+  handler: async (ctx, args) => {
+    const groups = await ctx.db
+      .query("attendeeFamilyGroups")
+      .withIndex("primaryAttendeeId", (q) =>
+        q.eq("primaryAttendeeId", args.primaryAttendeeId)
+      )
+      .collect()
+    return groups[0] ?? null
+  },
+})
+
+export const internalGetFamilyMembersByGroupId = internalQuery({
+  args: { familyGroupId: v.id("attendeeFamilyGroups") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("attendeeFamilyMembers")
+      .withIndex("familyGroupId", (q) =>
+        q.eq("familyGroupId", args.familyGroupId)
+      )
+      .collect()
+  },
+})
+
+export const internalGetUnassignedPayments = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const payments = await ctx.db
+      .query("payments")
+      .withIndex("status", (q) => q.eq("status", "unassigned"))
+      .collect()
+    return payments.map((p) => ({
+      _id: p._id,
+      payerName: p.payerName,
+      amountMinor: p.amountMinor,
+    }))
+  },
+})
+
+export const internalGetPaidOrders = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const orders = await ctx.db
+      .query("ticketTailorOrders")
+      .withIndex("normalizedStatus", (q) => q.eq("normalizedStatus", "paid"))
+      .collect()
+    return orders.map((o) => ({
+      _id: o._id,
+      buyerName: o.buyerName ?? null,
+    }))
+  },
+})
+
+export const internalGetTikkiePaymentLinks = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("tikkiePaymentLinks").collect()
   },
 })
