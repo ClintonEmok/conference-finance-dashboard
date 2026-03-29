@@ -1,6 +1,50 @@
-import { query, mutation } from "./_generated/server"
+import { query, mutation, internalMutation } from "./_generated/server"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
+
+// Constants for quota enforcement
+const DEFAULT_MONTHLY_TIKKIE_CREATION_LIMIT = 5
+
+function getMonthlyCreationQuotaLimit(): number {
+  // Could be extended to read from env var if needed
+  return DEFAULT_MONTHLY_TIKKIE_CREATION_LIMIT
+}
+
+function getCurrentUtcMonthBounds() {
+  const now = new Date()
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0)
+  )
+  const nextMonth = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0)
+  )
+  return {
+    startMs: start.getTime(),
+    nextMonthMs: nextMonth.getTime(),
+  }
+}
+
+async function checkMonthlyQuota(
+  ctx: Parameters<typeof requireIdentity>[0]
+): Promise<{ allowed: boolean; used: number; limit: number }> {
+  const limit = getMonthlyCreationQuotaLimit()
+  const { startMs, nextMonthMs } = getCurrentUtcMonthBounds()
+
+  // Get all links and filter by creation time in current month
+  const allLinks = await ctx.db.query("tikkiePaymentLinks").collect()
+  const linksThisMonth = allLinks.filter((link) => {
+    const ct = link._creationTime
+    return typeof ct === "number" && ct >= startMs && ct < nextMonthMs
+  })
+
+  const used = linksThisMonth.length
+
+  return {
+    allowed: used < limit,
+    used,
+    limit,
+  }
+}
 
 export const getPaymentLinks = query({
   args: {
@@ -59,6 +103,15 @@ export const createPaymentLink = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+
+    // Atomic quota check - fail if quota exceeded
+    const quota = await checkMonthlyQuota(ctx)
+    if (!quota.allowed) {
+      throw new Error(
+        `Monthly Tikkie quota exceeded (${quota.used}/${quota.limit}). Try again next month.`
+      )
+    }
+
     const id = await ctx.db.insert("tikkiePaymentLinks", {
       ...args,
       status: "created",
@@ -296,6 +349,15 @@ export const createEventPaymentLink = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+
+    // Atomic quota check - fail if quota exceeded
+    const quota = await checkMonthlyQuota(ctx)
+    if (!quota.allowed) {
+      throw new Error(
+        `Monthly Tikkie quota exceeded (${quota.used}/${quota.limit}). Try again next month.`
+      )
+    }
+
     const id = await ctx.db.insert("tikkiePaymentLinks", {
       providerOrderId: "",
       providerEventId: args.providerEventId,

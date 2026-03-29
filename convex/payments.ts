@@ -316,12 +316,28 @@ export const autoMatchPayments = mutation({
     const unassignedPayments = payments.filter((p) => p.status === "unassigned")
     const matched: string[] = []
 
-    for (const payment of unassignedPayments) {
-      const matchingOrder = orders.find(
-        (o) => o.buyerName?.toLowerCase() === payment.payerName.toLowerCase()
-      )
+    // Normalize buyer names once upfront
+    const orderLookup = new Map<string, (typeof orders)[0]>()
+    for (const order of orders) {
+      const normalizedBuyerName = order.buyerName?.toLowerCase().trim() ?? ""
+      if (!normalizedBuyerName) continue
 
-      if (matchingOrder) {
+      // Store orders by normalized buyer name for exact-match lookup
+      // Exact amount will be checked per-payment
+      const key = normalizedBuyerName
+      if (!orderLookup.has(key)) {
+        orderLookup.set(key, order)
+      }
+    }
+
+    for (const payment of unassignedPayments) {
+      const normalizedPayerName = payment.payerName.toLowerCase().trim()
+      const paymentAmount = payment.amountMinor
+
+      // Match on normalized buyer name PLUS exact amount
+      const matchingOrder = orderLookup.get(normalizedPayerName)
+
+      if (matchingOrder && matchingOrder.totalAmountMinor === paymentAmount) {
         await ctx.db.patch("payments", payment._id, {
           orderId: matchingOrder._id,
           status: "auto_matched",

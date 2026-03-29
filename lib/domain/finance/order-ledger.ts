@@ -101,7 +101,7 @@ function normalizePagination(page?: number, pageSize?: number) {
   }
 }
 
-function escapeCsvCell(value: string | number | null) {
+function escapeCsvCell(value: string | number | boolean | null) {
   if (value === null || value === undefined) {
     return ""
   }
@@ -187,6 +187,9 @@ export function buildOrderLedgerCsv(rows: OrderLedgerRow[]) {
         row.providerEventId,
         row.eventName,
         row.normalizedStatus,
+        row.isArchived,
+        row.archivedAt,
+        row.archiveReason,
         row.totalAmountMinor,
         row.currency,
         row.orderedAt,
