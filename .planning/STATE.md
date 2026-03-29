@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.0
-milestone_name: event-signup-dual-source
-status: active
-stopped_at: Phase 17 Plan 05 complete; error/loading fallbacks for all dashboard routes
-last_updated: "2026-03-28T20:21:35Z"
+milestone_name: Event Signup + Dual-Source Events
+status: verifying
+stopped_at: Completed 17-02-PLAN.md (Webhook signature verification and auth config fail-closed)
+last_updated: "2026-03-29T00:04:40.762Z"
 last_activity: 2026-03-28
 progress:
-  total_phases: 21
-  completed_phases: 16
-  total_plans: 61
-  completed_plans: 43
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 9
+  completed_plans: 5
   percent: 70
 ---
 
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 ## Current Position
 
 Milestone: v2.0 (event-signup-dual-source) — ACTIVE
-Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (3/9 plans complete)
-Plan: 17-02 complete — Webhook signature verification and auth config fail-closed
-Status: Webhook verifiers reject on missing secrets; Convex auth config validates env at load; ready for 17-03
-Last activity: 2026-03-28 — Completed 17-02: Webhook signature verification and auth config fail-closed
+Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (5/9 plans complete)
+Plan: 17-06 complete — Centralize money formatting and fix modal accessibility
+Status: formatMoney centralized in lib/format.ts; payment/Tikkie dialogs use Radix Dialog; ready for 17-07
+Last activity: 2026-03-29 — Completed 17-06: Centralize money formatting and fix modal accessibility
 
-Progress: ██████░░░░ 70% (43/61 plans)
+Progress: ███████░░░ 72% (44/61 plans)
 
 ## Alignment Status
 
@@ -40,6 +40,7 @@ Progress: ██████░░░░ 70% (43/61 plans)
 - **Convex auth hardened:** All 54 public write mutations now call `requireIdentity(ctx)` and reject unauthenticated callers (17-01).
 - **Webhook verifiers fail closed:** Both Tikkie and Ticket Tailor webhook verifiers return false (not true) when signing secrets are absent or blank — misconfiguration blocks processing instead of bypassing verification (17-02).
 - **Convex auth config validated:** `CLERK_JWT_ISSUER_DOMAIN` is now checked at module load with a descriptive error; no more TypeScript non-null assertion hiding missing config (17-02).
+- **Transport hardened:** All operator and webhook routes have in-memory rate limiting; Tikkie and Ticket Tailor fetch clients have AbortController timeouts and bounded retry for 5xx/transient failures (17-03).
 - Shared `requireIdentity` helper in `convex/auth.ts` is the canonical Convex auth guard — future mutations must import and use it.
 - Operator-facing protected API routes now use Clerk's shared server helper instead of Better Auth sessions.
 - Better Auth runtime files and packages are removed from the app runtime and dependency graph.
@@ -99,6 +100,8 @@ Recent decisions that future work should preserve:
 - [17-01] No client-side `<Authenticated>` wrapper needed: dashboard layout uses server-side `requirePageUser` preventing unauthenticated access to Convex hook consumers.
 - [17-02] Webhook verifiers fail closed: return false when signing secret env var is absent/blank, never bypass verification.
 - [17-02] Replace TypeScript non-null assertions for critical env vars with explicit runtime validation that throws descriptive errors at module load.
+- [17-06] Centralize `formatMoney` in `lib/format.ts` — single frozen `Intl.NumberFormat` instance for EUR minor-unit display, imported by all finance code.
+- [17-06] Use Radix Dialog controlled mode for payment/Tikkie modals — preserves parent-driven state management while adding focus trapping, title/description semantics, and Escape-key close.
 
 ## Active Patterns / Constraints
 
@@ -154,7 +157,7 @@ Recent decisions that future work should preserve:
 - Phase 14: Event-Level Tikkie + Payment Tracking (complete)
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
 - Phase 16: v1 milestone gap closure execution complete (16-01/16-02/16-03/16-04 complete)
-- Phase 17: Fix Critical Code Review Issues — inserted before v2.0 schema work (URGENT, 3/9 plans complete: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-05 error/loading fallbacks done)
+- Phase 17: Fix Critical Code Review Issues — inserted before v2.0 schema work (URGENT, 5/9 plans complete: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-03 transport hardening, 17-05 error/loading fallbacks, 17-06 formatMoney centralization + dialog accessibility done)
 - Phase 18: Schema + Canonical Contracts (planned — 4 plans)
 - Phase 19: Public Signup Pages (planned — 3 plans)
 - Phase 20: Admin Event Management (planned — 3 plans)
@@ -162,8 +165,8 @@ Recent decisions that future work should preserve:
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-28
-- **Last session:** 2026-03-28T20:21:35Z
-- **Stopped at:** Completed 17-02-PLAN.md (Webhook signature verification and auth config fail-closed)
+- **Last activity:** 2026-03-29
+- **Last session:** 2026-03-29T00:05:00Z
+- **Stopped at:** Completed 17-06-PLAN.md (Centralize money formatting and fix modal accessibility)
 - **Resume file:** None
-- **Next recommended plan:** Execute `17-03-PLAN.md` or run `/gsd-execute-phase 17`
+- **Next recommended plan:** Execute `17-07-PLAN.md` or run `/gsd-execute-phase 17`
