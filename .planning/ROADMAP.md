@@ -46,7 +46,7 @@
 1. ✅ All Convex mutations enforce authentication via `ctx.auth.getUserIdentity()` — no publicly callable financial operations
 2. ✅ Webhook signature verification rejects requests when secrets are not configured
 3. Room occupancy uses authoritative count (remove denormalized `occupiedBeds` drift)
-4. Unbounded `.collect()` calls replaced with indexed queries or `.take(N)`/`.paginate()`
+4. ✅ Unbounded `.collect()` calls replaced with indexed queries or `.take(N)`/`.paginate()`
 5. ✅ Error boundaries exist for all dashboard routes — no white-screen crashes
 6. CSV export includes all fields (isArchived, archivedAt, archiveReason)
 7. Race conditions in payment auto-match and Tikkie quota enforcement resolved
@@ -62,8 +62,8 @@ Plans:
 - [x] 17-05-PLAN.md — Route-level error and loading fallbacks (completed 2026-03-28)
 - [x] 17-06-PLAN.md — Centralize money formatting + fix modal accessibility (completed 2026-03-29)
 - [x] 17-07-PLAN.md — Room occupancy single-sourced from attendee assignments + mutation consolidation (completed 2026-03-29)
-- [ ] 17-08-PLAN.md — Indexed/bounded finance and attendee reads
-- [ ] 17-09-PLAN.md — Accommodation board performance + shared interface extraction
+- [x] 17-08-PLAN.md — CSV archive fields, atomic payment matching, Tikkie quota enforcement (completed 2026-03-29)
+- [x] 17-09-PLAN.md — Cursor pagination, bounded reads, shared type extraction (completed 2026-03-29)
 
 ---
 
@@ -165,12 +165,12 @@ Plans:
 
 ## Progress
 
-| Phase                                           | Goal                                                | Requirements                       | Plans | Status  |
-| ----------------------------------------------- | --------------------------------------------------- | ---------------------------------- | ----- | ------- |
-| 17 - Fix Critical Code Review Issues (INSERTED) | Security, auth, data integrity, UI resilience fixes | TBD                                | 7/9   | Active  |
-| 18 - Schema + Canonical Contracts               | Canonical event data model with dual-source support | ESCH-01, ESCH-02, ESCH-03, ESCH-04 | 4     | Pending |
-| 19 - Public Signup Pages                        | Public event discovery and registration flow        | EPUB-01..05                        | 3     | Pending |
-| 20 - Admin Event Management                     | Admin CRUD for internal events + unified list       | EADM-01..05                        | 3     | Pending |
-| 21 - Finance Integration                        | Source-agnostic finance views + auto-Tikkie         | EFIN-01..04                        | 3     | Pending |
+| Phase                                           | Goal                                                | Requirements                       | Plans | Status      |
+| ----------------------------------------------- | --------------------------------------------------- | ---------------------------------- | ----- | ----------- |
+| 17 - Fix Critical Code Review Issues (INSERTED) | Security, auth, data integrity, UI resilience fixes | TBD                                | 9/9   | ✅ Complete |
+| 18 - Schema + Canonical Contracts               | Canonical event data model with dual-source support | ESCH-01, ESCH-02, ESCH-03, ESCH-04 | 4     | Pending     |
+| 19 - Public Signup Pages                        | Public event discovery and registration flow        | EPUB-01..05                        | 3     | Pending     |
+| 20 - Admin Event Management                     | Admin CRUD for internal events + unified list       | EADM-01..05                        | 3     | Pending     |
+| 21 - Finance Integration                        | Source-agnostic finance views + auto-Tikkie         | EFIN-01..04                        | 3     | Pending     |
 
 **Totals:** 5 phases, 22 plans, 18 requirements mapped

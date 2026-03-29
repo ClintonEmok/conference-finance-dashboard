@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Event Signup + Dual-Source Events
-status: Finance correctness fixes complete - CSV archive fields, atomic payment matching, atomic Tikkie quota enforcement
-stopped_at: Completed 17-08-PLAN.md (CSV export, payment auto-match, Tikkie quota)
-last_updated: "2026-03-29T00:36:39Z"
+status: All Convex hot-path reads now use bounded/paginated patterns, shared types extracted
+stopped_at: Completed 17-09-PLAN.md (pagination, bounded reads, shared types)
+last_updated: "2026-03-29T01:06:59Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 9
-  completed_plans: 8
-  percent: 89
+  completed_plans: 9
+  percent: 100
 ---
 
 # Project State
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 ## Current Position
 
 Milestone: v2.0 (event-signup-dual-source) — ACTIVE
-Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (8/9 plans complete)
-Plan: 17-08 complete — CSV archive fields, atomic payment matching, atomic Tikkie quota enforcement
-Status: Finance correctness fixes complete - ready for schema work in Phase 18
-Last activity: 2026-03-29 — Completed 17-08: Finance correctness (CSV, auto-match, quota)
+Phase: 17 (Fix Critical Code Review Issues) — COMPLETE (9/9 plans complete)
+Plan: 17-09 complete — Cursor pagination, bounded reads, shared type extraction
+Status: Phase 17 complete — ready for Phase 18 (Schema + Canonical Contracts)
+Last activity: 2026-03-29 — Completed 17-09: Pagination, bounded reads, lib/types extraction
 
-Progress: █████████░ 89% (50/61 plans)
+Progress: ██████████ 100% (9/9 plans)
 
 ## Alignment Status
 
@@ -111,6 +111,8 @@ Recent decisions that future work should preserve:
 - [17-04] Auth-free `internalMutation`/`internalQuery` wrappers mirror public mutations without `requireIdentity` — system-level cron actions run without user identity context.
 - [17-08] Move Tikkie monthly quota check into mutation boundary for atomic enforcement — eliminates TOCTOU window from API route pre-flight check pattern.
 - [17-08] Payment auto-match requires both normalized buyer name AND exact amount as matching criteria — reduces ambiguous matches compared to name-only matching.
+- [17-09] Use .take(N) for intentionally bounded reads where pagination is not appropriate, .paginate() for growing user-facing lists, .first() for single-result indexed lookups.
+- [17-09] Extract shared Convex validators into lib/types/\* for cross-layer type contracts — payments, orders, attendees, accommodation, tikkie.
 
 ## Active Patterns / Constraints
 
@@ -168,7 +170,7 @@ Recent decisions that future work should preserve:
 - Phase 14: Event-Level Tikkie + Payment Tracking (complete)
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
 - Phase 16: v1 milestone gap closure execution complete (16-01/16-02/16-03/16-04 complete)
-- Phase 17: Fix Critical Code Review Issues — inserted before v2.0 schema work (8/9 plans complete: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-03 transport hardening, 17-04 circular cron-HTTP path removed, 17-05 error/loading fallbacks, 17-06 formatMoney centralization + dialog accessibility, 17-07 room occupancy single-sourced + mutation consolidation, 17-08 finance correctness done)
+- Phase 17: Fix Critical Code Review Issues — COMPLETE (9/9 plans: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-03 transport hardening, 17-04 circular cron-HTTP path removed, 17-05 error/loading fallbacks, 17-06 formatMoney centralization + dialog accessibility, 17-07 room occupancy single-sourced + mutation consolidation, 17-08 finance correctness, 17-09 pagination + bounded reads + shared types)
 - Phase 18: Schema + Canonical Contracts (planned — 4 plans)
 - Phase 19: Public Signup Pages (planned — 3 plans)
 - Phase 20: Admin Event Management (planned — 3 plans)
@@ -177,7 +179,7 @@ Recent decisions that future work should preserve:
 ## Session Continuity
 
 - **Last activity:** 2026-03-29
-- **Last session:** 2026-03-29T00:36:39Z
-- **Stopped at:** Completed 17-08-PLAN.md (CSV export, payment auto-match, Tikkie quota enforcement)
+- **Last session:** 2026-03-29T01:06:59Z
+- **Stopped at:** Completed 17-09-PLAN.md (pagination, bounded reads, shared types)
 - **Resume file:** None
-- **Next recommended plan:** Execute `17-09-PLAN.md` or run `/gsd-execute-phase 17`
+- **Next recommended plan:** Phase 17 complete. Plan Phase 18 (Schema + Canonical Contracts) or run `/gsd-plan-phase 18`
