@@ -1,5 +1,21 @@
 import { v } from "convex/values"
 
+export const signupSourceValidator = v.union(
+  v.literal("integration"),
+  v.literal("internal")
+)
+
+export type SignupSource = "integration" | "internal"
+
+export const signupGenderValidator = v.union(
+  v.literal("male"),
+  v.literal("female"),
+  v.literal("mixed"),
+  v.literal("unknown")
+)
+
+export type SignupGender = "male" | "female" | "mixed" | "unknown"
+
 export const ticketUnavailableReasonValidator = v.union(
   v.literal("sold_out"),
   v.literal("disabled"),
@@ -23,3 +39,44 @@ export type AccommodationIneligibilityReason =
   | "accommodation_disabled"
   | "no_assignable_inventory"
   | "event_closed"
+
+export type SignupSubmissionEnvelope = {
+  eventId: string
+  source: SignupSource
+  idempotencyKey: string
+  payloadFingerprint: string
+  honeypotSeen: boolean
+  notes?: string
+  booker: {
+    name: string
+    email: string
+    phone?: string
+  }
+  attendees: Array<{
+    attendeeKey: string
+    name: string
+    email?: string
+    phone: string
+    gender: SignupGender
+    location: string
+    dietaryRestrictions: string
+    roommatePreference: string
+    roommateAvoid: string
+  }>
+  ticketSelections: Array<{
+    attendeeKey: string
+    ticketTypeId: string
+    quantity: 1
+  }>
+  assignments: Array<{
+    attendeeKey: string
+    slotId: string
+    assignmentIntent: "assign" | "skip"
+  }>
+}
+
+export type SignupSubmissionResult = {
+  submissionId: string
+  bookingRef: string
+  submittedAt: string
+}

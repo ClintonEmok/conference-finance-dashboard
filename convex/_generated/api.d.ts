@@ -773,6 +773,47 @@ export declare const api: {
       }>
     >;
   };
+  signupSubmission: {
+    submitSignupEnvelope: FunctionReference<
+      "mutation",
+      "public",
+      {
+        assignments: Array<{
+          assignmentIntent: "assign" | "skip";
+          attendeeKey: string;
+          slotId: Id<"accommodationSlots">;
+        }>;
+        attendees: Array<{
+          attendeeKey: string;
+          dietaryRestrictions: string;
+          email?: string;
+          gender: "male" | "female" | "mixed" | "unknown";
+          location: string;
+          name: string;
+          phone: string;
+          roommateAvoid: string;
+          roommatePreference: string;
+        }>;
+        booker: { email: string; name: string; phone?: string };
+        eventId: Id<"events">;
+        honeypotSeen: boolean;
+        idempotencyKey: string;
+        notes?: string;
+        payloadFingerprint: string;
+        source: "integration" | "internal";
+        ticketSelections: Array<{
+          attendeeKey: string;
+          quantity: number;
+          ticketTypeId: Id<"ticketTypes">;
+        }>;
+      },
+      {
+        bookingRef: string;
+        submissionId: Id<"submissions">;
+        submittedAt: string;
+      }
+    >;
+  };
   sync: {
     addAttendeeToFamilyGroup: FunctionReference<
       "mutation",

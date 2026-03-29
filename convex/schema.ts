@@ -128,6 +128,82 @@ export default defineSchema({
     .index("by_eventId", ["eventId"])
     .index("by_eventId_and_isAssignable", ["eventId", "isAssignable"]),
 
+  submissions: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      source: v.union(v.literal("integration"), v.literal("internal")),
+      idempotencyKey: v.string(),
+      bookingRef: v.string(),
+      honeypotSeen: v.boolean(),
+      notes: v.optional(v.string()),
+      bookerName: v.string(),
+      bookerEmail: v.string(),
+      bookerPhone: v.optional(v.string()),
+      submittedAt: v.number(),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_bookingRef", ["bookingRef"])
+    .index("by_submittedAt", ["submittedAt"]),
+
+  submissionAttendees: defineTable(
+    v.object({
+      submissionId: v.id("submissions"),
+      attendeeKey: v.string(),
+      name: v.string(),
+      email: v.optional(v.string()),
+      phone: v.string(),
+      gender: v.union(
+        v.literal("male"),
+        v.literal("female"),
+        v.literal("mixed"),
+        v.literal("unknown")
+      ),
+      location: v.string(),
+      dietaryRestrictions: v.string(),
+      roommatePreference: v.string(),
+      roommateAvoid: v.string(),
+      sortOrder: v.number(),
+    })
+  ).index("by_submissionId", ["submissionId"]),
+
+  submissionTicketSelections: defineTable(
+    v.object({
+      submissionId: v.id("submissions"),
+      attendeeId: v.id("submissionAttendees"),
+      ticketTypeId: v.id("ticketTypes"),
+      quantity: v.number(),
+      sortOrder: v.number(),
+    })
+  )
+    .index("by_submissionId", ["submissionId"])
+    .index("by_ticketTypeId", ["ticketTypeId"]),
+
+  submissionAssignments: defineTable(
+    v.object({
+      submissionId: v.id("submissions"),
+      attendeeId: v.id("submissionAttendees"),
+      slotId: v.id("accommodationSlots"),
+      assignmentIntent: v.union(v.literal("assign"), v.literal("skip")),
+      sortOrder: v.number(),
+    })
+  )
+    .index("by_submissionId", ["submissionId"])
+    .index("by_slotId", ["slotId"]),
+
+  submissionIdempotency: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      idempotencyKey: v.string(),
+      fingerprint: v.string(),
+      submissionId: v.id("submissions"),
+      expiresAt: v.number(),
+    })
+  )
+    .index("by_eventId_and_idempotencyKey", ["eventId", "idempotencyKey"])
+    .index("by_eventId_and_fingerprint", ["eventId", "fingerprint"])
+    .index("by_expiresAt", ["expiresAt"]),
+
   ticketTailorWebhookEvents: defineTable(
     v.object({
       providerEventId: v.string(),
