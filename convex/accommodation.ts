@@ -785,10 +785,6 @@ export const assignRoomToAttendee = mutation({
       assignedRoomId: args.roomId,
     })
 
-    await ctx.db.patch("accommodationRooms", roomId, {
-      occupiedBeds: (room.occupiedBeds ?? 0) + 1,
-    })
-
     return args.attendeeId
   },
 })
@@ -849,10 +845,6 @@ export const assignAttendeeToRoom = mutation({
       assignedRoomId: args.roomId,
     })
 
-    await ctx.db.patch("accommodationRooms", roomId, {
-      occupiedBeds: (room.occupiedBeds ?? 0) + 1,
-    })
-
     return { ok: true }
   },
 })
@@ -871,16 +863,6 @@ export const unassignRoomFromAttendee = mutation({
     )
     const attendee = await ctx.db.get("ticketTailorAttendees", attendeeId)
     if (!attendee || !attendee.assignedRoomId) return { ok: true }
-
-    const room = await getAccommodationRoomByStringId(
-      ctx,
-      attendee.assignedRoomId
-    )
-    if (room) {
-      await ctx.db.patch("accommodationRooms", room._id, {
-        occupiedBeds: Math.max(0, (room.occupiedBeds ?? 1) - 1),
-      })
-    }
 
     await ctx.db.patch("ticketTailorAttendees", attendeeId, {
       assignedRoomId: undefined,
@@ -905,16 +887,6 @@ export const unassignAttendeeFromRoom = mutation({
     const attendee = await ctx.db.get("ticketTailorAttendees", attendeeId)
     if (!attendee || !attendee.assignedRoomId) {
       throw new Error("Attendee not found or not assigned to any room")
-    }
-
-    const room = await getAccommodationRoomByStringId(
-      ctx,
-      attendee.assignedRoomId
-    )
-    if (room) {
-      await ctx.db.patch("accommodationRooms", room._id, {
-        occupiedBeds: Math.max(0, (room.occupiedBeds ?? 1) - 1),
-      })
     }
 
     await ctx.db.patch("ticketTailorAttendees", attendeeId, {
