@@ -768,6 +768,39 @@ export declare const api: {
       }>
     >;
   };
+  signupSubmission: {
+    submitSignupEnvelope: FunctionReference<
+      "mutation",
+      "public",
+      {
+        assignments: Array<{ attendeeKey: string; slotId: string }>;
+        attendees: Array<{
+          attendeeKey: string;
+          dietaryRestrictions: string;
+          email: string;
+          fullName: string;
+          gender: "male" | "female" | "mixed" | "unknown";
+          location: string;
+          phone: string;
+          roommateAvoid: string;
+          roommatePreference: string;
+        }>;
+        booker: { email: string; name: string; phone?: string };
+        honeypotSeen: boolean;
+        idempotencyKey: string;
+        notes?: string;
+        payloadFingerprint: string;
+        signupEventId: string;
+        source: "integration" | "internal";
+        ticketSelections: Array<{
+          attendeeKey?: string;
+          quantity: number;
+          ticketTypeId: string;
+        }>;
+      },
+      { bookingRef: string; submissionId: string; submittedAt: string }
+    >;
+  };
   sync: {
     addAttendeeToFamilyGroup: FunctionReference<
       "mutation",

@@ -160,6 +160,94 @@ export default defineSchema({
       "isAssignable",
     ]),
 
+  signupSubmissions: defineTable(
+    v.object({
+      signupEventId: v.string(),
+      source: v.union(v.literal("integration"), v.literal("internal")),
+      idempotencyKey: v.string(),
+      payloadFingerprint: v.string(),
+      bookingRef: v.string(),
+      honeypotSeen: v.boolean(),
+      notes: v.optional(v.string()),
+      bookerName: v.string(),
+      bookerEmail: v.string(),
+      bookerPhone: v.optional(v.string()),
+      submittedAt: v.number(),
+    })
+  )
+    .index("by_signupEventId", ["signupEventId"])
+    .index("by_bookingRef", ["bookingRef"])
+    .index("by_idempotencyKey", ["idempotencyKey"])
+    .index("by_signupEventId_and_payloadFingerprint", [
+      "signupEventId",
+      "payloadFingerprint",
+    ]),
+
+  signupSubmissionAttendees: defineTable(
+    v.object({
+      submissionId: v.string(),
+      attendeeKey: v.string(),
+      fullName: v.string(),
+      email: v.string(),
+      gender: v.union(
+        v.literal("male"),
+        v.literal("female"),
+        v.literal("mixed"),
+        v.literal("unknown")
+      ),
+      location: v.string(),
+      dietaryRestrictions: v.string(),
+      roommatePreference: v.string(),
+      roommateAvoid: v.string(),
+      phone: v.string(),
+      sortOrder: v.number(),
+    })
+  )
+    .index("by_submissionId", ["submissionId"])
+    .index("by_submissionId_and_attendeeKey", ["submissionId", "attendeeKey"]),
+
+  signupSubmissionTicketSelections: defineTable(
+    v.object({
+      submissionId: v.string(),
+      attendeeKey: v.optional(v.string()),
+      ticketTypeId: v.string(),
+      quantity: v.number(),
+      sortOrder: v.number(),
+    })
+  )
+    .index("by_submissionId", ["submissionId"])
+    .index("by_submissionId_and_ticketTypeId", [
+      "submissionId",
+      "ticketTypeId",
+    ]),
+
+  signupSubmissionAssignments: defineTable(
+    v.object({
+      submissionId: v.string(),
+      attendeeKey: v.string(),
+      slotId: v.string(),
+      sortOrder: v.number(),
+    })
+  )
+    .index("by_submissionId", ["submissionId"])
+    .index("by_submissionId_and_slotId", ["submissionId", "slotId"]),
+
+  signupSubmissionIdempotency: defineTable(
+    v.object({
+      signupEventId: v.string(),
+      idempotencyKey: v.string(),
+      payloadFingerprint: v.string(),
+      submissionId: v.string(),
+      expiresAt: v.number(),
+    })
+  )
+    .index("by_signupEventId_and_idempotencyKey", [
+      "signupEventId",
+      "idempotencyKey",
+    ])
+    .index("by_expiresAt", ["expiresAt"])
+    .index("by_submissionId", ["submissionId"]),
+
   ticketTailorOrders: defineTable(
     v.object({
       providerOrderId: v.string(),
