@@ -10,7 +10,7 @@ progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 9
-  completed_plans: 5
+  completed_plans: 6
   percent: 70
 ---
 
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 ## Current Position
 
 Milestone: v2.0 (event-signup-dual-source) — ACTIVE
-Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (5/9 plans complete)
-Plan: 17-06 complete — Centralize money formatting and fix modal accessibility
-Status: formatMoney centralized in lib/format.ts; payment/Tikkie dialogs use Radix Dialog; ready for 17-07
-Last activity: 2026-03-29 — Completed 17-06: Centralize money formatting and fix modal accessibility
+Phase: 17 (Fix Critical Code Review Issues) — IN PROGRESS (6/9 plans complete)
+Plan: 17-07 complete — Room occupancy single-sourced from attendee assignments
+Status: Room occupancy derived from ticketTailorAttendees.assignedRoomId; attendees.ts mutations delegate to accommodation; ready for 17-08
+Last activity: 2026-03-29 — Completed 17-07: Room occupancy single-sourced from attendee assignments
 
-Progress: ███████░░░ 72% (44/61 plans)
+Progress: ███████░░░ 74% (45/61 plans)
 
 ## Alignment Status
 
@@ -62,6 +62,8 @@ Progress: ███████░░░ 72% (44/61 plans)
 - Accommodation auto-allocation proposals now use compatibility-aware scoring (family/order cohesion + gender guardrails + priority ordering) and compute a real `familyGroupsKeptTogether` metric.
 - Accommodation page apply/reset flows now keep signal filters canonical via shared URL/query serialization, so signal-only changes always trigger board reloads.
 - Accommodation queue family badges now render from backend-provided `hasFamily` contract truth instead of inferred optional fields.
+- **Room occupancy single-sourced:** Room occupancy is now derived from `ticketTailorAttendees.assignedRoomId` at query time in `getRoomsWithDetails`, `listAccommodationInventory`, and `getRoomAllocationBoard` — no more `occupiedBeds` counter writes from assignment/unassignment mutations (17-07).
+- **Assignment mutations consolidated:** `attendees.assignRoom` and `attendees.unassignRoom` now delegate to accommodation mutations, enforcing capacity checks and event-hotel validation consistently (17-07).
 
 ## Key Decisions
 
@@ -102,6 +104,8 @@ Recent decisions that future work should preserve:
 - [17-02] Replace TypeScript non-null assertions for critical env vars with explicit runtime validation that throws descriptive errors at module load.
 - [17-06] Centralize `formatMoney` in `lib/format.ts` — single frozen `Intl.NumberFormat` instance for EUR minor-unit display, imported by all finance code.
 - [17-06] Use Radix Dialog controlled mode for payment/Tikkie modals — preserves parent-driven state management while adding focus trapping, title/description semantics, and Escape-key close.
+- [17-07] Remove direct `occupiedBeds` counter writes — room occupancy is single-sourced from `ticketTailorAttendees.assignedRoomId` at query time, eliminating counter drift risk.
+- [17-07] Consolidate room assignment mutations — `attendees.assignRoom`/`unassignRoom` delegate to accommodation mutations so one authoritative implementation enforces capacity and event-hotel checks.
 
 ## Active Patterns / Constraints
 
@@ -157,7 +161,7 @@ Recent decisions that future work should preserve:
 - Phase 14: Event-Level Tikkie + Payment Tracking (complete)
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
 - Phase 16: v1 milestone gap closure execution complete (16-01/16-02/16-03/16-04 complete)
-- Phase 17: Fix Critical Code Review Issues — inserted before v2.0 schema work (URGENT, 5/9 plans complete: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-03 transport hardening, 17-05 error/loading fallbacks, 17-06 formatMoney centralization + dialog accessibility done)
+- Phase 17: Fix Critical Code Review Issues — inserted before v2.0 schema work (URGENT, 6/9 plans complete: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-03 transport hardening, 17-05 error/loading fallbacks, 17-06 formatMoney centralization + dialog accessibility, 17-07 room occupancy single-sourced + mutation consolidation done)
 - Phase 18: Schema + Canonical Contracts (planned — 4 plans)
 - Phase 19: Public Signup Pages (planned — 3 plans)
 - Phase 20: Admin Event Management (planned — 3 plans)
@@ -166,7 +170,7 @@ Recent decisions that future work should preserve:
 ## Session Continuity
 
 - **Last activity:** 2026-03-29
-- **Last session:** 2026-03-29T00:05:00Z
-- **Stopped at:** Completed 17-06-PLAN.md (Centralize money formatting and fix modal accessibility)
+- **Last session:** 2026-03-29T00:21:00Z
+- **Stopped at:** Completed 17-07-PLAN.md (Room occupancy single-sourced from attendee assignments)
 - **Resume file:** None
-- **Next recommended plan:** Execute `17-07-PLAN.md` or run `/gsd-execute-phase 17`
+- **Next recommended plan:** Execute `17-08-PLAN.md` or run `/gsd-execute-phase 17`
