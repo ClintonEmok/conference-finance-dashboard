@@ -748,57 +748,29 @@ export declare const api: {
             assignable: boolean;
             roomLabel: string;
             roomTypeLabel: string;
-            slotId: Id<"signupAccommodationSlots">;
+            slotId: Id<"accommodationSlots">;
           }>;
         };
         currency: string;
-        eventId: Id<"signupEvents">;
+        endsAt: number;
+        eventId: Id<"events">;
         slug: string;
-        source: "integration" | "internal";
-        sourceEventRef: string;
+        source: {
+          externalEventId: string | null;
+          kind: "integration" | "internal";
+          provider: string | null;
+        };
         startsAt: number;
         tickets: Array<{
           label: string;
           priceMinor: number;
           reason: "sold_out" | "disabled" | "hidden" | "not_on_sale" | null;
           selectable: boolean;
-          ticketTypeId: Id<"signupTicketTypes">;
+          ticketTypeId: Id<"ticketTypes">;
         }>;
+        timezone: string;
         title: string;
       }>
-    >;
-  };
-  signupSubmission: {
-    submitSignupEnvelope: FunctionReference<
-      "mutation",
-      "public",
-      {
-        assignments: Array<{ attendeeKey: string; slotId: string }>;
-        attendees: Array<{
-          attendeeKey: string;
-          dietaryRestrictions: string;
-          email: string;
-          fullName: string;
-          gender: "male" | "female" | "mixed" | "unknown";
-          location: string;
-          phone: string;
-          roommateAvoid: string;
-          roommatePreference: string;
-        }>;
-        booker: { email: string; name: string; phone?: string };
-        honeypotSeen: boolean;
-        idempotencyKey: string;
-        notes?: string;
-        payloadFingerprint: string;
-        signupEventId: string;
-        source: "integration" | "internal";
-        ticketSelections: Array<{
-          attendeeKey?: string;
-          quantity: number;
-          ticketTypeId: string;
-        }>;
-      },
-      { bookingRef: string; submissionId: string; submittedAt: string }
     >;
   };
   sync: {

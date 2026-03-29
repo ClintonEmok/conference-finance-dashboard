@@ -1,6 +1,6 @@
 import type {
-  SignupAccommodationIneligibilityReason,
-  SignupTicketUnavailableReason,
+  AccommodationIneligibilityReason,
+  TicketUnavailableReason,
 } from "@/lib/types/signup"
 
 export type PublicSignupCatalogSlot = {
@@ -10,37 +10,47 @@ export type PublicSignupCatalogSlot = {
   assignable: boolean
 }
 
-export type PublicSignupCatalogItem = {
+export type PublicSignupCatalogEvent = {
   eventId: string
-  source: "integration" | "internal"
-  sourceEventRef: string
   slug: string
   title: string
   startsAt: number
+  endsAt: number
+  timezone: string
   currency: string
+  source: {
+    kind: "integration" | "internal"
+    provider: string | null
+    externalEventId: string | null
+  }
   tickets: Array<{
     ticketTypeId: string
     label: string
     priceMinor: number
     selectable: boolean
-    reason: SignupTicketUnavailableReason | null
+    reason: TicketUnavailableReason | null
   }>
   accommodation: {
     eligible: boolean
-    reason: SignupAccommodationIneligibilityReason | null
+    reason: AccommodationIneligibilityReason | null
     slots: PublicSignupCatalogSlot[]
   }
 }
 
 export function normalizePublicSignupCatalog(
-  catalog: PublicSignupCatalogItem[] | undefined | null
+  catalog: PublicSignupCatalogEvent[] | undefined | null
 ) {
   if (!catalog) {
-    return [] as PublicSignupCatalogItem[]
+    return [] as PublicSignupCatalogEvent[]
   }
 
   return catalog.map((event) => ({
     ...event,
+    source: {
+      ...event.source,
+      provider: event.source.provider ?? null,
+      externalEventId: event.source.externalEventId ?? null,
+    },
     tickets: event.tickets.map((ticket) => ({
       ...ticket,
       reason: ticket.reason ?? null,

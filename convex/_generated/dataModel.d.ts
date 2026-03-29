@@ -108,6 +108,39 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  accommodationSlots: {
+    document: {
+      eventId: Id<"events">;
+      genderPolicy: "male" | "female" | "mixed";
+      hotelId: Id<"accommodationHotels">;
+      ineligibilityReason?: string;
+      isAssignable: boolean;
+      roomId: Id<"accommodationRooms">;
+      slotLabel: string;
+      updatedAt: number;
+      _id: Id<"accommodationSlots">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "eventId"
+      | "genderPolicy"
+      | "hotelId"
+      | "ineligibilityReason"
+      | "isAssignable"
+      | "roomId"
+      | "slotLabel"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+      by_eventId_and_isAssignable: ["eventId", "isAssignable", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   accounts: {
     document: {
       accessToken?: string;
@@ -179,6 +212,84 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       attendeeId: ["attendeeId", "_creationTime"];
       familyGroupId: ["familyGroupId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  events: {
+    document: {
+      accommodationEnabled: boolean;
+      currency: string;
+      endsAt: number;
+      isPublished: boolean;
+      isSignupOpen: boolean;
+      primarySourceKind: "integration" | "internal";
+      primarySourceProvider?: string;
+      slug: string;
+      startsAt: number;
+      timezone: string;
+      title: string;
+      updatedAt: number;
+      _id: Id<"events">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "accommodationEnabled"
+      | "currency"
+      | "endsAt"
+      | "isPublished"
+      | "isSignupOpen"
+      | "primarySourceKind"
+      | "primarySourceProvider"
+      | "slug"
+      | "startsAt"
+      | "timezone"
+      | "title"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_signup_visibility: ["isPublished", "isSignupOpen", "_creationTime"];
+      by_slug: ["slug", "_creationTime"];
+      by_startsAt: ["startsAt", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  eventSources: {
+    document: {
+      eventId: Id<"events">;
+      externalEventId: string;
+      lastSyncedAt?: number;
+      provider: string;
+      providerSnapshotRef?: string;
+      syncStatus: "active" | "paused" | "error";
+      updatedAt: number;
+      _id: Id<"eventSources">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "eventId"
+      | "externalEventId"
+      | "lastSyncedAt"
+      | "provider"
+      | "providerSnapshotRef"
+      | "syncStatus"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+      by_eventId_and_provider: ["eventId", "provider", "_creationTime"];
+      by_provider_and_externalEventId: [
+        "provider",
+        "externalEventId",
+        "_creationTime",
+      ];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -280,302 +391,6 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       token: ["token", "_creationTime"];
       userId: ["userId", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
-  signupAccommodationSlots: {
-    document: {
-      genderPolicy: "male" | "female" | "mixed" | "unknown";
-      hotelId: string;
-      ineligibilityReason?:
-        | "accommodation_disabled"
-        | "no_assignable_inventory"
-        | "event_closed";
-      isAssignable: boolean;
-      roomId: string;
-      signupEventId: string;
-      slotLabel: string;
-      _id: Id<"signupAccommodationSlots">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "genderPolicy"
-      | "hotelId"
-      | "ineligibilityReason"
-      | "isAssignable"
-      | "roomId"
-      | "signupEventId"
-      | "slotLabel";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_signupEventId: ["signupEventId", "_creationTime"];
-      by_signupEventId_and_isAssignable: [
-        "signupEventId",
-        "isAssignable",
-        "_creationTime",
-      ];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
-  signupEvents: {
-    document: {
-      accommodationEnabled: boolean;
-      currency: string;
-      isPublished: boolean;
-      isSignupOpen: boolean;
-      slug: string;
-      source: "integration" | "internal";
-      sourceEventRef: string;
-      startsAt: number;
-      title: string;
-      _id: Id<"signupEvents">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "accommodationEnabled"
-      | "currency"
-      | "isPublished"
-      | "isSignupOpen"
-      | "slug"
-      | "source"
-      | "sourceEventRef"
-      | "startsAt"
-      | "title";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_isPublished_and_isSignupOpen: [
-        "isPublished",
-        "isSignupOpen",
-        "_creationTime",
-      ];
-      by_slug: ["slug", "_creationTime"];
-      by_source_and_sourceEventRef: [
-        "source",
-        "sourceEventRef",
-        "_creationTime",
-      ];
-      by_startsAt_and_title: ["startsAt", "title", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
-  signupSubmissionAssignments: {
-    document: {
-      attendeeKey: string;
-      slotId: string;
-      sortOrder: number;
-      submissionId: string;
-      _id: Id<"signupSubmissionAssignments">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "attendeeKey"
-      | "slotId"
-      | "sortOrder"
-      | "submissionId";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_slotId: ["slotId", "_creationTime"];
-      by_submissionId: ["submissionId", "_creationTime"];
-      by_submissionId_and_slotId: ["submissionId", "slotId", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
-  signupSubmissionAttendees: {
-    document: {
-      attendeeKey: string;
-      dietaryRestrictions: string;
-      email: string;
-      fullName: string;
-      gender: "male" | "female" | "mixed" | "unknown";
-      location: string;
-      phone: string;
-      roommateAvoid: string;
-      roommatePreference: string;
-      sortOrder: number;
-      submissionId: string;
-      _id: Id<"signupSubmissionAttendees">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "attendeeKey"
-      | "dietaryRestrictions"
-      | "email"
-      | "fullName"
-      | "gender"
-      | "location"
-      | "phone"
-      | "roommateAvoid"
-      | "roommatePreference"
-      | "sortOrder"
-      | "submissionId";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_submissionId: ["submissionId", "_creationTime"];
-      by_submissionId_and_attendeeKey: [
-        "submissionId",
-        "attendeeKey",
-        "_creationTime",
-      ];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
-  signupSubmissionIdempotency: {
-    document: {
-      expiresAt: number;
-      idempotencyKey: string;
-      payloadFingerprint: string;
-      signupEventId: string;
-      submissionId: string;
-      _id: Id<"signupSubmissionIdempotency">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "expiresAt"
-      | "idempotencyKey"
-      | "payloadFingerprint"
-      | "signupEventId"
-      | "submissionId";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_expiresAt: ["expiresAt", "_creationTime"];
-      by_signupEventId_and_idempotencyKey: [
-        "signupEventId",
-        "idempotencyKey",
-        "_creationTime",
-      ];
-      by_submissionId: ["submissionId", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
-  signupSubmissions: {
-    document: {
-      bookerEmail: string;
-      bookerName: string;
-      bookerPhone?: string;
-      bookingRef: string;
-      honeypotSeen: boolean;
-      idempotencyKey: string;
-      notes?: string;
-      payloadFingerprint: string;
-      signupEventId: string;
-      source: "integration" | "internal";
-      submittedAt: number;
-      _id: Id<"signupSubmissions">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "bookerEmail"
-      | "bookerName"
-      | "bookerPhone"
-      | "bookingRef"
-      | "honeypotSeen"
-      | "idempotencyKey"
-      | "notes"
-      | "payloadFingerprint"
-      | "signupEventId"
-      | "source"
-      | "submittedAt";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_bookingRef: ["bookingRef", "_creationTime"];
-      by_idempotencyKey: ["idempotencyKey", "_creationTime"];
-      by_signupEventId: ["signupEventId", "_creationTime"];
-      by_signupEventId_and_payloadFingerprint: [
-        "signupEventId",
-        "payloadFingerprint",
-        "_creationTime",
-      ];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
-  signupSubmissionTicketSelections: {
-    document: {
-      attendeeKey?: string;
-      quantity: number;
-      sortOrder: number;
-      submissionId: string;
-      ticketTypeId: string;
-      _id: Id<"signupSubmissionTicketSelections">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "attendeeKey"
-      | "quantity"
-      | "sortOrder"
-      | "submissionId"
-      | "ticketTypeId";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_submissionId: ["submissionId", "_creationTime"];
-      by_submissionId_and_ticketTypeId: [
-        "submissionId",
-        "ticketTypeId",
-        "_creationTime",
-      ];
-      by_ticketTypeId: ["ticketTypeId", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
-  signupTicketTypes: {
-    document: {
-      availabilityState: "selectable" | "unavailable";
-      isActive: boolean;
-      label: string;
-      priceMinor: number;
-      signupEventId: string;
-      unavailableReason?: "sold_out" | "disabled" | "hidden" | "not_on_sale";
-      visibility: "visible" | "hidden";
-      _id: Id<"signupTicketTypes">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "availabilityState"
-      | "isActive"
-      | "label"
-      | "priceMinor"
-      | "signupEventId"
-      | "unavailableReason"
-      | "visibility";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_signupEventId: ["signupEventId", "_creationTime"];
-      by_signupEventId_and_availabilityState: [
-        "signupEventId",
-        "availabilityState",
-        "_creationTime",
-      ];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -817,6 +632,43 @@ export type DataModel = {
       eventType: ["eventType", "_creationTime"];
       providerEventId: ["providerEventId", "_creationTime"];
       status_nextRetry: ["status", "nextRetryAt", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  ticketTypes: {
+    document: {
+      availabilityState: "selectable" | "unavailable";
+      eventId: Id<"events">;
+      isActive: boolean;
+      label: string;
+      priceMinor: number;
+      unavailableReason?: string;
+      updatedAt: number;
+      visibility: "public" | "hidden";
+      _id: Id<"ticketTypes">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "availabilityState"
+      | "eventId"
+      | "isActive"
+      | "label"
+      | "priceMinor"
+      | "unavailableReason"
+      | "updatedAt"
+      | "visibility";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+      by_eventId_and_availabilityState: [
+        "eventId",
+        "availabilityState",
+        "_creationTime",
+      ];
     };
     searchIndexes: {};
     vectorIndexes: {};

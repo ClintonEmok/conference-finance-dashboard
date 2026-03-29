@@ -1,32 +1,57 @@
 import { v } from "convex/values"
 import { query, type QueryCtx } from "./_generated/server"
 import type { Doc } from "./_generated/dataModel"
+import {
+  accommodationIneligibilityReasonValidator,
+  ticketUnavailableReasonValidator,
+} from "../lib/types/signup"
+import type { TicketUnavailableReason } from "../lib/types/signup"
 
 const PUBLIC_EVENT_LIMIT = 50
 const EVENT_TICKET_LIMIT = 100
 const EVENT_ASSIGNABLE_SLOT_LIMIT = 200
+const EVENT_SOURCE_LIMIT = 5
 
-const ticketUnavailableReasonValidator = v.union(
-  v.literal("sold_out"),
-  v.literal("disabled"),
-  v.literal("hidden"),
-  v.literal("not_on_sale")
-)
+const publicSignupTicketValidator = v.object({
+  ticketTypeId: v.id("ticketTypes"),
+  label: v.string(),
+  priceMinor: v.number(),
+  selectable: v.boolean(),
+  reason: v.union(ticketUnavailableReasonValidator, v.null()),
+})
 
-const accommodationIneligibilityReasonValidator = v.union(
-  v.literal("accommodation_disabled"),
-  v.literal("no_assignable_inventory"),
-  v.literal("event_closed")
-)
+const publicSignupAccommodationSlotValidator = v.object({
+  slotId: v.id("accommodationSlots"),
+  roomLabel: v.string(),
+  roomTypeLabel: v.string(),
+  assignable: v.boolean(),
+})
 
-function isPresent<T>(value: T | null): value is T {
-  return value !== null
-}
+const publicSignupCatalogEventValidator = v.object({
+  eventId: v.id("events"),
+  slug: v.string(),
+  title: v.string(),
+  startsAt: v.number(),
+  endsAt: v.number(),
+  timezone: v.string(),
+  currency: v.string(),
+  source: v.object({
+    kind: v.union(v.literal("integration"), v.literal("internal")),
+    provider: v.union(v.string(), v.null()),
+    externalEventId: v.union(v.string(), v.null()),
+  }),
+  tickets: v.array(publicSignupTicketValidator),
+  accommodation: v.object({
+    eligible: v.boolean(),
+    reason: v.union(accommodationIneligibilityReasonValidator, v.null()),
+    slots: v.array(publicSignupAccommodationSlotValidator),
+  }),
+})
 
-function mapTicket(ticket: Doc<"signupTicketTypes">) {
+function mapTicket(ticket: Doc<"ticketTypes">) {
   const selectableByState = ticket.availabilityState === "selectable"
   const selectable =
-    selectableByState && ticket.isActive && ticket.visibility === "visible"
+    selectableByState && ticket.isActive && ticket.visibility === "public"
 
   if (selectable) {
     return {
@@ -38,24 +63,46 @@ function mapTicket(ticket: Doc<"signupTicketTypes">) {
     }
   }
 
-  const fallbackReason =
-    ticket.unavailableReason ??
-    (ticket.visibility === "hidden" ? "hidden" : "disabled")
+  const reason =
+    normalizeTicketUnavailableReason(ticket.unavailableReason) ??
+    (ticket.visibility === "hidden"
+      ? "hidden"
+      : ticket.isActive
+        ? "not_on_sale"
+        : "disabled")
 
   return {
     ticketTypeId: ticket._id,
     label: ticket.label,
     priceMinor: ticket.priceMinor,
     selectable: false,
-    reason: fallbackReason,
+    reason,
   }
 }
 
-async function mapAssignableSlots(ctx: QueryCtx, signupEventId: string) {
+function normalizeTicketUnavailableReason(
+  value: string | undefined
+): TicketUnavailableReason | null {
+  if (
+    value === "sold_out" ||
+    value === "disabled" ||
+    value === "hidden" ||
+    value === "not_on_sale"
+  ) {
+    return value
+  }
+
+  return null
+}
+
+async function getAssignableSlotSummaries(
+  ctx: QueryCtx,
+  eventId: Doc<"events">["_id"]
+) {
   const assignableSlots = await ctx.db
-    .query("signupAccommodationSlots")
-    .withIndex("by_signupEventId_and_isAssignable", (q) =>
-      q.eq("signupEventId", signupEventId).eq("isAssignable", true)
+    .query("accommodationSlots")
+    .withIndex("by_eventId_and_isAssignable", (q) =>
+      q.eq("eventId", eventId).eq("isAssignable", true)
     )
     .take(EVENT_ASSIGNABLE_SLOT_LIMIT)
 
@@ -67,50 +114,40 @@ async function mapAssignableSlots(ctx: QueryCtx, signupEventId: string) {
     }
   }
 
+  const roomIds = Array.from(
+    new Set(assignableSlots.map((slot) => slot.roomId))
+  )
   const roomDocs = await Promise.all(
-    Array.from(new Set(assignableSlots.map((slot) => slot.roomId))).map(
-      async (roomId) => {
-        const normalizedId = ctx.db.normalizeId("accommodationRooms", roomId)
-        if (!normalizedId) {
-          return null
-        }
-
-        const room = await ctx.db.get("accommodationRooms", normalizedId)
-        return room ?? null
-      }
-    )
+    roomIds.map((roomId) => ctx.db.get(roomId))
+  )
+  const rooms = roomDocs.filter(
+    (room): room is NonNullable<typeof room> => room !== null
   )
 
-  const roomsById = new Map(
-    roomDocs.filter(isPresent).map((room) => [String(room._id), room])
-  )
+  const roomById = new Map(rooms.map((room) => [room._id, room]))
 
+  const roomTypeIds = Array.from(new Set(rooms.map((room) => room.roomTypeId)))
   const roomTypeDocs = await Promise.all(
-    Array.from(
-      new Set(roomDocs.filter(isPresent).map((room) => room.roomTypeId))
-    ).map(async (roomTypeId) => {
+    roomTypeIds.map((roomTypeId) => {
       const normalizedId = ctx.db.normalizeId(
         "accommodationRoomTypes",
         roomTypeId
       )
-      if (!normalizedId) {
-        return null
-      }
-
-      const roomType = await ctx.db.get("accommodationRoomTypes", normalizedId)
-      return roomType ?? null
+      return normalizedId
+        ? ctx.db.get("accommodationRoomTypes", normalizedId)
+        : null
     })
   )
-
-  const roomTypesById = new Map(
-    roomTypeDocs
-      .filter(isPresent)
-      .map((roomType) => [String(roomType._id), roomType])
+  const roomTypes = roomTypeDocs.filter(
+    (roomType): roomType is NonNullable<typeof roomType> => roomType !== null
+  )
+  const roomTypeById = new Map(
+    roomTypes.map((roomType) => [String(roomType._id), roomType])
   )
 
   const slots = assignableSlots.map((slot) => {
-    const room = roomsById.get(slot.roomId)
-    const roomType = room ? (roomTypesById.get(room.roomTypeId) ?? null) : null
+    const room = roomById.get(slot.roomId)
+    const roomType = room ? roomTypeById.get(room.roomTypeId) : null
 
     return {
       slotId: slot._id,
@@ -129,65 +166,44 @@ async function mapAssignableSlots(ctx: QueryCtx, signupEventId: string) {
 
 export const getPublicSignupCatalog = query({
   args: {},
-  returns: v.array(
-    v.object({
-      eventId: v.id("signupEvents"),
-      source: v.union(v.literal("integration"), v.literal("internal")),
-      sourceEventRef: v.string(),
-      slug: v.string(),
-      title: v.string(),
-      startsAt: v.number(),
-      currency: v.string(),
-      tickets: v.array(
-        v.object({
-          ticketTypeId: v.id("signupTicketTypes"),
-          label: v.string(),
-          priceMinor: v.number(),
-          selectable: v.boolean(),
-          reason: v.union(ticketUnavailableReasonValidator, v.null()),
-        })
-      ),
-      accommodation: v.object({
-        eligible: v.boolean(),
-        reason: v.union(accommodationIneligibilityReasonValidator, v.null()),
-        slots: v.array(
-          v.object({
-            slotId: v.id("signupAccommodationSlots"),
-            roomLabel: v.string(),
-            roomTypeLabel: v.string(),
-            assignable: v.boolean(),
-          })
-        ),
-      }),
-    })
-  ),
+  returns: v.array(publicSignupCatalogEventValidator),
   handler: async (ctx) => {
-    const publishedOpenEvents = await ctx.db
-      .query("signupEvents")
-      .withIndex("by_isPublished_and_isSignupOpen", (q) =>
+    const openEvents = await ctx.db
+      .query("events")
+      .withIndex("by_signup_visibility", (q) =>
         q.eq("isPublished", true).eq("isSignupOpen", true)
       )
       .take(PUBLIC_EVENT_LIMIT)
 
-    const orderedEvents = [...publishedOpenEvents].sort((a, b) => {
+    const orderedEvents = [...openEvents].sort((a, b) => {
       if (a.startsAt !== b.startsAt) {
         return a.startsAt - b.startsAt
       }
+
       return a.title.localeCompare(b.title)
     })
 
     return await Promise.all(
       orderedEvents.map(async (event) => {
+        const eventSources = await ctx.db
+          .query("eventSources")
+          .withIndex("by_eventId", (q) => q.eq("eventId", event._id))
+          .take(EVENT_SOURCE_LIMIT)
+        const primarySource =
+          eventSources.find(
+            (source) => source.provider === event.primarySourceProvider
+          ) ??
+          eventSources[0] ??
+          null
+
         const ticketTypes = await ctx.db
-          .query("signupTicketTypes")
-          .withIndex("by_signupEventId", (q) =>
-            q.eq("signupEventId", event._id)
-          )
+          .query("ticketTypes")
+          .withIndex("by_eventId", (q) => q.eq("eventId", event._id))
           .take(EVENT_TICKET_LIMIT)
 
         const tickets = ticketTypes
           .map(mapTicket)
-          .sort((a, b) => a.label.localeCompare(b.label))
+          .sort((left, right) => left.label.localeCompare(right.label))
 
         const accommodation = !event.accommodationEnabled
           ? {
@@ -201,16 +217,22 @@ export const getPublicSignupCatalog = query({
                 reason: "event_closed" as const,
                 slots: [],
               }
-            : await mapAssignableSlots(ctx, event._id)
+            : await getAssignableSlotSummaries(ctx, event._id)
 
         return {
           eventId: event._id,
-          source: event.source,
-          sourceEventRef: event.sourceEventRef,
           slug: event.slug,
           title: event.title,
           startsAt: event.startsAt,
+          endsAt: event.endsAt,
+          timezone: event.timezone,
           currency: event.currency,
+          source: {
+            kind: event.primarySourceKind,
+            provider:
+              event.primarySourceProvider ?? primarySource?.provider ?? null,
+            externalEventId: primarySource?.externalEventId ?? null,
+          },
           tickets,
           accommodation,
         }
