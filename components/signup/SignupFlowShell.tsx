@@ -10,12 +10,18 @@ import {
   createInitialSignupDraft,
   deriveAttendeeDraftsFromTicketSelections,
   invalidateDownstreamForTicketChange,
+  invalidateDownstreamForRoomChange,
   SIGNUP_STEP_ORDER,
   type SignupDraft,
   type SignupStep,
   type TicketSelectionDraft,
 } from "@/components/signup/state"
+import {
+  buildAssignmentBoard,
+  summarizeUnfilledBeds,
+} from "@/components/signup/assignment"
 import { TicketStep } from "@/components/signup/steps/TicketStep"
+import { RoomAssignmentStep } from "@/components/signup/steps/RoomAssignmentStep"
 
 type SignupFlowShellProps = {
   slug: string
@@ -104,14 +110,44 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     0
   )
 
+  const roomBoard = useMemo(
+    () =>
+      buildAssignmentBoard(
+        activeDraft.attendees.map((attendee) => ({
+          attendeeId: attendee.attendeeKey,
+          name: attendee.name || `Attendee ${attendee.attendeeKey}`,
+        })),
+        activeEvent.accommodation.slots,
+        activeDraft.assignments
+      ),
+    [
+      activeDraft.assignments,
+      activeDraft.attendees,
+      activeEvent.accommodation.slots,
+    ]
+  )
+  const roomSummary = useMemo(
+    () => summarizeUnfilledBeds(roomBoard),
+    [roomBoard]
+  )
+
   const completedByStep: Record<SignupStep, boolean> = useMemo(
     () => ({
       tickets: totalSelectedTickets > 0,
-      rooms: true,
+      rooms:
+        !activeEvent.accommodation.eligible ||
+        roomSummary.unfilledBeds === 0 ||
+        activeDraft.acknowledgeRandomFill,
       attendees: activeDraft.attendees.length > 0,
       review: false,
     }),
-    [activeDraft.attendees.length, totalSelectedTickets]
+    [
+      activeDraft.acknowledgeRandomFill,
+      activeDraft.attendees.length,
+      activeEvent.accommodation.eligible,
+      roomSummary.unfilledBeds,
+      totalSelectedTickets,
+    ]
   )
 
   function canAccessStep(step: SignupStep) {
@@ -190,6 +226,27 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     })
   }
 
+  function handleRoomAssignmentsChange(
+    nextAssignments: Record<string, string>
+  ) {
+    setDraft((current) =>
+      current
+        ? invalidateDownstreamForRoomChange(current, nextAssignments)
+        : current
+    )
+  }
+
+  function handleAcknowledgeRandomFill(checked: boolean) {
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            acknowledgeRandomFill: checked,
+          }
+        : current
+    )
+  }
+
   const stepTitle =
     activeDraft.step === "tickets"
       ? "Tickets"
@@ -262,7 +319,27 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
             </>
           ) : null}
           {activeDraft.step === "rooms" ? (
-            <p>Room assignment interaction appears in the next task.</p>
+            <>
+              <RoomAssignmentStep
+                event={activeEvent}
+                attendees={activeDraft.attendees.map((attendee) => ({
+                  attendeeKey: attendee.attendeeKey,
+                  name: attendee.name,
+                }))}
+                assignments={activeDraft.assignments}
+                acknowledgeRandomFill={activeDraft.acknowledgeRandomFill}
+                onAssignmentChange={handleRoomAssignmentsChange}
+                onAcknowledgeRandomFillChange={handleAcknowledgeRandomFill}
+              />
+              {activeEvent.accommodation.eligible &&
+              roomSummary.unfilledBeds > 0 &&
+              !activeDraft.acknowledgeRandomFill ? (
+                <p className="font-medium text-destructive">
+                  Acknowledge random-fill risk or assign all beds before
+                  continuing.
+                </p>
+              ) : null}
+            </>
           ) : null}
           {activeDraft.step === "attendees" ? (
             <p>Attendee details form appears in a later plan.</p>
