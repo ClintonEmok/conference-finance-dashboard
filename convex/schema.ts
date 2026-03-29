@@ -46,6 +46,88 @@ export default defineSchema({
     })
   ).index("identifier", ["identifier"]),
 
+  events: defineTable(
+    v.object({
+      slug: v.string(),
+      title: v.string(),
+      startsAt: v.number(),
+      endsAt: v.number(),
+      timezone: v.string(),
+      currency: v.string(),
+      isPublished: v.boolean(),
+      isSignupOpen: v.boolean(),
+      accommodationEnabled: v.boolean(),
+      primarySourceKind: v.union(
+        v.literal("integration"),
+        v.literal("internal")
+      ),
+      primarySourceProvider: v.optional(v.string()),
+      updatedAt: v.number(),
+    })
+  )
+    .index("by_slug", ["slug"])
+    .index("by_startsAt", ["startsAt"])
+    .index("by_signup_visibility", ["isPublished", "isSignupOpen"]),
+
+  eventSources: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      provider: v.string(),
+      externalEventId: v.string(),
+      syncStatus: v.union(
+        v.literal("active"),
+        v.literal("paused"),
+        v.literal("error")
+      ),
+      lastSyncedAt: v.optional(v.number()),
+      providerSnapshotRef: v.optional(v.string()),
+      updatedAt: v.number(),
+    })
+  )
+    .index("by_provider_and_externalEventId", ["provider", "externalEventId"])
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_provider", ["eventId", "provider"]),
+
+  ticketTypes: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      label: v.string(),
+      priceMinor: v.number(),
+      isActive: v.boolean(),
+      visibility: v.union(v.literal("public"), v.literal("hidden")),
+      availabilityState: v.union(
+        v.literal("selectable"),
+        v.literal("unavailable")
+      ),
+      unavailableReason: v.optional(v.string()),
+      updatedAt: v.number(),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_availabilityState", [
+      "eventId",
+      "availabilityState",
+    ]),
+
+  accommodationSlots: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      hotelId: v.id("accommodationHotels"),
+      roomId: v.id("accommodationRooms"),
+      slotLabel: v.string(),
+      genderPolicy: v.union(
+        v.literal("male"),
+        v.literal("female"),
+        v.literal("mixed")
+      ),
+      isAssignable: v.boolean(),
+      ineligibilityReason: v.optional(v.string()),
+      updatedAt: v.number(),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_isAssignable", ["eventId", "isAssignable"]),
+
   ticketTailorWebhookEvents: defineTable(
     v.object({
       providerEventId: v.string(),
@@ -86,166 +168,6 @@ export default defineSchema({
   )
     .index("providerEventId", ["providerEventId"])
     .index("startsAt", ["startsAt"]),
-
-  signupEvents: defineTable(
-    v.object({
-      source: v.union(v.literal("integration"), v.literal("internal")),
-      sourceEventRef: v.string(),
-      slug: v.string(),
-      title: v.string(),
-      startsAt: v.number(),
-      isPublished: v.boolean(),
-      isSignupOpen: v.boolean(),
-      accommodationEnabled: v.boolean(),
-      currency: v.string(),
-    })
-  )
-    .index("by_source_and_sourceEventRef", ["source", "sourceEventRef"])
-    .index("by_slug", ["slug"])
-    .index("by_isPublished_and_isSignupOpen", ["isPublished", "isSignupOpen"])
-    .index("by_startsAt_and_title", ["startsAt", "title"]),
-
-  signupTicketTypes: defineTable(
-    v.object({
-      signupEventId: v.string(),
-      label: v.string(),
-      priceMinor: v.number(),
-      isActive: v.boolean(),
-      visibility: v.union(v.literal("visible"), v.literal("hidden")),
-      availabilityState: v.union(
-        v.literal("selectable"),
-        v.literal("unavailable")
-      ),
-      unavailableReason: v.optional(
-        v.union(
-          v.literal("sold_out"),
-          v.literal("disabled"),
-          v.literal("hidden"),
-          v.literal("not_on_sale")
-        )
-      ),
-    })
-  )
-    .index("by_signupEventId", ["signupEventId"])
-    .index("by_signupEventId_and_availabilityState", [
-      "signupEventId",
-      "availabilityState",
-    ]),
-
-  signupAccommodationSlots: defineTable(
-    v.object({
-      signupEventId: v.string(),
-      hotelId: v.string(),
-      roomId: v.string(),
-      slotLabel: v.string(),
-      genderPolicy: v.union(
-        v.literal("male"),
-        v.literal("female"),
-        v.literal("mixed"),
-        v.literal("unknown")
-      ),
-      isAssignable: v.boolean(),
-      ineligibilityReason: v.optional(
-        v.union(
-          v.literal("accommodation_disabled"),
-          v.literal("no_assignable_inventory"),
-          v.literal("event_closed")
-        )
-      ),
-    })
-  )
-    .index("by_signupEventId", ["signupEventId"])
-    .index("by_signupEventId_and_isAssignable", [
-      "signupEventId",
-      "isAssignable",
-    ]),
-
-  signupSubmissions: defineTable(
-    v.object({
-      signupEventId: v.string(),
-      source: v.union(v.literal("integration"), v.literal("internal")),
-      idempotencyKey: v.string(),
-      payloadFingerprint: v.string(),
-      bookingRef: v.string(),
-      honeypotSeen: v.boolean(),
-      notes: v.optional(v.string()),
-      bookerName: v.string(),
-      bookerEmail: v.string(),
-      bookerPhone: v.optional(v.string()),
-      submittedAt: v.number(),
-    })
-  )
-    .index("by_signupEventId", ["signupEventId"])
-    .index("by_bookingRef", ["bookingRef"])
-    .index("by_idempotencyKey", ["idempotencyKey"])
-    .index("by_signupEventId_and_payloadFingerprint", [
-      "signupEventId",
-      "payloadFingerprint",
-    ]),
-
-  signupSubmissionAttendees: defineTable(
-    v.object({
-      submissionId: v.string(),
-      attendeeKey: v.string(),
-      fullName: v.string(),
-      email: v.string(),
-      gender: v.union(
-        v.literal("male"),
-        v.literal("female"),
-        v.literal("mixed"),
-        v.literal("unknown")
-      ),
-      location: v.string(),
-      dietaryRestrictions: v.string(),
-      roommatePreference: v.string(),
-      roommateAvoid: v.string(),
-      phone: v.string(),
-      sortOrder: v.number(),
-    })
-  )
-    .index("by_submissionId", ["submissionId"])
-    .index("by_submissionId_and_attendeeKey", ["submissionId", "attendeeKey"]),
-
-  signupSubmissionTicketSelections: defineTable(
-    v.object({
-      submissionId: v.string(),
-      attendeeKey: v.optional(v.string()),
-      ticketTypeId: v.string(),
-      quantity: v.number(),
-      sortOrder: v.number(),
-    })
-  )
-    .index("by_submissionId", ["submissionId"])
-    .index("by_submissionId_and_ticketTypeId", ["submissionId", "ticketTypeId"])
-    .index("by_ticketTypeId", ["ticketTypeId"]),
-
-  signupSubmissionAssignments: defineTable(
-    v.object({
-      submissionId: v.string(),
-      attendeeKey: v.string(),
-      slotId: v.string(),
-      sortOrder: v.number(),
-    })
-  )
-    .index("by_submissionId", ["submissionId"])
-    .index("by_submissionId_and_slotId", ["submissionId", "slotId"])
-    .index("by_slotId", ["slotId"]),
-
-  signupSubmissionIdempotency: defineTable(
-    v.object({
-      signupEventId: v.string(),
-      idempotencyKey: v.string(),
-      payloadFingerprint: v.string(),
-      submissionId: v.string(),
-      expiresAt: v.number(),
-    })
-  )
-    .index("by_signupEventId_and_idempotencyKey", [
-      "signupEventId",
-      "idempotencyKey",
-    ])
-    .index("by_expiresAt", ["expiresAt"])
-    .index("by_submissionId", ["submissionId"]),
 
   ticketTailorOrders: defineTable(
     v.object({
