@@ -31,6 +31,19 @@ const assignmentValidator = v.object({
   slotId: v.string(),
 })
 
+type SignupSubmissionErrorCode =
+  | "CAPACITY_EXCEEDED"
+  | "TICKET_UNAVAILABLE"
+  | "ASSIGNMENT_UNAVAILABLE"
+  | "SUBMISSION_CONFLICT"
+
+function throwSignupError(
+  code: SignupSubmissionErrorCode,
+  message: string
+): never {
+  throw new Error(`${code}: ${message}`)
+}
+
 function normalizeRequiredString(value: string, fieldName: string) {
   const normalized = value.trim()
 
@@ -123,11 +136,15 @@ export const submitSignupEnvelope = mutation({
     const notes = normalizeOptionalString(args.notes)
 
     if (args.attendees.length === 0) {
-      throw new Error("Invalid 'attendees'. At least one attendee is required.")
+      throwSignupError(
+        "SUBMISSION_CONFLICT",
+        "Invalid 'attendees'. At least one attendee is required."
+      )
     }
 
     if (args.ticketSelections.length === 0) {
-      throw new Error(
+      throwSignupError(
+        "SUBMISSION_CONFLICT",
         "Invalid 'ticketSelections'. At least one ticket selection is required."
       )
     }
@@ -141,7 +158,14 @@ export const submitSignupEnvelope = mutation({
       : null
 
     if (!signupEvent) {
-      throw new Error("Signup event not found")
+      throwSignupError("SUBMISSION_CONFLICT", "Signup event not found")
+    }
+
+    if (!signupEvent.isPublished || !signupEvent.isSignupOpen) {
+      throwSignupError(
+        "SUBMISSION_CONFLICT",
+        "Signup is currently closed for this event"
+      )
     }
 
     const idempotencyRecord = await ctx.db
@@ -154,6 +178,13 @@ export const submitSignupEnvelope = mutation({
       .unique()
 
     if (idempotencyRecord && idempotencyRecord.expiresAt >= now) {
+      if (idempotencyRecord.payloadFingerprint !== payloadFingerprint) {
+        throwSignupError(
+          "SUBMISSION_CONFLICT",
+          "Idempotency key already used with a different payload"
+        )
+      }
+
       const normalizedSubmissionId = ctx.db.normalizeId(
         "signupSubmissions",
         idempotencyRecord.submissionId
@@ -179,7 +210,10 @@ export const submitSignupEnvelope = mutation({
       )
 
       if (attendeeKeys.has(attendeeKey)) {
-        throw new Error(`Duplicate attendee key '${attendeeKey}' in envelope.`)
+        throwSignupError(
+          "SUBMISSION_CONFLICT",
+          `Duplicate attendee key '${attendeeKey}' in envelope.`
+        )
       }
 
       attendeeKeys.add(attendeeKey)
@@ -205,9 +239,56 @@ export const submitSignupEnvelope = mutation({
         q.eq("signupEventId", signupEventId)
       )
       .take(200)
-    const ticketTypeIds = new Set(
-      availableTicketTypes.map((ticket) => String(ticket._id))
+    const ticketById = new Map(
+      availableTicketTypes.map((ticket) => [String(ticket._id), ticket])
     )
+
+    const requestedTicketCount = args.ticketSelections.reduce(
+      (sum, selection) => sum + selection.quantity,
+      0
+    )
+
+    if (signupEvent.accommodationEnabled) {
+      const assignableSlots = await ctx.db
+        .query("signupAccommodationSlots")
+        .withIndex("by_signupEventId_and_isAssignable", (q) =>
+          q.eq("signupEventId", signupEventId).eq("isAssignable", true)
+        )
+        .take(500)
+
+      const capacityLimit = assignableSlots.length
+      if (capacityLimit > 0) {
+        const eventSubmissionIds = (
+          await ctx.db
+            .query("signupSubmissions")
+            .withIndex("by_signupEventId", (q) =>
+              q.eq("signupEventId", signupEventId)
+            )
+            .take(500)
+        ).map((submission) => submission._id)
+
+        let existingReservedTickets = 0
+        for (const submissionId of eventSubmissionIds) {
+          const selections = await ctx.db
+            .query("signupSubmissionTicketSelections")
+            .withIndex("by_submissionId", (q) =>
+              q.eq("submissionId", String(submissionId))
+            )
+            .take(500)
+          existingReservedTickets += selections.reduce(
+            (sum, selection) => sum + selection.quantity,
+            0
+          )
+        }
+
+        if (existingReservedTickets + requestedTicketCount > capacityLimit) {
+          throwSignupError(
+            "CAPACITY_EXCEEDED",
+            "Ticket capacity exceeded for this event"
+          )
+        }
+      }
+    }
 
     for (const selection of args.ticketSelections) {
       const ticketTypeId = normalizeRequiredString(
@@ -216,20 +297,35 @@ export const submitSignupEnvelope = mutation({
       )
       const quantity = selection.quantity
 
-      if (!ticketTypeIds.has(ticketTypeId)) {
-        throw new Error(
+      const ticket = ticketById.get(ticketTypeId)
+      if (!ticket) {
+        throwSignupError(
+          "TICKET_UNAVAILABLE",
           "Selected ticket type does not belong to this signup event"
         )
       }
 
+      if (
+        ticket.availabilityState !== "selectable" ||
+        !ticket.isActive ||
+        ticket.visibility !== "visible"
+      ) {
+        throwSignupError(
+          "TICKET_UNAVAILABLE",
+          "Selected ticket type is no longer selectable"
+        )
+      }
+
       if (!Number.isInteger(quantity) || quantity <= 0) {
-        throw new Error(
+        throwSignupError(
+          "SUBMISSION_CONFLICT",
           "Invalid 'ticketSelections.quantity'. Expected a positive integer."
         )
       }
 
       if (selection.attendeeKey && !attendeeKeys.has(selection.attendeeKey)) {
-        throw new Error(
+        throwSignupError(
+          "SUBMISSION_CONFLICT",
           `Ticket selection references unknown attendee '${selection.attendeeKey}'.`
         )
       }
@@ -241,7 +337,9 @@ export const submitSignupEnvelope = mutation({
         q.eq("signupEventId", signupEventId)
       )
       .take(500)
-    const slotIds = new Set(availableSlots.map((slot) => String(slot._id)))
+    const slotById = new Map(
+      availableSlots.map((slot) => [String(slot._id), slot])
+    )
 
     for (const assignment of args.assignments) {
       const attendeeKey = normalizeRequiredString(
@@ -254,13 +352,37 @@ export const submitSignupEnvelope = mutation({
       )
 
       if (!attendeeKeys.has(attendeeKey)) {
-        throw new Error(
+        throwSignupError(
+          "SUBMISSION_CONFLICT",
           `Assignment references unknown attendee key '${attendeeKey}'.`
         )
       }
 
-      if (!slotIds.has(slotId)) {
-        throw new Error(`Assignment references unknown slot '${slotId}'.`)
+      const slot = slotById.get(slotId)
+      if (!slot) {
+        throwSignupError(
+          "ASSIGNMENT_UNAVAILABLE",
+          `Assignment references unknown slot '${slotId}'.`
+        )
+      }
+
+      if (!slot.isAssignable) {
+        throwSignupError(
+          "ASSIGNMENT_UNAVAILABLE",
+          "Selected room slot is no longer assignable"
+        )
+      }
+
+      const existingAssignment = await ctx.db
+        .query("signupSubmissionAssignments")
+        .withIndex("by_slotId", (q) => q.eq("slotId", slotId))
+        .first()
+
+      if (existingAssignment) {
+        throwSignupError(
+          "CAPACITY_EXCEEDED",
+          "Selected room slot has already been claimed"
+        )
       }
     }
 

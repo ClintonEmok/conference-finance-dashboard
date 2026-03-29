@@ -216,10 +216,8 @@ export default defineSchema({
     })
   )
     .index("by_submissionId", ["submissionId"])
-    .index("by_submissionId_and_ticketTypeId", [
-      "submissionId",
-      "ticketTypeId",
-    ]),
+    .index("by_submissionId_and_ticketTypeId", ["submissionId", "ticketTypeId"])
+    .index("by_ticketTypeId", ["ticketTypeId"]),
 
   signupSubmissionAssignments: defineTable(
     v.object({
@@ -230,7 +228,8 @@ export default defineSchema({
     })
   )
     .index("by_submissionId", ["submissionId"])
-    .index("by_submissionId_and_slotId", ["submissionId", "slotId"]),
+    .index("by_submissionId_and_slotId", ["submissionId", "slotId"])
+    .index("by_slotId", ["slotId"]),
 
   signupSubmissionIdempotency: defineTable(
     v.object({

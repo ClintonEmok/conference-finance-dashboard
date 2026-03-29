@@ -386,6 +386,7 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_slotId: ["slotId", "_creationTime"];
       by_submissionId: ["submissionId", "_creationTime"];
       by_submissionId_and_slotId: ["submissionId", "slotId", "_creationTime"];
     };
@@ -539,6 +540,7 @@ export type DataModel = {
         "ticketTypeId",
         "_creationTime",
       ];
+      by_ticketTypeId: ["ticketTypeId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
