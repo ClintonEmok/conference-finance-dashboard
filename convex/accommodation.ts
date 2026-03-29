@@ -466,18 +466,31 @@ export const getRoomTypesWithCount = query({
 export const getRoomsWithDetails = query({
   args: {},
   handler: async (ctx) => {
-    const rooms = await ctx.db.query("accommodationRooms").collect()
-    const hotels = await ctx.db.query("accommodationHotels").collect()
-    const roomTypes = await ctx.db.query("accommodationRoomTypes").collect()
+    const [rooms, hotels, roomTypes, attendees] = await Promise.all([
+      ctx.db.query("accommodationRooms").collect(),
+      ctx.db.query("accommodationHotels").collect(),
+      ctx.db.query("accommodationRoomTypes").collect(),
+      ctx.db.query("ticketTailorAttendees").collect(),
+    ])
 
     const hotelMap = new Map(hotels.map((h) => [h._id as string, h]))
     const roomTypeMap = new Map(roomTypes.map((rt) => [rt._id as string, rt]))
+
+    const occupancyByRoom = new Map<string, number>()
+    for (const attendee of attendees) {
+      if (attendee.assignedRoomId) {
+        occupancyByRoom.set(
+          attendee.assignedRoomId,
+          (occupancyByRoom.get(attendee.assignedRoomId) ?? 0) + 1
+        )
+      }
+    }
 
     return rooms.map((room) => ({
       id: room._id,
       label: room.label,
       capacity: room.capacity,
-      occupiedBeds: room.occupiedBeds ?? 0,
+      occupiedBeds: occupancyByRoom.get(room._id) ?? 0,
       notes: room.notes,
       hotel: hotelMap.get(room.hotelId as string),
       roomType: roomTypeMap.get(room.roomTypeId as string),
@@ -488,12 +501,14 @@ export const getRoomsWithDetails = query({
 export const listAccommodationInventory = query({
   args: {},
   handler: async (ctx) => {
-    const [availableEvents, hotels, roomTypes, rooms] = await Promise.all([
-      ctx.db.query("ticketTailorEvents").collect(),
-      ctx.db.query("accommodationHotels").collect(),
-      ctx.db.query("accommodationRoomTypes").collect(),
-      ctx.db.query("accommodationRooms").collect(),
-    ])
+    const [availableEvents, hotels, roomTypes, rooms, attendees] =
+      await Promise.all([
+        ctx.db.query("ticketTailorEvents").collect(),
+        ctx.db.query("accommodationHotels").collect(),
+        ctx.db.query("accommodationRoomTypes").collect(),
+        ctx.db.query("accommodationRooms").collect(),
+        ctx.db.query("ticketTailorAttendees").collect(),
+      ])
 
     const eventHotels = await ctx.db.query("accommodationEventHotels").collect()
 
@@ -526,6 +541,16 @@ export const listAccommodationInventory = query({
     const roomTypeMap = new Map(roomTypes.map((rt) => [rt._id as string, rt]))
     const hotelMap = new Map(hotels.map((h) => [h._id as string, h]))
 
+    const occupancyByRoom = new Map<string, number>()
+    for (const attendee of attendees) {
+      if (attendee.assignedRoomId) {
+        occupancyByRoom.set(
+          attendee.assignedRoomId,
+          (occupancyByRoom.get(attendee.assignedRoomId) ?? 0) + 1
+        )
+      }
+    }
+
     return {
       availableEvents: availableEvents.map((e) => ({
         providerEventId: e.providerEventId,
@@ -549,7 +574,7 @@ export const listAccommodationInventory = query({
       rooms: rooms.map((room) => {
         const hotel = hotelMap.get(room.hotelId as string)
         const roomType = roomTypeMap.get(room.roomTypeId as string)
-        const occupied = room.occupiedBeds ?? 0
+        const occupied = occupancyByRoom.get(room._id) ?? 0
         return {
           id: room._id,
           label: room.label,
@@ -568,11 +593,14 @@ export const listAccommodationInventory = query({
       }),
       summary: {
         totalRooms: rooms.length,
-        emptyRooms: rooms.filter((r) => (r.occupiedBeds ?? 0) === 0).length,
-        availableRooms: rooms.filter((r) => (r.occupiedBeds ?? 0) < r.capacity)
+        emptyRooms: rooms.filter((r) => (occupancyByRoom.get(r._id) ?? 0) === 0)
           .length,
-        fullRooms: rooms.filter((r) => (r.occupiedBeds ?? 0) >= r.capacity)
-          .length,
+        availableRooms: rooms.filter(
+          (r) => (occupancyByRoom.get(r._id) ?? 0) < r.capacity
+        ).length,
+        fullRooms: rooms.filter(
+          (r) => (occupancyByRoom.get(r._id) ?? 0) >= r.capacity
+        ).length,
         unassignedAttendees: 0,
       },
     }
@@ -649,7 +677,6 @@ export const createRoom = mutation({
     await requireIdentity(ctx)
     const id = await ctx.db.insert("accommodationRooms", {
       ...args,
-      occupiedBeds: 0,
     })
     return id
   },
@@ -711,7 +738,6 @@ export const createRooms = mutation({
         label,
         capacity: roomType.defaultCapacity,
         notes: args.notes,
-        occupiedBeds: 0,
       })
       createdIds.push(id)
     }
