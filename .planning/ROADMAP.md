@@ -50,7 +50,8 @@
 5. ✅ Error boundaries exist for all dashboard routes — no white-screen crashes
 6. CSV export includes all fields (isArchived, archivedAt, archiveReason)
 7. Race conditions in payment auto-match and Tikkie quota enforcement resolved
-8. `formatMoney` consolidated into shared utility (no longer duplicated in 12 files)
+8. ✅ `formatMoney` consolidated into shared utility (no longer duplicated in 14 files)
+9. ✅ Custom modal shells in payment/Tikkie UI replaced with accessible Radix Dialog primitives
 
 Plans:
 
@@ -59,7 +60,7 @@ Plans:
 - [x] 17-03-PLAN.md — Rate limiting, integration timeouts/retries, and auto-sync hardening (completed 2026-03-29)
 - [ ] 17-04-PLAN.md — Dashboard error/loading boundaries
 - [x] 17-05-PLAN.md — Route-level error and loading fallbacks (completed 2026-03-28)
-- [ ] 17-06-PLAN.md — Room occupancy truth + duplicate assignment mutation cleanup
+- [x] 17-06-PLAN.md — Centralize money formatting + fix modal accessibility (completed 2026-03-29)
 - [ ] 17-07-PLAN.md — CSV archive completeness + atomic payment matching/quota enforcement
 - [ ] 17-08-PLAN.md — Indexed/bounded finance and attendee reads
 - [ ] 17-09-PLAN.md — Accommodation board performance + shared interface extraction
