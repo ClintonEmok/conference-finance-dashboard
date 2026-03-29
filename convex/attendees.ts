@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
+import { api } from "./_generated/api"
 
 function filterAttendees(
   attendees: Array<{
@@ -232,8 +233,9 @@ export const assignRoom = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    await ctx.db.patch("ticketTailorAttendees", args.attendeeId, {
-      assignedRoomId: args.roomId,
+    await ctx.runMutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: args.attendeeId,
+      roomId: args.roomId,
     })
     return args.attendeeId
   },
@@ -245,8 +247,8 @@ export const unassignRoom = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    await ctx.db.patch("ticketTailorAttendees", args.attendeeId, {
-      assignedRoomId: undefined,
+    await ctx.runMutation(api.accommodation.unassignAttendeeFromRoom, {
+      attendeeId: args.attendeeId,
     })
     return args.attendeeId
   },
