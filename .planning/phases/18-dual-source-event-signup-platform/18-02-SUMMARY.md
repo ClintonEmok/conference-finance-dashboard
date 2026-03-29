@@ -7,124 +7,115 @@ tags: [convex, signup, mutation, nextjs-route, vitest]
 # Dependency graph
 requires:
   - phase: 18-dual-source-event-signup-platform
-    provides: canonical signup event/ticket/accommodation read contract from 18-01
+    provides: Canonical signup read model and source-aware catalog contracts from 18-01
 provides:
-  - Atomic signup envelope write mutation and canonical submission tables
-  - Public submit API route and domain normalization bridge
-  - Baseline submit-route regression tests for success and invalid payloads
-affects: [18-03, 19-01, 19-02, 20-01]
+  - Atomic signup envelope persistence boundary in Convex (`submitSignupEnvelope`)
+  - Canonical submission schema tables and indexes for event/submission/idempotency lookups
+  - Public submit API route + server bridge returning stable submission references
+affects: [18-03, 19-public-signup-pages, 20-admin-event-management]
 
 # Tech tracking
 tech-stack:
   added: []
   patterns:
-    - Public signup submission boundary uses domain normalization before Convex mutation writes
-    - Submission persistence uses parent+child table decomposition with idempotency metadata table
+    - Single-mutation envelope persistence (submission header + child rows) with pre-write invariant checks
+    - Route-level validation contract (`INVALID_SUBMISSION`) over domain normalization boundary
 
 key-files:
-  created:
+  created: []
+  modified:
+    - convex/schema.ts
     - convex/signupSubmission.ts
+    - lib/types/signup.ts
     - lib/domain/signup/submission.ts
     - app/api/signup/submit/route.ts
     - app/api/signup/submit/route.test.ts
-  modified:
-    - convex/schema.ts
-    - lib/types/signup.ts
     - convex/_generated/api.d.ts
     - convex/_generated/dataModel.d.ts
     - vitest.config.ts
 
 key-decisions:
-  - "Persist signup envelopes in canonical additive submission tables (`signupSubmissions` + child tables) rather than overloading provider-centric entities."
-  - "Domain bridge normalizes unknown route payloads into a typed `SignupSubmissionEnvelope` before Convex mutation execution."
-  - "Route-level signup tests live with the API route path and vitest include scope was expanded to run app/api tests."
+  - "Canonical submission records use additive non-prefixed tables (`submissions`, `submissionAttendees`, `submissionTicketSelections`, `submissionAssignments`, `submissionIdempotency`) with typed Convex id relations."
+  - "Submission ticket selections are persisted strictly per attendee with `quantity = 1` to avoid aggregate/per-attendee model ambiguity."
+  - "Public submit route returns a stable `{ submissionId, bookingRef, submittedAt }` payload from the domain bridge."
 
 patterns-established:
-  - "Submission contract pattern: route parses unknown JSON -> domain validator -> Convex mutation -> stable `{ submissionId, bookingRef, submittedAt }` response."
-  - "Idempotency metadata capture pattern: submission stores `idempotencyKey` + `payloadFingerprint` with an expiry window record."
+  - "Validate all envelope invariants before any child-row writes; persist header and child rows in one Convex mutation handler."
+  - "Keep idempotency table PII-minimized (event keying + fingerprint + submission reference only)."
 
 # Metrics
-duration: 7min
+duration: 6m
 completed: 2026-03-29
 ---
 
-# Phase 18 Plan 02: Atomic Signup Submission Summary
+# Phase 18 Plan 02: Atomic Signup Submission Boundary Summary
 
-**Public signup now has an atomic envelope write boundary that persists booker/attendees/tickets/assignment intent in one Convex mutation and returns a stable submission reference.**
+**Atomic canonical signup submission persistence is now live with a typed Next.js submit route and stable booking-reference response contract.**
 
 ## Performance
 
-- **Duration:** 7 min
-- **Started:** 2026-03-29T20:48:59Z
-- **Completed:** 2026-03-29T20:56:09Z
+- **Duration:** 6m
+- **Started:** 2026-03-29T22:32:20Z
+- **Completed:** 2026-03-29T22:38:43Z
 - **Tasks:** 2
 - **Files modified:** 9
 
 ## Accomplishments
 
-- Added canonical submission schema entities and implemented `submitSignupEnvelope` with strict validators and pre-write invariants.
-- Added typed server-domain normalization bridge (`submitSignup`) that maps unknown request payloads to `SignupSubmissionEnvelope`.
-- Added `POST /api/signup/submit` endpoint with `201` success contract and `INVALID_SUBMISSION` validation error path, plus route-level tests.
+- Added canonical submission tables and required indexes in `convex/schema.ts` for fast event, booking, child-row, and idempotency lookups.
+- Implemented `convex/signupSubmission.ts` `submitSignupEnvelope` mutation with strict validators, invariant checks, and single-handler persistence of submission + attendees + ticket selections + assignments.
+- Added `lib/domain/signup/submission.ts` and `POST /api/signup/submit` route returning `{ data: { submissionId, bookingRef, submittedAt } }`, plus baseline success/invalid route tests.
 
 ## Task Commits
 
 Each task was committed atomically:
 
-1. **Task 1: Build atomic envelope persistence mutation** - `14be258` (feat)
-2. **Task 2: Expose public submit route and server bridge** - `630c5eb` (feat)
-
-**Plan metadata:** Pending in next docs commit
+1. **Task 1: Build atomic envelope persistence mutation** - `d1f71c0` (feat)
+2. **Task 2: Expose public submit route and server bridge** - `59f770a` (feat)
 
 ## Files Created/Modified
 
-- `convex/schema.ts` - Added `signupSubmissions`, `signupSubmissionAttendees`, `signupSubmissionTicketSelections`, `signupSubmissionAssignments`, and `signupSubmissionIdempotency` tables + indexes.
-- `convex/signupSubmission.ts` - Added `submitSignupEnvelope` mutation with full args/returns validators and transaction-scoped writes.
-- `lib/types/signup.ts` - Added `SignupSubmissionEnvelope`, `SignupSubmissionResult`, and submission-related error code type unions.
-- `lib/domain/signup/submission.ts` - Added input normalization, validation errors, payload fingerprint/idempotency derivation, and Convex bridge call.
-- `app/api/signup/submit/route.ts` - Added public submit POST handler with 201 success and 400 validation response contracts.
-- `app/api/signup/submit/route.test.ts` - Added route tests for successful submit and invalid payload path.
-- `vitest.config.ts` - Added `app/api/**/*.test.ts` include so route-local tests execute.
+- `convex/schema.ts` - Added canonical submission entities and operational indexes.
+- `convex/signupSubmission.ts` - Added atomic submission mutation with strict args/returns validators.
+- `lib/types/signup.ts` - Added shared signup submission envelope/result types and source/gender unions.
+- `lib/domain/signup/submission.ts` - Added server-side normalization/validation bridge to Convex mutation.
+- `app/api/signup/submit/route.ts` - Added public POST route with 201 and INVALID_SUBMISSION contracts.
+- `app/api/signup/submit/route.test.ts` - Added baseline route tests for success and validation failure.
+- `convex/_generated/api.d.ts` - Regenerated function references including `signupSubmission.submitSignupEnvelope`.
+- `convex/_generated/dataModel.d.ts` - Regenerated data model bindings for new submission tables.
+- `vitest.config.ts` - Updated include globs so route tests in `app/**` are discoverable by `npm run test -- signup`.
 
 ## Decisions Made
 
-- Kept submission persistence additive and canonical to protect existing Ticket Tailor/Tikkie finance workflows.
-- Standardized submission route output as `{ data: { submissionId, bookingRef, submittedAt } }` for Phase 19 retry/restore flow integration.
-- Centralized submission payload normalization in domain layer instead of route handler to keep route boundary thin and testable.
+- Used canonical `eventId`/`submissionId`/`attendeeId`/`ticketTypeId`/`slotId` typed IDs throughout submission write relations.
+- Kept idempotency storage PII-minimized and separate from submission contact payload.
+- Retained mutation-level invariant checks (event open, attendee key uniqueness, event-scoped ticket/slot ownership) before persistence.
 
 ## Deviations from Plan
 
 ### Auto-fixed Issues
 
-**1. [Rule 2 - Missing Critical] Added missing canonical submission tables in schema**
+**1. [Rule 3 - Blocking] Expanded Vitest include patterns so signup route tests execute**
 
-- **Found during:** Task 1 (atomic envelope persistence mutation)
-- **Issue:** Plan required writes to `signupSubmissions` and child tables, but schema lacked those entities.
-- **Fix:** Added all required canonical submission tables and indexes in `convex/schema.ts`, then regenerated Convex bindings.
-- **Files modified:** `convex/schema.ts`, `convex/_generated/api.d.ts`, `convex/_generated/dataModel.d.ts`
-- **Verification:** `npm run typecheck` passes with typed references to all new tables.
-- **Committed in:** `14be258` (part of Task 1 commit)
-
-**2. [Rule 3 - Blocking] Expanded vitest include for route-local test execution**
-
-- **Found during:** Task 2 (public submit route tests)
-- **Issue:** Existing vitest include only matched `tests/**/*.test.ts`, so required `app/api/signup/submit/route.test.ts` would not run under `npm run test -- signup`.
-- **Fix:** Updated `vitest.config.ts` include to also run `app/api/**/*.test.ts`.
+- **Found during:** Task 2 (Expose public submit route and server bridge)
+- **Issue:** `npm run test -- signup` failed with “No test files found” because `vitest.config.ts` only included `tests/**/*.test.ts` and ignored `app/api/signup/submit/route.test.ts`.
+- **Fix:** Updated `vitest.config.ts` include list to add `app/**/*.test.ts`.
 - **Files modified:** `vitest.config.ts`
-- **Verification:** `npm run test -- signup` executes and passes the new route test file.
-- **Committed in:** `630c5eb` (part of Task 2 commit)
+- **Verification:** `npm run test -- signup`
+- **Committed in:** `59f770a`
 
 ---
 
-**Total deviations:** 2 auto-fixed (1 missing critical, 1 blocking)
-**Impact on plan:** Both fixes were required for correctness and verification fidelity; no scope creep.
-
-## Issues Encountered
-
-- Convex type generation initially failed to recognize newly referenced submission tables until schema updates were codified and codegen rerun.
+**Total deviations:** 1 auto-fixed (1 blocking)
+**Impact on plan:** Required to run planned route regression tests; no scope creep.
 
 ## Authentication Gates
 
 None.
+
+## Issues Encountered
+
+- None beyond the test-discovery blocker auto-fix.
 
 ## User Setup Required
 
@@ -132,8 +123,8 @@ None - no external service configuration required.
 
 ## Next Phase Readiness
 
-- Ready for 18-03 transactional guard hardening (capacity/ticket/assignment checks + abuse controls).
-- Submission mutation and public route are in place for idempotency and rate-limit enhancements.
+- Ready for 18-03 guard hardening (transactional capacity, duplicate/idempotent replay behavior, and submit-route abuse controls).
+- Public signup write boundary now exists for Phase 19 UI integration.
 
 ---
 

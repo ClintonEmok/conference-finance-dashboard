@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Event Signup + Dual-Source Events
-status: Phase 18 canonical signup schema and public catalog contract established
-stopped_at: Completed 18-01-PLAN.md (canonical signup schema + bounded public catalog)
-last_updated: "2026-03-29T22:30:01Z"
+status: Phase 18 submission envelope persistence boundary and public submit route established
+stopped_at: Completed 18-02-PLAN.md (atomic submission persistence + submit route)
+last_updated: "2026-03-29T22:38:43Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
-  percent: 33
+  completed_plans: 2
+  percent: 67
 ---
 
 # Project State
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 ## Current Position
 
 Milestone: v2.0 (event-signup-dual-source) — ACTIVE
-Phase: 18 (Dual-Source Event Signup Platform) — IN PROGRESS (1/3 plans complete)
-Plan: 18-01 complete — Canonical signup schema + bounded source-aware public catalog contract
-Status: Phase 18 execution in progress — ready for 18-02 (atomic submission envelope)
-Last activity: 2026-03-29 — Completed 18-01: canonical events/eventSources/ticketTypes/accommodationSlots + signupCatalog
+Phase: 18 (Dual-Source Event Signup Platform) — IN PROGRESS (2/3 plans complete)
+Plan: 18-02 complete — Atomic signup envelope persistence + public submit route bridge
+Status: Phase 18 execution in progress — ready for 18-03 (transactional guards + abuse controls)
+Last activity: 2026-03-29 — Completed 18-02: canonical submission tables, submitSignupEnvelope mutation, submit API route/tests
 
-Progress: ███░░░░░░░ 33% (1/3 plans)
+Progress: ███████░░░ 67% (2/3 plans)
 
 ## Alignment Status
 
@@ -66,6 +66,7 @@ Progress: ███░░░░░░░ 33% (1/3 plans)
 - **Room occupancy single-sourced:** Room occupancy is now derived from `ticketTailorAttendees.assignedRoomId` at query time in `getRoomsWithDetails`, `listAccommodationInventory`, and `getRoomAllocationBoard` — no more `occupiedBeds` counter writes from assignment/unassignment mutations (17-07).
 - **Assignment mutations consolidated:** `attendees.assignRoom` and `attendees.unassignRoom` now delegate to accommodation mutations, enforcing capacity checks and event-hotel validation consistently (17-07).
 - **Canonical signup read foundation added:** New additive tables (`events`, `eventSources`, `ticketTypes`, `accommodationSlots`) and `signupCatalog.getPublicSignupCatalog` now provide one source-aware public contract for published/open signup events (18-01).
+- **Atomic submission boundary added:** `submitSignupEnvelope` now persists canonical submission envelopes (`submissions` + child rows + idempotency) in one mutation transaction and returns stable references (`submissionId`, `bookingRef`, `submittedAt`) (18-02).
 
 ## Key Decisions
 
@@ -116,6 +117,8 @@ Recent decisions that future work should preserve:
 - [17-09] Extract shared Convex validators into lib/types/\* for cross-layer type contracts — payments, orders, attendees, accommodation, tikkie.
 - [18-01] Canonical signup public reads resolve from additive non-prefixed tables (`events`, `eventSources`, `ticketTypes`, `accommodationSlots`), while legacy `ticketTailor*` tables remain intact for compatibility.
 - [18-01] Public signup catalog contract exposes machine-readable ticket/accommodation reason codes with strict `returns` validators and bounded indexed reads only.
+- [18-02] Canonical submission persistence uses additive non-prefixed tables with typed ID relationships and keeps idempotency records PII-minimized.
+- [18-02] Public submit route contract returns `201` with `{ submissionId, bookingRef, submittedAt }` and maps validation failures to `INVALID_SUBMISSION` `400` responses.
 
 ## Active Patterns / Constraints
 
@@ -144,6 +147,7 @@ Recent decisions that future work should preserve:
 - Public event pages must only expose published/internal-safe fields and never leak operator-only finance data.
 - Internal signup writes should be idempotent enough for accidental duplicate submits and enforce capacity constraints at write time.
 - Public signup catalog reads must use `api.signupCatalog.getPublicSignupCatalog` and keep event filtering to published + signup-open visibility.
+- Signup submission writes must flow through `api.signupSubmission.submitSignupEnvelope` and maintain per-attendee ticket selection rows (`quantity = 1`).
 
 ## Blockers / Concerns
 
@@ -175,7 +179,7 @@ Recent decisions that future work should preserve:
 - Phase 15: Event-level Tikkie UI + attendee Tikkie cleanup (complete)
 - Phase 16: v1 milestone gap closure execution complete (16-01/16-02/16-03/16-04 complete)
 - Phase 17: Fix Critical Code Review Issues — COMPLETE (9/9 plans: 17-01 Convex auth guards, 17-02 webhook/auth fail-closed, 17-03 transport hardening, 17-04 circular cron-HTTP path removed, 17-05 error/loading fallbacks, 17-06 formatMoney centralization + dialog accessibility, 17-07 room occupancy single-sourced + mutation consolidation, 17-08 finance correctness, 17-09 pagination + bounded reads + shared types)
-- Phase 18: Schema + Canonical Contracts (in progress — 18-01 complete, 18-02/18-03 planned)
+- Phase 18: Schema + Canonical Contracts (in progress — 18-01/18-02 complete, 18-03 planned)
 - Phase 19: Public Signup Pages (planned — 3 plans)
 - Phase 20: Admin Event Management (planned — 3 plans)
 - Phase 21: Finance Integration (planned — 3 plans)
@@ -183,7 +187,7 @@ Recent decisions that future work should preserve:
 ## Session Continuity
 
 - **Last activity:** 2026-03-29
-- **Last session:** 2026-03-29T22:30:01Z
-- **Stopped at:** Completed 18-01-PLAN.md (canonical signup schema + bounded public catalog)
+- **Last session:** 2026-03-29T22:38:43Z
+- **Stopped at:** Completed 18-02-PLAN.md (atomic submission persistence + submit route)
 - **Resume file:** None
-- **Next recommended plan:** Continue Phase 18 with `18-02-PLAN.md` (atomic submission envelope persistence)
+- **Next recommended plan:** Continue Phase 18 with `18-03-PLAN.md` (transactional guards + abuse controls)
