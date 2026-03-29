@@ -60,6 +60,24 @@ const TICKET_TAILOR_FETCH_TIMEOUT_MS = Number(
   process.env.TICKET_TAILOR_FETCH_TIMEOUT_MS ?? 15_000
 )
 
+const TICKET_TAILOR_MAX_RETRIES = Number(
+  process.env.TICKET_TAILOR_MAX_RETRIES ?? 2
+)
+
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") return true
+  if (error instanceof TypeError) return true // network errors
+  return false
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status >= 500 || status === 429
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function fetchWithTimeout(
   url: URL | string,
   init: RequestInit,
@@ -93,24 +111,57 @@ export async function ticketTailorFetch<T>(
     throw new Error("Ticket Tailor is not configured: missing API key")
   }
 
-  const response = await fetchWithTimeout(
-    url,
-    {
-      method: options.method ?? "GET",
-      headers: buildRequestHeaders(config.values.apiKey),
-      cache: "no-store",
-    },
-    TICKET_TAILOR_FETCH_TIMEOUT_MS
-  )
+  const method = options.method ?? "GET"
+  const maxAttempts = TICKET_TAILOR_MAX_RETRIES + 1
+  let lastError: unknown = null
 
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(
-      `Ticket Tailor request failed (${response.status}): ${text}`
-    )
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await fetchWithTimeout(
+        url,
+        {
+          method,
+          headers: buildRequestHeaders(config.values.apiKey),
+          cache: "no-store",
+        },
+        TICKET_TAILOR_FETCH_TIMEOUT_MS
+      )
+
+      if (!response.ok) {
+        if (isRetryableStatus(response.status) && attempt < maxAttempts) {
+          await sleep(500 * attempt)
+          continue
+        }
+
+        const text = await response.text()
+        throw new Error(
+          `Ticket Tailor request failed (${response.status}): ${text}`
+        )
+      }
+
+      return (await response.json()) as T
+    } catch (error) {
+      lastError = error
+
+      if (
+        error instanceof Error &&
+        error.message.startsWith("Ticket Tailor request failed")
+      ) {
+        throw error
+      }
+
+      if (isRetryableError(error) && attempt < maxAttempts) {
+        await sleep(500 * attempt)
+        continue
+      }
+
+      throw error
+    }
   }
 
-  return (await response.json()) as T
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Ticket Tailor request failed after retries")
 }
 
 function asRecord(value: unknown): JsonRecord {
