@@ -360,6 +360,25 @@ export declare const api: {
       },
       Id<"events">
     >;
+    createTicketType: FunctionReference<
+      "mutation",
+      "public",
+      {
+        eventId: Id<"events">;
+        isActive?: boolean;
+        label: string;
+        maxQuantity?: number;
+        priceMinor: number;
+        visibility?: "public" | "hidden";
+      },
+      any
+    >;
+    deleteTicketType: FunctionReference<
+      "mutation",
+      "public",
+      { ticketTypeId: Id<"ticketTypes"> },
+      any
+    >;
     getEventById: FunctionReference<
       "query",
       "public",
@@ -439,6 +458,12 @@ export declare const api: {
       { providerEventId: string },
       any
     >;
+    getTicketTypesForEvent: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
     updateEvent: FunctionReference<
       "mutation",
       "public",
@@ -455,6 +480,20 @@ export declare const api: {
         startsAt?: number;
         timezone?: string;
         title?: string;
+      },
+      any
+    >;
+    updateTicketType: FunctionReference<
+      "mutation",
+      "public",
+      {
+        availabilityState?: "selectable" | "unavailable";
+        isActive?: boolean;
+        label?: string;
+        maxQuantity?: number;
+        priceMinor?: number;
+        ticketTypeId: Id<"ticketTypes">;
+        visibility?: "public" | "hidden";
       },
       any
     >;

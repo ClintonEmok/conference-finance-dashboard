@@ -53,47 +53,110 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   const [restoreChoicePending, setRestoreChoicePending] = useState(false)
   const [idempotencyKey] = useState(() => `signup-${Date.now()}`)
 
+  // Use primitive values for stable effect dependencies
+  const eventId = event?.eventId
+  const sourceKind = event?.source?.kind
+
   useEffect(() => {
-    if (!event) {
+    if (!eventId || !sourceKind) {
       return
     }
 
-    const storageKey = `signup-draft:${event.eventId}`
+    const storageKey = `signup-draft:${eventId}`
 
     try {
       const raw = window.localStorage.getItem(storageKey)
       if (!raw) {
-        setDraft(createInitialSignupDraft(event.eventId, event.source.kind))
+        setDraft(createInitialSignupDraft(eventId, sourceKind))
         return
       }
 
       const parsed = JSON.parse(raw) as SignupDraft
 
-      if (
-        parsed.eventId !== event.eventId ||
-        parsed.source !== event.source.kind
-      ) {
-        setDraft(createInitialSignupDraft(event.eventId, event.source.kind))
+      if (parsed.eventId !== eventId || parsed.source !== sourceKind) {
+        setDraft(createInitialSignupDraft(eventId, sourceKind))
         return
       }
 
       setDraft(parsed)
     } catch {
-      setDraft(createInitialSignupDraft(event.eventId, event.source.kind))
+      setDraft(createInitialSignupDraft(eventId, sourceKind))
     }
-  }, [event])
+  }, [eventId, sourceKind])
 
   useEffect(() => {
     if (!event || !draft) {
       return
     }
 
-    window.localStorage.setItem(
-      `signup-draft:${event.eventId}`,
-      JSON.stringify(draft)
-    )
-  }, [draft, event])
+    if (eventId) {
+      window.localStorage.setItem(
+        `signup-draft:${eventId}`,
+        JSON.stringify(draft)
+      )
+    }
+  }, [draft, eventId])
 
+  // Memoized computed values - always called, but only computed when data is ready
+  const currentStepIndex = useMemo(() => {
+    if (!draft) return 0
+    return SIGNUP_STEP_ORDER.indexOf(draft.step)
+  }, [draft?.step])
+
+  const totalSelectedTickets = useMemo(() => {
+    if (!draft) return 0
+    return draft.ticketSelections.reduce(
+      (sum, ticket) => sum + ticket.quantity,
+      0
+    )
+  }, [draft?.ticketSelections])
+
+  const roomBoard = useMemo(() => {
+    if (!event || !draft) return null
+    return buildAssignmentBoard(
+      draft.attendees.map((attendee) => ({
+        attendeeId: attendee.attendeeKey,
+        name: attendee.name || `Attendee ${attendee.attendeeKey}`,
+      })),
+      event.accommodation.slots,
+      draft.assignments
+    )
+  }, [event?.accommodation?.slots, draft?.attendees, draft?.assignments])
+
+  const roomSummary = useMemo(() => {
+    if (!roomBoard) return { unfilledBeds: 0 }
+    return summarizeUnfilledBeds(roomBoard)
+  }, [roomBoard])
+
+  const attendeeValidationSnapshot = useMemo(() => {
+    if (!draft) return { isValid: false, byAttendee: {} }
+    return validateAttendeeDetails(draft.attendees)
+  }, [draft?.attendees])
+
+  const completedByStep: Record<SignupStep, boolean> = useMemo(() => {
+    if (!event || !draft) {
+      return { tickets: false, rooms: false, attendees: false, review: false }
+    }
+    return {
+      tickets: totalSelectedTickets > 0,
+      rooms:
+        !event.accommodation.eligible ||
+        roomSummary.unfilledBeds === 0 ||
+        draft.acknowledgeRandomFill,
+      attendees:
+        draft.attendees.length > 0 && attendeeValidationSnapshot.isValid,
+      review: false,
+    }
+  }, [
+    draft?.acknowledgeRandomFill,
+    draft?.attendees?.length,
+    event?.accommodation?.eligible,
+    attendeeValidationSnapshot.isValid,
+    roomSummary.unfilledBeds,
+    totalSelectedTickets,
+  ])
+
+  // Early returns after all hooks are called
   if (!event) {
     return (
       <main className="mx-auto flex min-h-svh w-full max-w-4xl items-center justify-center p-6">
@@ -124,58 +187,6 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
   const activeEvent = event
   const activeDraft = draft
-
-  const currentStepIndex = SIGNUP_STEP_ORDER.indexOf(activeDraft.step)
-  const totalSelectedTickets = activeDraft.ticketSelections.reduce(
-    (sum, ticket) => sum + ticket.quantity,
-    0
-  )
-
-  const roomBoard = useMemo(
-    () =>
-      buildAssignmentBoard(
-        activeDraft.attendees.map((attendee) => ({
-          attendeeId: attendee.attendeeKey,
-          name: attendee.name || `Attendee ${attendee.attendeeKey}`,
-        })),
-        activeEvent.accommodation.slots,
-        activeDraft.assignments
-      ),
-    [
-      activeDraft.assignments,
-      activeDraft.attendees,
-      activeEvent.accommodation.slots,
-    ]
-  )
-  const roomSummary = useMemo(
-    () => summarizeUnfilledBeds(roomBoard),
-    [roomBoard]
-  )
-  const attendeeValidationSnapshot = useMemo(
-    () => validateAttendeeDetails(activeDraft.attendees),
-    [activeDraft.attendees]
-  )
-
-  const completedByStep: Record<SignupStep, boolean> = useMemo(
-    () => ({
-      tickets: totalSelectedTickets > 0,
-      rooms:
-        !activeEvent.accommodation.eligible ||
-        roomSummary.unfilledBeds === 0 ||
-        activeDraft.acknowledgeRandomFill,
-      attendees:
-        activeDraft.attendees.length > 0 && attendeeValidationSnapshot.isValid,
-      review: false,
-    }),
-    [
-      activeDraft.acknowledgeRandomFill,
-      activeDraft.attendees.length,
-      activeEvent.accommodation.eligible,
-      attendeeValidationSnapshot.isValid,
-      roomSummary.unfilledBeds,
-      totalSelectedTickets,
-    ]
-  )
 
   function validateAttendeeDetails(attendees: SignupDraft["attendees"]) {
     const byAttendee: Record<string, string[]> = {}

@@ -11,6 +11,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { useEvents } from "@/lib/convex/hooks/events"
+import { useAttendees } from "@/lib/convex/hooks/attendees"
+import {
+  usePaymentTemplates,
+  useCreatePaymentTemplate,
+  useUpdatePaymentTemplate,
+  useDeletePaymentTemplate,
+} from "@/lib/convex/hooks/tikkie"
 
 type EventOption = {
   id: string
@@ -51,11 +59,7 @@ const DEFAULT_FORM: TemplateFormState = {
 }
 
 export default function TicketTypesSettingsPage() {
-  const [events, setEvents] = useState<EventOption[]>([])
   const [selectedEventId, setSelectedEventId] = useState<string>("")
-  const [templates, setTemplates] = useState<TemplateSummary[]>([])
-  const [isLoadingEvents, setIsLoadingEvents] = useState(true)
-  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -65,6 +69,14 @@ export default function TicketTypesSettingsPage() {
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  // Load events from Convex
+  const eventsData = useEvents()
+  const isLoadingEvents = eventsData === undefined
+  const events: EventOption[] = useMemo(() => {
+    if (!eventsData) return []
+    return eventsData.map((e) => ({ id: e._id, name: e.title }))
+  }, [eventsData])
 
   const uniqueEvents = useMemo(() => {
     const seen = new Set<string>()
@@ -94,62 +106,64 @@ export default function TicketTypesSettingsPage() {
     }
   }, [selectedEventId, uniqueEvents])
 
-  // Load available events on mount
-  useEffect(() => {
-    async function loadEvents() {
-      setIsLoadingEvents(true)
-      try {
-        const response = await fetch(
-          "/api/dashboard/attendees?page=1&pageSize=1"
-        )
-        if (!response.ok) {
-          throw new Error("Failed to load events")
-        }
-        const body = (await response.json()) as {
-          availableEvents: EventOption[]
-        }
-        setEvents(body.availableEvents)
-        if (body.availableEvents.length > 0 && !selectedEventId) {
-          setSelectedEventId(body.availableEvents[0].id)
-        }
-      } catch {
-        setErrorMessage("Failed to load events. Please refresh the page.")
-      } finally {
-        setIsLoadingEvents(false)
+  // Load attendees and templates for selected event
+  const attendeesData = useAttendees(
+    selectedEventId ? { eventId: selectedEventId } : undefined
+  )
+  const templatesData = usePaymentTemplates(selectedEventId)
+
+  const isLoadingTemplates =
+    attendeesData === undefined || templatesData === undefined
+
+  // Build template summaries client-side
+  const templates: TemplateSummary[] = useMemo(() => {
+    if (!attendeesData || !templatesData || !selectedEventId) return []
+
+    // Count attendees per ticket type
+    const ticketTypeCounts = new Map<string, number>()
+    for (const attendee of attendeesData) {
+      const label = attendee.ticketTypeLabel
+      if (label) {
+        ticketTypeCounts.set(label, (ticketTypeCounts.get(label) ?? 0) + 1)
       }
     }
 
-    void loadEvents()
-  }, [])
-
-  // Load templates when event is selected
-  useEffect(() => {
-    if (!selectedEventId) {
-      setTemplates([])
-      return
-    }
-
-    async function loadTemplates() {
-      setIsLoadingTemplates(true)
-      setErrorMessage(null)
-      try {
-        const response = await fetch(
-          `/api/dashboard/tikkie-templates?eventId=${encodeURIComponent(selectedEventId)}&summary=1`
-        )
-        if (!response.ok) {
-          throw new Error("Failed to load templates")
-        }
-        const body = (await response.json()) as { templates: TemplateSummary[] }
-        setTemplates(body.templates)
-      } catch {
-        setErrorMessage("Failed to load templates. Please try again.")
-      } finally {
-        setIsLoadingTemplates(false)
+    // Map templates to DTOs
+    const templateMap = new Map<string, TemplateDto>()
+    for (const t of templatesData) {
+      if (t.isActive !== false) {
+        templateMap.set(t.ticketTypeLabel, {
+          id: t._id,
+          eventId: t.eventId,
+          ticketTypeLabel: t.ticketTypeLabel,
+          amountMinor: t.amountMinor,
+          descriptionTemplate: t.descriptionTemplate,
+          expiryDays: t.expiryDays ?? 14,
+          isActive: t.isActive ?? true,
+        })
       }
     }
 
-    void loadTemplates()
-  }, [selectedEventId])
+    // Build summaries
+    const summaries: TemplateSummary[] = []
+    for (const [ticketTypeLabel, attendeeCount] of ticketTypeCounts) {
+      summaries.push({
+        eventId: selectedEventId,
+        ticketTypeLabel,
+        template: templateMap.get(ticketTypeLabel) ?? null,
+        attendeeCount,
+      })
+    }
+
+    return summaries.sort((a, b) =>
+      a.ticketTypeLabel.localeCompare(b.ticketTypeLabel)
+    )
+  }, [attendeesData, templatesData, selectedEventId])
+
+  // Mutations
+  const createTemplate = useCreatePaymentTemplate()
+  const updateTemplate = useUpdatePaymentTemplate()
+  const deleteTemplate = useDeletePaymentTemplate()
 
   function openAddForm(ticketTypeLabel: string) {
     setEditingTemplateId(null)
@@ -201,37 +215,22 @@ export default function TicketTypesSettingsPage() {
         amountMinor: Math.round(euros * 100),
         descriptionTemplate: formState.descriptionTemplate.trim(),
         expiryDays: formState.expiryDays ? Number(formState.expiryDays) : 14,
+        isActive: true,
       }
 
-      const response = await fetch("/api/dashboard/tikkie-templates", {
-        method: editingTemplateId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          editingTemplateId ? { ...payload, id: editingTemplateId } : payload
-        ),
-      })
-
-      if (!response.ok) {
-        const body = (await response.json()) as {
-          error?: { message?: string }
-        } | null
-        throw new Error(
-          body?.error?.message ??
-            `Failed to ${editingTemplateId ? "update" : "create"} template`
-        )
+      if (editingTemplateId) {
+        await updateTemplate({
+          templateId: editingTemplateId as any,
+          amountMinor: payload.amountMinor,
+          descriptionTemplate: payload.descriptionTemplate,
+          expiryDays: payload.expiryDays,
+          isActive: true,
+        })
+      } else {
+        await createTemplate(payload)
       }
 
       closeForm()
-      // Reload templates
-      const refreshResponse = await fetch(
-        `/api/dashboard/tikkie-templates?eventId=${encodeURIComponent(selectedEventId)}&summary=1`
-      )
-      if (refreshResponse.ok) {
-        const body = (await refreshResponse.json()) as {
-          templates: TemplateSummary[]
-        }
-        setTemplates(body.templates)
-      }
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "An error occurred")
     } finally {
@@ -249,27 +248,7 @@ export default function TicketTypesSettingsPage() {
     }
 
     try {
-      const response = await fetch(
-        `/api/dashboard/tikkie-templates?id=${encodeURIComponent(templateId)}`,
-        {
-          method: "DELETE",
-        }
-      )
-
-      if (!response.ok) {
-        throw new Error("Failed to delete template")
-      }
-
-      // Reload templates
-      const refreshResponse = await fetch(
-        `/api/dashboard/tikkie-templates?eventId=${encodeURIComponent(selectedEventId)}&summary=1`
-      )
-      if (refreshResponse.ok) {
-        const body = (await refreshResponse.json()) as {
-          templates: TemplateSummary[]
-        }
-        setTemplates(body.templates)
-      }
+      await deleteTemplate({ templateId: templateId as any })
     } catch {
       setErrorMessage("Failed to delete template. Please try again.")
     }

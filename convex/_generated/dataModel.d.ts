@@ -804,7 +804,9 @@ export type DataModel = {
       eventId: Id<"events">;
       isActive: boolean;
       label: string;
+      maxQuantity?: number;
       priceMinor: number;
+      soldCount?: number;
       unavailableReason?: string;
       updatedAt: number;
       visibility: "public" | "hidden";
@@ -818,7 +820,9 @@ export type DataModel = {
       | "eventId"
       | "isActive"
       | "label"
+      | "maxQuantity"
       | "priceMinor"
+      | "soldCount"
       | "unavailableReason"
       | "updatedAt"
       | "visibility";

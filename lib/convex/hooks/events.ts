@@ -49,3 +49,23 @@ export function useCreateEvent() {
 export function useUpdateEvent() {
   return useMutation(api.events.updateEvent)
 }
+
+// Ticket type queries and mutations
+export function useTicketTypesForEvent(eventId: string | undefined) {
+  return useQuery(
+    api.events.getTicketTypesForEvent,
+    eventId ? { eventId: eventId as any } : ("skip" as any)
+  )
+}
+
+export function useCreateTicketType() {
+  return useMutation(api.events.createTicketType)
+}
+
+export function useUpdateTicketType() {
+  return useMutation(api.events.updateTicketType)
+}
+
+export function useDeleteTicketType() {
+  return useMutation(api.events.deleteTicketType)
+}

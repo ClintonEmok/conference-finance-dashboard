@@ -265,3 +265,75 @@ export const upsertTicketTailorEvent = mutation({
     return await ctx.db.insert("ticketTailorEvents", args)
   },
 })
+
+// =============================================================================
+// TICKET TYPES - Queries and mutations for event ticket management
+// =============================================================================
+
+export const getTicketTypesForEvent = query({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("ticketTypes")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .collect()
+  },
+})
+
+export const createTicketType = mutation({
+  args: {
+    eventId: v.id("events"),
+    label: v.string(),
+    priceMinor: v.number(),
+    maxQuantity: v.optional(v.number()),
+    isActive: v.optional(v.boolean()),
+    visibility: v.optional(v.union(v.literal("public"), v.literal("hidden"))),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const now = Date.now()
+    return await ctx.db.insert("ticketTypes", {
+      eventId: args.eventId,
+      label: args.label,
+      priceMinor: args.priceMinor,
+      maxQuantity: args.maxQuantity,
+      soldCount: 0,
+      isActive: args.isActive ?? true,
+      visibility: args.visibility ?? "public",
+      availabilityState: "selectable",
+      updatedAt: now,
+    })
+  },
+})
+
+export const updateTicketType = mutation({
+  args: {
+    ticketTypeId: v.id("ticketTypes"),
+    label: v.optional(v.string()),
+    priceMinor: v.optional(v.number()),
+    maxQuantity: v.optional(v.number()),
+    isActive: v.optional(v.boolean()),
+    visibility: v.optional(v.union(v.literal("public"), v.literal("hidden"))),
+    availabilityState: v.optional(
+      v.union(v.literal("selectable"), v.literal("unavailable"))
+    ),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const { ticketTypeId, ...updates } = args
+    await ctx.db.patch("ticketTypes", ticketTypeId, {
+      ...updates,
+      updatedAt: Date.now(),
+    })
+    return ticketTypeId
+  },
+})
+
+export const deleteTicketType = mutation({
+  args: { ticketTypeId: v.id("ticketTypes") },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    await ctx.db.delete("ticketTypes", args.ticketTypeId)
+    return args.ticketTypeId
+  },
+})

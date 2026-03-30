@@ -3,7 +3,16 @@
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
-import { Calendar, ChevronRight, Plus, Filter, Search } from "lucide-react"
+import {
+  Calendar,
+  ChevronRight,
+  Plus,
+  Filter,
+  Search,
+  Copy,
+  Check,
+  ExternalLink,
+} from "lucide-react"
 import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
@@ -11,6 +20,43 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useEvents } from "@/lib/convex/hooks/events"
 import { cn } from "@/lib/utils"
+
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error("Failed to copy:", err)
+    }
+  }
+
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        handleCopy()
+      }}
+      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      title={`Copy ${label}`}
+    >
+      {copied ? (
+        <>
+          <Check className="size-3 text-emerald-500" />
+          <span className="text-emerald-500">Copied</span>
+        </>
+      ) : (
+        <>
+          <Copy className="size-3" />
+          <span>Copy</span>
+        </>
+      )}
+    </button>
+  )
+}
 
 type EventSource = "internal" | "ticketTailor"
 
@@ -194,7 +240,7 @@ export default function EventsPage() {
                   Status
                 </th>
                 <th className="px-6 py-4 text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase">
-                  Source
+                  Public URLs
                 </th>
                 <th className="w-10 px-6 py-4"></th>
               </tr>
@@ -263,10 +309,45 @@ export default function EventsPage() {
                       {getStatusBadge(event.isPublished)}
                     </td>
                     <td className="px-6 py-5">
-                      {getSourceBadge(
-                        event.primarySourceKind === "internal"
-                          ? "internal"
-                          : "ticketTailor"
+                      {event.isPublished ? (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1">
+                            <a
+                              href={`/events/${event.slug}`}
+                              onClick={(e) => e.stopPropagation()}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            >
+                              <ExternalLink className="size-3" />
+                              <span>/events/{event.slug}</span>
+                            </a>
+                            <CopyButton
+                              text={`${typeof window !== "undefined" ? window.location.origin : ""}/events/${event.slug}`}
+                              label="event page URL"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <a
+                              href={`/signup/${event.slug}`}
+                              onClick={(e) => e.stopPropagation()}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs text-primary transition-colors hover:bg-muted hover:text-primary"
+                            >
+                              <ExternalLink className="size-3" />
+                              <span>/signup/{event.slug}</span>
+                            </a>
+                            <CopyButton
+                              text={`${typeof window !== "undefined" ? window.location.origin : ""}/signup/${event.slug}`}
+                              label="signup URL"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground italic">
+                          Not published
+                        </span>
                       )}
                     </td>
                     <td className="px-6 py-5">

@@ -20,6 +20,9 @@ import {
   X,
   Plus,
   Building2,
+  Copy,
+  ExternalLink,
+  Ticket,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -42,8 +45,14 @@ import {
   useUnlinkHotelFromEvent,
 } from "@/lib/convex/hooks/accommodation"
 import { useAccommodationSummaryForEvent } from "@/lib/convex/hooks/accommodation"
+import {
+  useTicketTypesForEvent,
+  useCreateTicketType,
+  useUpdateTicketType,
+  useDeleteTicketType,
+} from "@/lib/convex/hooks/events"
 
-type TabKey = "overview" | "settings" | "sources" | "accommodation"
+type TabKey = "overview" | "settings" | "sources" | "accommodation" | "tickets"
 
 const COMMON_TIMEZONES = [
   "Europe/London",
@@ -94,6 +103,45 @@ function getSourceBadge(kind: string, provider?: string) {
   )
 }
 
+function CopyButton({ url, label }: { url: string; label: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    try {
+      const fullUrl = `${window.location.origin}${url}`
+      await navigator.clipboard.writeText(fullUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error("Failed to copy:", err)
+    }
+  }
+
+  return (
+    <button
+      onClick={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        handleCopy()
+      }}
+      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      title={`Copy ${label}`}
+    >
+      {copied ? (
+        <>
+          <Check className="size-3 text-emerald-500" />
+          <span className="text-emerald-500">Copied!</span>
+        </>
+      ) : (
+        <>
+          <Copy className="size-3" />
+          <span>Copy</span>
+        </>
+      )}
+    </button>
+  )
+}
+
 export default function EventDetailPage({
   params,
 }: {
@@ -129,6 +177,23 @@ export default function EventDetailPage({
   const linkHotelToEvent = useLinkHotelToEvent()
   const unlinkHotelFromEvent = useUnlinkHotelFromEvent()
   const accommodationSummary = useAccommodationSummaryForEvent(event?._id)
+
+  // Ticket types state
+  const ticketTypes = useTicketTypesForEvent(event?._id)
+  const createTicketType = useCreateTicketType()
+  const updateTicketType = useUpdateTicketType()
+  const deleteTicketType = useDeleteTicketType()
+
+  // Ticket form state
+  const [isAddingTicket, setIsAddingTicket] = useState(false)
+  const [editingTicketId, setEditingTicketId] = useState<string | null>(null)
+  const [ticketLabel, setTicketLabel] = useState("")
+  const [ticketPrice, setTicketPrice] = useState("")
+  const [ticketQuantity, setTicketQuantity] = useState("")
+  const [ticketIsActive, setTicketIsActive] = useState(true)
+  const [ticketVisibility, setTicketVisibility] = useState<"public" | "hidden">(
+    "public"
+  )
 
   const formatDateTimeLocal = (timestamp: number) => {
     const date = new Date(timestamp)
@@ -206,6 +271,78 @@ export default function EventDetailPage({
     }
   }
 
+  // Ticket handlers
+  const handleAddTicket = async () => {
+    if (!event || !ticketLabel.trim() || !ticketPrice) return
+    try {
+      await createTicketType({
+        eventId: event._id,
+        label: ticketLabel.trim(),
+        priceMinor: Math.round(parseFloat(ticketPrice) * 100),
+        maxQuantity: ticketQuantity ? parseInt(ticketQuantity) : undefined,
+        isActive: ticketIsActive,
+        visibility: ticketVisibility,
+      })
+      // Reset form
+      setTicketLabel("")
+      setTicketPrice("")
+      setTicketQuantity("")
+      setTicketIsActive(true)
+      setTicketVisibility("public")
+      setIsAddingTicket(false)
+    } catch (err) {
+      console.error("Failed to create ticket:", err)
+    }
+  }
+
+  const handleUpdateTicket = async () => {
+    if (!editingTicketId || !ticketLabel.trim() || !ticketPrice) return
+    try {
+      await updateTicketType({
+        ticketTypeId: editingTicketId as any,
+        label: ticketLabel.trim(),
+        priceMinor: Math.round(parseFloat(ticketPrice) * 100),
+        maxQuantity: ticketQuantity ? parseInt(ticketQuantity) : undefined,
+        isActive: ticketIsActive,
+        visibility: ticketVisibility,
+      })
+      setEditingTicketId(null)
+      setTicketLabel("")
+      setTicketPrice("")
+      setTicketQuantity("")
+    } catch (err) {
+      console.error("Failed to update ticket:", err)
+    }
+  }
+
+  const handleDeleteTicket = async (ticketTypeId: string) => {
+    if (!confirm("Are you sure you want to delete this ticket type?")) return
+    try {
+      await deleteTicketType({ ticketTypeId: ticketTypeId as any })
+    } catch (err) {
+      console.error("Failed to delete ticket:", err)
+    }
+  }
+
+  const startEditingTicket = (ticket: any) => {
+    setEditingTicketId(ticket._id)
+    setTicketLabel(ticket.label)
+    setTicketPrice((ticket.priceMinor / 100).toFixed(2))
+    setTicketQuantity(ticket.maxQuantity?.toString() ?? "")
+    setTicketIsActive(ticket.isActive)
+    setTicketVisibility(ticket.visibility)
+  }
+
+  const cancelTicketEdit = () => {
+    setIsAddingTicket(false)
+    setEditingTicketId(null)
+    setTicketLabel("")
+    setTicketPrice("")
+    setTicketQuantity("")
+    setTicketIsActive(true)
+    setTicketVisibility("public")
+  }
+
   const isSignupOpenDisabled = !editIsPublished
 
   if (event === undefined) {
@@ -244,6 +381,7 @@ export default function EventDetailPage({
 
   const tabs: { key: TabKey; label: string; icon: React.ElementType }[] = [
     { key: "overview", label: "Overview", icon: Calendar },
+    { key: "tickets", label: "Tickets", icon: Ticket },
     { key: "settings", label: "Settings", icon: Settings },
     { key: "sources", label: "Sources", icon: LinkIcon },
   ]
@@ -281,6 +419,55 @@ export default function EventDetailPage({
                 event.primarySourceProvider
               )}
             </div>
+
+            {/* Public URLs */}
+            {event.isPublished ? (
+              <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border/50 bg-muted/20 p-3">
+                <div className="space-y-1">
+                  <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
+                    Public URLs
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-1.5">
+                      <a
+                        href={`/events/${event.slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 rounded px-2 py-1 font-mono text-xs text-primary transition-colors hover:bg-muted"
+                      >
+                        <ExternalLink className="size-3" />
+                        <span>/events/{event.slug}</span>
+                      </a>
+                      <CopyButton
+                        url={`/events/${event.slug}`}
+                        label="Event page URL"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <a
+                        href={`/signup/${event.slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 rounded bg-primary/10 px-2 py-1 font-mono text-xs text-primary transition-colors hover:bg-primary/20"
+                      >
+                        <ExternalLink className="size-3" />
+                        <span>/signup/{event.slug}</span>
+                      </a>
+                      <CopyButton
+                        url={`/signup/${event.slug}`}
+                        label="Signup URL"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border/50 bg-muted/10 p-3">
+                <p className="text-xs text-muted-foreground italic">
+                  Event is not published. Publish to get public URLs.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
