@@ -100,25 +100,25 @@ Plans:
 - [ ] 20-02-PLAN.md — Source-agnostic adapter updates (internal + integration compatibility)
 - [ ] 20-03-PLAN.md — End-to-end verification: signup submission -> operator rooming workflow
 
-### Phase 21: UI for event creation and UI for event pages
+### Phase 21: Accommodation UX Redesign
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Make adding accommodation to an event feel like a coherent single workflow. Move from scattered multi-page setup to inline event settings flow.
+
 **Depends on:** Phase 20
-**Plans:** 0 plans
+
+**Success Criteria:**
+
+1. Event settings page becomes the primary accommodation setup interface (inline hotel linking, room creation, room type management)
+2. Single unified mutation for hotel-to-event linking (consolidated from two parallel mutations)
+3. Automatic slot generation when rooms are provisioned/linked for an event
+4. Clear status indicators and guardrails (warn when linking hotels with 0 rooms)
+5. Scope Reach Management modal removed from inventory page
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 21 to break down)
 
-### Phase 22: Migrate TicketTailor Event IDs to Canonical
-
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 21
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (run /gsd:plan-phase 22 to break down)
+- [x] 21-01-PLAN.md — Consolidate hotel linking mutations + add auto-slot generation
+- [x] 21-02-PLAN.md — Redesign event settings accommodation section (inline flow)
+- [x] 21-03-PLAN.md — Remove Scope Reach modal and deprecated linking path
 
 ---
 

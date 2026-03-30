@@ -1092,6 +1092,179 @@ export default function EventDetailPage({
             </CardContent>
           </Card>
         )}
+
+        {activeTab === "tickets" && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Ticket Types</CardTitle>
+                  <CardDescription>
+                    Manage ticket types, pricing, and availability
+                  </CardDescription>
+                </div>
+                {!isAddingTicket && !editingTicketId && (
+                  <Button onClick={() => setIsAddingTicket(true)}>
+                    <Plus className="mr-2 size-4" />
+                    Add Ticket
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Add/Edit Ticket Form */}
+              {(isAddingTicket || editingTicketId) && (
+                <div className="space-y-4 rounded-lg border border-border/50 bg-muted/20 p-4">
+                  <h4 className="font-medium">
+                    {editingTicketId ? "Edit Ticket" : "New Ticket"}
+                  </h4>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Ticket Name</label>
+                      <input
+                        type="text"
+                        value={ticketLabel}
+                        onChange={(e) => setTicketLabel(e.target.value)}
+                        placeholder="e.g., Early Bird, Standard"
+                        className="h-10 w-full rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        Price ({event.currency})
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={ticketPrice}
+                        onChange={(e) => setTicketPrice(e.target.value)}
+                        placeholder="0.00"
+                        className="h-10 w-full rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        Quantity Available
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={ticketQuantity}
+                        onChange={(e) => setTicketQuantity(e.target.value)}
+                        placeholder="Unlimited"
+                        className="h-10 w-full rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Visibility</label>
+                      <select
+                        value={ticketVisibility}
+                        onChange={(e) =>
+                          setTicketVisibility(
+                            e.target.value as "public" | "hidden"
+                          )
+                        }
+                        className="h-10 w-full rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
+                      >
+                        <option value="public">Public</option>
+                        <option value="hidden">Hidden</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={ticketIsActive}
+                        onChange={(e) => setTicketIsActive(e.target.checked)}
+                        className="size-4 rounded border-border"
+                      />
+                      Active
+                    </label>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={cancelTicketEdit}>
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={
+                        editingTicketId ? handleUpdateTicket : handleAddTicket
+                      }
+                      disabled={!ticketLabel.trim() || !ticketPrice}
+                    >
+                      {editingTicketId ? "Update" : "Add"} Ticket
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Ticket List */}
+              {ticketTypes === undefined ? (
+                <Skeleton className="h-48" />
+              ) : ticketTypes.length === 0 ? (
+                <div className="py-12 text-center text-muted-foreground">
+                  <Ticket className="mx-auto mb-3 size-12 opacity-30" />
+                  <p className="font-medium">No ticket types yet</p>
+                  <p className="text-sm">
+                    Add your first ticket type to start selling tickets.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {ticketTypes.map((ticket: any) => (
+                    <div
+                      key={ticket._id}
+                      className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 p-4"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium">{ticket.label}</p>
+                          <Badge
+                            variant={ticket.isActive ? "default" : "outline"}
+                            className="text-[10px]"
+                          >
+                            {ticket.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                          <Badge variant="outline" className="text-[10px]">
+                            {ticket.visibility}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {event.currency}{" "}
+                          {(ticket.priceMinor / 100).toFixed(2)}
+                          {ticket.maxQuantity && (
+                            <span className="ml-2">
+                              · {ticket.maxQuantity - (ticket.soldCount || 0)}{" "}
+                              of {ticket.maxQuantity} available
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => startEditingTicket(ticket)}
+                        >
+                          <Edit className="size-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDeleteTicket(ticket._id)}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )

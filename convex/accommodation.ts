@@ -928,6 +928,7 @@ export const createRooms = mutation({
     quantity: v.number(),
     labels: v.optional(v.array(v.string())),
     notes: v.optional(v.string()),
+    autoGenerateSlots: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
@@ -979,6 +980,54 @@ export const createRooms = mutation({
         notes: args.notes,
       })
       createdIds.push(id)
+    }
+
+    // Auto-generate slots for linked events
+    const shouldGenerateSlots = args.autoGenerateSlots !== false
+    if (shouldGenerateSlots) {
+      // Find all events linked to this hotel
+      const linkedEvents = await ctx.db
+        .query("accommodationEventHotels")
+        .withIndex("hotelId", (q) => q.eq("hotelId", args.hotelId))
+        .take(50)
+
+      // Generate slots for each new room in each linked event
+      for (const link of linkedEvents) {
+        const eventId = link.eventId as Id<"events">
+
+        for (const roomId of createdIds) {
+          const room = await ctx.db.get(
+            "accommodationRooms",
+            roomId as Id<"accommodationRooms">
+          )
+          if (!room) continue
+
+          const existingSlots = await ctx.db
+            .query("accommodationSlots")
+            .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+            .filter((q) =>
+              q.eq(q.field("roomId"), roomId as Id<"accommodationRooms">)
+            )
+            .take(100)
+
+          const startIndex = existingSlots.length
+          const capacity = room.capacity
+
+          for (let i = 0; i < capacity; i++) {
+            const slotLabel = `${room.label}-Bed-${String(startIndex + i + 1).padStart(2, "0")}`
+
+            await ctx.db.insert("accommodationSlots", {
+              eventId,
+              hotelId: args.hotelId as Id<"accommodationHotels">,
+              roomId: roomId as Id<"accommodationRooms">,
+              slotLabel,
+              genderPolicy: "mixed",
+              isAssignable: true,
+              updatedAt: Date.now(),
+            })
+          }
+        }
+      }
     }
 
     return createdIds
@@ -1211,29 +1260,142 @@ export const getEventHotels = query({
   },
 })
 
+/**
+ * Link a hotel to an event with optional automatic slot generation.
+ * Supports both canonical eventId and eventProviderEventId for flexibility.
+ */
 export const linkHotelToEvent = mutation({
   args: {
-    eventId: v.string(),
+    eventId: v.optional(v.string()),
+    eventProviderEventId: v.optional(v.string()),
     hotelId: v.id("accommodationHotels"),
+    autoGenerateSlots: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+
+    // Resolve eventId from either direct ID or provider event ID
+    let canonicalEventId: string
+
+    if (args.eventId) {
+      canonicalEventId = args.eventId
+    } else if (args.eventProviderEventId) {
+      // Look up canonical event via eventSources
+      const eventSource = await ctx.db
+        .query("eventSources")
+        .withIndex("by_provider_and_externalEventId", (q) =>
+          q
+            .eq("provider", "tickettailor")
+            .eq("externalEventId", args.eventProviderEventId as string)
+        )
+        .first()
+
+      if (eventSource) {
+        canonicalEventId = eventSource.eventId as string
+      } else {
+        // Fallback: try to find by direct ID match (slug)
+        const event = await ctx.db
+          .query("events")
+          .withIndex("by_slug", (q) =>
+            q.eq("slug", args.eventProviderEventId as string)
+          )
+          .first()
+
+        if (!event) {
+          throw new Error("Event not found")
+        }
+        canonicalEventId = event._id as string
+      }
+    } else {
+      throw new Error("Either eventId or eventProviderEventId must be provided")
+    }
+
+    // Verify event exists
+    const event = await ctx.db.get("events", canonicalEventId as Id<"events">)
+    if (!event) {
+      throw new Error("Event not found")
+    }
+
+    // Verify hotel exists
+    const hotel = await ctx.db.get("accommodationHotels", args.hotelId)
+    if (!hotel) {
+      throw new Error("Hotel not found")
+    }
+
+    // Check for existing link
     const existing = await ctx.db
       .query("accommodationEventHotels")
       .withIndex("eventId_hotelId", (q) =>
-        q.eq("eventId", args.eventId).eq("hotelId", args.hotelId)
+        q.eq("eventId", canonicalEventId).eq("hotelId", args.hotelId as string)
       )
       .first()
 
     if (existing) {
-      return existing._id
+      return {
+        linkId: existing._id,
+        eventId: canonicalEventId,
+        hotelId: args.hotelId,
+        slotsGenerated: 0,
+        alreadyLinked: true,
+      }
     }
 
-    const id = await ctx.db.insert("accommodationEventHotels", {
-      eventId: args.eventId,
-      hotelId: args.hotelId,
+    // Create the link
+    const linkId = await ctx.db.insert("accommodationEventHotels", {
+      eventId: canonicalEventId,
+      hotelId: args.hotelId as string,
     })
-    return id
+
+    // Auto-generate slots if requested (default: true)
+    let slotsGenerated = 0
+    const shouldGenerateSlots = args.autoGenerateSlots !== false
+
+    if (shouldGenerateSlots) {
+      // Get all rooms for this hotel
+      const rooms = await ctx.db
+        .query("accommodationRooms")
+        .withIndex("hotelId_label", (q) =>
+          q.eq("hotelId", args.hotelId as string)
+        )
+        .take(100)
+
+      // Generate slots for each room
+      for (const room of rooms) {
+        const existingSlots = await ctx.db
+          .query("accommodationSlots")
+          .withIndex("by_eventId", (q) =>
+            q.eq("eventId", canonicalEventId as Id<"events">)
+          )
+          .filter((q) => q.eq(q.field("roomId"), room._id))
+          .take(100)
+
+        const startIndex = existingSlots.length
+        const capacity = room.capacity
+
+        for (let i = 0; i < capacity; i++) {
+          const slotLabel = `${room.label}-Bed-${String(startIndex + i + 1).padStart(2, "0")}`
+
+          await ctx.db.insert("accommodationSlots", {
+            eventId: canonicalEventId as Id<"events">,
+            hotelId: args.hotelId,
+            roomId: room._id,
+            slotLabel,
+            genderPolicy: "mixed", // Default to mixed, can be changed later
+            isAssignable: true,
+            updatedAt: Date.now(),
+          })
+          slotsGenerated++
+        }
+      }
+    }
+
+    return {
+      linkId,
+      eventId: canonicalEventId,
+      hotelId: args.hotelId,
+      slotsGenerated,
+      alreadyLinked: false,
+    }
   },
 })
 
@@ -1431,12 +1593,19 @@ export const getEventByProviderId = query({
   },
 })
 
+/**
+ * @deprecated Use linkHotelToEvent instead. This mutation will be removed in a future release.
+ * The linkHotelToEvent mutation now supports eventProviderEventId and includes auto-slot generation.
+ */
 export const attachHotelToEventByProviderId = mutation({
   args: {
     eventProviderEventId: v.string(),
     hotelId: v.string(),
   },
   handler: async (ctx, args) => {
+    console.warn(
+      "[DEPRECATED] attachHotelToEventByProviderId is deprecated. Use linkHotelToEvent with autoGenerateSlots option."
+    )
     await requireIdentity(ctx)
 
     // Look up canonical event via eventSources

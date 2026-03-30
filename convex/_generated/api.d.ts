@@ -61,6 +61,7 @@ export declare const api: {
       "mutation",
       "public",
       {
+        autoGenerateSlots?: boolean;
         hotelId: string;
         labels?: Array<string>;
         notes?: string;
@@ -174,7 +175,12 @@ export declare const api: {
     linkHotelToEvent: FunctionReference<
       "mutation",
       "public",
-      { eventId: string; hotelId: Id<"accommodationHotels"> },
+      {
+        autoGenerateSlots?: boolean;
+        eventId?: string;
+        eventProviderEventId?: string;
+        hotelId: Id<"accommodationHotels">;
+      },
       any
     >;
     listAccommodationInventory: FunctionReference<"query", "public", {}, any>;

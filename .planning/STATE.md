@@ -186,9 +186,7 @@ Recent decisions that future work should preserve:
 - Phase 18: Schema + Canonical Contracts (complete — 18-01/18-02/18-03 complete)
 - Phase 19: Public Signup Pages (planned — 3 plans)
 - Phase 20: Admin Event Management (planned — 3 plans)
-- Phase 21: Finance Integration (planned — 3 plans)
-- Phase 21: UI for event creation and UI for event pages (added — not planned yet)
-- Phase 22: Migrate TicketTailor Event IDs to Canonical (added — not planned yet)
+- Phase 21: Accommodation UX Redesign (added — inline event settings flow for accommodation setup)
 
 ## Session Continuity
 

@@ -172,6 +172,188 @@
 - Risk: False confidence — tests pass but don't validate production behavior
 - Priority: High
 
+## UX Concerns: Accommodation Module
+
+### 1. User Flow for Adding Accommodation to an Event
+
+**Step-by-step flow (current implementation):**
+
+1. **Create inventory (global)**:
+   - Navigate to `/dashboard/accommodation/inventory`
+   - Click "Register Inventory" button
+   - Step 1: Create Hotel (name, city) → Create & Continue
+   - Step 2: Create Room Type Spec (label, capacity) → Save Template
+   - Step 3: Provision Stock (select hotel, room type, quantity) → Sync Stock Block
+   - Hotel exists in global inventory at `api.accommodation.hotels`
+
+2. **Enable accommodation for event**:
+   - Navigate to `/dashboard/events/[slug]?tab=settings`
+   - Find "Accommodation Module" toggle (lines 845-886)
+   - Enable it (this sets `event.accommodationEnabled = true`)
+
+3. **Link hotel to event**:
+   - Still on event settings page, find "Linked Hotels" section (lines 889-968)
+   - Select hotel from dropdown → Click Add button
+   - Uses `linkHotelToEvent` mutation
+
+4. **Access event accommodation workspace**:
+   - Navigate to `/dashboard/accommodation/[event-slug]`
+   - Or click the "Accommodation" tab on event detail page (only visible when enabled)
+   - Or go to `/dashboard/accommodation?eventId={eventId}`
+
+5. **Manage room assignments**:
+   - In the workspace, assign attendees to rooms
+   - Track occupancy, view submissions
+
+---
+
+### 2. Where the UX is Confusing or Unclear
+
+#### **CONFUSION #1: Two Separate Hotel-to-Event Linking Mechanisms**
+
+**Location 1 - Event Settings** (`app/dashboard/events/[slug]/page.tsx` lines 246-260, 934-966):
+
+```typescript
+// Uses linkHotelToEvent mutation
+await linkHotelToEvent({
+  eventId: event._id,
+  hotelId: selectedHotelId,
+})
+```
+
+**Location 2 - Inventory Center** (`app/dashboard/accommodation/inventory/page.tsx` lines 211-240):
+
+```typescript
+// Uses attachHotelToEventByProviderId mutation (different mutation!)
+await attachHotelToEventByProviderId({
+  hotelId: activeHotelScopeId,
+  eventProviderEventId: eventId,
+})
+```
+
+**Problem**: The inventory page has a "Scope Reach Management" modal to link hotels to events, but it uses a different mutation (`attachHotelToEventByProviderId` vs `linkHotelToEvent`). This creates two parallel ways to do the same thing with no explanation of why.
+
+---
+
+#### **CONFUSION #2: No Visual Connection Between Creating Inventory and Linking to Events**
+
+**Mental Model Users Need**: "Hotels exist globally. I create them once in Inventory, then link them to events in Event Settings."
+
+**What UI Actually Shows**:
+
+- Inventory page shows hotels with NO indication of which events they're linked to (until you open Scope Reach modal)
+- Event settings shows linked hotels but doesn't indicate these hotels exist globally
+- When you create a hotel in Inventory, there's no prompt to link it to an event
+- When you link a hotel in Event Settings, there's no indication the hotel needs rooms provisioned first
+
+**Gap**: Users can link a hotel with zero rooms to an event, making the link pointless but UI shows no warning.
+
+---
+
+#### **CONFUSION #3: Inventory Page "Scope Reach" vs Event Settings "Linked Hotels" Serve Same Purpose**
+
+**Inventory Page** (`app/dashboard/accommodation/inventory/page.tsx` lines 675-748):
+
+- "Scope Reach Management" modal
+- Lists all available events with checkboxes
+- Users check which events a hotel applies to
+
+**Event Settings Page** (`app/dashboard/events/[slug]/page.tsx` lines 889-968):
+
+- "Linked Hotels" section
+- Dropdown to select hotels to add
+- Users select which hotels to link to THIS event
+
+**Problem**: These are two views of the SAME relationship (hotel ↔ event) but presented as completely separate features. A user managing inventory has no context of which events will use those hotels. A user setting up an event has no visibility into the hotel's rooms/capacity.
+
+---
+
+#### **CONFUSION #4: Hotel Must Have Rooms Before Being Useful, But No Enforcement**
+
+**Flow**:
+
+1. User creates hotel in Inventory (Step 1 of 3)
+2. User can skip to linking hotel to event
+3. User links hotel to event (now appears in event's accommodation tab)
+4. But the hotel has NO rooms yet!
+
+**Result**: Empty state in `app/dashboard/accommodation/[event-slug]/page.tsx`:
+
+```tsx
+// Lines 258-269
+{eventHotels.length === 0 ? (
+  <div className="flex flex-col items-center justify-center py-8 text-center">
+    <Hotel className="mb-4 size-12 text-muted-foreground/50" />
+    <p className="text-sm text-muted-foreground">
+      No hotels linked yet. Add hotels to enable room assignments.
+```
+
+**But there's no warning when linking a hotel with 0 rooms!**
+
+---
+
+#### **CONFUSION #5: Event's Accommodation Tab vs Main Accommodation Page - Redundant**
+
+**Event's Accommodation Tab** (`app/dashboard/events/[slug]/page.tsx` lines 1047-1085):
+
+- Shows: hotels linked, total slots, submissions count
+- Links to: `/dashboard/accommodation/${event.slug}` and `/dashboard/accommodation?eventId=${event._id}`
+
+**Event Accommodation Page** (`app/dashboard/accommodation/[event-slug]/page.tsx`):
+
+- Shows: same stats + quick actions
+- Links to: Full workspace and Global Inventory
+
+**Main Accommodation Page** (`/dashboard/accommodation`):
+
+- Shows: room allocation workspace when eventId in URL
+- Has: "Open stock" link to inventory
+
+**Problem**: Users can end up in 3 different places that all show "accommodation" data for the same event. No clear "this is the main workspace" vs "this is a summary" distinction.
+
+---
+
+### 3. Mental Model vs UI Reality
+
+| Mental Model                                 | UI Reality                                                                            |
+| -------------------------------------------- | ------------------------------------------------------------------------------------- |
+| "I set up accommodation for an event"        | Actually two separate steps: (1) create global inventory, (2) link inventory to event |
+| "Hotels belong to events"                    | Hotels exist globally; they get "linked" to events as a separate action               |
+| "A hotel has rooms"                          | Rooms exist globally too; hotel-room-type-room hierarchy is non-obvious               |
+| "Inventory page manages what events can use" | Inventory page has NO event context; event settings has no inventory context          |
+| "One place to manage all accommodation"      | 4+ pages with overlapping functionality                                               |
+
+---
+
+### Key File Locations
+
+**Navigation:**
+
+- `app/dashboard/dashboard-shell.tsx` lines 100-110 - Sidebar navigation for accommodation
+
+**Event Settings (Hotel Linking):**
+
+- `app/dashboard/events/[slug]/page.tsx` lines 845-886 - Accommodation toggle
+- `app/dashboard/events/[slug]/page.tsx` lines 889-968 - Linked Hotels section
+
+**Inventory Management:**
+
+- `app/dashboard/accommodation/inventory/page.tsx` lines 528-673 - 3-step provisioning modal
+- `app/dashboard/accommodation/inventory/page.tsx` lines 675-748 - Scope Reach Management modal
+
+**Event Accommodation Pages:**
+
+- `app/dashboard/accommodation/page.tsx` - Main room allocation workspace
+- `app/dashboard/accommodation/[event-slug]/page.tsx` - Event-specific accommodation
+
+**Convex Hooks:**
+
+- `lib/convex/hooks/accommodation.ts` - All accommodation hooks
+  - `useHotels()` - Global hotels
+  - `useEventHotels(eventId)` - Hotels linked to specific event
+  - `useLinkHotelToEvent()` - Event settings hotel linking
+  - `useAttachHotelToEventByProviderId()` - Inventory hotel-to-event linking
+
 ---
 
 _Concerns audit: 2026-03-30_

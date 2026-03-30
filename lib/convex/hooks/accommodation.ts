@@ -44,11 +44,32 @@ export function useCreateRooms() {
   return useMutation(api.accommodation.createRooms)
 }
 
+/**
+ * Link a hotel to an event with optional automatic slot generation.
+ *
+ * Args:
+ *   - eventId?: string (canonical event ID)
+ *   - eventProviderEventId?: string (Ticket Tailor event ID or slug)
+ *   - hotelId: Id<"accommodationHotels">
+ *   - autoGenerateSlots?: boolean (default: true)
+ *
+ * Returns: { linkId, eventId, hotelId, slotsGenerated, alreadyLinked }
+ *
+ * Note: Either eventId or eventProviderEventId must be provided.
+ */
 export function useLinkHotelToEvent() {
   return useMutation(api.accommodation.linkHotelToEvent)
 }
 
+/**
+ * @deprecated Use useLinkHotelToEvent instead.
+ * This hook will be removed in a future release.
+ * The useLinkHotelToEvent hook now supports eventProviderEventId and includes auto-slot generation.
+ */
 export function useAttachHotelToEventByProviderId() {
+  console.warn(
+    "[DEPRECATED] useAttachHotelToEventByProviderId is deprecated. Use useLinkHotelToEvent with eventProviderEventId parameter."
+  )
   return useMutation(api.accommodation.attachHotelToEventByProviderId)
 }
 
