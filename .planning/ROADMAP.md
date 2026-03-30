@@ -116,9 +116,9 @@ Plans:
 
 Plans:
 
-- [x] 21-01-PLAN.md — Consolidate hotel linking mutations + add auto-slot generation
-- [x] 21-02-PLAN.md — Redesign event settings accommodation section (inline flow)
-- [x] 21-03-PLAN.md — Remove Scope Reach modal and deprecated linking path
+- [x] 21-01-PLAN.md — Consolidate hotel linking mutations + add auto-slot generation ✓
+- [x] 21-02-PLAN.md — Redesign event settings accommodation section (inline flow) ✓
+- [x] 21-03-PLAN.md — Remove Scope Reach modal and deprecated linking path ✓
 
 ---
 
