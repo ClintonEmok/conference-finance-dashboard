@@ -1,6 +1,6 @@
 "use client"
 
-import { use } from "react"
+import { use, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { format } from "date-fns"
@@ -29,7 +29,14 @@ import {
   useEventHotels,
   useSlotsForEvent,
   useAccommodationSummaryForEvent,
+  useHotels,
+  useRoomTypes,
+  useCreateHotel,
+  useCreateRooms,
+  useCreateRoomType,
+  useLinkHotelToEvent,
 } from "@/lib/convex/hooks/accommodation"
+import { AddHotelDialog } from "@/app/dashboard/events/[slug]/components/add-hotel-dialog"
 
 export default function EventAccommodationPage({
   params,
@@ -43,6 +50,94 @@ export default function EventAccommodationPage({
   const eventHotels = useEventHotels(event?._id ?? "")
   const slots = useSlotsForEvent(event?._id)
   const summary = useAccommodationSummaryForEvent(event?._id)
+
+  // Dialog state
+  const [isAddHotelDialogOpen, setIsAddHotelDialogOpen] = useState(false)
+  const [isLinkingHotel, setIsLinkingHotel] = useState(false)
+
+  // Hooks for hotel creation
+  const hotels = useHotels()
+  const roomTypes = useRoomTypes()
+  const createHotel = useCreateHotel()
+  const createRooms = useCreateRooms()
+  const createRoomType = useCreateRoomType()
+  const linkHotelToEvent = useLinkHotelToEvent()
+
+  const handleAddHotelSubmit = async (data: {
+    hotelId?: any
+    newHotel?: { name: string; city?: string; address?: string }
+    roomTypes: Array<{
+      id: string
+      label: string
+      capacity: number
+      roomCount: number
+    }>
+  }) => {
+    if (!event) return
+    setIsLinkingHotel(true)
+    try {
+      let hotelId: any
+
+      // Step 1: Create or use existing hotel
+      if (data.hotelId) {
+        hotelId = data.hotelId
+      } else if (data.newHotel) {
+        hotelId = await createHotel({
+          name: data.newHotel.name,
+          city: data.newHotel.city,
+        })
+      }
+
+      if (!hotelId) throw new Error("Failed to get or create hotel")
+
+      // Step 2: Create room types for new room types
+      const roomTypeMap = new Map<string, any>()
+      for (const rt of data.roomTypes) {
+        if (rt.id.startsWith("new-")) {
+          // Create new room type
+          const newRtId = await createRoomType({
+            label: rt.label,
+            defaultCapacity: rt.capacity,
+          })
+          roomTypeMap.set(rt.id, newRtId)
+        } else {
+          // Use existing room type
+          roomTypeMap.set(rt.id, rt.id)
+        }
+      }
+
+      // Step 3: Create rooms (this will auto-generate slots when linked)
+      for (const rt of data.roomTypes) {
+        const roomTypeId = roomTypeMap.get(rt.id)
+        if (!roomTypeId) continue
+
+        // Create the specified number of rooms for this type
+        const roomLabels = Array.from(
+          { length: rt.roomCount },
+          (_, i) => `${rt.label} ${String(i + 1).padStart(2, "0")}`
+        )
+
+        await createRooms({
+          hotelId,
+          roomTypeId,
+          quantity: rt.roomCount,
+          labels: roomLabels,
+        })
+      }
+
+      // Step 4: Link hotel to event (this will auto-generate slots for all rooms)
+      await linkHotelToEvent({
+        eventId: event._id,
+        hotelId,
+        autoGenerateSlots: true,
+      })
+    } catch (err) {
+      console.error("Failed to add hotel:", err)
+      throw err
+    } finally {
+      setIsLinkingHotel(false)
+    }
+  }
 
   if (event === undefined) {
     return (
@@ -245,11 +340,12 @@ export default function EventAccommodationPage({
               Hotels available for room assignments at this event
             </CardDescription>
           </div>
-          <Button variant="outline" asChild>
-            <Link href={`/dashboard/events/${event.slug}?tab=settings`}>
-              <Plus className="mr-2 size-4" />
-              Add Hotel
-            </Link>
+          <Button
+            variant="outline"
+            onClick={() => setIsAddHotelDialogOpen(true)}
+          >
+            <Plus className="mr-2 size-4" />
+            Add Hotel
           </Button>
         </CardHeader>
         <CardContent>
@@ -328,6 +424,19 @@ export default function EventAccommodationPage({
           </CardContent>
         </Card>
       </div>
+
+      {/* Add Hotel Dialog */}
+      {event && (
+        <AddHotelDialog
+          open={isAddHotelDialogOpen}
+          onOpenChange={setIsAddHotelDialogOpen}
+          eventId={event._id}
+          existingHotels={hotels}
+          existingRoomTypes={roomTypes}
+          onSubmit={handleAddHotelSubmit}
+          isSubmitting={isLinkingHotel}
+        />
+      )}
     </div>
   )
 }
