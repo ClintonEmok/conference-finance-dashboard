@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.0
-milestone_name: Event Signup + Dual-Source Events
-status: Phase 19 complete — public multi-step signup flow delivered end-to-end
-stopped_at: Completed 19-03-PLAN.md (attendee validation + review/submit + restore choice)
-last_updated: "2026-03-30T00:08:29Z"
-last_activity: 2026-03-29
+milestone_name: Attendee Signup + Accommodation Self-Assignment
+status: unknown
+stopped_at: Completed 20-01-PLAN.md (operator handoff read model)
+last_updated: "2026-03-30T11:21:48.024Z"
+last_activity: 2026-03-30
 progress:
-  total_phases: 5
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 100
+  total_phases: 3
+  completed_phases: 2
+  total_plans: 9
+  completed_plans: 7
 ---
 
 # Project State
@@ -21,17 +20,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-27)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Transition to Phase 20 admin event management using completed public signup flow artifacts
+- **Current focus:** Phase 20 — operator-handoff-compatibility-layer
 
 ## Current Position
 
-Milestone: v2.0 (event-signup-dual-source) — ACTIVE
-Phase: 19 (Public Multi-Step Signup Experience) — COMPLETE (3/3 plans complete)
-Plan: 19-03 complete — Attendee details validation + review/submit flow + restore-choice handling
-Status: Phase 19 complete — ready for Phase 20 (Admin Event Management)
-Last activity: 2026-03-30 — Completed 19-03: required attendee validation, typed submit client mapping, explicit continue-vs-edit restore UX
-
-Progress: ██████████ 100% (3/3 plans)
+Phase: 20 (operator-handoff-compatibility-layer) — EXECUTING
+Plan: 2 of 3
 
 ## Alignment Status
 
@@ -71,6 +65,7 @@ Progress: ██████████ 100% (3/3 plans)
 - **Public signup shell foundation live:** `/events/[slug]` and `/signup/[slug]` public routes now expose signup-critical event content + CTA and a draft-backed linear flow shell with ticket quantity controls (19-01).
 - **Room assignment flow added:** Signup shell now includes drag/drop attendee-to-slot mapping, deterministic assignment helpers, and explicit `acknowledgeRandomFill` gating while open beds remain (19-02).
 - **Public signup flow complete:** Attendee details, dual-surface validation, review/submit, restore-choice decision controls, and booking confirmation states are now integrated end-to-end (19-03).
+- **Operator handoff read model ready:** Canonical submission attendees now flow into the accommodation board via read-time Convex joins with unresolved assignment prioritization (20-01).
 
 ## Key Decisions
 
@@ -195,8 +190,8 @@ Recent decisions that future work should preserve:
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-29
-- **Last session:** 2026-03-29T22:46:22Z
-- **Stopped at:** Completed 19-03-PLAN.md (attendee validation + review/submit + restore choice)
+- **Last activity:** 2026-03-30
+- **Last session:** 2026-03-30T11:21:48.021Z
+- **Stopped at:** Completed 20-01-PLAN.md (operator handoff read model)
 - **Resume file:** None
 - **Next recommended plan:** Start Phase 20 planning/execution for admin event management (`/gsd-plan-phase 20`)

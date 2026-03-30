@@ -96,7 +96,7 @@ Plans:
 
 Plans:
 
-- [ ] 20-01-PLAN.md — Operator read model for submitted rooming data (assignments + notes)
+- [x] 20-01-PLAN.md — Operator read model for submitted rooming data (assignments + notes)
 - [ ] 20-02-PLAN.md — Source-agnostic adapter updates (internal + integration compatibility)
 - [ ] 20-03-PLAN.md — End-to-end verification: signup submission -> operator rooming workflow
 
