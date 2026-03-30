@@ -481,10 +481,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
             <>
               <RoomAssignmentStep
                 event={activeEvent}
-                attendees={activeDraft.attendees.map((attendee) => ({
-                  attendeeKey: attendee.attendeeKey,
-                  name: attendee.name,
-                }))}
+                attendees={activeDraft.attendees}
                 assignments={activeDraft.assignments}
                 acknowledgeRandomFill={activeDraft.acknowledgeRandomFill}
                 onAssignmentChange={handleRoomAssignmentsChange}
@@ -510,6 +507,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
           {activeDraft.step === "review" ? (
             <ReviewSubmitStep
               draft={activeDraft}
+              event={activeEvent}
               submitResult={submitResult}
               submitError={submitError}
               isSubmitting={isSubmitting}
