@@ -40,8 +40,20 @@ export function useCreateRoomType() {
   return useMutation(api.accommodation.createRoomType)
 }
 
+export function useCreateRooms() {
+  return useMutation(api.accommodation.createRooms)
+}
+
 export function useLinkHotelToEvent() {
   return useMutation(api.accommodation.linkHotelToEvent)
+}
+
+export function useAttachHotelToEventByProviderId() {
+  return useMutation(api.accommodation.attachHotelToEventByProviderId)
+}
+
+export function useDetachHotelFromEventByProviderId() {
+  return useMutation(api.accommodation.detachHotelFromEventByProviderId)
 }
 
 export function useAssignRoomToAttendee() {
@@ -62,6 +74,22 @@ export function useUpdateHotel() {
 
 export function useDeleteHotel() {
   return useMutation(api.accommodation.deleteHotel)
+}
+
+export function useDeleteRoomType() {
+  return useMutation(api.accommodation.deleteRoomType)
+}
+
+export function useDeleteRoom() {
+  return useMutation(api.accommodation.deleteRoom)
+}
+
+export function useUpdateRoomLabel() {
+  return useMutation(api.accommodation.updateRoomLabel)
+}
+
+export function useUpdateRoomType() {
+  return useMutation(api.accommodation.updateRoomType)
 }
 
 export function useUnassignAttendeeFromRoom() {
