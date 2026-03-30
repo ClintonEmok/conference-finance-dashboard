@@ -244,6 +244,36 @@ export const getRoomAllocationBoard = query({
   },
   handler: async (ctx, args) => {
     const eventId = args.eventId
+
+    // Get provider event IDs for this canonical event via eventSources
+    let providerEventIds: string[] = []
+    let eventSourceMap = new Map<string, string>() // providerEventId -> canonical eventId
+
+    if (eventId) {
+      const eventSources = await ctx.db
+        .query("eventSources")
+        .withIndex("by_eventId", (q) =>
+          q.eq("eventId", eventId as Id<"events">)
+        )
+        .take(50)
+
+      for (const source of eventSources) {
+        providerEventIds.push(source.externalEventId)
+        eventSourceMap.set(source.externalEventId, eventId)
+      }
+
+      // Also check if there's a direct provider event ID match (backward compat)
+      const providerEvent = await ctx.db
+        .query("ticketTailorEvents")
+        .withIndex("providerEventId", (q) => q.eq("providerEventId", eventId))
+        .first()
+
+      if (providerEvent && !providerEventIds.includes(eventId)) {
+        providerEventIds.push(eventId)
+        eventSourceMap.set(eventId, eventId)
+      }
+    }
+
     const scopedHotelIds = eventId
       ? (
           await ctx.db
@@ -255,6 +285,7 @@ export const getRoomAllocationBoard = query({
 
     const [
       events,
+      canonicalEvents,
       hotels,
       roomTypes,
       rooms,
@@ -264,6 +295,7 @@ export const getRoomAllocationBoard = query({
       allSubmissions,
     ] = await Promise.all([
       ctx.db.query("ticketTailorEvents").take(200),
+      ctx.db.query("events").take(200),
       ctx.db.query("accommodationHotels").take(200),
       ctx.db.query("accommodationRoomTypes").take(100),
       ctx.db.query("accommodationRooms").take(500),
@@ -310,7 +342,7 @@ export const getRoomAllocationBoard = query({
 
     const unassignedAttendees = allAttendees.filter((a) => {
       if (a.assignedRoomId) return false
-      if (eventId && a.providerEventId !== eventId) return false
+      if (eventId && !providerEventIds.includes(a.providerEventId)) return false
       const attendeeFamilyGroupId =
         attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
 
@@ -329,7 +361,31 @@ export const getRoomAllocationBoard = query({
 
     const hotelMap = new Map(hotels.map((h) => [h._id as string, h]))
     const roomTypeMap = new Map(roomTypes.map((rt) => [rt._id as string, rt]))
-    const eventMap = new Map(events.map((e) => [e.providerEventId, e]))
+
+    // Build mapping from providerEventId to canonical event info
+    // We use eventSources to bridge provider IDs to canonical events
+    const canonicalEventByProviderId = new Map<
+      string,
+      (typeof canonicalEvents)[number]
+    >()
+    for (const event of canonicalEvents) {
+      // Find event sources for this canonical event
+      const sources = await ctx.db
+        .query("eventSources")
+        .withIndex("by_eventId", (q) => q.eq("eventId", event._id))
+        .take(10)
+      for (const source of sources) {
+        canonicalEventByProviderId.set(source.externalEventId, event)
+      }
+      // Also check if event's slug matches any providerEventId (direct mapping)
+      const providerEvent = events.find((e) => e.providerEventId === event.slug)
+      if (providerEvent) {
+        canonicalEventByProviderId.set(providerEvent.providerEventId, event)
+      }
+    }
+
+    // Legacy map for TT events (for backward compat)
+    const ttEventMap = new Map(events.map((e) => [e.providerEventId, e]))
 
     const attendeesByRoom: Record<string, typeof allAttendees> = {}
     for (const attendee of allAttendees) {
@@ -345,14 +401,16 @@ export const getRoomAllocationBoard = query({
       const hotel = hotelMap.get(room.hotelId as string)
       const roomType = roomTypeMap.get(room.roomTypeId as string)
       const occupants = (attendeesByRoom[room._id] ?? []).map((a) => {
-        const event = eventMap.get(a.providerEventId)
+        const canonicalEvent = canonicalEventByProviderId.get(a.providerEventId)
+        const ttEvent = ttEventMap.get(a.providerEventId)
         return {
           attendeeId: a._id,
           attendeeName: a.name ?? null,
           attendeeEmail: a.email ?? null,
           providerOrderId: a.providerOrderId,
           providerEventId: a.providerEventId,
-          eventName: event?.name ?? null,
+          eventId: canonicalEvent?._id ?? null,
+          eventName: canonicalEvent?.title ?? ttEvent?.name ?? null,
           ticketTypeLabel: a.ticketTypeLabel ?? null,
         }
       })
@@ -388,7 +446,8 @@ export const getRoomAllocationBoard = query({
     })
 
     const mappedUnassignedAttendees = unassignedAttendees.map((a) => {
-      const event = eventMap.get(a.providerEventId)
+      const canonicalEvent = canonicalEventByProviderId.get(a.providerEventId)
+      const ttEvent = ttEventMap.get(a.providerEventId)
       const customAnswers =
         a.customAnswers && typeof a.customAnswers === "object"
           ? (a.customAnswers as { location?: string; remarks?: string })
@@ -401,7 +460,8 @@ export const getRoomAllocationBoard = query({
         attendeeEmail: a.email ?? null,
         providerOrderId: a.providerOrderId,
         providerEventId: a.providerEventId,
-        eventName: event?.name ?? null,
+        eventId: canonicalEvent?._id ?? null,
+        eventName: canonicalEvent?.title ?? ttEvent?.name ?? null,
         ticketTypeLabel: a.ticketTypeLabel ?? null,
         genderType: a.genderType ?? null,
         allocationPriority: a.allocationPriority ?? null,
@@ -560,10 +620,14 @@ export const getRoomAllocationBoard = query({
         allocationPriority: args.allocationPriority ?? null,
         hasPriority: args.hasPriority ?? null,
       },
-      availableEvents: events.map((e) => ({
-        providerEventId: e.providerEventId,
-        name: e.name ?? null,
-      })),
+      availableEvents: canonicalEvents
+        .filter((e) => e.accommodationEnabled)
+        .map((e) => ({
+          eventId: e._id,
+          slug: e.slug,
+          name: e.title,
+          startsAt: e.startsAt,
+        })),
       hotels: hotels
         .filter(
           (h) => !scopedHotelIds || scopedHotelIds.includes(h._id as string)
@@ -669,9 +733,9 @@ export const listAccommodationInventory = query({
   args: {},
   handler: async (ctx) => {
     // Bounded: config tables capped for inventory view
-    const [availableEvents, hotels, roomTypes, rooms, attendees] =
+    const [canonicalEvents, hotels, roomTypes, rooms, attendees] =
       await Promise.all([
-        ctx.db.query("ticketTailorEvents").take(200),
+        ctx.db.query("events").take(200),
         ctx.db.query("accommodationHotels").take(200),
         ctx.db.query("accommodationRoomTypes").take(100),
         ctx.db.query("accommodationRooms").take(500),
@@ -720,10 +784,14 @@ export const listAccommodationInventory = query({
     }
 
     return {
-      availableEvents: availableEvents.map((e) => ({
-        providerEventId: e.providerEventId,
-        name: e.name,
-      })),
+      availableEvents: canonicalEvents
+        .filter((e) => e.accommodationEnabled)
+        .map((e) => ({
+          eventId: e._id,
+          slug: e.slug,
+          name: e.title,
+          startsAt: e.startsAt,
+        })),
       hotels: hotels.map((hotel) => ({
         id: hotel._id,
         name: hotel.name,
@@ -961,8 +1029,24 @@ export const assignRoomToAttendee = mutation({
       .take(20)
 
     if (eventHotelLinks.length > 0) {
-      const eventHasHotel = eventHotelLinks.some(
-        (eh) => eh.eventId === attendee.providerEventId
+      // Look up the canonical event for this attendee
+      const eventSources = await ctx.db
+        .query("eventSources")
+        .withIndex("by_provider_and_externalEventId", (q) =>
+          q
+            .eq("provider", "tickettailor")
+            .eq("externalEventId", attendee.providerEventId)
+        )
+        .take(10)
+
+      const canonicalEventIds = new Set(
+        eventSources.map((s) => s.eventId as string)
+      )
+      // Also check if attendee's providerEventId directly matches any eventId (backward compat)
+      canonicalEventIds.add(attendee.providerEventId)
+
+      const eventHasHotel = eventHotelLinks.some((eh) =>
+        canonicalEventIds.has(eh.eventId)
       )
       if (!eventHasHotel) {
         throw new Error("Room hotel is not enabled for this event")
@@ -1021,8 +1105,24 @@ export const assignAttendeeToRoom = mutation({
       .take(20)
 
     if (eventHotelLinks.length > 0) {
-      const eventHasHotel = eventHotelLinks.some(
-        (eh) => eh.eventId === attendee.providerEventId
+      // Look up the canonical event for this attendee
+      const eventSources = await ctx.db
+        .query("eventSources")
+        .withIndex("by_provider_and_externalEventId", (q) =>
+          q
+            .eq("provider", "tickettailor")
+            .eq("externalEventId", attendee.providerEventId)
+        )
+        .take(10)
+
+      const canonicalEventIds = new Set(
+        eventSources.map((s) => s.eventId as string)
+      )
+      // Also check if attendee's providerEventId directly matches any eventId (backward compat)
+      canonicalEventIds.add(attendee.providerEventId)
+
+      const eventHasHotel = eventHotelLinks.some((eh) =>
+        canonicalEventIds.has(eh.eventId)
       )
       if (!eventHasHotel) {
         throw new Error("Room hotel is not enabled for this event")
@@ -1338,21 +1438,38 @@ export const attachHotelToEventByProviderId = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const event = await ctx.db
-      .query("ticketTailorEvents")
-      .withIndex("providerEventId", (q) =>
-        q.eq("providerEventId", args.eventProviderEventId)
+
+    // Look up canonical event via eventSources
+    const eventSource = await ctx.db
+      .query("eventSources")
+      .withIndex("by_provider_and_externalEventId", (q) =>
+        q
+          .eq("provider", "tickettailor")
+          .eq("externalEventId", args.eventProviderEventId)
       )
       .first()
 
-    if (!event) {
-      throw new Error("Event not found")
+    let canonicalEventId: string
+
+    if (eventSource) {
+      canonicalEventId = eventSource.eventId as string
+    } else {
+      // Fallback: try to find by direct ID match
+      const event = await ctx.db
+        .query("events")
+        .withIndex("by_slug", (q) => q.eq("slug", args.eventProviderEventId))
+        .first()
+
+      if (!event) {
+        throw new Error("Event not found")
+      }
+      canonicalEventId = event._id as string
     }
 
     const existing = await ctx.db
       .query("accommodationEventHotels")
       .withIndex("eventId_hotelId", (q) =>
-        q.eq("eventId", event.providerEventId).eq("hotelId", args.hotelId)
+        q.eq("eventId", canonicalEventId).eq("hotelId", args.hotelId)
       )
       .first()
 
@@ -1361,7 +1478,7 @@ export const attachHotelToEventByProviderId = mutation({
     }
 
     return await ctx.db.insert("accommodationEventHotels", {
-      eventId: event.providerEventId,
+      eventId: canonicalEventId,
       hotelId: args.hotelId,
     })
   },
@@ -1374,10 +1491,39 @@ export const detachHotelFromEventByProviderId = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+
+    // Look up canonical event via eventSources
+    const eventSource = await ctx.db
+      .query("eventSources")
+      .withIndex("by_provider_and_externalEventId", (q) =>
+        q
+          .eq("provider", "tickettailor")
+          .eq("externalEventId", args.eventProviderEventId)
+      )
+      .first()
+
+    let canonicalEventId: string
+
+    if (eventSource) {
+      canonicalEventId = eventSource.eventId as string
+    } else {
+      // Fallback: try to find by direct ID match
+      const event = await ctx.db
+        .query("events")
+        .withIndex("by_slug", (q) => q.eq("slug", args.eventProviderEventId))
+        .first()
+
+      if (!event) {
+        // No event found, nothing to detach
+        return { ok: true }
+      }
+      canonicalEventId = event._id as string
+    }
+
     const link = await ctx.db
       .query("accommodationEventHotels")
       .withIndex("eventId_hotelId", (q) =>
-        q.eq("eventId", args.eventProviderEventId).eq("hotelId", args.hotelId)
+        q.eq("eventId", canonicalEventId).eq("hotelId", args.hotelId)
       )
       .first()
 
@@ -1386,5 +1532,147 @@ export const detachHotelFromEventByProviderId = mutation({
     }
 
     return { ok: true }
+  },
+})
+
+export const generateSlotsForRoom = mutation({
+  args: {
+    eventId: v.id("events"),
+    roomId: v.id("accommodationRooms"),
+    genderPolicy: v.union(
+      v.literal("male"),
+      v.literal("female"),
+      v.literal("mixed")
+    ),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const room = await ctx.db.get("accommodationRooms", args.roomId)
+    if (!room) {
+      throw new Error("Room not found")
+    }
+
+    const hotel = await ctx.db.get(
+      "accommodationHotels",
+      room.hotelId as Id<"accommodationHotels">
+    )
+    if (!hotel) {
+      throw new Error("Hotel not found")
+    }
+
+    const existingSlots = await ctx.db
+      .query("accommodationSlots")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .filter((q) => q.eq(q.field("roomId"), args.roomId))
+      .take(100)
+
+    const startIndex = existingSlots.length
+    const capacity = room.capacity
+    const createdIds: Id<"accommodationSlots">[] = []
+
+    for (let i = 0; i < capacity; i++) {
+      const slotLabel = `${room.label}-Bed-${String(startIndex + i + 1).padStart(2, "0")}`
+
+      const id = await ctx.db.insert("accommodationSlots", {
+        eventId: args.eventId,
+        hotelId: room.hotelId as Id<"accommodationHotels">,
+        roomId: args.roomId,
+        slotLabel,
+        genderPolicy: args.genderPolicy,
+        isAssignable: true,
+        updatedAt: Date.now(),
+      })
+      createdIds.push(id)
+    }
+
+    return {
+      createdCount: createdIds.length,
+      slotIds: createdIds,
+      roomLabel: room.label,
+      capacity,
+    }
+  },
+})
+
+export const getSlotsForEvent = query({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    const slots = await ctx.db
+      .query("accommodationSlots")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .take(500)
+
+    const roomIds = [...new Set(slots.map((s) => s.roomId))]
+    const hotelIds = [...new Set(slots.map((s) => s.hotelId))]
+
+    const rooms = await Promise.all(
+      roomIds.map((id) => ctx.db.get("accommodationRooms", id))
+    )
+    const hotels = await Promise.all(
+      hotelIds.map((id) => ctx.db.get("accommodationHotels", id))
+    )
+
+    const roomById = new Map(rooms.filter(Boolean).map((r) => [r!._id, r!]))
+    const hotelById = new Map(hotels.filter(Boolean).map((h) => [h!._id, h!]))
+
+    return slots.map((slot) => ({
+      id: slot._id,
+      slotLabel: slot.slotLabel,
+      genderPolicy: slot.genderPolicy,
+      isAssignable: slot.isAssignable,
+      ineligibilityReason: slot.ineligibilityReason,
+      room: roomById.get(slot.roomId)
+        ? {
+            id: roomById.get(slot.roomId)!._id,
+            label: roomById.get(slot.roomId)!.label,
+            capacity: roomById.get(slot.roomId)!.capacity,
+          }
+        : null,
+      hotel: hotelById.get(slot.hotelId)
+        ? {
+            id: hotelById.get(slot.hotelId)!._id,
+            name: hotelById.get(slot.hotelId)!.name,
+          }
+        : null,
+    }))
+  },
+})
+
+export const getAccommodationSummaryForEvent = query({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get("events", args.eventId)
+    if (!event) {
+      throw new Error("Event not found")
+    }
+
+    const eventHotels = await ctx.db
+      .query("accommodationEventHotels")
+      .withIndex("eventId_hotelId", (q) =>
+        q.eq("eventId", args.eventId as unknown as string)
+      )
+      .take(50)
+
+    const slots = await ctx.db
+      .query("accommodationSlots")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .take(500)
+
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .take(500)
+
+    const assignableSlots = slots.filter((s) => s.isAssignable)
+
+    return {
+      eventSlug: event.slug,
+      eventTitle: event.title,
+      hotelsLinked: eventHotels.length,
+      totalSlots: slots.length,
+      assignableSlots: assignableSlots.length,
+      submissionsCount: submissions.length,
+    }
   },
 })

@@ -1,6 +1,7 @@
 import { query, mutation, internalMutation } from "./_generated/server"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
+import type { Id } from "./_generated/dataModel"
 
 // Constants for quota enforcement
 const DEFAULT_MONTHLY_TIKKIE_CREATION_LIMIT = 5
@@ -491,13 +492,15 @@ export const matchTikkiePayment = mutation({
 })
 
 export const autoMatchTikkiePayments = mutation({
-  args: { eventId: v.string() },
+  args: { eventId: v.union(v.id("events"), v.string()) },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     // Bounded: indexed by event, small set of links
     const links = await ctx.db
       .query("tikkiePaymentLinks")
-      .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
+      .withIndex("eventId", (q) =>
+        q.eq("eventId", args.eventId as Id<"events">)
+      )
       .take(50)
 
     const eventLinks = links.filter((l) => l.linkType === "event")
@@ -522,7 +525,9 @@ export const autoMatchTikkiePayments = mutation({
 
     const orders = await ctx.db
       .query("ticketTailorOrders")
-      .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
+      .withIndex("eventId", (q) =>
+        q.eq("eventId", args.eventId as Id<"events">)
+      )
       .take(500)
 
     let matchedCount = 0

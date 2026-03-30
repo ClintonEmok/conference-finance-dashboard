@@ -565,10 +565,10 @@ export type DataModel = {
       checkedInAt?: number;
       customAnswers?: any;
       email?: string;
-      eventId: string;
+      eventId: Id<"events"> | string;
       genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
       name?: string;
-      orderId: string;
+      orderId: Id<"ticketTailorOrders">;
       priorityReason?: string;
       providerAttendeeId?: string;
       providerEventId: string;
@@ -666,7 +666,7 @@ export type DataModel = {
       buyerName?: string;
       cancelledAt?: number;
       currency?: string;
-      eventId: string;
+      eventId: Id<"events">;
       isArchived?: boolean;
       normalizationNote?: string;
       normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";

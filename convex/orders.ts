@@ -1,4 +1,5 @@
 import { query, mutation, type QueryCtx } from "./_generated/server"
+import type { Id } from "./_generated/dataModel"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
 import {
@@ -18,7 +19,7 @@ function isOrderVisible(order: any) {
 
 export const getOrders = query({
   args: {
-    eventId: v.optional(v.string()),
+    eventId: v.optional(v.union(v.id("events"), v.string())),
     status: v.optional(
       v.union(
         v.literal("paid"),
@@ -33,7 +34,9 @@ export const getOrders = query({
       // Bounded: indexed by event, capped at 500
       const orders = await ctx.db
         .query("ticketTailorOrders")
-        .withIndex("eventId", (q) => q.eq("eventId", args.eventId!))
+        .withIndex("eventId", (q) =>
+          q.eq("eventId", args.eventId! as Id<"events">)
+        )
         .take(500)
       const visibleOrders = orders.filter(isOrderVisible)
 
@@ -86,12 +89,14 @@ export const getOrderByProviderId = query({
 })
 
 export const getOrderLedger = query({
-  args: { eventId: v.string() },
+  args: { eventId: v.union(v.id("events"), v.string()) },
   handler: async (ctx, args) => {
     // Bounded: indexed by event, capped at 500
     const orders = await ctx.db
       .query("ticketTailorOrders")
-      .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
+      .withIndex("eventId", (q) =>
+        q.eq("eventId", args.eventId as Id<"events">)
+      )
       .take(500)
     const visibleOrders = orders.filter(isOrderVisible)
 
@@ -114,7 +119,7 @@ export const createOrder = mutation({
   args: {
     providerOrderId: v.string(),
     providerEventId: v.string(),
-    eventId: v.string(),
+    eventId: v.union(v.id("events"), v.string()),
     normalizedStatus: v.optional(
       v.union(
         v.literal("paid"),
@@ -133,7 +138,11 @@ export const createOrder = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const id = await ctx.db.insert("ticketTailorOrders", args)
+    const insertArgs = {
+      ...args,
+      eventId: args.eventId as Id<"events">,
+    }
+    const id = await ctx.db.insert("ticketTailorOrders", insertArgs)
     return id
   },
 })
@@ -142,7 +151,7 @@ export const upsertOrder = mutation({
   args: {
     providerOrderId: v.string(),
     providerEventId: v.string(),
-    eventId: v.string(),
+    eventId: v.union(v.id("events"), v.string()),
     normalizedStatus: v.optional(
       v.union(
         v.literal("paid"),
@@ -168,12 +177,17 @@ export const upsertOrder = mutation({
       )
       .first()
 
+    const insertArgs = {
+      ...args,
+      eventId: args.eventId as Id<"events">,
+    }
+
     if (existing) {
-      await ctx.db.patch("ticketTailorOrders", existing._id, args)
+      await ctx.db.patch("ticketTailorOrders", existing._id, insertArgs)
       return existing._id
     }
 
-    return await ctx.db.insert("ticketTailorOrders", args)
+    return await ctx.db.insert("ticketTailorOrders", insertArgs)
   },
 })
 
@@ -261,7 +275,7 @@ function matchesOrderFilters(
 async function listCandidateOrders(
   ctx: QueryCtx,
   args: {
-    eventId?: string
+    eventId?: Id<"events"> | string
     from?: number
     to?: number
     status?: "paid" | "refunded" | "cancelled" | "pending"
@@ -271,7 +285,9 @@ async function listCandidateOrders(
   if (args.eventId) {
     return await ctx.db
       .query("ticketTailorOrders")
-      .withIndex("eventId", (q) => q.eq("eventId", args.eventId!))
+      .withIndex("eventId", (q) =>
+        q.eq("eventId", args.eventId! as Id<"events">)
+      )
       .order("desc")
       .take(maxItems)
   }
@@ -484,7 +500,7 @@ export const getOrdersForReconciliation = query({
 export const searchOrders = query({
   args: {
     search: v.string(),
-    eventId: v.optional(v.string()),
+    eventId: v.optional(v.union(v.id("events"), v.string())),
     limit: v.optional(v.number()),
   },
   returns: v.array(orderSearchRowValidator),
@@ -495,7 +511,9 @@ export const searchOrders = query({
     const candidates = args.eventId
       ? await ctx.db
           .query("ticketTailorOrders")
-          .withIndex("eventId", (q) => q.eq("eventId", args.eventId!))
+          .withIndex("eventId", (q) =>
+            q.eq("eventId", args.eventId! as Id<"events">)
+          )
           .order("desc")
           .take(250)
       : await ctx.db.query("ticketTailorOrders").order("desc").take(500)

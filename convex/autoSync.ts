@@ -334,7 +334,7 @@ async function runTicketTailorAutoSync(ctx: {
       const endDateTime =
         parseDate(eventPayload.end_date) ?? parseDate(eventPayload.ends_at)
 
-      const eventId: Id<"ticketTailorEvents"> = await ctx.runMutation(
+      const { ticketTailorEventId, canonicalEventId } = await ctx.runMutation(
         internal.sync.internalUpsertTicketTailorEvent,
         {
           providerEventId,
@@ -430,7 +430,7 @@ async function runTicketTailorAutoSync(ctx: {
           {
             providerOrderId,
             providerEventId: orderProviderEventId,
-            eventId,
+            eventId: canonicalEventId,
             buyerEmail: buyer,
             buyerName,
             currency:
@@ -520,7 +520,7 @@ async function runTicketTailorAutoSync(ctx: {
               providerTicketTypeId: pickString(ap.ticket_type_id) ?? undefined,
               providerEventId: attendeeProviderEventId,
               providerOrderId: attendeeProviderOrderId,
-              eventId,
+              eventId: canonicalEventId,
               orderId,
               name,
               email,

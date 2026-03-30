@@ -60,7 +60,7 @@ When many writers target the same document, split the contention point.
 ```ts
 // Bad: every vote increments the same counter document
 const counter = await ctx.db.get(pollCounterId);
-await ctx.db.patch(pollCounterId, { count: counter?.count + 1 });
+await ctx.db.patch(pollCounterId, { count: counter!.count + 1 });
 ```
 
 ```ts
@@ -68,7 +68,7 @@ await ctx.db.patch(pollCounterId, { count: counter?.count + 1 });
 const shardIndex = Math.floor(Math.random() * SHARD_COUNT);
 const shardId = shardIds[shardIndex];
 const shard = await ctx.db.get(shardId);
-await ctx.db.patch(shardId, { count: shard?.count + 1 });
+await ctx.db.patch(shardId, { count: shard!.count + 1 });
 ```
 
 Aggregate the shards in a query or scheduled job when you need the total.

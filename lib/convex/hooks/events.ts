@@ -11,6 +11,10 @@ export function useEventsForLedger() {
   return useQuery(api.events.getEventsForLedger)
 }
 
+export function useEventsWithAccommodation() {
+  return useQuery(api.events.getEventsWithAccommodation)
+}
+
 export function useEventById(eventId: string) {
   return useQuery(api.events.getEventById, { eventId })
 }

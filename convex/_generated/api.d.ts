@@ -99,6 +99,22 @@ export declare const api: {
       { eventProviderEventId: string; hotelId: string },
       any
     >;
+    generateSlotsForRoom: FunctionReference<
+      "mutation",
+      "public",
+      {
+        eventId: Id<"events">;
+        genderPolicy: "male" | "female" | "mixed";
+        roomId: Id<"accommodationRooms">;
+      },
+      any
+    >;
+    getAccommodationSummaryForEvent: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
     getEventByProviderId: FunctionReference<
       "query",
       "public",
@@ -149,6 +165,12 @@ export declare const api: {
     >;
     getRoomTypes: FunctionReference<"query", "public", {}, any>;
     getRoomTypesWithCount: FunctionReference<"query", "public", {}, any>;
+    getSlotsForEvent: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
     linkHotelToEvent: FunctionReference<
       "mutation",
       "public",
@@ -219,10 +241,10 @@ export declare const api: {
         allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
         customAnswers?: any;
         email?: string;
-        eventId: string;
+        eventId: Id<"events"> | string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
         name?: string;
-        orderId: string;
+        orderId: Id<"ticketTailorOrders">;
         providerAttendeeId?: string;
         providerEventId: string;
         providerIssuedTicketId?: string;
@@ -302,10 +324,10 @@ export declare const api: {
         allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
         customAnswers?: any;
         email?: string;
-        eventId: string;
+        eventId: Id<"events"> | string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
         name?: string;
-        orderId: string;
+        orderId: Id<"ticketTailorOrders">;
         providerAttendeeId?: string;
         providerEventId: string;
         providerIssuedTicketId?: string;
@@ -390,6 +412,27 @@ export declare const api: {
       { eventId: Id<"events"> },
       any
     >;
+    getEventsWithAccommodation: FunctionReference<
+      "query",
+      "public",
+      {},
+      Array<{
+        _creationTime: number;
+        _id: Id<"events">;
+        accommodationEnabled: boolean;
+        currency: string;
+        endsAt?: number;
+        isPublished: boolean;
+        isSignupOpen: boolean;
+        primarySourceKind: "integration" | "internal";
+        primarySourceProvider?: string;
+        slug: string;
+        startsAt: number;
+        timezone: string;
+        title: string;
+        updatedAt: number;
+      }>
+    >;
     getTicketTailorEventByProviderId: FunctionReference<
       "query",
       "public",
@@ -438,7 +481,7 @@ export declare const api: {
         buyerEmail?: string;
         buyerName?: string;
         currency?: string;
-        eventId: string;
+        eventId: Id<"events"> | string;
         normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
         orderedAt?: number;
         providerEventId: string;
@@ -475,7 +518,7 @@ export declare const api: {
     getOrderLedger: FunctionReference<
       "query",
       "public",
-      { eventId: string },
+      { eventId: Id<"events"> | string },
       any
     >;
     getOrderPaymentStatus: FunctionReference<
@@ -504,7 +547,7 @@ export declare const api: {
       "query",
       "public",
       {
-        eventId?: string;
+        eventId?: Id<"events"> | string;
         status?: "paid" | "refunded" | "cancelled" | "pending";
       },
       any
@@ -599,7 +642,7 @@ export declare const api: {
     searchOrders: FunctionReference<
       "query",
       "public",
-      { eventId?: string; limit?: number; search: string },
+      { eventId?: Id<"events"> | string; limit?: number; search: string },
       Array<{
         buyerName: string | null;
         id: Id<"ticketTailorOrders">;
@@ -623,7 +666,7 @@ export declare const api: {
         buyerEmail?: string;
         buyerName?: string;
         currency?: string;
-        eventId: string;
+        eventId: Id<"events"> | string;
         normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
         orderedAt?: number;
         providerEventId: string;
@@ -650,7 +693,7 @@ export declare const api: {
     autoMatchPayments: FunctionReference<
       "mutation",
       "public",
-      { eventId: string },
+      { eventId: Id<"events"> | string },
       any
     >;
     cleanupLegacyTikkiePayments: FunctionReference<
@@ -967,7 +1010,7 @@ export declare const api: {
     getTicketTailorAttendeesByOrderId: FunctionReference<
       "query",
       "public",
-      { orderId: string },
+      { orderId: Id<"ticketTailorOrders"> | string },
       any
     >;
     getTicketTailorEventByProviderId: FunctionReference<
@@ -1058,10 +1101,10 @@ export declare const api: {
         allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
         customAnswers?: any;
         email?: string;
-        eventId: string;
+        eventId: Id<"events"> | string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
         name?: string;
-        orderId: string;
+        orderId: Id<"ticketTailorOrders">;
         priorityReason?: string;
         providerAttendeeId?: string;
         providerEventId: string;
@@ -1097,7 +1140,7 @@ export declare const api: {
         buyerName?: string;
         cancelledAt?: number;
         currency?: string;
-        eventId: string;
+        eventId: Id<"events"> | string;
         normalizationNote?: string;
         normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
         orderedAt?: number;
@@ -1115,7 +1158,7 @@ export declare const api: {
     autoMatchTikkiePayments: FunctionReference<
       "mutation",
       "public",
-      { eventId: string },
+      { eventId: Id<"events"> | string },
       any
     >;
     createEventPaymentLink: FunctionReference<
@@ -1396,7 +1439,7 @@ export declare const internal: {
     internalGetTicketTailorAttendeesByOrderId: FunctionReference<
       "query",
       "internal",
-      { orderId: string },
+      { orderId: Id<"ticketTailorOrders"> | string },
       any
     >;
     internalGetTikkiePaymentLinks: FunctionReference<
@@ -1425,10 +1468,10 @@ export declare const internal: {
         allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
         customAnswers?: any;
         email?: string;
-        eventId: string;
+        eventId: Id<"events">;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
         name?: string;
-        orderId: string;
+        orderId: Id<"ticketTailorOrders">;
         priorityReason?: string;
         providerAttendeeId?: string;
         providerEventId: string;
@@ -1454,7 +1497,10 @@ export declare const internal: {
         startsAt?: number;
         timezone?: string;
       },
-      Id<"ticketTailorEvents">
+      {
+        canonicalEventId: Id<"events">;
+        ticketTailorEventId: Id<"ticketTailorEvents">;
+      }
     >;
     internalUpsertTicketTailorOrder: FunctionReference<
       "mutation",
@@ -1464,7 +1510,7 @@ export declare const internal: {
         buyerName?: string;
         cancelledAt?: number;
         currency?: string;
-        eventId: string;
+        eventId: Id<"events">;
         normalizationNote?: string;
         normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
         orderedAt?: number;

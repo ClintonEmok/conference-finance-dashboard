@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { format } from "date-fns"
 import {
   SyntheticEvent,
   useCallback,
@@ -26,12 +27,14 @@ import {
   Sparkles,
   Users,
   X,
+  Calendar,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { useEventsWithAccommodation } from "@/lib/convex/hooks/events"
 import {
   appendSignalFiltersToQuery,
   normalizeSignalFilters,
@@ -667,6 +670,80 @@ export default function AccommodationPage() {
     } finally {
       setIsMutating(false)
     }
+  }
+
+  // Event selector when no event is selected
+  const eventsWithAccommodation = useEventsWithAccommodation()
+  const currentEventId = searchParams.get("eventId")
+
+  if (!currentEventId) {
+    return (
+      <section className="space-y-6">
+        <header className="mb-4">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight text-foreground">
+              Accommodation
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Select an event to manage room assignments and accommodation
+            </p>
+          </div>
+        </header>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {eventsWithAccommodation === undefined ? (
+            <>
+              <Skeleton className="h-32" />
+              <Skeleton className="h-32" />
+              <Skeleton className="h-32" />
+            </>
+          ) : eventsWithAccommodation.length === 0 ? (
+            <Card className="col-span-full">
+              <CardContent className="flex flex-col items-center justify-center py-12">
+                <BedDouble className="mb-4 size-12 text-muted-foreground/50" />
+                <p className="text-lg font-medium">
+                  No events with accommodation
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Enable accommodation in event settings to get started
+                </p>
+                <Button className="mt-4" asChild>
+                  <Link href="/dashboard/events">View Events</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            eventsWithAccommodation.map((event) => (
+              <Card
+                key={event._id}
+                className="cursor-pointer transition-all hover:shadow-md"
+                onClick={() => {
+                  const params = new URLSearchParams(searchParams.toString())
+                  params.set("eventId", event._id)
+                  router.push(`${pathname}?${params.toString()}`)
+                }}
+              >
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Calendar className="size-4 text-muted-foreground" />
+                    {event.title}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {format(new Date(event.startsAt), "MMM d, yyyy")}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {event.isPublished ? "Published" : "Draft"} •{" "}
+                    {event.isSignupOpen ? "Signups Open" : "Signups Closed"}
+                  </p>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+      </section>
+    )
   }
 
   return (

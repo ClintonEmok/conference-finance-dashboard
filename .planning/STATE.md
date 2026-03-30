@@ -187,7 +187,8 @@ Recent decisions that future work should preserve:
 - Phase 19: Public Signup Pages (planned — 3 plans)
 - Phase 20: Admin Event Management (planned — 3 plans)
 - Phase 21: Finance Integration (planned — 3 plans)
-- Phase 22: UI for event creation and UI for event pages (added — not planned yet)
+- Phase 21: UI for event creation and UI for event pages (added — not planned yet)
+- Phase 22: Migrate TicketTailor Event IDs to Canonical (added — not planned yet)
 
 ## Session Continuity
 

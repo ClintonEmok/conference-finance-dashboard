@@ -8,37 +8,33 @@ import { cn } from "@/lib/utils"
 import { ConvexClientProvider } from "../lib/convex/client"
 
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-sans" })
-
-const fontMono = Geist_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-})
+const fontMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" })
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode
-}>) {
+}) {
   return (
-    <html
-      lang="en"
-      suppressHydrationWarning
-      className={cn(
-        "antialiased",
-        fontMono.variable,
-        "font-sans",
-        outfit.variable
-      )}
-    >
-      <body>
-        <ClerkProvider>
+    <ClerkProvider>
+      <html lang="en" suppressHydrationWarning>
+        <body
+          className={cn(
+            "antialiased",
+            fontMono.variable,
+            outfit.variable,
+            "font-sans"
+          )}
+        >
           <ConvexClientProvider>
             <QueryProvider>
-              <ThemeProvider>{children}</ThemeProvider>
+              <ThemeProvider>
+                {children}
+              </ThemeProvider>
             </QueryProvider>
           </ConvexClientProvider>
-        </ClerkProvider>
-      </body>
-    </html>
+        </body>
+      </html>
+    </ClerkProvider>
   )
 }

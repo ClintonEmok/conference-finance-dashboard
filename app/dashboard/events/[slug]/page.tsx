@@ -18,6 +18,8 @@ import {
   AlertCircle,
   Check,
   X,
+  Plus,
+  Building2,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -33,6 +35,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { useEventBySlug, useUpdateEvent } from "@/lib/convex/hooks/events"
 import { useEventSourcesForEvent } from "@/lib/convex/hooks/events"
+import {
+  useHotels,
+  useEventHotels,
+  useLinkHotelToEvent,
+  useUnlinkHotelFromEvent,
+} from "@/lib/convex/hooks/accommodation"
+import { useAccommodationSummaryForEvent } from "@/lib/convex/hooks/accommodation"
 
 type TabKey = "overview" | "settings" | "sources" | "accommodation"
 
@@ -111,6 +120,16 @@ export default function EventDetailPage({
   const [editAccommodationEnabled, setEditAccommodationEnabled] =
     useState(false)
 
+  // Hotel selection state
+  const [selectedHotelId, setSelectedHotelId] = useState<string>("")
+  const [isLinkingHotel, setIsLinkingHotel] = useState(false)
+
+  const hotels = useHotels()
+  const eventHotels = useEventHotels(event?._id ?? "")
+  const linkHotelToEvent = useLinkHotelToEvent()
+  const unlinkHotelFromEvent = useUnlinkHotelFromEvent()
+  const accommodationSummary = useAccommodationSummaryForEvent(event?._id)
+
   const formatDateTimeLocal = (timestamp: number) => {
     const date = new Date(timestamp)
     const pad = (n: number) => n.toString().padStart(2, "0")
@@ -156,6 +175,34 @@ export default function EventDetailPage({
       console.error("Failed to update event:", err)
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleLinkHotel = async () => {
+    if (!event || !selectedHotelId) return
+    setIsLinkingHotel(true)
+    try {
+      await linkHotelToEvent({
+        eventId: event._id,
+        hotelId: selectedHotelId as any,
+      })
+      setSelectedHotelId("")
+    } catch (err) {
+      console.error("Failed to link hotel:", err)
+    } finally {
+      setIsLinkingHotel(false)
+    }
+  }
+
+  const handleUnlinkHotel = async (hotelId: string) => {
+    if (!event) return
+    try {
+      await unlinkHotelFromEvent({
+        eventId: event._id,
+        hotelId: hotelId as any,
+      })
+    } catch (err) {
+      console.error("Failed to unlink hotel:", err)
     }
   }
 
@@ -652,6 +699,88 @@ export default function EventDetailPage({
                 </div>
               </div>
 
+              {/* Hotels Section - only show when accommodation is enabled */}
+              {event.accommodationEnabled && !isEditing && (
+                <div className="mt-6 border-t border-border/50 pt-6">
+                  <h3 className="flex items-center gap-2 text-sm font-medium">
+                    <Building2 className="size-4" />
+                    Linked Hotels
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Hotels available for room assignments at this event
+                  </p>
+
+                  <div className="mt-4 space-y-3">
+                    {eventHotels === undefined ? (
+                      <Skeleton className="h-12" />
+                    ) : eventHotels.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-border/50 p-4 text-center text-sm text-muted-foreground">
+                        No hotels linked yet. Add hotels to enable room
+                        assignments.
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {eventHotels.map((hotel: any) => (
+                          <div
+                            key={hotel._id}
+                            className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2"
+                          >
+                            <span className="text-sm font-medium">
+                              {hotel.name}
+                            </span>
+                            {hotel.city && (
+                              <span className="text-xs text-muted-foreground">
+                                ({hotel.city})
+                              </span>
+                            )}
+                            <button
+                              onClick={() => handleUnlinkHotel(hotel._id)}
+                              className="ml-1 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                            >
+                              <X className="size-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Add Hotel Dropdown */}
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={selectedHotelId}
+                        onChange={(e) => setSelectedHotelId(e.target.value)}
+                        className="h-9 flex-1 rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
+                      >
+                        <option value="">Select a hotel to add...</option>
+                        {hotels
+                          ?.filter(
+                            (h: any) =>
+                              !eventHotels?.some((eh: any) => eh._id === h._id)
+                          )
+                          .map((h: any) => (
+                            <option key={h._id} value={h._id}>
+                              {h.name}
+                              {h.city ? ` (${h.city})` : ""}
+                            </option>
+                          ))}
+                      </select>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleLinkHotel}
+                        disabled={!selectedHotelId || isLinkingHotel}
+                      >
+                        {isLinkingHotel ? (
+                          <span className="size-4 animate-spin">...</span>
+                        ) : (
+                          <Plus className="size-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Danger Zone */}
               {!isEditing && (
                 <div className="mt-6 border-t border-destructive/20 pt-6">
@@ -736,12 +865,40 @@ export default function EventDetailPage({
                 Manage room assignments and submissions
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-center py-12">
+            <CardContent className="space-y-6">
+              {/* Accommodation Stats */}
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-4 text-center">
+                  <p className="text-2xl font-bold text-foreground">
+                    {accommodationSummary?.hotelsLinked ?? 0}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Hotels Linked</p>
+                </div>
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-4 text-center">
+                  <p className="text-2xl font-bold text-foreground">
+                    {accommodationSummary?.totalSlots ?? 0}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Total Slots</p>
+                </div>
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-4 text-center">
+                  <p className="text-2xl font-bold text-foreground">
+                    {accommodationSummary?.submissionsCount ?? 0}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Submissions</p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center gap-4 py-8">
                 <Link href={`/dashboard/accommodation/${event.slug}`}>
-                  <Button>
+                  <Button size="lg" variant="outline">
                     <BedDouble className="mr-2 size-4" />
-                    Open Accommodation Workspace
+                    Event Accommodation
+                  </Button>
+                </Link>
+                <Link href={`/dashboard/accommodation?eventId=${event._id}`}>
+                  <Button size="lg">
+                    <Building2 className="mr-2 size-4" />
+                    Full Workspace
                   </Button>
                 </Link>
               </div>

@@ -89,6 +89,42 @@ export const getEventsForLedger = query({
   },
 })
 
+export const getEventsWithAccommodation = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("events"),
+      _creationTime: v.number(),
+      slug: v.string(),
+      title: v.string(),
+      startsAt: v.number(),
+      endsAt: v.optional(v.number()),
+      timezone: v.string(),
+      currency: v.string(),
+      isPublished: v.boolean(),
+      isSignupOpen: v.boolean(),
+      accommodationEnabled: v.boolean(),
+      primarySourceKind: v.union(
+        v.literal("integration"),
+        v.literal("internal")
+      ),
+      primarySourceProvider: v.optional(v.string()),
+      updatedAt: v.number(),
+    })
+  ),
+  handler: async (ctx) => {
+    const events = await ctx.db.query("events").collect()
+    return events
+      .filter((e) => e.accommodationEnabled)
+      .sort((a, b) => {
+        const aTime = a.startsAt ?? 0
+        const bTime = b.startsAt ?? 0
+        if (aTime !== bTime) return aTime - bTime
+        return (a.title ?? "").localeCompare(b.title ?? "")
+      })
+  },
+})
+
 export const createEvent = mutation({
   args: {
     slug: v.string(),

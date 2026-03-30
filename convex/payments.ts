@@ -2,6 +2,7 @@ import { query, mutation, internalMutation } from "./_generated/server"
 import { v } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import { requireIdentity } from "./auth"
+import type { Id } from "./_generated/dataModel"
 import {
   paymentSourceValidator,
   paymentStatusValidator,
@@ -287,13 +288,15 @@ export const unassignPayment = mutation({
 })
 
 export const autoMatchPayments = mutation({
-  args: { eventId: v.string() },
+  args: { eventId: v.union(v.id("events"), v.string()) },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     // Bounded: indexed by event, capped batch
     const orders = await ctx.db
       .query("ticketTailorOrders")
-      .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
+      .withIndex("eventId", (q) =>
+        q.eq("eventId", args.eventId as Id<"events">)
+      )
       .take(500)
 
     // Bounded: capped batch for auto-match

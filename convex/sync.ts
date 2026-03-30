@@ -6,6 +6,7 @@ import {
 } from "./_generated/server"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
+import type { Id } from "./_generated/dataModel"
 
 export const getSyncRuns = query({
   args: {},
@@ -229,7 +230,7 @@ export const upsertTicketTailorOrder = mutation({
   args: {
     providerOrderId: v.string(),
     providerEventId: v.string(),
-    eventId: v.string(),
+    eventId: v.union(v.id("events"), v.string()),
     normalizedStatus: v.optional(
       v.union(
         v.literal("paid"),
@@ -259,19 +260,19 @@ export const upsertTicketTailorOrder = mutation({
       )
       .collect()
 
+    const insertArgs = {
+      ...args,
+      eventId: args.eventId as Id<"events">,
+      isArchived: false,
+      archiveReason: undefined,
+    }
+
     if (existing[0]) {
-      await ctx.db.patch("ticketTailorOrders", existing[0]._id, {
-        ...args,
-        isArchived: false,
-        archiveReason: undefined,
-      })
+      await ctx.db.patch("ticketTailorOrders", existing[0]._id, insertArgs)
       return existing[0]._id
     }
 
-    const id = await ctx.db.insert("ticketTailorOrders", {
-      ...args,
-      isArchived: false,
-    })
+    const id = await ctx.db.insert("ticketTailorOrders", insertArgs)
     return id
   },
 })
@@ -348,8 +349,8 @@ export const upsertTicketTailorAttendee = mutation({
     providerTicketTypeId: v.optional(v.string()),
     providerEventId: v.string(),
     providerOrderId: v.string(),
-    eventId: v.string(),
-    orderId: v.string(),
+    eventId: v.union(v.id("events"), v.string()),
+    orderId: v.id("ticketTailorOrders"),
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     ticketTypeLabel: v.optional(v.string()),
@@ -403,11 +404,13 @@ export const upsertTicketTailorAttendee = mutation({
 })
 
 export const getTicketTailorAttendeesByOrderId = query({
-  args: { orderId: v.string() },
+  args: { orderId: v.union(v.id("ticketTailorOrders"), v.string()) },
   handler: async (ctx, args) => {
     const attendees = await ctx.db
       .query("ticketTailorAttendees")
-      .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
+      .withIndex("orderId", (q) =>
+        q.eq("orderId", args.orderId as Id<"ticketTailorOrders">)
+      )
       .collect()
     return attendees
   },
@@ -609,6 +612,19 @@ export const internalCompleteSyncRun = internalMutation({
   },
 })
 
+function generateEventSlug(
+  name: string | null | undefined,
+  providerEventId: string
+): string {
+  const base = name
+    ? name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+    : "event"
+  return `${base}-${providerEventId.slice(0, 8)}`
+}
+
 export const internalUpsertTicketTailorEvent = internalMutation({
   args: {
     providerEventId: v.string(),
@@ -619,21 +635,100 @@ export const internalUpsertTicketTailorEvent = internalMutation({
     currency: v.optional(v.string()),
     rawPayload: v.any(),
   },
-  returns: v.id("ticketTailorEvents"),
+  returns: v.object({
+    ticketTailorEventId: v.id("ticketTailorEvents"),
+    canonicalEventId: v.id("events"),
+  }),
   handler: async (ctx, args) => {
-    const existing = await ctx.db
+    const now = Date.now()
+
+    const existingTTEvent = await ctx.db
       .query("ticketTailorEvents")
       .withIndex("providerEventId", (q) =>
         q.eq("providerEventId", args.providerEventId)
       )
       .collect()
 
-    if (existing[0]) {
-      await ctx.db.patch("ticketTailorEvents", existing[0]._id, args)
-      return existing[0]._id
+    let ticketTailorEventId: Id<"ticketTailorEvents">
+    if (existingTTEvent[0]) {
+      await ctx.db.patch("ticketTailorEvents", existingTTEvent[0]._id, args)
+      ticketTailorEventId = existingTTEvent[0]._id
+    } else {
+      ticketTailorEventId = await ctx.db.insert("ticketTailorEvents", args)
     }
 
-    return await ctx.db.insert("ticketTailorEvents", args)
+    const slug = generateEventSlug(args.name, args.providerEventId)
+    const title = args.name ?? `TicketTailor Event ${args.providerEventId}`
+
+    const existingCanonical = await ctx.db
+      .query("events")
+      .withIndex("by_slug", (q) => q.eq("slug", slug))
+      .first()
+
+    let canonicalEventId: Id<"events">
+    if (existingCanonical) {
+      await ctx.db.patch("events", existingCanonical._id, {
+        title,
+        startsAt: args.startsAt ?? existingCanonical.startsAt,
+        endsAt: args.endsAt ?? existingCanonical.endsAt,
+        timezone: args.timezone ?? existingCanonical.timezone,
+        currency: args.currency ?? existingCanonical.currency,
+        updatedAt: now,
+      })
+      canonicalEventId = existingCanonical._id
+    } else {
+      canonicalEventId = await ctx.db.insert("events", {
+        slug,
+        title,
+        startsAt: args.startsAt ?? now,
+        endsAt: args.endsAt,
+        timezone: args.timezone ?? "UTC",
+        currency: args.currency ?? "EUR",
+        isPublished: true,
+        isSignupOpen: true,
+        accommodationEnabled: false,
+        primarySourceKind: "integration",
+        primarySourceProvider: "ticket_tailor",
+        updatedAt: now,
+      })
+    }
+
+    const existingEventSource = await ctx.db
+      .query("eventSources")
+      .withIndex("by_provider_and_externalEventId", (q) =>
+        q
+          .eq("provider", "ticket_tailor")
+          .eq("externalEventId", args.providerEventId)
+      )
+      .first()
+
+    if (existingEventSource) {
+      if (existingEventSource.eventId !== canonicalEventId) {
+        await ctx.db.patch("eventSources", existingEventSource._id, {
+          eventId: canonicalEventId,
+          syncStatus: "active",
+          lastSyncedAt: now,
+          updatedAt: now,
+        })
+      } else {
+        await ctx.db.patch("eventSources", existingEventSource._id, {
+          lastSyncedAt: now,
+          updatedAt: now,
+        })
+      }
+    } else {
+      await ctx.db.insert("eventSources", {
+        eventId: canonicalEventId,
+        provider: "ticket_tailor",
+        externalEventId: args.providerEventId,
+        syncStatus: "active",
+        lastSyncedAt: now,
+        providerSnapshotRef: args.providerEventId,
+        updatedAt: now,
+      })
+    }
+
+    return { ticketTailorEventId, canonicalEventId }
   },
 })
 
@@ -641,7 +736,7 @@ export const internalUpsertTicketTailorOrder = internalMutation({
   args: {
     providerOrderId: v.string(),
     providerEventId: v.string(),
-    eventId: v.string(),
+    eventId: v.id("events"),
     normalizedStatus: v.optional(
       v.union(
         v.literal("paid"),
@@ -693,8 +788,8 @@ export const internalUpsertTicketTailorAttendee = internalMutation({
     providerTicketTypeId: v.optional(v.string()),
     providerEventId: v.string(),
     providerOrderId: v.string(),
-    eventId: v.string(),
-    orderId: v.string(),
+    eventId: v.id("events"),
+    orderId: v.id("ticketTailorOrders"),
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     ticketTypeLabel: v.optional(v.string()),
@@ -824,11 +919,13 @@ export const internalAddAttendeeToFamilyGroup = internalMutation({
 // ---------------------------------------------------------------------------
 
 export const internalGetTicketTailorAttendeesByOrderId = internalQuery({
-  args: { orderId: v.string() },
+  args: { orderId: v.union(v.id("ticketTailorOrders"), v.string()) },
   handler: async (ctx, args) => {
     return await ctx.db
       .query("ticketTailorAttendees")
-      .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
+      .withIndex("orderId", (q) =>
+        q.eq("orderId", args.orderId as Id<"ticketTailorOrders">)
+      )
       .collect()
   },
 })
