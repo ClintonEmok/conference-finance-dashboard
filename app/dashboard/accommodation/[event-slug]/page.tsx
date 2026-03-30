@@ -37,6 +37,7 @@ import {
   useLinkHotelToEvent,
 } from "@/lib/convex/hooks/accommodation"
 import { AddHotelDialog } from "@/app/dashboard/events/[slug]/components/add-hotel-dialog"
+import { AddRoomsDialog } from "./components/add-rooms-dialog"
 
 export default function EventAccommodationPage({
   params,
@@ -54,6 +55,9 @@ export default function EventAccommodationPage({
   // Dialog state
   const [isAddHotelDialogOpen, setIsAddHotelDialogOpen] = useState(false)
   const [isLinkingHotel, setIsLinkingHotel] = useState(false)
+  const [isAddRoomsDialogOpen, setIsAddRoomsDialogOpen] = useState(false)
+  const [selectedHotelForRooms, setSelectedHotelForRooms] = useState<any>(null)
+  const [isAddingRooms, setIsAddingRooms] = useState(false)
 
   // Hooks for hotel creation
   const hotels = useHotels()
@@ -136,6 +140,60 @@ export default function EventAccommodationPage({
       throw err
     } finally {
       setIsLinkingHotel(false)
+    }
+  }
+
+  const handleAddRoomsSubmit = async (data: {
+    hotelId: any
+    roomTypes: Array<{
+      id: string
+      label: string
+      capacity: number
+      roomCount: number
+    }>
+  }) => {
+    if (!event) return
+    setIsAddingRooms(true)
+    try {
+      // Step 1: Create room types for new room types
+      const roomTypeMap = new Map<string, any>()
+      for (const rt of data.roomTypes) {
+        if (rt.id.startsWith("new-")) {
+          // Create new room type
+          const newRtId = await createRoomType({
+            label: rt.label,
+            defaultCapacity: rt.capacity,
+          })
+          roomTypeMap.set(rt.id, newRtId)
+        } else {
+          // Use existing room type
+          roomTypeMap.set(rt.id, rt.id)
+        }
+      }
+
+      // Step 2: Create rooms (slots auto-generated since hotel already linked)
+      for (const rt of data.roomTypes) {
+        const roomTypeId = roomTypeMap.get(rt.id)
+        if (!roomTypeId) continue
+
+        // Create the specified number of rooms for this type
+        const roomLabels = Array.from(
+          { length: rt.roomCount },
+          (_, i) => `${rt.label} ${String(i + 1).padStart(2, "0")}`
+        )
+
+        await createRooms({
+          hotelId: data.hotelId,
+          roomTypeId,
+          quantity: rt.roomCount,
+          labels: roomLabels,
+        })
+      }
+    } catch (err) {
+      console.error("Failed to add rooms:", err)
+      throw err
+    } finally {
+      setIsAddingRooms(false)
     }
   }
 
@@ -368,11 +426,31 @@ export default function EventAccommodationPage({
               {eventHotels.map((hotel: any) => (
                 <Card key={hotel._id} className="bg-muted/50">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-base">{hotel.name}</CardTitle>
-                    {hotel.city && (
-                      <CardDescription>{hotel.city}</CardDescription>
-                    )}
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <CardTitle className="text-base">
+                          {hotel.name}
+                        </CardTitle>
+                        {hotel.city && (
+                          <CardDescription>{hotel.city}</CardDescription>
+                        )}
+                      </div>
+                    </div>
                   </CardHeader>
+                  <CardContent className="pt-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => {
+                        setSelectedHotelForRooms(hotel)
+                        setIsAddRoomsDialogOpen(true)
+                      }}
+                    >
+                      <Plus className="mr-2 size-4" />
+                      Add Rooms
+                    </Button>
+                  </CardContent>
                 </Card>
               ))}
             </div>
@@ -437,6 +515,16 @@ export default function EventAccommodationPage({
           isSubmitting={isLinkingHotel}
         />
       )}
+
+      {/* Add Rooms Dialog */}
+      <AddRoomsDialog
+        open={isAddRoomsDialogOpen}
+        onOpenChange={setIsAddRoomsDialogOpen}
+        hotel={selectedHotelForRooms}
+        existingRoomTypes={roomTypes}
+        onSubmit={handleAddRoomsSubmit}
+        isSubmitting={isAddingRooms}
+      />
     </div>
   )
 }
