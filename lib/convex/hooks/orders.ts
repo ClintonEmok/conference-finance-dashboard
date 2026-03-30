@@ -18,6 +18,16 @@ export function useOrderByProviderId(providerOrderId: string) {
   return useQuery(api.orders.getOrderByProviderId, { providerOrderId })
 }
 
+export function useOrderWithAttendeesByProviderId(
+  providerOrderId: string,
+  providerEventId: string
+) {
+  return useQuery(api.orders.getOrderWithAttendeesByProviderId, {
+    providerOrderId,
+    providerEventId,
+  })
+}
+
 export function useOrderLedger(eventId: string) {
   return useQuery(api.orders.getOrderLedger, { eventId })
 }
@@ -32,4 +42,8 @@ export function useUpsertOrder() {
 
 export function useUpdateOrderStatus() {
   return useMutation(api.orders.updateOrderStatus)
+}
+
+export function useRemoveOrderLocally() {
+  return useMutation(api.orders.removeOrderLocally)
 }
