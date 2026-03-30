@@ -12,10 +12,10 @@ Give church finance admins one reliable place to track conference revenue, recon
 
 ## Next Milestone Goals (v2.0)
 
-- Deliver public event discovery and signup (`/events`, detail, signup)
-- Support dual event source modes (`integration` and `internal`)
-- Keep dashboard and finance reads source-agnostic
-- Preserve existing Ticket Tailor and Tikkie production behavior while expanding capability
+- Deliver a public, ticket-first multi-step signup flow for non-admin users
+- Add accommodation-aware room assignment so families/groups can self-assign beds
+- Capture rooming-critical attendee details (gender, location, dietary, phone, roommate requests)
+- Keep source-aware event contracts (`integration` and `internal`) while preserving existing Ticket Tailor and Tikkie production behavior
 
 ## Constraints
 
@@ -32,4 +32,4 @@ Give church finance admins one reliable place to track conference revenue, recon
 
 ---
 
-_Last updated: 2026-03-27 after v1.0 milestone_
+_Last updated: 2026-03-29 after v2.0 milestone replan_

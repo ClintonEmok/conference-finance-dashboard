@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { FormEvent, useEffect, useMemo, useState } from "react"
+import { SyntheticEvent, useEffect, useMemo, useState } from "react"
 import {
   Users,
   Search,
@@ -61,18 +61,18 @@ type AttendeesPayload = {
     totalAmountMinor: number
     outstandingAmountMinor: number
     roomStatus:
-      | {
-          status: "assigned"
-          roomLabel: string
-          hotelName: string
-          roomTypeLabel: string
-        }
-      | {
-          status: "unassigned"
-          roomLabel: null
-          hotelName: null
-          roomTypeLabel: null
-        }
+    | {
+      status: "assigned"
+      roomLabel: string
+      hotelName: string
+      roomTypeLabel: string
+    }
+    | {
+      status: "unassigned"
+      roomLabel: null
+      hotelName: null
+      roomTypeLabel: null
+    }
     orderedAt: string | null
   }>
 }
@@ -139,11 +139,11 @@ export default function AttendeesPage() {
     async function loadAttendees() {
       setIsLoading(true)
       try {
-        const query = new URLSearchParams({ 
-          from: fromIso!, 
-          to: toIso!, 
-          page: String(page), 
-          pageSize: "25" 
+        const query = new URLSearchParams({
+          from: fromIso!,
+          to: toIso!,
+          page: String(page),
+          pageSize: "25"
         })
         if (appliedEventId.trim()) query.set("eventId", appliedEventId.trim())
         if (appliedSearch.trim()) query.set("search", appliedSearch.trim())
@@ -163,7 +163,7 @@ export default function AttendeesPage() {
     return () => controller.abort()
   }, [appliedEventId, appliedFrom, appliedSearch, appliedTo, page])
 
-  function applyFilters(event: FormEvent<HTMLFormElement>) {
+  function applyFilters(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     setAppliedEventId(eventIdInput)
     setAppliedSearch(searchInput)
@@ -269,8 +269,8 @@ export default function AttendeesPage() {
                       <div className="flex items-center gap-4">
                         <Skeleton className="size-10 rounded-lg" />
                         <div className="space-y-2">
-                           <Skeleton className="h-4 w-32" />
-                           <Skeleton className="h-3 w-48" />
+                          <Skeleton className="h-4 w-32" />
+                          <Skeleton className="h-3 w-48" />
                         </div>
                       </div>
                     </td>
@@ -291,46 +291,46 @@ export default function AttendeesPage() {
                   </tr>
                 ))
               ) : payload?.rows.map((row) => (
-                <tr 
+                <tr
                   key={row.attendeeId}
                   onClick={() => router.push(`/dashboard/attendees/${row.attendeeId}?search=${encodeURIComponent(appliedSearch || row.attendeeName || "")}&eventId=${appliedEventId || row.providerEventId}&source=${source ?? "attendee-ledger"}`)}
                   className="group cursor-pointer hover:bg-primary/[0.02] transition-colors"
                 >
                   <td className="px-8 py-6">
                     <div className="flex items-center gap-4">
-                       <div className="size-10 rounded-lg bg-primary/5 border border-primary/10 flex items-center justify-center text-primary/70 font-bold text-xs">
-                          {row.attendeeName?.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
-                       </div>
-                       <div className="min-w-0">
-                          <p className="font-bold text-foreground truncate">{row.attendeeName}</p>
-                          <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground/60 font-medium">
-                             <Mail className="size-3" /> {row.attendeeEmail}
-                          </div>
-                       </div>
+                      <div className="size-10 rounded-lg bg-primary/5 border border-primary/10 flex items-center justify-center text-primary/70 font-bold text-xs">
+                        {row.attendeeName?.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-foreground truncate">{row.attendeeName}</p>
+                        <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground/60 font-medium">
+                          <Mail className="size-3" /> {row.attendeeEmail}
+                        </div>
+                      </div>
                     </div>
                   </td>
                   <td className="px-8 py-6 text-center">
-                     <Badge variant="outline" className={cn(
-                       "rounded-lg h-6 px-2 text-[9px] font-black uppercase tracking-widest border-none",
-                       row.genderType === "MALE" ? "bg-indigo-500/10 text-indigo-600" :
-                       row.genderType === "FEMALE" ? "bg-rose-500/10 text-rose-600" : "bg-muted text-muted-foreground"
-                     )}>
-                        {formatGenderLabel(row.genderType)}
-                     </Badge>
+                    <Badge variant="outline" className={cn(
+                      "rounded-lg h-6 px-2 text-[9px] font-black uppercase tracking-widest border-none",
+                      row.genderType === "MALE" ? "bg-indigo-500/10 text-indigo-600" :
+                        row.genderType === "FEMALE" ? "bg-rose-500/10 text-rose-600" : "bg-muted text-muted-foreground"
+                    )}>
+                      {formatGenderLabel(row.genderType)}
+                    </Badge>
                   </td>
                   <td className="px-8 py-6 text-center">
                     <div className="flex flex-col items-center gap-1.5">
-                       <Badge className={cn(
-                         "rounded-lg h-6 px-3 text-[9px] font-black uppercase tracking-widest shadow-none border-none",
-                         row.normalizedStatus === "paid" ? "bg-emerald-500/10 text-emerald-600" : "bg-orange-500/10 text-orange-600"
-                       )}>
-                          {row.normalizedStatus}
-                       </Badge>
-                       {row.roomStatus.status === "assigned" && (
-                         <div className="flex items-center gap-1 text-[9px] font-bold text-indigo-500/70 uppercase">
-                            <ShieldCheck className="size-2.5" /> Placed
-                         </div>
-                       )}
+                      <Badge className={cn(
+                        "rounded-lg h-6 px-3 text-[9px] font-black uppercase tracking-widest shadow-none border-none",
+                        row.normalizedStatus === "paid" ? "bg-emerald-500/10 text-emerald-600" : "bg-orange-500/10 text-orange-600"
+                      )}>
+                        {row.normalizedStatus}
+                      </Badge>
+                      {row.roomStatus.status === "assigned" && (
+                        <div className="flex items-center gap-1 text-[9px] font-bold text-indigo-500/70 uppercase">
+                          <ShieldCheck className="size-2.5" /> Placed
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td className="px-8 py-6">

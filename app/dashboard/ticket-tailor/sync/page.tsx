@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent, useMemo, useState } from "react"
+import { SyntheticEvent, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 
@@ -85,7 +85,7 @@ export default function TicketTailorSyncPage() {
     return null
   }, [from, to])
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: SyntheticEvent) {
     event.preventDefault()
 
     if (inlineDateValidationError) {
@@ -309,36 +309,36 @@ export default function TicketTailorSyncPage() {
 
           {(result.diagnostics.fallbackNotes.length > 0 ||
             result.diagnostics.errors.length > 0) && (
-            <div className="mt-4 space-y-2 rounded-md border border-border/70 p-3 text-sm">
-              <p className="font-medium">Diagnostics</p>
-              {result.diagnostics.fallbackNotes.length > 0 && (
-                <div>
-                  <p className="text-xs tracking-wide text-muted-foreground uppercase">
-                    Fallback notes
-                  </p>
-                  <ul className="mt-1 list-inside list-disc">
-                    {result.diagnostics.fallbackNotes
-                      .slice(0, 5)
-                      .map((note) => (
-                        <li key={note}>{note}</li>
+              <div className="mt-4 space-y-2 rounded-md border border-border/70 p-3 text-sm">
+                <p className="font-medium">Diagnostics</p>
+                {result.diagnostics.fallbackNotes.length > 0 && (
+                  <div>
+                    <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                      Fallback notes
+                    </p>
+                    <ul className="mt-1 list-inside list-disc">
+                      {result.diagnostics.fallbackNotes
+                        .slice(0, 5)
+                        .map((note) => (
+                          <li key={note}>{note}</li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
+                {result.diagnostics.errors.length > 0 && (
+                  <div>
+                    <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                      Errors
+                    </p>
+                    <ul className="mt-1 list-inside list-disc">
+                      {result.diagnostics.errors.slice(0, 5).map((error) => (
+                        <li key={error}>{error}</li>
                       ))}
-                  </ul>
-                </div>
-              )}
-              {result.diagnostics.errors.length > 0 && (
-                <div>
-                  <p className="text-xs tracking-wide text-muted-foreground uppercase">
-                    Errors
-                  </p>
-                  <ul className="mt-1 list-inside list-disc">
-                    {result.diagnostics.errors.slice(0, 5).map((error) => (
-                      <li key={error}>{error}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
         </article>
       )}
     </section>

@@ -23,3 +23,20 @@
 - Roadmap: `.planning/milestones/v1.0-ROADMAP.md`
 - Requirements: `.planning/milestones/v1.0-REQUIREMENTS.md`
 - Audit: `.planning/milestones/v1.0-MILESTONE-AUDIT.md`
+
+## v2.0 Attendee Signup + Accommodation Self-Assignment (Planned: replanned 2026-03-29)
+
+**Target outcomes:**
+
+- Deliver a public, non-admin multi-step signup flow that starts with tickets and conditionally includes room assignment.
+- Let one booker assign beds for family/group attendees before submit.
+- Capture rooming-critical data (gender, location, dietary, phone, roommate requests) in the signup flow.
+- Keep operator and finance downstream flows compatible with existing Ticket Tailor/Tikkie behavior.
+
+### Planning References
+
+- Requirements: `.planning/REQUIREMENTS.md`
+- Roadmap: `.planning/ROADMAP.md`
+- State: `.planning/STATE.md`
+- Milestone context: `.planning/MILESTONE-CONTEXT.md`
+- Research: `.planning/research/v2.0-attendee-signup-self-assignment.md`

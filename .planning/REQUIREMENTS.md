@@ -1,90 +1,78 @@
 # Requirements: Conference Finance Dashboard
 
-**Defined:** 2026-03-27
-**Core Value:** Give church finance admins one reliable place to track conference revenue, reconcile ticket sales with payment collections, and act on outstanding balances quickly.
+**Defined:** 2026-03-29
+**Core Value (v2.0 focus):** Give public attendees a guided, low-friction signup flow that captures accommodation-ready data so families can self-assign rooms and operators can run room allocation with fewer manual fixes.
 
-## v2.0 Requirements
+## v2.0 Requirements (Replanned)
 
-### Schema & Contracts
+### User-Facing Signup Journey
 
-- [ ] **ESCH-01**: Canonical `events` table uses `source: "integration" | "internal"` with optional `integrationProvider` field for provider-specific detail. Includes `slug`, `published`, `startsAt`, `location`, `currency`, and `bannerImageKey` (optional, R2 object key) as first-class fields. Slug is auto-generated from title, admin-overridable on internal events, and uniqueness is enforced atomically in mutation (normalized, lowercase).
-- [ ] **ESCH-02**: `eventTicketTypes` table is populated for both internal events (admin-managed) and integration events (synced from Ticket Tailor where available) so one public detail UI and one finance model work for both sources.
-- [ ] **ESCH-03**: `eventRegistrations` table enforces capacity and duplicate-email guards atomically in a single Convex mutation (denormalized counter + normalized email comparison). Not a DB unique constraint — an app-level invariant via transactional enforcement.
-- [ ] **ESCH-04**: System integrates with Cloudflare R2 for event image storage. Uses presigned upload URLs for admin uploads and public CDN URLs for serving. API route generates presigned URLs; Convex mutation stores the returned object key.
+- [ ] **USF-01**: Public attendees can complete a multi-step signup flow in this order: (1) ticket selection, (2) accommodation assignment when enabled for the event, (3) attendee details + notes, (4) review + submit.
+- [ ] **USF-02**: Ticket choices shown in step 1 are sourced from admin-configured event ticket types; unavailable or sold-out types cannot be selected.
+- [ ] **USF-03**: The accommodation step appears only when the selected event has accommodation enabled and available room inventory.
+- [ ] **USF-04**: The primary booker can assign names across selected room beds for their group/family in a single submission flow (booker-managed assignment).
+- [ ] **USF-05**: Any unassigned bed is clearly labeled before submit as an open spot that may be filled by another attendee ("random fill" warning).
+- [ ] **USF-06**: Public submission path applies abuse controls (rate limiting + honeypot and/or idempotency token) to reduce spam/duplicate accidental submissions.
 
-### Public Signup
+### Attendee Data for Rooming
 
-- [ ] **EPUB-01**: Public user can browse a list of published events at `/events` with banner image thumbnail, title, date, and location
-- [ ] **EPUB-02**: Public user can view event detail page with banner image, description, date, location, and available ticket types (canonical shape, source-agnostic)
-- [ ] **EPUB-03**: Public user can submit a registration form with name, email, phone, and selected ticket type
-- [ ] **EPUB-04**: System rejects registration when event is full — enforced atomically in the same mutation as insert
-- [ ] **EPUB-05**: System rejects duplicate registrations by normalized email per event — enforced atomically in the same mutation as insert
+- [ ] **RMD-01**: Each attendee record in the signup flow captures required rooming details: gender, location/city, dietary restrictions, roommate request, and phone number.
+- [ ] **RMD-02**: Roommate request supports both positive preference (want to room with) and soft exclusion notes (prefer not to room with) as free-text guidance.
+- [ ] **RMD-03**: Validation prevents submission when required attendee rooming fields are missing.
 
-### Admin Event Management
+### Contracts & Domain Model
 
-- [ ] **EADM-01**: Admin can create internal events with title, description, date, location, slug, publish status, currency, and optional banner image upload (via R2 presigned URL flow)
-- [ ] **EADM-02**: Admin can add/edit/remove ticket types on internal events with name, price, and capacity
-- [ ] **EADM-03**: Admin can view and filter events by source. Integration events are read-only; admin can create and manage only internal events.
-- [ ] **EADM-04**: Admin can view a unified event list showing both integration-synced and internal events via canonical read model
-- [ ] **EADM-05**: Admin can view registrations for internal events with attendee details
+- [ ] **DOM-01**: Canonical event model remains source-aware (`integration` vs `internal`) while exposing one shared public contract for event, ticket types, accommodation inventory, and room constraints.
+- [ ] **DOM-02**: Signup write path stores one submission envelope (booker + attendees + ticket selections + room assignments + notes) atomically so data cannot partially persist.
+- [ ] **DOM-03**: Capacity and duplicate-protection checks run in the same write transaction as submission insert.
 
-### Finance Integration (Read-Time Union approach)
+### Operator Handoff & Compatibility
 
-- [ ] **EFIN-01**: Internal registrations create order and payment records in a dedicated `internalOrders` table. Finance domain layer unions `ticketTailorOrders` and `internalOrders` at read time via a shared `OrderDTO` shape. Existing TT tables remain untouched.
-- [ ] **EFIN-02**: Revenue/dashboard views resolve events through canonical `events` table rather than `providerEventId`/`ticketTailor*` table assumptions. Order reads use the union layer.
-- [ ] **EFIN-03**: Reconciliation views can represent orders/payments from internal registrations alongside Ticket Tailor data through the shared `OrderDTO` union.
-- [ ] **EFIN-04**: System auto-creates a Tikkie payment link for paid internal registrations using existing event-level Tikkie templates, applied against internal order/payment records.
+- [ ] **OPS-01**: Operator accommodation views can consume submitted room assignments and notes without requiring data reshaping.
+- [ ] **OPS-02**: Existing Ticket Tailor and Tikkie flows remain backward compatible for integration-backed events while internal signup paths adopt the same canonical event/ticket contracts.
 
-## Future Requirements
+## Future Requirements (Post-v2.0)
 
-### Deferred to post-v2.0
+- Public attendee self-service edits after submission (manage own booking portal)
+- Rule-based roommate matching engine (beyond free-text requests)
+- Waitlist flow when accommodation or ticket capacity is full
+- Rich household account system across multiple events
 
-- **Household registration** — register multiple attendees under one submission (P2, HIGH complexity)
-- **Canonical orders consolidation** — migrate to single `orders` table with source discriminator (natural Phase 18)
-- **Public attendee account portal** — post-signup profile editing, ticket management
-- **Capacity waitlist** — queue registrations when event is full
-- **Image optimization** — resize/format conversion for banner images on upload
+## Out of Scope (v2.0)
 
-## Out of Scope
-
-| Feature                        | Reason                                             |
-| ------------------------------ | -------------------------------------------------- |
-| Real-time signup counters      | Adds complexity, low value for church-scale events |
-| Coupon/discount system         | Not needed for conference context                  |
-| QR code tickets                | Overkill for church events, check-in sufficient    |
-| Social login for public signup | Email-only keeps it simple                         |
-| Multi-tenant church support    | Single church scope for now                        |
+| Feature                                  | Reason                                                     |
+| ---------------------------------------- | ---------------------------------------------------------- |
+| Full attendee login/account area         | Focus is one guided submission flow, not account lifecycle |
+| Automated perfect room allocation engine | v2.0 captures data for operators; optimization can follow  |
+| Multi-tenant church/org support          | Project remains single-org scoped                          |
+| Discount/coupon commerce features        | Not needed for current church conference operations        |
 
 ## Traceability
 
 | Requirement | Phase | Status  |
 | ----------- | ----- | ------- |
-| ESCH-01     | 17    | Pending |
-| ESCH-02     | 17    | Pending |
-| ESCH-03     | 17    | Pending |
-| ESCH-04     | 17    | Pending |
-| EPUB-01     | 18    | Pending |
-| EPUB-02     | 18    | Pending |
-| EPUB-03     | 18    | Pending |
-| EPUB-04     | 18    | Pending |
-| EPUB-05     | 18    | Pending |
-| EADM-01     | 19    | Pending |
-| EADM-02     | 19    | Pending |
-| EADM-03     | 19    | Pending |
-| EADM-04     | 19    | Pending |
-| EADM-05     | 19    | Pending |
-| EFIN-01     | 20    | Pending |
-| EFIN-02     | 20    | Pending |
-| EFIN-03     | 20    | Pending |
-| EFIN-04     | 20    | Pending |
+| USF-01      | 18    | Pending |
+| USF-02      | 18    | Pending |
+| USF-03      | 18    | Pending |
+| USF-04      | 19    | Pending |
+| USF-05      | 19    | Pending |
+| USF-06      | 18    | Pending |
+| RMD-01      | 19    | Pending |
+| RMD-02      | 19    | Pending |
+| RMD-03      | 19    | Pending |
+| DOM-01      | 18    | Pending |
+| DOM-02      | 18    | Pending |
+| DOM-03      | 18    | Pending |
+| OPS-01      | 20    | Pending |
+| OPS-02      | 20    | Pending |
 
 **Coverage:**
 
-- v2.0 requirements: 18 total
-- Mapped to phases: 18
-- Unmapped: 0 ✓
+- v2.0 requirements: 14 total
+- Mapped to phases: 14
+- Unmapped: 0
 
 ---
 
-_Requirements defined: 2026-03-27_
-_Last updated: 2026-03-27 after slug/banner additions and finance architecture decision (Option B: read-time union)_
+_Requirements defined: 2026-03-29_
+_Last updated: 2026-03-29 after milestone replan focused on non-admin signup and accommodation assignment_

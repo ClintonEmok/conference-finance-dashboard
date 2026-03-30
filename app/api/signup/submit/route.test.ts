@@ -49,7 +49,7 @@ describe("POST /api/signup/submit", () => {
             gender: "female",
             location: "Amsterdam",
             dietaryRestrictions: "none",
-            roommatePreference: "near window",
+            roommatePreference: "Sarah Johnson",
             roommateAvoid: "snoring",
             phone: "+31600000001",
           },
@@ -91,7 +91,7 @@ describe("POST /api/signup/submit", () => {
               gender: "female",
               location: "Amsterdam",
               dietaryRestrictions: "none",
-              roommatePreference: "near window",
+              roommatePreference: "Sarah Johnson",
               roommateAvoid: "snoring",
               phone: "+31600000001",
             },
@@ -138,7 +138,7 @@ describe("POST /api/signup/submit", () => {
               gender: "female",
               location: "Amsterdam",
               dietaryRestrictions: "none",
-              roommatePreference: "near window",
+              roommatePreference: "Sarah Johnson",
               roommateAvoid: "snoring",
               phone: "+31600000001",
             },
@@ -199,6 +199,55 @@ describe("POST /api/signup/submit", () => {
       error: {
         code: "INVALID_SUBMISSION",
         message: "Invalid 'attendees'. At least one attendee is required.",
+      },
+    })
+  })
+
+  it("maps uniqueness conflicts to 409 SUBMISSION_CONFLICT", async () => {
+    vi.mocked(submitSignup).mockRejectedValueOnce(
+      new Error("SUBMISSION_CONFLICT: Duplicate attendee key 'a-1'")
+    )
+
+    const response = await POST(
+      new Request("http://localhost/api/signup/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId: "j57a0f4n13n3m6v3kz5z2n6sh7mew4p2",
+          source: "internal",
+          booker: { name: "Booker", email: "booker@example.com" },
+          attendees: [
+            {
+              attendeeKey: "a-1",
+              name: "Jane Doe",
+              email: "jane@example.com",
+              gender: "female",
+              location: "Amsterdam",
+              dietaryRestrictions: "none",
+              roommatePreference: "Sarah Johnson",
+              roommateAvoid: "snoring",
+              phone: "+31600000001",
+            },
+          ],
+          ticketSelections: [
+            {
+              attendeeKey: "a-1",
+              ticketTypeId: "j57a2pb9ym78g2s5m8z91x6qf97mex0r",
+              quantity: 1,
+            },
+          ],
+          assignments: [],
+        }),
+      })
+    )
+
+    const body = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(body).toEqual({
+      error: {
+        code: "SUBMISSION_CONFLICT",
+        message: "Duplicate attendee key 'a-1'",
       },
     })
   })
@@ -302,7 +351,7 @@ describe("POST /api/signup/submit", () => {
           gender: "female",
           location: "Amsterdam",
           dietaryRestrictions: "none",
-          roommatePreference: "near window",
+          roommatePreference: "Sarah Johnson",
           roommateAvoid: "snoring",
           phone: "+31600000001",
         },
@@ -352,6 +401,68 @@ describe("POST /api/signup/submit", () => {
     expect(secondBody).toEqual(firstBody)
     expect((secondBody as { data: Record<string, unknown> }).data.reused).toBe(
       undefined
+    )
+  })
+
+  it("forwards explicit x-idempotency-key header unchanged", async () => {
+    vi.mocked(submitSignup).mockResolvedValueOnce({
+      submissionId: "j57d20f4n13n3m6v3kz5z2n6sh7mf3j8",
+      bookingRef: "BK-20260329-ABC12345",
+      submittedAt: "2026-03-29T20:00:00.000Z",
+      restorePayload: {
+        eventId: "j57a0f4n13n3m6v3kz5z2n6sh7mew4p2",
+        source: "internal",
+        booker: {
+          name: "Booker",
+          email: "booker@example.com",
+        },
+        attendees: [],
+        ticketSelections: [],
+        assignments: [],
+      },
+    })
+
+    await POST(
+      new Request("http://localhost/api/signup/submit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-idempotency-key": "client-provided-key",
+        },
+        body: JSON.stringify({
+          eventId: "j57a0f4n13n3m6v3kz5z2n6sh7mew4p2",
+          source: "internal",
+          booker: { name: "Booker", email: "booker@example.com" },
+          attendees: [
+            {
+              attendeeKey: "a-1",
+              name: "Jane Doe",
+              email: "jane@example.com",
+              gender: "female",
+              location: "Amsterdam",
+              dietaryRestrictions: "none",
+              roommatePreference: "Sarah Johnson",
+              roommateAvoid: "snoring",
+              phone: "+31600000001",
+            },
+          ],
+          ticketSelections: [
+            {
+              attendeeKey: "a-1",
+              ticketTypeId: "j57a2pb9ym78g2s5m8z91x6qf97mex0r",
+              quantity: 1,
+            },
+          ],
+          assignments: [],
+        }),
+      })
+    )
+
+    expect(submitSignup).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        idempotencyKey: "client-provided-key",
+      })
     )
   })
 })

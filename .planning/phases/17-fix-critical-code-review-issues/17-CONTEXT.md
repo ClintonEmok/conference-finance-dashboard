@@ -16,12 +16,15 @@ In scope:
 - Data-integrity repairs for room occupancy, payment auto-match, Tikkie quota enforcement, and CSV export completeness
 - Performance fixes for known unbounded Convex reads and table scans
 - Dashboard resilience fixes: App Router error boundaries/loading states and `formatMoney` consolidation
+- Modal accessibility fixes for custom payment/Tikkie dialogs used in current dashboard flows
+- Integration hardening for API rate limits, outbound fetch timeouts/retries, and auto-sync execution path safety
 - Targeted regression and contract tests for each touched critical path, including Convex auth, webhook verification, occupancy truth, quota/match logic, interface extraction, and UI resilience fallbacks
 
 Out of scope:
 
 - New v2.0 event-signup schema/features from phases 18-21
 - Broad redesign of dashboard UX beyond resilience and shared formatting
+- Role-based access control redesign beyond existing authenticated operator access
 - Non-critical polish issues from the review unless they are directly required by the critical fixes above
 
 </domain>
@@ -35,6 +38,8 @@ Out of scope:
 - Harden Convex itself instead of trusting the Next.js layer alone: every public write mutation in the audited modules must call `ctx.auth.getUserIdentity()` and reject unauthenticated access.
 - Prefer `internalMutation` / `internalAction` for helper flows that are not true client APIs.
 - Webhook verification must fail closed when the required secret env var is missing; missing secret is a misconfiguration, not an allow-all mode.
+- Role-based access control is explicitly deferred from this phase; Phase 17 only closes authentication and transport-level security gaps.
+- Any client component calling an authenticated Convex query must render beneath `<Authenticated>` from `convex/react` (or an equivalent Convex auth-ready guard), otherwise the query can throw during page load while auth is unresolved.
 
 ### Data integrity
 
@@ -47,6 +52,7 @@ Out of scope:
 ### Performance
 
 - Replace unbounded `.collect()` calls on growing tables with indexed reads, `.take(N)`, pagination, or async iteration.
+- Split execution into smaller plans so each risk area can land and verify independently.
 - Preserve current route/domain response shapes while changing query strategy underneath.
 - Avoid Convex query `.filter((q) => ...)` on touched hot paths; prefer `.withIndex` / `.withSearchIndex`, or explicit TypeScript filtering only after intentionally small reads.
 
@@ -66,6 +72,13 @@ Out of scope:
 - Add App Router `error.tsx` / `global-error.tsx` boundaries so dashboard crashes degrade to recoverable fallbacks instead of white screens.
 - Add route-level `loading.tsx` surfaces for the main dashboard areas.
 - Extract duplicated `formatMoney` into one shared utility without changing displayed EUR formatting.
+- Replace custom modal shells with accessible dialog primitives or equivalent keyboard/focus-safe behavior.
+
+### Integration hardening
+
+- Add rate limiting to operator-facing and webhook API routes touched by this phase.
+- Add explicit timeout and bounded retry behavior to outbound Ticket Tailor and Tikkie fetch clients.
+- Remove circular Convex cron -> app HTTP -> Convex flow where feasible; prefer internal-only Convex execution paths.
 
 </decisions>
 
@@ -109,8 +122,7 @@ Out of scope:
 <deferred>
 ## Deferred Ideas
 
-- Modal accessibility refactors beyond what is required for current route resilience
-- Cron/timeout/rate-limit improvements not required by the eight roadmap success criteria
+- Broad authorization model / RBAC redesign
 
 </deferred>
 

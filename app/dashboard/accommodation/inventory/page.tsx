@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
+import { SyntheticEvent, useCallback, useEffect, useMemo, useState } from "react"
 import {
    BedDouble,
    Building2,
@@ -209,7 +209,7 @@ export default function RoomInventoryPage() {
       }
    }
 
-   const submitHotel = async (e: FormEvent) => {
+   const submitHotel = async (e: SyntheticEvent) => {
       e.preventDefault()
       if (!hotelName.trim()) return
       setIsMutating(true)
@@ -228,7 +228,7 @@ export default function RoomInventoryPage() {
       } finally { setIsMutating(false) }
    }
 
-   const submitRoomType = async (e: FormEvent) => {
+   const submitRoomType = async (e: SyntheticEvent) => {
       e.preventDefault()
       if (!roomTypeLabel.trim()) return
       setIsMutating(true)
@@ -247,7 +247,7 @@ export default function RoomInventoryPage() {
       } finally { setIsMutating(false) }
    }
 
-   const submitRoom = async (e: FormEvent) => {
+   const submitRoom = async (e: SyntheticEvent) => {
       e.preventDefault()
       if (!roomHotelId || !roomTypeId) return
       setIsMutating(true)

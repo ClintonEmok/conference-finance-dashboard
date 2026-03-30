@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
+import { SyntheticEvent, useCallback, useEffect, useMemo, useState } from "react"
 import {
   ArrowRight,
   BedDouble,
@@ -480,7 +480,7 @@ export default function AccommodationPage() {
     }
   }, [roomsPage, totalRoomPages])
 
-  function applyFilters(event: FormEvent<HTMLFormElement>) {
+  function applyFilters(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     setAssignmentMessage(null)
     syncUrlState({
@@ -882,8 +882,8 @@ export default function AccommodationPage() {
                       </div>
                       <Skeleton className="ml-7 h-3 w-48 rounded-md" />
                       <div className="ml-7 flex gap-1.5">
-                         <Skeleton className="h-4 w-12 rounded-md" />
-                         <Skeleton className="h-4 w-16 rounded-md" />
+                        <Skeleton className="h-4 w-12 rounded-md" />
+                        <Skeleton className="h-4 w-16 rounded-md" />
                       </div>
                     </div>
                   ))}
@@ -991,16 +991,16 @@ export default function AccommodationPage() {
                 {Array.from({ length: 6 }).map((_, i) => (
                   <div key={i} className="flex flex-col rounded-2xl border border-border/40 bg-card/60 overflow-hidden h-[240px]">
                     <div className="flex items-center gap-3 p-4 border-b border-border/10 bg-muted/10">
-                       <Skeleton className="size-8 rounded-lg" />
-                       <div className="space-y-1.5">
-                          <Skeleton className="h-4 w-24 rounded-md" />
-                          <Skeleton className="h-3 w-32 rounded-md" />
-                       </div>
+                      <Skeleton className="size-8 rounded-lg" />
+                      <div className="space-y-1.5">
+                        <Skeleton className="h-4 w-24 rounded-md" />
+                        <Skeleton className="h-3 w-32 rounded-md" />
+                      </div>
                     </div>
                     <div className="p-4 space-y-3">
-                       <Skeleton className="h-10 w-full rounded-xl" />
-                       <Skeleton className="h-10 w-full rounded-xl" />
-                       <Skeleton className="h-10 w-full rounded-xl" />
+                      <Skeleton className="h-10 w-full rounded-xl" />
+                      <Skeleton className="h-10 w-full rounded-xl" />
+                      <Skeleton className="h-10 w-full rounded-xl" />
                     </div>
                   </div>
                 ))}

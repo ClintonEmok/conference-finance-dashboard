@@ -129,30 +129,30 @@ Planning implication:
 
 ## Recommended plan split
 
-1. **Security hardening** — Convex auth guard + fail-closed webhook verification
-2. **Data integrity** — occupancy truth + payment auto-match/quota transaction safety + CSV archive fields
-3. **Performance** — remove audited unbounded `.collect()` and full-table scans
-4. **UI resilience** — error boundaries + loading states + shared money formatter
+1. **Security hardening** — split into `17-01` through `17-04` so auth, webhooks/config, abuse/timeout handling, and auto-sync internalization can land independently.
+2. **UI resilience** — split into `17-05` and `17-06` so route fallbacks and modal/formatting work do not block each other.
+3. **Data integrity** — split into `17-07` and `17-08` so occupancy cleanup is independent from finance race-condition fixes.
+4. **Performance + type extraction** — isolated in `17-09` after correctness fixes are stable.
 
-This split keeps UI work parallel with backend hardening while keeping overlapping finance/accommodation files sequential.
+RBAC is intentionally out of scope for this phase revision.
 
 ## Validation Architecture
 
-### 17-01 Security hardening
+### 17-01 to 17-04 Security hardening
 
 - `rg "ctx\.auth\.getUserIdentity\(|assert.*Auth|require.*Identity" convex/attendees.ts convex/orders.ts convex/payments.ts convex/tikkie.ts convex/accommodation.ts convex/events.ts convex/sync.ts` returns matches in every public write module.
 - `npm test -- tests/tikkie/webhook-route.test.ts tests/ticket-tailor/sync-route.test.ts` exits 0.
 - `rg "return true" lib/integrations/tikkie/webhook.ts lib/integrations/ticket-tailor/webhook.ts` returns no missing-secret allow-all branch.
 - `rg "ctx\.scheduler|ctx\.run(Query|Mutation|Action)|internal\." convex` confirms touched scheduler/run targets remain internal.
 
-### 17-02 Data integrity
+### 17-07 to 17-08 Data integrity
 
 - `rg "archiveReason|archivedAt|isArchived" lib/domain/finance/order-ledger.ts` shows both header and row mapping include archive fields.
 - Accommodation assign/unassign paths no longer patch `occupiedBeds` directly.
 - Auto-match/quota flows are executed through a single Convex mutation boundary and route/domain callers stop doing query-then-write preflights.
 - Touched Convex writes use explicit table-name `ctx.db.patch/get/delete` calls.
 
-### 17-03 Performance
+### 17-09 Performance and shared types
 
 - `rg "\.collect\(" convex/attendees.ts convex/orders.ts convex/payments.ts convex/tikkie.ts convex/accommodation.ts` shows no remaining unbounded table-wide hot-path collects from the audit list.
 - `npm run typecheck` exits 0.
@@ -160,7 +160,7 @@ This split keeps UI work parallel with backend hardening while keeping overlappi
 - Any new schema indexes are checked against existing prefix indexes before keeping both.
 - Shared model interfaces moved into `lib/types/*.ts` remain importable without changing runtime contracts on touched modules.
 
-### 17-04 UI resilience
+### 17-05 to 17-06 UI resilience
 
 - `test -f app/global-error.tsx && test -f app/dashboard/error.tsx` exits 0.
 - `rg "from \"@/lib/format" app/dashboard components` shows shared formatter imports.
