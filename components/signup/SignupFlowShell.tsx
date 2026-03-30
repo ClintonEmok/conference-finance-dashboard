@@ -26,6 +26,12 @@ import {
   AttendeeDetailsStep,
   type AttendeeValidationSummary,
 } from "@/components/signup/steps/AttendeeDetailsStep"
+import { ReviewSubmitStep } from "@/components/signup/steps/ReviewSubmitStep"
+import {
+  submitSignupDraft,
+  type SignupClientErrorCode,
+} from "@/components/signup/submission-client"
+import type { SignupSubmissionResult } from "@/lib/types/signup"
 
 type SignupFlowShellProps = {
   slug: string
@@ -37,6 +43,15 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   const [draft, setDraft] = useState<SignupDraft | null>(null)
   const [attendeeValidation, setAttendeeValidation] =
     useState<AttendeeValidationSummary | null>(null)
+  const [submitResult, setSubmitResult] =
+    useState<SignupSubmissionResult | null>(null)
+  const [submitError, setSubmitError] = useState<{
+    code: SignupClientErrorCode
+    message: string
+  } | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [restoreChoicePending, setRestoreChoicePending] = useState(false)
+  const [idempotencyKey] = useState(() => `signup-${Date.now()}`)
 
   useEffect(() => {
     if (!event) {
@@ -262,6 +277,9 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     nextSelections: TicketSelectionDraft[]
   ) {
     setAttendeeValidation(null)
+    setSubmitResult(null)
+    setSubmitError(null)
+    setRestoreChoicePending(false)
     setDraft((current) => {
       if (!current) {
         return current
@@ -286,6 +304,9 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     nextAssignments: Record<string, string>
   ) {
     setAttendeeValidation(null)
+    setSubmitResult(null)
+    setSubmitError(null)
+    setRestoreChoicePending(false)
     setDraft((current) =>
       current
         ? invalidateDownstreamForRoomChange(current, nextAssignments)
@@ -310,6 +331,9 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     value: string
   ) {
     setAttendeeValidation(null)
+    setSubmitResult(null)
+    setSubmitError(null)
+    setRestoreChoicePending(false)
     setDraft((current) => {
       if (!current) {
         return current
@@ -327,6 +351,48 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
         ),
       }
     })
+  }
+
+  async function handleSubmitFromReview() {
+    const validation = validateAttendeeDetails(activeDraft.attendees)
+    setAttendeeValidation(validation)
+
+    if (!validation.isValid) {
+      setDraft((current) =>
+        current ? { ...current, step: "attendees" } : current
+      )
+      return
+    }
+
+    setIsSubmitting(true)
+    setSubmitError(null)
+
+    const result = await submitSignupDraft(activeDraft, { idempotencyKey })
+
+    if (!result.ok) {
+      setSubmitResult(null)
+      setRestoreChoicePending(false)
+      setSubmitError(result.error)
+      setIsSubmitting(false)
+      return
+    }
+
+    setSubmitResult(result.data)
+    setSubmitError(null)
+    setRestoreChoicePending(Boolean(result.data.restorePayload))
+    setIsSubmitting(false)
+  }
+
+  function handleContinuePreviousSubmission() {
+    setRestoreChoicePending(false)
+  }
+
+  function handleEditCurrentDetails() {
+    setRestoreChoicePending(false)
+    setSubmitResult(null)
+    setDraft((current) =>
+      current ? { ...current, step: "attendees" } : current
+    )
   }
 
   const stepTitle =
@@ -431,7 +497,16 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
             />
           ) : null}
           {activeDraft.step === "review" ? (
-            <p>Review &amp; submit interaction appears in a later plan.</p>
+            <ReviewSubmitStep
+              draft={activeDraft}
+              submitResult={submitResult}
+              submitError={submitError}
+              isSubmitting={isSubmitting}
+              restorePayloadChoicePending={restoreChoicePending}
+              onSubmit={handleSubmitFromReview}
+              onContinuePreviousSubmission={handleContinuePreviousSubmission}
+              onEditCurrentDetails={handleEditCurrentDetails}
+            />
           ) : null}
 
           <div className="flex gap-2 pt-2">
