@@ -37,6 +37,15 @@ import {
    groupInventoryRoomsByRoomType,
    normalizeInventoryRoom,
 } from "@/lib/dashboard/accommodation/inventory-metrics"
+import {
+   useCreateHotel,
+   useCreateRoomType,
+   useCreateRooms,
+   useDeleteHotel,
+   useDeleteRoomType,
+   useAttachHotelToEventByProviderId,
+   useDetachHotelFromEventByProviderId,
+} from "@/lib/convex/hooks/accommodation"
 
 type InventoryPayload = {
    generatedAt: string
@@ -152,6 +161,15 @@ export default function RoomInventoryPage() {
    const [activeHotelScopeId, setActiveHotelScopeId] = useState<string | null>(null)
    const [draftEventIds, setDraftEventIds] = useState<string[]>([])
 
+   // Convex mutation hooks
+   const createHotel = useCreateHotel()
+   const createRoomType = useCreateRoomType()
+   const createRooms = useCreateRooms()
+   const deleteHotel = useDeleteHotel()
+   const deleteRoomType = useDeleteRoomType()
+   const attachHotelToEventByProviderId = useAttachHotelToEventByProviderId()
+   const detachHotelFromEventByProviderId = useDetachHotelFromEventByProviderId()
+
    const loadInventory = useCallback(async () => {
       setIsLoading(true)
       setErrors((current) => ({ ...current, global: null }))
@@ -194,16 +212,28 @@ export default function RoomInventoryPage() {
       if (!activeHotelScopeId) return
       setIsMutating(true)
       try {
-         const response = await fetch(`/api/dashboard/accommodation/hotels/${activeHotelScopeId}/events`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ eventIds: draftEventIds }),
-         })
-         if (!response.ok) throw new Error("Failed to update scope")
+         const hotel = payload.hotels.find(h => h.id === activeHotelScopeId)
+         const currentEventIds = hotel?.assignedEventIds || []
+         
+         // Events to attach (in draft but not currently assigned)
+         const toAttach = draftEventIds.filter(id => !currentEventIds.includes(id))
+         // Events to detach (currently assigned but not in draft)
+         const toDetach = currentEventIds.filter(id => !draftEventIds.includes(id))
+         
+         // Execute all attach operations
+         await Promise.all(toAttach.map(eventId => 
+            attachHotelToEventByProviderId({ hotelId: activeHotelScopeId, eventProviderEventId: eventId })
+         ))
+         
+         // Execute all detach operations
+         await Promise.all(toDetach.map(eventId =>
+            detachHotelFromEventByProviderId({ hotelId: activeHotelScopeId, eventProviderEventId: eventId })
+         ))
+         
          await loadInventory()
          closeHotelScopeModal()
-      } catch (e: any) {
-         setErrors((current) => ({ ...current, eventHotels: e.message }))
+      } catch (err: any) {
+         setErrors((current) => ({ ...current, eventHotels: err.message }))
       } finally {
          setIsMutating(false)
       }
@@ -214,17 +244,12 @@ export default function RoomInventoryPage() {
       if (!hotelName.trim()) return
       setIsMutating(true)
       try {
-         const resp = await fetch("/api/dashboard/accommodation/hotels", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: hotelName, city: hotelCity }),
-         })
-         if (!resp.ok) throw new Error("Failed to create hotel")
+         await createHotel({ name: hotelName, city: hotelCity })
          setHotelName(""); setHotelCity("")
          await loadInventory()
          setCurrentStep(2)
-      } catch (e: any) {
-         setErrors((current) => ({ ...current, hotels: e.message }))
+      } catch (err: any) {
+         setErrors((current) => ({ ...current, hotels: err.message }))
       } finally { setIsMutating(false) }
    }
 
@@ -233,17 +258,12 @@ export default function RoomInventoryPage() {
       if (!roomTypeLabel.trim()) return
       setIsMutating(true)
       try {
-         const resp = await fetch("/api/dashboard/accommodation/room-types", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ label: roomTypeLabel, defaultCapacity: Number(roomTypeCapacity) }),
-         })
-         if (!resp.ok) throw new Error("Failed to create type")
+         await createRoomType({ label: roomTypeLabel, defaultCapacity: Number(roomTypeCapacity) })
          setRoomTypeLabel(""); setRoomTypeCapacity("2")
          await loadInventory()
          setCurrentStep(3)
-      } catch (e: any) {
-         setErrors((current) => ({ ...current, roomTypes: e.message }))
+      } catch (err: any) {
+         setErrors((current) => ({ ...current, roomTypes: err.message }))
       } finally { setIsMutating(false) }
    }
 
@@ -252,44 +272,37 @@ export default function RoomInventoryPage() {
       if (!roomHotelId || !roomTypeId) return
       setIsMutating(true)
       try {
-         const resp = await fetch("/api/dashboard/accommodation/rooms", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-               hotelId: roomHotelId,
-               roomTypeId,
-               quantity: Number(roomQuantity),
-               labels: manualRoomLabels.split("\n").map(l => l.trim()).filter(Boolean),
-            }),
+         await createRooms({
+            hotelId: roomHotelId,
+            roomTypeId,
+            quantity: Number(roomQuantity),
+            labels: manualRoomLabels.split("\n").map(l => l.trim()).filter(Boolean),
          })
-         if (!resp.ok) throw new Error("Failed to create rooms")
          setRoomQuantity("1"); setManualRoomLabels("")
          await loadInventory()
          setIsRegisterInventoryOpen(false)
          setCurrentStep(1)
-      } catch (e: any) {
-         setErrors((current) => ({ ...current, rooms: e.message }))
+      } catch (err: any) {
+         setErrors((current) => ({ ...current, rooms: err.message }))
       } finally { setIsMutating(false) }
    }
 
-   const deleteHotel = async (id: string, name: string) => {
+   const handleDeleteHotel = async (id: string, name: string) => {
       if (!window.confirm(`Delete hotel "${name}"?`)) return
       setDeletingHotelId(id)
       try {
-         const resp = await fetch(`/api/dashboard/accommodation/hotels/${id}`, { method: "DELETE" })
-         if (!resp.ok) throw new Error("Delete failed")
+         await deleteHotel({ hotelId: id as any })
          await loadInventory()
-      } catch (e: any) {
-         setHotelDeleteErrors(c => ({ ...c, [id]: e.message }))
+      } catch (err: any) {
+         setHotelDeleteErrors(c => ({ ...c, [id]: err.message }))
       } finally { setDeletingHotelId(null) }
    }
 
-   const deleteRoomType = async (id: string, label: string) => {
+   const handleDeleteRoomType = async (id: string, label: string) => {
       if (!window.confirm(`Delete room type "${label}"?`)) return
       setDeletingRoomTypeId(id)
       try {
-         const resp = await fetch(`/api/dashboard/accommodation/room-types/${id}`, { method: "DELETE" })
-         if (!resp.ok) throw new Error("Delete failed")
+         await deleteRoomType({ roomTypeId: id as any })
          await loadInventory()
       } catch (err: any) {
          setRoomTypeDeleteErrors(c => ({ ...c, [id]: err.message }))
@@ -431,7 +444,7 @@ export default function RoomInventoryPage() {
                                     <Button variant="ghost" size="icon" onClick={() => openHotelScopeModal(hotel.id)} className="rounded-lg text-primary hover:bg-primary/5">
                                        <RefreshCcw className="size-4" />
                                     </Button>
-                                    <Button variant="ghost" size="icon" disabled={deletingHotelId === hotel.id} onClick={() => deleteHotel(hotel.id, hotel.name)} className="rounded-lg text-rose-500 hover:bg-rose-500/5 hover:text-rose-600">
+                                    <Button variant="ghost" size="icon" disabled={deletingHotelId === hotel.id} onClick={() => handleDeleteHotel(hotel.id, hotel.name)} className="rounded-lg text-rose-500 hover:bg-rose-500/5 hover:text-rose-600">
                                        <Trash2 className="size-4" />
                                     </Button>
                                  </div>
@@ -502,7 +515,7 @@ export default function RoomInventoryPage() {
                               <p className="text-xs font-black text-foreground">{type.label}</p>
                               <p className="text-[9px] font-bold text-muted-foreground/50 uppercase">{type.defaultCapacity}-Bed Capacity</p>
                            </div>
-                           <Button variant="ghost" size="icon" disabled={deletingRoomTypeId === type.id} onClick={() => deleteRoomType(type.id, type.label)} className="size-7 rounded-md text-rose-300 opacity-20 group-hover:opacity-100 transition-opacity hover:bg-rose-500/10 hover:text-rose-500">
+                           <Button variant="ghost" size="icon" disabled={deletingRoomTypeId === type.id} onClick={() => handleDeleteRoomType(type.id, type.label)} className="size-7 rounded-md text-rose-300 opacity-20 group-hover:opacity-100 transition-opacity hover:bg-rose-500/10 hover:text-rose-500">
                               <Trash2 className="size-3.5" />
                            </Button>
                         </div>
