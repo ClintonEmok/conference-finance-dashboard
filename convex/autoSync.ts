@@ -61,7 +61,7 @@ const TT_TIMEOUT = Number(process.env.TICKET_TAILOR_FETCH_TIMEOUT_MS ?? 15_000)
 const TT_MAX_RETRIES = Number(process.env.TICKET_TAILOR_MAX_RETRIES ?? 2)
 
 function ttHeaders() {
-  const encoded = Buffer.from(TT_API_KEY).toString("base64")
+  const encoded = btoa(TT_API_KEY)
   return {
     Authorization: `Basic ${encoded}`,
     Accept: "application/json",
