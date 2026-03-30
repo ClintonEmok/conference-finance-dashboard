@@ -4,13 +4,13 @@ milestone: v2.0
 milestone_name: Attendee Signup + Accommodation Self-Assignment
 status: unknown
 stopped_at: Completed 20-01-PLAN.md (operator handoff read model)
-last_updated: "2026-03-30T11:48:49.967Z"
+last_updated: "2026-03-30T21:41:45.334Z"
 last_activity: 2026-03-30
 progress:
-  total_phases: 3
-  completed_phases: 2
-  total_plans: 9
-  completed_plans: 7
+  total_phases: 4
+  completed_phases: 3
+  total_plans: 12
+  completed_plans: 11
 ---
 
 # Project State
@@ -25,7 +25,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 ## Current Position
 
 Phase: 20 (operator-handoff-compatibility-layer) — EXECUTING
-Plan: 1 of 2
+Plan: 1 of 3
 
 ## Alignment Status
 
@@ -187,6 +187,7 @@ Recent decisions that future work should preserve:
 - Phase 19: Public Signup Pages (planned — 3 plans)
 - Phase 20: Admin Event Management (planned — 3 plans)
 - Phase 21: Accommodation UX Redesign (completed — inline event settings flow with auto-slot generation)
+- Phase 22 added: Redesign signup UX for family ticket allocation with attendee grouping and room bedslot allocation UI
 
 ## Session Continuity
 

@@ -46,9 +46,11 @@ import {
   useCreateHotel,
   useCreateRooms,
   useCreateRoomType,
+  useRoomTypes,
 } from "@/lib/convex/hooks/accommodation"
 import { useAccommodationSummaryForEvent } from "@/lib/convex/hooks/accommodation"
 import { LinkedHotelCard } from "./components/linked-hotel-card"
+import { AddHotelDialog } from "./components/add-hotel-dialog"
 import {
   useTicketTypesForEvent,
   useCreateTicketType,
@@ -173,10 +175,11 @@ export default function EventDetailPage({
     useState(false)
 
   // Hotel selection state
-  const [selectedHotelId, setSelectedHotelId] = useState<string>("")
   const [isLinkingHotel, setIsLinkingHotel] = useState(false)
+  const [isAddHotelDialogOpen, setIsAddHotelDialogOpen] = useState(false)
 
   const hotels = useHotels()
+  const roomTypes = useRoomTypes()
   const eventHotels = useEventHotels(event?._id ?? "")
   const linkHotelToEvent = useLinkHotelToEvent()
   const unlinkHotelFromEvent = useUnlinkHotelFromEvent()
@@ -250,17 +253,77 @@ export default function EventDetailPage({
     }
   }
 
-  const handleLinkHotel = async () => {
-    if (!event || !selectedHotelId) return
+  const handleAddHotelSubmit = async (data: {
+    hotelId?: any
+    newHotel?: { name: string; city?: string; address?: string }
+    roomTypes: Array<{
+      id: string
+      label: string
+      capacity: number
+      roomCount: number
+    }>
+  }) => {
+    if (!event) return
     setIsLinkingHotel(true)
     try {
+      let hotelId: any
+
+      // Step 1: Create or use existing hotel
+      if (data.hotelId) {
+        hotelId = data.hotelId
+      } else if (data.newHotel) {
+        hotelId = await createHotel({
+          name: data.newHotel.name,
+          city: data.newHotel.city,
+        })
+      }
+
+      if (!hotelId) throw new Error("Failed to get or create hotel")
+
+      // Step 2: Create room types for new room types
+      const roomTypeMap = new Map<string, any>()
+      for (const rt of data.roomTypes) {
+        if (rt.id.startsWith("new-")) {
+          // Create new room type
+          const newRtId = await createRoomType({
+            label: rt.label,
+            defaultCapacity: rt.capacity,
+          })
+          roomTypeMap.set(rt.id, newRtId)
+        } else {
+          // Use existing room type
+          roomTypeMap.set(rt.id, rt.id)
+        }
+      }
+
+      // Step 3: Create rooms (this will auto-generate slots when linked)
+      for (const rt of data.roomTypes) {
+        const roomTypeId = roomTypeMap.get(rt.id)
+        if (!roomTypeId) continue
+
+        // Create the specified number of rooms for this type
+        const roomLabels = Array.from(
+          { length: rt.roomCount },
+          (_, i) => `${rt.label} ${String(i + 1).padStart(2, "0")}`
+        )
+
+        await createRooms({
+          hotelId,
+          roomTypeId,
+          quantity: rt.roomCount,
+          labels: roomLabels,
+        })
+      }
+
+      // Step 4: Link hotel to event (this will auto-generate slots for all rooms)
       await linkHotelToEvent({
         eventId: event._id,
-        hotelId: selectedHotelId as any,
+        hotelId,
+        autoGenerateSlots: true,
       })
-      setSelectedHotelId("")
     } catch (err) {
-      console.error("Failed to link hotel:", err)
+      console.error("Failed to add hotel:", err)
+      throw err
     } finally {
       setIsLinkingHotel(false)
     }
@@ -934,44 +997,15 @@ export default function EventDetailPage({
                       ))
                     )}
 
-                    {/* Add Hotel Section */}
-                    <div className="rounded-lg border border-border/50 bg-muted/30 p-4">
-                      <p className="mb-3 text-sm font-medium">Add Hotel</p>
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={selectedHotelId}
-                          onChange={(e) => setSelectedHotelId(e.target.value)}
-                          className="h-9 flex-1 rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
-                        >
-                          <option value="">Select a hotel to add...</option>
-                          {hotels
-                            ?.filter(
-                              (h: any) =>
-                                !eventHotels?.some(
-                                  (eh: any) => eh._id === h._id
-                                )
-                            )
-                            .map((h: any) => (
-                              <option key={h._id} value={h._id}>
-                                {h.name}
-                                {h.city ? ` (${h.city})` : ""}
-                              </option>
-                            ))}
-                        </select>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleLinkHotel}
-                          disabled={!selectedHotelId || isLinkingHotel}
-                        >
-                          {isLinkingHotel ? (
-                            <span className="size-4 animate-spin">...</span>
-                          ) : (
-                            <Plus className="size-4" />
-                          )}
-                        </Button>
-                      </div>
-                    </div>
+                    {/* Add Hotel Button */}
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => setIsAddHotelDialogOpen(true)}
+                    >
+                      <Plus className="mr-2 size-4" />
+                      Add Hotel
+                    </Button>
                   </div>
                 </div>
               )}
@@ -1274,6 +1308,17 @@ export default function EventDetailPage({
           </Card>
         )}
       </div>
+
+      {/* Add Hotel Dialog */}
+      <AddHotelDialog
+        open={isAddHotelDialogOpen}
+        onOpenChange={setIsAddHotelDialogOpen}
+        eventId={event?._id as any}
+        existingHotels={hotels}
+        existingRoomTypes={roomTypes}
+        onSubmit={handleAddHotelSubmit}
+        isSubmitting={isLinkingHotel}
+      />
     </div>
   )
 }

@@ -120,6 +120,16 @@ Plans:
 - [x] 21-02-PLAN.md — Redesign event settings accommodation section (inline flow) ✓
 - [x] 21-03-PLAN.md — Remove Scope Reach modal and deprecated linking path ✓
 
+### Phase 22: Redesign signup UX for family ticket allocation with attendee grouping and room bedslot allocation UI
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 21
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 22 to break down)
+
 ---
 
 ## Progress
