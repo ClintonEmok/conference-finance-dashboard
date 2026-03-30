@@ -137,14 +137,17 @@ Plans:
 
 ### Phase 23: Add email confirmation and show tikkie link (payment). after signup is completed and improve tracking. we can fetch tikkie automatically already, but payments are done by name. payment details only show first letter and last name
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Add email confirmation to signup submissions and display Tikkie payment links after signup completion. Improve payment tracking with privacy-aware name matching (first letter + last name display).
+**Requirements**: USF-01, USF-06
 **Depends on:** Phase 22
-**Plans:** 0 plans
+**Plans:** 4 plans in 2 waves
 
 Plans:
 
-- [ ] TBD (run /gsd:plan-phase 23 to break down)
+- [ ] 23-01-PLAN.md — Email infrastructure and async confirmation emails with Resend
+- [ ] 23-02-PLAN.md — Success page with expandable sections and booking reference routing
+- [ ] 23-03-PLAN.md — Tikkie link display with QR code on success page and in emails
+- [ ] 23-04-PLAN.md — Privacy-aware name masking and attendee name payment matching
 
 ---
 
