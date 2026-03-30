@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Event Signup + Dual-Source Events
-status: Phase 19 in progress — room assignment + acknowledgment gate completed
-stopped_at: Completed 19-02-PLAN.md (room assignment helpers + drag/drop step)
-last_updated: "2026-03-30T00:00:24Z"
+status: Phase 19 complete — public multi-step signup flow delivered end-to-end
+stopped_at: Completed 19-03-PLAN.md (attendee validation + review/submit + restore choice)
+last_updated: "2026-03-30T00:08:29Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 67
+  completed_plans: 3
+  percent: 100
 ---
 
 # Project State
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-27)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Complete Phase 19 attendee details + review/submit UX on top of rooms-step contracts
+- **Current focus:** Transition to Phase 20 admin event management using completed public signup flow artifacts
 
 ## Current Position
 
 Milestone: v2.0 (event-signup-dual-source) — ACTIVE
-Phase: 19 (Public Multi-Step Signup Experience) — IN PROGRESS (2/3 plans complete)
-Plan: 19-02 complete — Deterministic room assignment helpers + drag/drop step + random-fill acknowledgment gate
-Status: Phase 19 in progress — ready for attendee-details/review-submit completion (19-03)
-Last activity: 2026-03-30 — Completed 19-02: assignable-slot room mapping with persistent open-bed warning and continue guard
+Phase: 19 (Public Multi-Step Signup Experience) — COMPLETE (3/3 plans complete)
+Plan: 19-03 complete — Attendee details validation + review/submit flow + restore-choice handling
+Status: Phase 19 complete — ready for Phase 20 (Admin Event Management)
+Last activity: 2026-03-30 — Completed 19-03: required attendee validation, typed submit client mapping, explicit continue-vs-edit restore UX
 
-Progress: ███████░░░ 67% (2/3 plans)
+Progress: ██████████ 100% (3/3 plans)
 
 ## Alignment Status
 
@@ -70,6 +70,7 @@ Progress: ███████░░░ 67% (2/3 plans)
 - **Transactional guards + abuse controls active:** Signup submission now enforces in-mutation capacity/selectability checks, idempotent replay returning restore payload, and public-route protection via rate-limit + honeypot + idempotency header propagation (18-03).
 - **Public signup shell foundation live:** `/events/[slug]` and `/signup/[slug]` public routes now expose signup-critical event content + CTA and a draft-backed linear flow shell with ticket quantity controls (19-01).
 - **Room assignment flow added:** Signup shell now includes drag/drop attendee-to-slot mapping, deterministic assignment helpers, and explicit `acknowledgeRandomFill` gating while open beds remain (19-02).
+- **Public signup flow complete:** Attendee details, dual-surface validation, review/submit, restore-choice decision controls, and booking confirmation states are now integrated end-to-end (19-03).
 
 ## Key Decisions
 
@@ -124,6 +125,8 @@ Recent decisions that future work should preserve:
 - [18-02] Public submit route contract returns `201` with `{ submissionId, bookingRef, submittedAt }` and maps validation failures to `INVALID_SUBMISSION` `400` responses.
 - [18-03] Idempotent replay returns prior submission reference and restore payload (without user-facing `reused` markers) when event-scoped fingerprint/key context matches within retry window.
 - [18-03] Public signup submit route must enforce `enforceRateLimit(request, "signup-submit", { maxRequests: 20, windowMs: 60_000 })` and reject non-empty honeypot `website` values with `HONEYPOT_TRIGGERED`.
+- [19-01] Preserve public event entry content contract (D-17..D-22): signup-critical details, ticket status without remaining counts, accommodation warning context, and explicit 4-step preview.
+- [19-03] Duplicate retry UX stays explicit: restore payload requires continue-vs-edit user choice and never surfaces a `reused` marker.
 
 ## Active Patterns / Constraints
 
@@ -194,6 +197,6 @@ Recent decisions that future work should preserve:
 
 - **Last activity:** 2026-03-29
 - **Last session:** 2026-03-29T22:46:22Z
-- **Stopped at:** Completed 19-02-PLAN.md (room assignment helpers + drag/drop step)
+- **Stopped at:** Completed 19-03-PLAN.md (attendee validation + review/submit + restore choice)
 - **Resume file:** None
-- **Next recommended plan:** Execute Phase 19 plan 19-03 (attendee details, review/submit, restore-choice UX)
+- **Next recommended plan:** Start Phase 20 planning/execution for admin event management (`/gsd-plan-phase 20`)
