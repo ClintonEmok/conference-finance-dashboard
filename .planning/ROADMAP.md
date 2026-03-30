@@ -127,7 +127,7 @@ Plans:
 **Requirements**: USF-04, USF-05, RMD-01, RMD-02, RMD-03
 
 **Depends on:** Phase 21
-**Plans:** 3 plans
+**Plans:** 3/3 plans complete
 
 Plans:
 

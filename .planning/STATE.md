@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Attendee Signup + Accommodation Self-Assignment
-status: In progress
-stopped_at: Completed 22-02-PLAN.md (room assignment redesign with bedslot grouping)
-last_updated: "2026-03-30T22:55:49Z"
+status: unknown
+stopped_at: Completed 22-03-PLAN.md (review step with expandable sections)
+last_updated: "2026-03-30T23:36:44.237Z"
 last_activity: 2026-03-30
 progress:
-  total_phases: 5
-  completed_phases: 3
+  total_phases: 6
+  completed_phases: 4
   total_plans: 15
   completed_plans: 14
 ---
@@ -24,8 +24,8 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 
 ## Current Position
 
-Phase: 22 (redesign-signup-ux-for-family-ticket-allocation-with-attendee-grouping-and-room-bedslot-allocation-ui) — COMPLETE
-Plan: 3 of 3 complete (all plans finished)
+Phase: 23
+Plan: Not started
 
 ## Alignment Status
 
