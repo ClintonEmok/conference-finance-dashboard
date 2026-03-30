@@ -31,8 +31,26 @@ export function useCreatePaymentTemplate() {
   return useMutation(api.tikkie.createPaymentTemplate)
 }
 
+export function useUpdatePaymentTemplate() {
+  return useMutation(api.tikkie.updatePaymentTemplate)
+}
+
+export function useDeletePaymentTemplate() {
+  return useMutation(api.tikkie.deletePaymentTemplate)
+}
+
 export function useUpdatePaymentLinkStatus() {
   return useMutation(api.tikkie.updatePaymentLinkStatus)
+}
+
+export function useTemplateByEventAndTicketType(
+  eventId: string,
+  ticketTypeLabel: string
+) {
+  return useQuery(api.tikkie.getTemplateByEventAndTicketType, {
+    eventId,
+    ticketTypeLabel,
+  })
 }
 
 // --- Event-level Tikkie ---
