@@ -36,8 +36,8 @@ type BalanceResponse = {
     outstandingMinor: number
   }
   availableEvents: Array<{
-    providerEventId: string
-    name: string | null
+    eventId: string
+    title: string | null
   }>
   rows: Array<{
     providerOrderId: string
@@ -82,7 +82,7 @@ export default function FinancialPage() {
   const [revenue, setRevenue] = useState<RevenueResponse | null>(null)
   const [balances, setBalances] = useState<BalanceResponse | null>(null)
   const [events, setEvents] = useState<
-    Array<{ providerEventId: string; name: string | null }>
+    Array<{ eventId: string; title: string | null }>
   >([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -236,7 +236,7 @@ export default function FinancialPage() {
         </article>
       )}
 
-      <EventTikkieSection events={events} />
+      <EventTikkieSection events={events} readOnly />
 
       <article className="rounded-3xl border border-border/50 bg-card/40 p-8 shadow-sm backdrop-blur-xl">
         <div className="mb-8">

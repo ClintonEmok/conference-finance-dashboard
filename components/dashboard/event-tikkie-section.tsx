@@ -22,8 +22,8 @@ import {
 } from "@/components/ui/table"
 
 type Event = {
-  providerEventId: string
-  name: string | null
+  eventId: string
+  title: string | null
 }
 
 type TikkiePayment = {
@@ -105,11 +105,15 @@ function MatchBadge({ status }: { status: string }) {
 
 type EventTikkieSectionProps = {
   events: Event[]
+  readOnly?: boolean
 }
 
-export function EventTikkieSection({ events }: EventTikkieSectionProps) {
+export function EventTikkieSection({
+  events,
+  readOnly = false,
+}: EventTikkieSectionProps) {
   const [selectedEventId, setSelectedEventId] = useState<string>(
-    events[0]?.providerEventId ?? ""
+    events[0]?.eventId ?? ""
   )
   const [eventData, setEventData] = useState<EventData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -143,11 +147,11 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
     }
 
     const selectedExists = events.some(
-      (event) => event.providerEventId === selectedEventId
+      (event) => event.eventId === selectedEventId
     )
 
     if (!selectedEventId || !selectedExists) {
-      setSelectedEventId(events[0].providerEventId)
+      setSelectedEventId(events[0].eventId)
     }
   }, [events, selectedEventId])
 
@@ -409,29 +413,31 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
               className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
             >
               {events.map((ev) => (
-                <option key={ev.providerEventId} value={ev.providerEventId}>
-                  {ev.name ?? ev.providerEventId}
+                <option key={ev.eventId} value={ev.eventId}>
+                  {ev.title ?? ev.eventId}
                 </option>
               ))}
             </select>
           )}
-          <Button
-            size="sm"
-            onClick={() => {
-              setCreateAmountError(null)
-              setCreateAmountEuro("")
-              setCreateDescription("")
-              setCreateExpiryDate(
-                toDateInputValue(
-                  new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
+          {!readOnly && (
+            <Button
+              size="sm"
+              onClick={() => {
+                setCreateAmountError(null)
+                setCreateAmountEuro("")
+                setCreateDescription("")
+                setCreateExpiryDate(
+                  toDateInputValue(
+                    new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
+                  )
                 )
-              )
-              setIsCreateModalOpen(true)
-            }}
-            disabled={!selectedEventId}
-          >
-            Create Tikkie link
-          </Button>
+                setIsCreateModalOpen(true)
+              }}
+              disabled={!selectedEventId}
+            >
+              Create Tikkie link
+            </Button>
+          )}
         </div>
       </div>
 
@@ -453,8 +459,7 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
 
           {!isLoading && !hasLink && (
             <p className="text-sm text-muted-foreground">
-              No Tikkie link for this event yet. Click &quot;Create Tikkie
-              link&quot; above.
+              No Tikkie link for this event yet.
             </p>
           )}
 
@@ -478,14 +483,16 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
                     {formatMoney(eventData.stats.totalAmountMinor)}
                   </strong>
                 </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleAutoMatch}
-                  className="ml-auto"
-                >
-                  Auto-match
-                </Button>
+                {!readOnly && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleAutoMatch}
+                    className="ml-auto"
+                  >
+                    Auto-match
+                  </Button>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -623,17 +630,18 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
                                       <MatchBadge status={p.matchStatus} />
                                     </TableCell>
                                     <TableCell className="text-right">
-                                      {p.matchStatus === "unmatched" && (
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          onClick={() =>
-                                            setAssigningPaymentId(p._id)
-                                          }
-                                        >
-                                          Assign
-                                        </Button>
-                                      )}
+                                      {!readOnly &&
+                                        p.matchStatus === "unmatched" && (
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() =>
+                                              setAssigningPaymentId(p._id)
+                                            }
+                                          >
+                                            Assign
+                                          </Button>
+                                        )}
                                     </TableCell>
                                   </TableRow>
                                 ))}
@@ -669,11 +677,10 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
 
           {quota && (
             <div
-              className={`rounded-md border px-3 py-2 text-sm ${
-                isQuotaExceeded
+              className={`rounded-md border px-3 py-2 text-sm ${isQuotaExceeded
                   ? "border-amber-300 bg-amber-50 text-amber-900"
                   : "border-border bg-muted/40 text-muted-foreground"
-              }`}
+                }`}
             >
               <p>
                 Monthly Tikkie quota: <strong>{quota.used}</strong>/
@@ -816,11 +823,10 @@ export function EventTikkieSection({ events }: EventTikkieSectionProps) {
               assignOrders.map((order) => (
                 <div
                   key={order.id}
-                  className={`cursor-pointer border-b p-3 last:border-b-0 ${
-                    selectedOrder?.id === order.id
+                  className={`cursor-pointer border-b p-3 last:border-b-0 ${selectedOrder?.id === order.id
                       ? "bg-primary/10"
                       : "hover:bg-muted/50"
-                  }`}
+                    }`}
                   onClick={() => setSelectedOrder(order)}
                 >
                   <div className="flex items-center justify-between">

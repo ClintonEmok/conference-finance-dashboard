@@ -21,6 +21,7 @@ import {
   Plus,
   Building2,
   Copy,
+  CreditCard,
   ExternalLink,
   Ticket,
 } from "lucide-react"
@@ -57,8 +58,15 @@ import {
   useUpdateTicketType,
   useDeleteTicketType,
 } from "@/lib/convex/hooks/events"
+import { EventTikkieSection } from "@/components/dashboard/event-tikkie-section"
 
-type TabKey = "overview" | "settings" | "sources" | "accommodation" | "tickets"
+type TabKey =
+  | "overview"
+  | "settings"
+  | "sources"
+  | "accommodation"
+  | "tickets"
+  | "payments"
 
 const COMMON_TIMEZONES = [
   "Europe/London",
@@ -452,6 +460,7 @@ export default function EventDetailPage({
   const tabs: { key: TabKey; label: string; icon: React.ElementType }[] = [
     { key: "overview", label: "Overview", icon: Calendar },
     { key: "tickets", label: "Tickets", icon: Ticket },
+    { key: "payments", label: "Payments", icon: CreditCard },
     { key: "settings", label: "Settings", icon: Settings },
     { key: "sources", label: "Sources", icon: LinkIcon },
   ]
@@ -1306,6 +1315,12 @@ export default function EventDetailPage({
               )}
             </CardContent>
           </Card>
+        )}
+
+        {activeTab === "payments" && (
+          <EventTikkieSection
+            events={[{ eventId: event._id, title: event.title }]}
+          />
         )}
       </div>
 
