@@ -31,6 +31,7 @@ function buildBoard(
     roomTypes: [{ id: "type-1", label: "Shared", defaultCapacity: 2 }],
     rooms: [],
     unassignedAttendees: [],
+    submissionQueueRows: [],
     summary: {
       totalRooms: 0,
       emptyRooms: 0,

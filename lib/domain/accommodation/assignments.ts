@@ -3,6 +3,28 @@ import { convexQuery, convexMutation } from "@/lib/convex/server"
 
 type RoomAvailability = "all" | "empty" | "available" | "full"
 
+export type SubmissionQueueRow = {
+  attendeeId: string
+  attendeeName: string
+  attendeeEmail: string | null
+  source: "internal"
+  submissionId: string | null
+  bookingRef: string | null
+  submissionNotes: string | null
+  assignmentIntent: "assign" | "skip" | null
+  slotId: string | null
+  roommatePreference: string | null
+  roommateAvoid: string | null
+  dietaryRestrictions: string | null
+  bookerName: string | null
+  genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+  location: string | null
+  unresolved: boolean
+  unresolvedReason: string | null
+  submittedAt: number | null
+  sortOrder: number
+}
+
 export type RoomAllocationBoardFilters = {
   eventId?: string | null
   search?: string | null
@@ -86,6 +108,7 @@ export type RoomAllocationBoard = {
     remarks: string | null
     hasFamily: boolean
   }>
+  submissionQueueRows: SubmissionQueueRow[]
   summary: {
     totalRooms: number
     emptyRooms: number
