@@ -142,15 +142,9 @@ export function canDropAttendeeIntoSlot(
     return false
   }
 
-  if (targetSlot.attendeeId && targetSlot.attendeeId !== attendeeId) {
-    return false
-  }
-
-  const existingSlotForAttendee = Object.entries(board.assignments).find(
-    ([assignedAttendeeId]) => assignedAttendeeId === attendeeId
-  )
-
-  if (existingSlotForAttendee && existingSlotForAttendee[1] !== slotId) {
+  // Allow drop even if target slot is occupied (swap will be handled)
+  // Only block if the attendee is already in this exact slot
+  if (targetSlot.attendeeId === attendeeId) {
     return false
   }
 
@@ -237,4 +231,115 @@ export function buildAllocationSummary(
     rooms,
     unassignedAttendees,
   }
+}
+
+export function swapAttendeesInSlots(
+  attendeeId: string,
+  targetSlotId: string,
+  board: AssignmentBoard
+): Record<string, string> | null {
+  const targetSlot = board.slots.find((slot) => slot.slotId === targetSlotId)
+  if (!targetSlot || !targetSlot.assignable) return null
+
+  const currentOccupantId = targetSlot.attendeeId
+  const currentSlotForDraggingAttendee = Object.entries(board.assignments).find(
+    ([assignedAttendeeId]) => assignedAttendeeId === attendeeId
+  )
+  const currentSlotIdForDraggingAttendee =
+    currentSlotForDraggingAttendee?.[1] ?? null
+
+  const nextAssignments = { ...board.assignments }
+
+  // Assign dragging attendee to target slot
+  nextAssignments[attendeeId] = targetSlotId
+
+  // If target had an occupant, move them to dragging attendee's previous slot
+  if (currentOccupantId && currentSlotIdForDraggingAttendee) {
+    nextAssignments[currentOccupantId] = currentSlotIdForDraggingAttendee
+  } else if (currentOccupantId) {
+    // Target occupant becomes unassigned (remove from assignments)
+    delete nextAssignments[currentOccupantId]
+  }
+
+  return nextAssignments
+}
+
+export type RoomTypeGroup = {
+  roomTypeLabel: string
+  slots: AssignmentBoardSlot[]
+  totalBeds: number
+  filledBeds: number
+}
+
+export function groupSlotsByRoomType(board: AssignmentBoard): RoomTypeGroup[] {
+  const groups = new Map<string, RoomTypeGroup>()
+
+  for (const slot of board.slots) {
+    if (!slot.assignable) continue
+
+    if (!groups.has(slot.roomTypeLabel)) {
+      groups.set(slot.roomTypeLabel, {
+        roomTypeLabel: slot.roomTypeLabel,
+        slots: [],
+        totalBeds: 0,
+        filledBeds: 0,
+      })
+    }
+
+    const group = groups.get(slot.roomTypeLabel)!
+    group.slots.push(slot)
+    group.totalBeds += 1
+    if (slot.attendeeId) {
+      group.filledBeds += 1
+    }
+  }
+
+  return Array.from(groups.values()).sort((a, b) =>
+    a.roomTypeLabel.localeCompare(b.roomTypeLabel)
+  )
+}
+
+export type RoomPreview = {
+  roomLabel: string
+  roomTypeLabel: string
+  occupants: Array<{
+    attendeeId: string
+    name: string
+    isDragging?: boolean
+  }>
+  remainingBeds: number
+}
+
+export function buildRoomPreview(
+  board: AssignmentBoard,
+  attendees: Array<{ attendeeId: string; name: string }>
+): RoomPreview[] {
+  const rooms = new Map<string, RoomPreview>()
+  const attendeeNames = new Map(attendees.map((a) => [a.attendeeId, a.name]))
+
+  for (const slot of board.slots) {
+    if (!rooms.has(slot.roomLabel)) {
+      rooms.set(slot.roomLabel, {
+        roomLabel: slot.roomLabel,
+        roomTypeLabel: slot.roomTypeLabel,
+        occupants: [],
+        remainingBeds: 0,
+      })
+    }
+
+    const room = rooms.get(slot.roomLabel)!
+    if (slot.attendeeId) {
+      room.occupants.push({
+        attendeeId: slot.attendeeId,
+        name:
+          attendeeNames.get(slot.attendeeId) || `Attendee ${slot.attendeeId}`,
+      })
+    } else {
+      room.remainingBeds += 1
+    }
+  }
+
+  return Array.from(rooms.values()).sort((a, b) =>
+    a.roomLabel.localeCompare(b.roomLabel)
+  )
 }
