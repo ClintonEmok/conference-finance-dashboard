@@ -22,6 +22,10 @@ import {
 } from "@/components/signup/assignment"
 import { TicketStep } from "@/components/signup/steps/TicketStep"
 import { RoomAssignmentStep } from "@/components/signup/steps/RoomAssignmentStep"
+import {
+  AttendeeDetailsStep,
+  type AttendeeValidationSummary,
+} from "@/components/signup/steps/AttendeeDetailsStep"
 
 type SignupFlowShellProps = {
   slug: string
@@ -31,6 +35,8 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   const catalog = usePublicSignupCatalog()
   const event = catalog.find((entry) => entry.slug === slug)
   const [draft, setDraft] = useState<SignupDraft | null>(null)
+  const [attendeeValidation, setAttendeeValidation] =
+    useState<AttendeeValidationSummary | null>(null)
 
   useEffect(() => {
     if (!event) {
@@ -130,6 +136,10 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     () => summarizeUnfilledBeds(roomBoard),
     [roomBoard]
   )
+  const attendeeValidationSnapshot = useMemo(
+    () => validateAttendeeDetails(activeDraft.attendees),
+    [activeDraft.attendees]
+  )
 
   const completedByStep: Record<SignupStep, boolean> = useMemo(
     () => ({
@@ -138,17 +148,45 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
         !activeEvent.accommodation.eligible ||
         roomSummary.unfilledBeds === 0 ||
         activeDraft.acknowledgeRandomFill,
-      attendees: activeDraft.attendees.length > 0,
+      attendees:
+        activeDraft.attendees.length > 0 && attendeeValidationSnapshot.isValid,
       review: false,
     }),
     [
       activeDraft.acknowledgeRandomFill,
       activeDraft.attendees.length,
       activeEvent.accommodation.eligible,
+      attendeeValidationSnapshot.isValid,
       roomSummary.unfilledBeds,
       totalSelectedTickets,
     ]
   )
+
+  function validateAttendeeDetails(attendees: SignupDraft["attendees"]) {
+    const byAttendee: Record<string, string[]> = {}
+
+    for (const attendee of attendees) {
+      const missingFields: string[] = []
+
+      if (!attendee.phone.trim()) missingFields.push("phone")
+      if (!attendee.gender) missingFields.push("gender")
+      if (!attendee.location.trim()) missingFields.push("location")
+      if (!attendee.dietaryRestrictions.trim())
+        missingFields.push("dietaryRestrictions")
+      if (!attendee.roommatePreference.trim())
+        missingFields.push("roommatePreference")
+      if (!attendee.roommateAvoid.trim()) missingFields.push("roommateAvoid")
+
+      byAttendee[attendee.attendeeKey] = missingFields
+    }
+
+    return {
+      isValid: Object.values(byAttendee).every(
+        (missing) => missing.length === 0
+      ),
+      byAttendee,
+    }
+  }
 
   function canAccessStep(step: SignupStep) {
     const targetIndex = SIGNUP_STEP_ORDER.indexOf(step)
@@ -171,10 +209,27 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       return
     }
 
+    const targetIndex = SIGNUP_STEP_ORDER.indexOf(step)
+    if (activeDraft.step === "attendees" && targetIndex > currentStepIndex) {
+      const validation = validateAttendeeDetails(activeDraft.attendees)
+      setAttendeeValidation(validation)
+      if (!validation.isValid) {
+        return
+      }
+    }
+
     setDraft((current) => (current ? { ...current, step } : current))
   }
 
   function moveNext() {
+    if (activeDraft.step === "attendees") {
+      const validation = validateAttendeeDetails(activeDraft.attendees)
+      setAttendeeValidation(validation)
+      if (!validation.isValid) {
+        return
+      }
+    }
+
     if (!completedByStep[activeDraft.step]) {
       return
     }
@@ -206,6 +261,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   function handleTicketSelectionsChange(
     nextSelections: TicketSelectionDraft[]
   ) {
+    setAttendeeValidation(null)
     setDraft((current) => {
       if (!current) {
         return current
@@ -229,6 +285,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   function handleRoomAssignmentsChange(
     nextAssignments: Record<string, string>
   ) {
+    setAttendeeValidation(null)
     setDraft((current) =>
       current
         ? invalidateDownstreamForRoomChange(current, nextAssignments)
@@ -245,6 +302,31 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
           }
         : current
     )
+  }
+
+  function handleAttendeeChange(
+    attendeeKey: string,
+    field: keyof SignupDraft["attendees"][number],
+    value: string
+  ) {
+    setAttendeeValidation(null)
+    setDraft((current) => {
+      if (!current) {
+        return current
+      }
+
+      return {
+        ...current,
+        attendees: current.attendees.map((attendee) =>
+          attendee.attendeeKey === attendeeKey
+            ? {
+                ...attendee,
+                [field]: value,
+              }
+            : attendee
+        ),
+      }
+    })
   }
 
   const stepTitle =
@@ -342,7 +424,11 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
             </>
           ) : null}
           {activeDraft.step === "attendees" ? (
-            <p>Attendee details form appears in a later plan.</p>
+            <AttendeeDetailsStep
+              attendees={activeDraft.attendees}
+              validationSummary={attendeeValidation}
+              onAttendeeChange={handleAttendeeChange}
+            />
           ) : null}
           {activeDraft.step === "review" ? (
             <p>Review &amp; submit interaction appears in a later plan.</p>
