@@ -43,8 +43,12 @@ import {
   useEventHotels,
   useLinkHotelToEvent,
   useUnlinkHotelFromEvent,
+  useCreateHotel,
+  useCreateRooms,
+  useCreateRoomType,
 } from "@/lib/convex/hooks/accommodation"
 import { useAccommodationSummaryForEvent } from "@/lib/convex/hooks/accommodation"
+import { LinkedHotelCard } from "./components/linked-hotel-card"
 import {
   useTicketTypesForEvent,
   useCreateTicketType,
@@ -177,6 +181,9 @@ export default function EventDetailPage({
   const linkHotelToEvent = useLinkHotelToEvent()
   const unlinkHotelFromEvent = useUnlinkHotelFromEvent()
   const accommodationSummary = useAccommodationSummaryForEvent(event?._id)
+  const createHotel = useCreateHotel()
+  const createRooms = useCreateRooms()
+  const createRoomType = useCreateRoomType()
 
   // Ticket types state
   const ticketTypes = useTicketTypesForEvent(event?._id)
@@ -886,83 +893,84 @@ export default function EventDetailPage({
                 </div>
               </div>
 
-              {/* Hotels Section - only show when accommodation is enabled */}
+              {/* Hotels Section - Enhanced with LinkedHotelCard */}
               {event.accommodationEnabled && !isEditing && (
                 <div className="mt-6 border-t border-border/50 pt-6">
-                  <h3 className="flex items-center gap-2 text-sm font-medium">
-                    <Building2 className="size-4" />
-                    Linked Hotels
-                  </h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Hotels available for room assignments at this event
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="flex items-center gap-2 text-sm font-medium">
+                        <Building2 className="size-4" />
+                        Linked Hotels
+                      </h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Hotels available for room assignments at this event
+                      </p>
+                    </div>
+                  </div>
 
                   <div className="mt-4 space-y-3">
                     {eventHotels === undefined ? (
-                      <Skeleton className="h-12" />
+                      <>
+                        <Skeleton className="h-24" />
+                        <Skeleton className="h-24" />
+                      </>
                     ) : eventHotels.length === 0 ? (
                       <div className="rounded-lg border border-dashed border-border/50 p-4 text-center text-sm text-muted-foreground">
                         No hotels linked yet. Add hotels to enable room
                         assignments.
                       </div>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {eventHotels.map((hotel: any) => (
-                          <div
-                            key={hotel._id}
-                            className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2"
-                          >
-                            <span className="text-sm font-medium">
-                              {hotel.name}
-                            </span>
-                            {hotel.city && (
-                              <span className="text-xs text-muted-foreground">
-                                ({hotel.city})
-                              </span>
-                            )}
-                            <button
-                              onClick={() => handleUnlinkHotel(hotel._id)}
-                              className="ml-1 rounded p-0.5 text-muted-foreground hover:text-destructive"
-                            >
-                              <X className="size-3" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+                      eventHotels.map((hotel: any) => (
+                        <LinkedHotelCard
+                          key={hotel._id}
+                          hotel={hotel}
+                          onUnlink={handleUnlinkHotel}
+                          onAddRooms={(hotelId) => {
+                            // TODO: Open inline room creation dialog
+                            console.log("Add rooms to hotel:", hotelId)
+                          }}
+                          isUnlinking={isLinkingHotel}
+                        />
+                      ))
                     )}
 
-                    {/* Add Hotel Dropdown */}
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={selectedHotelId}
-                        onChange={(e) => setSelectedHotelId(e.target.value)}
-                        className="h-9 flex-1 rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
-                      >
-                        <option value="">Select a hotel to add...</option>
-                        {hotels
-                          ?.filter(
-                            (h: any) =>
-                              !eventHotels?.some((eh: any) => eh._id === h._id)
-                          )
-                          .map((h: any) => (
-                            <option key={h._id} value={h._id}>
-                              {h.name}
-                              {h.city ? ` (${h.city})` : ""}
-                            </option>
-                          ))}
-                      </select>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleLinkHotel}
-                        disabled={!selectedHotelId || isLinkingHotel}
-                      >
-                        {isLinkingHotel ? (
-                          <span className="size-4 animate-spin">...</span>
-                        ) : (
-                          <Plus className="size-4" />
-                        )}
-                      </Button>
+                    {/* Add Hotel Section */}
+                    <div className="rounded-lg border border-border/50 bg-muted/30 p-4">
+                      <p className="mb-3 text-sm font-medium">Add Hotel</p>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={selectedHotelId}
+                          onChange={(e) => setSelectedHotelId(e.target.value)}
+                          className="h-9 flex-1 rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
+                        >
+                          <option value="">Select a hotel to add...</option>
+                          {hotels
+                            ?.filter(
+                              (h: any) =>
+                                !eventHotels?.some(
+                                  (eh: any) => eh._id === h._id
+                                )
+                            )
+                            .map((h: any) => (
+                              <option key={h._id} value={h._id}>
+                                {h.name}
+                                {h.city ? ` (${h.city})` : ""}
+                              </option>
+                            ))}
+                        </select>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleLinkHotel}
+                          disabled={!selectedHotelId || isLinkingHotel}
+                        >
+                          {isLinkingHotel ? (
+                            <span className="size-4 animate-spin">...</span>
+                          ) : (
+                            <Plus className="size-4" />
+                          )}
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
