@@ -91,6 +91,30 @@ function hasPriorityAttendee(
   return allocationPriority === "CRITICAL" || allocationPriority === "HIGH"
 }
 
+function mapSubmissionGender(
+  gender: "male" | "female" | "mixed" | "unknown"
+): "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" {
+  const mapping: Record<string, "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"> = {
+    male: "MALE",
+    female: "FEMALE",
+    mixed: "MIXED",
+    unknown: "UNKNOWN",
+  }
+  return mapping[gender] ?? "UNKNOWN"
+}
+
+function allocationPriorityRank(
+  priority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null | undefined
+): number {
+  const ranks: Record<string, number> = {
+    CRITICAL: 0,
+    HIGH: 1,
+    NORMAL: 2,
+    LOW: 3,
+  }
+  return ranks[priority ?? "NORMAL"] ?? 2
+}
+
 export function attendeeMatchesSignalFilters(input: {
   attendee: {
     customAnswers?: unknown
@@ -229,15 +253,32 @@ export const getRoomAllocationBoard = query({
         ).map((eh) => eh.hotelId)
       : null
 
-    const [events, hotels, roomTypes, rooms, allAttendees, familyMembers] =
-      await Promise.all([
-        ctx.db.query("ticketTailorEvents").take(200),
-        ctx.db.query("accommodationHotels").take(200),
-        ctx.db.query("accommodationRoomTypes").take(100),
-        ctx.db.query("accommodationRooms").take(500),
-        ctx.db.query("ticketTailorAttendees").take(2000),
-        ctx.db.query("attendeeFamilyMembers").take(2000),
-      ])
+    const [
+      events,
+      hotels,
+      roomTypes,
+      rooms,
+      allAttendees,
+      familyMembers,
+      accommodationSlotDocs,
+      allSubmissions,
+    ] = await Promise.all([
+      ctx.db.query("ticketTailorEvents").take(200),
+      ctx.db.query("accommodationHotels").take(200),
+      ctx.db.query("accommodationRoomTypes").take(100),
+      ctx.db.query("accommodationRooms").take(500),
+      ctx.db.query("ticketTailorAttendees").take(2000),
+      ctx.db.query("attendeeFamilyMembers").take(2000),
+      ctx.db.query("accommodationSlots").take(1000),
+      eventId
+        ? ctx.db
+            .query("submissions")
+            .withIndex("by_eventId", (q) =>
+              q.eq("eventId", eventId as Id<"events">)
+            )
+            .take(500)
+        : ctx.db.query("submissions").take(500),
+    ])
 
     const normalizedLocationFilter = normalizeOptionalString(args.location)
 
@@ -375,6 +416,127 @@ export const getRoomAllocationBoard = query({
       }
     })
 
+    // --- Canonical submission queue rows ---
+    const submissionIds = allSubmissions.map((s) => s._id)
+
+    const [submissionAttendees, submissionAssignments] = submissionIds.length
+      ? await Promise.all([
+          Promise.all(
+            submissionIds.map((sid) =>
+              ctx.db
+                .query("submissionAttendees")
+                .withIndex("by_submissionId", (q) => q.eq("submissionId", sid))
+                .take(100)
+            )
+          ).then((results) => results.flat()),
+          Promise.all(
+            submissionIds.map((sid) =>
+              ctx.db
+                .query("submissionAssignments")
+                .withIndex("by_submissionId", (q) => q.eq("submissionId", sid))
+                .take(100)
+            )
+          ).then((results) => results.flat()),
+        ])
+      : [[], []]
+
+    const submissionById = new Map(
+      allSubmissions.map((s) => [s._id as string, s])
+    )
+
+    const slotById = new Map(
+      accommodationSlotDocs.map((s) => [s._id as string, s])
+    )
+
+    const assignmentByAttendeeId = new Map<
+      string,
+      (typeof submissionAssignments)[number]
+    >()
+    for (const assignment of submissionAssignments) {
+      assignmentByAttendeeId.set(assignment.attendeeId as string, assignment)
+    }
+
+    const submissionQueueRows = submissionAttendees.map((attendee) => {
+      const submission = submissionById.get(attendee.submissionId as string)
+      const assignment = assignmentByAttendeeId.get(attendee._id as string)
+
+      let unresolved = false
+      let unresolvedReason: string | null = null
+
+      if (!assignment) {
+        unresolved = true
+        unresolvedReason = "no_assignment_record"
+      } else if (assignment.assignmentIntent === "skip") {
+        unresolved = true
+        unresolvedReason = "skipped_intent"
+      } else if (assignment.assignmentIntent === "assign") {
+        const slot = slotById.get(assignment.slotId as string)
+        if (!slot || !slot.isAssignable) {
+          unresolved = true
+          unresolvedReason = "slot_not_assignable"
+        }
+      }
+
+      const genderType = mapSubmissionGender(attendee.gender)
+
+      return {
+        attendeeId: `submission-${submission?._id ?? "unknown"}-${attendee.attendeeKey}`,
+        attendeeName: attendee.name,
+        attendeeEmail: attendee.email ?? null,
+        source: "internal" as const,
+        submissionId: submission?._id ?? null,
+        bookingRef: submission?.bookingRef ?? null,
+        submissionNotes: submission?.notes ?? null,
+        assignmentIntent: assignment?.assignmentIntent ?? null,
+        slotId: assignment?.slotId ?? null,
+        roommatePreference: attendee.roommatePreference || null,
+        roommateAvoid: attendee.roommateAvoid || null,
+        dietaryRestrictions: attendee.dietaryRestrictions || null,
+        bookerName: submission?.bookerName ?? null,
+        genderType,
+        location: attendee.location || null,
+        unresolved,
+        unresolvedReason,
+        submittedAt: submission?.submittedAt ?? null,
+        sortOrder: attendee.sortOrder,
+      }
+    })
+
+    const assignedSlotHotelIds = new Set<string>()
+    for (const row of submissionQueueRows) {
+      if (row.slotId) {
+        const slot = slotById.get(row.slotId as string)
+        if (slot) {
+          assignedSlotHotelIds.add(slot.hotelId as string)
+        }
+      }
+    }
+
+    const missingSlotHotelIds = [...assignedSlotHotelIds].filter(
+      (id) => !hotelMap.has(id)
+    )
+    if (missingSlotHotelIds.length > 0) {
+      const extraHotels = await Promise.all(
+        missingSlotHotelIds.map((id) =>
+          ctx.db.get("accommodationHotels", id as Id<"accommodationHotels">)
+        )
+      )
+      for (const hotel of extraHotels) {
+        if (hotel) {
+          hotelMap.set(hotel._id as string, hotel)
+        }
+      }
+    }
+
+    // Sort: unresolved first, then submittedAt, then attendeeId
+    submissionQueueRows.sort((a, b) => {
+      if (a.unresolved !== b.unresolved) return a.unresolved ? -1 : 1
+      const aTime = a.submittedAt ?? 0
+      const bTime = b.submittedAt ?? 0
+      if (aTime !== bTime) return aTime - bTime
+      return a.attendeeId.localeCompare(b.attendeeId)
+    })
+
     const eventHotels = await ctx.db.query("accommodationEventHotels").take(200)
     const eventHotelsByEvent: Record<string, string[]> = {}
     for (const eh of eventHotels) {
@@ -418,6 +580,7 @@ export const getRoomAllocationBoard = query({
       })),
       rooms: mappedRooms,
       unassignedAttendees: mappedUnassignedAttendees,
+      submissionQueueRows,
       summary: {
         totalRooms: mappedRooms.length,
         emptyRooms: mappedRooms.filter((r) => r.availability === "empty")
