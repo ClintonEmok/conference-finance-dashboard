@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Attendee Signup + Accommodation Self-Assignment
 status: In progress
-stopped_at: Completed 22-01-PLAN.md (flow reorder + location field)
-last_updated: "2026-03-30T22:46:20Z"
+stopped_at: Completed 22-03-PLAN.md (review step with expandable sections)
+last_updated: "2026-03-30T22:55:49Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 15
-  completed_plans: 12
+  completed_plans: 13
 ---
 
 # Project State
@@ -24,8 +24,8 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 
 ## Current Position
 
-Phase: 22 (redesign-signup-ux-for-family-ticket-allocation-with-attendee-grouping-and-room-bedslot-allocation-ui) — EXECUTING
-Plan: 2 of 3 (22-02 next)
+Phase: 22 (redesign-signup-ux-for-family-ticket-allocation-with-attendee-grouping-and-room-bedslot-allocation-ui) — COMPLETE
+Plan: 3 of 3 complete (all plans finished)
 
 ## Alignment Status
 
@@ -66,6 +66,7 @@ Plan: 2 of 3 (22-02 next)
 - **Room assignment flow added:** Signup shell now includes drag/drop attendee-to-slot mapping, deterministic assignment helpers, and explicit `acknowledgeRandomFill` gating while open beds remain (19-02).
 - **Public signup flow complete:** Attendee details, dual-surface validation, review/submit, restore-choice decision controls, and booking confirmation states are now integrated end-to-end (19-03).
 - **Operator handoff read model ready:** Canonical submission attendees now flow into the accommodation board via read-time Convex joins with unresolved assignment prioritization (20-01).
+- **Review step with expandable sections:** ReviewSubmitStep now shows three expandable sections (Tickets, Attendee Details, Room Allocations) with room-based allocation summary, unfilled beds warnings, and unassigned attendee alerts (22-03).
 
 ## Key Decisions
 
@@ -187,14 +188,16 @@ Recent decisions that future work should preserve:
 - Phase 19: Public Signup Pages (planned — 3 plans)
 - Phase 20: Admin Event Management (planned — 3 plans)
 - Phase 21: Accommodation UX Redesign (completed — inline event settings flow with auto-slot generation)
-- Phase 22: Redesign signup UX for family ticket allocation with attendee grouping and room bedslot allocation UI
+- Phase 22: Redesign signup UX for family ticket allocation with attendee grouping and room bedslot allocation UI (COMPLETE)
   - 22-01: Flow reorder + location field (COMPLETE) - Step order changed to tickets → attendees → rooms → review
+  - 22-02: Room assignment redesign (COMPLETE) - Bedslot grouping by room type with real-time preview
+  - 22-03: Review step expandable sections (COMPLETE) - Tickets, Attendees, Rooms with allocation summary
 - Phase 23 added: Add email confirmation and show tikkie link (payment). after signup is completed and improve tracking. we can fetch tikkie automatically already, but payments are done by name. payment details only show first letter and last name
 
 ## Session Continuity
 
 - **Last activity:** 2026-03-30
-- **Last session:** 2026-03-30T22:46:20Z
-- **Stopped at:** Completed 22-01-PLAN.md (flow reorder + location field)
+- **Last session:** 2026-03-30T22:55:49Z
+- **Stopped at:** Completed 22-03-PLAN.md (review step with expandable sections)
 - **Resume file:** None
-- **Next recommended plan:** Execute 22-02-PLAN.md (room assignment redesign with bedslot grouping)
+- **Next recommended plan:** Phase 22 complete — all plans executed. Consider proceeding to Phase 23 (email confirmation and Tikkie link) or verifying Phase 22 work.
