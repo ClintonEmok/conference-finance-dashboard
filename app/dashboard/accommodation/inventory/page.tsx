@@ -50,8 +50,6 @@ import {
   useCreateRooms,
   useDeleteHotel,
   useDeleteRoomType,
-  useAttachHotelToEventByProviderId,
-  useDetachHotelFromEventByProviderId,
 } from "@/lib/convex/hooks/accommodation"
 
 type InventoryPayload = {
@@ -173,19 +171,12 @@ export default function RoomInventoryPage() {
   const [isRegisterInventoryOpen, setIsRegisterInventoryOpen] = useState(false)
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1)
 
-  const [activeHotelScopeId, setActiveHotelScopeId] = useState<string | null>(
-    null
-  )
-  const [draftEventIds, setDraftEventIds] = useState<string[]>([])
-
   // Convex mutation hooks
   const createHotel = useCreateHotel()
   const createRoomType = useCreateRoomType()
   const createRooms = useCreateRooms()
   const deleteHotel = useDeleteHotel()
   const deleteRoomType = useDeleteRoomType()
-  const attachHotelToEventByProviderId = useAttachHotelToEventByProviderId()
-  const detachHotelFromEventByProviderId = useDetachHotelFromEventByProviderId()
 
   const loadInventory = useCallback(async () => {
     setIsLoading(true)
@@ -222,63 +213,6 @@ export default function RoomInventoryPage() {
   )
   const capacityUtilization =
     totalCapacity > 0 ? Math.round((occupiedCapacity / totalCapacity) * 100) : 0
-
-  const openHotelScopeModal = (hotelId: string) => {
-    const hotel = payload.hotels.find((h) => h.id === hotelId)
-    setDraftEventIds(hotel?.assignedEventIds ?? [])
-    setActiveHotelScopeId(hotelId)
-  }
-
-  const closeHotelScopeModal = () => {
-    setActiveHotelScopeId(null)
-    setDraftEventIds([])
-    setErrors((current) => ({ ...current, eventHotels: null }))
-  }
-
-  const saveHotelScope = async () => {
-    if (!activeHotelScopeId) return
-    setIsMutating(true)
-    try {
-      const hotel = payload.hotels.find((h) => h.id === activeHotelScopeId)
-      const currentEventIds = hotel?.assignedEventIds || []
-
-      // Events to attach (in draft but not currently assigned)
-      const toAttach = draftEventIds.filter(
-        (id) => !currentEventIds.includes(id)
-      )
-      // Events to detach (currently assigned but not in draft)
-      const toDetach = currentEventIds.filter(
-        (id) => !draftEventIds.includes(id)
-      )
-
-      // Execute all attach operations
-      await Promise.all(
-        toAttach.map((eventId) =>
-          attachHotelToEventByProviderId({
-            hotelId: activeHotelScopeId,
-            eventProviderEventId: eventId,
-          })
-        )
-      )
-
-      // Execute all detach operations
-      await Promise.all(
-        toDetach.map((eventId) =>
-          detachHotelFromEventByProviderId({
-            hotelId: activeHotelScopeId,
-            eventProviderEventId: eventId,
-          })
-        )
-      )
-
-      await loadInventory()
-      closeHotelScopeModal()
-    } catch (err: any) {
-      setErrors((current) => ({ ...current, eventHotels: err.message }))
-    } finally {
-      setIsMutating(false)
-    }
-  }
 
   const submitHotel = async (e: SyntheticEvent) => {
     e.preventDefault()
@@ -568,14 +502,6 @@ export default function RoomInventoryPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openHotelScopeModal(hotel.id)}
-                          className="rounded-lg text-primary hover:bg-primary/5"
-                        >
-                          <RefreshCcw className="size-4" />
-                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1037,135 +963,6 @@ export default function RoomInventoryPage() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Scope Management Modal */}
-      {activeHotelScopeId && (
-        <div className="fixed inset-0 z-50 flex animate-in items-center justify-center bg-background/80 p-4 backdrop-blur-xl duration-300 zoom-in-95">
-          <div className="w-full max-w-xl rounded-xl border border-border/50 bg-card/60 p-8 shadow-2xl">
-            <div className="mb-8 flex items-start justify-between">
-              <div>
-                <h3 className="text-xl font-black tracking-tight">
-                  {
-                    payload.hotels.find((h) => h.id === activeHotelScopeId)
-                      ?.name
-                  }
-                </h3>
-                <p className="mt-1 text-xs font-bold tracking-widest text-muted-foreground/60 uppercase">
-                  Scope Reach Management
-                </p>
-              </div>
-              <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Layers className="size-5" />
-              </div>
-            </div>
-
-            <div className="mb-8 max-h-[300px] space-y-3 overflow-y-auto pr-2">
-              {isLoading && payload.hotels.length === 0 ? (
-                <div className="grid gap-6">
-                  {Array.from({ length: 2 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="flex h-[340px] flex-col rounded-xl border border-border/40 bg-card/60 p-6"
-                    >
-                      <div className="flex items-center justify-between border-b border-border/10 pb-4">
-                        <div className="flex items-center gap-3">
-                          <Skeleton className="size-10 rounded-lg" />
-                          <div className="space-y-1.5">
-                            <Skeleton className="h-4 w-48 rounded-md" />
-                            <Skeleton className="h-3 w-32 rounded-md" />
-                          </div>
-                        </div>
-                        <Skeleton className="h-6 w-24 rounded-lg" />
-                      </div>
-                      <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-                        {Array.from({ length: 4 }).map((_, j) => (
-                          <Skeleton key={j} className="h-32 rounded-xl" />
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : payload.availableEvents.length === 0 ? (
-                <p className="py-6 text-center text-sm font-bold text-muted-foreground italic">
-                  No events available
-                </p>
-              ) : (
-                payload.availableEvents.map((event) => {
-                  const checked = draftEventIds.includes(event.providerEventId)
-                  return (
-                    <label
-                      key={event.providerEventId}
-                      className={cn(
-                        "flex cursor-pointer items-center justify-between rounded-xl border p-4 transition-all",
-                        checked
-                          ? "border-primary bg-primary/[0.03]"
-                          : "border-border/40 bg-background/40"
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={cn(
-                            "flex size-4 items-center justify-center rounded border transition-colors",
-                            checked
-                              ? "border-primary bg-primary"
-                              : "border-muted-foreground/20"
-                          )}
-                        >
-                          {checked && (
-                            <CheckCircle2 className="size-3 text-white" />
-                          )}
-                        </div>
-                        <span className="text-xs font-black tracking-tight">
-                          {event.name}
-                        </span>
-                      </div>
-                      <input
-                        type="checkbox"
-                        className="hidden"
-                        checked={checked}
-                        onChange={(e) => {
-                          setDraftEventIds((curr) =>
-                            e.target.checked
-                              ? [...curr, event.providerEventId]
-                              : curr.filter(
-                                  (id) => id !== event.providerEventId
-                                )
-                          )
-                        }}
-                      />
-                      <span className="text-[9px] font-black tracking-widest text-muted-foreground/40 uppercase">
-                        {event.providerEventId}
-                      </span>
-                    </label>
-                  )
-                })
-              )}
-            </div>
-
-            <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                onClick={closeHotelScopeModal}
-                className="h-11 flex-1 rounded-lg text-xs font-bold tracking-widest uppercase"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={saveHotelScope}
-                disabled={isMutating}
-                className="h-11 flex-1 rounded-lg bg-primary text-xs font-bold tracking-widest text-white uppercase shadow-lg shadow-primary/20"
-              >
-                Sync Reach
-              </Button>
-            </div>
-            {errors.eventHotels && (
-              <p className="mt-4 text-center text-[10px] font-bold text-rose-500 uppercase">
-                {errors.eventHotels}
-              </p>
-            )}
           </div>
         </div>
       )}
