@@ -14,8 +14,9 @@ export type OrderLedgerFilters = {
 
 export type OrderLedgerRow = {
   providerOrderId: string
-  providerEventId: string
-  eventName: string | null
+  eventId: string
+  eventSlug: string
+  eventTitle: string | null
   normalizedStatus: CanonicalOrderStatus
   isArchived: boolean
   archivedAt: string | null
@@ -38,8 +39,11 @@ export type OrderLedgerResult = {
     pageSize: number
   }
   availableEvents: Array<{
-    providerEventId: string
-    name: string | null
+    eventId: string
+    slug: string
+    title: string | null
+    startsAt: string | null
+    currency: string | null
   }>
   page: {
     number: number
@@ -151,7 +155,13 @@ export async function getOrderLedger(
       page,
       pageSize,
     },
-    availableEvents,
+    availableEvents: availableEvents.map((e) => ({
+      eventId: e.eventId,
+      slug: e.slug,
+      title: e.title ?? null,
+      startsAt: e.startsAt ? new Date(e.startsAt).toISOString() : null,
+      currency: e.currency ?? null,
+    })),
     page: {
       number: page,
       size: pageSize,
@@ -165,8 +175,9 @@ export async function getOrderLedger(
 export function buildOrderLedgerCsv(rows: OrderLedgerRow[]) {
   const headers = [
     "providerOrderId",
-    "providerEventId",
-    "eventName",
+    "eventId",
+    "eventSlug",
+    "eventTitle",
     "normalizedStatus",
     "isArchived",
     "archivedAt",
@@ -184,8 +195,9 @@ export function buildOrderLedgerCsv(rows: OrderLedgerRow[]) {
     lines.push(
       [
         row.providerOrderId,
-        row.providerEventId,
-        row.eventName,
+        row.eventId,
+        row.eventSlug,
+        row.eventTitle,
         row.normalizedStatus,
         row.isArchived,
         row.archivedAt,

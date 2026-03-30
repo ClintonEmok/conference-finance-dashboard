@@ -2,7 +2,13 @@
 
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { SyntheticEvent, useCallback, useEffect, useMemo, useState } from "react"
+import {
+  SyntheticEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 import {
   ArrowRight,
   BedDouble,
@@ -10,16 +16,20 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
   ExternalLink,
+  FileText,
   LayoutGrid,
   MapPin,
   RefreshCcw,
   Search,
   Sparkles,
   Users,
+  X,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import {
@@ -106,12 +116,43 @@ type AccommodationWorkspacePayload = {
     allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
     hasFamily: boolean
   }>
+  // Submission queue rows from canonical signup submissions
+  submissionQueueRows?: Array<{
+    attendeeId: string
+    attendeeName: string | null
+    attendeeEmail: string | null
+    source: "internal" | "integration"
+    submissionId: string
+    bookingRef: string | null
+    eventName: string | null
+    ticketTypeLabel: string | null
+    genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+    location: string | null
+    allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
+    hasFamily: boolean
+    // Assignment intent and notes
+    assignmentIntent: "auto_assign" | "manual_select" | "defer" | null
+    roommatePreference: string | null
+    roommateAvoid: string | null
+    dietaryRestrictions: string | null
+    bookerName: string | null
+    submittedAt: string
+    // Unresolved state
+    isUnresolved: boolean
+    unresolvedReason:
+      | "no_assignment_record"
+      | "skipped_intent"
+      | "slot_not_assignable"
+      | null
+  }>
   summary: {
     totalRooms: number
     emptyRooms: number
     availableRooms: number
     fullRooms: number
     unassignedAttendees: number
+    submissionQueueCount?: number
+    unresolvedCount?: number
   }
 }
 
@@ -188,9 +229,9 @@ export default function AccommodationPage() {
   const selectedAttendeeId = selectedAttendeeIds[0] || null
 
   const toggleAttendeeSelection = (id: string) => {
-    setSelectedAttendeeIds(prev => {
+    setSelectedAttendeeIds((prev) => {
       if (prev.includes(id)) {
-        return prev.filter(item => item !== id)
+        return prev.filter((item) => item !== id)
       }
       return [...prev, id]
     })
@@ -243,6 +284,12 @@ export default function AccommodationPage() {
   } | null>(null)
   const [isLoadingProposal, setIsLoadingProposal] = useState(false)
   const [showProposal, setShowProposal] = useState(false)
+
+  // Submission queue state
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState<
+    string | null
+  >(null)
+  const [showSubmissionDetail, setShowSubmissionDetail] = useState(false)
 
   const [appliedEventId, setAppliedEventId] = useState("")
   const [appliedSearch, setAppliedSearch] = useState("")
@@ -434,7 +481,6 @@ export default function AccommodationPage() {
     [payload.rooms]
   )
 
-
   const totalCapacity = useMemo(
     () => payload.rooms.reduce((sum, room) => sum + room.capacity, 0),
     [payload.rooms]
@@ -449,7 +495,6 @@ export default function AccommodationPage() {
     totalCapacity === 0
       ? 0
       : Math.round((occupiedCapacity / totalCapacity) * 100)
-
 
   const roomsPerPage = 8
 
@@ -561,7 +606,10 @@ export default function AccommodationPage() {
     }
   }
 
-  async function assignMultipleAttendeesToRoom(attendeeIds: string[], roomId: string) {
+  async function assignMultipleAttendeesToRoom(
+    attendeeIds: string[],
+    roomId: string
+  ) {
     if (!roomId || attendeeIds.length === 0) return
 
     setIsMutating(true)
@@ -581,7 +629,7 @@ export default function AccommodationPage() {
       setSelectedAttendeeIds([])
       await loadWorkspace()
     } catch (e) {
-      setErrors(prev => ({ ...prev, assignments: "Bulk assignment failed." }))
+      setErrors((prev) => ({ ...prev, assignments: "Bulk assignment failed." }))
     } finally {
       setIsMutating(false)
     }
@@ -621,16 +669,17 @@ export default function AccommodationPage() {
     }
   }
 
-
-
   return (
     <section className="space-y-6">
       <header className="mb-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-foreground">Room allocation</h2>
+            <h2 className="text-2xl font-bold tracking-tight text-foreground">
+              Room allocation
+            </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Track hotel capacity, assign attendees, and keep accommodation decisions visible.
+              Track hotel capacity, assign attendees, and keep accommodation
+              decisions visible.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -638,7 +687,7 @@ export default function AccommodationPage() {
               asChild
               variant="outline"
               size="sm"
-              className="rounded-lg h-10 border-border/50 bg-card/40 backdrop-blur font-bold text-xs shadow-sm"
+              className="h-10 rounded-lg border-border/50 bg-card/40 text-xs font-bold shadow-sm backdrop-blur"
             >
               <Link href="/dashboard/accommodation/inventory">
                 <LayoutGrid className="mr-2 size-3.5" /> Open stock
@@ -647,8 +696,10 @@ export default function AccommodationPage() {
             <Button
               type="button"
               size="sm"
-              className="rounded-lg h-10 bg-primary text-white font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all"
-              disabled={isLoadingProposal || payload.unassignedAttendees.length === 0}
+              className="h-10 rounded-lg bg-primary text-xs font-bold text-white shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] active:scale-95"
+              disabled={
+                isLoadingProposal || payload.unassignedAttendees.length === 0
+              }
               onClick={async () => {
                 setIsLoadingProposal(true)
                 try {
@@ -679,15 +730,40 @@ export default function AccommodationPage() {
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            { label: "Total capacity", value: totalCapacity.toLocaleString(), sub: `${payload.summary.totalRooms} rooms` },
-            { label: "Occupancy", value: `${occupancyPercent}%`, sub: `${occupiedCapacity} beds used` },
-            { label: "Unassigned", value: payload.unassignedAttendees.length, sub: "Waiting list" },
-            { label: "Inventory", value: payload.roomTypes.length, sub: `${payload.hotels.length} Hoteliers` },
+            {
+              label: "Total capacity",
+              value: totalCapacity.toLocaleString(),
+              sub: `${payload.summary.totalRooms} rooms`,
+            },
+            {
+              label: "Occupancy",
+              value: `${occupancyPercent}%`,
+              sub: `${occupiedCapacity} beds used`,
+            },
+            {
+              label: "Unassigned",
+              value: payload.unassignedAttendees.length,
+              sub: "Waiting list",
+            },
+            {
+              label: "Inventory",
+              value: payload.roomTypes.length,
+              sub: `${payload.hotels.length} Hoteliers`,
+            },
           ].map((metric) => (
-            <article key={metric.label} className="relative flex flex-col justify-center overflow-hidden rounded-2xl border border-[rgba(113,84,255,0.4)] bg-[linear-gradient(145deg,rgba(113,84,255,0.92),rgba(83,56,171,0.88))] p-5 shadow-[0_8px_30px_rgb(113,84,255,0.2)] transition-transform hover:scale-[1.02]">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60 relative z-10">{metric.label}</p>
-              <p className="mt-2 text-2xl font-bold text-white relative z-10">{metric.value}</p>
-              <p className="mt-1 text-[11px] font-medium text-white/50 relative z-10">{metric.sub}</p>
+            <article
+              key={metric.label}
+              className="relative flex flex-col justify-center overflow-hidden rounded-2xl border border-[rgba(113,84,255,0.4)] bg-[linear-gradient(145deg,rgba(113,84,255,0.92),rgba(83,56,171,0.88))] p-5 shadow-[0_8px_30px_rgb(113,84,255,0.2)] transition-transform hover:scale-[1.02]"
+            >
+              <p className="relative z-10 text-[10px] font-bold tracking-[0.2em] text-white/60 uppercase">
+                {metric.label}
+              </p>
+              <p className="relative z-10 mt-2 text-2xl font-bold text-white">
+                {metric.value}
+              </p>
+              <p className="relative z-10 mt-1 text-[11px] font-medium text-white/50">
+                {metric.sub}
+              </p>
             </article>
           ))}
         </div>
@@ -715,9 +791,6 @@ export default function AccommodationPage() {
 
       <section className="flex flex-col gap-8">
         <div className="space-y-6">
-
-
-
           {/* Smart Allocation Proposal Display */}
           {showProposal && proposal && (
             <article className="rounded-3xl border border-primary/20 bg-primary/6 p-5 shadow-sm">
@@ -742,6 +815,375 @@ export default function AccommodationPage() {
                   Close
                 </Button>
               </div>
+
+              {/* Submission Queue Display */}
+              {payload.submissionQueueRows &&
+                payload.submissionQueueRows.length > 0 && (
+                  <>
+                    <section className="mb-6 rounded-3xl border border-border/60 bg-card/60 p-5 shadow-sm">
+                      <div className="mb-4 flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase">
+                            Signup Queue
+                          </p>
+                          <h3 className="mt-1 text-lg font-semibold text-foreground">
+                            Internal Submissions
+                          </h3>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-full bg-orange-500/10 px-2 py-1 text-xs font-medium text-orange-600">
+                            {
+                              payload.submissionQueueRows.filter(
+                                (r) => r.isUnresolved
+                              ).length
+                            }{" "}
+                            unresolved
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            of {payload.submissionQueueRows.length} total
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Queue rows - sorted by unresolved first */}
+                      <div className="max-h-64 space-y-2 overflow-y-auto">
+                        {payload.submissionQueueRows
+                          .sort((a, b) => {
+                            // Unresolved first, then by submittedAt, then by attendeeId
+                            if (a.isUnresolved !== b.isUnresolved)
+                              return a.isUnresolved ? -1 : 1
+                            const aTime = a.submittedAt
+                              ? new Date(a.submittedAt).getTime()
+                              : 0
+                            const bTime = b.submittedAt
+                              ? new Date(b.submittedAt).getTime()
+                              : 0
+                            if (aTime !== bTime) return aTime - bTime
+                            return a.attendeeId.localeCompare(b.attendeeId)
+                          })
+                          .map((row) => (
+                            <div
+                              key={row.submissionId + row.attendeeId}
+                              className={cn(
+                                "flex cursor-pointer items-center justify-between rounded-xl border p-3 transition-all hover:bg-muted/30",
+                                row.isUnresolved
+                                  ? "border-orange-200 bg-orange-50/30 dark:border-orange-900/30 dark:bg-orange-950/10"
+                                  : "border-border/40 bg-background/50"
+                              )}
+                              onClick={() => {
+                                setSelectedSubmissionId(row.submissionId)
+                                setShowSubmissionDetail(true)
+                              }}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className={cn(
+                                    "flex size-8 items-center justify-center rounded-lg",
+                                    row.isUnresolved
+                                      ? "bg-orange-500/10 text-orange-600"
+                                      : "bg-emerald-500/10 text-emerald-600"
+                                  )}
+                                >
+                                  {row.isUnresolved ? (
+                                    <Clock className="size-4" />
+                                  ) : (
+                                    <Check className="size-4" />
+                                  )}
+                                </div>
+                                <div>
+                                  <p className="text-sm font-medium text-foreground">
+                                    {row.attendeeName ?? "Unnamed"}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {row.bookingRef && `Ref: ${row.bookingRef}`}{" "}
+                                    {row.bookerName && `• ${row.bookerName}`}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {row.isUnresolved && row.unresolvedReason && (
+                                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
+                                    {row.unresolvedReason ===
+                                    "no_assignment_record"
+                                      ? "No record"
+                                      : row.unresolvedReason ===
+                                          "skipped_intent"
+                                        ? "Skipped"
+                                        : "Not assignable"}
+                                  </span>
+                                )}
+                                {row.genderType &&
+                                  row.genderType !== "UNKNOWN" && (
+                                    <span
+                                      className={cn(
+                                        "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                                        row.genderType === "MALE"
+                                          ? "border-blue-500/20 bg-blue-500/10 text-blue-500"
+                                          : row.genderType === "FEMALE"
+                                            ? "border-pink-500/20 bg-pink-500/10 text-pink-500"
+                                            : "border-border/40 bg-muted/30 text-muted-foreground/80"
+                                      )}
+                                    >
+                                      {row.genderType.toLowerCase()}
+                                    </span>
+                                  )}
+                                {row.location && (
+                                  <span className="inline-flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
+                                    <MapPin className="size-2.5" />
+                                    {row.location}
+                                  </span>
+                                )}
+                                {row.hasFamily && (
+                                  <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600">
+                                    Group
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </section>
+
+                    {/* Submission Detail Side Panel */}
+                    {showSubmissionDetail && selectedSubmissionId && (
+                      <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-md border-l border-border bg-card/95 shadow-2xl backdrop-blur-xl">
+                        <div className="flex h-full flex-col">
+                          {(() => {
+                            const submission =
+                              payload.submissionQueueRows?.find(
+                                (r) => r.submissionId === selectedSubmissionId
+                              )
+                            if (!submission) return null
+                            return (
+                              <>
+                                <header className="flex items-center justify-between border-b border-border/60 px-6 py-4">
+                                  <div>
+                                    <h3 className="text-lg font-semibold text-foreground">
+                                      Submission Details
+                                    </h3>
+                                    <p className="text-xs text-muted-foreground">
+                                      {submission.bookingRef ??
+                                        "No booking ref"}
+                                    </p>
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() =>
+                                      setShowSubmissionDetail(false)
+                                    }
+                                  >
+                                    <X className="size-4" />
+                                  </Button>
+                                </header>
+
+                                <div className="flex-1 space-y-6 overflow-y-auto p-6">
+                                  {/* Attendee Info */}
+                                  <Card>
+                                    <CardHeader className="pb-3">
+                                      <CardTitle className="text-sm font-medium">
+                                        Attendee
+                                      </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-3">
+                                      <div>
+                                        <p className="text-sm font-medium text-foreground">
+                                          {submission.attendeeName ?? "Unnamed"}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                          {submission.attendeeEmail}
+                                        </p>
+                                      </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        {submission.genderType &&
+                                          submission.genderType !==
+                                            "UNKNOWN" && (
+                                            <span
+                                              className={cn(
+                                                "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                                                submission.genderType === "MALE"
+                                                  ? "border-blue-500/20 bg-blue-500/10 text-blue-500"
+                                                  : submission.genderType ===
+                                                      "FEMALE"
+                                                    ? "border-pink-500/20 bg-pink-500/10 text-pink-500"
+                                                    : "border-border/40 bg-muted/30 text-muted-foreground/80"
+                                              )}
+                                            >
+                                              {submission.genderType.toLowerCase()}
+                                            </span>
+                                          )}
+                                        {submission.location && (
+                                          <span className="inline-flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
+                                            <MapPin className="size-2.5" />
+                                            {submission.location}
+                                          </span>
+                                        )}
+                                        {submission.hasFamily && (
+                                          <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600">
+                                            Group
+                                          </span>
+                                        )}
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+
+                                  {/* Assignment Status */}
+                                  <Card>
+                                    <CardHeader className="pb-3">
+                                      <CardTitle className="text-sm font-medium">
+                                        Assignment Status
+                                      </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-2">
+                                      {submission.isUnresolved ? (
+                                        <div className="rounded-lg bg-orange-50 p-3 dark:bg-orange-950/20">
+                                          <p className="text-sm font-medium text-orange-700 dark:text-orange-300">
+                                            Unresolved
+                                          </p>
+                                          <p className="text-xs text-orange-600/80 dark:text-orange-400/80">
+                                            {submission.unresolvedReason ===
+                                            "no_assignment_record"
+                                              ? "No assignment record found"
+                                              : submission.unresolvedReason ===
+                                                  "skipped_intent"
+                                                ? "Assignment was skipped"
+                                                : submission.unresolvedReason ===
+                                                    "slot_not_assignable"
+                                                  ? "Selected slot is not assignable"
+                                                  : "Unknown reason"}
+                                          </p>
+                                        </div>
+                                      ) : (
+                                        <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-950/20">
+                                          <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                                            Resolved
+                                          </p>
+                                          <p className="text-xs text-emerald-600/80 dark:text-emerald-400/80">
+                                            Assignment intent:{" "}
+                                            {submission.assignmentIntent ??
+                                              "N/A"}
+                                          </p>
+                                        </div>
+                                      )}
+                                    </CardContent>
+                                  </Card>
+
+                                  {/* Preferences */}
+                                  {(submission.roommatePreference ||
+                                    submission.roommateAvoid ||
+                                    submission.dietaryRestrictions) && (
+                                    <Card>
+                                      <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm font-medium">
+                                          Preferences
+                                        </CardTitle>
+                                      </CardHeader>
+                                      <CardContent className="space-y-3">
+                                        {submission.roommatePreference && (
+                                          <div>
+                                            <p className="text-xs text-muted-foreground">
+                                              Roommate preference
+                                            </p>
+                                            <p className="text-sm text-foreground">
+                                              {submission.roommatePreference}
+                                            </p>
+                                          </div>
+                                        )}
+                                        {submission.roommateAvoid && (
+                                          <div>
+                                            <p className="text-xs text-muted-foreground">
+                                              Roommate to avoid
+                                            </p>
+                                            <p className="text-sm text-foreground">
+                                              {submission.roommateAvoid}
+                                            </p>
+                                          </div>
+                                        )}
+                                        {submission.dietaryRestrictions && (
+                                          <div>
+                                            <p className="text-xs text-muted-foreground">
+                                              Dietary restrictions
+                                            </p>
+                                            <p className="text-sm text-foreground">
+                                              {submission.dietaryRestrictions}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </CardContent>
+                                    </Card>
+                                  )}
+
+                                  {/* Booking Info */}
+                                  <Card>
+                                    <CardHeader className="pb-3">
+                                      <CardTitle className="text-sm font-medium">
+                                        Booking Info
+                                      </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-2">
+                                      {submission.bookingRef && (
+                                        <div className="flex justify-between">
+                                          <span className="text-xs text-muted-foreground">
+                                            Booking Ref
+                                          </span>
+                                          <span className="text-sm text-foreground">
+                                            {submission.bookingRef}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {submission.bookerName && (
+                                        <div className="flex justify-between">
+                                          <span className="text-xs text-muted-foreground">
+                                            Booker
+                                          </span>
+                                          <span className="text-sm text-foreground">
+                                            {submission.bookerName}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {submission.submittedAt && (
+                                        <div className="flex justify-between">
+                                          <span className="text-xs text-muted-foreground">
+                                            Submitted
+                                          </span>
+                                          <span className="text-sm text-foreground">
+                                            {new Date(
+                                              submission.submittedAt
+                                            ).toLocaleDateString()}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {submission.eventName && (
+                                        <div className="flex justify-between">
+                                          <span className="text-xs text-muted-foreground">
+                                            Event
+                                          </span>
+                                          <span className="text-sm text-foreground">
+                                            {submission.eventName}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {submission.ticketTypeLabel && (
+                                        <div className="flex justify-between">
+                                          <span className="text-xs text-muted-foreground">
+                                            Ticket Type
+                                          </span>
+                                          <span className="text-sm text-foreground">
+                                            {submission.ticketTypeLabel}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </CardContent>
+                                  </Card>
+                                </div>
+                              </>
+                            )
+                          })()}
+                        </div>
+                      </aside>
+                    )}
+                  </>
+                )}
 
               {/* Summary stats */}
               <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -857,13 +1299,15 @@ export default function AccommodationPage() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 xl:gap-8 items-start">
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[380px_1fr] xl:gap-8">
           {/* PANE 1: Inbox of unassigned attendees */}
-          <div className="flex flex-col rounded-2xl border border-border/60 bg-card/40 shadow-sm backdrop-blur-xl overflow-hidden h-[800px]">
-            <div className="border-b border-border/60 bg-muted/30 px-5 py-4 flex items-center justify-between">
+          <div className="flex h-[800px] flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/40 shadow-sm backdrop-blur-xl">
+            <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-5 py-4">
               <div>
-                <h3 className="font-bold text-sm tracking-tight text-foreground">Inbox</h3>
-                <p className="text-[10px] uppercase font-semibold tracking-wider text-muted-foreground mt-0.5">
+                <h3 className="text-sm font-bold tracking-tight text-foreground">
+                  Inbox
+                </h3>
+                <p className="mt-0.5 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
                   {payload.unassignedAttendees.length} Waiting
                 </p>
               </div>
@@ -871,11 +1315,16 @@ export default function AccommodationPage() {
                 <Users className="size-4" />
               </div>
             </div>
-            <div className={`flex-1 overflow-y-auto p-3 space-y-2 transition-opacity duration-200 ${isLoading || isMutating ? "opacity-50 pointer-events-none" : ""}`}>
+            <div
+              className={`flex-1 space-y-2 overflow-y-auto p-3 transition-opacity duration-200 ${isLoading || isMutating ? "pointer-events-none opacity-50" : ""}`}
+            >
               {isLoading && payload.unassignedAttendees.length === 0 ? (
                 <div className="space-y-2 p-1">
                   {Array.from({ length: 5 }).map((_, i) => (
-                    <div key={i} className="flex flex-col gap-3 rounded-xl border border-border/20 bg-background/30 p-4">
+                    <div
+                      key={i}
+                      className="flex flex-col gap-3 rounded-xl border border-border/20 bg-background/30 p-4"
+                    >
                       <div className="flex items-center gap-2">
                         <Skeleton className="size-5 rounded-md" />
                         <Skeleton className="h-4 w-32 rounded-md" />
@@ -889,66 +1338,80 @@ export default function AccommodationPage() {
                   ))}
                 </div>
               ) : payload.unassignedAttendees.length === 0 ? (
-                <div className="p-8 text-center text-sm text-muted-foreground border border-dashed border-border/60 rounded-xl m-2 bg-background/50">
+                <div className="m-2 rounded-xl border border-dashed border-border/60 bg-background/50 p-8 text-center text-sm text-muted-foreground">
                   Inbox empty! All attendees have been placed.
                 </div>
               ) : (
                 payload.unassignedAttendees.map((attendee) => {
-                  const isSelected = selectedAttendeeIds.includes(attendee.attendeeId)
+                  const isSelected = selectedAttendeeIds.includes(
+                    attendee.attendeeId
+                  )
                   return (
                     <div
                       key={attendee.attendeeId}
-                      className={`group relative w-full flex flex-col items-start p-4 rounded-xl border transition-all cursor-pointer select-none ${isSelected
-                        ? "border-[rgba(113,84,255,0.6)] bg-[rgba(113,84,255,0.08)] shadow-[0_0_20px_rgba(113,84,255,0.1)] selected-attendee"
-                        : "border-border/40 bg-background/50 hover:bg-muted/30"
-                        }`}
-                      onClick={() => toggleAttendeeSelection(attendee.attendeeId)}
+                      className={`group relative flex w-full cursor-pointer flex-col items-start rounded-xl border p-4 transition-all select-none ${
+                        isSelected
+                          ? "selected-attendee border-[rgba(113,84,255,0.6)] bg-[rgba(113,84,255,0.08)] shadow-[0_0_20px_rgba(113,84,255,0.1)]"
+                          : "border-border/40 bg-background/50 hover:bg-muted/30"
+                      }`}
+                      onClick={() =>
+                        toggleAttendeeSelection(attendee.attendeeId)
+                      }
                     >
                       <div className="flex w-full items-start justify-between">
                         <div className="flex items-center gap-2 truncate">
-                          <div className={`flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors ${isSelected
-                            ? "bg-primary border-primary text-primary-foreground"
-                            : "border-border bg-background"
-                            }`}>
+                          <div
+                            className={`flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
+                              isSelected
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-border bg-background"
+                            }`}
+                          >
                             {isSelected && <Check className="size-3" />}
                           </div>
-                          <p className="font-semibold text-sm text-foreground truncate">
+                          <p className="truncate text-sm font-semibold text-foreground">
                             {attendee.attendeeName ?? "Unnamed"}
                           </p>
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex shrink-0 items-center gap-1.5">
                           <Link
                             href={`/dashboard/attendees/${attendee.attendeeId}?search=${encodeURIComponent(
                               appliedSearch ||
-                              attendee.attendeeName ||
-                              attendee.providerOrderId
+                                attendee.attendeeName ||
+                                attendee.providerOrderId
                             )}&eventId=${encodeURIComponent(appliedEventId || attendee.providerEventId)}`}
                             onClick={(e) => e.stopPropagation()}
-                            className="p-1 text-muted-foreground hover:text-primary transition-colors"
+                            className="p-1 text-muted-foreground transition-colors hover:text-primary"
                           >
                             <ExternalLink className="size-3.5" />
                           </Link>
                           {attendee.allocationPriority === "CRITICAL" && (
-                            <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-medium text-red-500">Crit</span>
+                            <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-medium text-red-500">
+                              Crit
+                            </span>
                           )}
                         </div>
                       </div>
 
-                      <p className="mt-1 ml-7 text-xs text-muted-foreground truncate opacity-70">
+                      <p className="mt-1 ml-7 truncate text-xs text-muted-foreground opacity-70">
                         {attendee.ticketTypeLabel ?? attendee.eventName}
                       </p>
 
                       <div className="mt-3 ml-7 flex flex-wrap gap-1.5">
-                        {attendee.genderType && attendee.genderType !== "UNKNOWN" && (
-                          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize ${attendee.genderType === "MALE"
-                            ? "bg-blue-500/10 text-blue-500 border-blue-500/20"
-                            : attendee.genderType === "FEMALE"
-                              ? "bg-pink-500/10 text-pink-500 border-pink-500/20"
-                              : "bg-muted/30 text-muted-foreground/80 border-border/40"
-                            }`}>
-                            {attendee.genderType.toLowerCase()}
-                          </span>
-                        )}
+                        {attendee.genderType &&
+                          attendee.genderType !== "UNKNOWN" && (
+                            <span
+                              className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize ${
+                                attendee.genderType === "MALE"
+                                  ? "border-blue-500/20 bg-blue-500/10 text-blue-500"
+                                  : attendee.genderType === "FEMALE"
+                                    ? "border-pink-500/20 bg-pink-500/10 text-pink-500"
+                                    : "border-border/40 bg-muted/30 text-muted-foreground/80"
+                              }`}
+                            >
+                              {attendee.genderType.toLowerCase()}
+                            </span>
+                          )}
                         {attendee.location && (
                           <span className="inline-flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
                             <MapPin className="size-2.5" />
@@ -956,7 +1419,9 @@ export default function AccommodationPage() {
                           </span>
                         )}
                         {shouldRenderFamilyBadge(attendee) && (
-                          <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600">Group</span>
+                          <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600">
+                            Group
+                          </span>
                         )}
                       </div>
                     </div>
@@ -968,20 +1433,26 @@ export default function AccommodationPage() {
 
           {/* PANE 2: Visual Room Board */}
           <div id="assignment-queue" className="flex flex-col gap-4">
-            <div className="flex items-center justify-between mb-4 px-1">
+            <div className="mb-4 flex items-center justify-between px-1">
               <div>
-                <h3 className="text-xl font-bold tracking-tight text-foreground">Room availability</h3>
-                <p className="text-xs text-muted-foreground font-medium">{payload.rooms.length} filtered rooms</p>
+                <h3 className="text-xl font-bold tracking-tight text-foreground">
+                  Room availability
+                </h3>
+                <p className="text-xs font-medium text-muted-foreground">
+                  {payload.rooms.length} filtered rooms
+                </p>
               </div>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                className="rounded-lg h-10 border-border/50 bg-card/40 backdrop-blur font-bold text-xs shadow-sm"
+                className="h-10 rounded-lg border-border/50 bg-card/40 text-xs font-bold shadow-sm backdrop-blur"
                 disabled={isLoading || isMutating}
                 onClick={() => void loadWorkspace()}
               >
-                <RefreshCcw className={cn("mr-2 size-3.5", isLoading && "animate-spin")} />
+                <RefreshCcw
+                  className={cn("mr-2 size-3.5", isLoading && "animate-spin")}
+                />
                 Refresh
               </Button>
             </div>
@@ -989,15 +1460,18 @@ export default function AccommodationPage() {
             {isLoading && payload.rooms.length === 0 ? (
               <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
                 {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="flex flex-col rounded-2xl border border-border/40 bg-card/60 overflow-hidden h-[240px]">
-                    <div className="flex items-center gap-3 p-4 border-b border-border/10 bg-muted/10">
+                  <div
+                    key={i}
+                    className="flex h-[240px] flex-col overflow-hidden rounded-2xl border border-border/40 bg-card/60"
+                  >
+                    <div className="flex items-center gap-3 border-b border-border/10 bg-muted/10 p-4">
                       <Skeleton className="size-8 rounded-lg" />
                       <div className="space-y-1.5">
                         <Skeleton className="h-4 w-24 rounded-md" />
                         <Skeleton className="h-3 w-32 rounded-md" />
                       </div>
                     </div>
-                    <div className="p-4 space-y-3">
+                    <div className="space-y-3 p-4">
                       <Skeleton className="h-10 w-full rounded-xl" />
                       <Skeleton className="h-10 w-full rounded-xl" />
                       <Skeleton className="h-10 w-full rounded-xl" />
@@ -1010,9 +1484,14 @@ export default function AccommodationPage() {
                 No room stock matches the current filters.
               </p>
             ) : (
-              <div className={`grid gap-4 sm:grid-cols-2 2xl:grid-cols-3 transition-opacity duration-200 ${isLoading || isMutating ? "opacity-50 pointer-events-none" : ""}`}>
+              <div
+                className={`grid gap-4 transition-opacity duration-200 sm:grid-cols-2 2xl:grid-cols-3 ${isLoading || isMutating ? "pointer-events-none opacity-50" : ""}`}
+              >
                 {paginatedRooms.map((room) => (
-                  <article key={room.id} className="flex flex-col rounded-2xl border border-border/70 bg-card/95 shadow-sm overflow-hidden transition-all hover:border-[rgba(113,84,255,0.3)] hover:shadow-md">
+                  <article
+                    key={room.id}
+                    className="flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/95 shadow-sm transition-all hover:border-[rgba(113,84,255,0.3)] hover:shadow-md"
+                  >
                     <div className="flex items-center justify-between border-b border-border/50 bg-muted/20 px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -1020,34 +1499,47 @@ export default function AccommodationPage() {
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <p className="font-semibold text-sm text-foreground leading-none">{room.label}</p>
-                            <span className={`inline-flex px-1.5 min-w-5 justify-center py-0.5 rounded text-[10px] font-medium ${room.availableBeds === 0 ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-600"}`}>
+                            <p className="text-sm leading-none font-semibold text-foreground">
+                              {room.label}
+                            </p>
+                            <span
+                              className={`inline-flex min-w-5 justify-center rounded px-1.5 py-0.5 text-[10px] font-medium ${room.availableBeds === 0 ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-600"}`}
+                            >
                               {room.availableBeds} free
                             </span>
                           </div>
-                          <p className="mt-1 text-[11px] text-muted-foreground leading-none truncate max-w-[160px]">{room.hotel.name}</p>
+                          <p className="mt-1 max-w-[160px] truncate text-[11px] leading-none text-muted-foreground">
+                            {room.hotel.name}
+                          </p>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex-1 flex flex-col gap-2 p-3 bg-background/50 min-h-0">
+                    <div className="flex min-h-0 flex-1 flex-col gap-2 bg-background/50 p-3">
                       {/* Render Occupied Slots */}
                       {room.occupants.map((occupant) => (
-                        <div key={occupant.attendeeId} className="flex items-center justify-between group rounded-xl border border-border/40 bg-card p-2 shadow-sm transition-colors hover:border-border/80">
+                        <div
+                          key={occupant.attendeeId}
+                          className="group flex items-center justify-between rounded-xl border border-border/40 bg-card p-2 shadow-sm transition-colors hover:border-border/80"
+                        >
                           <div className="flex items-center gap-2 truncate">
                             <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted">
                               <Users className="size-3.5 text-muted-foreground" />
                             </div>
-                            <p className="text-xs font-medium text-foreground truncate">
-                              {occupant.attendeeName ?? occupant.attendeeEmail ?? "Unnamed"}
+                            <p className="truncate text-xs font-medium text-foreground">
+                              {occupant.attendeeName ??
+                                occupant.attendeeEmail ??
+                                "Unnamed"}
                             </p>
                           </div>
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="size-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10 hover:text-destructive shrink-0"
-                            onClick={() => void unassignAttendee(occupant.attendeeId)}
+                            className="size-7 shrink-0 p-0 text-destructive opacity-0 transition-opacity group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() =>
+                              void unassignAttendee(occupant.attendeeId)
+                            }
                           >
                             <span className="sr-only">Remove</span>
                             <span aria-hidden="true">&times;</span>
@@ -1056,28 +1548,34 @@ export default function AccommodationPage() {
                       ))}
 
                       {/* Render Empty Slots */}
-                      {Array.from({ length: room.availableBeds }).map((_, i) => (
-                        <button
-                          key={`empty-${room.id}-${i}`}
-                          type="button"
-                          disabled={!selectedAttendeeId || isMutating}
-                          onClick={() => {
-                            if (selectedAttendeeIds.length > 0) {
-                              assignMultipleAttendeesToRoom(selectedAttendeeIds, room.id)
-                            }
-                          }}
-                          className={`flex h-[46px] items-center justify-center rounded-xl border border-dashed transition-all ${selectedAttendeeIds.length > 0
-                            ? "border-[rgba(113,84,255,0.4)] bg-[rgba(113,84,255,0.05)] text-[rgba(113,84,255,0.8)] hover:bg-[rgba(113,84,255,0.1)] hover:border-[rgba(113,84,255,0.6)] cursor-pointer"
-                            : "border-border/40 bg-background/50 text-muted-foreground/50 cursor-not-allowed"
+                      {Array.from({ length: room.availableBeds }).map(
+                        (_, i) => (
+                          <button
+                            key={`empty-${room.id}-${i}`}
+                            type="button"
+                            disabled={!selectedAttendeeId || isMutating}
+                            onClick={() => {
+                              if (selectedAttendeeIds.length > 0) {
+                                assignMultipleAttendeesToRoom(
+                                  selectedAttendeeIds,
+                                  room.id
+                                )
+                              }
+                            }}
+                            className={`flex h-[46px] items-center justify-center rounded-xl border border-dashed transition-all ${
+                              selectedAttendeeIds.length > 0
+                                ? "cursor-pointer border-[rgba(113,84,255,0.4)] bg-[rgba(113,84,255,0.05)] text-[rgba(113,84,255,0.8)] hover:border-[rgba(113,84,255,0.6)] hover:bg-[rgba(113,84,255,0.1)]"
+                                : "cursor-not-allowed border-border/40 bg-background/50 text-muted-foreground/50"
                             }`}
-                        >
-                          <span className="text-xs font-medium">
-                            {selectedAttendeeIds.length > 0
-                              ? `+ Assign ${selectedAttendeeIds.length > 1 ? `${selectedAttendeeIds.length} items` : "selected"}`
-                              : "+ Empty bed"}
-                          </span>
-                        </button>
-                      ))}
+                          >
+                            <span className="text-xs font-medium">
+                              {selectedAttendeeIds.length > 0
+                                ? `+ Assign ${selectedAttendeeIds.length > 1 ? `${selectedAttendeeIds.length} items` : "selected"}`
+                                : "+ Empty bed"}
+                            </span>
+                          </button>
+                        )
+                      )}
                     </div>
                   </article>
                 ))}
@@ -1089,8 +1587,8 @@ export default function AccommodationPage() {
               <div className="mt-2 flex items-center justify-between border-t border-border/70 pt-4">
                 <p className="text-sm text-muted-foreground">
                   Showing {(roomsPage - 1) * roomsPerPage + 1}-
-                  {Math.min(roomsPage * roomsPerPage, payload.rooms.length)}{" "}
-                  of {payload.rooms.length} rooms
+                  {Math.min(roomsPage * roomsPerPage, payload.rooms.length)} of{" "}
+                  {payload.rooms.length} rooms
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
@@ -1099,11 +1597,13 @@ export default function AccommodationPage() {
                     size="sm"
                     className="rounded-xl shadow-sm"
                     disabled={roomsPage === 1}
-                    onClick={() => setRoomsPage((current) => Math.max(1, current - 1))}
+                    onClick={() =>
+                      setRoomsPage((current) => Math.max(1, current - 1))
+                    }
                   >
-                    <ChevronLeft className="size-4 mr-1" /> Prev
+                    <ChevronLeft className="mr-1 size-4" /> Prev
                   </Button>
-                  <span className="text-sm font-medium text-muted-foreground px-2">
+                  <span className="px-2 text-sm font-medium text-muted-foreground">
                     Page {roomsPage} of {totalRoomPages}
                   </span>
                   <Button
@@ -1112,9 +1612,13 @@ export default function AccommodationPage() {
                     size="sm"
                     className="rounded-xl shadow-sm"
                     disabled={roomsPage === totalRoomPages}
-                    onClick={() => setRoomsPage((current) => Math.min(totalRoomPages, current + 1))}
+                    onClick={() =>
+                      setRoomsPage((current) =>
+                        Math.min(totalRoomPages, current + 1)
+                      )
+                    }
                   >
-                    Next <ChevronRight className="size-4 ml-1" />
+                    Next <ChevronRight className="ml-1 size-4" />
                   </Button>
                 </div>
               </div>

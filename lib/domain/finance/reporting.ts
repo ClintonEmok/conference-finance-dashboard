@@ -21,8 +21,11 @@ export type RevenueOverview = {
     trendGranularity: RevenueTrendGranularity
   }
   availableEvents: Array<{
-    providerEventId: string
-    name: string | null
+    eventId: string
+    slug: string
+    title: string | null
+    startsAt: number | null
+    currency: string | null
   }>
   totals: {
     grossMinor: number
@@ -90,8 +93,9 @@ export async function getRevenueOverview(
 ): Promise<RevenueOverview> {
   type RevenueOrderProjection = {
     providerOrderId: string
-    providerEventId: string
-    eventName: string | null
+    eventId: string
+    eventSlug: string
+    eventTitle: string | null
     normalizedStatus: CanonicalStatus
     totalAmountMinor: number
     currency: string | null
@@ -120,7 +124,13 @@ export async function getRevenueOverview(
     convexQuery(api.events.getEventsForLedger, {}),
   ])) as [
     RevenueOrderProjection[],
-    Array<{ providerEventId: string; name: string | null }>,
+    Array<{
+      eventId: string
+      slug: string
+      title: string | null
+      startsAt: number | null
+      currency: string | null
+    }>,
   ]
 
   const statusCounts: Record<CanonicalStatus, number> = {
@@ -163,7 +173,7 @@ export async function getRevenueOverview(
         : toUtcDayBucket(new Date(order.orderedAt))
 
     const current = trendMap.get(bucket) ?? {
-      eventLabel: order.eventName?.trim() || order.providerEventId,
+      eventLabel: order.eventTitle?.trim() || order.eventSlug,
       grossMinor: 0,
       paidMinor: 0,
       refundedMinor: 0,
@@ -174,7 +184,7 @@ export async function getRevenueOverview(
     current.grossMinor += amountMinor
     current.orderCount += 1
 
-    const nextEventLabel = order.eventName?.trim() || order.providerEventId
+    const nextEventLabel = order.eventTitle?.trim() || order.eventSlug
     if (current.eventLabel !== nextEventLabel) {
       current.eventLabel = "Multiple events"
     }

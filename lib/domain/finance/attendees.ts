@@ -18,8 +18,9 @@ export type AttendeeLedgerRow = {
   providerAttendeeId: string | null
   providerIssuedTicketId: string | null
   providerOrderId: string
-  providerEventId: string
-  eventName: string | null
+  eventId: string
+  eventSlug: string
+  eventTitle: string
   attendeeName: string | null
   attendeeEmail: string | null
   ticketTypeLabel: string | null
@@ -60,8 +61,11 @@ export type AttendeeLedgerResult = {
     pageSize: number
   }
   availableEvents: Array<{
-    providerEventId: string
-    name: string | null
+    eventId: string
+    slug: string
+    title: string
+    startsAt: string
+    currency: string
   }>
   page: {
     number: number
@@ -157,7 +161,6 @@ type ConvexAttendee = {
   providerAttendeeId: string | null
   providerIssuedTicketId: string | null
   providerOrderId: string
-  providerEventId: string
   eventId: string
   orderId: string
   name: string | null
@@ -175,7 +178,6 @@ type ConvexAttendee = {
 type ConvexOrder = {
   _id: string
   providerOrderId: string
-  providerEventId: string
   eventId: string
   normalizedStatus: CanonicalOrderStatus | null
   totalAmountMinor: number | null
@@ -184,8 +186,19 @@ type ConvexOrder = {
 
 type ConvexEvent = {
   _id: string
-  providerEventId: string
-  name: string | null
+  _creationTime: number
+  slug: string
+  title: string
+  startsAt: number
+  endsAt?: number
+  timezone: string
+  currency: string
+  isPublished: boolean
+  isSignupOpen: boolean
+  accommodationEnabled: boolean
+  primarySourceKind: "integration" | "internal"
+  primarySourceProvider?: string
+  updatedAt: number
 }
 
 type ConvexRoom = {
@@ -245,7 +258,7 @@ export async function getAttendeeLedger(
   ]
 
   const orderMap = new Map(allOrders.map((o) => [o._id, o]))
-  const eventMap = new Map(availableEvents.map((e) => [e.providerEventId, e]))
+  const eventMap = new Map(availableEvents.map((e) => [e._id, e]))
   const roomMap = new Map(allRooms.map((r) => [r._id, r]))
   const hotelMap = new Map(allHotels.map((h) => [h._id, h]))
   const roomTypeMap = new Map(allRoomTypes.map((rt) => [rt._id, rt]))
@@ -308,7 +321,7 @@ export async function getAttendeeLedger(
 
   const rows: AttendeeLedgerRow[] = paginatedAttendees.map((attendee) => {
     const order = orderMap.get(attendee.orderId)
-    const event = eventMap.get(attendee.providerEventId)
+    const event = eventMap.get(attendee.eventId)
     const room = attendee.assignedRoomId
       ? roomMap.get(attendee.assignedRoomId)
       : null
@@ -336,8 +349,9 @@ export async function getAttendeeLedger(
       providerAttendeeId: attendee.providerAttendeeId,
       providerIssuedTicketId: attendee.providerIssuedTicketId,
       providerOrderId: attendee.providerOrderId,
-      providerEventId: attendee.providerEventId,
-      eventName: event?.name ?? null,
+      eventId: attendee.eventId,
+      eventSlug: event?.slug ?? "",
+      eventTitle: event?.title ?? "",
       attendeeName: attendee.name ?? null,
       attendeeEmail: attendee.email ?? null,
       ticketTypeLabel: attendee.ticketTypeLabel ?? null,
@@ -390,8 +404,11 @@ export async function getAttendeeLedger(
       pageSize,
     },
     availableEvents: availableEvents.map((e) => ({
-      providerEventId: e.providerEventId,
-      name: e.name,
+      eventId: e._id,
+      slug: e.slug,
+      title: e.title,
+      startsAt: new Date(e.startsAt).toISOString(),
+      currency: e.currency,
     })),
     page: {
       number: page,

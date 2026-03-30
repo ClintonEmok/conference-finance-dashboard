@@ -324,15 +324,19 @@ export declare const api: {
       "mutation",
       "public",
       {
-        currency?: string;
+        accommodationEnabled?: boolean;
+        currency: string;
         endsAt?: number;
-        name?: string;
-        providerEventId: string;
-        rawPayload: any;
-        startsAt?: number;
-        timezone?: string;
+        isPublished?: boolean;
+        isSignupOpen?: boolean;
+        primarySourceKind?: "integration" | "internal";
+        primarySourceProvider?: string;
+        slug: string;
+        startsAt: number;
+        timezone: string;
+        title: string;
       },
-      any
+      Id<"events">
     >;
     getEventById: FunctionReference<
       "query",
@@ -340,35 +344,78 @@ export declare const api: {
       { eventId: string },
       any
     >;
-    getEventByProviderId: FunctionReference<
-      "query",
-      "public",
-      { providerEventId: string },
-      any
-    >;
+    getEventBySlug: FunctionReference<"query", "public", { slug: string }, any>;
     getEvents: FunctionReference<
       "query",
       "public",
       {},
       Array<{
         _creationTime: number;
-        _id: Id<"ticketTailorEvents">;
-        currency?: string;
+        _id: Id<"events">;
+        accommodationEnabled: boolean;
+        currency: string;
         endsAt?: number;
-        name?: string;
-        providerEventId: string;
-        rawPayload: any;
-        startsAt?: number;
-        timezone?: string;
+        isPublished: boolean;
+        isSignupOpen: boolean;
+        primarySourceKind: "integration" | "internal";
+        primarySourceProvider?: string;
+        slug: string;
+        startsAt: number;
+        timezone: string;
+        title: string;
+        updatedAt: number;
       }>
     >;
     getEventsForLedger: FunctionReference<
       "query",
       "public",
       {},
-      Array<{ name: string | null; providerEventId: string }>
+      Array<{
+        currency: string | null;
+        eventId: string;
+        slug: string;
+        startsAt: number | null;
+        title: string | null;
+      }>
     >;
-    upsertEvent: FunctionReference<
+    getEventSourceByProvider: FunctionReference<
+      "query",
+      "public",
+      { externalEventId: string; provider: string },
+      any
+    >;
+    getEventSourcesForEvent: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
+    getTicketTailorEventByProviderId: FunctionReference<
+      "query",
+      "public",
+      { providerEventId: string },
+      any
+    >;
+    updateEvent: FunctionReference<
+      "mutation",
+      "public",
+      {
+        accommodationEnabled?: boolean;
+        currency?: string;
+        endsAt?: number;
+        eventId: Id<"events">;
+        isPublished?: boolean;
+        isSignupOpen?: boolean;
+        primarySourceKind?: "integration" | "internal";
+        primarySourceProvider?: string;
+        slug?: string;
+        startsAt?: number;
+        timezone?: string;
+        title?: string;
+      },
+      any
+    >;
+    upsertTicketTailorEvent: FunctionReference<
       "mutation",
       "public",
       {
@@ -478,11 +525,11 @@ export declare const api: {
         buyerName: string | null;
         currency: string | null;
         eventId: string;
-        eventName: string | null;
+        eventSlug: string;
+        eventTitle: string | null;
         isArchived: boolean;
         normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
         orderedAt: string | null;
-        providerEventId: string;
         providerOrderId: string;
         refundedAt: string | null;
         totalAmountMinor: number;
@@ -507,11 +554,11 @@ export declare const api: {
           buyerName: string | null;
           currency: string | null;
           eventId: string;
-          eventName: string | null;
+          eventSlug: string;
+          eventTitle: string | null;
           isArchived: boolean;
           normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
           orderedAt: string | null;
-          providerEventId: string;
           providerOrderId: string;
           refundedAt: string | null;
           totalAmountMinor: number;
@@ -752,7 +799,7 @@ export declare const api: {
           }>;
         };
         currency: string;
-        endsAt: number;
+        endsAt?: number;
         eventId: Id<"events">;
         slug: string;
         source: {

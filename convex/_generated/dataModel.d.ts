@@ -220,7 +220,7 @@ export type DataModel = {
     document: {
       accommodationEnabled: boolean;
       currency: string;
-      endsAt: number;
+      endsAt?: number;
       isPublished: boolean;
       isSignupOpen: boolean;
       primarySourceKind: "integration" | "internal";

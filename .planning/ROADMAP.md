@@ -100,6 +100,16 @@ Plans:
 - [ ] 20-02-PLAN.md — Source-agnostic adapter updates (internal + integration compatibility)
 - [ ] 20-03-PLAN.md — End-to-end verification: signup submission -> operator rooming workflow
 
+### Phase 21: UI for event creation and UI for event pages
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 20
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 21 to break down)
+
 ---
 
 ## Progress

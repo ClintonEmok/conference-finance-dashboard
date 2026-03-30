@@ -51,7 +51,7 @@ export default defineSchema({
       slug: v.string(),
       title: v.string(),
       startsAt: v.number(),
-      endsAt: v.number(),
+      endsAt: v.optional(v.number()),
       timezone: v.string(),
       currency: v.string(),
       isPublished: v.boolean(),

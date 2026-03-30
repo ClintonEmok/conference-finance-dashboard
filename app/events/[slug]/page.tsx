@@ -16,7 +16,7 @@ type EventEntryPageProps = {
 
 function formatEventDateRange(
   startsAt: number,
-  endsAt: number,
+  endsAt: number | undefined,
   timezone: string
 ) {
   const formatter = new Intl.DateTimeFormat("en-GB", {
@@ -25,7 +25,10 @@ function formatEventDateRange(
     timeZone: timezone,
   })
 
-  return `${formatter.format(new Date(startsAt))} - ${formatter.format(new Date(endsAt))}`
+  const startStr = formatter.format(new Date(startsAt))
+  const endStr = endsAt ? formatter.format(new Date(endsAt)) : null
+
+  return endStr ? `${startStr} - ${endStr}` : startStr
 }
 
 function ticketReasonCopy(reason: string | null) {

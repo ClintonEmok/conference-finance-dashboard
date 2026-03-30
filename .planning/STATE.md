@@ -4,7 +4,7 @@ milestone: v2.0
 milestone_name: Attendee Signup + Accommodation Self-Assignment
 status: unknown
 stopped_at: Completed 20-01-PLAN.md (operator handoff read model)
-last_updated: "2026-03-30T11:21:48.024Z"
+last_updated: "2026-03-30T11:48:49.967Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 3
@@ -25,7 +25,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 ## Current Position
 
 Phase: 20 (operator-handoff-compatibility-layer) — EXECUTING
-Plan: 2 of 3
+Plan: 1 of 2
 
 ## Alignment Status
 
@@ -187,6 +187,7 @@ Recent decisions that future work should preserve:
 - Phase 19: Public Signup Pages (planned — 3 plans)
 - Phase 20: Admin Event Management (planned — 3 plans)
 - Phase 21: Finance Integration (planned — 3 plans)
+- Phase 22: UI for event creation and UI for event pages (added — not planned yet)
 
 ## Session Continuity
 

@@ -318,9 +318,17 @@ async function listCandidateOrders(
 async function loadEventNamesById(
   ctx: QueryCtx
 ): Promise<Map<string, string | null>> {
-  // Bounded: small number of events
-  const events = await ctx.db.query("ticketTailorEvents").take(200)
-  return new Map(events.map((event) => [String(event._id), event.name ?? null]))
+  // Bounded: small number of events - using canonical events table
+  const events = await ctx.db.query("events").take(200)
+  return new Map(
+    events.map((event) => [String(event._id), event.title ?? null])
+  )
+}
+
+async function loadEventSlugsById(ctx: QueryCtx): Promise<Map<string, string>> {
+  // Bounded: small number of events - using canonical events table
+  const events = await ctx.db.query("events").take(200)
+  return new Map(events.map((event) => [String(event._id), event.slug]))
 }
 
 export const getOrdersWithFilters = query({
@@ -359,11 +367,12 @@ export const getOrdersWithFilters = query({
     const paginatedOrders = orders.slice(skip, skip + pageSize)
 
     const eventNamesById = await loadEventNamesById(ctx)
+    const eventSlugsById = await loadEventSlugsById(ctx)
     const ordersWithEvent = paginatedOrders.map((order) => ({
       providerOrderId: order.providerOrderId,
-      providerEventId: order.providerEventId,
       eventId: order.eventId,
-      eventName: eventNamesById.get(order.eventId) ?? null,
+      eventSlug: eventSlugsById.get(order.eventId) ?? order.eventId,
+      eventTitle: eventNamesById.get(order.eventId) ?? null,
       normalizedStatus: order.normalizedStatus ?? "pending",
       isArchived: order.isArchived === true,
       archivedAt: order.archivedAt
@@ -441,6 +450,7 @@ export const getOrdersForReconciliation = query({
   handler: async (ctx, args) => {
     const candidates = await listCandidateOrders(ctx, args, 500)
     const eventNamesById = await loadEventNamesById(ctx)
+    const eventSlugsById = await loadEventSlugsById(ctx)
 
     return candidates
       .filter(isOrderVisible)
@@ -448,9 +458,9 @@ export const getOrdersForReconciliation = query({
       .sort(sortOrdersByNewest)
       .map((order) => ({
         providerOrderId: order.providerOrderId,
-        providerEventId: order.providerEventId,
         eventId: order.eventId,
-        eventName: eventNamesById.get(order.eventId) ?? null,
+        eventSlug: eventSlugsById.get(order.eventId) ?? order.eventId,
+        eventTitle: eventNamesById.get(order.eventId) ?? null,
         normalizedStatus: order.normalizedStatus ?? "pending",
         isArchived: order.isArchived === true,
         archivedAt: order.archivedAt

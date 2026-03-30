@@ -6,6 +6,7 @@ import { useState } from "react"
 import {
   BedDouble,
   ChevronRight,
+  Calendar,
   Home,
   type LucideIcon,
   ShieldEllipsis,
@@ -48,6 +49,17 @@ const navigationSections: NavigationSection[] = [
         label: "Overview",
         description: "Daily command center",
         icon: Home,
+      },
+    ],
+  },
+  {
+    title: "Events",
+    items: [
+      {
+        href: "/dashboard/events",
+        label: "Events",
+        description: "Manage conference events",
+        icon: Calendar,
       },
     ],
   },
@@ -158,51 +170,57 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
 
   return (
     <div className="min-h-svh bg-black text-foreground">
-      <div
-        className="mx-auto grid min-h-svh gap-4 px-4 py-4 lg:grid-cols-[240px_minmax(0,1fr)] lg:px-6 lg:py-6 transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]"
-      >
-        <aside className="hidden lg:flex lg:flex-col relative">
+      <div className="mx-auto grid min-h-svh gap-4 px-4 py-4 transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] lg:grid-cols-[240px_minmax(0,1fr)] lg:px-6 lg:py-6">
+        <aside className="relative hidden lg:flex lg:flex-col">
           <div className="sticky top-6 flex h-[calc(100svh-3rem)] w-full">
             <div className="flex w-full flex-col overflow-hidden rounded-xl border border-white/60 bg-white/85 shadow-[0_18px_48px_rgba(40,24,82,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-white/8 dark:shadow-[0_18px_48px_rgba(0,0,0,0.2)]">
-
-              <div className="shrink-0 flex items-center p-5 h-[64px]">
-
+              <div className="flex h-[64px] shrink-0 items-center p-5">
                 <div className="ml-2.5 flex-1 overflow-hidden">
-                  <h1 className="text-[11px] font-black tracking-tight text-foreground uppercase">DCLM Netherlands</h1>
-                  <p className="text-[9px] font-bold text-muted-foreground/50 uppercase tracking-widest leading-none">Conference Dashboard</p>
+                  <h1 className="text-[11px] font-black tracking-tight text-foreground uppercase">
+                    DCLM Netherlands
+                  </h1>
+                  <p className="text-[9px] leading-none font-bold tracking-widest text-muted-foreground/50 uppercase">
+                    Conference Dashboard
+                  </p>
                 </div>
               </div>
 
               <nav className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-2">
                 {navigationSections.map((section) => (
-                  <div key={section.title} className="flex flex-col gap-1 focus-visible:outline-none">
-                    <hr className="my-1 border-border/20 mx-3 opacity-30" />
+                  <div
+                    key={section.title}
+                    className="flex flex-col gap-1 focus-visible:outline-none"
+                  >
+                    <hr className="mx-3 my-1 border-border/20 opacity-30" />
 
                     {section.items.map((item) => {
                       const Icon = item.icon
                       const hasChildren = Boolean(item.children?.length)
                       const childActive = Boolean(
-                        item.children?.some((child) => isPathActive(pathname, child.href))
+                        item.children?.some((child) =>
+                          isPathActive(pathname, child.href)
+                        )
                       )
-                      const active = isPathActive(pathname, item.href) || childActive
+                      const active =
+                        isPathActive(pathname, item.href) || childActive
                       const expanded = hasChildren
                         ? Boolean(expandedByHref[item.href]) || childActive
                         : false
 
                       return (
                         <div key={item.href} className="flex flex-col">
-                          <div className="relative group">
+                          <div className="group relative">
                             <Link
                               href={item.href}
                               className={cn(
-                                "flex items-center rounded-lg transition-all duration-200 relative z-10 px-3 py-2 gap-2.5",
+                                "relative z-10 flex items-center gap-2.5 rounded-lg px-3 py-2 transition-all duration-200",
                                 active
                                   ? "bg-primary text-white shadow-lg shadow-primary/20"
                                   : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                               )}
                             >
-                              <Icon className="shrink-0 size-4" />
-                              <span className="flex-1 text-[11px] font-bold uppercase tracking-wider">
+                              <Icon className="size-4 shrink-0" />
+                              <span className="flex-1 text-[11px] font-bold tracking-wider uppercase">
                                 {item.label}
                               </span>
                             </Link>
@@ -215,28 +233,38 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                                   toggleExpanded(item.href)
                                 }}
                                 className={cn(
-                                  "absolute right-2 top-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded-md transition-colors z-20",
-                                  active ? "text-white hover:bg-white/20" : "text-muted-foreground hover:bg-black/5"
+                                  "absolute top-1/2 right-2 z-20 flex size-6 -translate-y-1/2 items-center justify-center rounded-md transition-colors",
+                                  active
+                                    ? "text-white hover:bg-white/20"
+                                    : "text-muted-foreground hover:bg-black/5"
                                 )}
                               >
-                                <ChevronRight className={cn("size-4 transition-transform duration-200", expanded && "rotate-90")} />
+                                <ChevronRight
+                                  className={cn(
+                                    "size-4 transition-transform duration-200",
+                                    expanded && "rotate-90"
+                                  )}
+                                />
                               </button>
                             )}
                           </div>
 
                           {hasChildren && expanded && (
-                            <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-border/30 pl-3">
+                            <div className="mt-1 ml-4 flex flex-col gap-0.5 border-l border-border/30 pl-3">
                               {item.children?.map((child) => {
-                                const childIsActive = isPathActive(pathname, child.href)
+                                const childIsActive = isPathActive(
+                                  pathname,
+                                  child.href
+                                )
                                 return (
                                   <Link
                                     key={child.href}
                                     href={child.href}
                                     className={cn(
-                                      "block rounded-md px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide transition-colors whitespace-nowrap",
+                                      "block rounded-md px-3 py-1.5 text-[10px] font-bold tracking-wide whitespace-nowrap uppercase transition-colors",
                                       childIsActive
-                                        ? "text-primary bg-primary/5"
-                                        : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30"
+                                        ? "bg-primary/5 text-primary"
+                                        : "text-muted-foreground/60 hover:bg-muted/30 hover:text-foreground"
                                     )}
                                   >
                                     {child.label}
@@ -252,24 +280,24 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                 ))}
               </nav>
 
-              <div className="p-4 shrink-0 transition-all duration-300">
-                <div className="flex items-center rounded-lg border border-border/40 shadow-sm backdrop-blur overflow-hidden transition-all duration-300 px-2.5 py-2.5 justify-between gap-2 bg-white/40 dark:bg-black/20">
+              <div className="shrink-0 p-4 transition-all duration-300">
+                <div className="flex items-center justify-between gap-2 overflow-hidden rounded-lg border border-border/40 bg-white/40 px-2.5 py-2.5 shadow-sm backdrop-blur transition-all duration-300 dark:bg-black/20">
                   <div className="min-w-0">
-                    <p className="truncate text-[10px] font-black uppercase tracking-widest text-foreground">
-                      {userEmail.split('@')[0]}
+                    <p className="truncate text-[10px] font-black tracking-widest text-foreground uppercase">
+                      {userEmail.split("@")[0]}
                     </p>
-                    <p className="truncate text-[8px] uppercase tracking-[0.2em] text-muted-foreground/40 font-bold mt-0.5">
+                    <p className="mt-0.5 truncate text-[8px] font-bold tracking-[0.2em] text-muted-foreground/40 uppercase">
                       Conference OP
                     </p>
                   </div>
-                  <LogoutButton className="h-6 rounded-md px-2 text-[8px] font-black uppercase tracking-widest bg-muted/50 hover:bg-muted transition-colors" />
+                  <LogoutButton className="h-6 rounded-md bg-muted/50 px-2 text-[8px] font-black tracking-widest uppercase transition-colors hover:bg-muted" />
                 </div>
               </div>
             </div>
           </div>
         </aside>
 
-        <div className="min-w-0 flex flex-col transition-all duration-300">
+        <div className="flex min-w-0 flex-col transition-all duration-300">
           <div className="flex-1 rounded-xl border border-white/60 bg-white/78 p-4 shadow-[0_20px_56px_rgba(40,24,82,0.06)] backdrop-blur-xl lg:p-7 dark:border-white/10 dark:bg-white/6 dark:shadow-[0_20px_56px_rgba(0,0,0,0.18)]">
             <div className="mb-6 flex flex-col gap-4 lg:hidden">
               <div className="rounded-xl bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] p-5 text-primary-foreground shadow-[0_18px_48px_rgba(74,48,164,0.24)]">
@@ -311,7 +339,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                             <Link
                               href={item.href}
                               className={cn(
-                                "flex items-center gap-2.5 rounded-md border px-3.5 py-[10px] text-[13px] font-semibold transition-colors shadow-sm",
+                                "flex items-center gap-2.5 rounded-md border px-3.5 py-[10px] text-[13px] font-semibold shadow-sm transition-colors",
                                 active
                                   ? "border-transparent bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] text-white shadow-primary/20"
                                   : "border-border bg-background/80 text-foreground hover:bg-muted"
@@ -368,7 +396,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                               key={child.href}
                               href={child.href}
                               className={cn(
-                                "rounded-md border px-3.5 py-[10px] text-xs font-semibold transition-colors shadow-sm",
+                                "rounded-md border px-3.5 py-[10px] text-xs font-semibold shadow-sm transition-colors",
                                 active
                                   ? "border-transparent bg-primary/10 text-primary"
                                   : "border-border/80 bg-background/40 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -384,7 +412,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                 ))}
               </div>
 
-              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background/70 px-4 py-3 dark:bg-white/6 shadow-sm">
+              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background/70 px-4 py-3 shadow-sm dark:bg-white/6">
                 <div>
                   <p className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
                     Signed in

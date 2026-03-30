@@ -32,7 +32,7 @@ const publicSignupCatalogEventValidator = v.object({
   slug: v.string(),
   title: v.string(),
   startsAt: v.number(),
-  endsAt: v.number(),
+  endsAt: v.optional(v.number()),
   timezone: v.string(),
   currency: v.string(),
   source: v.object({

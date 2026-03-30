@@ -15,7 +15,7 @@ export type PublicSignupCatalogEvent = {
   slug: string
   title: string
   startsAt: number
-  endsAt: number
+  endsAt?: number
   timezone: string
   currency: string
   source: {

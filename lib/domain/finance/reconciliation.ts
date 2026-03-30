@@ -18,8 +18,9 @@ export type ReconciliationReason =
 
 export type ReconciliationRow = {
   providerOrderId: string
-  providerEventId: string
-  eventName: string | null
+  eventId: string
+  eventSlug: string
+  eventTitle: string | null
   normalizedStatus: CanonicalOrderStatus
   totalAmountMinor: number
   currency: string | null
@@ -38,8 +39,11 @@ export type ReconciliationResult = {
     status: CanonicalOrderStatus | null
   }
   availableEvents: Array<{
-    providerEventId: string
-    name: string | null
+    eventId: string
+    slug: string
+    title: string | null
+    startsAt: number | null
+    currency: string | null
   }>
   totals: {
     rows: number
@@ -165,8 +169,9 @@ export async function getReconciliationRows(
 
     rows.push({
       providerOrderId: order.providerOrderId,
-      providerEventId: order.providerEventId,
-      eventName: order.eventName,
+      eventId: order.eventId,
+      eventSlug: order.eventSlug,
+      eventTitle: order.eventTitle,
       normalizedStatus: order.normalizedStatus,
       totalAmountMinor: order.totalAmountMinor,
       currency: order.currency,

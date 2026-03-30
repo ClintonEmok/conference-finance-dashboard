@@ -20,12 +20,13 @@ export const nullableStringValidator = v.union(v.string(), v.null())
 /**
  * Order ledger row — the shape returned by order listing queries.
  * Used by getOrdersWithFilters and getOrdersForReconciliation.
+ * Source-agnostic: uses canonical event fields (eventId, eventSlug, eventTitle).
  */
 export const orderLedgerRowValidator = v.object({
   providerOrderId: v.string(),
-  providerEventId: v.string(),
   eventId: v.string(),
-  eventName: nullableStringValidator,
+  eventSlug: v.string(),
+  eventTitle: nullableStringValidator,
   normalizedStatus: canonicalOrderStatusValidator,
   isArchived: v.boolean(),
   archivedAt: nullableStringValidator,
