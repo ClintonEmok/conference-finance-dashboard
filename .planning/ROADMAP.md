@@ -120,7 +120,7 @@ Plans:
 - [x] 21-02-PLAN.md — Redesign event settings accommodation section (inline flow) ✓
 - [x] 21-03-PLAN.md — Remove Scope Reach modal and deprecated linking path ✓
 
-### Phase 22: Redesign signup UX for family ticket allocation with attendee grouping and room bedslot allocation UI
+### Phase 22: Redesign signup UX for family ticket allocation with attendee grouping and room bedslot allocation UI ✓ COMPLETE
 
 **Goal:** Redesign the public signup flow to let families/groups determine how their attendees get allocated across bedslots. New step order: Tickets → Attendee Details → Rooms → Review.
 
@@ -132,8 +132,8 @@ Plans:
 Plans:
 
 - [x] 22-01-PLAN.md — Flow reorder + location field (foundation) ✓
-- [ ] 22-02-PLAN.md — Room assignment redesign with bedslot grouping (core UI)
-- [ ] 22-03-PLAN.md — Review step restructure with expandable sections (final polish)
+- [x] 22-02-PLAN.md — Room assignment redesign with bedslot grouping (core UI) ✓
+- [x] 22-03-PLAN.md — Review step restructure with expandable sections (final polish) ✓
 
 ### Phase 23: Add email confirmation and show tikkie link (payment). after signup is completed and improve tracking. we can fetch tikkie automatically already, but payments are done by name. payment details only show first letter and last name
 
