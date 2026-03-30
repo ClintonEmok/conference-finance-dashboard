@@ -1001,9 +1001,7 @@ export default function EventDetailPage({
                     <Button
                       variant="outline"
                       className="w-full"
-                      onClick={() =>
-                        router.push("/dashboard/accommodation/inventory")
-                      }
+                      onClick={() => setIsAddHotelDialogOpen(true)}
                     >
                       <Plus className="mr-2 size-4" />
                       Add Hotel
