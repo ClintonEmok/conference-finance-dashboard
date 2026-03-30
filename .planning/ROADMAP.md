@@ -122,13 +122,18 @@ Plans:
 
 ### Phase 22: Redesign signup UX for family ticket allocation with attendee grouping and room bedslot allocation UI
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Redesign the public signup flow to let families/groups determine how their attendees get allocated across bedslots. New step order: Tickets → Attendee Details → Rooms → Review.
+
+**Requirements**: USF-04, USF-05, RMD-01, RMD-02, RMD-03
+
 **Depends on:** Phase 21
-**Plans:** 0 plans
+**Plans:** 3 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 22 to break down)
+
+- [ ] 22-01-PLAN.md — Flow reorder + location field (foundation)
+- [ ] 22-02-PLAN.md — Room assignment redesign with bedslot grouping (core UI)
+- [ ] 22-03-PLAN.md — Review step restructure with expandable sections (final polish)
 
 ---
 
