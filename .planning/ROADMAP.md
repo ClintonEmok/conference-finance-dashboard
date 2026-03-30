@@ -131,9 +131,20 @@ Plans:
 
 Plans:
 
-- [ ] 22-01-PLAN.md — Flow reorder + location field (foundation)
+- [x] 22-01-PLAN.md — Flow reorder + location field (foundation) ✓
 - [ ] 22-02-PLAN.md — Room assignment redesign with bedslot grouping (core UI)
 - [ ] 22-03-PLAN.md — Review step restructure with expandable sections (final polish)
+
+### Phase 23: Add email confirmation and show tikkie link (payment). after signup is completed and improve tracking. we can fetch tikkie automatically already, but payments are done by name. payment details only show first letter and last name
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 22
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd:plan-phase 23 to break down)
 
 ---
 

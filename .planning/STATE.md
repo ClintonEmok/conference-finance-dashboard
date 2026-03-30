@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Attendee Signup + Accommodation Self-Assignment
-status: unknown
-stopped_at: Completed 20-01-PLAN.md (operator handoff read model)
-last_updated: "2026-03-30T21:41:45.334Z"
+status: In progress
+stopped_at: Completed 22-01-PLAN.md (flow reorder + location field)
+last_updated: "2026-03-30T22:46:20Z"
 last_activity: 2026-03-30
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 3
-  total_plans: 12
-  completed_plans: 11
+  total_plans: 15
+  completed_plans: 12
 ---
 
 # Project State
@@ -20,12 +20,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-27)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Phase 20 — operator-handoff-compatibility-layer
+- **Current focus:** Phase 22 — redesign-signup-ux-for-family-ticket-allocation-with-attendee-grouping-and-room-bedslot-allocation-ui
 
 ## Current Position
 
-Phase: 20 (operator-handoff-compatibility-layer) — EXECUTING
-Plan: 1 of 3
+Phase: 22 (redesign-signup-ux-for-family-ticket-allocation-with-attendee-grouping-and-room-bedslot-allocation-ui) — EXECUTING
+Plan: 2 of 3 (22-02 next)
 
 ## Alignment Status
 
@@ -187,12 +187,14 @@ Recent decisions that future work should preserve:
 - Phase 19: Public Signup Pages (planned — 3 plans)
 - Phase 20: Admin Event Management (planned — 3 plans)
 - Phase 21: Accommodation UX Redesign (completed — inline event settings flow with auto-slot generation)
-- Phase 22 added: Redesign signup UX for family ticket allocation with attendee grouping and room bedslot allocation UI
+- Phase 22: Redesign signup UX for family ticket allocation with attendee grouping and room bedslot allocation UI
+  - 22-01: Flow reorder + location field (COMPLETE) - Step order changed to tickets → attendees → rooms → review
+- Phase 23 added: Add email confirmation and show tikkie link (payment). after signup is completed and improve tracking. we can fetch tikkie automatically already, but payments are done by name. payment details only show first letter and last name
 
 ## Session Continuity
 
 - **Last activity:** 2026-03-30
-- **Last session:** 2026-03-30T11:21:48.021Z
-- **Stopped at:** Completed 20-01-PLAN.md (operator handoff read model)
+- **Last session:** 2026-03-30T22:46:20Z
+- **Stopped at:** Completed 22-01-PLAN.md (flow reorder + location field)
 - **Resume file:** None
-- **Next recommended plan:** Start Phase 20 planning/execution for admin event management (`/gsd-plan-phase 20`)
+- **Next recommended plan:** Execute 22-02-PLAN.md (room assignment redesign with bedslot grouping)
