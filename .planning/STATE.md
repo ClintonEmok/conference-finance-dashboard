@@ -174,6 +174,7 @@ Recent decisions that future work should preserve:
 | 260326-i7e | the manual payment didnt update the outstanding totals                                               | 2026-03-26 | 3431335 | [260326-i7e-the-manual-payment-didnt-update-the-outs](./quick/260326-i7e-the-manual-payment-didnt-update-the-outs/) |
 | 260326-ijx | create the ui for reconciliation route                                                               | 2026-03-26 | 4af536d | [260326-ijx-create-the-ui-for-reconciliation-route-t](./quick/260326-ijx-create-the-ui-for-reconciliation-route-t/) |
 | 260326-it5 | allow hotels to be deleted if there aree                                                             | 2026-03-26 | 8dbce91 | [260326-it5-allow-hotels-to-be-deleted-if-there-aree](./quick/260326-it5-allow-hotels-to-be-deleted-if-there-aree/) |
+| 260331-2jp | replace Buffer.from with cross-platform btoa for base64 encoding                                     | 2026-03-31 | 8e60b94 | [260331-2jp-replace-buffer-from-with-cross-platform-](./quick/260331-2jp-replace-buffer-from-with-cross-platform-/) |
 
 ## Accumulated Context
 
@@ -192,12 +193,12 @@ Recent decisions that future work should preserve:
   - 22-01: Flow reorder + location field (COMPLETE) - Step order changed to tickets → attendees → rooms → review
   - 22-02: Room assignment redesign (COMPLETE) - Bedslot grouping by room type with real-time preview
   - 22-03: Review step expandable sections (COMPLETE) - Tickets, Attendees, Rooms with allocation summary
-- Phase 23 added: Add email confirmation and show tikkie link (payment). after signup is completed and improve tracking. we can fetch tikkie automatically already, but payments are done by name. payment details only show first letter and last name
+- Phase 23 added: Add email confirmation and show tikkie link (payment). after signup is completed and improve tracking. we can fetch tikkie automatically already, but payments are done by name. payment details only show first letter and last name (context gathered)
 
 ## Session Continuity
 
-- **Last activity:** 2026-03-30
-- **Last session:** 2026-03-30T22:56:49Z
-- **Stopped at:** Completed 22-03-PLAN.md (review step with expandable sections)
-- **Resume file:** None
-- **Next recommended plan:** Phase 22 complete — all plans executed. Consider proceeding to Phase 23 (email confirmation and Tikkie link) or verifying Phase 22 work.
+- **Last activity:** 2026-03-31
+- **Last session:** 2026-03-30T23:53:12Z
+- **Stopped at:** Phase 23 context gathered
+- **Resume file:** `.planning/phases/23-add-email-confirmation-and-show-tikkie-link-payment-after-signup-is-completed-and-improve-tracking-we-can-fetch-tikkie-automatically-already-but-payments-are-done-by-name-payment-details-only-show-first-letter-and-last-name/23-CONTEXT.md`
+- **Next recommended plan:** Start Phase 23 planning/execution (`/gsd-plan-phase 23`)
