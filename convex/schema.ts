@@ -558,4 +558,14 @@ export default defineSchema({
   )
     .index("eventId_roomId", ["eventId", "roomId"])
     .index("eventId_status", ["eventId", "status"]),
+
+  sentEmails: defineTable(
+    v.object({
+      recipient: v.string(),
+      bookingRef: v.string(),
+      emailId: v.optional(v.string()),
+      emailType: v.string(),
+      sentAt: v.number(),
+    })
+  ).index("by_bookingRef", ["bookingRef"]),
 })
