@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Attendee Signup + Accommodation Self-Assignment
-status: unknown
-stopped_at: Completed 23-05-PLAN.md
-last_updated: "2026-03-31T10:31:53.453Z"
+status: in_progress
+stopped_at: Completed 24-01-PLAN.md
+last_updated: "2026-03-31T10:52:30Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 24
-  completed_plans: 18
+  total_plans: 27
+  completed_plans: 20
 ---
 
 # Project State
@@ -20,12 +20,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-27)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Phase 23 — add-email-confirmation-and-show-tikkie-link-payment-after-signup-is-completed-and-improve-tracking-we-can-fetch-tikkie-automatically-already-but-payments-are-done-by-name-payment-details-only-show-first-letter-and-last-name
+- **Current focus:** Phase 24 — canonical-orders-rewrite
 
 ## Current Position
 
-Phase: 23 (add-email-confirmation-and-show-tikkie-link-payment-after-signup-is-completed-and-improve-tracking-we-can-fetch-tikkie-automatically-already-but-payments-are-done-by-name-payment-details-only-show-first-letter-and-last-name) — IN PROGRESS
-Plan: 4 of 6 COMPLETE (01, 02, 05, 06) — 03 and 04 still needed
+Phase: 24 (canonical-orders-rewrite) — EXECUTING
+Plan: 1 of 6
 
 ## Alignment Status
 
@@ -125,6 +125,10 @@ Recent decisions that future work should preserve:
 - [19-03] Duplicate retry UX stays explicit: restore payload requires continue-vs-edit user choice and never surfaces a `reused` marker.
 - [23-04] Privacy masking uses "J. Smith" format (first initial + last name) in all payment displays — protects privacy while preserving enough info for reconciliation.
 - [23-04] Payment auto-match checks booker name first, then falls back to attendee name matching with exact amount requirement per decision D-11.
+- [24-01] submissions* tables renamed to orders* — submissions → orders, submissionAttendees → orderAttendees, etc. for semantic accuracy across integration and internal sources.
+- [24-01] Core + Extension pattern — slim core tables with common fields, provider-specific extension tables (ticketTailor\*) with FKs to core for raw payloads and provider-only fields.
+- [24-01] Domain concepts (assignedRoomId, allocationPriority, priorityReason) belong in core orderAttendees table, not provider-specific tables.
+- [24-01] Optional fields enable cross-source compatibility — integration orders populate currency/totalAmountMinor/status/providerOrderId, internal orders populate idempotencyKey/bookingRef/honeypotSeen.
 
 ## Active Patterns / Constraints
 
@@ -201,7 +205,7 @@ Recent decisions that future work should preserve:
 ## Session Continuity
 
 - **Last activity:** 2026-03-31
-- **Last session:** 2026-03-31T10:37:00Z
-- **Stopped at:** Completed 23-04-PLAN.md
-- **Resume file:** .planning/phases/23-add-email-confirmation-and-show-tikkie-link-payment-after-signup-is-completed-and-improve-tracking-we-can-fetch-tikkie-automatically-already-but-payments-are-done-by-name-payment-details-only-show-first-letter-and-last-name/23-04-SUMMARY.md
-- **Next recommended plan:** Continue with Phase 23 Plan 03 (plans 03, 05, 06 remain)
+- **Last session:** 2026-03-31T10:52:30Z
+- **Stopped at:** Completed 24-01-PLAN.md
+- **Resume file:** .planning/phases/24-canonical-orders-rewrite/24-01-SUMMARY.md
+- **Next recommended plan:** Continue with Phase 24 Plan 02 (TT sync mutations rewrite)
