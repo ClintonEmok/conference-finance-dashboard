@@ -140,16 +140,16 @@ Plans:
 **Goal:** Add email confirmation to signup submissions and display Tikkie payment links after signup completion. Improve payment tracking with privacy-aware name matching (first letter + last name display). Add buyer details step and clear localStorage on completion.
 **Requirements**: USF-01, USF-06
 **Depends on:** Phase 22
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 
 Plans:
 
 - [x] 23-01-PLAN.md — Email infrastructure and async confirmation emails with Resend ✓
-- [x] 23-02-PLAN.md — Success page with expandable sections and booking reference routing
-- [ ] 23-03-PLAN.md — Tikkie link display with QR code on success page and in emails
+- [x] 23-02-PLAN.md — Success page with expandable sections and booking reference routing ✓
+- [x] 23-03-PLAN.md — Tikkie link display with QR code on success page and in emails ✓
 - [x] 23-04-PLAN.md — Privacy-aware name masking and attendee name payment matching ✓
-- [x] 23-05-PLAN.md — Buyer details step (between tickets and attendees)
-- [x] 23-06-PLAN.md — Clear localStorage draft after successful submission
+- [x] 23-05-PLAN.md — Buyer details step (between tickets and attendees) ✓
+- [x] 23-06-PLAN.md — Clear localStorage draft after successful submission ✓
 
 ### Phase 24: canonical orders rewrite
 
@@ -184,7 +184,7 @@ Plans:
 | 20 - Operator Handoff + Compatibility Layer          | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3           | Pending  |
 | 21 - Accommodation UX Redesign                       | Inline event settings accommodation flow                        | —                              | 3           | Complete |
 | 22 - Redesign signup UX for family ticket allocation | Family ticket allocation with attendee grouping                 | USF-04..05, RMD-01..03         | 3           | Complete |
-| 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | 4/6                            | In Progress |
+| 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | 5/6                            | In Progress |
 | 24 - Canonical orders rewrite                        | Unified orders core with TT extension tables                    | DOM-01..03                     | 6/6         | Complete |
 
 **Totals:** 7 phases, 27 plans, 19 requirements mapped
