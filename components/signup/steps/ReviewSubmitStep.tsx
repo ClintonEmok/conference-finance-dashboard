@@ -91,38 +91,10 @@ export function ReviewSubmitStep({
     (room) => room.unfilledBeds > 0
   )
 
+  // Note: Successful submission now redirects to success page
+  // This block is kept for potential future inline display needs
   if (submitResult && !restorePayloadChoicePending) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Signup submitted</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>
-            Booking reference:{" "}
-            <strong className="text-foreground">
-              {submitResult.bookingRef}
-            </strong>
-          </p>
-          <p>
-            Submitted at:{" "}
-            <strong className="text-foreground">
-              {submitResult.submittedAt}
-            </strong>
-          </p>
-          <p>
-            Submission includes{" "}
-            <strong className="text-foreground">
-              {draft.attendees.length}
-            </strong>{" "}
-            attendee(s).
-          </p>
-          <p>
-            Next step: keep your booking reference for any follow-up updates.
-          </p>
-        </CardContent>
-      </Card>
-    )
+    return null // Redirect happens in SignupFlowShell
   }
 
   return (

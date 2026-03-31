@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -38,6 +39,7 @@ type SignupFlowShellProps = {
 }
 
 export function SignupFlowShell({ slug }: SignupFlowShellProps) {
+  const router = useRouter()
   const catalog = usePublicSignupCatalog()
   const event = catalog.find((entry) => entry.slug === slug)
   const [draft, setDraft] = useState<SignupDraft | null>(null)
@@ -390,8 +392,14 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
     setSubmitResult(result.data)
     setSubmitError(null)
-    setRestoreChoicePending(Boolean(result.data.restorePayload))
+    const hasRestorePayload = Boolean(result.data.restorePayload)
+    setRestoreChoicePending(hasRestorePayload)
     setIsSubmitting(false)
+
+    // Redirect to success page if no restore payload (new submission)
+    if (!hasRestorePayload) {
+      router.push(`/signup/success/${result.data.bookingRef}`)
+    }
   }
 
   function handleContinuePreviousSubmission() {
