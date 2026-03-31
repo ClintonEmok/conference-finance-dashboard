@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Attendee Signup + Accommodation Self-Assignment
 status: in_progress
-stopped_at: Completed 24-04-PLAN.md
-last_updated: "2026-03-31T11:05:04Z"
+stopped_at: Completed 24-02-PLAN.md
+last_updated: "2026-03-31T11:33:29Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 7
@@ -131,6 +131,12 @@ Recent decisions that future work should preserve:
 - [24-01] Core + Extension pattern — slim core tables with common fields, provider-specific extension tables (ticketTailor\*) with FKs to core for raw payloads and provider-only fields.
 - [24-01] Domain concepts (assignedRoomId, allocationPriority, priorityReason) belong in core orderAttendees table, not provider-specific tables.
 - [24-01] Optional fields enable cross-source compatibility — integration orders populate currency/totalAmountMinor/status/providerOrderId, internal orders populate idempotencyKey/bookingRef/honeypotSeen.
+- [24-02] TT sync dual-write pattern — `internalUpsertTicketTailorOrder` writes to both `orders` (core) and `ticketTailorOrders` (extension) in single transaction; `internalUpsertTicketTailorAttendee` writes to both `orderAttendees` (core) and `ticketTailorAttendees` (extension).
+- [24-02] Buyer info extraction from rawPayload — Order mutations extract buyerEmail, buyerName, currency, amounts from rawPayload internally rather than accepting as separate args.
+- [24-02] Field naming alignment — Core `orders` table uses `status` field; extension `ticketTailorOrders` uses `normalizedStatus` for the same semantic value.
+- [24-02] Gender normalization — TT uppercase gender types (MALE/FEMALE/MIXED/UNKNOWN) normalized to lowercase for core `orderAttendees.gender` field.
+- [24-02] Family linking uses core IDs — Family group membership now references `orderAttendees._id` (canonical) instead of `ticketTailorAttendees._id` (extension).
+- [24-02] Archive consistency — `internalArchiveMissingOrdersForEvent` patches both `orders` (status="cancelled") and `ticketTailorOrders` (isArchived=true) for consistency.
 - [24-04] Payment matching reads from core orders table — auto-match queries use `ctx.db.query("orders")` with `by_eventId` index, attendees fetched via `orderAttendees` `by_orderId` index.
 - [24-04] Payment orderId parameters use `v.id("orders")` type validator for Convex type safety instead of `v.string()`.
 - [24-03] Core + Extension join pattern — query core table first (`orders`, `orderAttendees`), then join extension tables (`ticketTailorOrders`, `ticketTailorAttendees`) for provider-specific fields and visibility (removedAt, archivedAt).
