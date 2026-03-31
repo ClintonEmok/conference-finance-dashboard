@@ -156,16 +156,16 @@ Plans:
 **Goal:** Consolidate parallel data models (TicketTailor sync tables + submission tables) into unified "orders" core with provider-specific extension tables.
 **Requirements**: DOM-01, DOM-02, DOM-03
 **Depends on:** Phase 23
-**Plans:** 1/6 complete, 5 remaining in 3 waves
+**Plans:** 4/6 complete, 2 remaining
 
 Plans:
 
 - [x] 24-01-PLAN.md — Schema rewrite: submissions→orders, slim TT tables with FKs to core ✓
-- [ ] 24-02-PLAN.md — TT sync pipeline: write to core + extension tables simultaneously
-- [ ] 24-03-PLAN.md — Order management + Tikkie: read from core orders table
-- [ ] 24-04-PLAN.md — Payment matching: read orders from core table
-- [ ] 24-05-PLAN.md — Accommodation board: read from core + extension, update assignments
-- [ ] 24-06-PLAN.md — Signup submission: write to core orders tables
+- [x] 24-02-PLAN.md — TT sync pipeline: write to core + extension tables simultaneously ✓
+- [x] 24-03-PLAN.md — Order management + Tikkie: read from core orders table ✓
+- [x] 24-04-PLAN.md — Payment matching: read orders from core table ✓
+- [ ] 24-05-PLAN.md — Tikkie module: read from core orders table
+- [ ] 24-06-PLAN.md — Accommodation board: read from core + extension, update assignments
 
 ---
 
@@ -185,6 +185,6 @@ Plans:
 | 21 - Accommodation UX Redesign                       | Inline event settings accommodation flow                        | —                              | 3           | Complete    |
 | 22 - Redesign signup UX for family ticket allocation | Family ticket allocation with attendee grouping                 | USF-04..05, RMD-01..03         | 3           | Complete    |
 | 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | 4/6                            | In Progress |
-| 24 - Canonical orders rewrite                        | Unified orders core with TT extension tables                    | DOM-01..03                     | 1/6         | In Progress |
+| 24 - Canonical orders rewrite                        | Unified orders core with TT extension tables                    | DOM-01..03                     | 4/6         | In Progress |
 
 **Totals:** 7 phases, 27 plans, 19 requirements mapped
