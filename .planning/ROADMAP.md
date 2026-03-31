@@ -147,7 +147,7 @@ Plans:
 - [x] 23-01-PLAN.md — Email infrastructure and async confirmation emails with Resend ✓
 - [x] 23-02-PLAN.md — Success page with expandable sections and booking reference routing
 - [ ] 23-03-PLAN.md — Tikkie link display with QR code on success page and in emails
-- [ ] 23-04-PLAN.md — Privacy-aware name masking and attendee name payment matching
+- [x] 23-04-PLAN.md — Privacy-aware name masking and attendee name payment matching ✓
 - [x] 23-05-PLAN.md — Buyer details step (between tickets and attendees)
 - [x] 23-06-PLAN.md — Clear localStorage draft after successful submission
 
@@ -177,13 +177,13 @@ Plans:
 | 19 - Public Multi-Step Signup Experience    | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3     | Pending |
 | 20 - Operator Handoff + Compatibility Layer | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3     | Pending |
 
-| Phase                                                | Goal                                                            | Requirements                   | Plans | Status   |
-| ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ | ----- | -------- |
-| 18 - Signup Domain Foundation                        | Canonical contracts + atomic signup writes                      | USF-01..03, USF-06, DOM-01..03 | 3     | Pending  |
-| 19 - Public Multi-Step Signup Experience             | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3     | Pending  |
-| 20 - Operator Handoff + Compatibility Layer          | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3     | Pending  |
-| 21 - Accommodation UX Redesign                       | Inline event settings accommodation flow                        | —                              | 3     | Complete |
-| 22 - Redesign signup UX for family ticket allocation | Family ticket allocation with attendee grouping                 | USF-04..05, RMD-01..03         | 3     | Complete |
-| 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | 4/6 | In Progress|  |
+| Phase                                                | Goal                                                            | Requirements                   | Plans       | Status   |
+| ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ | ----------- | -------- |
+| 18 - Signup Domain Foundation                        | Canonical contracts + atomic signup writes                      | USF-01..03, USF-06, DOM-01..03 | 3           | Pending  |
+| 19 - Public Multi-Step Signup Experience             | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3           | Pending  |
+| 20 - Operator Handoff + Compatibility Layer          | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3           | Pending  |
+| 21 - Accommodation UX Redesign                       | Inline event settings accommodation flow                        | —                              | 3           | Complete |
+| 22 - Redesign signup UX for family ticket allocation | Family ticket allocation with attendee grouping                 | USF-04..05, RMD-01..03         | 3           | Complete |
+| 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | 4/6                            | In Progress |          |
 
 **Totals:** 6 phases, 21 plans, 16 requirements mapped
