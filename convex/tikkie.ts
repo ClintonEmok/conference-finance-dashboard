@@ -341,6 +341,50 @@ export const getEventPaymentLink = query({
   },
 })
 
+/**
+ * Returns the latest event-level Tikkie link for the success page.
+ * Typed eventId and clean return contract.
+ */
+export const getEventPaymentLinkForSuccess = query({
+  args: { eventId: v.id("events") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      paymentUrl: v.string(),
+      amountMinor: v.optional(v.number()),
+      description: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    // Bounded: indexed by event, small set of links per event
+    const links = await ctx.db
+      .query("tikkiePaymentLinks")
+      .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
+      .take(50)
+
+    const eventLinks = links
+      .filter((l) => l.linkType === "event")
+      .sort((a, b) => {
+        const timeDiff = (b._creationTime ?? 0) - (a._creationTime ?? 0)
+        if (timeDiff !== 0) return timeDiff
+        return b._id.localeCompare(a._id)
+      })
+
+    const latest = eventLinks[0]
+    if (!latest) {
+      return null
+    }
+
+    return {
+      paymentUrl: latest.paymentRequestUrl,
+      amountMinor: latest.amountMinor ?? undefined,
+      description: latest.description ?? undefined,
+      createdAt: latest._creationTime ?? Date.now(),
+    }
+  },
+})
+
 export const createEventPaymentLink = mutation({
   args: {
     eventId: v.string(),
@@ -530,11 +574,30 @@ export const autoMatchTikkiePayments = mutation({
       )
       .take(500)
 
+    // Pre-fetch attendees for attendee-name matching fallback
+    const attendees = await ctx.db
+      .query("ticketTailorAttendees")
+      .withIndex("eventId", (q) =>
+        q.eq("eventId", args.eventId as Id<"events">)
+      )
+      .take(1000)
+
+    const attendeesByOrder = new Map<string, string[]>()
+    for (const att of attendees) {
+      if (!att.name) continue
+      const existing = attendeesByOrder.get(att.orderId) ?? []
+      existing.push(att.name.toLowerCase().trim())
+      attendeesByOrder.set(att.orderId, existing)
+    }
+
     let matchedCount = 0
 
     for (const payment of unmatchedPayments) {
+      const normalizedPayer = payment.payerName.toLowerCase().trim()
+
+      // First: try exact buyer name match
       const matchingOrders = orders.filter(
-        (o) => o.buyerName?.toLowerCase() === payment.payerName.toLowerCase()
+        (o) => o.buyerName?.toLowerCase().trim() === normalizedPayer
       )
 
       if (matchingOrders.length === 1) {
@@ -544,6 +607,24 @@ export const autoMatchTikkiePayments = mutation({
           matchedAt: Date.now(),
         })
         matchedCount++
+        continue
+      }
+
+      // Fallback: try attendee name match with exact amount
+      for (const order of orders) {
+        const orderAttendees = attendeesByOrder.get(order._id) ?? []
+        const attendeeMatch = orderAttendees.some(
+          (name) => name === normalizedPayer
+        )
+        if (attendeeMatch && order.totalAmountMinor === payment.amountMinor) {
+          await ctx.db.patch("tikkiePayments", payment._id, {
+            orderId: order._id,
+            matchStatus: "auto_matched",
+            matchedAt: Date.now(),
+          })
+          matchedCount++
+          break
+        }
       }
     }
 
