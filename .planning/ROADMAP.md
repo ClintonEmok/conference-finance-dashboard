@@ -156,11 +156,11 @@ Plans:
 **Goal:** Consolidate parallel data models (TicketTailor sync tables + submission tables) into unified "orders" core with provider-specific extension tables.
 **Requirements**: DOM-01, DOM-02, DOM-03
 **Depends on:** Phase 23
-**Plans:** 6 plans in 3 waves
+**Plans:** 1/6 complete, 5 remaining in 3 waves
 
 Plans:
 
-- [ ] 24-01-PLAN.md — Schema rewrite: submissions→orders, slim TT tables with FKs to core
+- [x] 24-01-PLAN.md — Schema rewrite: submissions→orders, slim TT tables with FKs to core ✓
 - [ ] 24-02-PLAN.md — TT sync pipeline: write to core + extension tables simultaneously
 - [ ] 24-03-PLAN.md — Order management + Tikkie: read from core orders table
 - [ ] 24-04-PLAN.md — Payment matching: read orders from core table
@@ -177,13 +177,14 @@ Plans:
 | 19 - Public Multi-Step Signup Experience    | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3     | Pending |
 | 20 - Operator Handoff + Compatibility Layer | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3     | Pending |
 
-| Phase                                                | Goal                                                            | Requirements                   | Plans       | Status   |
-| ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ | ----------- | -------- |
-| 18 - Signup Domain Foundation                        | Canonical contracts + atomic signup writes                      | USF-01..03, USF-06, DOM-01..03 | 3           | Pending  |
-| 19 - Public Multi-Step Signup Experience             | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3           | Pending  |
-| 20 - Operator Handoff + Compatibility Layer          | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3           | Pending  |
-| 21 - Accommodation UX Redesign                       | Inline event settings accommodation flow                        | —                              | 3           | Complete |
-| 22 - Redesign signup UX for family ticket allocation | Family ticket allocation with attendee grouping                 | USF-04..05, RMD-01..03         | 3           | Complete |
-| 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | 4/6                            | In Progress |          |
+| Phase                                                | Goal                                                            | Requirements                   | Plans       | Status      |
+| ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ | ----------- | ----------- |
+| 18 - Signup Domain Foundation                        | Canonical contracts + atomic signup writes                      | USF-01..03, USF-06, DOM-01..03 | 3           | Pending     |
+| 19 - Public Multi-Step Signup Experience             | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3           | Pending     |
+| 20 - Operator Handoff + Compatibility Layer          | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3           | Pending     |
+| 21 - Accommodation UX Redesign                       | Inline event settings accommodation flow                        | —                              | 3           | Complete    |
+| 22 - Redesign signup UX for family ticket allocation | Family ticket allocation with attendee grouping                 | USF-04..05, RMD-01..03         | 3           | Complete    |
+| 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | 4/6                            | In Progress |
+| 24 - Canonical orders rewrite                        | Unified orders core with TT extension tables                    | DOM-01..03                     | 1/6         | In Progress |
 
-**Totals:** 6 phases, 21 plans, 16 requirements mapped
+**Totals:** 7 phases, 27 plans, 19 requirements mapped
