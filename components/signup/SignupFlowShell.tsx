@@ -23,6 +23,7 @@ import {
 } from "@/components/signup/assignment"
 import { TicketStep } from "@/components/signup/steps/TicketStep"
 import { RoomAssignmentStep } from "@/components/signup/steps/RoomAssignmentStep"
+import { BuyerDetailsStep } from "@/components/signup/steps/BuyerDetailsStep"
 import {
   AttendeeDetailsStep,
   type AttendeeValidationSummary,
@@ -137,10 +138,21 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
   const completedByStep: Record<SignupStep, boolean> = useMemo(() => {
     if (!event || !draft) {
-      return { tickets: false, rooms: false, attendees: false, review: false }
+      return {
+        tickets: false,
+        buyer: false,
+        rooms: false,
+        attendees: false,
+        review: false,
+      }
     }
+    const buyerComplete =
+      draft.booker.name.trim().length > 0 &&
+      draft.booker.email.trim().length > 0 &&
+      draft.booker.phone.trim().length > 0
     return {
       tickets: totalSelectedTickets > 0,
+      buyer: buyerComplete,
       rooms:
         !event.accommodation.eligible ||
         roomSummary.unfilledBeds === 0 ||
@@ -152,6 +164,9 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   }, [
     draft?.acknowledgeRandomFill,
     draft?.attendees?.length,
+    draft?.booker?.name,
+    draft?.booker?.email,
+    draft?.booker?.phone,
     event?.accommodation?.eligible,
     attendeeValidationSnapshot.isValid,
     roomSummary.unfilledBeds,
@@ -366,6 +381,28 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     })
   }
 
+  function handleBookerChange(
+    field: keyof SignupDraft["booker"],
+    value: string
+  ) {
+    setAttendeeValidation(null)
+    setSubmitResult(null)
+    setSubmitError(null)
+    setRestoreChoicePending(false)
+    setDraft((current) => {
+      if (!current) {
+        return current
+      }
+      return {
+        ...current,
+        booker: {
+          ...current.booker,
+          [field]: value,
+        },
+      }
+    })
+  }
+
   async function handleSubmitFromReview() {
     const validation = validateAttendeeDetails(activeDraft.attendees)
     setAttendeeValidation(validation)
@@ -426,18 +463,20 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   const stepTitle =
     activeDraft.step === "tickets"
       ? "Tickets"
-      : activeDraft.step === "rooms"
-        ? "Rooms"
-        : activeDraft.step === "attendees"
-          ? "Attendee details"
-          : "Review & submit"
+      : activeDraft.step === "buyer"
+        ? "Your Details"
+        : activeDraft.step === "rooms"
+          ? "Rooms"
+          : activeDraft.step === "attendees"
+            ? "Attendee details"
+            : "Review & submit"
 
   return (
     <main className="mx-auto w-full max-w-5xl p-6">
       <Card className="mb-6">
         <CardHeader className="space-y-4">
           <CardTitle>{activeEvent.title} signup</CardTitle>
-          <div className="grid gap-2 md:grid-cols-4">
+          <div className="grid gap-2 md:grid-cols-5">
             {SIGNUP_STEP_ORDER.map((step, index) => {
               const isActive = activeDraft.step === step
               const isComplete =
@@ -445,11 +484,13 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
               const label =
                 step === "tickets"
                   ? "Tickets"
-                  : step === "rooms"
-                    ? "Rooms"
-                    : step === "attendees"
-                      ? "Attendee details"
-                      : "Review & submit"
+                  : step === "buyer"
+                    ? "Your Details"
+                    : step === "rooms"
+                      ? "Rooms"
+                      : step === "attendees"
+                        ? "Attendee details"
+                        : "Review & submit"
 
               return (
                 <button
@@ -490,6 +531,19 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
               {totalSelectedTickets <= 0 ? (
                 <p className="font-medium text-destructive">
                   Select at least one ticket to continue.
+                </p>
+              ) : null}
+            </>
+          ) : null}
+          {activeDraft.step === "buyer" ? (
+            <>
+              <BuyerDetailsStep
+                booker={activeDraft.booker}
+                onBookerChange={handleBookerChange}
+              />
+              {!completedByStep.buyer ? (
+                <p className="font-medium text-destructive">
+                  Fill in all your details to continue.
                 </p>
               ) : null}
             </>
