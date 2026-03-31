@@ -9,13 +9,13 @@ import {
   Ticket,
   Users,
   Bed,
-  ExternalLink,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { formatMoney } from "@/lib/format"
 import { ExpandableSection } from "./ExpandableSection"
+import { TikkieSection } from "./TikkieSection"
 
 interface SubmissionAttendee {
   name: string
@@ -277,29 +277,7 @@ export function SuccessView({
       </div>
 
       {/* Tikkie Payment Section */}
-      {tikkieUrl && (
-        <Card className="border-blue-200 bg-blue-50/50">
-          <CardHeader>
-            <CardTitle className="text-base">Payment</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Complete your payment using the link below:
-            </p>
-            <Button asChild className="w-full">
-              <a
-                href={tikkieUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2"
-              >
-                <ExternalLink className="h-4 w-4" />
-                Pay Now
-              </a>
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+      <TikkieSection tikkieUrl={tikkieUrl ?? null} eventName={event.name} />
 
       {/* Footer */}
       <div className="text-center text-sm text-muted-foreground">

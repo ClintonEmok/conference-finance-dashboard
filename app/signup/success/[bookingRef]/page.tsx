@@ -29,6 +29,12 @@ export default async function SignupSuccessPage({ params }: SuccessPageProps) {
       notFound()
     }
 
+    // Fetch Tikkie payment link for this event
+    const tikkieLink = await fetchQuery(
+      api.tikkie.getEventPaymentLinkForSuccess,
+      { eventId: submission.eventId }
+    )
+
     return (
       <main className="min-h-screen bg-background py-8">
         <SuccessView
@@ -49,6 +55,7 @@ export default async function SignupSuccessPage({ params }: SuccessPageProps) {
             location: undefined, // Events don't have location yet
             description: undefined,
           }}
+          tikkieUrl={tikkieLink?.paymentUrl ?? null}
         />
       </main>
     )
