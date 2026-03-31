@@ -70,6 +70,15 @@ Delivers: renamed core tables (`orders`, `orderAttendees`, `orderTicketSelection
 - **D-28:** Internal mutations use `internalMutation`/`internalQuery` (no `requireIdentity`) for cron-triggered sync
 - **D-29:** Public mutations use `requireIdentity(ctx)` as first handler statement
 
+### Pagination strategy
+
+- **D-30:** Use `.paginate(paginationOpts)` with `paginationOptsValidator` for all user-facing lists (order list, attendee list, accommodation board). Returns `{ page, isDone, continueCursor }`.
+- **D-31:** Use `.take(N)` for intentionally bounded reads where pagination is not appropriate (e.g., fetching all ticket types for an event, all hotels, sync run summaries).
+- **D-32:** Use `.first()` for single-result indexed lookups (e.g., find order by `providerOrderId`, find attendee by `providerAttendeeId`).
+- **D-33:** Never use `.collect().length` to count rows — Convex has no built-in `count()`. Maintain denormalized counters in a separate document if row counts are needed at scale.
+- **D-34:** All pagination queries must use `.withIndex()` — no full table scans. Index fields must be queried in the same order they are defined in the schema.
+- **D-35:** For bulk operations that exceed transaction limits (e.g., archiving many orders), use `.take(N)` batches with `ctx.scheduler.runAfter(0, api.module.fn, args)` to self-schedule continuation.
+
 </decisions>
 
 <canonical_refs>
