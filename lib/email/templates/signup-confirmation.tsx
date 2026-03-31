@@ -6,9 +6,9 @@ import {
   Html,
   Preview,
   Text,
-  Button,
   Section,
 } from "@react-email/components"
+import { EmailTikkieSection } from "./EmailTikkieSection"
 
 interface SignupConfirmationEmailProps {
   bookerName: string
@@ -110,40 +110,7 @@ export default function SignupConfirmationEmail({
             </Section>
           )}
 
-          {tikkieUrl && (
-            <Section style={{ margin: "24px 0" }}>
-              <Heading
-                as="h2"
-                style={{
-                  fontSize: "18px",
-                  color: "#111827",
-                  marginBottom: "12px",
-                }}
-              >
-                Complete Your Payment
-              </Heading>
-              <Text style={{ color: "#374151", fontSize: "14px" }}>
-                Please complete your payment using the link below. You can pay
-                any amount that covers your booking.
-              </Text>
-              <Button
-                href={tikkieUrl}
-                style={{
-                  backgroundColor: "#3b82f6",
-                  color: "#ffffff",
-                  padding: "12px 24px",
-                  textDecoration: "none",
-                  borderRadius: "6px",
-                  display: "inline-block",
-                  marginTop: "12px",
-                  fontSize: "14px",
-                  fontWeight: "600",
-                }}
-              >
-                Pay Now
-              </Button>
-            </Section>
-          )}
+          <EmailTikkieSection tikkieUrl={tikkieUrl} eventName={eventName} />
 
           <Text
             style={{
