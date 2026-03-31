@@ -101,12 +101,24 @@ export function ReviewSubmitStep({
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Booker</CardTitle>
+          <CardTitle className="text-base">Buyer Details</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-1 text-sm text-muted-foreground">
-          <p>Name: {draft.booker.name || "Main booker"}</p>
-          <p>Email: {draft.booker.email || "booker@example.com"}</p>
-          <p>Phone: {draft.booker.phone || "-"}</p>
+        <CardContent className="text-sm text-muted-foreground">
+          <AttendeeDetailRow
+            label="Name"
+            value={draft.booker.name}
+            isEmpty={!draft.booker.name}
+          />
+          <AttendeeDetailRow
+            label="Email"
+            value={draft.booker.email}
+            isEmpty={!draft.booker.email}
+          />
+          <AttendeeDetailRow
+            label="Phone"
+            value={draft.booker.phone}
+            isEmpty={!draft.booker.phone}
+          />
         </CardContent>
       </Card>
 
