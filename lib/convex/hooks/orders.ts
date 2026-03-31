@@ -47,3 +47,13 @@ export function useUpdateOrderStatus() {
 export function useRemoveOrderLocally() {
   return useMutation(api.orders.removeOrderLocally)
 }
+
+export function useSearchOrders(search: string, limit?: number) {
+  const trimmedSearch = search.trim()
+  return useQuery(
+    api.orders.searchOrders,
+    trimmedSearch.length > 0
+      ? { search: trimmedSearch, limit: limit ?? 10 }
+      : "skip"
+  )
+}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useEffect } from "react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -13,6 +13,10 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { maskPaymentPayer } from "@/lib/utils/privacy"
+import { useSearchOrders } from "@/lib/convex/hooks/orders"
+import { useAssignPaymentToOrder } from "@/lib/convex/hooks/payments"
+import { formatMoney } from "@/lib/format"
+import type { Id } from "@/convex/_generated/dataModel"
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 
@@ -39,8 +43,6 @@ type AssignDialogProps = {
   onAssigned: () => void
 }
 
-import { formatMoney } from "@/lib/format"
-
 function formatDate(isoString: string) {
   return new Date(isoString).toLocaleDateString("en-US", {
     year: "numeric",
@@ -61,51 +63,25 @@ export function AssignDialog({
   onAssigned,
 }: AssignDialogProps) {
   const [searchQuery, setSearchQuery] = useState("")
-  const [orders, setOrders] = useState<Order[]>([])
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isSearching, setIsSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Use Convex hooks
+  const ordersData = useSearchOrders(searchQuery, 11)
+  const assignPayment = useAssignPaymentToOrder()
+
+  const orders: Order[] = ordersData || []
+  const isSearching = ordersData === undefined && searchQuery.trim().length > 0
 
   // Reset state when dialog opens
   useEffect(() => {
     if (open) {
       setSearchQuery("")
-      setOrders([])
       setSelectedOrder(null)
       setError(null)
     }
   }, [open])
-
-  // Search orders when query changes
-  useEffect(() => {
-    async function searchOrders() {
-      if (!searchQuery.trim()) {
-        setOrders([])
-        return
-      }
-
-      setIsSearching(true)
-      try {
-        const params = new URLSearchParams()
-        params.set("q", searchQuery.trim())
-        params.set("limit", "10")
-
-        const response = await fetch(`/api/orders/search?${params.toString()}`)
-        if (response.ok) {
-          const data = await response.json()
-          setOrders(data.orders || [])
-        }
-      } catch (err) {
-        console.error("Failed to search orders:", err)
-      } finally {
-        setIsSearching(false)
-      }
-    }
-
-    const debounce = setTimeout(searchOrders, 300)
-    return () => clearTimeout(debounce)
-  }, [searchQuery])
 
   async function handleAssign() {
     if (!selectedOrder) {
@@ -117,20 +93,12 @@ export function AssignDialog({
     setError(null)
 
     try {
-      const response = await fetch(`/api/payments/${payment.id}/assign`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          orderId: selectedOrder.providerOrderId,
-        }),
+      await assignPayment({
+        paymentId: payment.id as Id<"payments">,
+        orderId: selectedOrder.id as Id<"orders">,
+        status: "manual_assignment",
+        matchedBy: "dashboard",
       })
-
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error?.message || "Failed to assign payment")
-      }
 
       onAssigned()
       onOpenChange(false)
@@ -209,11 +177,10 @@ export function AssignDialog({
               orders.map((order) => (
                 <div
                   key={order.id}
-                  className={`cursor-pointer border-b p-3 last:border-b-0 ${
-                    selectedOrder?.id === order.id
+                  className={`cursor-pointer border-b p-3 last:border-b-0 ${selectedOrder?.id === order.id
                       ? "bg-primary/10"
                       : "hover:bg-muted/50"
-                  }`}
+                    }`}
                   onClick={() => setSelectedOrder(order)}
                 >
                   <div className="flex items-center justify-between">

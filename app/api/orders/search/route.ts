@@ -24,6 +24,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ orders })
   } catch (error) {
+    console.error("Error searching orders:", error)
     return NextResponse.json(
       {
         error: {

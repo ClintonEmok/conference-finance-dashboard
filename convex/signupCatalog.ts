@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 import { query, type QueryCtx } from "./_generated/server"
-import type { Doc } from "./_generated/dataModel"
+import type { Doc, Id } from "./_generated/dataModel"
 import {
   accommodationIneligibilityReasonValidator,
   ticketUnavailableReasonValidator,
@@ -106,7 +106,49 @@ async function getAssignableSlotSummaries(
     )
     .take(EVENT_ASSIGNABLE_SLOT_LIMIT)
 
-  if (assignableSlots.length === 0) {
+  // Group slots by room and filter out rooms with any occupied slots
+  const slotsByRoom = new Map<
+    Id<"accommodationRooms">,
+    typeof assignableSlots
+  >()
+  for (const slot of assignableSlots) {
+    if (!slotsByRoom.has(slot.roomId)) {
+      slotsByRoom.set(slot.roomId, [])
+    }
+    slotsByRoom.get(slot.roomId)!.push(slot)
+  }
+
+  // Only include rooms where ALL slots are available (no partial occupancy)
+  const fullyAvailableRoomIds = new Set<Id<"accommodationRooms">>()
+  for (const [roomId, roomSlots] of slotsByRoom) {
+    let hasOccupiedSlot = false
+    for (const slot of roomSlots) {
+      const existingAssignments = await ctx.db
+        .query("orderAssignments")
+        .withIndex("by_slotId", (q) => q.eq("slotId", slot._id))
+        .take(1)
+
+      const isOccupied = existingAssignments.some(
+        (a) => a.assignmentIntent === "assign"
+      )
+
+      if (isOccupied) {
+        hasOccupiedSlot = true
+        break
+      }
+    }
+
+    if (!hasOccupiedSlot) {
+      fullyAvailableRoomIds.add(roomId)
+    }
+  }
+
+  // Get all slots from fully available rooms
+  const availableSlots = assignableSlots.filter((slot) =>
+    fullyAvailableRoomIds.has(slot.roomId)
+  )
+
+  if (availableSlots.length === 0) {
     return {
       eligible: false as const,
       reason: "no_assignable_inventory" as const,
@@ -114,9 +156,7 @@ async function getAssignableSlotSummaries(
     }
   }
 
-  const roomIds = Array.from(
-    new Set(assignableSlots.map((slot) => slot.roomId))
-  )
+  const roomIds = Array.from(new Set(availableSlots.map((slot) => slot.roomId)))
   const roomDocs = await Promise.all(
     roomIds.map((roomId) => ctx.db.get(roomId))
   )
@@ -145,7 +185,7 @@ async function getAssignableSlotSummaries(
     roomTypes.map((roomType) => [String(roomType._id), roomType])
   )
 
-  const slots = assignableSlots.map((slot) => {
+  const slots = availableSlots.map((slot) => {
     const room = roomById.get(slot.roomId)
     const roomType = room ? roomTypeById.get(room.roomTypeId) : null
 

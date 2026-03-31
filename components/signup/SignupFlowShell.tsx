@@ -64,40 +64,15 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       return
     }
 
-    const storageKey = `signup-draft:${eventId}`
-
+    // Clear any existing localStorage draft for this event
     try {
-      const raw = window.localStorage.getItem(storageKey)
-      if (!raw) {
-        setDraft(createInitialSignupDraft(eventId, sourceKind))
-        return
-      }
-
-      const parsed = JSON.parse(raw) as SignupDraft
-
-      if (parsed.eventId !== eventId || parsed.source !== sourceKind) {
-        setDraft(createInitialSignupDraft(eventId, sourceKind))
-        return
-      }
-
-      setDraft(parsed)
+      window.localStorage.removeItem(`signup-draft:${eventId}`)
     } catch {
-      setDraft(createInitialSignupDraft(eventId, sourceKind))
+      // Ignore localStorage errors (e.g. private browsing)
     }
+
+    setDraft(createInitialSignupDraft(eventId, sourceKind))
   }, [eventId, sourceKind])
-
-  useEffect(() => {
-    if (!event || !draft) {
-      return
-    }
-
-    if (eventId) {
-      window.localStorage.setItem(
-        `signup-draft:${eventId}`,
-        JSON.stringify(draft)
-      )
-    }
-  }, [draft, eventId])
 
   // Memoized computed values - always called, but only computed when data is ready
   const currentStepIndex = useMemo(() => {
@@ -423,15 +398,6 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       setSubmitError(result.error)
       setIsSubmitting(false)
       return
-    }
-
-    // Clear localStorage draft on successful submission
-    if (eventId) {
-      try {
-        window.localStorage.removeItem(`signup-draft:${eventId}`)
-      } catch {
-        // Ignore localStorage errors (e.g. private browsing)
-      }
     }
 
     setSubmitResult(result.data)
