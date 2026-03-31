@@ -5,7 +5,7 @@ milestone_name: Attendee Signup + Accommodation Self-Assignment
 status: unknown
 stopped_at: Completed 25-03-PLAN.md
 last_updated: "2026-03-31T13:00:00.758Z"
-last_activity: 2026-03-31
+last_activity: 2026-03-31 - Completed quick task 260331-l8f: refactor sync.ts
 progress:
   total_phases: 8
   completed_phases: 7
@@ -181,20 +181,21 @@ Recent decisions that future work should preserve:
 
 ### Quick Tasks Completed
 
-| #          | Description                                                                                          | Date       | Commit  | Directory                                                                                                           |
-| ---------- | ---------------------------------------------------------------------------------------------------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
-| 260326-di7 | fix the ticket tailor sync feature                                                                   | 2026-03-26 | 5df71b4 | [260326-di7-fix-the-ticket-tailor-sync-feature](./quick/260326-di7-fix-the-ticket-tailor-sync-feature/)             |
-| 260326-do9 | fix received NaN for the attribute in app accommodation inventory                                    | 2026-03-26 | c909cbd | [260326-do9-fix-received-nan-for-the-attribute-in-ap](./quick/260326-do9-fix-received-nan-for-the-attribute-in-ap/) |
-| 260326-e0r | fix the attendeedetail page the api returns 405. i want the attendee details to be shown             | 2026-03-26 | fca8087 | [260326-e0r-fix-the-attendeedetail-page-the-api-retu](./quick/260326-e0r-fix-the-attendeedetail-page-the-api-retu/) |
-| 260326-edp | show the custom answers on the attendee detail page                                                  | 2026-03-26 | 97a0463 | [260326-edp-show-the-custom-answers-on-the-attendee-](./quick/260326-edp-show-the-custom-answers-on-the-attendee-/) |
-| 260326-hfn | fix event tikkie create link button open                                                             | 2026-03-26 | c731fd3 | [260326-hfn-fix-event-tikkie-create-link-button-open](./quick/260326-hfn-fix-event-tikkie-create-link-button-open/) |
-| 260326-hgy | fix the manual payment entry select order flow                                                       | 2026-03-26 | b7fdca6 | [260326-hgy-fix-the-manual-payment-entry-select-orde](./quick/260326-hgy-fix-the-manual-payment-entry-select-orde/) |
-| 260326-hit | the open atteendee followup should open attendee detail                                              | 2026-03-26 | 3b06738 | [260326-hit-the-open-atteendee-followup-should-open-](./quick/260326-hit-the-open-atteendee-followup-should-open-/) |
-| 260326-ib1 | for room inventory we need to be to able to delete rooms and hotels if they have no assinged to them | 2026-03-26 | 93cf05b | [260326-ib1-for-room-inventory-we-need-to-be-to-able](./quick/260326-ib1-for-room-inventory-we-need-to-be-to-able/) |
-| 260326-i7e | the manual payment didnt update the outstanding totals                                               | 2026-03-26 | 3431335 | [260326-i7e-the-manual-payment-didnt-update-the-outs](./quick/260326-i7e-the-manual-payment-didnt-update-the-outs/) |
-| 260326-ijx | create the ui for reconciliation route                                                               | 2026-03-26 | 4af536d | [260326-ijx-create-the-ui-for-reconciliation-route-t](./quick/260326-ijx-create-the-ui-for-reconciliation-route-t/) |
-| 260326-it5 | allow hotels to be deleted if there aree                                                             | 2026-03-26 | 8dbce91 | [260326-it5-allow-hotels-to-be-deleted-if-there-aree](./quick/260326-it5-allow-hotels-to-be-deleted-if-there-aree/) |
-| 260331-2jp | replace Buffer.from with cross-platform btoa for base64 encoding                                     | 2026-03-31 | 8e60b94 | [260331-2jp-replace-buffer-from-with-cross-platform-](./quick/260331-2jp-replace-buffer-from-with-cross-platform-/) |
+| #          | Description                                                                                                                         | Date       | Commit  | Directory                                                                                                           |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
+| 260326-di7 | fix the ticket tailor sync feature                                                                                                  | 2026-03-26 | 5df71b4 | [260326-di7-fix-the-ticket-tailor-sync-feature](./quick/260326-di7-fix-the-ticket-tailor-sync-feature/)             |
+| 260326-do9 | fix received NaN for the attribute in app accommodation inventory                                                                   | 2026-03-26 | c909cbd | [260326-do9-fix-received-nan-for-the-attribute-in-ap](./quick/260326-do9-fix-received-nan-for-the-attribute-in-ap/) |
+| 260326-e0r | fix the attendeedetail page the api returns 405. i want the attendee details to be shown                                            | 2026-03-26 | fca8087 | [260326-e0r-fix-the-attendeedetail-page-the-api-retu](./quick/260326-e0r-fix-the-attendeedetail-page-the-api-retu/) |
+| 260326-edp | show the custom answers on the attendee detail page                                                                                 | 2026-03-26 | 97a0463 | [260326-edp-show-the-custom-answers-on-the-attendee-](./quick/260326-edp-show-the-custom-answers-on-the-attendee-/) |
+| 260326-hfn | fix event tikkie create link button open                                                                                            | 2026-03-26 | c731fd3 | [260326-hfn-fix-event-tikkie-create-link-button-open](./quick/260326-hfn-fix-event-tikkie-create-link-button-open/) |
+| 260326-hgy | fix the manual payment entry select order flow                                                                                      | 2026-03-26 | b7fdca6 | [260326-hgy-fix-the-manual-payment-entry-select-orde](./quick/260326-hgy-fix-the-manual-payment-entry-select-orde/) |
+| 260326-hit | the open atteendee followup should open attendee detail                                                                             | 2026-03-26 | 3b06738 | [260326-hit-the-open-atteendee-followup-should-open-](./quick/260326-hit-the-open-atteendee-followup-should-open-/) |
+| 260326-ib1 | for room inventory we need to be to able to delete rooms and hotels if they have no assinged to them                                | 2026-03-26 | 93cf05b | [260326-ib1-for-room-inventory-we-need-to-be-to-able](./quick/260326-ib1-for-room-inventory-we-need-to-be-to-able/) |
+| 260326-i7e | the manual payment didnt update the outstanding totals                                                                              | 2026-03-26 | 3431335 | [260326-i7e-the-manual-payment-didnt-update-the-outs](./quick/260326-i7e-the-manual-payment-didnt-update-the-outs/) |
+| 260326-ijx | create the ui for reconciliation route                                                                                              | 2026-03-26 | 4af536d | [260326-ijx-create-the-ui-for-reconciliation-route-t](./quick/260326-ijx-create-the-ui-for-reconciliation-route-t/) |
+| 260326-it5 | allow hotels to be deleted if there aree                                                                                            | 2026-03-26 | 8dbce91 | [260326-it5-allow-hotels-to-be-deleted-if-there-aree](./quick/260326-it5-allow-hotels-to-be-deleted-if-there-aree/) |
+| 260331-2jp | replace Buffer.from with cross-platform btoa for base64 encoding                                                                    | 2026-03-31 | 8e60b94 | [260331-2jp-replace-buffer-from-with-cross-platform-](./quick/260331-2jp-replace-buffer-from-with-cross-platform-/) |
+| 260331-l8f | refactor sync.ts and break it down more and use convex best practices related to usemutation or internal.mutation where appropriate | 2026-03-31 | 9cfe937 | [260331-l8f-refactor-sync-ts-and-break-it-down-more-](./quick/260331-l8f-refactor-sync-ts-and-break-it-down-more-/) |
 
 ## Accumulated Context
 
