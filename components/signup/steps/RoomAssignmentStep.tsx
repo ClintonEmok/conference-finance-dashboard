@@ -5,16 +5,13 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
+  buildDraggableRooms,
   buildAssignmentBoard,
   canDropAttendeeIntoSlot,
   swapAttendeesInSlots,
-  groupSlotsByRoomType,
-  buildRoomPreview,
   summarizeUnfilledBeds,
-  type RoomTypeGroup,
-  type RoomPreview,
+  type DraggableRoom,
 } from "@/components/signup/assignment"
-import { AttendeeGrouping } from "@/components/signup/AttendeeGrouping"
 import type { AttendeeDraft } from "@/components/signup/state"
 import type { PublicSignupCatalogEvent } from "@/lib/domain/signup/catalog"
 
@@ -35,9 +32,11 @@ export function RoomAssignmentStep({
   onAssignmentChange,
   onAcknowledgeRandomFillChange,
 }: RoomAssignmentStepProps) {
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    () => new Set()
+  const [draggingAttendeeId, setDraggingAttendeeId] = useState<string | null>(
+    null
   )
+
+  const currentAttendeeIds = new Set(attendees.map((a) => a.attendeeKey))
 
   const board = buildAssignmentBoard(
     attendees.map((attendee) => ({
@@ -49,21 +48,37 @@ export function RoomAssignmentStep({
   )
 
   const summary = summarizeUnfilledBeds(board)
-  const roomTypeGroups = groupSlotsByRoomType(board)
-  const roomPreview = buildRoomPreview(
-    board,
-    attendees.map((a) => ({ attendeeId: a.attendeeKey, name: a.name }))
+  const draggableRooms = buildDraggableRooms(board, currentAttendeeIds)
+
+  const assignedAttendees = new Set(Object.keys(assignments))
+  const unassignedAttendees = attendees.filter(
+    (attendee) => !assignedAttendees.has(attendee.attendeeKey)
   )
 
-  function handleDrop(attendeeId: string, slotId: string) {
-    // Try swap first
+  function handleDragStart(
+    e: React.DragEvent<HTMLDivElement>,
+    attendeeId: string
+  ) {
+    setDraggingAttendeeId(attendeeId)
+    e.dataTransfer.setData("text/plain", attendeeId)
+    e.dataTransfer.effectAllowed = "move"
+  }
+
+  function handleDragEnd() {
+    setDraggingAttendeeId(null)
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>, slotId: string) {
+    e.preventDefault()
+    const attendeeId = e.dataTransfer.getData("text/plain")
+    if (!attendeeId) return
+
     const swapResult = swapAttendeesInSlots(attendeeId, slotId, board)
     if (swapResult) {
       onAssignmentChange(swapResult)
       return
     }
 
-    // Fall back to regular assignment if swap not possible
     if (!canDropAttendeeIntoSlot(attendeeId, slotId, board)) {
       return
     }
@@ -72,6 +87,12 @@ export function RoomAssignmentStep({
       ...assignments,
       [attendeeId]: slotId,
     })
+    setDraggingAttendeeId(null)
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
   }
 
   function clearSlot(slotId: string) {
@@ -81,22 +102,7 @@ export function RoomAssignmentStep({
     onAssignmentChange(nextAssignments)
   }
 
-  function toggleGroup(roomTypeLabel: string) {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev)
-      if (next.has(roomTypeLabel)) {
-        next.delete(roomTypeLabel)
-      } else {
-        next.add(roomTypeLabel)
-      }
-      return next
-    })
-  }
-
-  const assignedAttendees = new Set(Object.keys(assignments))
-  const unassignedAttendees = attendees.filter(
-    (attendee) => !assignedAttendees.has(attendee.attendeeKey)
-  )
+  const attendeeMap = new Map(attendees.map((a) => [a.attendeeKey, a]))
 
   return (
     <div className="space-y-6">
@@ -119,220 +125,156 @@ export function RoomAssignmentStep({
         </div>
       ) : null}
 
-      {/* Visual attendee grouping */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Your Group</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <AttendeeGrouping attendees={attendees} assignments={assignments} />
-          <p className="mt-2 text-xs text-muted-foreground">
-            Drag attendees together to form groups. This helps you organize room
-            assignments.
-          </p>
-        </CardContent>
-      </Card>
-
-      {/* Real-time room preview */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Room Preview</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {roomPreview.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No rooms available for this event.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {roomPreview.map((room) => (
-                <div
-                  key={room.roomLabel}
-                  className="rounded-lg border border-border/70 p-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">{room.roomLabel}</p>
-                    <Badge variant="outline">{room.roomTypeLabel}</Badge>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {room.occupants.map((occupant) => (
-                      <Badge key={occupant.attendeeId} className="text-xs">
-                        {occupant.name}
-                      </Badge>
-                    ))}
-                    {room.remainingBeds > 0 && (
-                      <Badge variant="outline" className="text-xs">
-                        {room.remainingBeds} open bed
-                        {room.remainingBeds > 1 ? "s" : ""}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Unassigned attendees */}
-      {unassignedAttendees.length > 0 && (
+      {attendees.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              Unassigned Attendees ({unassignedAttendees.length})
-            </CardTitle>
+            <CardTitle className="text-base">Your Attendees</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
-              {unassignedAttendees.map((attendee) => (
-                <div
-                  key={attendee.attendeeKey}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData("text/plain", attendee.attendeeKey)
-                  }}
-                  className="cursor-move rounded-full border border-border/70 bg-background px-3 py-1 text-sm hover:border-primary/50"
-                >
-                  <span className="font-medium">
-                    {attendee.name || `Attendee ${attendee.attendeeKey}`}
-                  </span>
-                  {attendee.gender && (
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      ({attendee.gender})
+              {attendees.map((attendee) => {
+                const isAssigned = assignedAttendees.has(attendee.attendeeKey)
+                return (
+                  <div
+                    key={attendee.attendeeKey}
+                    draggable={!isAssigned}
+                    onDragStart={(e) =>
+                      handleDragStart(e, attendee.attendeeKey)
+                    }
+                    onDragEnd={handleDragEnd}
+                    className={`rounded-full border px-3 py-1.5 text-sm transition-all ${
+                      isAssigned
+                        ? "cursor-default border-muted-foreground/20 bg-muted text-muted-foreground"
+                        : draggingAttendeeId === attendee.attendeeKey
+                          ? "cursor-move border-primary/50 bg-primary/10"
+                          : "cursor-move border-border/70 bg-background hover:border-primary/50"
+                    }`}
+                  >
+                    <span className="font-medium">
+                      {attendee.name || "Unnamed"}
                     </span>
-                  )}
-                  {attendee.location && (
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      from {attendee.location}
-                    </span>
-                  )}
-                </div>
-              ))}
+                    {attendee.gender && (
+                      <span className="ml-1.5 text-xs text-muted-foreground">
+                        ({attendee.gender})
+                      </span>
+                    )}
+                    {isAssigned && (
+                      <span className="ml-1.5 text-xs text-muted-foreground">
+                        ✓ assigned
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Drag unassigned attendees to a room below.
+            </p>
           </CardContent>
         </Card>
       )}
 
-      {/* Bedslots grouped by room type */}
-      <div className="space-y-4">
-        {roomTypeGroups.length === 0 ? (
-          <Card>
-            <CardContent className="py-6 text-center text-sm text-muted-foreground">
-              No assignable beds available for this event.
-            </CardContent>
-          </Card>
-        ) : (
-          roomTypeGroups.map((group) => (
-            <RoomTypeGroupCard
-              key={group.roomTypeLabel}
-              group={group}
-              expanded={expandedGroups.has(group.roomTypeLabel)}
-              onToggle={() => toggleGroup(group.roomTypeLabel)}
-              onDrop={handleDrop}
-              onClear={clearSlot}
-              assignments={assignments}
-              board={board}
-              attendees={attendees}
-            />
-          ))
-        )}
-      </div>
+      {draggableRooms.length === 0 ? (
+        <Card>
+          <CardContent className="py-6 text-center text-sm text-muted-foreground">
+            No rooms available for assignment.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {draggableRooms.map((room) => (
+            <div
+              key={room.roomId}
+              className={`rounded-lg border-2 border-dashed p-4 transition-colors ${
+                room.isEmpty
+                  ? "border-muted-foreground/30 bg-muted/20"
+                  : "border-primary/30 bg-primary/5"
+              }`}
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`h-3 w-3 rounded-full ${
+                      room.isEmpty ? "bg-muted-foreground/40" : "bg-primary"
+                    }`}
+                  />
+                  <span className="text-sm font-medium">
+                    {room.roomTypeLabel}
+                  </span>
+                </div>
+                <Badge variant="outline" className="text-xs">
+                  {room.filledBeds}/{room.totalBeds} beds
+                </Badge>
+              </div>
 
-      {/* Summary */}
+              <div className="min-h-[60px] space-y-2">
+                {room.slots.map((slot) => {
+                  const occupantName = slot.occupant
+                    ? attendeeMap.get(slot.occupant.attendeeId)?.name ||
+                      slot.occupant.name
+                    : null
+
+                  return (
+                    <div
+                      key={slot.slotId}
+                      className={`flex items-center justify-between rounded-md border p-2 text-sm transition-all ${
+                        slot.isEmpty
+                          ? "border-dashed border-muted-foreground/30"
+                          : "border-solid border-primary/20 bg-background"
+                      } ${
+                        draggingAttendeeId && slot.isEmpty
+                          ? "border-primary bg-primary/10"
+                          : ""
+                      }`}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleDrop(e, slot.slotId)}
+                    >
+                      <div className="flex items-center gap-2">
+                        {slot.isEmpty ? (
+                          <span className="text-xs text-muted-foreground">
+                            Empty bed
+                          </span>
+                        ) : (
+                          <>
+                            <span className="font-medium">
+                              {occupantName || "Attendee"}
+                            </span>
+                            {slot.isAllocatedByCurrentProcess && (
+                              <span className="rounded bg-primary/20 px-1 py-0.5 text-xs text-primary">
+                                yours
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      {!slot.isEmpty && slot.isAllocatedByCurrentProcess && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => clearSlot(slot.slotId)}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <p className="text-sm text-muted-foreground">
         Beds: {summary.filledBeds}/{summary.totalBeds} assigned
+        {summary.unfilledBeds > 0 && (
+          <span className="ml-2 text-amber-600">
+            ({summary.unfilledBeds} open)
+          </span>
+        )}
       </p>
     </div>
-  )
-}
-
-function RoomTypeGroupCard({
-  group,
-  expanded,
-  onToggle,
-  onDrop,
-  onClear,
-  assignments,
-  board,
-  attendees,
-}: {
-  group: RoomTypeGroup
-  expanded: boolean
-  onToggle: () => void
-  onDrop: (attendeeId: string, slotId: string) => void
-  onClear: (slotId: string) => void
-  assignments: Record<string, string>
-  board: { slots: Array<{ slotId: string; attendeeId: string | null }> }
-  attendees: AttendeeDraft[]
-}) {
-  const attendeeMap = new Map(attendees.map((a) => [a.attendeeKey, a]))
-
-  return (
-    <Card>
-      <CardHeader
-        className="cursor-pointer hover:bg-muted/50"
-        onClick={onToggle}
-      >
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">
-            {group.roomTypeLabel} — {group.filledBeds}/{group.totalBeds} beds
-            filled
-          </CardTitle>
-          <Button variant="ghost" size="sm">
-            {expanded ? "Collapse" : "Expand"}
-          </Button>
-        </div>
-      </CardHeader>
-      {expanded && (
-        <CardContent className="space-y-2">
-          {group.slots.map((slot) => {
-            const assignedAttendee = slot.attendeeId
-              ? attendeeMap.get(slot.attendeeId)
-              : null
-
-            return (
-              <div
-                key={slot.slotId}
-                className="rounded-lg border border-border/70 p-3"
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  const attendeeId = event.dataTransfer.getData("text/plain")
-                  onDrop(attendeeId, slot.slotId)
-                }}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium">{slot.roomLabel}</p>
-                    {assignedAttendee?.gender && (
-                      <span className="text-xs text-muted-foreground">
-                        ({assignedAttendee.gender})
-                      </span>
-                    )}
-                  </div>
-                  {assignedAttendee ? (
-                    <div className="flex items-center gap-2">
-                      <Badge>
-                        {assignedAttendee.name ||
-                          `Attendee ${assignedAttendee.attendeeKey}`}
-                      </Badge>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onClear(slot.slotId)}
-                      >
-                        Unassign
-                      </Button>
-                    </div>
-                  ) : (
-                    <Badge variant="outline">Open bed</Badge>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </CardContent>
-      )}
-    </Card>
   )
 }

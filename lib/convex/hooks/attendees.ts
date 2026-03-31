@@ -6,7 +6,7 @@ import type { Id } from "@/convex/_generated/dataModel"
 
 export function useAttendees(args?: {
   eventId?: string
-  orderId?: Id<"ticketTailorOrders">
+  orderId?: Id<"orders">
   genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
   allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
   assignedRoomId?: string

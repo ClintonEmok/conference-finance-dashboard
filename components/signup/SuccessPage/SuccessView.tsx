@@ -38,11 +38,11 @@ interface TicketSelection {
 }
 
 interface Submission {
-  bookingRef: string
-  bookerName: string
-  bookerEmail: string
+  bookingRef?: string
+  bookerName?: string
+  bookerEmail?: string
   bookerPhone?: string
-  submittedAt: number
+  submittedAt?: number
   attendees: SubmissionAttendee[]
   roomAssignments: RoomAssignment[]
   totalAmountMinor?: number
@@ -80,9 +80,11 @@ export function SuccessView({
   const [copied, setCopied] = useState(false)
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(submission.bookingRef)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    if (submission.bookingRef) {
+      navigator.clipboard.writeText(submission.bookingRef)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
   }
 
   const totalAttendees = submission.attendees.length
@@ -142,7 +144,9 @@ export function SuccessView({
             )}
             <p>
               <strong>Date:</strong>{" "}
-              {new Date(submission.submittedAt).toLocaleDateString("en-GB")}
+              {submission.submittedAt
+                ? new Date(submission.submittedAt).toLocaleDateString("en-GB")
+                : "N/A"}
             </p>
           </div>
         </CardContent>

@@ -179,10 +179,10 @@ export default defineSchema({
         v.literal("mixed"),
         v.literal("unknown")
       ),
-      location: v.string(),
-      dietaryRestrictions: v.string(),
-      roommatePreference: v.string(),
-      roommateAvoid: v.string(),
+      location: v.optional(v.string()),
+      dietaryRestrictions: v.optional(v.string()),
+      roommatePreference: v.optional(v.string()),
+      roommateAvoid: v.optional(v.string()),
       sortOrder: v.number(),
       assignedRoomId: v.optional(v.string()),
       allocationPriority: v.optional(
@@ -316,7 +316,7 @@ export default defineSchema({
       providerEventId: v.string(),
       providerOrderId: v.string(),
       orderId: v.id("orders"),
-      attendeeId: v.id("orderAttendees"),
+      attendeeId: v.optional(v.id("orderAttendees")),
       ticketTypeLabel: v.optional(v.string()),
       ticketStatus: v.optional(v.string()),
       checkedInAt: v.optional(v.number()),
@@ -333,6 +333,23 @@ export default defineSchema({
       ageGroup: v.optional(v.string()),
       ticketCategory: v.optional(v.string()),
       tikkieAmountOverrideMinor: v.optional(v.number()),
+      assignedRoomId: v.optional(v.string()),
+      allocationPriority: v.optional(
+        v.union(
+          v.literal("CRITICAL"),
+          v.literal("HIGH"),
+          v.literal("NORMAL"),
+          v.literal("LOW")
+        )
+      ),
+      priorityReason: v.optional(v.string()),
+      name: v.optional(v.string()),
+      email: v.optional(v.string()),
+      phone: v.optional(v.string()),
+      location: v.optional(v.string()),
+      dietaryRestrictions: v.optional(v.string()),
+      roommatePreference: v.optional(v.string()),
+      roommateAvoid: v.optional(v.string()),
     })
   )
     .index("providerAttendeeId", ["providerAttendeeId"])
@@ -340,7 +357,9 @@ export default defineSchema({
     .index("providerEventOrder", ["providerEventId", "providerOrderId"])
     .index("orderId", ["orderId"])
     .index("attendeeId", ["attendeeId"])
-    .index("genderType", ["genderType"]),
+    .index("genderType", ["genderType"])
+    .index("by_assignedRoomId", ["assignedRoomId"])
+    .index("by_email", ["email"]),
 
   accommodationHotels: defineTable(
     v.object({

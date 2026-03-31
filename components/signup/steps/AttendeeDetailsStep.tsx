@@ -18,15 +18,12 @@ type AttendeeDetailsStepProps = {
     field: keyof AttendeeDraft,
     value: string
   ) => void
+  onFieldBlur?: (attendeeKey: string, field: keyof AttendeeDraft) => void
 }
 
 function fieldLabel(field: string) {
-  if (field === "phone") return "phone"
+  if (field === "name") return "name"
   if (field === "gender") return "gender"
-  if (field === "location") return "location"
-  if (field === "dietaryRestrictions") return "dietary restrictions"
-  if (field === "roommatePreference") return "roommate preference"
-  if (field === "roommateAvoid") return "roommate avoid"
   return field
 }
 
@@ -42,6 +39,7 @@ export function AttendeeDetailsStep({
   attendees,
   validationSummary,
   onAttendeeChange,
+  onFieldBlur,
 }: AttendeeDetailsStepProps) {
   const hasSummaryErrors =
     validationSummary !== null &&
@@ -80,10 +78,15 @@ export function AttendeeDetailsStep({
           <CardHeader>
             <CardTitle className="text-base">Attendee {index + 1}</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2">
+          <CardContent className="grid gap-4 md:grid-cols-2 md:gap-3">
             <div className="space-y-1">
-              <Label>Name</Label>
+              <Label>Name *</Label>
               <Input
+                aria-invalid={hasFieldError(
+                  validationSummary,
+                  attendee.attendeeKey,
+                  "name"
+                )}
                 value={attendee.name}
                 onChange={(event) =>
                   onAttendeeChange(
@@ -92,10 +95,18 @@ export function AttendeeDetailsStep({
                     event.currentTarget.value
                   )
                 }
+                onBlur={() => onFieldBlur?.(attendee.attendeeKey, "name")}
               />
+              {hasFieldError(
+                validationSummary,
+                attendee.attendeeKey,
+                "name"
+              ) ? (
+                <p className="text-xs text-destructive">Name is required.</p>
+              ) : null}
             </div>
             <div className="space-y-1">
-              <Label>Email (optional)</Label>
+              <Label>Email</Label>
               <Input
                 value={attendee.email}
                 onChange={(event) =>
@@ -105,17 +116,13 @@ export function AttendeeDetailsStep({
                     event.currentTarget.value
                   )
                 }
+                onBlur={() => onFieldBlur?.(attendee.attendeeKey, "email")}
               />
             </div>
 
             <div className="space-y-1">
-              <Label>Phone *</Label>
+              <Label>Phone</Label>
               <Input
-                aria-invalid={hasFieldError(
-                  validationSummary,
-                  attendee.attendeeKey,
-                  "phone"
-                )}
                 value={attendee.phone}
                 onChange={(event) =>
                   onAttendeeChange(
@@ -124,14 +131,8 @@ export function AttendeeDetailsStep({
                     event.currentTarget.value
                   )
                 }
+                onBlur={() => onFieldBlur?.(attendee.attendeeKey, "phone")}
               />
-              {hasFieldError(
-                validationSummary,
-                attendee.attendeeKey,
-                "phone"
-              ) ? (
-                <p className="text-xs text-destructive">Phone is required.</p>
-              ) : null}
             </div>
 
             <div className="space-y-1">
@@ -143,7 +144,7 @@ export function AttendeeDetailsStep({
                   "gender"
                 )}
                 value={attendee.gender}
-                className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm"
+                className="touch:text-base h-11 w-full rounded-lg border border-input bg-transparent px-3 text-sm"
                 onChange={(event) =>
                   onAttendeeChange(
                     attendee.attendeeKey,
@@ -151,6 +152,7 @@ export function AttendeeDetailsStep({
                     event.currentTarget.value
                   )
                 }
+                onBlur={() => onFieldBlur?.(attendee.attendeeKey, "gender")}
               >
                 <option value="">Select gender</option>
                 <option value="female">Female</option>
@@ -168,14 +170,10 @@ export function AttendeeDetailsStep({
             </div>
 
             <div className="space-y-1">
-              <Label>Location *</Label>
-              <Input
-                aria-invalid={hasFieldError(
-                  validationSummary,
-                  attendee.attendeeKey,
-                  "location"
-                )}
+              <Label>Location</Label>
+              <select
                 value={attendee.location}
+                className="touch:text-base h-11 w-full rounded-lg border border-input bg-transparent px-3 text-sm"
                 onChange={(event) =>
                   onAttendeeChange(
                     attendee.attendeeKey,
@@ -183,26 +181,22 @@ export function AttendeeDetailsStep({
                     event.currentTarget.value
                   )
                 }
-              />
-              {hasFieldError(
-                validationSummary,
-                attendee.attendeeKey,
-                "location"
-              ) ? (
-                <p className="text-xs text-destructive">
-                  Location is required.
-                </p>
-              ) : null}
+                onBlur={() => onFieldBlur?.(attendee.attendeeKey, "location")}
+              >
+                <option value="">Select location</option>
+                <option value="Eindhoven">Eindhoven</option>
+                <option value="Den Haag">Den Haag</option>
+                <option value="Amsterdam">Amsterdam</option>
+                <option value="Poland">Poland</option>
+                <option value="Czech">Czech</option>
+                <option value="Hungary">Hungary</option>
+                <option value="Other">Other</option>
+              </select>
             </div>
 
             <div className="space-y-1">
-              <Label>Dietary restrictions *</Label>
+              <Label>Dietary restrictions</Label>
               <Input
-                aria-invalid={hasFieldError(
-                  validationSummary,
-                  attendee.attendeeKey,
-                  "dietaryRestrictions"
-                )}
                 value={attendee.dietaryRestrictions}
                 onChange={(event) =>
                   onAttendeeChange(
@@ -211,26 +205,15 @@ export function AttendeeDetailsStep({
                     event.currentTarget.value
                   )
                 }
+                onBlur={() =>
+                  onFieldBlur?.(attendee.attendeeKey, "dietaryRestrictions")
+                }
               />
-              {hasFieldError(
-                validationSummary,
-                attendee.attendeeKey,
-                "dietaryRestrictions"
-              ) ? (
-                <p className="text-xs text-destructive">
-                  Dietary restrictions are required.
-                </p>
-              ) : null}
             </div>
 
             <div className="space-y-1">
-              <Label>Roommate preference *</Label>
+              <Label>Roommate preference</Label>
               <Input
-                aria-invalid={hasFieldError(
-                  validationSummary,
-                  attendee.attendeeKey,
-                  "roommatePreference"
-                )}
                 value={attendee.roommatePreference}
                 onChange={(event) =>
                   onAttendeeChange(
@@ -239,26 +222,15 @@ export function AttendeeDetailsStep({
                     event.currentTarget.value
                   )
                 }
+                onBlur={() =>
+                  onFieldBlur?.(attendee.attendeeKey, "roommatePreference")
+                }
               />
-              {hasFieldError(
-                validationSummary,
-                attendee.attendeeKey,
-                "roommatePreference"
-              ) ? (
-                <p className="text-xs text-destructive">
-                  Roommate preference is required.
-                </p>
-              ) : null}
             </div>
 
             <div className="space-y-1 md:col-span-2">
-              <Label>Roommate avoid *</Label>
+              <Label>Roommate avoid</Label>
               <Input
-                aria-invalid={hasFieldError(
-                  validationSummary,
-                  attendee.attendeeKey,
-                  "roommateAvoid"
-                )}
                 value={attendee.roommateAvoid}
                 onChange={(event) =>
                   onAttendeeChange(
@@ -267,16 +239,10 @@ export function AttendeeDetailsStep({
                     event.currentTarget.value
                   )
                 }
+                onBlur={() =>
+                  onFieldBlur?.(attendee.attendeeKey, "roommateAvoid")
+                }
               />
-              {hasFieldError(
-                validationSummary,
-                attendee.attendeeKey,
-                "roommateAvoid"
-              ) ? (
-                <p className="text-xs text-destructive">
-                  Roommate avoid is required.
-                </p>
-              ) : null}
             </div>
           </CardContent>
         </Card>

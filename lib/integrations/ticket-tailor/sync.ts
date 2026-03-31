@@ -325,7 +325,7 @@ function isOrderInScope(orderDate: Date | null, scope: NormalizedScope) {
 }
 
 async function linkAttendeesAsFamily(
-  orderId: string,
+  orderId: Id<"orders">,
   attendeeCount: number
 ): Promise<void> {
   const attendees = await convexQuery(
@@ -521,6 +521,15 @@ export async function runTicketTailorSync(
 
         ordersUpserted += 1
 
+        // Fetch the ticketTailorOrder to get the canonical orderId
+        const ttOrder = await convexQuery(
+          api.sync.getTicketTailorOrderByProviderId,
+          {
+            providerOrderId: providerOrderId,
+          }
+        )
+        const canonicalOrderId = ttOrder?.orderId
+
         const attendeeResult =
           await fetchTicketTailorAttendeesForOrder(orderPayload)
         attendeesFetched += attendeeResult.items.length
@@ -580,7 +589,7 @@ export async function runTicketTailorSync(
             providerEventId: attendeeProviderEventId,
             providerOrderId: attendeeProviderOrderId,
             eventId,
-            orderId,
+            orderId: canonicalOrderId,
             name: extractAttendeeName(attendeePayload) ?? undefined,
             email: extractAttendeeEmail(attendeePayload) ?? undefined,
             ticketTypeLabel,
@@ -597,8 +606,11 @@ export async function runTicketTailorSync(
           attendeesUpserted += 1
         }
 
-        if (attendeeResult.items.length > 1) {
-          await linkAttendeesAsFamily(orderId, attendeeResult.items.length)
+        if (attendeeResult.items.length > 1 && canonicalOrderId) {
+          await linkAttendeesAsFamily(
+            canonicalOrderId,
+            attendeeResult.items.length
+          )
         }
       }
 

@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { usePublicSignupCatalog } from "@/lib/convex/hooks/signup"
 import {
@@ -33,6 +31,8 @@ import {
   submitSignupDraft,
   type SignupClientErrorCode,
 } from "@/components/signup/submission-client"
+import { SignupProgress } from "@/components/signup/SignupProgress"
+import { SignupNavigation } from "@/components/signup/SignupNavigation"
 import type { SignupSubmissionResult } from "@/lib/types/signup"
 
 type SignupFlowShellProps = {
@@ -53,7 +53,6 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     message: string
   } | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [restoreChoicePending, setRestoreChoicePending] = useState(false)
   const [idempotencyKey] = useState(() => `signup-${Date.now()}`)
 
   // Use primitive values for stable effect dependencies
@@ -211,14 +210,8 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     for (const attendee of attendees) {
       const missingFields: string[] = []
 
-      if (!attendee.phone.trim()) missingFields.push("phone")
+      if (!attendee.name.trim()) missingFields.push("name")
       if (!attendee.gender) missingFields.push("gender")
-      if (!attendee.location.trim()) missingFields.push("location")
-      if (!attendee.dietaryRestrictions.trim())
-        missingFields.push("dietaryRestrictions")
-      if (!attendee.roommatePreference.trim())
-        missingFields.push("roommatePreference")
-      if (!attendee.roommateAvoid.trim()) missingFields.push("roommateAvoid")
 
       byAttendee[attendee.attendeeKey] = missingFields
     }
@@ -317,7 +310,6 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
-    setRestoreChoicePending(false)
     setDraft((current) => {
       if (!current) {
         return current
@@ -344,7 +336,6 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
-    setRestoreChoicePending(false)
     setDraft((current) =>
       current
         ? invalidateDownstreamForRoomChange(current, nextAssignments)
@@ -371,7 +362,6 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
-    setRestoreChoicePending(false)
     setDraft((current) => {
       if (!current) {
         return current
@@ -398,7 +388,6 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
-    setRestoreChoicePending(false)
     setDraft((current) => {
       if (!current) {
         return current
@@ -431,7 +420,6 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
     if (!result.ok) {
       setSubmitResult(null)
-      setRestoreChoicePending(false)
       setSubmitError(result.error)
       setIsSubmitting(false)
       return
@@ -448,26 +436,10 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
     setSubmitResult(result.data)
     setSubmitError(null)
-    const hasRestorePayload = Boolean(result.data.restorePayload)
-    setRestoreChoicePending(hasRestorePayload)
     setIsSubmitting(false)
 
-    // Redirect to success page if no restore payload (new submission)
-    if (!hasRestorePayload) {
-      router.push(`/signup/success/${result.data.bookingRef}`)
-    }
-  }
-
-  function handleContinuePreviousSubmission() {
-    setRestoreChoicePending(false)
-  }
-
-  function handleEditCurrentDetails() {
-    setRestoreChoicePending(false)
-    setSubmitResult(null)
-    setDraft((current) =>
-      current ? { ...current, step: "attendees" } : current
-    )
+    // Redirect to success page
+    router.push(`/signup/success/${result.data.bookingRef}`)
   }
 
   const stepTitle =
@@ -482,48 +454,16 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
             : "Review & submit"
 
   return (
-    <main className="mx-auto w-full max-w-5xl p-6">
-      <Card className="mb-6">
-        <CardHeader className="space-y-4">
+    <main className="mx-auto w-full max-w-5xl p-4 md:p-6">
+      <Card className="mb-4 md:mb-6">
+        <CardHeader className="space-y-3 md:space-y-4">
           <CardTitle>{activeEvent.title} signup</CardTitle>
-          <div className="grid gap-2 md:grid-cols-5">
-            {SIGNUP_STEP_ORDER.map((step, index) => {
-              const isActive = activeDraft.step === step
-              const isComplete =
-                completedByStep[step] && index < currentStepIndex
-              const label =
-                step === "tickets"
-                  ? "Tickets"
-                  : step === "buyer"
-                    ? "Your Details"
-                    : step === "rooms"
-                      ? "Rooms"
-                      : step === "attendees"
-                        ? "Attendee details"
-                        : "Review & submit"
-
-              return (
-                <button
-                  key={step}
-                  type="button"
-                  className="rounded-lg border border-border/70 px-3 py-2 text-left disabled:opacity-50"
-                  disabled={!canAccessStep(step)}
-                  onClick={() => moveToStep(step)}
-                >
-                  <p className="text-xs text-muted-foreground">
-                    Step {index + 1}
-                  </p>
-                  <p className="text-sm font-medium">{label}</p>
-                  {isActive ? <Badge className="mt-2">Active</Badge> : null}
-                  {!isActive && isComplete ? (
-                    <Badge className="mt-2" variant="secondary">
-                      Complete
-                    </Badge>
-                  ) : null}
-                </button>
-              )
-            })}
-          </div>
+          <SignupProgress
+            currentStep={activeDraft.step}
+            completedByStep={completedByStep}
+            onStepClick={moveToStep}
+            canAccessStep={canAccessStep}
+          />
         </CardHeader>
       </Card>
 
@@ -592,30 +532,18 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
               submitResult={submitResult}
               submitError={submitError}
               isSubmitting={isSubmitting}
-              restorePayloadChoicePending={restoreChoicePending}
               onSubmit={handleSubmitFromReview}
-              onContinuePreviousSubmission={handleContinuePreviousSubmission}
-              onEditCurrentDetails={handleEditCurrentDetails}
             />
           ) : null}
 
-          <div className="flex gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={moveBack}
-              disabled={currentStepIndex === 0}
-            >
-              Back
-            </Button>
-            <Button
-              type="button"
-              onClick={moveNext}
-              disabled={!completedByStep[activeDraft.step]}
-            >
-              Next
-            </Button>
-          </div>
+          <SignupNavigation
+            currentStepIndex={currentStepIndex}
+            totalSteps={SIGNUP_STEP_ORDER.length}
+            canProceed={completedByStep[activeDraft.step]}
+            onBack={moveBack}
+            onNext={moveNext}
+            isSubmitting={isSubmitting}
+          />
         </CardContent>
       </Card>
     </main>

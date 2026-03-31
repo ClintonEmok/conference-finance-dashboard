@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation"
 import { api } from "@/convex/_generated/api"
 import { fetchQuery } from "convex/nextjs"
-import { SuccessView } from "@/components/signup/SuccessPage"
+import { SuccessView } from "@/components/signup/SuccessPage/SuccessView"
 
 interface SuccessPageProps {
   params: Promise<{ bookingRef: string }>
@@ -21,6 +21,9 @@ export default async function SignupSuccessPage({ params }: SuccessPageProps) {
     }
 
     // Fetch event details by slug
+    if (!submission.eventSlug) {
+      notFound()
+    }
     const eventData = await fetchQuery(api.events.getEventBySlug, {
       slug: submission.eventSlug,
     })
@@ -30,6 +33,9 @@ export default async function SignupSuccessPage({ params }: SuccessPageProps) {
     }
 
     // Fetch Tikkie payment link for this event
+    if (!submission.eventId) {
+      notFound()
+    }
     const tikkieLink = await fetchQuery(
       api.tikkie.getEventPaymentLinkForSuccess,
       { eventId: submission.eventId }

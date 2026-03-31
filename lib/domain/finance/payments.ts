@@ -229,7 +229,7 @@ export async function assignPaymentToOrder(
 
   await convexMutation(api.payments.assignPaymentToOrder, {
     paymentId: paymentId as Id<"payments">,
-    orderId: validatedOrderId,
+    orderId: validatedOrderId as Id<"orders">,
     status: "manual_assignment",
     matchedBy: userId,
   })
@@ -396,7 +396,7 @@ export async function autoMatchPayments(): Promise<AutoMatchResult> {
     } else if (matches.length === 1) {
       await convexMutation(api.payments.assignPaymentToOrder, {
         paymentId: payment._id as Id<"payments">,
-        orderId: matches[0]._id,
+        orderId: matches[0]._id as Id<"orders">,
         status: "auto_matched",
         matchedBy: "auto",
       })

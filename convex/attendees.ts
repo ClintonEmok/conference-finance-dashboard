@@ -115,9 +115,9 @@ export const getAttendeeByEmail = query({
     // Bounded: one email has very few attendees
     const attendees = await ctx.db
       .query("ticketTailorAttendees")
-      .withIndex("email", (q) => q.eq("email", args.email))
+      .withIndex("by_email", (q) => q.eq("email", args.email))
       .take(10)
-    return attendees.filter((a) => a.eventId === args.eventId)
+    return attendees.filter((a) => a.providerEventId === args.eventId)
   },
 })
 
@@ -129,7 +129,7 @@ export const createAttendee = mutation({
     providerEventId: v.string(),
     providerOrderId: v.string(),
     eventId: v.union(v.id("events"), v.string()),
-    orderId: v.id("ticketTailorOrders"),
+    orderId: v.id("orders"),
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     ticketTypeLabel: v.optional(v.string()),
@@ -170,7 +170,7 @@ export const upsertAttendee = mutation({
     providerEventId: v.string(),
     providerOrderId: v.string(),
     eventId: v.union(v.id("events"), v.string()),
-    orderId: v.id("ticketTailorOrders"),
+    orderId: v.id("orders"),
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     ticketTypeLabel: v.optional(v.string()),

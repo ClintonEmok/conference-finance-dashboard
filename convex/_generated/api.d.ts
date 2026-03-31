@@ -250,7 +250,7 @@ export declare const api: {
         eventId: Id<"events"> | string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
         name?: string;
-        orderId: Id<"ticketTailorOrders">;
+        orderId: Id<"orders">;
         providerAttendeeId?: string;
         providerEventId: string;
         providerIssuedTicketId?: string;
@@ -333,7 +333,7 @@ export declare const api: {
         eventId: Id<"events"> | string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
         name?: string;
-        orderId: Id<"ticketTailorOrders">;
+        orderId: Id<"orders">;
         providerAttendeeId?: string;
         providerEventId: string;
         providerIssuedTicketId?: string;
@@ -408,7 +408,7 @@ export declare const api: {
         attendeePhone?: string;
         dietaryRestrictions?: string;
         eventId: Id<"events">;
-        gender: "male" | "female" | "mixed" | "unknown";
+        gender?: "male" | "female" | "mixed" | "unknown";
         location?: string;
         notes?: string;
         roommatePreference?: string;
@@ -752,7 +752,7 @@ export declare const api: {
       { eventId?: Id<"events"> | string; limit?: number; search: string },
       Array<{
         buyerName: string | null;
-        id: Id<"ticketTailorOrders">;
+        id: Id<"orders"> | Id<"ticketTailorOrders">;
         providerOrderId: string;
         totalAmountMinor: number;
       }>
@@ -982,19 +982,19 @@ export declare const api: {
           name: string;
           ticketType: string;
         }>;
-        bookerEmail: string;
-        bookerName: string;
+        bookerEmail?: string;
+        bookerName?: string;
         bookerPhone?: string;
-        bookingRef: string;
-        eventId: Id<"events">;
-        eventSlug: string;
+        bookingRef?: string;
+        eventId?: Id<"events">;
+        eventSlug?: string;
         roomAssignments: Array<{
           bedCount: number;
           hotelName: string;
           roomType: string;
         }>;
         submissionId: Id<"orders">;
-        submittedAt: number;
+        submittedAt?: number;
         ticketSelections: Array<{
           pricePerTicketMinor: number;
           quantity: number;
@@ -1015,14 +1015,14 @@ export declare const api: {
         }>;
         attendees: Array<{
           attendeeKey: string;
-          dietaryRestrictions: string;
+          dietaryRestrictions?: string;
           email?: string;
           gender: "male" | "female" | "mixed" | "unknown";
-          location: string;
+          location?: string;
           name: string;
-          phone: string;
-          roommateAvoid: string;
-          roommatePreference: string;
+          phone?: string;
+          roommateAvoid?: string;
+          roommatePreference?: string;
         }>;
         booker: { email: string; name: string; phone?: string };
         eventId: Id<"events">;
@@ -1038,7 +1038,7 @@ export declare const api: {
         }>;
       },
       {
-        bookingRef: string;
+        bookingRef?: string;
         restorePayload: {
           assignments: Array<{
             assignmentIntent: "assign" | "skip";
@@ -1047,19 +1047,19 @@ export declare const api: {
           }>;
           attendees: Array<{
             attendeeKey: string;
-            dietaryRestrictions: string;
+            dietaryRestrictions?: string;
             email?: string;
             gender: "male" | "female" | "mixed" | "unknown";
-            location: string;
+            location?: string;
             name: string;
-            phone: string;
-            roommateAvoid: string;
-            roommatePreference: string;
+            phone?: string;
+            roommateAvoid?: string;
+            roommatePreference?: string;
           }>;
-          booker: { email: string; name: string; phone?: string };
+          booker: { email?: string; name?: string; phone?: string };
           eventId: string;
           notes?: string;
-          source: "integration" | "internal";
+          source?: "integration" | "internal";
           ticketSelections: Array<{
             attendeeKey: string;
             quantity: 1;
@@ -1105,7 +1105,7 @@ export declare const api: {
         {
           ageGroup?: string;
           allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
-          attendeeId: Id<"orderAttendees">;
+          attendeeId?: Id<"orderAttendees">;
           customAnswers?: any;
           email?: string;
           eventId: Id<"events"> | string;
@@ -1413,7 +1413,7 @@ export declare const api: {
       {
         ageGroup?: string;
         allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
-        attendeeId: Id<"orderAttendees">;
+        attendeeId?: Id<"orderAttendees">;
         customAnswers?: any;
         email?: string;
         eventId: Id<"events"> | string;

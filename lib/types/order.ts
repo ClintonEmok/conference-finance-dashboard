@@ -43,7 +43,7 @@ export const orderLedgerRowValidator = v.object({
  * Order search row — minimal shape for order picker dropdowns.
  */
 export const orderSearchRowValidator = v.object({
-  id: v.id("ticketTailorOrders"),
+  id: v.union(v.id("orders"), v.id("ticketTailorOrders")),
   providerOrderId: v.string(),
   buyerName: nullableStringValidator,
   totalAmountMinor: v.number(),

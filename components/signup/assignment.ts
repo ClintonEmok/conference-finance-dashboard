@@ -343,3 +343,78 @@ export function buildRoomPreview(
     a.roomLabel.localeCompare(b.roomLabel)
   )
 }
+
+export type DraggableRoomSlot = {
+  slotId: string
+  roomLabel: string
+  roomTypeLabel: string
+  isEmpty: boolean
+  isAllocatedByCurrentProcess: boolean
+  occupant: { attendeeId: string; name: string } | null
+}
+
+export type DraggableRoom = {
+  roomId: string
+  roomTypeLabel: string
+  slots: DraggableRoomSlot[]
+  totalBeds: number
+  filledBeds: number
+  isEmpty: boolean
+  isAllocatedByCurrentProcess: boolean
+}
+
+export function buildDraggableRooms(
+  board: AssignmentBoard,
+  currentAttendeeIds: Set<string>
+): DraggableRoom[] {
+  const roomsByLabel = new Map<string, DraggableRoom>()
+
+  for (const slot of board.slots) {
+    if (!slot.assignable) continue
+
+    if (!roomsByLabel.has(slot.roomLabel)) {
+      roomsByLabel.set(slot.roomLabel, {
+        roomId: slot.roomLabel,
+        roomTypeLabel: slot.roomTypeLabel,
+        slots: [],
+        totalBeds: 0,
+        filledBeds: 0,
+        isEmpty: true,
+        isAllocatedByCurrentProcess: false,
+      })
+    }
+
+    const room = roomsByLabel.get(slot.roomLabel)!
+    room.totalBeds += 1
+
+    const occupant = slot.attendeeId
+      ? { attendeeId: slot.attendeeId, name: slot.attendeeId }
+      : null
+
+    if (slot.attendeeId) {
+      room.filledBeds += 1
+      room.isEmpty = false
+      if (currentAttendeeIds.has(slot.attendeeId)) {
+        room.isAllocatedByCurrentProcess = true
+      }
+    }
+
+    room.slots.push({
+      slotId: slot.slotId,
+      roomLabel: slot.roomLabel,
+      roomTypeLabel: slot.roomTypeLabel,
+      isEmpty: !slot.attendeeId,
+      isAllocatedByCurrentProcess: slot.attendeeId
+        ? currentAttendeeIds.has(slot.attendeeId)
+        : false,
+      occupant,
+    })
+  }
+
+  const filteredRooms = Array.from(roomsByLabel.values()).filter(
+    (room) => room.isEmpty || room.isAllocatedByCurrentProcess
+  )
+
+  const maxRooms = Math.min(currentAttendeeIds.size, filteredRooms.length)
+  return filteredRooms.slice(0, maxRooms > 0 ? maxRooms : 0)
+}

@@ -326,16 +326,16 @@ export type DataModel = {
       allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
       assignedRoomId?: string;
       attendeeKey: string;
-      dietaryRestrictions: string;
+      dietaryRestrictions?: string;
       email?: string;
       gender: "male" | "female" | "mixed" | "unknown";
-      location: string;
+      location?: string;
       name: string;
       orderId: Id<"orders">;
       phone?: string;
       priorityReason?: string;
-      roommateAvoid: string;
-      roommatePreference: string;
+      roommateAvoid?: string;
+      roommatePreference?: string;
       sortOrder: number;
       _id: Id<"orderAttendees">;
       _creationTime: number;
@@ -609,17 +609,27 @@ export type DataModel = {
   ticketTailorAttendees: {
     document: {
       ageGroup?: string;
-      attendeeId: Id<"orderAttendees">;
+      allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
+      assignedRoomId?: string;
+      attendeeId?: Id<"orderAttendees">;
       checkedInAt?: number;
       customAnswers?: any;
+      dietaryRestrictions?: string;
+      email?: string;
       genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
+      location?: string;
+      name?: string;
       orderId: Id<"orders">;
+      phone?: string;
+      priorityReason?: string;
       providerAttendeeId?: string;
       providerEventId: string;
       providerIssuedTicketId?: string;
       providerOrderId: string;
       providerTicketTypeId?: string;
       rawPayload: any;
+      roommateAvoid?: string;
+      roommatePreference?: string;
       ticketCategory?: string;
       ticketStatus?: string;
       ticketTypeLabel?: string;
@@ -631,17 +641,27 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "ageGroup"
+      | "allocationPriority"
+      | "assignedRoomId"
       | "attendeeId"
       | "checkedInAt"
       | "customAnswers"
+      | "dietaryRestrictions"
+      | "email"
       | "genderType"
+      | "location"
+      | "name"
       | "orderId"
+      | "phone"
+      | "priorityReason"
       | "providerAttendeeId"
       | "providerEventId"
       | "providerIssuedTicketId"
       | "providerOrderId"
       | "providerTicketTypeId"
       | "rawPayload"
+      | "roommateAvoid"
+      | "roommatePreference"
       | "ticketCategory"
       | "ticketStatus"
       | "ticketTypeLabel"
@@ -650,6 +670,8 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       attendeeId: ["attendeeId", "_creationTime"];
+      by_assignedRoomId: ["assignedRoomId", "_creationTime"];
+      by_email: ["email", "_creationTime"];
       genderType: ["genderType", "_creationTime"];
       orderId: ["orderId", "_creationTime"];
       providerAttendeeId: ["providerAttendeeId", "_creationTime"];

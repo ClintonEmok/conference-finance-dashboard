@@ -23,10 +23,7 @@ type ReviewSubmitStepProps = {
   submitResult: SignupSubmissionResult | null
   submitError: { code: SignupClientErrorCode; message: string } | null
   isSubmitting: boolean
-  restorePayloadChoicePending: boolean
   onSubmit: () => void
-  onContinuePreviousSubmission: () => void
-  onEditCurrentDetails: () => void
 }
 
 function formatAttendeeGender(gender: string): string {
@@ -60,10 +57,7 @@ export function ReviewSubmitStep({
   submitResult,
   submitError,
   isSubmitting,
-  restorePayloadChoicePending,
   onSubmit,
-  onContinuePreviousSubmission,
-  onEditCurrentDetails,
 }: ReviewSubmitStepProps) {
   const allocationSummary = useMemo<AllocationSummary>(() => {
     const board = buildAssignmentBoard(
@@ -91,10 +85,8 @@ export function ReviewSubmitStep({
     (room) => room.unfilledBeds > 0
   )
 
-  // Note: Successful submission now redirects to success page
-  // This block is kept for potential future inline display needs
-  if (submitResult && !restorePayloadChoicePending) {
-    return null // Redirect happens in SignupFlowShell
+  if (submitResult) {
+    return null
   }
 
   return (
@@ -353,39 +345,7 @@ export function ReviewSubmitStep({
         </div>
       ) : null}
 
-      {restorePayloadChoicePending ? (
-        <div className="rounded-lg border border-border/70 p-3 text-sm">
-          <p className="font-medium">
-            A previous submission was restored for this draft.
-          </p>
-          <p className="mt-1 text-muted-foreground">
-            Choose whether to continue the previous submission or edit current
-            details.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={onContinuePreviousSubmission}
-            >
-              Continue previous submission
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onEditCurrentDetails}
-            >
-              Edit current details
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      <Button
-        type="button"
-        onClick={onSubmit}
-        disabled={isSubmitting || restorePayloadChoicePending}
-      >
+      <Button type="button" onClick={onSubmit} disabled={isSubmitting}>
         {isSubmitting ? "Submitting..." : "Submit signup"}
       </Button>
     </div>

@@ -13,12 +13,12 @@ const attendeeValidator = v.object({
   attendeeKey: v.string(),
   name: v.string(),
   email: v.optional(v.string()),
-  phone: v.string(),
+  phone: v.optional(v.string()),
   gender: signupGenderValidator,
-  location: v.string(),
-  dietaryRestrictions: v.string(),
-  roommatePreference: v.string(),
-  roommateAvoid: v.string(),
+  location: v.optional(v.string()),
+  dietaryRestrictions: v.optional(v.string()),
+  roommatePreference: v.optional(v.string()),
+  roommateAvoid: v.optional(v.string()),
 })
 
 const ticketSelectionValidator = v.object({
@@ -35,11 +35,11 @@ const assignmentValidator = v.object({
 
 const restorePayloadValidator = v.object({
   eventId: v.string(),
-  source: signupSourceValidator,
+  source: v.optional(signupSourceValidator),
   notes: v.optional(v.string()),
   booker: v.object({
-    name: v.string(),
-    email: v.string(),
+    name: v.optional(v.string()),
+    email: v.optional(v.string()),
     phone: v.optional(v.string()),
   }),
   attendees: v.array(attendeeValidator),
@@ -126,12 +126,12 @@ async function buildRestorePayload(
     attendeeKey: string
     name: string
     email?: string
-    phone: string
+    phone?: string
     gender: "male" | "female" | "mixed" | "unknown"
-    location: string
-    dietaryRestrictions: string
-    roommatePreference: string
-    roommateAvoid: string
+    location?: string
+    dietaryRestrictions?: string
+    roommatePreference?: string
+    roommateAvoid?: string
   }>
   ticketSelections: Array<{
     attendeeKey: string
@@ -169,11 +169,11 @@ async function buildRestorePayload(
 
   return {
     eventId: String(submission.eventId),
-    source: submission.source,
+    source: submission.source ?? "internal",
     notes: submission.notes,
     booker: {
-      name: submission.bookerName,
-      email: submission.bookerEmail,
+      name: submission.bookerName ?? "",
+      email: submission.bookerEmail ?? "",
       phone: submission.bookerPhone,
     },
     attendees: attendees.map((attendee) => ({
@@ -237,7 +237,7 @@ export const submitSignupEnvelope = mutation({
   },
   returns: v.object({
     submissionId: v.id("orders"),
-    bookingRef: v.string(),
+    bookingRef: v.optional(v.string()),
     submittedAt: v.string(),
     restorePayload: restorePayloadValidator,
   }),
@@ -278,7 +278,9 @@ export const submitSignupEnvelope = mutation({
           return {
             submissionId: replaySubmission._id,
             bookingRef: replaySubmission.bookingRef,
-            submittedAt: new Date(replaySubmission.submittedAt).toISOString(),
+            submittedAt: new Date(
+              replaySubmission.submittedAt ?? Date.now()
+            ).toISOString(),
             restorePayload,
           }
         }
@@ -308,7 +310,9 @@ export const submitSignupEnvelope = mutation({
           return {
             submissionId: replaySubmission._id,
             bookingRef: replaySubmission.bookingRef,
-            submittedAt: new Date(replaySubmission.submittedAt).toISOString(),
+            submittedAt: new Date(
+              replaySubmission.submittedAt ?? Date.now()
+            ).toISOString(),
             restorePayload,
           }
         }
@@ -359,17 +363,6 @@ export const submitSignupEnvelope = mutation({
       if (attendee.email) {
         normalizeRequiredString(attendee.email, "attendees.email")
       }
-      normalizeRequiredString(attendee.phone, "attendees.phone")
-      normalizeRequiredString(attendee.location, "attendees.location")
-      normalizeRequiredString(
-        attendee.dietaryRestrictions,
-        "attendees.dietaryRestrictions"
-      )
-      normalizeRequiredString(
-        attendee.roommatePreference,
-        "attendees.roommatePreference"
-      )
-      normalizeRequiredString(attendee.roommateAvoid, "attendees.roommateAvoid")
     }
 
     const eventTicketTypes = await ctx.db
@@ -538,11 +531,15 @@ export const submitSignupEnvelope = mutation({
         name: attendee.name,
         email: normalizeOptionalString(attendee.email),
         phone: attendee.phone,
-        gender: attendee.gender,
-        location: attendee.location,
-        dietaryRestrictions: attendee.dietaryRestrictions,
-        roommatePreference: attendee.roommatePreference,
-        roommateAvoid: attendee.roommateAvoid,
+        gender: attendee.gender ?? "unknown",
+        location: normalizeOptionalString(attendee.location),
+        dietaryRestrictions: normalizeOptionalString(
+          attendee.dietaryRestrictions
+        ),
+        roommatePreference: normalizeOptionalString(
+          attendee.roommatePreference
+        ),
+        roommateAvoid: normalizeOptionalString(attendee.roommateAvoid),
         sortOrder,
       })
 
@@ -652,13 +649,13 @@ export const getByBookingRef = query({
     v.null(),
     v.object({
       submissionId: v.id("orders"),
-      bookingRef: v.string(),
-      bookerName: v.string(),
-      bookerEmail: v.string(),
+      bookingRef: v.optional(v.string()),
+      bookerName: v.optional(v.string()),
+      bookerEmail: v.optional(v.string()),
       bookerPhone: v.optional(v.string()),
-      eventId: v.id("events"),
-      eventSlug: v.string(),
-      submittedAt: v.number(),
+      eventId: v.optional(v.id("events")),
+      eventSlug: v.optional(v.string()),
+      submittedAt: v.optional(v.number()),
       attendees: v.array(
         v.object({
           name: v.string(),
@@ -691,13 +688,14 @@ export const getByBookingRef = query({
       .withIndex("by_bookingRef", (q) => q.eq("bookingRef", args.bookingRef))
       .first()
 
-    if (!submission) {
+    if (!submission || !submission.eventId) {
       return null
     }
 
     // Fetch event details to get slug
     const event = await ctx.db.get(submission.eventId)
-    const eventSlug = event?.slug ?? String(submission.eventId)
+    const eventSlug =
+      (event as { slug?: string } | null)?.slug ?? String(submission.eventId)
 
     // Fetch attendees
     const attendeeRows = await ctx.db
@@ -714,7 +712,7 @@ export const getByBookingRef = query({
     // Get ticket type details
     const ticketTypesData = await ctx.db
       .query("ticketTypes")
-      .withIndex("by_eventId", (q) => q.eq("eventId", submission.eventId))
+      .withIndex("by_eventId", (q) => q.eq("eventId", submission.eventId!))
       .take(100)
     const ticketTypeById = new Map(
       ticketTypesData.map((tt) => [String(tt._id), tt])
@@ -764,7 +762,7 @@ export const getByBookingRef = query({
     // Get slot details for assigned rooms
     const assignedSlots = await ctx.db
       .query("accommodationSlots")
-      .withIndex("by_eventId", (q) => q.eq("eventId", submission.eventId))
+      .withIndex("by_eventId", (q) => q.eq("eventId", submission.eventId!))
       .take(500)
     const slotById = new Map(assignedSlots.map((s) => [String(s._id), s]))
 

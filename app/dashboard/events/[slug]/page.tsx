@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, use } from "react"
+import { Id } from "@/convex/_generated/dataModel"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { format } from "date-fns"
@@ -1257,9 +1258,10 @@ export default function EventDetailPage({
               )}
 
               {/* Ticket List */}
-              {ticketTypes === undefined ? (
+              {ticketTypes === undefined ||
+              ticketTypes.ticketTypes === undefined ? (
                 <Skeleton className="h-48" />
-              ) : ticketTypes.length === 0 ? (
+              ) : ticketTypes.ticketTypes.length === 0 ? (
                 <div className="py-12 text-center text-muted-foreground">
                   <Ticket className="mx-auto mb-3 size-12 opacity-30" />
                   <p className="font-medium">No ticket types yet</p>
@@ -1269,7 +1271,7 @@ export default function EventDetailPage({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {ticketTypes.map((ticket: any) => (
+                  {ticketTypes.ticketTypes.map((ticket: any) => (
                     <div
                       key={ticket._id}
                       className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 p-4"
@@ -1358,7 +1360,7 @@ function AttendeesTabContent({ event }: { event: any }) {
         eventId: event._id,
         attendeeName: attendeeName.trim(),
         attendeeEmail: attendeeEmail.trim(),
-        ticketTypeId: attendeeTicketTypeId,
+        ticketTypeId: attendeeTicketTypeId as Id<"ticketTypes">,
       })
       setIsAddingAttendee(false)
       setAttendeeName("")

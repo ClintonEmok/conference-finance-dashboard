@@ -143,27 +143,14 @@ function normalizeEnvelope(
       ),
       name: normalizeRequiredString(attendee.name, `attendees[${index}].name`),
       email: normalizeOptionalString(attendee.email),
-      phone: normalizeRequiredString(
-        attendee.phone,
-        `attendees[${index}].phone`
-      ),
+      phone: normalizeOptionalString(attendee.phone),
       gender: genderValue,
-      location: normalizeRequiredString(
-        attendee.location,
-        `attendees[${index}].location`
+      location: normalizeOptionalString(attendee.location),
+      dietaryRestrictions: normalizeOptionalString(
+        attendee.dietaryRestrictions
       ),
-      dietaryRestrictions: normalizeRequiredString(
-        attendee.dietaryRestrictions,
-        `attendees[${index}].dietaryRestrictions`
-      ),
-      roommatePreference: normalizeRequiredString(
-        attendee.roommatePreference,
-        `attendees[${index}].roommatePreference`
-      ),
-      roommateAvoid: normalizeRequiredString(
-        attendee.roommateAvoid,
-        `attendees[${index}].roommateAvoid`
-      ),
+      roommatePreference: normalizeOptionalString(attendee.roommatePreference),
+      roommateAvoid: normalizeOptionalString(attendee.roommateAvoid),
     }
   })
 
@@ -280,12 +267,19 @@ export async function submitSignup(
 
   return {
     submissionId: String(result.submissionId),
-    bookingRef: result.bookingRef,
-    submittedAt: result.submittedAt,
+    bookingRef: result.bookingRef ?? "",
+    submittedAt: String(result.submittedAt ?? Date.now()),
     restorePayload: result.restorePayload
       ? {
-          ...result.restorePayload,
           eventId: String(result.restorePayload.eventId),
+          source: result.restorePayload.source ?? "internal",
+          notes: result.restorePayload.notes,
+          booker: {
+            name: result.restorePayload.booker?.name ?? "",
+            email: result.restorePayload.booker?.email ?? "",
+            phone: result.restorePayload.booker?.phone,
+          },
+          attendees: result.restorePayload.attendees,
           ticketSelections: result.restorePayload.ticketSelections.map(
             (selection) => ({
               attendeeKey: selection.attendeeKey,

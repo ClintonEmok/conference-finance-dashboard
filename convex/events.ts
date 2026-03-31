@@ -415,11 +415,13 @@ export const createManualAttendee = mutation({
     attendeeName: v.string(),
     attendeeEmail: v.optional(v.string()),
     attendeePhone: v.optional(v.string()),
-    gender: v.union(
-      v.literal("male"),
-      v.literal("female"),
-      v.literal("mixed"),
-      v.literal("unknown")
+    gender: v.optional(
+      v.union(
+        v.literal("male"),
+        v.literal("female"),
+        v.literal("mixed"),
+        v.literal("unknown")
+      )
     ),
     location: v.optional(v.string()),
     dietaryRestrictions: v.optional(v.string()),
@@ -462,7 +464,7 @@ export const createManualAttendee = mutation({
       name: args.attendeeName,
       email: args.attendeeEmail,
       phone: args.attendeePhone,
-      gender: args.gender,
+      gender: args.gender ?? "unknown",
       location: args.location ?? "",
       dietaryRestrictions: args.dietaryRestrictions ?? "",
       roommatePreference: args.roommatePreference ?? "",

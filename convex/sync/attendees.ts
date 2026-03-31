@@ -19,7 +19,7 @@ export const upsertTicketTailorAttendee = mutation({
     providerOrderId: v.string(),
     eventId: v.union(v.id("events"), v.string()),
     orderId: v.id("orders"),
-    attendeeId: v.id("orderAttendees"),
+    attendeeId: v.optional(v.id("orderAttendees")),
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     ticketTypeLabel: v.optional(v.string()),

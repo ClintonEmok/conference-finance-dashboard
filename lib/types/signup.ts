@@ -56,12 +56,12 @@ export type SignupSubmissionEnvelope = {
     attendeeKey: string
     name: string
     email?: string
-    phone: string
+    phone?: string
     gender: SignupGender
-    location: string
-    dietaryRestrictions: string
-    roommatePreference: string
-    roommateAvoid: string
+    location?: string
+    dietaryRestrictions?: string
+    roommatePreference?: string
+    roommateAvoid?: string
   }>
   ticketSelections: Array<{
     attendeeKey: string

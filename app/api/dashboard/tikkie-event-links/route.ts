@@ -386,7 +386,7 @@ export async function PATCH(request: Request) {
   try {
     const result = await convexMutation(api.payments.assignPaymentToOrder, {
       paymentId: paymentId as Id<"payments">,
-      orderId,
+      orderId: orderId as Id<"orders">,
       status: "manual_assignment",
       matchedBy: "dashboard",
     })
