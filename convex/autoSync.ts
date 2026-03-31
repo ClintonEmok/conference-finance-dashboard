@@ -653,18 +653,25 @@ async function autoMatchUnassignedPayments(ctx: {
   runQuery: Function
   runMutation: Function
 }): Promise<number> {
-  // Query unassigned payments and paid orders, match by payer name
+  // Query unassigned payments, paid orders, and attendees for matching
   const unassignedPayments = await ctx.runQuery(
     internal.sync.internalGetUnassignedPayments,
     {}
   )
   const paidOrders = await ctx.runQuery(internal.sync.internalGetPaidOrders, {})
+  const attendeesByOrder: Record<string, string[]> = await ctx.runQuery(
+    internal.sync.internalGetAttendeesByOrder,
+    {}
+  )
 
   let matched = 0
   for (const payment of unassignedPayments) {
+    const normalizedPayer = payment.payerName.toLowerCase().trim()
+
+    // First: try exact buyer name match
     const matches = paidOrders.filter(
       (o: { buyerName: string | null }) =>
-        o.buyerName?.toLowerCase() === payment.payerName.toLowerCase()
+        o.buyerName?.toLowerCase().trim() === normalizedPayer
     )
     if (matches.length === 1) {
       await ctx.runMutation(internal.payments.internalAssignPaymentToOrder, {
@@ -674,6 +681,29 @@ async function autoMatchUnassignedPayments(ctx: {
         matchedBy: "auto",
       })
       matched++
+      continue
+    }
+
+    // Fallback: try attendee name match with exact amount
+    for (const order of paidOrders) {
+      const orderAttendees = attendeesByOrder[order._id] ?? []
+      const attendeeMatch = orderAttendees.some(
+        (name: string) => name === normalizedPayer
+      )
+      if (
+        attendeeMatch &&
+        order.totalAmountMinor != null &&
+        order.totalAmountMinor === payment.amountMinor
+      ) {
+        await ctx.runMutation(internal.payments.internalAssignPaymentToOrder, {
+          paymentId: payment._id,
+          orderId: order._id,
+          status: "auto_matched",
+          matchedBy: "auto",
+        })
+        matched++
+        break
+      }
     }
   }
   return matched

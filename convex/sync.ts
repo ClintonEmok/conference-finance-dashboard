@@ -41,6 +41,7 @@ export const startSyncRun = mutation({
   args: {},
   returns: v.id("ticketTailorSyncRuns"),
   handler: async (ctx) => {
+    console.log("server identity", await ctx.auth.getUserIdentity())
     await requireIdentity(ctx)
     const id = await ctx.db.insert("ticketTailorSyncRuns", {
       status: "running",
@@ -980,7 +981,23 @@ export const internalGetPaidOrders = internalQuery({
     return orders.map((o) => ({
       _id: o._id,
       buyerName: o.buyerName ?? null,
+      totalAmountMinor: o.totalAmountMinor ?? null,
     }))
+  },
+})
+
+export const internalGetAttendeesByOrder = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const attendees = await ctx.db.query("ticketTailorAttendees").take(5000)
+    const byOrder = new Map<string, string[]>()
+    for (const att of attendees) {
+      if (!att.name || !att.orderId) continue
+      const existing = byOrder.get(att.orderId) ?? []
+      existing.push(att.name.toLowerCase().trim())
+      byOrder.set(att.orderId, existing)
+    }
+    return Object.fromEntries(byOrder)
   },
 })
 

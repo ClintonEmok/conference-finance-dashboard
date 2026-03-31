@@ -319,6 +319,22 @@ export const autoMatchPayments = mutation({
       }
     }
 
+    // Pre-fetch attendees for attendee-name matching fallback
+    const attendees = await ctx.db
+      .query("ticketTailorAttendees")
+      .withIndex("eventId", (q) =>
+        q.eq("eventId", args.eventId as Id<"events">)
+      )
+      .take(1000)
+
+    const attendeesByOrder = new Map<string, string[]>()
+    for (const att of attendees) {
+      if (!att.name) continue
+      const existing = attendeesByOrder.get(att.orderId) ?? []
+      existing.push(att.name.toLowerCase().trim())
+      attendeesByOrder.set(att.orderId, existing)
+    }
+
     for (const payment of unassignedPayments) {
       const normalizedPayerName = payment.payerName.toLowerCase().trim()
       const paymentAmount = payment.amountMinor
@@ -334,6 +350,25 @@ export const autoMatchPayments = mutation({
           matchedBy: "auto",
         })
         matched.push(payment._id)
+        continue
+      }
+
+      // Fallback: try attendee name match with exact amount
+      for (const order of orders) {
+        const orderAttendees = attendeesByOrder.get(order._id) ?? []
+        const attendeeMatch = orderAttendees.some(
+          (name) => name === normalizedPayerName
+        )
+        if (attendeeMatch && order.totalAmountMinor === paymentAmount) {
+          await ctx.db.patch("payments", payment._id, {
+            orderId: order._id,
+            status: "auto_matched",
+            matchedAt: Date.now(),
+            matchedBy: "auto",
+          })
+          matched.push(payment._id)
+          break
+        }
       }
     }
 
