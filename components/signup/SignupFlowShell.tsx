@@ -265,6 +265,16 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   }
 
   function moveNext() {
+    if (activeDraft.step === "buyer") {
+      const buyerComplete =
+        activeDraft.booker.name.trim().length > 0 &&
+        activeDraft.booker.email.trim().length > 0 &&
+        activeDraft.booker.phone.trim().length > 0
+      if (!buyerComplete) {
+        return
+      }
+    }
+
     if (activeDraft.step === "attendees") {
       const validation = validateAttendeeDetails(activeDraft.attendees)
       setAttendeeValidation(validation)
