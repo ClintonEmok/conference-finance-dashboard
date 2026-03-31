@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Attendee Signup + Accommodation Self-Assignment
 status: in_progress
-stopped_at: Phase 23 plan 01 complete
-last_updated: "2026-03-31T09:23:21Z"
+stopped_at: Completed 23-06-PLAN.md
+last_updated: "2026-03-31T10:12:00Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 21
-  completed_plans: 15
+  completed_plans: 17
 ---
 
 # Project State
@@ -25,7 +25,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 ## Current Position
 
 Phase: 23 (add-email-confirmation-and-show-tikkie-link-payment-after-signup-is-completed-and-improve-tracking-we-can-fetch-tikkie-automatically-already-but-payments-are-done-by-name-payment-details-only-show-first-letter-and-last-name) — IN PROGRESS
-Plan: 1 of 6 COMPLETE
+Plan: 3 of 6 COMPLETE (01, 02, 06)
 
 ## Alignment Status
 
@@ -194,11 +194,12 @@ Recent decisions that future work should preserve:
   - 22-02: Room assignment redesign (COMPLETE) - Bedslot grouping by room type with real-time preview
   - 22-03: Review step expandable sections (COMPLETE) - Tickets, Attendees, Rooms with allocation summary
 - Phase 23 added: Add email confirmation and show tikkie link (payment). after signup is completed and improve tracking. we can fetch tikkie automatically already, but payments are done by name. payment details only show first letter and last name (context gathered)
+- Phase 24 added: canonical orders rewrite
 
 ## Session Continuity
 
 - **Last activity:** 2026-03-31
-- **Last session:** 2026-03-31T09:23:21Z
-- **Stopped at:** Completed 23-01-PLAN.md
-- **Resume file:** `.planning/phases/23-add-email-confirmation-and-show-tikkie-link-payment-after-signup-is-completed-and-improve-tracking-we-can-fetch-tikkie-automatically-already-but-payments-are-done-by-name-payment-details-only-show-first-letter-and-last-name/23-01-SUMMARY.md`
-- **Next recommended plan:** Continue with Phase 23 Plan 02 (integrate email with signup submission flow)
+- **Last session:** 2026-03-31T10:12:00Z
+- **Stopped at:** Completed 23-06-PLAN.md
+- **Resume file:** None
+- **Next recommended plan:** Continue with Phase 23 Plan 03 (plans 03, 04, 05 remain)

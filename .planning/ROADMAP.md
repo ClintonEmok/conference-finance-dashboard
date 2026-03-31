@@ -145,11 +145,21 @@ Plans:
 Plans:
 
 - [x] 23-01-PLAN.md — Email infrastructure and async confirmation emails with Resend ✓
-- [ ] 23-02-PLAN.md — Success page with expandable sections and booking reference routing
+- [x] 23-02-PLAN.md — Success page with expandable sections and booking reference routing
 - [ ] 23-03-PLAN.md — Tikkie link display with QR code on success page and in emails
 - [ ] 23-04-PLAN.md — Privacy-aware name masking and attendee name payment matching
 - [ ] 23-05-PLAN.md — Buyer details step (between tickets and attendees)
-- [ ] 23-06-PLAN.md — Clear localStorage draft after successful submission
+- [x] 23-06-PLAN.md — Clear localStorage draft after successful submission
+
+### Phase 24: canonical orders rewrite
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 23
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 24 to break down)
 
 ---
 
