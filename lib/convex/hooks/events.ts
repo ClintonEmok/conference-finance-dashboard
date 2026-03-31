@@ -52,10 +52,14 @@ export function useUpdateEvent() {
 
 // Ticket type queries and mutations
 export function useTicketTypesForEvent(eventId: string | undefined) {
-  return useQuery(
+  const result = useQuery(
     api.events.getTicketTypesForEvent,
     eventId ? { eventId: eventId as any } : ("skip" as any)
   )
+  return {
+    ticketTypes: result ?? [],
+    isLoading: result === undefined,
+  }
 }
 
 export function useCreateTicketType() {
@@ -68,4 +72,20 @@ export function useUpdateTicketType() {
 
 export function useDeleteTicketType() {
   return useMutation(api.events.deleteTicketType)
+}
+
+// Manual attendee creation
+export function useCreateManualAttendee() {
+  return useMutation(api.events.createManualAttendee)
+}
+
+export function useAttendeesForEvent(eventId: string | undefined) {
+  const result = useQuery(
+    api.events.getAttendeesForEvent,
+    eventId ? { eventId: eventId as any } : ("skip" as any)
+  )
+  return {
+    attendees: result ?? [],
+    isLoading: result === undefined,
+  }
 }

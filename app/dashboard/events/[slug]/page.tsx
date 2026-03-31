@@ -57,6 +57,8 @@ import {
   useCreateTicketType,
   useUpdateTicketType,
   useDeleteTicketType,
+  useAttendeesForEvent,
+  useCreateManualAttendee,
 } from "@/lib/convex/hooks/events"
 import { EventTikkieSection } from "@/components/dashboard/event-tikkie-section"
 
@@ -67,6 +69,7 @@ type TabKey =
   | "accommodation"
   | "tickets"
   | "payments"
+  | "attendees"
 
 const COMMON_TIMEZONES = [
   "Europe/London",
@@ -459,6 +462,7 @@ export default function EventDetailPage({
 
   const tabs: { key: TabKey; label: string; icon: React.ElementType }[] = [
     { key: "overview", label: "Overview", icon: Calendar },
+    { key: "attendees", label: "Attendees", icon: Users },
     { key: "tickets", label: "Tickets", icon: Ticket },
     { key: "payments", label: "Payments", icon: CreditCard },
     { key: "settings", label: "Settings", icon: Settings },
@@ -718,6 +722,8 @@ export default function EventDetailPage({
             </Card>
           </div>
         )}
+
+        {activeTab === "attendees" && <AttendeesTabContent event={event} />}
 
         {activeTab === "settings" && (
           <Card>
@@ -1324,17 +1330,176 @@ export default function EventDetailPage({
           />
         )}
       </div>
-
-      {/* Add Hotel Dialog */}
-      <AddHotelDialog
-        open={isAddHotelDialogOpen}
-        onOpenChange={setIsAddHotelDialogOpen}
-        eventId={event?._id as any}
-        existingHotels={hotels}
-        existingRoomTypes={roomTypes}
-        onSubmit={handleAddHotelSubmit}
-        isSubmitting={isLinkingHotel}
-      />
     </div>
+  )
+}
+
+// Attendees Tab Content Component
+function AttendeesTabContent({ event }: { event: any }) {
+  const [isAddingAttendee, setIsAddingAttendee] = useState(false)
+  const [attendeeName, setAttendeeName] = useState("")
+  const [attendeeEmail, setAttendeeEmail] = useState("")
+  const [attendeeTicketTypeId, setAttendeeTicketTypeId] = useState("")
+  const { attendees, isLoading } = useAttendeesForEvent(event._id)
+  const { ticketTypes } = useTicketTypesForEvent(event._id)
+  const createManualAttendee = useCreateManualAttendee()
+
+  const handleAddAttendee = async () => {
+    if (
+      !attendeeName.trim() ||
+      !attendeeEmail.trim() ||
+      !attendeeTicketTypeId
+    ) {
+      return
+    }
+
+    try {
+      await createManualAttendee({
+        eventId: event._id,
+        attendeeName: attendeeName.trim(),
+        attendeeEmail: attendeeEmail.trim(),
+        ticketTypeId: attendeeTicketTypeId,
+      })
+      setIsAddingAttendee(false)
+      setAttendeeName("")
+      setAttendeeEmail("")
+      setAttendeeTicketTypeId("")
+    } catch (error) {
+      console.error("Failed to create attendee:", error)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Attendees</CardTitle>
+            <CardDescription>
+              Manage event attendees and registrations
+            </CardDescription>
+          </div>
+          {!isAddingAttendee && (
+            <Button onClick={() => setIsAddingAttendee(true)}>
+              <Plus className="mr-2 size-4" />
+              Add Attendee
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Add Attendee Form */}
+        {isAddingAttendee && (
+          <div className="space-y-4 rounded-lg border border-border/50 bg-muted/20 p-4">
+            <h4 className="font-medium">New Attendee</h4>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Name</label>
+                <input
+                  type="text"
+                  value={attendeeName}
+                  onChange={(e) => setAttendeeName(e.target.value)}
+                  placeholder="Full name"
+                  className="h-10 w-full rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Email</label>
+                <input
+                  type="email"
+                  value={attendeeEmail}
+                  onChange={(e) => setAttendeeEmail(e.target.value)}
+                  placeholder="email@example.com"
+                  className="h-10 w-full rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <label className="text-sm font-medium">Ticket Type</label>
+                <select
+                  value={attendeeTicketTypeId}
+                  onChange={(e) => setAttendeeTicketTypeId(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
+                >
+                  <option value="">Select a ticket type</option>
+                  {ticketTypes?.map((ticket: any) => (
+                    <option key={ticket._id} value={ticket._id}>
+                      {ticket.label} - {event.currency}{" "}
+                      {(ticket.priceMinor / 100).toFixed(2)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setIsAddingAttendee(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAddAttendee}
+                disabled={
+                  !attendeeName.trim() ||
+                  !attendeeEmail.trim() ||
+                  !attendeeTicketTypeId
+                }
+              >
+                Add Attendee
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Attendees List */}
+        {isLoading ? (
+          <Skeleton className="h-48" />
+        ) : attendees?.length === 0 ? (
+          <div className="py-12 text-center text-muted-foreground">
+            <Users className="mx-auto mb-3 size-12 opacity-30" />
+            <p className="font-medium">No attendees yet</p>
+            <p className="text-sm">
+              Add attendees manually or wait for public signups.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {attendees?.map((attendee: any) => (
+              <div
+                key={attendee._id}
+                className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 p-4"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium">{attendee.name}</p>
+                    <Badge variant="outline" className="text-[10px]">
+                      {attendee.ticketLabel}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {attendee.email}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Booking: {attendee.bookingRef}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant={
+                      attendee.orderStatus === "confirmed"
+                        ? "default"
+                        : "outline"
+                    }
+                    className="text-[10px]"
+                  >
+                    {attendee.orderStatus}
+                  </Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }

@@ -241,6 +241,8 @@ async function triggerConfirmationEmail(
     eventDate,
     eventLocation: "",
     tikkieUrl: tikkieLink?.paymentUrl,
+    tikkieAmountMinor: tikkieLink?.amountMinor,
+    tikkieCurrency: event?.currency,
     attendeeCount: attendees.length,
     roomAssignments,
     successPageUrl: `${appUrl}/signup/success/${bookingRef}`,

@@ -17,6 +17,8 @@ interface SignupConfirmationEmailProps {
   eventDate: string
   eventLocation: string
   tikkieUrl: string | null
+  tikkieAmountMinor?: number
+  tikkieCurrency?: string
   attendeeCount: number
   roomAssignments: Array<{
     roomType: string
@@ -33,6 +35,8 @@ export default function SignupConfirmationEmail({
   eventDate,
   eventLocation,
   tikkieUrl,
+  tikkieAmountMinor,
+  tikkieCurrency,
   attendeeCount,
   roomAssignments,
   successPageUrl,
@@ -110,7 +114,12 @@ export default function SignupConfirmationEmail({
             </Section>
           )}
 
-          <EmailTikkieSection tikkieUrl={tikkieUrl} eventName={eventName} />
+          <EmailTikkieSection
+            tikkieUrl={tikkieUrl}
+            eventName={eventName}
+            amountMinor={tikkieAmountMinor}
+            currency={tikkieCurrency}
+          />
 
           <Text
             style={{

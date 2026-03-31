@@ -30,6 +30,8 @@ export const triggerSignupConfirmationEmail = mutation({
     eventDate: v.string(),
     eventLocation: v.string(),
     tikkieUrl: v.optional(v.string()),
+    tikkieAmountMinor: v.optional(v.number()),
+    tikkieCurrency: v.optional(v.string()),
     attendeeCount: v.number(),
     roomAssignments: v.array(
       v.object({

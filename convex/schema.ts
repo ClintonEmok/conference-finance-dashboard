@@ -423,6 +423,7 @@ export default defineSchema({
     .index("providerOrderEvent", ["providerOrderId", "providerEventId"])
     .index("status_updated", ["status", "statusUpdatedAt"])
     .index("orderId", ["orderId"])
+    .index("eventId_linkType", ["eventId", "linkType"])
     .index("eventId", ["eventId"])
     .index("linkType", ["linkType"]),
 

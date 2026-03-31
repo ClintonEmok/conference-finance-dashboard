@@ -3,15 +3,29 @@ import { Section, Heading, Text, Button } from "@react-email/components"
 interface EmailTikkieSectionProps {
   tikkieUrl: string | null
   eventName: string
+  amountMinor?: number
+  currency?: string
+}
+
+function formatCurrency(amountMinor: number, currency: string = "EUR"): string {
+  const euros = amountMinor / 100
+  return new Intl.NumberFormat("nl-NL", {
+    style: "currency",
+    currency,
+  }).format(euros)
 }
 
 export function EmailTikkieSection({
   tikkieUrl,
   eventName,
+  amountMinor,
+  currency = "EUR",
 }: EmailTikkieSectionProps) {
   if (!tikkieUrl) {
     return null
   }
+
+  const hasFixedAmount = amountMinor && amountMinor > 0
 
   return (
     <Section style={{ margin: "24px 0" }}>
@@ -26,8 +40,9 @@ export function EmailTikkieSection({
         Complete Your Payment
       </Heading>
       <Text style={{ color: "#374151", fontSize: "14px" }}>
-        Please complete your payment for {eventName} using the link below. You
-        can pay any amount that covers your booking.
+        {hasFixedAmount
+          ? `Please complete your payment of ${formatCurrency(amountMinor, currency)} for ${eventName} using the link below.`
+          : `Please complete your payment for ${eventName} using the link below. You can pay any amount that covers your booking.`}
       </Text>
       <Button
         href={tikkieUrl}

@@ -613,6 +613,7 @@ export type DataModel = {
       checkedInAt?: number;
       customAnswers?: any;
       genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
+      orderId: Id<"orders">;
       providerAttendeeId?: string;
       providerEventId: string;
       providerIssuedTicketId?: string;
@@ -634,6 +635,7 @@ export type DataModel = {
       | "checkedInAt"
       | "customAnswers"
       | "genderType"
+      | "orderId"
       | "providerAttendeeId"
       | "providerEventId"
       | "providerIssuedTicketId"
@@ -649,6 +651,7 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       attendeeId: ["attendeeId", "_creationTime"];
       genderType: ["genderType", "_creationTime"];
+      orderId: ["orderId", "_creationTime"];
       providerAttendeeId: ["providerAttendeeId", "_creationTime"];
       providerEventOrder: [
         "providerEventId",
@@ -907,6 +910,7 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       eventId: ["eventId", "_creationTime"];
+      eventId_linkType: ["eventId", "linkType", "_creationTime"];
       linkType: ["linkType", "_creationTime"];
       orderId: ["orderId", "_creationTime"];
       paymentRequestToken: ["paymentRequestToken", "_creationTime"];

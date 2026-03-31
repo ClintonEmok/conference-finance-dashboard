@@ -20,6 +20,8 @@ export const sendSignupConfirmation = internalAction({
     eventDate: v.string(),
     eventLocation: v.string(),
     tikkieUrl: v.optional(v.string()),
+    tikkieAmountMinor: v.optional(v.number()),
+    tikkieCurrency: v.optional(v.string()),
     attendeeCount: v.number(),
     roomAssignments: v.array(
       v.object({
@@ -45,6 +47,8 @@ export const sendSignupConfirmation = internalAction({
           eventDate: args.eventDate,
           eventLocation: args.eventLocation,
           tikkieUrl: args.tikkieUrl || null,
+          tikkieAmountMinor: args.tikkieAmountMinor,
+          tikkieCurrency: args.tikkieCurrency,
           attendeeCount: args.attendeeCount,
           roomAssignments: args.roomAssignments,
           successPageUrl: args.successPageUrl,

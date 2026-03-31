@@ -289,7 +289,7 @@ export declare const api: {
         assignedRoomId?: string;
         eventId?: string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
-        orderId?: Id<"ticketTailorOrders">;
+        orderId?: Id<"orders">;
         paginationOpts?: {
           cursor: string | null;
           endCursor?: string | null;
@@ -364,6 +364,8 @@ export declare const api: {
           roomType: string;
         }>;
         successPageUrl: string;
+        tikkieAmountMinor?: number;
+        tikkieCurrency?: string;
         tikkieUrl?: string;
         to: string;
       },
@@ -397,6 +399,23 @@ export declare const api: {
       },
       Id<"events">
     >;
+    createManualAttendee: FunctionReference<
+      "mutation",
+      "public",
+      {
+        attendeeEmail?: string;
+        attendeeName: string;
+        attendeePhone?: string;
+        dietaryRestrictions?: string;
+        eventId: Id<"events">;
+        gender: "male" | "female" | "mixed" | "unknown";
+        location?: string;
+        notes?: string;
+        roommatePreference?: string;
+        ticketTypeId: Id<"ticketTypes">;
+      },
+      any
+    >;
     createTicketType: FunctionReference<
       "mutation",
       "public",
@@ -410,10 +429,22 @@ export declare const api: {
       },
       any
     >;
+    deleteEvent: FunctionReference<
+      "mutation",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
     deleteTicketType: FunctionReference<
       "mutation",
       "public",
       { ticketTypeId: Id<"ticketTypes"> },
+      any
+    >;
+    getAttendeesForEvent: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
       any
     >;
     getEventById: FunctionReference<
@@ -760,7 +791,7 @@ export declare const api: {
       "public",
       {
         matchedBy?: string;
-        orderId: string;
+        orderId: Id<"orders">;
         paymentId: Id<"payments">;
         status?: "auto_matched" | "manual_assignment";
       },
@@ -962,7 +993,7 @@ export declare const api: {
           hotelName: string;
           roomType: string;
         }>;
-        submissionId: Id<"submissions">;
+        submissionId: Id<"orders">;
         submittedAt: number;
         ticketSelections: Array<{
           pricePerTicketMinor: number;
@@ -1035,7 +1066,7 @@ export declare const api: {
             ticketTypeId: string;
           }>;
         };
-        submissionId: Id<"submissions">;
+        submissionId: Id<"orders">;
         submittedAt: string;
       }
     >;
@@ -1061,6 +1092,40 @@ export declare const api: {
       },
       { archived: number; scanned: number }
     >;
+    attendees: {
+      getTicketTailorAttendeesByOrderId: FunctionReference<
+        "query",
+        "public",
+        { orderId: Id<"orders"> },
+        any
+      >;
+      upsertTicketTailorAttendee: FunctionReference<
+        "mutation",
+        "public",
+        {
+          ageGroup?: string;
+          allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
+          attendeeId: Id<"orderAttendees">;
+          customAnswers?: any;
+          email?: string;
+          eventId: Id<"events"> | string;
+          genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
+          name?: string;
+          orderId: Id<"orders">;
+          priorityReason?: string;
+          providerAttendeeId?: string;
+          providerEventId: string;
+          providerIssuedTicketId?: string;
+          providerOrderId: string;
+          providerTicketTypeId?: string;
+          rawPayload: any;
+          ticketCategory?: string;
+          ticketStatus?: string;
+          ticketTypeLabel?: string;
+        },
+        Id<"ticketTailorAttendees">
+      >;
+    };
     completeSyncRun: FunctionReference<
       "mutation",
       "public",
@@ -1090,6 +1155,58 @@ export declare const api: {
       { eventType: string; payload: any; providerEventId: string },
       Id<"ticketTailorWebhookEvents">
     >;
+    events: {
+      getTicketTailorEventByProviderId: FunctionReference<
+        "query",
+        "public",
+        { providerEventId: string },
+        any
+      >;
+      upsertTicketTailorEvent: FunctionReference<
+        "mutation",
+        "public",
+        {
+          currency?: string;
+          endsAt?: number;
+          name?: string;
+          providerEventId: string;
+          rawPayload: any;
+          startsAt?: number;
+          timezone?: string;
+        },
+        Id<"ticketTailorEvents">
+      >;
+    };
+    families: {
+      addAttendeeToFamilyGroup: FunctionReference<
+        "mutation",
+        "public",
+        {
+          attendeeId: string;
+          familyGroupId: Id<"attendeeFamilyGroups">;
+          relationship?: string;
+        },
+        Id<"attendeeFamilyMembers">
+      >;
+      createAttendeeFamilyGroup: FunctionReference<
+        "mutation",
+        "public",
+        { label?: string; primaryAttendeeId: string },
+        Id<"attendeeFamilyGroups">
+      >;
+      getAttendeeFamilyGroupByPrimaryId: FunctionReference<
+        "query",
+        "public",
+        { primaryAttendeeId: string },
+        any
+      >;
+      getFamilyMembersByGroupId: FunctionReference<
+        "query",
+        "public",
+        { familyGroupId: Id<"attendeeFamilyGroups"> },
+        any
+      >;
+    };
     getAttendeeFamilyGroupByPrimaryId: FunctionReference<
       "query",
       "public",
@@ -1119,7 +1236,7 @@ export declare const api: {
     getTicketTailorAttendeesByOrderId: FunctionReference<
       "query",
       "public",
-      { orderId: Id<"ticketTailorOrders"> | string },
+      { orderId: Id<"orders"> },
       any
     >;
     getTicketTailorEventByProviderId: FunctionReference<
@@ -1152,6 +1269,45 @@ export declare const api: {
       { status?: "pending" | "processed" | "failed" },
       any
     >;
+    orders: {
+      archiveMissingOrdersForEvent: FunctionReference<
+        "mutation",
+        "public",
+        {
+          providerEventId: string;
+          reason?: string;
+          seenProviderOrderIds: Array<string>;
+        },
+        { archived: number; scanned: number }
+      >;
+      getTicketTailorOrderByProviderId: FunctionReference<
+        "query",
+        "public",
+        { providerOrderId: string },
+        any
+      >;
+      upsertTicketTailorOrder: FunctionReference<
+        "mutation",
+        "public",
+        {
+          buyerEmail?: string;
+          buyerName?: string;
+          cancelledAt?: number;
+          currency?: string;
+          eventId: Id<"events"> | string;
+          normalizationNote?: string;
+          normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
+          orderedAt?: number;
+          providerEventId: string;
+          providerOrderId: string;
+          providerStatus?: string;
+          rawPayload: any;
+          refundedAt?: number;
+          totalAmountMinor?: number;
+        },
+        Id<"ticketTailorOrders">
+      >;
+    };
     processWebhookEvent: FunctionReference<
       "mutation",
       "public",
@@ -1162,6 +1318,55 @@ export declare const api: {
       },
       any
     >;
+    runs: {
+      completeSyncRun: FunctionReference<
+        "mutation",
+        "public",
+        {
+          diagnostics?: any;
+          errorSummary?: string;
+          eventsScanned?: number;
+          failedItems?: number;
+          normalizedFallbackCount?: number;
+          ordersArchived?: number;
+          ordersFetched?: number;
+          ordersUpserted?: number;
+          runId: Id<"ticketTailorSyncRuns">;
+          status: "success" | "partial" | "failed";
+        },
+        Id<"ticketTailorSyncRuns">
+      >;
+      getLatestSyncRun: FunctionReference<"query", "public", {}, any>;
+      getSyncRunById: FunctionReference<
+        "query",
+        "public",
+        { runId: Id<"ticketTailorSyncRuns"> },
+        any
+      >;
+      getSyncRuns: FunctionReference<"query", "public", {}, any>;
+      startSyncRun: FunctionReference<
+        "mutation",
+        "public",
+        {},
+        Id<"ticketTailorSyncRuns">
+      >;
+      updateSyncRun: FunctionReference<
+        "mutation",
+        "public",
+        {
+          diagnostics?: any;
+          errorSummary?: string;
+          eventsScanned?: number;
+          failedItems?: number;
+          normalizedFallbackCount?: number;
+          ordersArchived?: number;
+          ordersFetched?: number;
+          ordersUpserted?: number;
+          runId: Id<"ticketTailorSyncRuns">;
+        },
+        Id<"ticketTailorSyncRuns">
+      >;
+    };
     startSyncRun: FunctionReference<
       "mutation",
       "public",
@@ -1208,12 +1413,13 @@ export declare const api: {
       {
         ageGroup?: string;
         allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
+        attendeeId: Id<"orderAttendees">;
         customAnswers?: any;
         email?: string;
         eventId: Id<"events"> | string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
         name?: string;
-        orderId: Id<"ticketTailorOrders">;
+        orderId: Id<"orders">;
         priorityReason?: string;
         providerAttendeeId?: string;
         providerEventId: string;
@@ -1262,6 +1468,66 @@ export declare const api: {
       },
       Id<"ticketTailorOrders">
     >;
+    webhooks: {
+      createWebhookEvent: FunctionReference<
+        "mutation",
+        "public",
+        { eventType: string; payload: any; providerEventId: string },
+        Id<"ticketTailorWebhookEvents">
+      >;
+      getPendingWebhookEvents: FunctionReference<
+        "query",
+        "public",
+        { limit?: number },
+        any
+      >;
+      getWebhookEventById: FunctionReference<
+        "query",
+        "public",
+        { eventId: Id<"ticketTailorWebhookEvents"> },
+        any
+      >;
+      getWebhookEventByProviderId: FunctionReference<
+        "query",
+        "public",
+        { providerEventId: string },
+        any
+      >;
+      getWebhookEvents: FunctionReference<
+        "query",
+        "public",
+        { status?: "pending" | "processed" | "failed" },
+        any
+      >;
+      processWebhookEvent: FunctionReference<
+        "mutation",
+        "public",
+        {
+          error?: string;
+          eventId: Id<"ticketTailorWebhookEvents">;
+          status: "processed" | "failed";
+        },
+        any
+      >;
+      updateWebhookEvent: FunctionReference<
+        "mutation",
+        "public",
+        {
+          attempts?: number;
+          canonicalFetchedAt?: number;
+          canonicalPayload?: any;
+          deliveryCount?: number;
+          eventId: Id<"ticketTailorWebhookEvents">;
+          lastError?: string;
+          lastReceivedAt?: number;
+          nextRetryAt?: number;
+          payload?: any;
+          processedAt?: number;
+          status?: "pending" | "processed" | "failed";
+        },
+        any
+      >;
+    };
   };
   tikkie: {
     autoMatchTikkiePayments: FunctionReference<
@@ -1484,6 +1750,8 @@ export declare const internal: {
           roomType: string;
         }>;
         successPageUrl: string;
+        tikkieAmountMinor?: number;
+        tikkieCurrency?: string;
         tikkieUrl?: string;
         to: string;
       },
@@ -1509,7 +1777,7 @@ export declare const internal: {
       "internal",
       {
         matchedBy?: string;
-        orderId: string;
+        orderId: Id<"orders">;
         paymentId: Id<"payments">;
         status?: "auto_matched" | "manual_assignment";
       },
@@ -1536,6 +1804,110 @@ export declare const internal: {
     >;
   };
   sync: {
+    attendees: {
+      internalGetTicketTailorAttendeesByOrderId: FunctionReference<
+        "query",
+        "internal",
+        { orderId: Id<"orders"> },
+        any
+      >;
+      internalUpsertTicketTailorAttendee: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          ageGroup?: string;
+          attendeeId: Id<"orderAttendees">;
+          checkedInAt?: number;
+          customAnswers?: any;
+          genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
+          orderId: Id<"orders">;
+          providerAttendeeId?: string;
+          providerEventId: string;
+          providerIssuedTicketId?: string;
+          providerOrderId: string;
+          providerTicketTypeId?: string;
+          rawPayload: any;
+          ticketCategory?: string;
+          ticketStatus?: string;
+          ticketTypeLabel?: string;
+          tikkieAmountOverrideMinor?: number;
+        },
+        {
+          attendeeId: Id<"orderAttendees">;
+          ticketTailorAttendeeId: Id<"ticketTailorAttendees">;
+        }
+      >;
+    };
+    events: {
+      internalUpsertTicketTailorEvent: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          currency?: string;
+          endsAt?: number;
+          name?: string;
+          providerEventId: string;
+          rawPayload: any;
+          startsAt?: number;
+          timezone?: string;
+        },
+        {
+          canonicalEventId: Id<"events">;
+          ticketTailorEventId: Id<"ticketTailorEvents">;
+        }
+      >;
+    };
+    families: {
+      internalAddAttendeeToFamilyGroup: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          attendeeId: string;
+          familyGroupId: Id<"attendeeFamilyGroups">;
+          relationship?: string;
+        },
+        Id<"attendeeFamilyMembers">
+      >;
+      internalCreateAttendeeFamilyGroup: FunctionReference<
+        "mutation",
+        "internal",
+        { label?: string; primaryAttendeeId: string },
+        Id<"attendeeFamilyGroups">
+      >;
+      internalGetAttendeeFamilyGroupByPrimaryId: FunctionReference<
+        "query",
+        "internal",
+        { primaryAttendeeId: string },
+        any
+      >;
+      internalGetFamilyMembersByGroupId: FunctionReference<
+        "query",
+        "internal",
+        { familyGroupId: Id<"attendeeFamilyGroups"> },
+        any
+      >;
+    };
+    internal: {
+      internalGetAttendeesByOrder: FunctionReference<
+        "query",
+        "internal",
+        {},
+        any
+      >;
+      internalGetPaidOrders: FunctionReference<"query", "internal", {}, any>;
+      internalGetTikkiePaymentLinks: FunctionReference<
+        "query",
+        "internal",
+        {},
+        any
+      >;
+      internalGetUnassignedPayments: FunctionReference<
+        "query",
+        "internal",
+        {},
+        any
+      >;
+    };
     internalAddAttendeeToFamilyGroup: FunctionReference<
       "mutation",
       "internal",
@@ -1601,7 +1973,7 @@ export declare const internal: {
     internalGetTicketTailorAttendeesByOrderId: FunctionReference<
       "query",
       "internal",
-      { orderId: Id<"ticketTailorOrders"> | string },
+      { orderId: Id<"orders"> },
       any
     >;
     internalGetTikkiePaymentLinks: FunctionReference<
@@ -1627,14 +1999,11 @@ export declare const internal: {
       "internal",
       {
         ageGroup?: string;
-        allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
+        attendeeId: Id<"orderAttendees">;
+        checkedInAt?: number;
         customAnswers?: any;
-        email?: string;
-        eventId: Id<"events">;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
-        name?: string;
-        orderId: Id<"ticketTailorOrders">;
-        priorityReason?: string;
+        orderId: Id<"orders">;
         providerAttendeeId?: string;
         providerEventId: string;
         providerIssuedTicketId?: string;
@@ -1644,8 +2013,12 @@ export declare const internal: {
         ticketCategory?: string;
         ticketStatus?: string;
         ticketTypeLabel?: string;
+        tikkieAmountOverrideMinor?: number;
       },
-      Id<"ticketTailorAttendees">
+      {
+        attendeeId: Id<"orderAttendees">;
+        ticketTailorAttendeeId: Id<"ticketTailorAttendees">;
+      }
     >;
     internalUpsertTicketTailorEvent: FunctionReference<
       "mutation",
@@ -1678,6 +2051,57 @@ export declare const internal: {
       },
       { orderId: Id<"orders">; ticketTailorOrderId: Id<"ticketTailorOrders"> }
     >;
+    orders: {
+      internalArchiveMissingOrdersForEvent: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          providerEventId: string;
+          reason?: string;
+          seenProviderOrderIds: Array<string>;
+        },
+        { archived: number; scanned: number }
+      >;
+      internalUpsertTicketTailorOrder: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          isArchived?: boolean;
+          normalizationNote?: string;
+          normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
+          providerEventId: string;
+          providerOrderId: string;
+          providerStatus?: string;
+          rawPayload: any;
+        },
+        { orderId: Id<"orders">; ticketTailorOrderId: Id<"ticketTailorOrders"> }
+      >;
+    };
+    runs: {
+      internalCompleteSyncRun: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          diagnostics?: any;
+          errorSummary?: string;
+          eventsScanned?: number;
+          failedItems?: number;
+          normalizedFallbackCount?: number;
+          ordersArchived?: number;
+          ordersFetched?: number;
+          ordersUpserted?: number;
+          runId: Id<"ticketTailorSyncRuns">;
+          status: "success" | "partial" | "failed";
+        },
+        Id<"ticketTailorSyncRuns">
+      >;
+      internalStartSyncRun: FunctionReference<
+        "mutation",
+        "internal",
+        {},
+        Id<"ticketTailorSyncRuns">
+      >;
+    };
   };
 };
 
