@@ -140,7 +140,7 @@ Plans:
 **Goal:** Add email confirmation to signup submissions and display Tikkie payment links after signup completion. Improve payment tracking with privacy-aware name matching (first letter + last name display). Add buyer details step and clear localStorage on completion.
 **Requirements**: USF-01, USF-06
 **Depends on:** Phase 22
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 
 Plans:
 
@@ -156,7 +156,7 @@ Plans:
 **Goal:** Consolidate parallel data models (TicketTailor sync tables + submission tables) into unified "orders" core with provider-specific extension tables.
 **Requirements**: DOM-01, DOM-02, DOM-03
 **Depends on:** Phase 23
-**Plans:** 4/6 complete, 2 remaining
+**Plans:** 6/6 plans complete
 
 Plans:
 
@@ -184,7 +184,7 @@ Plans:
 | 20 - Operator Handoff + Compatibility Layer          | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3           | Pending  |
 | 21 - Accommodation UX Redesign                       | Inline event settings accommodation flow                        | —                              | 3           | Complete |
 | 22 - Redesign signup UX for family ticket allocation | Family ticket allocation with attendee grouping                 | USF-04..05, RMD-01..03         | 3           | Complete |
-| 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | 5/6                            | In Progress |
-| 24 - Canonical orders rewrite                        | Unified orders core with TT extension tables                    | DOM-01..03                     | 6/6         | Complete |
+| 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | Complete    | 2026-03-31 |
+| 24 - Canonical orders rewrite                        | Unified orders core with TT extension tables                    | DOM-01..03                     | Complete    | 2026-03-31 |
 
 **Totals:** 7 phases, 27 plans, 19 requirements mapped
