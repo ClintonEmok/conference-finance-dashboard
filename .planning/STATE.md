@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Attendee Signup + Accommodation Self-Assignment
-status: unknown
-stopped_at: Phase 25 context gathered
-last_updated: "2026-03-31T12:21:47.311Z"
+status: in_progress
+stopped_at: Completed 25-03-PLAN.md
+last_updated: "2026-03-31T12:38:00.000Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 8
-  completed_phases: 6
-  total_plans: 27
-  completed_plans: 26
+  completed_phases: 7
+  total_plans: 30
+  completed_plans: 29
 ---
 
 # Project State
@@ -220,7 +220,7 @@ Recent decisions that future work should preserve:
 ## Session Continuity
 
 - **Last activity:** 2026-03-31
-- **Last session:** 2026-03-31T12:21:47.304Z
-- **Stopped at:** Phase 25 context gathered
-- **Resume file:** .planning/phases/25-concerns-fixing/25-CONTEXT.md
-- **Next recommended plan:** Phase 24 complete. All 6 plans finished for canonical-orders-rewrite.
+- **Last session:** 2026-03-31T12:38:00.000Z
+- **Stopped at:** Completed 25-03-PLAN.md
+- **Resume file:** None
+- **Next recommended plan:** Phase 25 complete (3/3 plans). All concerns fixing done.

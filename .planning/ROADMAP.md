@@ -176,9 +176,9 @@ Plans:
 
 Plans:
 
-- [ ] 25-01-PLAN.md — Add auth guards to unprotected Convex queries (orders, payments, tikkie, attendees, accommodation, sync)
-- [ ] 25-02-PLAN.md — Delete Prisma remnants, stale tests, debug logging; consolidate duplicate cleanup mutations
-- [ ] 25-03-PLAN.md — Consolidate duplicate HTTP client in autoSync.ts with shared client
+- [x] 25-01-PLAN.md — Add auth guards to unprotected Convex queries (orders, payments, tikkie, attendees, accommodation, sync)
+- [x] 25-02-PLAN.md — Delete Prisma remnants, stale tests, debug logging; consolidate duplicate cleanup mutations
+- [x] 25-03-PLAN.md — Consolidate duplicate HTTP client in autoSync.ts with shared client
 
 ---
 
@@ -191,13 +191,14 @@ Plans:
 | 20 - Operator Handoff + Compatibility Layer | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3     | Pending |
 
 | Phase                                                | Goal                                                            | Requirements                   | Plans      | Status     |
-| ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ | ---------- | ---------- |
+| ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ | ---------- | ---------- | ---------- |
 | 18 - Signup Domain Foundation                        | Canonical contracts + atomic signup writes                      | USF-01..03, USF-06, DOM-01..03 | 3          | Pending    |
 | 19 - Public Multi-Step Signup Experience             | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3          | Pending    |
 | 20 - Operator Handoff + Compatibility Layer          | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3          | Pending    |
 | 21 - Accommodation UX Redesign                       | Inline event settings accommodation flow                        | —                              | 3          | Complete   |
 | 22 - Redesign signup UX for family ticket allocation | Family ticket allocation with attendee grouping                 | USF-04..05, RMD-01..03         | 3          | Complete   |
-| 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | Complete                       | 2026-03-31 |
+| 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | Complete                       | 2026-03-31 | Complete   |
 | 24 - Canonical orders rewrite                        | Unified orders core with TT extension tables                    | DOM-01..03                     | Complete   | 2026-03-31 |
+| 25 - Concerns fixing                                 | Address CRITICAL audit findings, eliminate dead code            | CRITICAL-01..03                | 3          | Complete   | 2026-03-31 |
 
-**Totals:** 7 phases, 27 plans, 19 requirements mapped
+**Totals:** 8 phases, 30 plans, 19 requirements mapped
