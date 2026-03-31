@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { maskPaymentPayer } from "@/lib/utils/privacy"
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 
@@ -156,7 +157,7 @@ export function AssignDialog({
           <div className="grid gap-1 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Payer:</span>
-              <span>{payment.payerName}</span>
+              <span>{maskPaymentPayer(payment.payerName)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Amount:</span>

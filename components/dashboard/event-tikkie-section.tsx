@@ -20,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { maskPaymentPayer } from "@/lib/utils/privacy"
 
 type Event = {
   eventId: string
@@ -106,15 +107,20 @@ function MatchBadge({ status }: { status: string }) {
 type EventTikkieSectionProps = {
   events: Event[]
   readOnly?: boolean
+  selectedEventId?: string
 }
 
 export function EventTikkieSection({
   events,
   readOnly = false,
+  selectedEventId: propSelectedEventId,
 }: EventTikkieSectionProps) {
-  const [selectedEventId, setSelectedEventId] = useState<string>(
-    events[0]?.eventId ?? ""
-  )
+  const [internalSelectedEventId, setInternalSelectedEventId] =
+    useState<string>(events[0]?.eventId ?? "")
+  const selectedEventId = propSelectedEventId ?? internalSelectedEventId
+  const setSelectedEventId = propSelectedEventId
+    ? () => {}
+    : setInternalSelectedEventId
   const [eventData, setEventData] = useState<EventData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(false)
@@ -406,7 +412,7 @@ export function EventTikkieSection({
         </div>
 
         <div className="flex items-center gap-3">
-          {events.length > 0 && (
+          {!propSelectedEventId && events.length > 0 && (
             <select
               value={selectedEventId}
               onChange={(e) => setSelectedEventId(e.target.value)}
@@ -618,7 +624,7 @@ export function EventTikkieSection({
                                 {linkPayments.map((p) => (
                                   <TableRow key={p._id}>
                                     <TableCell className="font-medium">
-                                      {p.payerName}
+                                      {maskPaymentPayer(p.payerName)}
                                     </TableCell>
                                     <TableCell>
                                       {formatMoney(p.amountMinor)}
@@ -677,10 +683,11 @@ export function EventTikkieSection({
 
           {quota && (
             <div
-              className={`rounded-md border px-3 py-2 text-sm ${isQuotaExceeded
+              className={`rounded-md border px-3 py-2 text-sm ${
+                isQuotaExceeded
                   ? "border-amber-300 bg-amber-50 text-amber-900"
                   : "border-border bg-muted/40 text-muted-foreground"
-                }`}
+              }`}
             >
               <p>
                 Monthly Tikkie quota: <strong>{quota.used}</strong>/
@@ -823,10 +830,11 @@ export function EventTikkieSection({
               assignOrders.map((order) => (
                 <div
                   key={order.id}
-                  className={`cursor-pointer border-b p-3 last:border-b-0 ${selectedOrder?.id === order.id
+                  className={`cursor-pointer border-b p-3 last:border-b-0 ${
+                    selectedOrder?.id === order.id
                       ? "bg-primary/10"
                       : "hover:bg-muted/50"
-                    }`}
+                  }`}
                   onClick={() => setSelectedOrder(order)}
                 >
                   <div className="flex items-center justify-between">

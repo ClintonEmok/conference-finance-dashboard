@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { maskPaymentPayer } from "@/lib/utils/privacy"
 import {
   Table,
   TableBody,
@@ -547,7 +548,7 @@ export default function OrderDetailPage({ params }: PageProps) {
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <p className="text-sm font-medium">
-                              {payment.payerName}
+                              {maskPaymentPayer(payment.payerName)}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               {paymentSourceLabel(payment.source)} ·{" "}

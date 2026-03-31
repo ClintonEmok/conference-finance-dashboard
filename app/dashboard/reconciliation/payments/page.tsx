@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 
 import { AssignDialog } from "@/components/payments/assign-dialog"
+import { maskPaymentPayer } from "@/lib/utils/privacy"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -255,7 +256,7 @@ export default function ReconciliationPaymentsPage() {
                         <SourceIcon source={payment.source} />
                       </TableCell>
                       <TableCell className="text-sm">
-                        {payment.payerName}
+                        {maskPaymentPayer(payment.payerName)}
                       </TableCell>
                       <TableCell className="text-right text-sm font-medium">
                         {formatMoney(payment.amountMinor)}

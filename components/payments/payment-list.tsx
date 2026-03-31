@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { maskPaymentPayer } from "@/lib/utils/privacy"
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 type PaymentMatchStatus =
@@ -293,7 +294,7 @@ export function PaymentList({
                   <TableCell className="py-4">
                     <div>
                       <p className="text-xs leading-none font-bold text-foreground">
-                        {payment.payerName}
+                        {maskPaymentPayer(payment.payerName)}
                       </p>
                       <p className="mt-1 max-w-[120px] truncate text-[10px] leading-none text-muted-foreground/60">
                         {payment.payerAccountNumber || "Account hidden"}
