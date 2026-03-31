@@ -294,6 +294,191 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  orderAssignments: {
+    document: {
+      assignmentIntent: "assign" | "skip";
+      attendeeId: Id<"orderAttendees">;
+      orderId: Id<"orders">;
+      slotId: Id<"accommodationSlots">;
+      sortOrder: number;
+      _id: Id<"orderAssignments">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "assignmentIntent"
+      | "attendeeId"
+      | "orderId"
+      | "slotId"
+      | "sortOrder";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_orderId: ["orderId", "_creationTime"];
+      by_slotId: ["slotId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  orderAttendees: {
+    document: {
+      allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
+      assignedRoomId?: string;
+      attendeeKey: string;
+      dietaryRestrictions: string;
+      email?: string;
+      gender: "male" | "female" | "mixed" | "unknown";
+      location: string;
+      name: string;
+      orderId: Id<"orders">;
+      phone?: string;
+      priorityReason?: string;
+      roommateAvoid: string;
+      roommatePreference: string;
+      sortOrder: number;
+      _id: Id<"orderAttendees">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "allocationPriority"
+      | "assignedRoomId"
+      | "attendeeKey"
+      | "dietaryRestrictions"
+      | "email"
+      | "gender"
+      | "location"
+      | "name"
+      | "orderId"
+      | "phone"
+      | "priorityReason"
+      | "roommateAvoid"
+      | "roommatePreference"
+      | "sortOrder";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_allocationPriority: ["allocationPriority", "_creationTime"];
+      by_assignedRoomId: ["assignedRoomId", "_creationTime"];
+      by_orderId: ["orderId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  orderIdempotency: {
+    document: {
+      eventId: Id<"events">;
+      expiresAt: number;
+      fingerprint: string;
+      idempotencyKey: string;
+      orderId: Id<"orders">;
+      _id: Id<"orderIdempotency">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "eventId"
+      | "expiresAt"
+      | "fingerprint"
+      | "idempotencyKey"
+      | "orderId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_eventId_and_fingerprint: ["eventId", "fingerprint", "_creationTime"];
+      by_eventId_and_idempotencyKey: [
+        "eventId",
+        "idempotencyKey",
+        "_creationTime",
+      ];
+      by_expiresAt: ["expiresAt", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  orders: {
+    document: {
+      bookerEmail?: string;
+      bookerName?: string;
+      bookerPhone?: string;
+      bookingRef?: string;
+      currency?: string;
+      eventId?: Id<"events">;
+      honeypotSeen?: boolean;
+      idempotencyKey?: string;
+      notes?: string;
+      orderedAt?: number;
+      providerEventId?: string;
+      providerOrderId?: string;
+      source?: "integration" | "internal";
+      status?: "paid" | "refunded" | "cancelled" | "pending";
+      submittedAt?: number;
+      totalAmountMinor?: number;
+      _id: Id<"orders">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "bookerEmail"
+      | "bookerName"
+      | "bookerPhone"
+      | "bookingRef"
+      | "currency"
+      | "eventId"
+      | "honeypotSeen"
+      | "idempotencyKey"
+      | "notes"
+      | "orderedAt"
+      | "providerEventId"
+      | "providerOrderId"
+      | "source"
+      | "status"
+      | "submittedAt"
+      | "totalAmountMinor";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_bookingRef: ["bookingRef", "_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+      by_providerEventId: ["providerEventId", "_creationTime"];
+      by_providerOrderId: ["providerOrderId", "_creationTime"];
+      by_status: ["status", "_creationTime"];
+      by_submittedAt: ["submittedAt", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  orderTicketSelections: {
+    document: {
+      attendeeId: Id<"orderAttendees">;
+      orderId: Id<"orders">;
+      quantity: number;
+      sortOrder: number;
+      ticketTypeId: Id<"ticketTypes">;
+      _id: Id<"orderTicketSelections">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "attendeeId"
+      | "orderId"
+      | "quantity"
+      | "sortOrder"
+      | "ticketTypeId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_orderId: ["orderId", "_creationTime"];
+      by_ticketTypeId: ["ticketTypeId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   payments: {
     document: {
       amountMinor: number;
@@ -368,6 +553,32 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  sentEmails: {
+    document: {
+      bookingRef: string;
+      emailId?: string;
+      emailType: string;
+      recipient: string;
+      sentAt: number;
+      _id: Id<"sentEmails">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "bookingRef"
+      | "emailId"
+      | "emailType"
+      | "recipient"
+      | "sentAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_bookingRef: ["bookingRef", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   sessions: {
     document: {
       expiresAt: number;
@@ -395,181 +606,13 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
-  submissionAssignments: {
-    document: {
-      assignmentIntent: "assign" | "skip";
-      attendeeId: Id<"submissionAttendees">;
-      slotId: Id<"accommodationSlots">;
-      sortOrder: number;
-      submissionId: Id<"submissions">;
-      _id: Id<"submissionAssignments">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "assignmentIntent"
-      | "attendeeId"
-      | "slotId"
-      | "sortOrder"
-      | "submissionId";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_slotId: ["slotId", "_creationTime"];
-      by_submissionId: ["submissionId", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
-  submissionAttendees: {
-    document: {
-      attendeeKey: string;
-      dietaryRestrictions: string;
-      email?: string;
-      gender: "male" | "female" | "mixed" | "unknown";
-      location: string;
-      name: string;
-      phone: string;
-      roommateAvoid: string;
-      roommatePreference: string;
-      sortOrder: number;
-      submissionId: Id<"submissions">;
-      _id: Id<"submissionAttendees">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "attendeeKey"
-      | "dietaryRestrictions"
-      | "email"
-      | "gender"
-      | "location"
-      | "name"
-      | "phone"
-      | "roommateAvoid"
-      | "roommatePreference"
-      | "sortOrder"
-      | "submissionId";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_submissionId: ["submissionId", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
-  submissionIdempotency: {
-    document: {
-      eventId: Id<"events">;
-      expiresAt: number;
-      fingerprint: string;
-      idempotencyKey: string;
-      submissionId: Id<"submissions">;
-      _id: Id<"submissionIdempotency">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "eventId"
-      | "expiresAt"
-      | "fingerprint"
-      | "idempotencyKey"
-      | "submissionId";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_eventId_and_fingerprint: ["eventId", "fingerprint", "_creationTime"];
-      by_eventId_and_idempotencyKey: [
-        "eventId",
-        "idempotencyKey",
-        "_creationTime",
-      ];
-      by_expiresAt: ["expiresAt", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
-  submissions: {
-    document: {
-      bookerEmail: string;
-      bookerName: string;
-      bookerPhone?: string;
-      bookingRef: string;
-      eventId: Id<"events">;
-      honeypotSeen: boolean;
-      idempotencyKey: string;
-      notes?: string;
-      source: "integration" | "internal";
-      submittedAt: number;
-      _id: Id<"submissions">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "bookerEmail"
-      | "bookerName"
-      | "bookerPhone"
-      | "bookingRef"
-      | "eventId"
-      | "honeypotSeen"
-      | "idempotencyKey"
-      | "notes"
-      | "source"
-      | "submittedAt";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_bookingRef: ["bookingRef", "_creationTime"];
-      by_eventId: ["eventId", "_creationTime"];
-      by_submittedAt: ["submittedAt", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
-  submissionTicketSelections: {
-    document: {
-      attendeeId: Id<"submissionAttendees">;
-      quantity: number;
-      sortOrder: number;
-      submissionId: Id<"submissions">;
-      ticketTypeId: Id<"ticketTypes">;
-      _id: Id<"submissionTicketSelections">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "attendeeId"
-      | "quantity"
-      | "sortOrder"
-      | "submissionId"
-      | "ticketTypeId";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_submissionId: ["submissionId", "_creationTime"];
-      by_ticketTypeId: ["ticketTypeId", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
   ticketTailorAttendees: {
     document: {
       ageGroup?: string;
-      allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
-      assignedRoomId?: string;
+      attendeeId: Id<"orderAttendees">;
       checkedInAt?: number;
       customAnswers?: any;
-      email?: string;
-      eventId: Id<"events"> | string;
       genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
-      name?: string;
-      orderId: Id<"ticketTailorOrders">;
-      priorityReason?: string;
       providerAttendeeId?: string;
       providerEventId: string;
       providerIssuedTicketId?: string;
@@ -587,16 +630,10 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "ageGroup"
-      | "allocationPriority"
-      | "assignedRoomId"
+      | "attendeeId"
       | "checkedInAt"
       | "customAnswers"
-      | "email"
-      | "eventId"
       | "genderType"
-      | "name"
-      | "orderId"
-      | "priorityReason"
       | "providerAttendeeId"
       | "providerEventId"
       | "providerIssuedTicketId"
@@ -610,12 +647,8 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
-      allocationPriority: ["allocationPriority", "_creationTime"];
-      assignedRoomId: ["assignedRoomId", "_creationTime"];
-      email: ["email", "_creationTime"];
-      eventId: ["eventId", "_creationTime"];
+      attendeeId: ["attendeeId", "_creationTime"];
       genderType: ["genderType", "_creationTime"];
-      orderId: ["orderId", "_creationTime"];
       providerAttendeeId: ["providerAttendeeId", "_creationTime"];
       providerEventOrder: [
         "providerEventId",
@@ -662,15 +695,11 @@ export type DataModel = {
     document: {
       archiveReason?: string;
       archivedAt?: number;
-      buyerEmail?: string;
-      buyerName?: string;
       cancelledAt?: number;
-      currency?: string;
-      eventId: Id<"events">;
       isArchived?: boolean;
       normalizationNote?: string;
       normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
-      orderedAt?: number;
+      orderId: Id<"orders">;
       providerEventId: string;
       providerOrderId: string;
       providerStatus?: string;
@@ -678,7 +707,6 @@ export type DataModel = {
       refundedAt?: number;
       removedAt?: number;
       removedReason?: string;
-      totalAmountMinor?: number;
       _id: Id<"ticketTailorOrders">;
       _creationTime: number;
     };
@@ -687,29 +715,23 @@ export type DataModel = {
       | "_id"
       | "archivedAt"
       | "archiveReason"
-      | "buyerEmail"
-      | "buyerName"
       | "cancelledAt"
-      | "currency"
-      | "eventId"
       | "isArchived"
       | "normalizationNote"
       | "normalizedStatus"
-      | "orderedAt"
+      | "orderId"
       | "providerEventId"
       | "providerOrderId"
       | "providerStatus"
       | "rawPayload"
       | "refundedAt"
       | "removedAt"
-      | "removedReason"
-      | "totalAmountMinor";
+      | "removedReason";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
-      eventId: ["eventId", "_creationTime"];
       normalizedStatus: ["normalizedStatus", "_creationTime"];
-      orderedAt: ["orderedAt", "_creationTime"];
+      orderId: ["orderId", "_creationTime"];
       providerEventId: ["providerEventId", "_creationTime"];
       providerOrderId: ["providerOrderId", "_creationTime"];
     };
