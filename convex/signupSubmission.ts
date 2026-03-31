@@ -1,5 +1,5 @@
 import { v } from "convex/values"
-import { mutation, type MutationCtx } from "./_generated/server"
+import { mutation, query, type MutationCtx } from "./_generated/server"
 import type { Id } from "./_generated/dataModel"
 import {
   signupGenderValidator,
@@ -149,7 +149,18 @@ async function buildRestorePayload(
     return null
   }
 
-  const attendees = await ctx.db
+  const attendees: Array<{
+    _id: Id<"submissionAttendees">
+    attendeeKey: string
+    name: string
+    email?: string
+    phone: string
+    gender: "male" | "female" | "mixed" | "unknown"
+    location: string
+    dietaryRestrictions: string
+    roommatePreference: string
+    roommateAvoid: string
+  }> = await ctx.db
     .query("submissionAttendees")
     .withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId))
     .take(500)
@@ -644,6 +655,217 @@ export const submitSignupEnvelope = mutation({
           assignmentIntent: assignment.assignmentIntent,
         })),
       },
+    }
+  },
+})
+
+export const getByBookingRef = query({
+  args: {
+    bookingRef: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      submissionId: v.id("submissions"),
+      bookingRef: v.string(),
+      bookerName: v.string(),
+      bookerEmail: v.string(),
+      bookerPhone: v.optional(v.string()),
+      eventId: v.id("events"),
+      eventSlug: v.string(),
+      submittedAt: v.number(),
+      attendees: v.array(
+        v.object({
+          name: v.string(),
+          email: v.optional(v.string()),
+          ticketType: v.string(),
+          assignedRoom: v.optional(v.string()),
+        })
+      ),
+      roomAssignments: v.array(
+        v.object({
+          roomType: v.string(),
+          hotelName: v.string(),
+          bedCount: v.number(),
+        })
+      ),
+      totalAmountMinor: v.optional(v.number()),
+      ticketSelections: v.array(
+        v.object({
+          ticketTypeId: v.string(),
+          ticketTypeName: v.string(),
+          quantity: v.number(),
+          pricePerTicketMinor: v.number(),
+        })
+      ),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const submission = await ctx.db
+      .query("submissions")
+      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", args.bookingRef))
+      .first()
+
+    if (!submission) {
+      return null
+    }
+
+    // Fetch event details to get slug
+    const event = await ctx.db.get(submission.eventId)
+    const eventSlug = event?.slug ?? String(submission.eventId)
+
+    // Fetch attendees
+    const attendeeRows = await ctx.db
+      .query("submissionAttendees")
+      .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+      .collect()
+
+    // Fetch ticket selections with ticket type details
+    const ticketSelectionRows = await ctx.db
+      .query("submissionTicketSelections")
+      .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+      .collect()
+
+    // Get ticket type details
+    const ticketTypesData = await ctx.db
+      .query("ticketTypes")
+      .withIndex("by_eventId", (q) => q.eq("eventId", submission.eventId))
+      .take(100)
+    const ticketTypeById = new Map(
+      ticketTypesData.map((tt) => [String(tt._id), tt])
+    )
+
+    // Build ticket selections with names and prices
+    const ticketSelections = ticketSelectionRows.map((ts) => {
+      const ticketType = ticketTypeById.get(String(ts.ticketTypeId))
+      return {
+        ticketTypeId: String(ts.ticketTypeId),
+        ticketTypeName: ticketType?.label ?? "Unknown Ticket",
+        quantity: ts.quantity,
+        pricePerTicketMinor: ticketType?.priceMinor ?? 0,
+      }
+    })
+
+    // Calculate total amount
+    const totalAmountMinor = ticketSelections.reduce(
+      (sum, ts) => sum + ts.pricePerTicketMinor * ts.quantity,
+      0
+    )
+
+    // Build attendee list with ticket info
+    const attendees = attendeeRows.map((attendee) => {
+      // Find ticket type for this attendee
+      const attendeeTicket = ticketSelectionRows.find(
+        (ts) => String(ts.attendeeId) === String(attendee._id)
+      )
+      const ticketType = attendeeTicket
+        ? ticketTypeById.get(String(attendeeTicket.ticketTypeId))
+        : null
+
+      return {
+        name: attendee.name,
+        email: attendee.email,
+        ticketType: ticketType?.label ?? "Unknown Ticket",
+        assignedRoom: undefined as string | undefined,
+      }
+    })
+
+    // Fetch assignments to build room assignments
+    const assignmentRows = await ctx.db
+      .query("submissionAssignments")
+      .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+      .collect()
+
+    // Get slot details for assigned rooms
+    const assignedSlots = await ctx.db
+      .query("accommodationSlots")
+      .withIndex("by_eventId", (q) => q.eq("eventId", submission.eventId))
+      .take(500)
+    const slotById = new Map(assignedSlots.map((s) => [String(s._id), s]))
+
+    // Get rooms
+    const roomsData = await ctx.db.query("accommodationRooms").take(500)
+    const roomById = new Map(roomsData.map((r) => [String(r._id), r]))
+
+    // Get hotels
+    const hotelsData = await ctx.db.query("accommodationHotels").take(100)
+    const hotelById = new Map(hotelsData.map((h) => [String(h._id), h]))
+
+    // Get room types
+    const roomTypesData = await ctx.db.query("accommodationRoomTypes").take(100)
+    const roomTypeById = new Map(
+      roomTypesData.map((rt) => [String(rt._id), rt])
+    )
+
+    // Build room assignments
+    const roomAssignmentsMap = new Map<
+      string,
+      { roomType: string; hotelName: string; bedCount: number }
+    >()
+
+    for (const assignment of assignmentRows) {
+      if (assignment.assignmentIntent !== "assign") continue
+
+      const slot = slotById.get(String(assignment.slotId))
+      if (!slot) continue
+
+      const room = roomById.get(String(slot.roomId))
+      if (!room) continue
+
+      const hotel = hotelById.get(String(room.hotelId))
+      const roomType = roomTypeById.get(String(room.roomTypeId))
+
+      const key = String(slot.roomId)
+      if (!roomAssignmentsMap.has(key)) {
+        roomAssignmentsMap.set(key, {
+          roomType: roomType?.label ?? room.label,
+          hotelName: hotel?.name ?? "Unknown Hotel",
+          bedCount: 1,
+        })
+      } else {
+        const existing = roomAssignmentsMap.get(key)!
+        existing.bedCount += 1
+      }
+    }
+
+    const roomAssignments = Array.from(roomAssignmentsMap.values())
+
+    // Update attendees with room info
+    const attendeeIdsWithRooms = new Map<string, string>()
+    for (const assignment of assignmentRows) {
+      if (assignment.assignmentIntent === "assign") {
+        const slot = slotById.get(String(assignment.slotId))
+        if (slot) {
+          const room = roomById.get(String(slot.roomId))
+          if (room) {
+            const roomType = roomTypeById.get(String(room.roomTypeId))
+            attendeeIdsWithRooms.set(
+              String(assignment.attendeeId),
+              roomType?.label ?? room.label
+            )
+          }
+        }
+      }
+    }
+
+    const attendeesWithRooms = attendees.map((attendee, index) => ({
+      ...attendee,
+      assignedRoom: attendeeIdsWithRooms.get(String(attendeeRows[index]?._id)),
+    }))
+
+    return {
+      submissionId: submission._id,
+      bookingRef: submission.bookingRef,
+      bookerName: submission.bookerName,
+      bookerEmail: submission.bookerEmail,
+      bookerPhone: submission.bookerPhone,
+      eventId: submission.eventId,
+      eventSlug,
+      submittedAt: submission.submittedAt,
+      attendees: attendeesWithRooms,
+      roomAssignments,
+      totalAmountMinor,
+      ticketSelections,
     }
   },
 })
