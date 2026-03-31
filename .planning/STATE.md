@@ -25,7 +25,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 ## Current Position
 
 Phase: 24 (canonical-orders-rewrite) — EXECUTING
-Plan: 4 of 6
+Plan: 6 of 6
 
 ## Alignment Status
 
@@ -69,6 +69,7 @@ Plan: 4 of 6
 - **Review step with expandable sections:** ReviewSubmitStep now shows three expandable sections (Tickets, Attendee Details, Room Allocations) with room-based allocation summary, unfilled beds warnings, and unassigned attendee alerts (22-03).
 - **Order queries migrated to core tables:** `orders.ts` and `tikkie.ts` now read from core `orders` and `orderAttendees` tables, joining with extension tables (`ticketTailorOrders`, `ticketTailorAttendees`) for provider-specific fields and visibility (24-03).
 - **Payment matching migrated to core orders table:** `autoMatchPayments` and `getPaymentSummary` now read from `orders` and `orderAttendees` tables instead of Ticket Tailor-specific tables (24-04).
+- **Signup submission migrated to core orders table:** `signupSubmission.ts` now writes to `orders`, `orderAttendees`, `orderTicketSelections`, `orderAssignments`, and `orderIdempotency` tables (24-06).
 
 ## Key Decisions
 
@@ -218,7 +219,7 @@ Recent decisions that future work should preserve:
 ## Session Continuity
 
 - **Last activity:** 2026-03-31
-- **Last session:** 2026-03-31T11:05:04Z
-- **Stopped at:** Completed 24-04-PLAN.md
-- **Resume file:** .planning/phases/24-canonical-orders-rewrite/24-04-SUMMARY.md
-- **Next recommended plan:** Continue with Phase 24 Plan 05 (Tikkie module update) or Plan 06 (Accommodation module update)
+- **Last session:** 2026-03-31T11:46:03Z
+- **Stopped at:** Completed 24-06-PLAN.md
+- **Resume file:** .planning/phases/24-canonical-orders-rewrite/24-06-SUMMARY.md
+- **Next recommended plan:** Phase 24 complete. All 6 plans finished for canonical-orders-rewrite.
