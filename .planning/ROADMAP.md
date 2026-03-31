@@ -167,6 +167,19 @@ Plans:
 - [x] 24-05-PLAN.md — Accommodation board: read from core + extension tables ✓
 - [x] 24-06-PLAN.md — Signup submission: write to core orders tables ✓
 
+### Phase 25: Concerns fixing
+
+**Goal:** Address CRITICAL-severity audit findings — protect exposed data via auth guards, eliminate dead code and Prisma remnants, consolidate duplicate HTTP client.
+**Requirements**: CRITICAL-01, CRITICAL-02, CRITICAL-03
+**Depends on:** Phase 24
+**Plans:** 3 plans
+
+Plans:
+
+- [ ] 25-01-PLAN.md — Add auth guards to unprotected Convex queries (orders, payments, tikkie, attendees, accommodation, sync)
+- [ ] 25-02-PLAN.md — Delete Prisma remnants, stale tests, debug logging; consolidate duplicate cleanup mutations
+- [ ] 25-03-PLAN.md — Consolidate duplicate HTTP client in autoSync.ts with shared client
+
 ---
 
 ## Progress
@@ -177,14 +190,14 @@ Plans:
 | 19 - Public Multi-Step Signup Experience    | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3     | Pending |
 | 20 - Operator Handoff + Compatibility Layer | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3     | Pending |
 
-| Phase                                                | Goal                                                            | Requirements                   | Plans       | Status   |
-| ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ | ----------- | -------- |
-| 18 - Signup Domain Foundation                        | Canonical contracts + atomic signup writes                      | USF-01..03, USF-06, DOM-01..03 | 3           | Pending  |
-| 19 - Public Multi-Step Signup Experience             | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3           | Pending  |
-| 20 - Operator Handoff + Compatibility Layer          | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3           | Pending  |
-| 21 - Accommodation UX Redesign                       | Inline event settings accommodation flow                        | —                              | 3           | Complete |
-| 22 - Redesign signup UX for family ticket allocation | Family ticket allocation with attendee grouping                 | USF-04..05, RMD-01..03         | 3           | Complete |
-| 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | Complete    | 2026-03-31 |
-| 24 - Canonical orders rewrite                        | Unified orders core with TT extension tables                    | DOM-01..03                     | Complete    | 2026-03-31 |
+| Phase                                                | Goal                                                            | Requirements                   | Plans      | Status     |
+| ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ | ---------- | ---------- |
+| 18 - Signup Domain Foundation                        | Canonical contracts + atomic signup writes                      | USF-01..03, USF-06, DOM-01..03 | 3          | Pending    |
+| 19 - Public Multi-Step Signup Experience             | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3          | Pending    |
+| 20 - Operator Handoff + Compatibility Layer          | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3          | Pending    |
+| 21 - Accommodation UX Redesign                       | Inline event settings accommodation flow                        | —                              | 3          | Complete   |
+| 22 - Redesign signup UX for family ticket allocation | Family ticket allocation with attendee grouping                 | USF-04..05, RMD-01..03         | 3          | Complete   |
+| 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | Complete                       | 2026-03-31 |
+| 24 - Canonical orders rewrite                        | Unified orders core with TT extension tables                    | DOM-01..03                     | Complete   | 2026-03-31 |
 
 **Totals:** 7 phases, 27 plans, 19 requirements mapped
