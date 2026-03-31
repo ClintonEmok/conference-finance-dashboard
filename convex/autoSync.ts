@@ -53,9 +53,13 @@ function asRecord(value: unknown): JsonRecord {
 
 // --- Ticket Tailor HTTP client (minimal, action-safe) ---
 
-const TT_BASE_URL =
-  process.env.TICKET_TAILOR_BASE_URL?.trim() ||
-  "https://api.tickettailor.com/v1"
+const TT_BASE_URL = (() => {
+  const raw =
+    process.env.TICKET_TAILOR_BASE_URL?.trim() ||
+    "https://api.tickettailor.com/v1"
+  // Ensure /v1 suffix is always present
+  return raw.endsWith("/v1") ? raw : `${raw.replace(/\/+$/, "")}/v1`
+})()
 const TT_API_KEY = process.env.TICKET_TAILOR_API_KEY?.trim() ?? ""
 const TT_TIMEOUT = Number(process.env.TICKET_TAILOR_FETCH_TIMEOUT_MS ?? 15_000)
 const TT_MAX_RETRIES = Number(process.env.TICKET_TAILOR_MAX_RETRIES ?? 2)
