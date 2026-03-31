@@ -112,7 +112,7 @@ function buildBookingRef(input: {
 
 async function buildRestorePayload(
   ctx: MutationCtx,
-  submissionId: Id<"submissions">
+  submissionId: Id<"orders">
 ): Promise<{
   eventId: string
   source: "integration" | "internal"
@@ -149,33 +149,22 @@ async function buildRestorePayload(
     return null
   }
 
-  const attendees: Array<{
-    _id: Id<"submissionAttendees">
-    attendeeKey: string
-    name: string
-    email?: string
-    phone: string
-    gender: "male" | "female" | "mixed" | "unknown"
-    location: string
-    dietaryRestrictions: string
-    roommatePreference: string
-    roommateAvoid: string
-  }> = await ctx.db
-    .query("submissionAttendees")
-    .withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId))
+  const attendees = await ctx.db
+    .query("orderAttendees")
+    .withIndex("by_orderId", (q) => q.eq("orderId", submissionId))
     .take(500)
   const attendeeById = new Map(
     attendees.map((attendee) => [String(attendee._id), attendee])
   )
 
   const selections = await ctx.db
-    .query("submissionTicketSelections")
-    .withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId))
+    .query("orderTicketSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", submissionId))
     .take(500)
 
   const assignments = await ctx.db
-    .query("submissionAssignments")
-    .withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId))
+    .query("orderAssignments")
+    .withIndex("by_orderId", (q) => q.eq("orderId", submissionId))
     .take(500)
 
   return {
@@ -247,7 +236,7 @@ export const submitSignupEnvelope = mutation({
     assignments: v.array(assignmentValidator),
   },
   returns: v.object({
-    submissionId: v.id("submissions"),
+    submissionId: v.id("orders"),
     bookingRef: v.string(),
     submittedAt: v.string(),
     restorePayload: restorePayloadValidator,
@@ -272,20 +261,18 @@ export const submitSignupEnvelope = mutation({
     const notes = normalizeOptionalString(args.notes)
 
     const replayByFingerprint = await ctx.db
-      .query("submissionIdempotency")
+      .query("orderIdempotency")
       .withIndex("by_eventId_and_fingerprint", (q) =>
         q.eq("eventId", args.eventId).eq("fingerprint", payloadFingerprint)
       )
       .first()
 
     if (replayByFingerprint && replayByFingerprint.expiresAt >= now) {
-      const replaySubmission = await ctx.db.get(
-        replayByFingerprint.submissionId
-      )
+      const replaySubmission = await ctx.db.get(replayByFingerprint.orderId)
       if (replaySubmission) {
         const restorePayload = await buildRestorePayload(
           ctx,
-          replayByFingerprint.submissionId
+          replayByFingerprint.orderId
         )
         if (restorePayload) {
           return {
@@ -299,7 +286,7 @@ export const submitSignupEnvelope = mutation({
     }
 
     const idempotencyRecords = await ctx.db
-      .query("submissionIdempotency")
+      .query("orderIdempotency")
       .withIndex("by_eventId_and_idempotencyKey", (q) =>
         q.eq("eventId", args.eventId).eq("idempotencyKey", idempotencyKey)
       )
@@ -311,11 +298,11 @@ export const submitSignupEnvelope = mutation({
     )
 
     if (replayByKey) {
-      const replaySubmission = await ctx.db.get(replayByKey.submissionId)
+      const replaySubmission = await ctx.db.get(replayByKey.orderId)
       if (replaySubmission) {
         const restorePayload = await buildRestorePayload(
           ctx,
-          replayByKey.submissionId
+          replayByKey.orderId
         )
         if (restorePayload) {
           return {
@@ -479,17 +466,15 @@ export const submitSignupEnvelope = mutation({
 
       if (assignableSlotCount > 0) {
         const eventSubmissions = await ctx.db
-          .query("submissions")
+          .query("orders")
           .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
           .take(500)
 
         let existingTicketCount = 0
         for (const submission of eventSubmissions) {
           const existingSelections = await ctx.db
-            .query("submissionTicketSelections")
-            .withIndex("by_submissionId", (q) =>
-              q.eq("submissionId", submission._id)
-            )
+            .query("orderTicketSelections")
+            .withIndex("by_orderId", (q) => q.eq("orderId", submission._id))
             .take(500)
           existingTicketCount += existingSelections.length
         }
@@ -509,7 +494,7 @@ export const submitSignupEnvelope = mutation({
       }
 
       const existingAssignments = await ctx.db
-        .query("submissionAssignments")
+        .query("orderAssignments")
         .withIndex("by_slotId", (q) => q.eq("slotId", assignment.slotId))
         .take(20)
 
@@ -531,7 +516,7 @@ export const submitSignupEnvelope = mutation({
       idempotencyKey,
     })
 
-    const submissionId = await ctx.db.insert("submissions", {
+    const submissionId = await ctx.db.insert("orders", {
       eventId: args.eventId,
       source: args.source,
       idempotencyKey,
@@ -544,11 +529,11 @@ export const submitSignupEnvelope = mutation({
       submittedAt: now,
     })
 
-    const attendeeIdsByKey = new Map<string, Id<"submissionAttendees">>()
+    const attendeeIdsByKey = new Map<string, Id<"orderAttendees">>()
 
     for (const [sortOrder, attendee] of args.attendees.entries()) {
-      const attendeeId = await ctx.db.insert("submissionAttendees", {
-        submissionId,
+      const attendeeId = await ctx.db.insert("orderAttendees", {
+        orderId: submissionId,
         attendeeKey: attendee.attendeeKey,
         name: attendee.name,
         email: normalizeOptionalString(attendee.email),
@@ -573,8 +558,8 @@ export const submitSignupEnvelope = mutation({
         )
       }
 
-      await ctx.db.insert("submissionTicketSelections", {
-        submissionId,
+      await ctx.db.insert("orderTicketSelections", {
+        orderId: submissionId,
         attendeeId,
         ticketTypeId: selection.ticketTypeId,
         quantity: 1,
@@ -591,8 +576,8 @@ export const submitSignupEnvelope = mutation({
         )
       }
 
-      await ctx.db.insert("submissionAssignments", {
-        submissionId,
+      await ctx.db.insert("orderAssignments", {
+        orderId: submissionId,
         attendeeId,
         slotId: assignment.slotId,
         assignmentIntent: assignment.assignmentIntent,
@@ -607,15 +592,15 @@ export const submitSignupEnvelope = mutation({
     if (expiredRecordByKey) {
       await ctx.db.patch(expiredRecordByKey._id, {
         fingerprint: payloadFingerprint,
-        submissionId,
+        orderId: submissionId,
         expiresAt: now + IDEMPOTENCY_WINDOW_MS,
       })
     } else {
-      await ctx.db.insert("submissionIdempotency", {
+      await ctx.db.insert("orderIdempotency", {
         eventId: args.eventId,
         idempotencyKey,
         fingerprint: payloadFingerprint,
-        submissionId,
+        orderId: submissionId,
         expiresAt: now + IDEMPOTENCY_WINDOW_MS,
       })
     }
@@ -666,7 +651,7 @@ export const getByBookingRef = query({
   returns: v.union(
     v.null(),
     v.object({
-      submissionId: v.id("submissions"),
+      submissionId: v.id("orders"),
       bookingRef: v.string(),
       bookerName: v.string(),
       bookerEmail: v.string(),
@@ -702,7 +687,7 @@ export const getByBookingRef = query({
   ),
   handler: async (ctx, args) => {
     const submission = await ctx.db
-      .query("submissions")
+      .query("orders")
       .withIndex("by_bookingRef", (q) => q.eq("bookingRef", args.bookingRef))
       .first()
 
@@ -716,14 +701,14 @@ export const getByBookingRef = query({
 
     // Fetch attendees
     const attendeeRows = await ctx.db
-      .query("submissionAttendees")
-      .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", submission._id))
       .collect()
 
     // Fetch ticket selections with ticket type details
     const ticketSelectionRows = await ctx.db
-      .query("submissionTicketSelections")
-      .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+      .query("orderTicketSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", submission._id))
       .collect()
 
     // Get ticket type details
@@ -772,8 +757,8 @@ export const getByBookingRef = query({
 
     // Fetch assignments to build room assignments
     const assignmentRows = await ctx.db
-      .query("submissionAssignments")
-      .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+      .query("orderAssignments")
+      .withIndex("by_orderId", (q) => q.eq("orderId", submission._id))
       .collect()
 
     // Get slot details for assigned rooms
