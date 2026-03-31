@@ -431,7 +431,10 @@ export function EventTikkieSection({
               onClick={() => {
                 setCreateAmountError(null)
                 setCreateAmountEuro("")
-                setCreateDescription("")
+                const selectedEvent = events.find(
+                  (e) => e.eventId === selectedEventId
+                )
+                setCreateDescription(selectedEvent?.title ?? "")
                 setCreateExpiryDate(
                   toDateInputValue(
                     new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
