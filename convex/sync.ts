@@ -737,7 +737,6 @@ export const internalUpsertTicketTailorOrder = internalMutation({
   args: {
     providerOrderId: v.string(),
     providerEventId: v.string(),
-    eventId: v.id("events"),
     normalizedStatus: v.optional(
       v.union(
         v.literal("paid"),
@@ -748,37 +747,167 @@ export const internalUpsertTicketTailorOrder = internalMutation({
     ),
     providerStatus: v.optional(v.string()),
     normalizationNote: v.optional(v.string()),
-    buyerEmail: v.optional(v.string()),
-    buyerName: v.optional(v.string()),
-    currency: v.optional(v.string()),
-    totalAmountMinor: v.optional(v.number()),
-    orderedAt: v.optional(v.number()),
-    refundedAt: v.optional(v.number()),
-    cancelledAt: v.optional(v.number()),
     rawPayload: v.any(),
+    isArchived: v.optional(v.boolean()),
   },
-  returns: v.id("ticketTailorOrders"),
+  returns: v.object({
+    orderId: v.id("orders"),
+    ticketTailorOrderId: v.id("ticketTailorOrders"),
+  }),
   handler: async (ctx, args) => {
-    const existing = await ctx.db
+    // Helper to extract string from rawPayload
+    const pickString = (value: unknown): string | undefined => {
+      return typeof value === "string" && value.trim().length > 0
+        ? value.trim()
+        : undefined
+    }
+
+    // Helper to parse date
+    const parseDate = (value: unknown): number | undefined => {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return value * 1000
+      }
+      if (typeof value === "string" && value.trim()) {
+        const d = new Date(value)
+        return Number.isNaN(d.getTime()) ? undefined : d.getTime()
+      }
+      return undefined
+    }
+
+    // Helper to convert to minor amount
+    const toMinorAmount = (value: unknown): number | undefined => {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return Math.round(value)
+      }
+      if (typeof value === "string") {
+        const n = Number(value)
+        if (Number.isFinite(n)) return Math.round(n * 100)
+      }
+      return undefined
+    }
+
+    // Extract buyer info from rawPayload
+    const raw = args.rawPayload as Record<string, unknown>
+    const buyer =
+      pickString(raw.buyer_email) ??
+      pickString((raw.buyer as Record<string, unknown>)?.email) ??
+      pickString((raw.buyer_details as Record<string, unknown>)?.email)
+
+    const buyerFirst =
+      pickString(raw.buyer_first_name) ??
+      pickString((raw.buyer as Record<string, unknown>)?.first_name) ??
+      pickString((raw.buyer_details as Record<string, unknown>)?.first_name)
+    const buyerLast =
+      pickString(raw.buyer_last_name) ??
+      pickString((raw.buyer as Record<string, unknown>)?.last_name) ??
+      pickString((raw.buyer_details as Record<string, unknown>)?.last_name)
+    const buyerName =
+      (buyerFirst && buyerLast ? `${buyerFirst} ${buyerLast}` : undefined) ??
+      buyerFirst ??
+      buyerLast ??
+      pickString(raw.buyer_name) ??
+      pickString((raw.buyer as Record<string, unknown>)?.name)
+
+    const currency = pickString(raw.currency) ?? pickString(raw.currency_code)
+    const totalAmountMinor =
+      toMinorAmount(raw.total) ??
+      toMinorAmount(raw.amount) ??
+      toMinorAmount(raw.total_amount)
+    const orderedAt =
+      parseDate(raw.created_at) ??
+      parseDate(raw.date) ??
+      parseDate(raw.order_date)
+    const refundedAt = parseDate(raw.refunded_at)
+    const cancelledAt = parseDate(raw.cancelled_at)
+
+    // Look up existing ticketTailorOrders by providerOrderId index
+    const existingTT = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("providerOrderId", (q) =>
         q.eq("providerOrderId", args.providerOrderId)
       )
-      .collect()
+      .first()
 
-    if (existing[0]) {
-      await ctx.db.patch("ticketTailorOrders", existing[0]._id, {
-        ...args,
-        isArchived: false,
+    // Look up or create the canonical orders record
+    const existingOrder = await ctx.db
+      .query("orders")
+      .withIndex("by_providerOrderId", (q) =>
+        q.eq("providerOrderId", args.providerOrderId)
+      )
+      .first()
+
+    let orderId: Id<"orders">
+
+    if (existingOrder) {
+      orderId = existingOrder._id
+      await ctx.db.patch("orders", existingOrder._id, {
+        providerEventId: args.providerEventId,
+        normalizedStatus: args.normalizedStatus,
+        providerStatus: args.providerStatus,
+        normalizationNote: args.normalizationNote,
+        rawPayload: args.rawPayload,
+        isArchived: args.isArchived ?? false,
         archiveReason: undefined,
+        bookerEmail: buyer,
+        bookerName: buyerName,
+        currency: currency,
+        totalAmountMinor: totalAmountMinor,
+        orderedAt: orderedAt,
+        refundedAt: refundedAt,
+        cancelledAt: cancelledAt,
       })
-      return existing[0]._id
+    } else {
+      orderId = await ctx.db.insert("orders", {
+        source: "integration",
+        providerOrderId: args.providerOrderId,
+        providerEventId: args.providerEventId,
+        normalizedStatus: args.normalizedStatus,
+        providerStatus: args.providerStatus,
+        normalizationNote: args.normalizationNote,
+        rawPayload: args.rawPayload,
+        bookerEmail: buyer,
+        bookerName: buyerName,
+        currency: currency,
+        totalAmountMinor: totalAmountMinor,
+        orderedAt: orderedAt,
+        refundedAt: refundedAt,
+        cancelledAt: cancelledAt,
+      })
     }
 
-    return await ctx.db.insert("ticketTailorOrders", {
-      ...args,
-      isArchived: false,
-    })
+    // Upsert ticketTailorOrders (extension) with slimmed fields
+    let ticketTailorOrderId: Id<"ticketTailorOrders">
+
+    if (existingTT) {
+      ticketTailorOrderId = existingTT._id
+      await ctx.db.patch("ticketTailorOrders", existingTT._id, {
+        orderId,
+        providerEventId: args.providerEventId,
+        providerStatus: args.providerStatus,
+        normalizedStatus: args.normalizedStatus,
+        normalizationNote: args.normalizationNote,
+        isArchived: args.isArchived ?? false,
+        archiveReason: undefined,
+        refundedAt: refundedAt,
+        cancelledAt: cancelledAt,
+        rawPayload: args.rawPayload,
+      })
+    } else {
+      ticketTailorOrderId = await ctx.db.insert("ticketTailorOrders", {
+        providerOrderId: args.providerOrderId,
+        providerEventId: args.providerEventId,
+        orderId,
+        providerStatus: args.providerStatus,
+        normalizedStatus: args.normalizedStatus,
+        normalizationNote: args.normalizationNote,
+        isArchived: args.isArchived ?? false,
+        refundedAt: refundedAt,
+        cancelledAt: cancelledAt,
+        rawPayload: args.rawPayload,
+      })
+    }
+
+    return { orderId, ticketTailorOrderId }
   },
 })
 
@@ -789,12 +918,10 @@ export const internalUpsertTicketTailorAttendee = internalMutation({
     providerTicketTypeId: v.optional(v.string()),
     providerEventId: v.string(),
     providerOrderId: v.string(),
-    eventId: v.id("events"),
-    orderId: v.id("ticketTailorOrders"),
-    name: v.optional(v.string()),
-    email: v.optional(v.string()),
+    orderId: v.id("orders"),
     ticketTypeLabel: v.optional(v.string()),
     ticketStatus: v.optional(v.string()),
+    checkedInAt: v.optional(v.number()),
     rawPayload: v.any(),
     customAnswers: v.optional(v.any()),
     genderType: v.optional(
@@ -807,19 +934,32 @@ export const internalUpsertTicketTailorAttendee = internalMutation({
     ),
     ageGroup: v.optional(v.string()),
     ticketCategory: v.optional(v.string()),
-    allocationPriority: v.optional(
-      v.union(
-        v.literal("CRITICAL"),
-        v.literal("HIGH"),
-        v.literal("NORMAL"),
-        v.literal("LOW")
-      )
-    ),
-    priorityReason: v.optional(v.string()),
+    tikkieAmountOverrideMinor: v.optional(v.number()),
   },
-  returns: v.id("ticketTailorAttendees"),
+  returns: v.object({
+    attendeeId: v.id("orderAttendees"),
+    ticketTailorAttendeeId: v.id("ticketTailorAttendees"),
+  }),
   handler: async (ctx, args) => {
-    const existing = await ctx.db
+    // Helper to extract string from rawPayload
+    const pickString = (value: unknown): string | undefined => {
+      return typeof value === "string" && value.trim().length > 0
+        ? value.trim()
+        : undefined
+    }
+
+    // Extract attendee info from rawPayload
+    const raw = args.rawPayload as Record<string, unknown>
+    const attFirst = pickString(raw.first_name)
+    const attLast = pickString(raw.last_name)
+    const name =
+      attFirst && attLast
+        ? `${attFirst} ${attLast}`
+        : (attFirst ?? attLast ?? pickString(raw.name))
+    const email = pickString(raw.email) ?? pickString(raw.attendee_email)
+
+    // Look up existing ticketTailorAttendees by providerEventOrder index
+    const existingTTAttendees = await ctx.db
       .query("ticketTailorAttendees")
       .withIndex("providerEventOrder", (q) =>
         q
@@ -828,16 +968,105 @@ export const internalUpsertTicketTailorAttendee = internalMutation({
       )
       .collect()
 
-    const existingById = existing.filter(
+    const existingTT = existingTTAttendees.find(
       (a) => a.providerAttendeeId === args.providerAttendeeId
     )
 
-    if (existingById[0]) {
-      await ctx.db.patch("ticketTailorAttendees", existingById[0]._id, args)
-      return existingById[0]._id
+    // Look up or create the canonical orderAttendees record
+    // Use attendeeKey = providerAttendeeId or providerIssuedTicketId
+    const attendeeKey =
+      args.providerAttendeeId ?? args.providerIssuedTicketId ?? "auto"
+
+    // Query orderAttendees by orderId and attendeeKey
+    const existingOrderAttendees = await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.orderId))
+      .collect()
+
+    const existingOrderAttendee = existingOrderAttendees.find(
+      (a) => a.attendeeKey === attendeeKey
+    )
+
+    let attendeeId: Id<"orderAttendees">
+
+    // Normalize gender from TT uppercase to core lowercase
+    const normalizedGender = args.genderType
+      ? args.genderType.toLowerCase()
+      : "unknown"
+
+    if (existingOrderAttendee) {
+      attendeeId = existingOrderAttendee._id
+      await ctx.db.patch("orderAttendees", existingOrderAttendee._id, {
+        name: name ?? existingOrderAttendee.name,
+        email: email ?? existingOrderAttendee.email,
+        // TT attendees don't have all core fields - keep existing or use defaults
+        phone: existingOrderAttendee.phone,
+        gender: normalizedGender as "male" | "female" | "mixed" | "unknown",
+        location: existingOrderAttendee.location,
+        dietaryRestrictions: existingOrderAttendee.dietaryRestrictions,
+        roommatePreference: existingOrderAttendee.roommatePreference,
+        roommateAvoid: existingOrderAttendee.roommateAvoid,
+        sortOrder: existingOrderAttendee.sortOrder,
+      })
+    } else {
+      attendeeId = await ctx.db.insert("orderAttendees", {
+        orderId: args.orderId,
+        attendeeKey,
+        name: name ?? "Unknown",
+        email: email,
+        phone: undefined,
+        gender: normalizedGender as "male" | "female" | "mixed" | "unknown",
+        location: "",
+        dietaryRestrictions: "",
+        roommatePreference: "",
+        roommateAvoid: "",
+        sortOrder: 0,
+      })
     }
 
-    return await ctx.db.insert("ticketTailorAttendees", args)
+    // Upsert ticketTailorAttendees (extension) with attendeeId FK
+    let ticketTailorAttendeeId: Id<"ticketTailorAttendees">
+
+    if (existingTT) {
+      ticketTailorAttendeeId = existingTT._id
+      await ctx.db.patch("ticketTailorAttendees", existingTT._id, {
+        attendeeId,
+        providerAttendeeId: args.providerAttendeeId,
+        providerIssuedTicketId: args.providerIssuedTicketId,
+        providerTicketTypeId: args.providerTicketTypeId,
+        providerEventId: args.providerEventId,
+        providerOrderId: args.providerOrderId,
+        ticketTypeLabel: args.ticketTypeLabel,
+        ticketStatus: args.ticketStatus,
+        checkedInAt: args.checkedInAt,
+        customAnswers: args.customAnswers,
+        genderType: args.genderType,
+        ageGroup: args.ageGroup,
+        ticketCategory: args.ticketCategory,
+        tikkieAmountOverrideMinor: args.tikkieAmountOverrideMinor,
+        rawPayload: args.rawPayload,
+      })
+    } else {
+      ticketTailorAttendeeId = await ctx.db.insert("ticketTailorAttendees", {
+        attendeeId,
+        providerAttendeeId: args.providerAttendeeId,
+        providerIssuedTicketId: args.providerIssuedTicketId,
+        providerTicketTypeId: args.providerTicketTypeId,
+        providerEventId: args.providerEventId,
+        providerOrderId: args.providerOrderId,
+        ticketTypeLabel: args.ticketTypeLabel,
+        ticketStatus: args.ticketStatus,
+        checkedInAt: args.checkedInAt,
+        customAnswers: args.customAnswers,
+        genderType: args.genderType,
+        ageGroup: args.ageGroup,
+        ticketCategory: args.ticketCategory,
+        tikkieAmountOverrideMinor: args.tikkieAmountOverrideMinor,
+        rawPayload: args.rawPayload,
+      })
+    }
+
+    return { attendeeId, ticketTailorAttendeeId }
   },
 })
 
@@ -852,7 +1081,8 @@ export const internalArchiveMissingOrdersForEvent = internalMutation({
     archived: v.number(),
   }),
   handler: async (ctx, args) => {
-    const orders = await ctx.db
+    // Query ticketTailorOrders by providerEventId index
+    const ttOrders = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("providerEventId", (q) =>
         q.eq("providerEventId", args.providerEventId)
@@ -864,29 +1094,68 @@ export const internalArchiveMissingOrdersForEvent = internalMutation({
     const reason = args.reason?.trim() || "missing_from_provider_sync"
     let archived = 0
 
-    for (const order of orders) {
-      if (order.removedAt) {
+    for (const ttOrder of ttOrders) {
+      if (ttOrder.removedAt) {
         continue
       }
 
-      if (seen.has(order.providerOrderId)) {
+      if (seen.has(ttOrder.providerOrderId)) {
         continue
       }
 
-      await ctx.db.patch("ticketTailorOrders", order._id, {
+      // Patch ticketTailorOrders (extension)
+      await ctx.db.patch("ticketTailorOrders", ttOrder._id, {
         isArchived: true,
-        archivedAt: order.archivedAt ?? now,
+        archivedAt: ttOrder.archivedAt ?? now,
         archiveReason: reason,
         normalizedStatus: "cancelled",
-        cancelledAt: order.cancelledAt ?? now,
+        cancelledAt: ttOrder.cancelledAt ?? now,
         normalizationNote:
           "Order missing from latest Ticket Tailor sync; archived locally.",
       })
+
+      // Also patch the linked orders record (core) if it exists
+      if (ttOrder.orderId) {
+        const order = await ctx.db.get("orders", ttOrder.orderId)
+        if (order) {
+          await ctx.db.patch("orders", order._id, {
+            status: "cancelled",
+          })
+        }
+      }
+
       archived += 1
     }
 
+    // Also query orders table to find any orders without corresponding TT records
+    // and mark them as cancelled (orphaned integration orders)
+    const orders = await ctx.db
+      .query("orders")
+      .withIndex("by_providerEventId", (q) =>
+        q.eq("providerEventId", args.providerEventId)
+      )
+      .collect()
+
+    for (const order of orders) {
+      if (order.providerOrderId && !seen.has(order.providerOrderId)) {
+        // Check if there's a corresponding TT order
+        const ttOrder = await ctx.db
+          .query("ticketTailorOrders")
+          .withIndex("providerOrderId", (q) =>
+            q.eq("providerOrderId", order.providerOrderId!)
+          )
+          .first()
+
+        if (!ttOrder || ttOrder.isArchived) {
+          await ctx.db.patch("orders", order._id, {
+            status: "cancelled",
+          })
+        }
+      }
+    }
+
     return {
-      scanned: orders.length,
+      scanned: ttOrders.length,
       archived,
     }
   },
@@ -920,14 +1189,26 @@ export const internalAddAttendeeToFamilyGroup = internalMutation({
 // ---------------------------------------------------------------------------
 
 export const internalGetTicketTailorAttendeesByOrderId = internalQuery({
-  args: { orderId: v.union(v.id("ticketTailorOrders"), v.string()) },
+  args: { orderId: v.id("orders") },
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("ticketTailorAttendees")
-      .withIndex("orderId", (q) =>
-        q.eq("orderId", args.orderId as Id<"ticketTailorOrders">)
-      )
+    // Query orderAttendees by orderId, then get linked TT attendees
+    const orderAttendees = await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.orderId))
       .collect()
+
+    // Get the linked ticketTailorAttendees via attendeeId FK
+    const ttAttendees = []
+    for (const oa of orderAttendees) {
+      const ttAtt = await ctx.db
+        .query("ticketTailorAttendees")
+        .withIndex("attendeeId", (q) => q.eq("attendeeId", oa._id))
+        .first()
+      if (ttAtt) {
+        ttAttendees.push(ttAtt)
+      }
+    }
+    return ttAttendees
   },
 })
 
@@ -974,13 +1255,14 @@ export const internalGetUnassignedPayments = internalQuery({
 export const internalGetPaidOrders = internalQuery({
   args: {},
   handler: async (ctx) => {
+    // Query orders table by status index instead of ticketTailorOrders
     const orders = await ctx.db
-      .query("ticketTailorOrders")
-      .withIndex("normalizedStatus", (q) => q.eq("normalizedStatus", "paid"))
+      .query("orders")
+      .withIndex("by_status", (q) => q.eq("status", "paid"))
       .collect()
     return orders.map((o) => ({
       _id: o._id,
-      buyerName: o.buyerName ?? null,
+      bookerName: o.bookerName ?? null,
       totalAmountMinor: o.totalAmountMinor ?? null,
     }))
   },
@@ -989,13 +1271,15 @@ export const internalGetPaidOrders = internalQuery({
 export const internalGetAttendeesByOrder = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const attendees = await ctx.db.query("ticketTailorAttendees").take(5000)
+    // Query orderAttendees table instead of ticketTailorAttendees
+    const attendees = await ctx.db.query("orderAttendees").take(5000)
     const byOrder = new Map<string, string[]>()
     for (const att of attendees) {
-      if (!att.name || !att.orderId) continue
-      const existing = byOrder.get(att.orderId) ?? []
+      if (!att.name) continue
+      const orderId = att.orderId
+      const existing = byOrder.get(orderId) ?? []
       existing.push(att.name.toLowerCase().trim())
-      byOrder.set(att.orderId, existing)
+      byOrder.set(orderId, existing)
     }
     return Object.fromEntries(byOrder)
   },

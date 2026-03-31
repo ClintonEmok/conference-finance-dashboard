@@ -239,17 +239,25 @@ async function linkAttendeesAsFamily(
   orderId: string,
   attendeeCount: number
 ): Promise<void> {
-  const attendees = await ctx.runQuery(
+  // Get TT attendees for this order, which now include attendeeId (FK to orderAttendees)
+  const ttAttendees = await ctx.runQuery(
     internal.sync.internalGetTicketTailorAttendeesByOrderId,
     { orderId }
   )
-  if (attendees.length < 2) return
+  if (ttAttendees.length < 2) return
 
-  const firstAttendee = attendees[0]
+  // Use the attendeeId (FK to orderAttendees) for family linking
+  const attendeeIds = ttAttendees
+    .map((a: { attendeeId?: string }) => a.attendeeId)
+    .filter((id: string | undefined): id is string => Boolean(id))
+
+  if (attendeeIds.length < 2) return
+
+  const firstAttendeeId = attendeeIds[0]
   const existingFamily = await ctx.runQuery(
     internal.sync.internalGetAttendeeFamilyGroupByPrimaryId,
     {
-      primaryAttendeeId: firstAttendee._id,
+      primaryAttendeeId: firstAttendeeId,
     }
   )
 
@@ -263,11 +271,11 @@ async function linkAttendeesAsFamily(
     const existingMemberIds = new Set(
       members.map((m: { attendeeId: string }) => m.attendeeId)
     )
-    for (const attendee of attendees) {
-      if (!existingMemberIds.has(attendee._id)) {
+    for (const attendeeId of attendeeIds) {
+      if (!existingMemberIds.has(attendeeId)) {
         await ctx.runMutation(internal.sync.internalAddAttendeeToFamilyGroup, {
           familyGroupId: existingFamily._id,
-          attendeeId: attendee._id,
+          attendeeId: attendeeId,
         })
       }
     }
@@ -275,14 +283,14 @@ async function linkAttendeesAsFamily(
     const familyGroupId = await ctx.runMutation(
       internal.sync.internalCreateAttendeeFamilyGroup,
       {
-        primaryAttendeeId: firstAttendee._id,
+        primaryAttendeeId: firstAttendeeId,
         label: `Family (${attendeeCount} members)`,
       }
     )
-    for (const attendee of attendees) {
+    for (const attendeeId of attendeeIds) {
       await ctx.runMutation(internal.sync.internalAddAttendeeToFamilyGroup, {
         familyGroupId,
-        attendeeId: attendee._id,
+        attendeeId: attendeeId,
       })
     }
   }
@@ -429,32 +437,11 @@ async function runTicketTailorAutoSync(ctx: {
           pickString(asRecord(orderPayload.buyer).name) ??
           undefined
 
-        const orderId: Id<"ticketTailorOrders"> = await ctx.runMutation(
+        const { orderId, ticketTailorOrderId } = await ctx.runMutation(
           internal.sync.internalUpsertTicketTailorOrder,
           {
             providerOrderId,
             providerEventId: orderProviderEventId,
-            eventId: canonicalEventId,
-            buyerEmail: buyer,
-            buyerName,
-            currency:
-              pickString(orderPayload.currency) ??
-              pickString(orderPayload.currency_code) ??
-              undefined,
-            totalAmountMinor:
-              toMinorAmount(orderPayload.total) ??
-              toMinorAmount(orderPayload.amount) ??
-              toMinorAmount(orderPayload.total_amount) ??
-              undefined,
-            orderedAt: (
-              parseDate(orderPayload.created_at) ??
-              parseDate(orderPayload.date) ??
-              parseDate(orderPayload.order_date)
-            )?.getTime(),
-            refundedAt:
-              parseDate(orderPayload.refunded_at)?.getTime() ?? undefined,
-            cancelledAt:
-              parseDate(orderPayload.cancelled_at)?.getTime() ?? undefined,
             rawPayload: orderPayload,
           }
         )
@@ -524,10 +511,7 @@ async function runTicketTailorAutoSync(ctx: {
               providerTicketTypeId: pickString(ap.ticket_type_id) ?? undefined,
               providerEventId: attendeeProviderEventId,
               providerOrderId: attendeeProviderOrderId,
-              eventId: canonicalEventId,
               orderId,
-              name,
-              email,
               ticketTypeLabel,
               ticketStatus,
               rawPayload: ap,
@@ -668,10 +652,10 @@ async function autoMatchUnassignedPayments(ctx: {
   for (const payment of unassignedPayments) {
     const normalizedPayer = payment.payerName.toLowerCase().trim()
 
-    // First: try exact buyer name match
+    // First: try exact booker name match
     const matches = paidOrders.filter(
-      (o: { buyerName: string | null }) =>
-        o.buyerName?.toLowerCase().trim() === normalizedPayer
+      (o: { bookerName: string | null }) =>
+        o.bookerName?.toLowerCase().trim() === normalizedPayer
     )
     if (matches.length === 1) {
       await ctx.runMutation(internal.payments.internalAssignPaymentToOrder, {
