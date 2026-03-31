@@ -692,7 +692,7 @@ export declare const api: {
       { providerEventId: string; providerOrderId: string },
       {
         attendees: Array<{
-          id: Id<"ticketTailorAttendees">;
+          id: Id<"orderAttendees">;
           name: string;
           normalizedStatus: string;
           ticketTypeLabel: string;
@@ -700,7 +700,7 @@ export declare const api: {
         order: {
           archiveReason: string | null;
           archivedAt: string | null;
-          id: Id<"ticketTailorOrders">;
+          id: Id<"orders">;
           isArchived?: boolean;
           normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
           orderedAt: string | null;
@@ -712,8 +712,8 @@ export declare const api: {
     removeOrderLocally: FunctionReference<
       "mutation",
       "public",
-      { orderId: Id<"ticketTailorOrders">; reason?: string },
-      { orderId: Id<"ticketTailorOrders">; removedAt: number }
+      { orderId: Id<"orders">; reason?: string },
+      { orderId: Id<"orders">; removedAt: number }
     >;
     searchOrders: FunctionReference<
       "query",
@@ -731,7 +731,7 @@ export declare const api: {
       "public",
       {
         normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
-        orderId: Id<"ticketTailorOrders">;
+        orderId: Id<"orders">;
       },
       any
     >;
@@ -1668,19 +1668,13 @@ export declare const internal: {
       "mutation",
       "internal",
       {
-        buyerEmail?: string;
-        buyerName?: string;
-        cancelledAt?: number;
-        currency?: string;
+        isArchived?: boolean;
         normalizationNote?: string;
         normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
-        orderedAt?: number;
         providerEventId: string;
         providerOrderId: string;
         providerStatus?: string;
         rawPayload: any;
-        refundedAt?: number;
-        totalAmountMinor?: number;
       },
       { orderId: Id<"orders">; ticketTailorOrderId: Id<"ticketTailorOrders"> }
     >;

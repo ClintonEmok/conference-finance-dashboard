@@ -253,7 +253,7 @@ export const cleanupLegacyTikkiePayments = mutation({
 export const assignPaymentToOrder = mutation({
   args: {
     paymentId: v.id("payments"),
-    orderId: v.string(),
+    orderId: v.id("orders"),
     status: v.optional(
       v.union(v.literal("auto_matched"), v.literal("manual_assignment"))
     ),
@@ -293,8 +293,8 @@ export const autoMatchPayments = mutation({
     await requireIdentity(ctx)
     // Bounded: indexed by event, capped batch
     const orders = await ctx.db
-      .query("ticketTailorOrders")
-      .withIndex("eventId", (q) =>
+      .query("orders")
+      .withIndex("by_eventId", (q) =>
         q.eq("eventId", args.eventId as Id<"events">)
       )
       .take(500)
@@ -305,34 +305,38 @@ export const autoMatchPayments = mutation({
     const unassignedPayments = payments.filter((p) => p.status === "unassigned")
     const matched: string[] = []
 
-    // Normalize buyer names once upfront
+    // Normalize booker names once upfront
     const orderLookup = new Map<string, (typeof orders)[0]>()
     for (const order of orders) {
-      const normalizedBuyerName = order.buyerName?.toLowerCase().trim() ?? ""
-      if (!normalizedBuyerName) continue
+      const normalizedBookerName = order.bookerName?.toLowerCase().trim() ?? ""
+      if (!normalizedBookerName) continue
 
-      // Store orders by normalized buyer name for exact-match lookup
+      // Store orders by normalized booker name for exact-match lookup
       // Exact amount will be checked per-payment
-      const key = normalizedBuyerName
+      const key = normalizedBookerName
       if (!orderLookup.has(key)) {
         orderLookup.set(key, order)
       }
     }
 
     // Pre-fetch attendees for attendee-name matching fallback
-    const attendees = await ctx.db
-      .query("ticketTailorAttendees")
-      .withIndex("eventId", (q) =>
-        q.eq("eventId", args.eventId as Id<"events">)
-      )
-      .take(1000)
-
+    // Fetch attendees for all orders (orderAttendees has by_orderId index, no eventId)
+    const orderIds = orders.map((o) => o._id)
     const attendeesByOrder = new Map<string, string[]>()
-    for (const att of attendees) {
-      if (!att.name) continue
-      const existing = attendeesByOrder.get(att.orderId) ?? []
-      existing.push(att.name.toLowerCase().trim())
-      attendeesByOrder.set(att.orderId, existing)
+
+    // Bounded: fetch attendees for each order (max 500 orders * reasonable attendees per order)
+    for (const orderId of orderIds.slice(0, 500)) {
+      const attendees = await ctx.db
+        .query("orderAttendees")
+        .withIndex("by_orderId", (q) => q.eq("orderId", orderId))
+        .take(100)
+
+      for (const att of attendees) {
+        if (!att.name) continue
+        const existing = attendeesByOrder.get(orderId) ?? []
+        existing.push(att.name.toLowerCase().trim())
+        attendeesByOrder.set(orderId, existing)
+      }
     }
 
     for (const payment of unassignedPayments) {
@@ -391,10 +395,8 @@ export const getPaymentSummary = query({
       )
       .reduce((sum, p) => sum + p.amountMinor, 0)
 
-    const orderId = ctx.db.normalizeId("ticketTailorOrders", args.orderId)
-    const order = orderId
-      ? await ctx.db.get("ticketTailorOrders", orderId)
-      : null
+    const orderId = ctx.db.normalizeId("orders", args.orderId)
+    const order = orderId ? await ctx.db.get("orders", orderId) : null
     const orderTotal = order?.totalAmountMinor ?? 0
 
     return {
@@ -545,7 +547,7 @@ export const internalCleanupLegacyTikkiePayments = internalMutation({
 export const internalAssignPaymentToOrder = internalMutation({
   args: {
     paymentId: v.id("payments"),
-    orderId: v.string(),
+    orderId: v.id("orders"),
     status: v.optional(
       v.union(v.literal("auto_matched"), v.literal("manual_assignment"))
     ),
