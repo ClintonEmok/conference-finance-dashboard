@@ -5,6 +5,9 @@ import {
 } from "@/lib/domain/signup/submission"
 import { enforceRateLimit } from "@/lib/rate-limit"
 import { signupSubmissionErrorCodeValues } from "@/lib/types/signup"
+import { api } from "@/lib/convex/api"
+import { convexMutation, convexQuery } from "@/lib/convex/server"
+import type { Id } from "@/convex/_generated/dataModel"
 
 function hashString(input: string): string {
   let hash = 0
@@ -94,6 +97,11 @@ export async function POST(request: Request) {
       honeypotSeen: false,
     })
 
+    // Fire-and-forget: trigger confirmation email
+    triggerConfirmationEmail(body, result.bookingRef).catch((err) => {
+      console.error("Failed to queue confirmation email:", err)
+    })
+
     return NextResponse.json(
       {
         data: {
@@ -146,4 +154,95 @@ export async function POST(request: Request) {
       { status: 500 }
     )
   }
+}
+
+/**
+ * Fires confirmation email asynchronously after successful signup.
+ * Best-effort: errors are logged but don't block the response.
+ */
+async function triggerConfirmationEmail(
+  body: unknown,
+  bookingRef: string
+): Promise<void> {
+  const bodyRecord =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : null
+
+  if (!bodyRecord) return
+
+  const eventId =
+    typeof bodyRecord.eventId === "string" ? bodyRecord.eventId : null
+  if (!eventId) return
+
+  const booker = bodyRecord.booker as Record<string, unknown> | undefined
+  const bookerEmail = typeof booker?.email === "string" ? booker.email : null
+  const bookerName = typeof booker?.name === "string" ? booker.name : "Guest"
+
+  if (!bookerEmail) return
+
+  const attendees = Array.isArray(bodyRecord.attendees)
+    ? bodyRecord.attendees
+    : []
+  const assignments = Array.isArray(bodyRecord.assignments)
+    ? bodyRecord.assignments
+    : []
+
+  // Fetch event details by ID
+  const event = await convexQuery(api.events.getEventById, { eventId }).catch(
+    () => null
+  )
+
+  // Try fetching Tikkie link
+  const tikkieLink = await convexQuery(
+    api.tikkie.getEventPaymentLinkForSuccess,
+    { eventId: eventId as Id<"events"> }
+  ).catch(() => null)
+
+  // Build room assignments from submission data
+  const uniqueSlotIds = new Set<string>()
+  const roomAssignments: Array<{
+    roomType: string
+    hotelName: string
+    bedCount: number
+  }> = []
+  for (const assignment of assignments) {
+    if (
+      typeof assignment === "object" &&
+      assignment !== null &&
+      "slotId" in assignment &&
+      "assignmentIntent" in assignment &&
+      assignment.assignmentIntent === "assign"
+    ) {
+      const slotId = String((assignment as Record<string, unknown>).slotId)
+      if (!uniqueSlotIds.has(slotId)) {
+        uniqueSlotIds.add(slotId)
+        // Slot details are not available here; use placeholder
+        roomAssignments.push({
+          roomType: "Room",
+          hotelName: "Assigned",
+          bedCount: 1,
+        })
+      }
+    }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+  const eventName = event?.title ?? "Conference"
+  const eventDate = event?.startsAt
+    ? new Date(event.startsAt).toLocaleDateString("en-GB")
+    : new Date().toLocaleDateString("en-GB")
+
+  await convexMutation(api.emailMutations.triggerSignupConfirmationEmail, {
+    to: bookerEmail,
+    bookerName,
+    bookingRef,
+    eventName,
+    eventDate,
+    eventLocation: "",
+    tikkieUrl: tikkieLink?.paymentUrl,
+    attendeeCount: attendees.length,
+    roomAssignments,
+    successPageUrl: `${appUrl}/signup/success/${bookingRef}`,
+  })
 }
