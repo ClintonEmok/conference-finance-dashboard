@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Attendee Signup + Accommodation Self-Assignment
 status: unknown
-stopped_at: Completed 24-06-PLAN.md
-last_updated: "2026-03-31T12:03:39.708Z"
+stopped_at: Phase 25 context gathered
+last_updated: "2026-03-31T12:21:47.311Z"
 last_activity: 2026-03-31
 progress:
-  total_phases: 7
+  total_phases: 8
   completed_phases: 6
   total_plans: 27
   completed_plans: 26
@@ -215,11 +215,12 @@ Recent decisions that future work should preserve:
   - 22-03: Review step expandable sections (COMPLETE) - Tickets, Attendees, Rooms with allocation summary
 - Phase 23 added: Add email confirmation and show tikkie link (payment). after signup is completed and improve tracking. we can fetch tikkie automatically already, but payments are done by name. payment details only show first letter and last name (context gathered)
 - Phase 24 added: canonical orders rewrite
+- Phase 25 added: Concerns fixing
 
 ## Session Continuity
 
 - **Last activity:** 2026-03-31
-- **Last session:** 2026-03-31T11:46:03Z
-- **Stopped at:** Completed 24-06-PLAN.md
-- **Resume file:** .planning/phases/24-canonical-orders-rewrite/24-06-SUMMARY.md
+- **Last session:** 2026-03-31T12:21:47.304Z
+- **Stopped at:** Phase 25 context gathered
+- **Resume file:** .planning/phases/25-concerns-fixing/25-CONTEXT.md
 - **Next recommended plan:** Phase 24 complete. All 6 plans finished for canonical-orders-rewrite.
