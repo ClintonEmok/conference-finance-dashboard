@@ -207,8 +207,10 @@ export const recalculateRoomOccupancy = internalMutation({
 
     // Bounded: one room has limited occupants
     const occupants = await ctx.db
-      .query("ticketTailorAttendees")
-      .withIndex("assignedRoomId", (q) => q.eq("assignedRoomId", args.roomId))
+      .query("orderAttendees")
+      .withIndex("by_assignedRoomId", (q) =>
+        q.eq("assignedRoomId", args.roomId)
+      )
       .take(100)
 
     await ctx.db.patch("accommodationRooms", roomId, {
@@ -294,7 +296,7 @@ export const getRoomAllocationBoard = query({
       allAttendees,
       familyMembers,
       accommodationSlotDocs,
-      allSubmissions,
+      allOrders,
     ] = await Promise.all([
       ctx.db.query("ticketTailorEvents").take(200),
       ctx.db.query("events").take(200),
@@ -306,12 +308,12 @@ export const getRoomAllocationBoard = query({
       ctx.db.query("accommodationSlots").take(1000),
       eventId
         ? ctx.db
-            .query("submissions")
+            .query("orders")
             .withIndex("by_eventId", (q) =>
               q.eq("eventId", eventId as Id<"events">)
             )
             .take(500)
-        : ctx.db.query("submissions").take(500),
+        : ctx.db.query("orders").take(500),
     ])
 
     const normalizedLocationFilter = normalizeOptionalString(args.location)
@@ -479,32 +481,34 @@ export const getRoomAllocationBoard = query({
     })
 
     // --- Canonical submission queue rows ---
-    const submissionIds = allSubmissions.map((s) => s._id)
+    const submissionIds = allOrders.map((s) => s._id)
 
-    const [submissionAttendees, submissionAssignments] = submissionIds.length
+    const [orderAttendeesList, orderAssignmentsList] = submissionIds.length
       ? await Promise.all([
           Promise.all(
             submissionIds.map((sid) =>
               ctx.db
-                .query("submissionAttendees")
-                .withIndex("by_submissionId", (q) => q.eq("submissionId", sid))
+                .query("orderAttendees")
+                .withIndex("by_orderId", (q) =>
+                  q.eq("orderId", sid as Id<"orders">)
+                )
                 .take(100)
             )
           ).then((results) => results.flat()),
           Promise.all(
             submissionIds.map((sid) =>
               ctx.db
-                .query("submissionAssignments")
-                .withIndex("by_submissionId", (q) => q.eq("submissionId", sid))
+                .query("orderAssignments")
+                .withIndex("by_orderId", (q) =>
+                  q.eq("orderId", sid as Id<"orders">)
+                )
                 .take(100)
             )
           ).then((results) => results.flat()),
         ])
       : [[], []]
 
-    const submissionById = new Map(
-      allSubmissions.map((s) => [s._id as string, s])
-    )
+    const orderById = new Map(allOrders.map((s) => [s._id as string, s]))
 
     const slotById = new Map(
       accommodationSlotDocs.map((s) => [s._id as string, s])
@@ -512,14 +516,14 @@ export const getRoomAllocationBoard = query({
 
     const assignmentByAttendeeId = new Map<
       string,
-      (typeof submissionAssignments)[number]
+      (typeof orderAssignmentsList)[number]
     >()
-    for (const assignment of submissionAssignments) {
+    for (const assignment of orderAssignmentsList) {
       assignmentByAttendeeId.set(assignment.attendeeId as string, assignment)
     }
 
-    const submissionQueueRows = submissionAttendees.map((attendee) => {
-      const submission = submissionById.get(attendee.submissionId as string)
+    const submissionQueueRows = orderAttendeesList.map((attendee) => {
+      const order = orderById.get(attendee.orderId as string)
       const assignment = assignmentByAttendeeId.get(attendee._id as string)
 
       let unresolved = false
@@ -542,24 +546,24 @@ export const getRoomAllocationBoard = query({
       const genderType = normalizeGender(attendee.gender)
 
       return {
-        attendeeId: `submission-${submission?._id ?? "unknown"}-${attendee.attendeeKey}`,
+        attendeeId: `internal-${order?._id ?? "unknown"}-${attendee.attendeeKey}`,
         attendeeName: attendee.name,
         attendeeEmail: attendee.email ?? null,
         source: "internal" as const,
-        submissionId: submission?._id ?? null,
-        bookingRef: submission?.bookingRef ?? null,
-        submissionNotes: submission?.notes ?? null,
+        submissionId: order?._id ?? null,
+        bookingRef: order?.bookingRef ?? null,
+        submissionNotes: order?.notes ?? null,
         assignmentIntent: assignment?.assignmentIntent ?? null,
         slotId: assignment?.slotId ?? null,
         roommatePreference: attendee.roommatePreference || null,
         roommateAvoid: attendee.roommateAvoid || null,
         dietaryRestrictions: attendee.dietaryRestrictions || null,
-        bookerName: submission?.bookerName ?? null,
+        bookerName: order?.bookerName ?? null,
         genderType,
         location: attendee.location || null,
         unresolved,
         unresolvedReason,
-        submittedAt: submission?.submittedAt ?? null,
+        submittedAt: order?.submittedAt ?? null,
         sortOrder: attendee.sortOrder,
       }
     })
@@ -1064,14 +1068,14 @@ export const assignRoomToAttendee = mutation({
     )
     const attendeeId = normalizeDocId(
       ctx,
-      "ticketTailorAttendees",
+      "orderAttendees",
       args.attendeeId,
       "Attendee not found"
     )
     const room = await ctx.db.get("accommodationRooms", roomId)
     if (!room) throw new Error("Room not found")
 
-    const attendee = await ctx.db.get("ticketTailorAttendees", attendeeId)
+    const attendee = await ctx.db.get("orderAttendees", attendeeId)
     if (!attendee) throw new Error("Attendee not found")
 
     const eventHotelLinks = await ctx.db
@@ -1080,40 +1084,32 @@ export const assignRoomToAttendee = mutation({
       .take(20)
 
     if (eventHotelLinks.length > 0) {
-      // Look up the canonical event for this attendee
-      const eventSources = await ctx.db
-        .query("eventSources")
-        .withIndex("by_provider_and_externalEventId", (q) =>
-          q
-            .eq("provider", "tickettailor")
-            .eq("externalEventId", attendee.providerEventId)
+      // Look up the canonical event for this attendee via their order
+      const order = await ctx.db.get("orders", attendee.orderId)
+      const eventId = order?.eventId
+
+      if (eventId) {
+        const eventHasHotel = eventHotelLinks.some(
+          (eh) => eh.eventId === eventId
         )
-        .take(10)
-
-      const canonicalEventIds = new Set(
-        eventSources.map((s) => s.eventId as string)
-      )
-      // Also check if attendee's providerEventId directly matches any eventId (backward compat)
-      canonicalEventIds.add(attendee.providerEventId)
-
-      const eventHasHotel = eventHotelLinks.some((eh) =>
-        canonicalEventIds.has(eh.eventId)
-      )
-      if (!eventHasHotel) {
-        throw new Error("Room hotel is not enabled for this event")
+        if (!eventHasHotel) {
+          throw new Error("Room hotel is not enabled for this event")
+        }
       }
     }
 
     const occupiedCount = await ctx.db
-      .query("ticketTailorAttendees")
-      .withIndex("assignedRoomId", (q) => q.eq("assignedRoomId", args.roomId))
+      .query("orderAttendees")
+      .withIndex("by_assignedRoomId", (q) =>
+        q.eq("assignedRoomId", args.roomId)
+      )
       .take(room.capacity + 1)
 
     if (occupiedCount.length >= room.capacity) {
       throw new Error("Room is already full")
     }
 
-    await ctx.db.patch("ticketTailorAttendees", attendeeId, {
+    await ctx.db.patch("orderAttendees", attendeeId, {
       assignedRoomId: args.roomId,
     })
 
@@ -1136,14 +1132,14 @@ export const assignAttendeeToRoom = mutation({
     )
     const attendeeId = normalizeDocId(
       ctx,
-      "ticketTailorAttendees",
+      "orderAttendees",
       args.attendeeId,
       "Attendee not found"
     )
     const room = await ctx.db.get("accommodationRooms", roomId)
     if (!room) throw new Error("Room not found")
 
-    const attendee = await ctx.db.get("ticketTailorAttendees", attendeeId)
+    const attendee = await ctx.db.get("orderAttendees", attendeeId)
     if (!attendee) throw new Error("Attendee not found")
 
     if (attendee.assignedRoomId === args.roomId) {
@@ -1156,40 +1152,32 @@ export const assignAttendeeToRoom = mutation({
       .take(20)
 
     if (eventHotelLinks.length > 0) {
-      // Look up the canonical event for this attendee
-      const eventSources = await ctx.db
-        .query("eventSources")
-        .withIndex("by_provider_and_externalEventId", (q) =>
-          q
-            .eq("provider", "tickettailor")
-            .eq("externalEventId", attendee.providerEventId)
+      // Look up the canonical event for this attendee via their order
+      const order = await ctx.db.get("orders", attendee.orderId)
+      const eventId = order?.eventId
+
+      if (eventId) {
+        const eventHasHotel = eventHotelLinks.some(
+          (eh) => eh.eventId === eventId
         )
-        .take(10)
-
-      const canonicalEventIds = new Set(
-        eventSources.map((s) => s.eventId as string)
-      )
-      // Also check if attendee's providerEventId directly matches any eventId (backward compat)
-      canonicalEventIds.add(attendee.providerEventId)
-
-      const eventHasHotel = eventHotelLinks.some((eh) =>
-        canonicalEventIds.has(eh.eventId)
-      )
-      if (!eventHasHotel) {
-        throw new Error("Room hotel is not enabled for this event")
+        if (!eventHasHotel) {
+          throw new Error("Room hotel is not enabled for this event")
+        }
       }
     }
 
     const occupiedCount = await ctx.db
-      .query("ticketTailorAttendees")
-      .withIndex("assignedRoomId", (q) => q.eq("assignedRoomId", args.roomId))
+      .query("orderAttendees")
+      .withIndex("by_assignedRoomId", (q) =>
+        q.eq("assignedRoomId", args.roomId)
+      )
       .take(room.capacity + 1)
 
     if (occupiedCount.length >= room.capacity) {
       throw new Error("Room is already full")
     }
 
-    await ctx.db.patch("ticketTailorAttendees", attendeeId, {
+    await ctx.db.patch("orderAttendees", attendeeId, {
       assignedRoomId: args.roomId,
     })
 
@@ -1205,14 +1193,14 @@ export const unassignRoomFromAttendee = mutation({
     await requireIdentity(ctx)
     const attendeeId = normalizeDocId(
       ctx,
-      "ticketTailorAttendees",
+      "orderAttendees",
       args.attendeeId,
       "Attendee not found or not assigned to any room"
     )
-    const attendee = await ctx.db.get("ticketTailorAttendees", attendeeId)
+    const attendee = await ctx.db.get("orderAttendees", attendeeId)
     if (!attendee || !attendee.assignedRoomId) return { ok: true }
 
-    await ctx.db.patch("ticketTailorAttendees", attendeeId, {
+    await ctx.db.patch("orderAttendees", attendeeId, {
       assignedRoomId: undefined,
     })
 
@@ -1228,16 +1216,16 @@ export const unassignAttendeeFromRoom = mutation({
     await requireIdentity(ctx)
     const attendeeId = normalizeDocId(
       ctx,
-      "ticketTailorAttendees",
+      "orderAttendees",
       args.attendeeId,
       "Attendee not found or not assigned to any room"
     )
-    const attendee = await ctx.db.get("ticketTailorAttendees", attendeeId)
+    const attendee = await ctx.db.get("orderAttendees", attendeeId)
     if (!attendee || !attendee.assignedRoomId) {
       throw new Error("Attendee not found or not assigned to any room")
     }
 
-    await ctx.db.patch("ticketTailorAttendees", attendeeId, {
+    await ctx.db.patch("orderAttendees", attendeeId, {
       assignedRoomId: undefined,
     })
 
@@ -1462,8 +1450,8 @@ export const deleteHotel = mutation({
 
     for (const room of rooms) {
       const assignedAttendee = await ctx.db
-        .query("ticketTailorAttendees")
-        .withIndex("assignedRoomId", (q) => q.eq("assignedRoomId", room._id))
+        .query("orderAttendees")
+        .withIndex("by_assignedRoomId", (q) => q.eq("assignedRoomId", room._id))
         .first()
 
       if (assignedAttendee) {
@@ -1523,8 +1511,10 @@ export const deleteRoom = mutation({
     if (!room) throw new Error("Room not found")
 
     const attendees = await ctx.db
-      .query("ticketTailorAttendees")
-      .withIndex("assignedRoomId", (q) => q.eq("assignedRoomId", args.roomId))
+      .query("orderAttendees")
+      .withIndex("by_assignedRoomId", (q) =>
+        q.eq("assignedRoomId", args.roomId)
+      )
       .take(room.capacity + 1)
 
     if (attendees.length > 0) {
@@ -1830,8 +1820,8 @@ export const getAccommodationSummaryForEvent = query({
       .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
       .take(500)
 
-    const submissions = await ctx.db
-      .query("submissions")
+    const orders = await ctx.db
+      .query("orders")
       .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
       .take(500)
 
@@ -1843,7 +1833,7 @@ export const getAccommodationSummaryForEvent = query({
       hotelsLinked: eventHotels.length,
       totalSlots: slots.length,
       assignableSlots: assignableSlots.length,
-      submissionsCount: submissions.length,
+      submissionsCount: orders.length,
     }
   },
 })
