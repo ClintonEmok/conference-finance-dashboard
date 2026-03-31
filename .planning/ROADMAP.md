@@ -164,7 +164,7 @@ Plans:
 - [x] 24-02-PLAN.md — TT sync pipeline: write to core + extension tables simultaneously ✓
 - [x] 24-03-PLAN.md — Order management + Tikkie: read from core orders table ✓
 - [x] 24-04-PLAN.md — Payment matching: read orders from core table ✓
-- [ ] 24-05-PLAN.md — Tikkie module: read from core orders table
+- [x] 24-05-PLAN.md — Accommodation board: read from core + extension tables ✓
 - [x] 24-06-PLAN.md — Signup submission: write to core orders tables ✓
 
 ---
