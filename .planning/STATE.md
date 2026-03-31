@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Attendee Signup + Accommodation Self-Assignment
 status: in_progress
-stopped_at: Completed 24-01-PLAN.md
-last_updated: "2026-03-31T10:52:30Z"
+stopped_at: Completed 24-04-PLAN.md
+last_updated: "2026-03-31T11:05:04Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 27
-  completed_plans: 20
+  completed_plans: 21
 ---
 
 # Project State
@@ -25,7 +25,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 ## Current Position
 
 Phase: 24 (canonical-orders-rewrite) — EXECUTING
-Plan: 1 of 6
+Plan: 4 of 6
 
 ## Alignment Status
 
@@ -67,6 +67,8 @@ Plan: 1 of 6
 - **Public signup flow complete:** Attendee details, dual-surface validation, review/submit, restore-choice decision controls, and booking confirmation states are now integrated end-to-end (19-03).
 - **Operator handoff read model ready:** Canonical submission attendees now flow into the accommodation board via read-time Convex joins with unresolved assignment prioritization (20-01).
 - **Review step with expandable sections:** ReviewSubmitStep now shows three expandable sections (Tickets, Attendee Details, Room Allocations) with room-based allocation summary, unfilled beds warnings, and unassigned attendee alerts (22-03).
+- **Order queries migrated to core tables:** `orders.ts` and `tikkie.ts` now read from core `orders` and `orderAttendees` tables, joining with extension tables (`ticketTailorOrders`, `ticketTailorAttendees`) for provider-specific fields and visibility (24-03).
+- **Payment matching migrated to core orders table:** `autoMatchPayments` and `getPaymentSummary` now read from `orders` and `orderAttendees` tables instead of Ticket Tailor-specific tables (24-04).
 
 ## Key Decisions
 
@@ -129,6 +131,11 @@ Recent decisions that future work should preserve:
 - [24-01] Core + Extension pattern — slim core tables with common fields, provider-specific extension tables (ticketTailor\*) with FKs to core for raw payloads and provider-only fields.
 - [24-01] Domain concepts (assignedRoomId, allocationPriority, priorityReason) belong in core orderAttendees table, not provider-specific tables.
 - [24-01] Optional fields enable cross-source compatibility — integration orders populate currency/totalAmountMinor/status/providerOrderId, internal orders populate idempotencyKey/bookingRef/honeypotSeen.
+- [24-04] Payment matching reads from core orders table — auto-match queries use `ctx.db.query("orders")` with `by_eventId` index, attendees fetched via `orderAttendees` `by_orderId` index.
+- [24-04] Payment orderId parameters use `v.id("orders")` type validator for Convex type safety instead of `v.string()`.
+- [24-03] Core + Extension join pattern — query core table first (`orders`, `orderAttendees`), then join extension tables (`ticketTailorOrders`, `ticketTailorAttendees`) for provider-specific fields and visibility (removedAt, archivedAt).
+- [24-03] Bounded indexed queries — all order queries use `.withIndex()` with available indexes (`by_eventId`, `by_providerOrderId`, `by_status`), no full table scans.
+- [24-03] Visibility via extension — order visibility (removedAt, isArchived) checked via extension table joins, not in core tables.
 
 ## Active Patterns / Constraints
 
@@ -205,7 +212,7 @@ Recent decisions that future work should preserve:
 ## Session Continuity
 
 - **Last activity:** 2026-03-31
-- **Last session:** 2026-03-31T10:52:30Z
-- **Stopped at:** Completed 24-01-PLAN.md
-- **Resume file:** .planning/phases/24-canonical-orders-rewrite/24-01-SUMMARY.md
-- **Next recommended plan:** Continue with Phase 24 Plan 02 (TT sync mutations rewrite)
+- **Last session:** 2026-03-31T11:05:04Z
+- **Stopped at:** Completed 24-04-PLAN.md
+- **Resume file:** .planning/phases/24-canonical-orders-rewrite/24-04-SUMMARY.md
+- **Next recommended plan:** Continue with Phase 24 Plan 05 (Tikkie module update) or Plan 06 (Accommodation module update)
