@@ -390,6 +390,15 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       return
     }
 
+    // Clear localStorage draft on successful submission
+    if (eventId) {
+      try {
+        window.localStorage.removeItem(`signup-draft:${eventId}`)
+      } catch {
+        // Ignore localStorage errors (e.g. private browsing)
+      }
+    }
+
     setSubmitResult(result.data)
     setSubmitError(null)
     const hasRestorePayload = Boolean(result.data.restorePayload)
