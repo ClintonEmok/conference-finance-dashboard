@@ -567,23 +567,36 @@ export const autoMatchTikkiePayments = mutation({
       (p) => p.matchStatus === "unmatched"
     )
 
+    // Query core orders table instead of ticketTailorOrders
     const orders = await ctx.db
-      .query("ticketTailorOrders")
-      .withIndex("eventId", (q) =>
+      .query("orders")
+      .withIndex("by_eventId", (q) =>
         q.eq("eventId", args.eventId as Id<"events">)
       )
       .take(500)
 
-    // Pre-fetch attendees for attendee-name matching fallback
-    const attendees = await ctx.db
-      .query("ticketTailorAttendees")
-      .withIndex("eventId", (q) =>
-        q.eq("eventId", args.eventId as Id<"events">)
-      )
-      .take(1000)
+    // Join with extension data for visibility checking
+    const ordersWithExtensions = await Promise.all(
+      orders.map(async (order) => {
+        const extension = await ctx.db
+          .query("ticketTailorOrders")
+          .withIndex("orderId", (q) => q.eq("orderId", order._id))
+          .first()
+        return { ...order, extension }
+      })
+    )
 
-    const attendeesByOrder = new Map<string, string[]>()
-    for (const att of attendees) {
+    // Filter visible orders (not removed)
+    const visibleOrders = ordersWithExtensions.filter(
+      (o) => !o.extension?.removedAt
+    )
+
+    // Pre-fetch attendees from core orderAttendees table
+    const orderAttendees = await ctx.db.query("orderAttendees").take(1000)
+
+    // Group attendees by orderId
+    const attendeesByOrder = new Map<Id<"orders">, string[]>()
+    for (const att of orderAttendees) {
       if (!att.name) continue
       const existing = attendeesByOrder.get(att.orderId) ?? []
       existing.push(att.name.toLowerCase().trim())
@@ -596,8 +609,8 @@ export const autoMatchTikkiePayments = mutation({
       const normalizedPayer = payment.payerName.toLowerCase().trim()
 
       // First: try exact buyer name match
-      const matchingOrders = orders.filter(
-        (o) => o.buyerName?.toLowerCase().trim() === normalizedPayer
+      const matchingOrders = visibleOrders.filter(
+        (o) => o.bookerName?.toLowerCase().trim() === normalizedPayer
       )
 
       if (matchingOrders.length === 1) {
@@ -611,9 +624,9 @@ export const autoMatchTikkiePayments = mutation({
       }
 
       // Fallback: try attendee name match with exact amount
-      for (const order of orders) {
-        const orderAttendees = attendeesByOrder.get(order._id) ?? []
-        const attendeeMatch = orderAttendees.some(
+      for (const order of visibleOrders) {
+        const orderAttendeeNames = attendeesByOrder.get(order._id) ?? []
+        const attendeeMatch = orderAttendeeNames.some(
           (name) => name === normalizedPayer
         )
         if (attendeeMatch && order.totalAmountMinor === payment.amountMinor) {
