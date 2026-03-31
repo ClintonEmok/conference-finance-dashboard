@@ -356,4 +356,389 @@ await attachHotelToEventByProviderId({
 
 ---
 
-_Concerns audit: 2026-03-30_
+## Additional Structural Issues (2026-03-31)
+
+### Massive Frontend Page Components
+
+**Issue:** Several page components exceed 500+ lines, mixing data fetching, state management, UI rendering, and business logic:
+
+- `app/dashboard/accommodation/page.tsx` — **1,708 lines**
+- `app/dashboard/events/[slug]/page.tsx` — **1,340 lines**
+- `app/dashboard/accommodation/inventory/page.tsx` — **975 lines**
+- `app/dashboard/page.tsx` — **664 lines**
+- `app/dashboard/orders/[orderId]/page.tsx` — **595 lines**
+- `app/dashboard/attendees/[attendeeId]/page.tsx` — **585 lines**
+- `app/dashboard/settings/ticket-types/page.tsx` — **539 lines**
+- `components/dashboard/event-tikkie-section.tsx` — **874 lines**
+
+**Impact:** These files are unmaintainable. A single change to one feature may inadvertently affect another. No clear separation between UI components and data-fetching logic.
+
+**Fix approach:** Extract sub-components into `components/dashboard/` or route-local `components/` directories. Move data-fetching hooks into `lib/convex/hooks/`.
+
+### Widespread `any` Type Usage in Frontend
+
+**Issue:** Over 160 instances of `any` in non-test, non-generated source files. Key offenders:
+
+- `app/dashboard/events/[slug]/page.tsx` — ~15 `any` usages for hotel IDs, ticket types, event data (lines 265, 277, 292, 345, 380, 399, 405, 995, 1065, 1266, 1332)
+- `app/dashboard/accommodation/[event-slug]/page.tsx` — ~10 `any` usages (lines 59, 71, 83, 98, 147, 159, 426)
+- `app/dashboard/accommodation/inventory/page.tsx` — ~8 `any` usages in catch blocks and delete operations (lines 189, 227, 247, 273, 284, 286, 297, 299)
+- `app/dashboard/events/[slug]/components/add-hotel-dialog.tsx` — `any` in form data (line 134)
+- `app/dashboard/accommodation/[event-slug]/components/add-rooms-dialog.tsx` — `any` cast (line 128)
+
+**Impact:** No type safety. Refactoring is risky. IDE autocomplete doesn't work.
+
+**Fix approach:** Define proper types for all entities. Use `Id<"tableName">` for Convex document IDs.
+
+### Duplicate Type Definitions
+
+**Issue:** The same type concepts are defined in multiple places:
+
+- `GenderType` is defined in `app/dashboard/page.tsx:60` and also exists in schema as `genderType`
+- `RevenueResponse` type in `app/dashboard/page.tsx:25` duplicates the API response shape
+- `CandidateOrder` type in `convex/orders.ts:216` duplicates the schema shape
+- Payment match status enums are defined in both schema and `lib/types/payment.ts`
+
+**Impact:** Types can drift. Changes to schema require manual updates to duplicated types.
+
+**Fix approach:** Derive types from the Convex schema using `Doc<"tableName">` and `Id<"tableName">` from `_generated/dataModel`.
+
+### Inconsistent ID Types in Schema
+
+**Issue:** The schema uses `v.string()` for foreign key references in several tables, while using `v.id()` in others:
+
+- `accommodationEventHotels.eventId` / `hotelId` — `v.string()` (lines 345-346) instead of `v.id()`
+- `tikkiePaymentTemplates.eventId` — `v.string()` (line 354) instead of `v.id("events")`
+- `accommodationRooms.hotelId` / `roomTypeId` — `v.string()` (lines 375-376) instead of `v.id()`
+- `tikkiePaymentLinks.providerOrderId`, `orderId`, `eventId` — all `v.string()` (lines 389-392)
+- `roomAllocations.eventId`, `roomId` — `v.string()` (lines 547-548)
+- `attendeeFamilyGroups.primaryAttendeeId` — `v.string()` (line 498)
+- `attendeeFamilyMembers.familyGroupId`, `attendeeId` — `v.string()` (lines 504-505)
+
+**Impact:** No referential integrity. Cannot use `ctx.db.get()` directly — must normalize IDs manually. Queries are error-prone.
+
+**Fix approach:** Migrate string IDs to proper `v.id()` types. This requires a data migration.
+
+### Missing Metadata on Routes
+
+**Issue:** No `metadata` exports found on any route pages. The root layout at `app/layout.tsx` has no `metadata` export either.
+
+**Impact:** Poor SEO, no Open Graph tags, no proper page titles.
+
+**Fix approach:** Add `metadata` export to root layout and key route pages.
+
+### Missing Loading/Error Boundaries on Some Routes
+
+**Issue:** Not all route segments have `loading.tsx` or `error.tsx`:
+
+- `app/dashboard/events/` — no `loading.tsx` or `error.tsx`
+- `app/dashboard/financial/` — has `loading.tsx` but no `error.tsx`
+- `app/dashboard/integrations/` — has `loading.tsx` but no `error.tsx`
+- `app/dashboard/settings/ticket-types/` — has `loading.tsx` but no `error.tsx`
+- `app/dashboard/accommodation/[event-slug]/` — no `loading.tsx` or `error.tsx`
+- `app/dashboard/accommodation/inventory/` — no `loading.tsx` or `error.tsx`
+- `app/dashboard/reconciliation/payments/` — no `loading.tsx` or `error.tsx`
+
+**Impact:** Users see blank screens or unhandled errors when these pages load slowly or fail.
+
+**Fix approach:** Add `loading.tsx` and `error.tsx` to all route segments.
+
+### Client-Side Data Fetching via Raw `fetch` in Dashboard Page
+
+**Issue:** `app/dashboard/page.tsx` uses raw `fetch` calls to custom API routes (`/api/dashboard/revenue`, `/api/dashboard/attendees`) instead of using Convex's reactive subscriptions.
+
+**Impact:** No real-time updates. Manual loading/error state management. No abort handling beyond the controller pattern. More code to maintain.
+
+**Fix approach:** Use `useQuery` from Convex for reactive data, or at least consolidate into a custom hook.
+
+### N+1 Query Pattern in Order Ledger
+
+**Issue:** `convex/orders.ts:103-112` — `getOrderLedger` fetches all orders for an event, then for each order makes a separate query to fetch attendees:
+
+```typescript
+const ordersWithAttendees = await Promise.all(
+  visibleOrders.map(async (order) => {
+    const attendees = await ctx.db
+      .query("ticketTailorAttendees")
+      .withIndex("orderId", (q) => q.eq("orderId", order._id))
+      .take(100)
+    return { ...order, attendees }
+  })
+)
+```
+
+**Impact:** With 100 orders, this executes 101 database queries. Convex batches these, but it still reads far more data than needed.
+
+**Fix approach:** Fetch all attendees for the event in one query, then group by orderId in JavaScript.
+
+### Repeated Full Event Table Scans
+
+**Issue:** `convex/orders.ts:336-348` — `loadEventNamesById` and `loadEventSlugsById` each independently scan the entire events table. They're called together in `getOrdersWithFilters` and `getOrdersForReconciliation`.
+
+**Impact:** Two full table scans when one would suffice.
+
+**Fix approach:** Combine into a single function that returns both maps.
+
+### Debug Logging Left in Production Code
+
+**Issue:** `convex/sync.ts:44` contains a `console.log` statement that logs auth identity on every sync run start:
+
+```typescript
+console.log("server identity", await ctx.auth.getUserIdentity())
+```
+
+**Impact:** Exposes authentication details in logs. Adds unnecessary log volume.
+
+**Fix approach:** Remove this line.
+
+### Unprotected Signup Submission Endpoint
+
+**Issue:** `app/api/signup/submit/route.ts` accepts submissions with only honeypot validation. No CSRF protection, no rate limiting, no CAPTCHA.
+
+**Impact:** Vulnerable to automated spam submissions.
+
+**Fix approach:** Add rate limiting per IP, consider CAPTCHA for high-volume events.
+
+### Sensitive Data in `providerPayload` Fields
+
+**Issue:** Multiple tables store raw API responses in `v.any()` fields (`rawPayload`, `providerPayload`). These may contain sensitive data like API keys, tokens, or PII.
+
+**Impact:** Sensitive data is persisted in the database without encryption.
+
+**Fix approach:** Sanitize payloads before storage. Remove sensitive fields. Consider encrypting stored payloads.
+
+### `shadcn` as a Runtime Dependency
+
+**Issue:** `package.json` lists `"shadcn": "^4.0.8"` as a runtime dependency. shadcn is a CLI tool for generating components, not a runtime library.
+
+**Impact:** Unnecessary bundle size. Should be a devDependency.
+
+**Fix approach:** Move `shadcn` to `devDependencies`.
+
+### No Testing Framework for Convex
+
+**Issue:** The project uses Vitest for testing, but there's no Convex testing setup (no `convex-test` package). Convex functions are tested indirectly via API routes.
+
+**Impact:** Cannot unit test Convex mutations and queries in isolation.
+
+**Fix approach:** Add `convex-test` package for isolated Convex function testing.
+
+### Unused `proxy.ts` at Project Root
+
+**Issue:** `proxy.ts` exists at the project root with no imports from any source file.
+
+**Impact:** Dead code. May be a leftover from development.
+
+**Fix approach:** Remove if unused, or document its purpose.
+
+### Duplicate `lib/convex/hooks/` and Route-Local Hook Files
+
+**Issue:** Convex hooks exist in both:
+
+- `lib/convex/hooks/accommodation.ts`
+- `app/dashboard/events/[slug]/components/accommodation-hooks.ts`
+
+**Impact:** Confusion about which hooks to use. Potential for inconsistent behavior.
+
+**Fix approach:** Consolidate into `lib/convex/hooks/` and remove route-local duplicates.
+
+### Missing Error Boundaries at Component Level
+
+**Issue:** No React Error Boundary components found. The global `app/global-error.tsx` handles fatal errors, but individual components (tables, forms, charts) have no fallback UI.
+
+**Impact:** A single component crash can take down the entire page.
+
+**Fix approach:** Add Error Boundary wrappers around complex components like data tables and forms.
+
+## Missing Indexes on Frequently Queried Fields
+
+**Issue:** Several schema fields are queried but lack indexes or queries don't use them:
+
+- `ticketTailorOrders.eventId` — the field is typed as `v.union(v.id("events"), v.string())` (schema line 254), but the index `by_eventId` expects consistent types. Some orders have string eventIds that won't match the index
+- `ticketTailorAttendees.providerAttendeeId` — queried in upsert but the composite index `providerEventOrder` doesn't include it, forcing a `.collect()` then `.filter()` pattern
+
+**Impact:** Queries fall back to full table scans filtered in JavaScript, wasting read operations.
+
+**Fix approach:** Add missing indexes. Ensure field types are consistent (not `v.union(v.id(), v.string())` for indexed fields).
+
+## CRITICAL SECURITY FINDINGS (2026-03-31 Deep Audit)
+
+### CRITICAL: Unprotected Public Convex Queries Expose Financial Data
+
+**Issue:** Multiple Convex queries are `public` (no `requireIdentity` check) and return sensitive financial data including orders, payments, attendees, and revenue.
+
+**Files:**
+
+- `convex/orders.ts` — `getOrders` (line 20), `getOrderById` (line 61), `getOrdersWithFilters` (line 350), `getOrderPaymentStatus` (line 617)
+- `convex/payments.ts` — `getPayments` (line 12), `getPaymentSummary` (line 344)
+- `convex/tikkie.ts` — `getPaymentLinks` (line 50), `getPaymentLinkByToken` (line 72)
+- `convex/attendees.ts` — `getAttendees` (line 42), `getAttendeeByEmail` (line 107)
+- `convex/events.ts` — `getEvents` (line 14), `getEventsForLedger` (line 62)
+- `convex/accommodation.ts` — `getRoomAllocationBoard` (line 220), `getRoomsWithDetails` (line 696), `listAccommodationInventory` (line 734)
+- `convex/sync.ts` — `getWebhookEvents` (line 117), `getPendingWebhookEvents` (line 517)
+
+**Impact:** Any user with the Convex URL can query all financial data — orders, payment amounts, attendee PII (names, emails, phones), accommodation assignments. The Next.js API routes do enforce auth via `requireApiUser()` from `@/lib/auth/server.ts`, but the Convex functions themselves are directly callable from any client that knows the deployment URL.
+
+**Fix approach:** Add `requireIdentity(ctx)` to all queries that return sensitive data. For queries that must remain public (e.g., event listing), ensure they only return non-sensitive data.
+
+### CRITICAL: No Webhook Signature Verification for Ticket Tailor in Production
+
+**Issue:** The Ticket Tailor webhook verification in `lib/integrations/ticket-tailor/webhook.ts` requires `TICKET_TAILOR_WEBHOOK_SECRET` env var, but this variable is not present in `.env.example` or `.env`. Without it, `verifyTicketTailorWebhook` always returns `false`, meaning all webhooks are rejected.
+
+**Files:**
+
+- `lib/integrations/ticket-tailor/webhook.ts` (lines 69-98) — `verifyTicketTailorWebhook` returns `false` if `TICKET_TAILOR_WEBHOOK_SECRET` is not set
+- `.env.example` — missing `TICKET_TAILOR_WEBHOOK_SECRET`
+- `.env` — missing `TICKET_TAILOR_WEBHOOK_SECRET`
+
+**Impact:** If `TICKET_TAILOR_WEBHOOK_SECRET` is not configured, ALL Ticket Tailor webhooks are silently rejected (401). The app falls back to cron-based polling every 15 minutes, but real-time webhook processing is broken.
+
+**Fix approach:** Add `TICKET_TAILOR_WEBHOOK_SECRET` to `.env.example` and document how to configure it in the Ticket Tailor dashboard.
+
+### HIGH: No Webhook Replay Protection for Tikkie
+
+**Issue:** The Tikkie webhook handler (`app/api/webhooks/tikkie/route.ts`) verifies HMAC signatures but does not implement timestamp-based replay protection. An intercepted webhook could be replayed.
+
+**Files:**
+
+- `app/api/webhooks/tikkie/route.ts` (lines 36-97)
+- `lib/integrations/tikkie/webhook.ts` (lines 92-119) — `verifyTikkieWebhook` only checks HMAC
+
+**Impact:** An attacker who captures a valid Tikkie webhook could replay it to trigger duplicate payment status updates or payment link status changes.
+
+**Fix approach:** Add a timestamp check in the webhook signature payload (if Tikkie supports it) or implement nonce tracking in the `tikkiePaymentLinkTransitions` table to detect duplicate notifications.
+
+### HIGH: Financial Amounts Accept Negative Values
+
+**Issue:** All monetary fields use `v.number()` with no range constraints. Negative amounts could be inserted through mutations.
+
+**Files:**
+
+- `convex/schema.ts` — all `amountMinor`, `totalAmountMinor`, `priceMinor` fields are `v.number()` with no constraints
+- `convex/payments.ts:89` — `amountMinor: v.number()` — accepts negative values
+- `convex/tikkie.ts:100` — `amountMinor: v.number()` — accepts negative values
+- `convex/orders.ts:135` — `totalAmountMinor: v.optional(v.number())` — accepts negative values
+
+**Impact:** Negative amounts could be inserted, potentially creating fraudulent credits or refunds.
+
+**Fix approach:** Add validation in mutation handlers to ensure `amountMinor >= 0`. Consider adding a maximum reasonable amount check.
+
+### HIGH: No Audit Trail for Financial Mutations
+
+**Issue:** While payment transitions are tracked (`tikkiePaymentLinkTransitions`), there is no comprehensive audit trail for financial operations. Key mutations like `createPayment`, `assignPaymentToOrder`, `updateOrderStatus`, and `removeOrderLocally` do not log who performed the action or when.
+
+**Files:**
+
+- `convex/payments.ts:82` — `createPayment` — no audit log
+- `convex/payments.ts:253` — `assignPaymentToOrder` — stores `matchedBy` but no full audit record
+- `convex/orders.ts:724` — `removeOrderLocally` — stores `removedAt` and `removedReason` but no audit trail
+- `convex/orders.ts:194` — `updateOrderStatus` — no audit log
+
+**Impact:** In a finance application, the inability to trace who changed what and when is a compliance and security risk.
+
+**Fix approach:** Create an `auditLog` table and insert records for all financial mutations. Include `userId`, `action`, `entityType`, `entityId`, `beforeState`, `afterState`, and `timestamp`.
+
+### HIGH: Race Condition in Room Assignment
+
+**Issue:** `convex/accommodation.ts` — `assignRoomToAttendee` (line 1050) and `assignAttendeeToRoom` (line 1122) check room capacity by counting existing assignments, then patch. Between the check and the patch, another concurrent mutation could assign the same room.
+
+**Files:**
+
+- `convex/accommodation.ts` (lines 1105-1116) — capacity check then patch, not atomic
+
+**Impact:** Overbooking of rooms — more attendees assigned than the room's capacity allows.
+
+**Fix approach:** Use Convex's transactional guarantees by performing the check and write in a single mutation. Or use a counter field on the room document that is atomically incremented.
+
+### MEDIUM: No Zod Validation Library Used Anywhere
+
+**Issue:** The codebase has no Zod (or equivalent) validation library. All validation relies on Convex's `v` validators and manual `typeof` checks.
+
+**Files:**
+
+- All API routes — no zod imports found
+- `lib/types/*.ts` — only Convex `v` validators
+
+**Impact:** Manual validation is error-prone and inconsistent. Different API routes use different patterns for parsing and validating input (compare `app/api/payments/cash/route.ts` vs `app/api/dashboard/tikkie-links/route.ts`).
+
+**Fix approach:** Introduce Zod for API route validation. Keep Convex `v` validators for Convex function args (they're required there), but add Zod schemas at the API route boundary.
+
+### MEDIUM: Sensitive Data in `providerPayload` Fields
+
+**Issue:** Multiple tables store raw API responses in `v.any()` fields (`rawPayload`, `providerPayload`). These may contain sensitive data like API keys, tokens, or PII.
+
+**Files:**
+
+- `convex/schema.ts` — `ticketTailorOrders.rawPayload`, `ticketTailorAttendees.rawPayload`, `ticketTailorAttendees.customAnswers`, `tikkiePayments.providerPayload`, `payments.providerPayload`, `ticketTailorWebhookEvents.payload`
+
+**Impact:** Sensitive data is persisted in the database without encryption.
+
+**Fix approach:** Sanitize payloads before storage. Remove sensitive fields. Consider encrypting stored payloads.
+
+### MEDIUM: Auto-Match Logic Is Fragile (Name-Only Matching)
+
+**Issue:** Payment auto-matching in `convex/tikkie.ts:494` and `convex/payments.ts:290` matches payments to orders by comparing normalized buyer/payer names. This is fragile — typos, different name formats, or common names could cause incorrect matches.
+
+**Files:**
+
+- `convex/tikkie.ts` (lines 535-547) — matches on `buyerName?.toLowerCase() === payment.payerName.toLowerCase()`
+- `convex/payments.ts` (lines 322-337) — matches on name + exact amount, but still fragile
+
+**Impact:** Incorrect payment-to-order matching could lead to financial reconciliation errors.
+
+**Fix approach:** Add additional matching criteria (e.g., email, order reference in payment description). Flag ambiguous matches for manual review rather than auto-assigning.
+
+### MEDIUM: No CSRF Protection on API Routes
+
+**Issue:** The API routes use Clerk session cookies for authentication but do not implement CSRF token validation.
+
+**Files:**
+
+- All API routes in `app/api/` — no CSRF token checks
+
+**Impact:** If the application uses cookie-based auth (not just Bearer tokens), CSRF attacks are possible. Clerk's default setup may mitigate this, but it should be verified.
+
+**Fix approach:** Verify Clerk's CSRF protection is enabled. If using custom cookie auth, add CSRF tokens.
+
+### MEDIUM: Missing TIKKIE_WEBHOOK_SECRET in .env
+
+**Issue:** `.env` does not contain `TIKKIE_WEBHOOK_SECRET`, but `.env.example` (line 24) and `.env.prod.example` (line 22) both list it as required. Without it, Tikkie webhook verification always fails.
+
+**Files:**
+
+- `.env` — missing `TIKKIE_WEBHOOK_SECRET`
+- `lib/integrations/tikkie/webhook.ts:93` — returns `false` if secret is not set
+
+**Impact:** Tikkie webhooks will never be verified, meaning either they're silently rejected or the app falls back to polling only.
+
+**Fix approach:** Add `TIKKIE_WEBHOOK_SECRET` to `.env` with the value from the Tikkie dashboard.
+
+### LOW: No Input Sanitization for User-Generated Content
+
+**Issue:** User-submitted fields like `notes`, `bookerName`, `dietaryRestrictions`, `roommatePreference`, etc. are stored directly without sanitization.
+
+**Files:**
+
+- `convex/signupSubmission.ts` — all string fields stored as-is
+- `convex/accommodation.ts` — `notes` fields stored as-is
+
+**Impact:** If any frontend component renders these fields using `dangerouslySetInnerHTML` or similar, XSS is possible. No `dangerouslySetInnerHTML` usage was found in the codebase, which is good, but this should be enforced.
+
+**Fix approach:** Add input sanitization at the API/mutation boundary. Ensure all frontend rendering uses React's default escaping (no `dangerouslySetInnerHTML`).
+
+### LOW: Convex .env File Missing RESEND_API_KEY
+
+**Issue:** `.env.example` (line 34) lists `RESEND_API_KEY` as required for the email component, but `.env` does not include it.
+
+**Files:**
+
+- `.env.example` (line 34)
+- `.env` — missing `RESEND_API_KEY`
+- `convex/email.ts` (lines 10-12) — Resend component initialized
+
+**Impact:** Email sending will fail silently or throw errors when triggered.
+
+**Fix approach:** Add `RESEND_API_KEY` to `.env` and ensure it's configured in the Convex dashboard environment variables.
+
+---
+
+_Concerns audit: 2026-03-30 (original), 2026-03-31 (additional findings + deep security audit)_
