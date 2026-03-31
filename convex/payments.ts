@@ -3,11 +3,104 @@ import { v } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import { requireIdentity } from "./auth"
 import type { Id } from "./_generated/dataModel"
+import type { MutationCtx } from "./_generated/server"
 import {
   paymentSourceValidator,
   paymentStatusValidator,
   paymentDocValidator,
 } from "../lib/types/payment"
+
+// ---------------------------------------------------------------------------
+// Shared cleanup helper for legacy Tikkie payment records.
+// Both the public and internal cleanup mutations delegate to this function.
+// ---------------------------------------------------------------------------
+async function cleanupLegacyTikkiePaymentsHelper(
+  ctx: MutationCtx
+): Promise<{ scanned: number; patched: number }> {
+  const payments = await ctx.db
+    .query("payments")
+    .withIndex("source_sourceId", (q) => q.eq("source", "tikkie"))
+    .take(500)
+
+  let scanned = 0
+  let patched = 0
+
+  for (const payment of payments) {
+    scanned += 1
+
+    const payload =
+      typeof payment.providerPayload === "object" &&
+      payment.providerPayload !== null &&
+      !Array.isArray(payment.providerPayload)
+        ? (payment.providerPayload as Record<string, unknown>)
+        : null
+
+    if (!payload) continue
+
+    const sourceIdCandidate =
+      typeof payload.paymentToken === "string" ? payload.paymentToken : null
+    const payerNameCandidate =
+      typeof payload.counterPartyName === "string"
+        ? payload.counterPartyName.trim()
+        : null
+    const payerAccountCandidate =
+      typeof payload.counterPartyAccountNumber === "string"
+        ? payload.counterPartyAccountNumber
+        : undefined
+    const amountCandidate =
+      typeof payload.amountInCents === "number" &&
+      Number.isInteger(payload.amountInCents) &&
+      payload.amountInCents >= 0
+        ? payload.amountInCents
+        : null
+    const paidAtCandidateRaw =
+      typeof payload.createdDateTime === "string"
+        ? Date.parse(payload.createdDateTime)
+        : Number.NaN
+    const paidAtCandidate =
+      Number.isFinite(paidAtCandidateRaw) && paidAtCandidateRaw > 0
+        ? paidAtCandidateRaw
+        : null
+
+    const updates: {
+      sourceId?: string
+      payerName?: string
+      payerAccountNumber?: string
+      amountMinor?: number
+      paidAt?: number
+    } = {}
+
+    if (!payment.sourceId && sourceIdCandidate) {
+      updates.sourceId = sourceIdCandidate
+    }
+    if (
+      payerNameCandidate &&
+      payment.payerName !== payerNameCandidate &&
+      payerNameCandidate.length > 0
+    ) {
+      updates.payerName = payerNameCandidate
+    }
+    if (
+      payerAccountCandidate &&
+      payment.payerAccountNumber !== payerAccountCandidate
+    ) {
+      updates.payerAccountNumber = payerAccountCandidate
+    }
+    if (amountCandidate !== null && payment.amountMinor !== amountCandidate) {
+      updates.amountMinor = amountCandidate
+    }
+    if (paidAtCandidate !== null && payment.paidAt !== paidAtCandidate) {
+      updates.paidAt = paidAtCandidate
+    }
+
+    if (Object.keys(updates).length === 0) continue
+
+    await ctx.db.patch(payment._id, updates)
+    patched += 1
+  }
+
+  return { scanned, patched }
+}
 
 export const getPayments = query({
   args: {
@@ -19,6 +112,7 @@ export const getPayments = query({
   },
   returns: v.array(paymentDocValidator),
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     // Bounded lookups: indexed queries with natural limits
     if (args.source && args.sourceId) {
       // Single payment by source+sourceId
@@ -71,6 +165,7 @@ export const getPaymentById = query({
 export const getUnassignedPayments = query({
   args: {},
   handler: async (ctx) => {
+    await requireIdentity(ctx)
     // Bounded: indexed status query, capped
     return await ctx.db
       .query("payments")
@@ -155,98 +250,7 @@ export const cleanupLegacyTikkiePayments = mutation({
   args: {},
   handler: async (ctx) => {
     await requireIdentity(ctx)
-    // Bounded: indexed source query, capped batch
-    const payments = await ctx.db
-      .query("payments")
-      .withIndex("source_sourceId", (q) => q.eq("source", "tikkie"))
-      .take(500)
-
-    let scanned = 0
-    let patched = 0
-
-    for (const payment of payments) {
-      scanned += 1
-
-      const payload =
-        typeof payment.providerPayload === "object" &&
-        payment.providerPayload !== null &&
-        !Array.isArray(payment.providerPayload)
-          ? (payment.providerPayload as Record<string, unknown>)
-          : null
-
-      if (!payload) {
-        continue
-      }
-
-      const sourceIdCandidate =
-        typeof payload.paymentToken === "string" ? payload.paymentToken : null
-      const payerNameCandidate =
-        typeof payload.counterPartyName === "string"
-          ? payload.counterPartyName.trim()
-          : null
-      const payerAccountCandidate =
-        typeof payload.counterPartyAccountNumber === "string"
-          ? payload.counterPartyAccountNumber
-          : undefined
-      const amountCandidate =
-        typeof payload.amountInCents === "number" &&
-        Number.isInteger(payload.amountInCents) &&
-        payload.amountInCents >= 0
-          ? payload.amountInCents
-          : null
-      const paidAtCandidateRaw =
-        typeof payload.createdDateTime === "string"
-          ? Date.parse(payload.createdDateTime)
-          : Number.NaN
-      const paidAtCandidate =
-        Number.isFinite(paidAtCandidateRaw) && paidAtCandidateRaw > 0
-          ? paidAtCandidateRaw
-          : null
-
-      const updates: {
-        sourceId?: string
-        payerName?: string
-        payerAccountNumber?: string
-        amountMinor?: number
-        paidAt?: number
-      } = {}
-
-      if (!payment.sourceId && sourceIdCandidate) {
-        updates.sourceId = sourceIdCandidate
-      }
-
-      if (
-        payerNameCandidate &&
-        payment.payerName !== payerNameCandidate &&
-        payerNameCandidate.length > 0
-      ) {
-        updates.payerName = payerNameCandidate
-      }
-
-      if (
-        payerAccountCandidate &&
-        payment.payerAccountNumber !== payerAccountCandidate
-      ) {
-        updates.payerAccountNumber = payerAccountCandidate
-      }
-
-      if (amountCandidate !== null && payment.amountMinor !== amountCandidate) {
-        updates.amountMinor = amountCandidate
-      }
-
-      if (paidAtCandidate !== null && payment.paidAt !== paidAtCandidate) {
-        updates.paidAt = paidAtCandidate
-      }
-
-      if (Object.keys(updates).length === 0) {
-        continue
-      }
-
-      await ctx.db.patch(payment._id, updates)
-      patched += 1
-    }
-
-    return { scanned, patched }
+    return await cleanupLegacyTikkiePaymentsHelper(ctx)
   },
 })
 
@@ -383,6 +387,7 @@ export const autoMatchPayments = mutation({
 export const getPaymentSummary = query({
   args: { orderId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     // Bounded: indexed by orderId instead of full table scan
     const orderPayments = await ctx.db
       .query("payments")
@@ -457,90 +462,7 @@ export const internalUpsertTikkiePayment = internalMutation({
 export const internalCleanupLegacyTikkiePayments = internalMutation({
   args: {},
   handler: async (ctx) => {
-    // Bounded: indexed source query, capped batch
-    const payments = await ctx.db
-      .query("payments")
-      .withIndex("source_sourceId", (q) => q.eq("source", "tikkie"))
-      .take(500)
-
-    let scanned = 0
-    let patched = 0
-
-    for (const payment of payments) {
-      scanned += 1
-
-      const payload =
-        typeof payment.providerPayload === "object" &&
-        payment.providerPayload !== null &&
-        !Array.isArray(payment.providerPayload)
-          ? (payment.providerPayload as Record<string, unknown>)
-          : null
-
-      if (!payload) continue
-
-      const sourceIdCandidate =
-        typeof payload.paymentToken === "string" ? payload.paymentToken : null
-      const payerNameCandidate =
-        typeof payload.counterPartyName === "string"
-          ? payload.counterPartyName.trim()
-          : null
-      const payerAccountCandidate =
-        typeof payload.counterPartyAccountNumber === "string"
-          ? payload.counterPartyAccountNumber
-          : undefined
-      const amountCandidate =
-        typeof payload.amountInCents === "number" &&
-        Number.isInteger(payload.amountInCents) &&
-        payload.amountInCents >= 0
-          ? payload.amountInCents
-          : null
-      const paidAtCandidateRaw =
-        typeof payload.createdDateTime === "string"
-          ? Date.parse(payload.createdDateTime)
-          : Number.NaN
-      const paidAtCandidate =
-        Number.isFinite(paidAtCandidateRaw) && paidAtCandidateRaw > 0
-          ? paidAtCandidateRaw
-          : null
-
-      const updates: {
-        sourceId?: string
-        payerName?: string
-        payerAccountNumber?: string
-        amountMinor?: number
-        paidAt?: number
-      } = {}
-
-      if (!payment.sourceId && sourceIdCandidate) {
-        updates.sourceId = sourceIdCandidate
-      }
-      if (
-        payerNameCandidate &&
-        payment.payerName !== payerNameCandidate &&
-        payerNameCandidate.length > 0
-      ) {
-        updates.payerName = payerNameCandidate
-      }
-      if (
-        payerAccountCandidate &&
-        payment.payerAccountNumber !== payerAccountCandidate
-      ) {
-        updates.payerAccountNumber = payerAccountCandidate
-      }
-      if (amountCandidate !== null && payment.amountMinor !== amountCandidate) {
-        updates.amountMinor = amountCandidate
-      }
-      if (paidAtCandidate !== null && payment.paidAt !== paidAtCandidate) {
-        updates.paidAt = paidAtCandidate
-      }
-
-      if (Object.keys(updates).length === 0) continue
-
-      await ctx.db.patch(payment._id, updates)
-      patched += 1
-    }
-
-    return { scanned, patched }
+    return await cleanupLegacyTikkiePaymentsHelper(ctx)
   },
 })
 
