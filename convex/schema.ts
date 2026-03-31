@@ -130,31 +130,49 @@ export default defineSchema({
     .index("by_eventId", ["eventId"])
     .index("by_eventId_and_isAssignable", ["eventId", "isAssignable"]),
 
-  submissions: defineTable(
+  orders: defineTable(
     v.object({
-      eventId: v.id("events"),
-      source: v.union(v.literal("integration"), v.literal("internal")),
-      idempotencyKey: v.string(),
-      bookingRef: v.string(),
-      honeypotSeen: v.boolean(),
+      eventId: v.optional(v.id("events")),
+      source: v.optional(
+        v.union(v.literal("integration"), v.literal("internal"))
+      ),
+      idempotencyKey: v.optional(v.string()),
+      bookingRef: v.optional(v.string()),
+      honeypotSeen: v.optional(v.boolean()),
       notes: v.optional(v.string()),
-      bookerName: v.string(),
-      bookerEmail: v.string(),
+      bookerName: v.optional(v.string()),
+      bookerEmail: v.optional(v.string()),
       bookerPhone: v.optional(v.string()),
-      submittedAt: v.number(),
+      submittedAt: v.optional(v.number()),
+      currency: v.optional(v.string()),
+      totalAmountMinor: v.optional(v.number()),
+      status: v.optional(
+        v.union(
+          v.literal("paid"),
+          v.literal("refunded"),
+          v.literal("cancelled"),
+          v.literal("pending")
+        )
+      ),
+      providerOrderId: v.optional(v.string()),
+      providerEventId: v.optional(v.string()),
+      orderedAt: v.optional(v.number()),
     })
   )
     .index("by_eventId", ["eventId"])
     .index("by_bookingRef", ["bookingRef"])
-    .index("by_submittedAt", ["submittedAt"]),
+    .index("by_submittedAt", ["submittedAt"])
+    .index("by_providerOrderId", ["providerOrderId"])
+    .index("by_providerEventId", ["providerEventId"])
+    .index("by_status", ["status"]),
 
-  submissionAttendees: defineTable(
+  orderAttendees: defineTable(
     v.object({
-      submissionId: v.id("submissions"),
+      orderId: v.id("orders"),
       attendeeKey: v.string(),
       name: v.string(),
       email: v.optional(v.string()),
-      phone: v.string(),
+      phone: v.optional(v.string()),
       gender: v.union(
         v.literal("male"),
         v.literal("female"),
@@ -166,39 +184,52 @@ export default defineSchema({
       roommatePreference: v.string(),
       roommateAvoid: v.string(),
       sortOrder: v.number(),
+      assignedRoomId: v.optional(v.string()),
+      allocationPriority: v.optional(
+        v.union(
+          v.literal("CRITICAL"),
+          v.literal("HIGH"),
+          v.literal("NORMAL"),
+          v.literal("LOW")
+        )
+      ),
+      priorityReason: v.optional(v.string()),
     })
-  ).index("by_submissionId", ["submissionId"]),
+  )
+    .index("by_orderId", ["orderId"])
+    .index("by_assignedRoomId", ["assignedRoomId"])
+    .index("by_allocationPriority", ["allocationPriority"]),
 
-  submissionTicketSelections: defineTable(
+  orderTicketSelections: defineTable(
     v.object({
-      submissionId: v.id("submissions"),
-      attendeeId: v.id("submissionAttendees"),
+      orderId: v.id("orders"),
+      attendeeId: v.id("orderAttendees"),
       ticketTypeId: v.id("ticketTypes"),
       quantity: v.number(),
       sortOrder: v.number(),
     })
   )
-    .index("by_submissionId", ["submissionId"])
+    .index("by_orderId", ["orderId"])
     .index("by_ticketTypeId", ["ticketTypeId"]),
 
-  submissionAssignments: defineTable(
+  orderAssignments: defineTable(
     v.object({
-      submissionId: v.id("submissions"),
-      attendeeId: v.id("submissionAttendees"),
+      orderId: v.id("orders"),
+      attendeeId: v.id("orderAttendees"),
       slotId: v.id("accommodationSlots"),
       assignmentIntent: v.union(v.literal("assign"), v.literal("skip")),
       sortOrder: v.number(),
     })
   )
-    .index("by_submissionId", ["submissionId"])
+    .index("by_orderId", ["orderId"])
     .index("by_slotId", ["slotId"]),
 
-  submissionIdempotency: defineTable(
+  orderIdempotency: defineTable(
     v.object({
       eventId: v.id("events"),
       idempotencyKey: v.string(),
       fingerprint: v.string(),
-      submissionId: v.id("submissions"),
+      orderId: v.id("orders"),
       expiresAt: v.number(),
     })
   )
@@ -251,12 +282,8 @@ export default defineSchema({
     v.object({
       providerOrderId: v.string(),
       providerEventId: v.string(),
-      eventId: v.id("events"),
-      isArchived: v.optional(v.boolean()),
-      archivedAt: v.optional(v.number()),
-      archiveReason: v.optional(v.string()),
-      removedAt: v.optional(v.number()),
-      removedReason: v.optional(v.string()),
+      orderId: v.id("orders"),
+      providerStatus: v.optional(v.string()),
       normalizedStatus: v.optional(
         v.union(
           v.literal("paid"),
@@ -265,13 +292,12 @@ export default defineSchema({
           v.literal("pending")
         )
       ),
-      providerStatus: v.optional(v.string()),
+      isArchived: v.optional(v.boolean()),
+      archivedAt: v.optional(v.number()),
+      archiveReason: v.optional(v.string()),
+      removedAt: v.optional(v.number()),
+      removedReason: v.optional(v.string()),
       normalizationNote: v.optional(v.string()),
-      buyerEmail: v.optional(v.string()),
-      buyerName: v.optional(v.string()),
-      currency: v.optional(v.string()),
-      totalAmountMinor: v.optional(v.number()),
-      orderedAt: v.optional(v.number()),
       refundedAt: v.optional(v.number()),
       cancelledAt: v.optional(v.number()),
       rawPayload: v.any(),
@@ -279,8 +305,7 @@ export default defineSchema({
   )
     .index("providerOrderId", ["providerOrderId"])
     .index("providerEventId", ["providerEventId"])
-    .index("eventId", ["eventId"])
-    .index("orderedAt", ["orderedAt"])
+    .index("orderId", ["orderId"])
     .index("normalizedStatus", ["normalizedStatus"]),
 
   ticketTailorAttendees: defineTable(
@@ -290,11 +315,7 @@ export default defineSchema({
       providerTicketTypeId: v.optional(v.string()),
       providerEventId: v.string(),
       providerOrderId: v.string(),
-      eventId: v.union(v.id("events"), v.string()),
-      orderId: v.id("ticketTailorOrders"),
-      assignedRoomId: v.optional(v.string()),
-      name: v.optional(v.string()),
-      email: v.optional(v.string()),
+      attendeeId: v.id("orderAttendees"),
       ticketTypeLabel: v.optional(v.string()),
       ticketStatus: v.optional(v.string()),
       checkedInAt: v.optional(v.number()),
@@ -310,27 +331,14 @@ export default defineSchema({
       ),
       ageGroup: v.optional(v.string()),
       ticketCategory: v.optional(v.string()),
-      allocationPriority: v.optional(
-        v.union(
-          v.literal("CRITICAL"),
-          v.literal("HIGH"),
-          v.literal("NORMAL"),
-          v.literal("LOW")
-        )
-      ),
-      priorityReason: v.optional(v.string()),
       tikkieAmountOverrideMinor: v.optional(v.number()),
     })
   )
     .index("providerAttendeeId", ["providerAttendeeId"])
     .index("providerIssuedTicketId", ["providerIssuedTicketId"])
-    .index("eventId", ["eventId"])
-    .index("orderId", ["orderId"])
-    .index("assignedRoomId", ["assignedRoomId"])
     .index("providerEventOrder", ["providerEventId", "providerOrderId"])
-    .index("email", ["email"])
-    .index("genderType", ["genderType"])
-    .index("allocationPriority", ["allocationPriority"]),
+    .index("attendeeId", ["attendeeId"])
+    .index("genderType", ["genderType"]),
 
   accommodationHotels: defineTable(
     v.object({
