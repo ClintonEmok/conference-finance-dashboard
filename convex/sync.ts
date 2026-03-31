@@ -842,12 +842,10 @@ export const internalUpsertTicketTailorOrder = internalMutation({
       orderId = existingOrder._id
       await ctx.db.patch("orders", existingOrder._id, {
         providerEventId: args.providerEventId,
-        normalizedStatus: args.normalizedStatus,
+        status: args.normalizedStatus,
         providerStatus: args.providerStatus,
         normalizationNote: args.normalizationNote,
         rawPayload: args.rawPayload,
-        isArchived: args.isArchived ?? false,
-        archiveReason: undefined,
         bookerEmail: buyer,
         bookerName: buyerName,
         currency: currency,
@@ -861,7 +859,7 @@ export const internalUpsertTicketTailorOrder = internalMutation({
         source: "integration",
         providerOrderId: args.providerOrderId,
         providerEventId: args.providerEventId,
-        normalizedStatus: args.normalizedStatus,
+        status: args.normalizedStatus,
         providerStatus: args.providerStatus,
         normalizationNote: args.normalizationNote,
         rawPayload: args.rawPayload,
