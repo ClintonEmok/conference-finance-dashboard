@@ -315,6 +315,7 @@ export default defineSchema({
       providerTicketTypeId: v.optional(v.string()),
       providerEventId: v.string(),
       providerOrderId: v.string(),
+      orderId: v.id("orders"),
       attendeeId: v.id("orderAttendees"),
       ticketTypeLabel: v.optional(v.string()),
       ticketStatus: v.optional(v.string()),
@@ -337,6 +338,7 @@ export default defineSchema({
     .index("providerAttendeeId", ["providerAttendeeId"])
     .index("providerIssuedTicketId", ["providerIssuedTicketId"])
     .index("providerEventOrder", ["providerEventId", "providerOrderId"])
+    .index("orderId", ["orderId"])
     .index("attendeeId", ["attendeeId"])
     .index("genderType", ["genderType"]),
 

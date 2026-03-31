@@ -55,6 +55,7 @@ export const getPaymentLinks = query({
     ),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     // Bounded: capped read for non-paginated query
     let links = await ctx.db.query("tikkiePaymentLinks").take(500)
 
@@ -173,6 +174,7 @@ export const updatePaymentLinkStatus = mutation({
 export const getPaymentTemplates = query({
   args: { eventId: v.optional(v.string()) },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     if (args.eventId) {
       // Bounded: indexed by event, small set
       return await ctx.db

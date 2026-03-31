@@ -18,7 +18,8 @@ export const upsertTicketTailorAttendee = mutation({
     providerEventId: v.string(),
     providerOrderId: v.string(),
     eventId: v.union(v.id("events"), v.string()),
-    orderId: v.id("ticketTailorOrders"),
+    orderId: v.id("orders"),
+    attendeeId: v.id("orderAttendees"),
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     ticketTypeLabel: v.optional(v.string()),
@@ -74,13 +75,11 @@ export const upsertTicketTailorAttendee = mutation({
 // Public query
 
 export const getTicketTailorAttendeesByOrderId = query({
-  args: { orderId: v.union(v.id("ticketTailorOrders"), v.string()) },
+  args: { orderId: v.id("orders") },
   handler: async (ctx, args) => {
     const attendees = await ctx.db
       .query("ticketTailorAttendees")
-      .withIndex("orderId", (q) =>
-        q.eq("orderId", args.orderId as Id<"ticketTailorOrders">)
-      )
+      .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
       .collect()
     return attendees
   },
@@ -96,6 +95,7 @@ export const internalUpsertTicketTailorAttendee = internalMutation({
     providerEventId: v.string(),
     providerOrderId: v.string(),
     orderId: v.id("orders"),
+    attendeeId: v.id("orderAttendees"),
     ticketTypeLabel: v.optional(v.string()),
     ticketStatus: v.optional(v.string()),
     checkedInAt: v.optional(v.number()),
@@ -208,6 +208,7 @@ export const internalUpsertTicketTailorAttendee = internalMutation({
       ticketTailorAttendeeId = existingTT._id
       await ctx.db.patch("ticketTailorAttendees", existingTT._id, {
         attendeeId,
+        orderId: args.orderId,
         providerAttendeeId: args.providerAttendeeId,
         providerIssuedTicketId: args.providerIssuedTicketId,
         providerTicketTypeId: args.providerTicketTypeId,
@@ -226,6 +227,7 @@ export const internalUpsertTicketTailorAttendee = internalMutation({
     } else {
       ticketTailorAttendeeId = await ctx.db.insert("ticketTailorAttendees", {
         attendeeId,
+        orderId: args.orderId,
         providerAttendeeId: args.providerAttendeeId,
         providerIssuedTicketId: args.providerIssuedTicketId,
         providerTicketTypeId: args.providerTicketTypeId,

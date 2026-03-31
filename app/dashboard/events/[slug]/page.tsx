@@ -1320,6 +1320,7 @@ export default function EventDetailPage({
         {activeTab === "payments" && (
           <EventTikkieSection
             events={[{ eventId: event._id, title: event.title }]}
+            selectedEventId={event._id}
           />
         )}
       </div>

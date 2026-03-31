@@ -247,6 +247,7 @@ export const getRoomAllocationBoard = query({
     hasPriority: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const eventId = args.eventId
 
     // Get provider event IDs for this canonical event via eventSources
@@ -702,6 +703,7 @@ export const getRoomTypesWithCount = query({
 export const getRoomsWithDetails = query({
   args: {},
   handler: async (ctx) => {
+    await requireIdentity(ctx)
     // Bounded: config tables capped for inventory view
     const [rooms, hotels, roomTypes, attendees] = await Promise.all([
       ctx.db.query("accommodationRooms").take(500),
@@ -738,6 +740,7 @@ export const getRoomsWithDetails = query({
 export const listAccommodationInventory = query({
   args: {},
   handler: async (ctx) => {
+    await requireIdentity(ctx)
     // Bounded: config tables capped for inventory view
     const [canonicalEvents, hotels, roomTypes, rooms, attendees] =
       await Promise.all([

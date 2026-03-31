@@ -84,6 +84,7 @@ export const getOrders = query({
     ),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     // Query core orders table with index
     let orderIds: Id<"orders">[] = []
 
@@ -123,6 +124,7 @@ export const getOrders = query({
 export const getOrderById = query({
   args: { orderId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     try {
       const orderId = ctx.db.normalizeId("orders", args.orderId)
       if (!orderId) {
@@ -173,6 +175,7 @@ export const getOrderByProviderId = query({
 export const getOrderLedger = query({
   args: { eventId: v.union(v.id("events"), v.string()) },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     // Bounded: indexed by event, capped at 500
     const orders = await ctx.db
       .query("orders")
@@ -566,6 +569,7 @@ export const getOrdersWithFilters = query({
     orders: v.array(orderLedgerRowValidator),
   }),
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const candidates = await listCandidateOrders(ctx, args, 500)
     const orders = candidates
       .filter((order) => !isOrderRemoved(order))
@@ -730,6 +734,7 @@ export const searchOrders = query({
   },
   returns: v.array(orderSearchRowValidator),
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const limit = Math.min(args.limit ?? 20, 50)
     const search = args.search.trim().toLowerCase()
 
@@ -901,6 +906,7 @@ export const getOrderPaymentStatus = query({
     }),
   }),
   handler: async (ctx) => {
+    await requireIdentity(ctx)
     // Query core orders table
     const orders = await ctx.db.query("orders").order("desc").take(500)
 

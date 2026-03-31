@@ -11,6 +11,7 @@ import { requireIdentity } from "./auth"
 // CANONICAL EVENTS - Source-agnostic queries using the canonical events table
 // =============================================================================
 
+// Public: returns non-sensitive event metadata only, used by signup flow
 export const getEvents = query({
   args: {},
   returns: v.array(
@@ -39,6 +40,7 @@ export const getEvents = query({
   },
 })
 
+// Public: returns non-sensitive event metadata
 export const getEventById = query({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
@@ -47,6 +49,7 @@ export const getEventById = query({
   },
 })
 
+// Public: returns non-sensitive event metadata
 export const getEventBySlug = query({
   args: { slug: v.string() },
   handler: async (ctx, args) => {
@@ -70,6 +73,7 @@ export const getEventsForLedger = query({
     })
   ),
   handler: async (ctx) => {
+    await requireIdentity(ctx)
     const events = await ctx.db.query("events").collect()
 
     const sorted = events.sort((a, b) => {
@@ -89,6 +93,7 @@ export const getEventsForLedger = query({
   },
 })
 
+// Public: returns non-sensitive accommodation metadata
 export const getEventsWithAccommodation = query({
   args: {},
   returns: v.array(

@@ -42,7 +42,7 @@ function filterAttendees(
 export const getAttendees = query({
   args: {
     eventId: v.optional(v.string()),
-    orderId: v.optional(v.id("ticketTailorOrders")),
+    orderId: v.optional(v.id("orders")),
     assignedRoomId: v.optional(v.string()),
     genderType: v.optional(
       v.union(
@@ -63,6 +63,7 @@ export const getAttendees = query({
     paginationOpts: v.optional(paginationOptsValidator),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     if (args.orderId) {
       // Bounded: one order has a small number of attendees
       return await ctx.db
@@ -74,7 +75,9 @@ export const getAttendees = query({
     if (args.eventId) {
       const base = ctx.db
         .query("ticketTailorAttendees")
-        .withIndex("eventId", (q) => q.eq("eventId", args.eventId!))
+        .withIndex("providerEventOrder", (q) =>
+          q.eq("providerEventId", args.eventId!)
+        )
 
       if (args.paginationOpts) {
         return await base.paginate(args.paginationOpts)
@@ -100,6 +103,7 @@ export const getAttendees = query({
 export const getAttendeeById = query({
   args: { attendeeId: v.id("ticketTailorAttendees") },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     return await ctx.db.get("ticketTailorAttendees", args.attendeeId)
   },
 })
@@ -107,6 +111,7 @@ export const getAttendeeById = query({
 export const getAttendeeByEmail = query({
   args: { eventId: v.string(), email: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     // Bounded: one email has very few attendees
     const attendees = await ctx.db
       .query("ticketTailorAttendees")
@@ -286,6 +291,7 @@ export const checkInAttendee = mutation({
 export const getAttendeeByStringId = query({
   args: { attendeeId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const attendeeId = ctx.db.normalizeId(
       "ticketTailorAttendees",
       args.attendeeId

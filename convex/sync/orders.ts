@@ -62,26 +62,77 @@ export const upsertTicketTailorOrder = mutation({
   returns: v.id("ticketTailorOrders"),
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const existing = await ctx.db
+
+    // Upsert the canonical orders record first
+    const existingOrder = await ctx.db
+      .query("orders")
+      .withIndex("by_providerOrderId", (q) =>
+        q.eq("providerOrderId", args.providerOrderId)
+      )
+      .first()
+
+    let orderId: Id<"orders">
+
+    const orderPatchFields = {
+      providerEventId: args.providerEventId,
+      status: args.normalizedStatus,
+      bookerEmail: args.buyerEmail,
+      bookerName: args.buyerName,
+      currency: args.currency,
+      totalAmountMinor: args.totalAmountMinor,
+      orderedAt: args.orderedAt,
+    }
+
+    if (existingOrder) {
+      orderId = existingOrder._id
+      await ctx.db.patch("orders", existingOrder._id, orderPatchFields)
+    } else {
+      const resolvedEventId =
+        typeof args.eventId === "string" && !args.eventId.startsWith("id_")
+          ? undefined
+          : (args.eventId as Id<"events">)
+
+      orderId = await ctx.db.insert("orders", {
+        source: "integration",
+        providerOrderId: args.providerOrderId,
+        eventId: resolvedEventId,
+        ...orderPatchFields,
+      })
+    }
+
+    // Upsert ticketTailorOrders extension
+    const existingTT = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("providerOrderId", (q) =>
         q.eq("providerOrderId", args.providerOrderId)
       )
-      .collect()
+      .first()
 
-    const insertArgs = {
-      ...args,
-      eventId: args.eventId as Id<"events">,
+    const ttFields = {
+      orderId,
+      providerEventId: args.providerEventId,
+      providerStatus: args.providerStatus,
+      normalizedStatus: args.normalizedStatus,
+      normalizationNote: args.normalizationNote,
+      refundedAt: args.refundedAt,
+      cancelledAt: args.cancelledAt,
+      rawPayload: args.rawPayload,
+    }
+
+    if (existingTT) {
+      await ctx.db.patch("ticketTailorOrders", existingTT._id, {
+        ...ttFields,
+        isArchived: false,
+        archiveReason: undefined,
+      })
+      return existingTT._id
+    }
+
+    const id = await ctx.db.insert("ticketTailorOrders", {
+      providerOrderId: args.providerOrderId,
+      ...ttFields,
       isArchived: false,
-      archiveReason: undefined,
-    }
-
-    if (existing[0]) {
-      await ctx.db.patch("ticketTailorOrders", existing[0]._id, insertArgs)
-      return existing[0]._id
-    }
-
-    const id = await ctx.db.insert("ticketTailorOrders", insertArgs)
+    })
     return id
   },
 })
@@ -234,16 +285,11 @@ export const internalUpsertTicketTailorOrder = internalMutation({
       await ctx.db.patch("orders", existingOrder._id, {
         providerEventId: args.providerEventId,
         status: args.normalizedStatus,
-        providerStatus: args.providerStatus,
-        normalizationNote: args.normalizationNote,
-        rawPayload: args.rawPayload,
         bookerEmail: buyer,
         bookerName: buyerName,
         currency: currency,
         totalAmountMinor: totalAmountMinor,
         orderedAt: orderedAt,
-        refundedAt: refundedAt,
-        cancelledAt: cancelledAt,
       })
     } else {
       orderId = await ctx.db.insert("orders", {
@@ -251,16 +297,11 @@ export const internalUpsertTicketTailorOrder = internalMutation({
         providerOrderId: args.providerOrderId,
         providerEventId: args.providerEventId,
         status: args.normalizedStatus,
-        providerStatus: args.providerStatus,
-        normalizationNote: args.normalizationNote,
-        rawPayload: args.rawPayload,
         bookerEmail: buyer,
         bookerName: buyerName,
         currency: currency,
         totalAmountMinor: totalAmountMinor,
         orderedAt: orderedAt,
-        refundedAt: refundedAt,
-        cancelledAt: cancelledAt,
       })
     }
 
