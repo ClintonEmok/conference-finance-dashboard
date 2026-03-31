@@ -7,6 +7,7 @@ type DocTables = {
   accommodationHotels: Doc<"accommodationHotels">
   accommodationRoomTypes: Doc<"accommodationRoomTypes">
   accommodationRooms: Doc<"accommodationRooms">
+  orderAttendees: Doc<"orderAttendees">
   ticketTailorAttendees: Doc<"ticketTailorAttendees">
 }
 
@@ -60,12 +61,9 @@ async function getAccommodationRoomTypeByStringId(
 }
 
 async function getAttendeeByStringId(ctx: any, attendeeId: string) {
-  const normalizedAttendeeId = ctx.db.normalizeId(
-    "ticketTailorAttendees",
-    attendeeId
-  )
+  const normalizedAttendeeId = ctx.db.normalizeId("orderAttendees", attendeeId)
   return normalizedAttendeeId
-    ? await ctx.db.get("ticketTailorAttendees", normalizedAttendeeId)
+    ? await ctx.db.get("orderAttendees", normalizedAttendeeId)
     : null
 }
 
@@ -91,7 +89,11 @@ function hasPriorityAttendee(
   return allocationPriority === "CRITICAL" || allocationPriority === "HIGH"
 }
 
-function mapSubmissionGender(
+/**
+ * Normalizes lowercase gender values (from core orderAttendees.gender) to uppercase display values.
+ * Core table stores lowercase ("male"|"female"|"mixed"|"unknown"), TT extension stores uppercase ("MALE"|"FEMALE"|"MIXED"|"UNKNOWN").
+ */
+function normalizeGender(
   gender: "male" | "female" | "mixed" | "unknown"
 ): "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" {
   const mapping: Record<string, "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"> = {
@@ -537,7 +539,7 @@ export const getRoomAllocationBoard = query({
         }
       }
 
-      const genderType = mapSubmissionGender(attendee.gender)
+      const genderType = normalizeGender(attendee.gender)
 
       return {
         attendeeId: `submission-${submission?._id ?? "unknown"}-${attendee.attendeeKey}`,
