@@ -6,6 +6,7 @@ import type {
 
 export const SIGNUP_STEP_ORDER = [
   "tickets",
+  "buyer",
   "attendees",
   "rooms",
   "review",
