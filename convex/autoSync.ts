@@ -1,6 +1,11 @@
 import { internalAction } from "./_generated/server"
 import { internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
+import {
+  ticketTailorFetch,
+  ticketTailorFetchPaginated,
+  extractAttendeeItems,
+} from "../lib/integrations/ticket-tailor/client"
 
 // ---------------------------------------------------------------------------
 // Ticket Tailor auto-sync — calls external API directly and writes via
@@ -49,187 +54,6 @@ function asRecord(value: unknown): JsonRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value))
     return {}
   return value as JsonRecord
-}
-
-// --- Ticket Tailor HTTP client (minimal, action-safe) ---
-
-const TT_BASE_URL = (() => {
-  const raw =
-    process.env.TICKET_TAILOR_BASE_URL?.trim() ||
-    "https://api.tickettailor.com/v1"
-  // Ensure /v1 suffix is always present
-  return raw.endsWith("/v1") ? raw : `${raw.replace(/\/+$/, "")}/v1`
-})()
-const TT_API_KEY = process.env.TICKET_TAILOR_API_KEY?.trim() ?? ""
-const TT_TIMEOUT = Number(process.env.TICKET_TAILOR_FETCH_TIMEOUT_MS ?? 15_000)
-const TT_MAX_RETRIES = Number(process.env.TICKET_TAILOR_MAX_RETRIES ?? 2)
-
-function ttHeaders() {
-  const encoded = btoa(TT_API_KEY)
-  return {
-    Authorization: `Basic ${encoded}`,
-    Accept: "application/json",
-    "User-Agent": "conference-finance-dashboard/1.0",
-  }
-}
-
-function sleep(ms: number) {
-  return new Promise<void>((r) => setTimeout(r, ms))
-}
-
-async function ttFetch<T>(
-  path: string,
-  query?: Record<string, string | number | undefined>
-): Promise<T> {
-  const url = new URL(`${TT_BASE_URL}${path}`)
-  if (query) {
-    for (const [k, v] of Object.entries(query)) {
-      if (v !== undefined && v !== "") url.searchParams.set(k, String(v))
-    }
-  }
-
-  const maxAttempts = TT_MAX_RETRIES + 1
-  let lastError: unknown = null
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), TT_TIMEOUT)
-    try {
-      const res = await fetch(url, {
-        headers: ttHeaders(),
-        cache: "no-store",
-        signal: controller.signal,
-      })
-      clearTimeout(timer)
-
-      if (!res.ok) {
-        if (
-          (res.status >= 500 || res.status === 429) &&
-          attempt < maxAttempts
-        ) {
-          await sleep(500 * attempt)
-          continue
-        }
-        const text = await res.text()
-        throw new Error(`Ticket Tailor request failed (${res.status}): ${text}`)
-      }
-      return (await res.json()) as T
-    } catch (error) {
-      clearTimeout(timer)
-      lastError = error
-      if (
-        error instanceof Error &&
-        error.message.startsWith("Ticket Tailor request failed")
-      ) {
-        throw error
-      }
-      const retryable =
-        (error instanceof DOMException && error.name === "AbortError") ||
-        error instanceof TypeError
-      if (retryable && attempt < maxAttempts) {
-        await sleep(500 * attempt)
-        continue
-      }
-      throw error
-    }
-  }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("Ticket Tailor request failed after retries")
-}
-
-function extractItems(payload: unknown): JsonRecord[] {
-  if (Array.isArray(payload))
-    return payload.filter(
-      (i): i is JsonRecord => typeof i === "object" && i !== null
-    )
-  const rec = asRecord(payload)
-  for (const key of ["data", "results", "items", "orders", "events"]) {
-    const arr = rec[key]
-    if (Array.isArray(arr) && arr.length > 0)
-      return arr.filter(
-        (i): i is JsonRecord => typeof i === "object" && i !== null
-      )
-  }
-  return []
-}
-
-function extractAttendeeItems(payload: unknown): JsonRecord[] {
-  const root = asRecord(payload)
-  const nestedData = asRecord(root.data)
-  for (const key of ["issued_tickets", "attendees", "tickets"]) {
-    const arr = root[key] ?? nestedData[key]
-    if (Array.isArray(arr) && arr.length > 0)
-      return arr.filter(
-        (i): i is JsonRecord => typeof i === "object" && i !== null
-      )
-  }
-  return []
-}
-
-async function ttFetchPaginated(
-  path: string,
-  pageSize = 100,
-  maxPages = 200
-): Promise<JsonRecord[]> {
-  const all: JsonRecord[] = []
-  let cursorQuery: Record<string, string | number | undefined> = {
-    limit: pageSize,
-  }
-  for (let page = 1; page <= maxPages; page++) {
-    const payload = await ttFetch<unknown>(path, cursorQuery)
-    const items = extractItems(payload)
-    if (items.length === 0) break
-    all.push(...items)
-
-    // Check for cursor-based next page
-    const root = asRecord(payload)
-    const links = asRecord(root.links)
-    const next = typeof links.next === "string" ? links.next : null
-    if (next) {
-      try {
-        const nextUrl = new URL(next, "https://api.tickettailor.com")
-        const startingAfter = nextUrl.searchParams.get("starting_after")
-        const limit = nextUrl.searchParams.get("limit")
-        cursorQuery = {
-          starting_after: startingAfter ?? undefined,
-          limit: limit ?? undefined,
-        }
-        continue
-      } catch {
-        /* fall through */
-      }
-    }
-
-    // Check pagination metadata
-    const pagination = asRecord(root.pagination)
-    const metaPagination = asRecord(asRecord(root.meta).pagination)
-    const nextPage =
-      typeof pagination.next_page === "number"
-        ? pagination.next_page
-        : typeof metaPagination.next_page === "number"
-          ? metaPagination.next_page
-          : undefined
-    if (typeof nextPage === "number" && nextPage >= 1) {
-      cursorQuery = { page: nextPage, per_page: pageSize }
-      continue
-    }
-
-    const totalPages =
-      typeof pagination.total_pages === "number"
-        ? pagination.total_pages
-        : typeof metaPagination.total_pages === "number"
-          ? metaPagination.total_pages
-          : undefined
-    if (typeof totalPages === "number" && page < totalPages) {
-      cursorQuery = { page: page + 1, per_page: pageSize }
-      continue
-    }
-
-    if (items.length < pageSize) break
-    cursorQuery = { page: page + 1, per_page: pageSize }
-  }
-  return all
 }
 
 // --- Family linking (reuses existing queries via ctx.runQuery) ---
@@ -302,7 +126,7 @@ async function runTicketTailorAutoSync(ctx: {
   runQuery: Function
   runMutation: Function
 }) {
-  if (!TT_API_KEY) {
+  if (!process.env.TICKET_TAILOR_API_KEY?.trim()) {
     console.warn(
       "Ticket Tailor auto-sync skipped: TICKET_TAILOR_API_KEY not configured"
     )
@@ -326,7 +150,13 @@ async function runTicketTailorAutoSync(ctx: {
   let failedItems = 0
 
   try {
-    const eventPayloads = await ttFetchPaginated("/events", 100, 200)
+    const { items: eventPayloads } = await ticketTailorFetchPaginated(
+      "/events",
+      {
+        pageSize: 100,
+        maxPages: 200,
+      }
+    )
 
     for (const eventPayload of eventPayloads) {
       const providerEventId =
@@ -370,29 +200,10 @@ async function runTicketTailorAutoSync(ctx: {
       )
 
       // Fetch orders for this event
-      let orderPayloads: JsonRecord[]
-      try {
-        orderPayloads = await ttFetchPaginated(
-          `/events/${encodeURIComponent(providerEventId)}/orders`,
-          100,
-          200
-        )
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : ""
-        if (/\(404\)|PAGE_NOT_FOUND|Not Found/i.test(msg)) {
-          // Fallback: fetch all orders and filter
-          const allOrders = await ttFetchPaginated("/orders", 100, 200)
-          orderPayloads = allOrders.filter((o) => {
-            const eid =
-              pickString(o.event_id) ??
-              pickString(o.eventId) ??
-              pickString(asRecord(o.event).id)
-            return eid === providerEventId
-          })
-        } else {
-          throw error
-        }
-      }
+      const { items: orderPayloads } = await ticketTailorFetchPaginated(
+        `/events/${encodeURIComponent(providerEventId)}/orders`,
+        { pageSize: 100, maxPages: 200 }
+      )
 
       const seenProviderOrderIds = new Set<string>()
 
@@ -454,7 +265,7 @@ async function runTicketTailorAutoSync(ctx: {
           attendeePayloads = embeddedAttendees
         } else {
           try {
-            const canonical = await ttFetch<unknown>(
+            const canonical = await ticketTailorFetch<unknown>(
               `/orders/${providerOrderId}`
             )
             attendeePayloads = extractAttendeeItems(canonical)

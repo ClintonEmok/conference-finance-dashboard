@@ -185,7 +185,7 @@ function asArrayOfRecords(value: unknown): JsonRecord[] {
     .map((item) => item as JsonRecord)
 }
 
-function extractItems(payload: unknown): JsonRecord[] {
+export function extractItems(payload: unknown): JsonRecord[] {
   if (Array.isArray(payload)) {
     return asArrayOfRecords(payload)
   }
@@ -209,7 +209,9 @@ function extractItems(payload: unknown): JsonRecord[] {
   return []
 }
 
-function extractAttendeeItems(payload: unknown): TicketTailorAttendeePayload[] {
+export function extractAttendeeItems(
+  payload: unknown
+): TicketTailorAttendeePayload[] {
   const root = asRecord(payload)
   const nestedData = asRecord(root.data)
   const candidates = [
@@ -304,7 +306,7 @@ function extractNextPageQuery(payload: unknown) {
   }
 }
 
-async function fetchPaginatedCollection<T extends JsonRecord>(
+export async function ticketTailorFetchPaginated<T extends JsonRecord>(
   path: string,
   options: PaginationOptions = {}
 ): Promise<PaginatedCollectionResult<T>> {
@@ -382,7 +384,7 @@ function orderSortKey(order: JsonRecord) {
 export async function fetchTicketTailorEventsPaginated(
   options: PaginationOptions = {}
 ): Promise<PaginatedCollectionResult<TicketTailorEventPayload>> {
-  const result = await fetchPaginatedCollection<TicketTailorEventPayload>(
+  const result = await ticketTailorFetchPaginated<TicketTailorEventPayload>(
     "/events",
     options
   )
@@ -405,7 +407,7 @@ export async function fetchTicketTailorOrdersByEventPaginated(
   let result: PaginatedCollectionResult<TicketTailorOrderPayload>
 
   try {
-    result = await fetchPaginatedCollection<TicketTailorOrderPayload>(
+    result = await ticketTailorFetchPaginated<TicketTailorOrderPayload>(
       `/events/${encodeURIComponent(cleanEventId)}/orders`,
       options
     )
@@ -419,7 +421,7 @@ export async function fetchTicketTailorOrdersByEventPaginated(
       throw error
     }
 
-    result = await fetchPaginatedCollection<TicketTailorOrderPayload>(
+    result = await ticketTailorFetchPaginated<TicketTailorOrderPayload>(
       "/orders",
       {
         ...options,
