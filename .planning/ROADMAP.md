@@ -153,13 +153,19 @@ Plans:
 
 ### Phase 24: canonical orders rewrite
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Consolidate parallel data models (TicketTailor sync tables + submission tables) into unified "orders" core with provider-specific extension tables.
+**Requirements**: DOM-01, DOM-02, DOM-03
 **Depends on:** Phase 23
-**Plans:** 0 plans
+**Plans:** 6 plans in 3 waves
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 24 to break down)
+
+- [ ] 24-01-PLAN.md — Schema rewrite: submissions→orders, slim TT tables with FKs to core
+- [ ] 24-02-PLAN.md — TT sync pipeline: write to core + extension tables simultaneously
+- [ ] 24-03-PLAN.md — Order management + Tikkie: read from core orders table
+- [ ] 24-04-PLAN.md — Payment matching: read orders from core table
+- [ ] 24-05-PLAN.md — Accommodation board: read from core + extension, update assignments
+- [ ] 24-06-PLAN.md — Signup submission: write to core orders tables
 
 ---
 
