@@ -123,6 +123,8 @@ Recent decisions that future work should preserve:
 - [18-03] Public signup submit route must enforce `enforceRateLimit(request, "signup-submit", { maxRequests: 20, windowMs: 60_000 })` and reject non-empty honeypot `website` values with `HONEYPOT_TRIGGERED`.
 - [19-01] Preserve public event entry content contract (D-17..D-22): signup-critical details, ticket status without remaining counts, accommodation warning context, and explicit 4-step preview.
 - [19-03] Duplicate retry UX stays explicit: restore payload requires continue-vs-edit user choice and never surfaces a `reused` marker.
+- [23-04] Privacy masking uses "J. Smith" format (first initial + last name) in all payment displays — protects privacy while preserving enough info for reconciliation.
+- [23-04] Payment auto-match checks booker name first, then falls back to attendee name matching with exact amount requirement per decision D-11.
 
 ## Active Patterns / Constraints
 
@@ -199,7 +201,7 @@ Recent decisions that future work should preserve:
 ## Session Continuity
 
 - **Last activity:** 2026-03-31
-- **Last session:** 2026-03-31T10:31:53.441Z
-- **Stopped at:** Completed 23-05-PLAN.md
-- **Resume file:** None
-- **Next recommended plan:** Continue with Phase 23 Plan 03 (plans 03, 04, 05 remain)
+- **Last session:** 2026-03-31T10:37:00Z
+- **Stopped at:** Completed 23-04-PLAN.md
+- **Resume file:** .planning/phases/23-add-email-confirmation-and-show-tikkie-link-payment-after-signup-is-completed-and-improve-tracking-we-can-fetch-tikkie-automatically-already-but-payments-are-done-by-name-payment-details-only-show-first-letter-and-last-name/23-04-SUMMARY.md
+- **Next recommended plan:** Continue with Phase 23 Plan 03 (plans 03, 05, 06 remain)
