@@ -165,7 +165,7 @@ Plans:
 - [x] 24-03-PLAN.md — Order management + Tikkie: read from core orders table ✓
 - [x] 24-04-PLAN.md — Payment matching: read orders from core table ✓
 - [ ] 24-05-PLAN.md — Tikkie module: read from core orders table
-- [ ] 24-06-PLAN.md — Accommodation board: read from core + extension, update assignments
+- [x] 24-06-PLAN.md — Signup submission: write to core orders tables ✓
 
 ---
 
@@ -177,14 +177,14 @@ Plans:
 | 19 - Public Multi-Step Signup Experience    | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3     | Pending |
 | 20 - Operator Handoff + Compatibility Layer | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3     | Pending |
 
-| Phase                                                | Goal                                                            | Requirements                   | Plans       | Status      |
-| ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ | ----------- | ----------- |
-| 18 - Signup Domain Foundation                        | Canonical contracts + atomic signup writes                      | USF-01..03, USF-06, DOM-01..03 | 3           | Pending     |
-| 19 - Public Multi-Step Signup Experience             | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3           | Pending     |
-| 20 - Operator Handoff + Compatibility Layer          | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3           | Pending     |
-| 21 - Accommodation UX Redesign                       | Inline event settings accommodation flow                        | —                              | 3           | Complete    |
-| 22 - Redesign signup UX for family ticket allocation | Family ticket allocation with attendee grouping                 | USF-04..05, RMD-01..03         | 3           | Complete    |
+| Phase                                                | Goal                                                            | Requirements                   | Plans       | Status   |
+| ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ | ----------- | -------- |
+| 18 - Signup Domain Foundation                        | Canonical contracts + atomic signup writes                      | USF-01..03, USF-06, DOM-01..03 | 3           | Pending  |
+| 19 - Public Multi-Step Signup Experience             | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3           | Pending  |
+| 20 - Operator Handoff + Compatibility Layer          | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3           | Pending  |
+| 21 - Accommodation UX Redesign                       | Inline event settings accommodation flow                        | —                              | 3           | Complete |
+| 22 - Redesign signup UX for family ticket allocation | Family ticket allocation with attendee grouping                 | USF-04..05, RMD-01..03         | 3           | Complete |
 | 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | 4/6                            | In Progress |
-| 24 - Canonical orders rewrite                        | Unified orders core with TT extension tables                    | DOM-01..03                     | 4/6         | In Progress |
+| 24 - Canonical orders rewrite                        | Unified orders core with TT extension tables                    | DOM-01..03                     | 6/6         | Complete |
 
 **Totals:** 7 phases, 27 plans, 19 requirements mapped
