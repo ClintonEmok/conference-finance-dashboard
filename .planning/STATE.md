@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Attendee Signup + Accommodation Self-Assignment
-status: in_progress
+status: unknown
 stopped_at: Completed 25-03-PLAN.md
-last_updated: "2026-03-31T12:38:00.000Z"
+last_updated: "2026-03-31T13:00:00.758Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 8
@@ -24,7 +24,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-27)
 
 ## Current Position
 
-Phase: 24
+Phase: 25
 Plan: Not started
 
 ## Alignment Status
