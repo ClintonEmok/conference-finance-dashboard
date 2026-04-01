@@ -1,31 +1,33 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Attendee Signup + Accommodation Self-Assignment
-status: unknown
-stopped_at: Completed 25-03-PLAN.md
-last_updated: "2026-03-31T13:00:00.758Z"
-last_activity: 2026-03-31 - Completed quick task 260331-l8f: refactor sync.ts
+milestone: v3.0
+milestone_name: Canonical Orders Foundation
+status: defining_requirements
+stopped_at: Milestone initialized
+last_updated: "2026-04-01T00:00:00.000Z"
+last_activity: 2026-04-01 - Started milestone v3.0 Canonical Orders Foundation
 progress:
-  total_phases: 8
-  completed_phases: 7
-  total_plans: 30
-  completed_plans: 29
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-03-27)
+See: `.planning/PROJECT.md` (updated 2026-04-01)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Phase 24 — canonical-orders-rewrite
+- **Current focus:** Milestone v3.0 requirement definition
 
 ## Current Position
 
-Phase: 25
-Plan: Not started
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-01 — Milestone v3.0 started
 
 ## Alignment Status
 
