@@ -157,8 +157,6 @@ export function AttendeeDetailsStep({
                 <option value="">Select gender</option>
                 <option value="female">Female</option>
                 <option value="male">Male</option>
-                <option value="mixed">Mixed</option>
-                <option value="unknown">Unknown</option>
               </select>
               {hasFieldError(
                 validationSummary,
