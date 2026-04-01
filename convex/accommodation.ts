@@ -179,7 +179,7 @@ export function attendeeMatchesSignalFilters(input: {
 
 export function hasFamilySignal(input: {
   attendeeId: string
-  providerOrderId: string
+  orderId: string | null
   attendeeFamilyGroupId: string | null
   attendeeCountByOrderId: Map<string, number>
 }): boolean {
@@ -187,7 +187,10 @@ export function hasFamilySignal(input: {
     return true
   }
 
-  return (input.attendeeCountByOrderId.get(input.providerOrderId) ?? 0) > 1
+  return (
+    (input.attendeeCountByOrderId.get(input.orderId ?? input.attendeeId) ?? 0) >
+    1
+  )
 }
 
 export const recalculateRoomOccupancy = internalMutation({
@@ -358,6 +361,19 @@ export const getRoomAllocationBoard = query({
       )
     }
 
+    // Build pending assignments by room early so room mapping can read it safely.
+    const pendingAssignmentsByRoom = new Map<
+      string,
+      Array<{
+        assignmentId: string
+        attendeeId: string
+        attendeeName: string | null
+        attendeeEmail: string | null
+        assignmentIntent: "assign" | "skip"
+        sortOrder: number
+      }>
+    >()
+
     const filteredRooms = rooms.filter((room) => {
       if (scopedHotelIds && !scopedHotelIds.includes(room.hotelId as string))
         return false
@@ -410,6 +426,7 @@ export const getRoomAllocationBoard = query({
 
     const hotelMap = new Map(hotels.map((h) => [h._id as string, h]))
     const roomTypeMap = new Map(roomTypes.map((rt) => [rt._id as string, rt]))
+    const roomById = new Map(rooms.map((room) => [room._id as string, room]))
 
     // Build mapping from canonical eventId to event info
     const canonicalEventById = new Map(
@@ -508,7 +525,7 @@ export const getRoomAllocationBoard = query({
         remarks: null,
         hasFamily: hasFamilySignal({
           attendeeId: a._id,
-          providerOrderId: order?.providerOrderId ?? "",
+          orderId: order?._id ?? null,
           attendeeFamilyGroupId,
           attendeeCountByOrderId,
         }),
@@ -555,18 +572,44 @@ export const getRoomAllocationBoard = query({
       slotIdToRoomId.set(slot._id as string, slot.roomId as string)
     }
 
-    // Build pending assignments by room
-    const pendingAssignmentsByRoom = new Map<
-      string,
-      Array<{
-        assignmentId: string
-        attendeeId: string
-        attendeeName: string | null
-        attendeeEmail: string | null
-        assignmentIntent: "assign" | "skip"
-        sortOrder: number
-      }>
-    >()
+    const attendeeById = new Map(
+      orderAttendeesList.map((attendee) => [attendee._id as string, attendee])
+    )
+
+    const buyerSuggestions = orderAssignmentsList
+      .filter((assignment) => {
+        const assignmentAny = assignment as { status?: string }
+        return !assignmentAny.status || assignmentAny.status === "pending"
+      })
+      .map((assignment) => {
+        const roomId = slotIdToRoomId.get(assignment.slotId as string)
+        const room = roomId ? roomById.get(roomId) : null
+        const hotel = room ? hotelMap.get(room.hotelId as string) : null
+        const attendee = attendeeById.get(assignment.attendeeId as string)
+
+        return {
+          assignmentId: assignment._id as string,
+          attendeeId: assignment.attendeeId as string,
+          attendeeName: attendee?.name ?? null,
+          attendeeEmail: attendee?.email ?? null,
+          roomId: room?._id ?? null,
+          roomLabel: room?.label ?? null,
+          hotelName: hotel?.name ?? null,
+          assignmentIntent: assignment.assignmentIntent,
+          sortOrder: assignment.sortOrder,
+        }
+      })
+      .sort((a, b) => {
+        if ((a.roomLabel ?? "") !== (b.roomLabel ?? "")) {
+          return (a.roomLabel ?? "").localeCompare(b.roomLabel ?? "")
+        }
+
+        if (a.sortOrder !== b.sortOrder) {
+          return a.sortOrder - b.sortOrder
+        }
+
+        return (a.attendeeName ?? "").localeCompare(b.attendeeName ?? "")
+      })
 
     // Filter pending assignments: assignmentIntent="assign" and (status is undefined/pending)
     for (const assignment of orderAssignmentsList) {
@@ -736,6 +779,7 @@ export const getRoomAllocationBoard = query({
         defaultCapacity: rt.defaultCapacity,
       })),
       rooms: mappedRooms,
+      buyerSuggestions,
       unassignedAttendees: mappedUnassignedAttendees,
       submissionQueueRows,
       summary: {

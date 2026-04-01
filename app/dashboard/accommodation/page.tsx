@@ -118,6 +118,17 @@ type AccommodationWorkspacePayload = {
       sortOrder: number
     }>
   }>
+  buyerSuggestions?: Array<{
+    assignmentId: string
+    attendeeId: string
+    attendeeName: string | null
+    attendeeEmail: string | null
+    roomId: string | null
+    roomLabel: string | null
+    hotelName: string | null
+    assignmentIntent: "assign" | "skip"
+    sortOrder: number
+  }>
   unassignedAttendees: Array<{
     attendeeId: string
     attendeeName: string | null
@@ -157,10 +168,10 @@ type AccommodationWorkspacePayload = {
     // Unresolved state
     isUnresolved: boolean
     unresolvedReason:
-      | "no_assignment_record"
-      | "skipped_intent"
-      | "slot_not_assignable"
-      | null
+    | "no_assignment_record"
+    | "skipped_intent"
+    | "slot_not_assignable"
+    | null
   }>
   summary: {
     totalRooms: number
@@ -519,6 +530,20 @@ export default function AccommodationPage() {
     () => payload.rooms.filter((room) => room.availableBeds > 0),
     [payload.rooms]
   )
+
+  const buyerSuggestions = useMemo(() => {
+    return [...(payload.buyerSuggestions ?? [])].sort((a, b) => {
+      if ((a.roomLabel ?? "") !== (b.roomLabel ?? "")) {
+        return (a.roomLabel ?? "").localeCompare(b.roomLabel ?? "")
+      }
+
+      if (a.sortOrder !== b.sortOrder) {
+        return a.sortOrder - b.sortOrder
+      }
+
+      return (a.attendeeName ?? "").localeCompare(b.attendeeName ?? "")
+    })
+  }, [payload.buyerSuggestions])
 
   const totalCapacity = useMemo(
     () => payload.rooms.reduce((sum, room) => sum + room.capacity, 0),
@@ -907,7 +932,7 @@ export default function AccommodationPage() {
                 <LayoutGrid className="mr-2 size-3.5" /> Open stock
               </Link>
             </Button>
-            <Button
+            {/* <Button
               type="button"
               size="sm"
               className="h-10 rounded-lg bg-primary text-xs font-bold text-white shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] active:scale-95"
@@ -938,7 +963,7 @@ export default function AccommodationPage() {
               }}
             >
               {isLoadingProposal ? "Generating..." : "Auto-allocate"}
-            </Button>
+            </Button> */}
           </div>
         </div>
 
@@ -1001,6 +1026,90 @@ export default function AccommodationPage() {
             </article>
           )}
         </div>
+      )}
+
+      {buyerSuggestions.length > 0 && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Sparkles className="size-4 text-primary" />
+                Buyer suggestions
+              </CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Pending buyer requests captured during signup.
+              </p>
+            </div>
+            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+              {buyerSuggestions.length} pending
+            </span>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+              {buyerSuggestions.map((suggestion) => {
+                const roomId = suggestion.roomId
+                const roomLabel = suggestion.roomLabel
+                const canReview =
+                  suggestion.assignmentIntent === "assign" &&
+                  !!roomId &&
+                  !!roomLabel
+
+                return (
+                  <div
+                    key={suggestion.assignmentId}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/80 p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {suggestion.attendeeName ?? "Unnamed"}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {suggestion.hotelName ?? "Unknown hotel"} •{" "}
+                        {roomLabel ?? "Unknown room"}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                          suggestion.assignmentIntent === "skip"
+                            ? "bg-amber-500/10 text-amber-700"
+                            : "bg-emerald-500/10 text-emerald-600"
+                        )}
+                      >
+                        {suggestion.assignmentIntent === "skip"
+                          ? "Skip request"
+                          : "Suggested"}
+                      </span>
+                      {canReview && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-lg text-xs"
+                          onClick={() => {
+                            setSelectedPendingAssignment({
+                              assignmentId: suggestion.assignmentId,
+                              attendeeId: suggestion.attendeeId,
+                              attendeeName: suggestion.attendeeName,
+                              attendeeEmail: suggestion.attendeeEmail,
+                              roomId: roomId!,
+                              roomLabel: roomLabel!,
+                            })
+                            setAlternativeRooms([])
+                            setShowConfirmDialog(true)
+                          }}
+                        >
+                          Review
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <section className="flex flex-col gap-8">
@@ -1118,10 +1227,10 @@ export default function AccommodationPage() {
                                 {row.isUnresolved && row.unresolvedReason && (
                                   <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
                                     {row.unresolvedReason ===
-                                    "no_assignment_record"
+                                      "no_assignment_record"
                                       ? "No record"
                                       : row.unresolvedReason ===
-                                          "skipped_intent"
+                                        "skipped_intent"
                                         ? "Skipped"
                                         : "Not assignable"}
                                   </span>
@@ -1211,14 +1320,14 @@ export default function AccommodationPage() {
                                       <div className="flex flex-wrap gap-2">
                                         {submission.genderType &&
                                           submission.genderType !==
-                                            "UNKNOWN" && (
+                                          "UNKNOWN" && (
                                             <span
                                               className={cn(
                                                 "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize",
                                                 submission.genderType === "MALE"
                                                   ? "border-blue-500/20 bg-blue-500/10 text-blue-500"
                                                   : submission.genderType ===
-                                                      "FEMALE"
+                                                    "FEMALE"
                                                     ? "border-pink-500/20 bg-pink-500/10 text-pink-500"
                                                     : "border-border/40 bg-muted/30 text-muted-foreground/80"
                                               )}
@@ -1256,13 +1365,13 @@ export default function AccommodationPage() {
                                           </p>
                                           <p className="text-xs text-orange-600/80 dark:text-orange-400/80">
                                             {submission.unresolvedReason ===
-                                            "no_assignment_record"
+                                              "no_assignment_record"
                                               ? "No assignment record found"
                                               : submission.unresolvedReason ===
-                                                  "skipped_intent"
+                                                "skipped_intent"
                                                 ? "Assignment was skipped"
                                                 : submission.unresolvedReason ===
-                                                    "slot_not_assignable"
+                                                  "slot_not_assignable"
                                                   ? "Selected slot is not assignable"
                                                   : "Unknown reason"}
                                           </p>
@@ -1286,46 +1395,46 @@ export default function AccommodationPage() {
                                   {(submission.roommatePreference ||
                                     submission.roommateAvoid ||
                                     submission.dietaryRestrictions) && (
-                                    <Card>
-                                      <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm font-medium">
-                                          Preferences
-                                        </CardTitle>
-                                      </CardHeader>
-                                      <CardContent className="space-y-3">
-                                        {submission.roommatePreference && (
-                                          <div>
-                                            <p className="text-xs text-muted-foreground">
-                                              Roommate preference
-                                            </p>
-                                            <p className="text-sm text-foreground">
-                                              {submission.roommatePreference}
-                                            </p>
-                                          </div>
-                                        )}
-                                        {submission.roommateAvoid && (
-                                          <div>
-                                            <p className="text-xs text-muted-foreground">
-                                              Roommate to avoid
-                                            </p>
-                                            <p className="text-sm text-foreground">
-                                              {submission.roommateAvoid}
-                                            </p>
-                                          </div>
-                                        )}
-                                        {submission.dietaryRestrictions && (
-                                          <div>
-                                            <p className="text-xs text-muted-foreground">
-                                              Dietary restrictions
-                                            </p>
-                                            <p className="text-sm text-foreground">
-                                              {submission.dietaryRestrictions}
-                                            </p>
-                                          </div>
-                                        )}
-                                      </CardContent>
-                                    </Card>
-                                  )}
+                                      <Card>
+                                        <CardHeader className="pb-3">
+                                          <CardTitle className="text-sm font-medium">
+                                            Preferences
+                                          </CardTitle>
+                                        </CardHeader>
+                                        <CardContent className="space-y-3">
+                                          {submission.roommatePreference && (
+                                            <div>
+                                              <p className="text-xs text-muted-foreground">
+                                                Roommate preference
+                                              </p>
+                                              <p className="text-sm text-foreground">
+                                                {submission.roommatePreference}
+                                              </p>
+                                            </div>
+                                          )}
+                                          {submission.roommateAvoid && (
+                                            <div>
+                                              <p className="text-xs text-muted-foreground">
+                                                Roommate to avoid
+                                              </p>
+                                              <p className="text-sm text-foreground">
+                                                {submission.roommateAvoid}
+                                              </p>
+                                            </div>
+                                          )}
+                                          {submission.dietaryRestrictions && (
+                                            <div>
+                                              <p className="text-xs text-muted-foreground">
+                                                Dietary restrictions
+                                              </p>
+                                              <p className="text-sm text-foreground">
+                                                {submission.dietaryRestrictions}
+                                              </p>
+                                            </div>
+                                          )}
+                                        </CardContent>
+                                      </Card>
+                                    )}
 
                                   {/* Booking Info */}
                                   <Card>
@@ -1563,11 +1672,10 @@ export default function AccommodationPage() {
                   return (
                     <div
                       key={attendee.attendeeId}
-                      className={`group relative flex w-full cursor-pointer flex-col items-start rounded-xl border p-4 transition-all select-none ${
-                        isSelected
+                      className={`group relative flex w-full cursor-pointer flex-col items-start rounded-xl border p-4 transition-all select-none ${isSelected
                           ? "selected-attendee border-[rgba(113,84,255,0.6)] bg-[rgba(113,84,255,0.08)] shadow-[0_0_20px_rgba(113,84,255,0.1)]"
                           : "border-border/40 bg-background/50 hover:bg-muted/30"
-                      }`}
+                        }`}
                       onClick={() =>
                         toggleAttendeeSelection(attendee.attendeeId)
                       }
@@ -1575,11 +1683,10 @@ export default function AccommodationPage() {
                       <div className="flex w-full items-start justify-between">
                         <div className="flex items-center gap-2 truncate">
                           <div
-                            className={`flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
-                              isSelected
+                            className={`flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors ${isSelected
                                 ? "border-primary bg-primary text-primary-foreground"
                                 : "border-border bg-background"
-                            }`}
+                              }`}
                           >
                             {isSelected && <Check className="size-3" />}
                           </div>
@@ -1611,13 +1718,12 @@ export default function AccommodationPage() {
                         {attendee.genderType &&
                           attendee.genderType !== "UNKNOWN" && (
                             <span
-                              className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize ${
-                                attendee.genderType === "MALE"
+                              className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize ${attendee.genderType === "MALE"
                                   ? "border-blue-500/20 bg-blue-500/10 text-blue-500"
                                   : attendee.genderType === "FEMALE"
                                     ? "border-pink-500/20 bg-pink-500/10 text-pink-500"
                                     : "border-border/40 bg-muted/30 text-muted-foreground/80"
-                              }`}
+                                }`}
                             >
                               {attendee.genderType.toLowerCase()}
                             </span>
@@ -1816,11 +1922,10 @@ export default function AccommodationPage() {
                                 )
                               }
                             }}
-                            className={`flex h-[46px] items-center justify-center rounded-xl border border-dashed transition-all ${
-                              selectedAttendeeIds.length > 0
+                            className={`flex h-[46px] items-center justify-center rounded-xl border border-dashed transition-all ${selectedAttendeeIds.length > 0
                                 ? "cursor-pointer border-[rgba(113,84,255,0.4)] bg-[rgba(113,84,255,0.05)] text-[rgba(113,84,255,0.8)] hover:border-[rgba(113,84,255,0.6)] hover:bg-[rgba(113,84,255,0.1)]"
                                 : "cursor-not-allowed border-border/40 bg-background/50 text-muted-foreground/50"
-                            }`}
+                              }`}
                           >
                             <span className="text-xs font-medium">
                               {selectedAttendeeIds.length > 0

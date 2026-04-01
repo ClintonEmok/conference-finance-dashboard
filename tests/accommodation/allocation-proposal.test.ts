@@ -87,6 +87,7 @@ describe("allocation proposal compatibility strategy", () => {
             attendeeId: "attendee-1",
             attendeeName: "Older Sibling",
             attendeeEmail: null,
+            orderId: "order-family",
             providerOrderId: "order-family",
             providerEventId: "event-1",
             eventName: "Camp",
@@ -101,6 +102,7 @@ describe("allocation proposal compatibility strategy", () => {
             attendeeId: "attendee-2",
             attendeeName: "Younger Sibling",
             attendeeEmail: null,
+            orderId: "order-family",
             providerOrderId: "order-family",
             providerEventId: "event-1",
             eventName: "Camp",
@@ -148,6 +150,7 @@ describe("allocation proposal compatibility strategy", () => {
             attendeeId: "attendee-male",
             attendeeName: "Daniel",
             attendeeEmail: null,
+            orderId: "order-a",
             providerOrderId: "order-a",
             providerEventId: "event-1",
             eventName: "Camp",
@@ -162,6 +165,7 @@ describe("allocation proposal compatibility strategy", () => {
             attendeeId: "attendee-female",
             attendeeName: "Hannah",
             attendeeEmail: null,
+            orderId: "order-b",
             providerOrderId: "order-b",
             providerEventId: "event-1",
             eventName: "Camp",
@@ -184,6 +188,90 @@ describe("allocation proposal compatibility strategy", () => {
     expect(proposal.unplacedAttendees[0]?.attendeeId).toBe("attendee-female")
     expect(proposal.unplacedAttendees[0]?.reason.toLowerCase()).toContain(
       "gender"
+    )
+  })
+
+  it("honors buyer room suggestions before the greedy availability order", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-1",
+            label: "A-101",
+            capacity: 2,
+            occupiedBeds: 0,
+            availableBeds: 2,
+            availability: "empty",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+          {
+            id: "room-2",
+            label: "B-201",
+            capacity: 2,
+            occupiedBeds: 1,
+            availableBeds: 1,
+            availability: "available",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [
+              {
+                attendeeId: "attendee-occupied",
+                attendeeName: "Existing Guest",
+                attendeeEmail: null,
+                orderId: "order-occupied",
+                providerOrderId: "order-occupied",
+                providerEventId: "event-1",
+                eventName: "Camp",
+                ticketTypeLabel: null,
+              },
+            ],
+            pendingAssignments: [],
+          },
+        ],
+        buyerSuggestions: [
+          {
+            assignmentId: "assignment-1",
+            attendeeId: "attendee-suggested",
+            attendeeName: "Suggested Guest",
+            attendeeEmail: null,
+            roomId: "room-1",
+            roomLabel: "A-101",
+            hotelName: "Main Hotel",
+            assignmentIntent: "assign",
+            sortOrder: 0,
+          },
+        ],
+        unassignedAttendees: [
+          {
+            attendeeId: "attendee-suggested",
+            attendeeName: "Suggested Guest",
+            attendeeEmail: null,
+            orderId: "order-suggested",
+            providerOrderId: "order-suggested",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            genderType: "UNKNOWN",
+            allocationPriority: "NORMAL",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+          },
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    expect(proposal.suggestions).toHaveLength(1)
+    expect(proposal.suggestions[0]?.roomId).toBe("room-1")
+    expect(proposal.suggestions[0]?.reason.toLowerCase()).toContain(
+      "buyer room suggestion"
     )
   })
 
@@ -223,6 +311,7 @@ describe("allocation proposal compatibility strategy", () => {
             attendeeId: "attendee-normal",
             attendeeName: "Alice",
             attendeeEmail: null,
+            orderId: "order-z",
             providerOrderId: "order-z",
             providerEventId: "event-1",
             eventName: "Camp",
@@ -237,6 +326,7 @@ describe("allocation proposal compatibility strategy", () => {
             attendeeId: "attendee-critical",
             attendeeName: "Zoe",
             attendeeEmail: null,
+            orderId: "order-a",
             providerOrderId: "order-a",
             providerEventId: "event-1",
             eventName: "Camp",

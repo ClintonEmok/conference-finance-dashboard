@@ -51,6 +51,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(proposal)
   } catch (error) {
+    console.error("Error generating allocation proposal:", error)
     const message =
       error instanceof Error ? error.message : "Failed to generate proposal"
 

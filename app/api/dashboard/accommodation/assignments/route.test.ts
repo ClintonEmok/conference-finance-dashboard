@@ -340,6 +340,7 @@ describe("/api/dashboard/accommodation/assignments route", () => {
             attendeeId: "tt-attendee-1",
             attendeeName: "Alice Brown",
             attendeeEmail: "alice@example.com",
+            orderId: "order-tt-1",
             providerOrderId: "order-tt-1",
             providerEventId: "event-integration",
             eventName: "Integration Camp",

@@ -128,6 +128,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(board)
   } catch (error) {
+    console.error("Error loading room allocation board:", error)
     const message = error instanceof Error ? error.message : "Invalid request"
 
     if (message.startsWith("Invalid")) {

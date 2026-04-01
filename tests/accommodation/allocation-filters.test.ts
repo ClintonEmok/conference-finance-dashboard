@@ -106,7 +106,7 @@ describe("accommodation allocation signal filters", () => {
     expect(
       hasFamilySignal({
         attendeeId: "attendee-explicit",
-        providerOrderId: "order-explicit",
+        orderId: "order-explicit",
         attendeeFamilyGroupId: "family-1",
         attendeeCountByOrderId,
       })
@@ -115,7 +115,7 @@ describe("accommodation allocation signal filters", () => {
     expect(
       hasFamilySignal({
         attendeeId: "attendee-fallback",
-        providerOrderId: "order-fallback",
+        orderId: "order-fallback",
         attendeeFamilyGroupId: null,
         attendeeCountByOrderId,
       })
@@ -124,7 +124,7 @@ describe("accommodation allocation signal filters", () => {
     expect(
       hasFamilySignal({
         attendeeId: "attendee-single",
-        providerOrderId: "order-single",
+        orderId: "order-single",
         attendeeFamilyGroupId: null,
         attendeeCountByOrderId,
       })

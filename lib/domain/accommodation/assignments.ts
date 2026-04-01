@@ -89,6 +89,7 @@ export type RoomAllocationBoard = {
       attendeeId: string
       attendeeName: string | null
       attendeeEmail: string | null
+      orderId: string | null
       providerOrderId: string
       providerEventId: string
       eventName: string | null
@@ -103,10 +104,22 @@ export type RoomAllocationBoard = {
       sortOrder: number
     }>
   }>
+  buyerSuggestions?: Array<{
+    assignmentId: string
+    attendeeId: string
+    attendeeName: string | null
+    attendeeEmail: string | null
+    roomId: string | null
+    roomLabel: string | null
+    hotelName: string | null
+    assignmentIntent: "assign" | "skip"
+    sortOrder: number
+  }>
   unassignedAttendees: Array<{
     attendeeId: string
     attendeeName: string | null
     attendeeEmail: string | null
+    orderId: string | null
     providerOrderId: string
     providerEventId: string
     eventName: string | null
@@ -160,6 +173,9 @@ type AttendeeGender = "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
 
 type ProposalAttendee = RoomAllocationBoard["unassignedAttendees"][number]
 type ProposalRoom = RoomAllocationBoard["rooms"][number]
+type BuyerSuggestion = NonNullable<
+  RoomAllocationBoard["buyerSuggestions"]
+>[number]
 
 type RoomState = {
   room: ProposalRoom
@@ -173,6 +189,13 @@ function normalizeOptionalString(
 ): string | null {
   const normalized = value?.trim()
   return normalized ? normalized : null
+}
+
+function canonicalOrderKey(
+  orderId: string | null | undefined,
+  fallbackAttendeeId: string
+): string {
+  return orderId ?? fallbackAttendeeId
 }
 
 function normalizeAvailability(
@@ -221,7 +244,7 @@ function attendeeMatchesSearch(
   attendee: {
     attendeeName: string | null
     attendeeEmail: string | null
-    providerOrderId: string
+    orderId: string | null
     providerEventId: string
     eventName: string | null
     ticketTypeLabel: string | null
@@ -232,7 +255,7 @@ function attendeeMatchesSearch(
   return [
     attendee.attendeeName,
     attendee.attendeeEmail,
-    attendee.providerOrderId,
+    attendee.orderId,
     attendee.providerEventId,
     attendee.eventName,
     attendee.ticketTypeLabel,
@@ -312,9 +335,11 @@ function getFamilyCohesionRank(
   attendee: ProposalAttendee,
   roomState: RoomState
 ): number {
-  const hasGroupInRoom = roomState.projectedOrderIds.has(
-    attendee.providerOrderId
+  const attendeeOrderKey = canonicalOrderKey(
+    attendee.orderId,
+    attendee.attendeeId
   )
+  const hasGroupInRoom = roomState.projectedOrderIds.has(attendeeOrderKey)
   if (hasGroupInRoom) {
     return 3
   }
@@ -332,9 +357,14 @@ function buildPlacementReason(input: {
   priority: AllocationPriority
   familyMatch: boolean
   genderFitRank: number
+  buyerSuggestionHonored?: boolean
 }): string {
   const gender = normalizeAttendeeGender(input.attendee.genderType)
   const rationale: string[] = []
+
+  if (input.buyerSuggestionHonored) {
+    rationale.push("honors buyer room suggestion")
+  }
 
   if (input.familyMatch) {
     rationale.push("keeps family/order group together")
@@ -456,6 +486,12 @@ export async function generateAllocationProposal(input: {
   const suggestions: AllocationProposal["suggestions"] = []
   const unplacedAttendees: AllocationProposal["unplacedAttendees"] = []
 
+  const buyerSuggestionsByAttendeeId = new Map<string, BuyerSuggestion>()
+  for (const suggestion of board.buyerSuggestions ?? []) {
+    if (suggestion.assignmentIntent !== "assign") continue
+    buyerSuggestionsByAttendeeId.set(suggestion.attendeeId, suggestion)
+  }
+
   const availableRooms = board.rooms
     .filter((r) => r.availableBeds > 0)
     .sort((a, b) => {
@@ -469,15 +505,21 @@ export async function generateAllocationProposal(input: {
       remainingBeds: room.availableBeds,
       projectedGenders: new Set<Exclude<AttendeeGender, null>>(),
       projectedOrderIds: new Set(
-        room.occupants.map((occupant) => occupant.providerOrderId)
+        room.occupants.map((occupant) =>
+          canonicalOrderKey(occupant.orderId, occupant.attendeeId)
+        )
       ),
     }))
 
   const attendeeCountByOrderId = new Map<string, number>()
   for (const attendee of board.unassignedAttendees) {
+    const attendeeOrderKey = canonicalOrderKey(
+      attendee.orderId,
+      attendee.attendeeId
+    )
     attendeeCountByOrderId.set(
-      attendee.providerOrderId,
-      (attendeeCountByOrderId.get(attendee.providerOrderId) ?? 0) + 1
+      attendeeOrderKey,
+      (attendeeCountByOrderId.get(attendeeOrderKey) ?? 0) + 1
     )
   }
 
@@ -486,13 +528,15 @@ export async function generateAllocationProposal(input: {
     const bPriority = priorityRank(b.allocationPriority)
     if (aPriority !== bPriority) return aPriority - bPriority
 
-    const aGroupSize = attendeeCountByOrderId.get(a.providerOrderId) ?? 0
-    const bGroupSize = attendeeCountByOrderId.get(b.providerOrderId) ?? 0
+    const aOrderKey = canonicalOrderKey(a.orderId, a.attendeeId)
+    const bOrderKey = canonicalOrderKey(b.orderId, b.attendeeId)
+    const aGroupSize = attendeeCountByOrderId.get(aOrderKey) ?? 0
+    const bGroupSize = attendeeCountByOrderId.get(bOrderKey) ?? 0
     if (aGroupSize !== bGroupSize) {
       return bGroupSize - aGroupSize
     }
 
-    const orderComparison = a.providerOrderId.localeCompare(b.providerOrderId)
+    const orderComparison = aOrderKey.localeCompare(bOrderKey)
     if (orderComparison !== 0) return orderComparison
 
     const nameComparison = (a.attendeeName ?? "").localeCompare(
@@ -503,7 +547,11 @@ export async function generateAllocationProposal(input: {
     return a.attendeeId.localeCompare(b.attendeeId)
   })
 
-  for (const attendee of sortedAttendees) {
+  const placeAttendee = (
+    attendee: ProposalAttendee,
+    preferredRoomId: string | null,
+    buyerSuggestionRequested = false
+  ) => {
     const priority = attendee.allocationPriority ?? "NORMAL"
     const attendeeGender = normalizeAttendeeGender(attendee.genderType)
 
@@ -542,13 +590,25 @@ export async function generateAllocationProposal(input: {
         return a.roomState.room.label.localeCompare(b.roomState.room.label)
       })
 
-    if (rankedRooms.length > 0) {
-      const bestCandidate = rankedRooms[0]
+    const preferredCandidate = preferredRoomId
+      ? rankedRooms.find(
+          (candidate) => candidate.roomState.room.id === preferredRoomId
+        )
+      : null
+    const bestCandidate = preferredCandidate ?? rankedRooms[0] ?? null
+    const buyerSuggestionHonored =
+      buyerSuggestionRequested && Boolean(preferredCandidate)
+
+    if (bestCandidate) {
       const bestRoom = bestCandidate.roomState
+      const attendeeOrderKey = canonicalOrderKey(
+        attendee.orderId,
+        attendee.attendeeId
+      )
 
       bestRoom.remainingBeds -= 1
       bestRoom.projectedGenders.add(attendeeGender)
-      bestRoom.projectedOrderIds.add(attendee.providerOrderId)
+      bestRoom.projectedOrderIds.add(attendeeOrderKey)
 
       suggestions.push({
         attendeeId: attendee.attendeeId,
@@ -562,22 +622,40 @@ export async function generateAllocationProposal(input: {
           priority,
           familyMatch: bestCandidate.familyRank >= 3,
           genderFitRank: bestCandidate.genderRank,
+          buyerSuggestionHonored,
         }),
         priority,
       })
-    } else {
-      const hasAnyBeds = availableRooms.some(
-        (roomState) => roomState.remainingBeds > 0
-      )
-      unplacedAttendees.push({
-        attendeeId: attendee.attendeeId,
-        attendeeName: attendee.attendeeName,
-        reason: hasAnyBeds
-          ? "No compatible rooms available after gender guardrails"
-          : "No rooms with available beds",
-        priority,
-      })
+      return
     }
+
+    const hasAnyBeds = availableRooms.some(
+      (roomState) => roomState.remainingBeds > 0
+    )
+    unplacedAttendees.push({
+      attendeeId: attendee.attendeeId,
+      attendeeName: attendee.attendeeName,
+      reason: hasAnyBeds
+        ? "No compatible rooms available after gender guardrails"
+        : "No rooms with available beds",
+      priority,
+    })
+  }
+
+  const suggestedAttendees = sortedAttendees.filter((attendee) =>
+    buyerSuggestionsByAttendeeId.has(attendee.attendeeId)
+  )
+  const remainingAttendees = sortedAttendees.filter(
+    (attendee) => !buyerSuggestionsByAttendeeId.has(attendee.attendeeId)
+  )
+
+  for (const attendee of suggestedAttendees) {
+    const suggestion = buyerSuggestionsByAttendeeId.get(attendee.attendeeId)
+    placeAttendee(attendee, suggestion?.roomId ?? null, true)
+  }
+
+  for (const attendee of remainingAttendees) {
+    placeAttendee(attendee, null)
   }
 
   const suggestionsByAttendeeId = new Map(
@@ -587,9 +665,13 @@ export async function generateAllocationProposal(input: {
 
   for (const attendee of sortedAttendees) {
     if (!attendee.hasFamily) continue
-    const existing = familyGroups.get(attendee.providerOrderId) ?? []
+    const attendeeOrderKey = canonicalOrderKey(
+      attendee.orderId,
+      attendee.attendeeId
+    )
+    const existing = familyGroups.get(attendeeOrderKey) ?? []
     existing.push(attendee.attendeeId)
-    familyGroups.set(attendee.providerOrderId, existing)
+    familyGroups.set(attendeeOrderKey, existing)
   }
 
   const familyGroupsKeptTogether = [...familyGroups.values()].reduce(
