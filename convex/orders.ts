@@ -839,7 +839,7 @@ export const getOrderWithAttendees = query({
     v.object({
       order: v.object({
         id: v.id("orders"),
-        providerOrderId: v.string(),
+        providerOrderId: nullableStringValidator,
         normalizedStatus: v.optional(canonicalOrderStatusValidator),
         isArchived: v.optional(v.boolean()),
         archivedAt: nullableStringValidator,
@@ -877,7 +877,7 @@ export const getOrderWithAttendees = query({
     return {
       order: {
         id: order._id,
-        providerOrderId: order.providerOrderId ?? "",
+        providerOrderId: order.providerOrderId ?? null,
         normalizedStatus: order.status ?? undefined,
         isArchived: extension?.isArchived,
         archivedAt: extension?.archivedAt
