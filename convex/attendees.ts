@@ -3,6 +3,7 @@ import { v } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import { requireIdentity } from "./auth"
 import { api } from "./_generated/api"
+import type { Id } from "./_generated/dataModel"
 
 function filterAttendees(
   attendees: Array<{
@@ -97,6 +98,87 @@ export const getAttendees = query({
     // Backward-compatible: bounded fallback
     const attendees = await base.take(500)
     return filterAttendees(attendees, args)
+  },
+})
+
+export const getAttendeesWithTickets = query({
+  args: {
+    eventId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    // Get orders (optionally filtered by eventId)
+    const orders = args.eventId
+      ? await ctx.db
+          .query("orders")
+          .withIndex("by_eventId", (q) =>
+            q.eq("eventId", args.eventId as Id<"events">)
+          )
+          .collect()
+      : await ctx.db.query("orders").collect()
+
+    const orderMap = new Map(orders.map((o) => [o._id, o]))
+    const orderIds = new Set(orders.map((o) => o._id))
+
+    // Get all attendees for these orders
+    const allAttendees = await ctx.db.query("orderAttendees").collect()
+    const attendees = allAttendees.filter((a) => orderIds.has(a.orderId))
+
+    // Get ticket selections for these orders (join by orderId)
+    const allSelections = await Promise.all(
+      orders.map((order) =>
+        ctx.db
+          .query("orderTicketSelections")
+          .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+          .collect()
+      )
+    )
+    const selections = allSelections.flat()
+
+    // Get ticket types
+    const ticketTypeIds = Array.from(
+      new Set(selections.map((s) => String(s.ticketTypeId)))
+    )
+    const ticketTypes = await Promise.all(
+      ticketTypeIds.map((id) => ctx.db.get(id as Id<"ticketTypes">))
+    )
+    const ticketTypeMap = new Map(
+      ticketTypes.filter(Boolean).map((tt) => [tt!._id, tt!.label])
+    )
+
+    // Build attendeeId -> ticketTypeLabel map
+    const ticketLabelByAttendeeId = new Map<string, string>()
+    for (const sel of selections) {
+      const label = ticketTypeMap.get(sel.ticketTypeId)
+      if (label) {
+        ticketLabelByAttendeeId.set(String(sel.attendeeId), label)
+      }
+    }
+
+    // Return attendees with ticketTypeLabel AND order data
+    return attendees.map((a) => {
+      const order = orderMap.get(a.orderId)
+      return {
+        _id: a._id,
+        orderId: a.orderId,
+        name: a.name,
+        email: a.email ?? null,
+        gender: a.gender,
+        location: a.location ?? null,
+        assignedRoomId: a.assignedRoomId ?? null,
+        allocationPriority: a.allocationPriority ?? null,
+        priorityReason: a.priorityReason ?? null,
+        ticketTypeLabel: ticketLabelByAttendeeId.get(String(a._id)) ?? null,
+        // Order data embedded
+        orderProviderOrderId: order?.providerOrderId ?? null,
+        orderEventId: order?.eventId ?? null,
+        orderStatus: order?.status ?? null,
+        orderTotalAmountMinor: order?.totalAmountMinor ?? null,
+        orderSubmittedAt: order?.submittedAt ?? null,
+        orderOrderedAt: order?.orderedAt ?? null,
+      }
+    })
   },
 })
 

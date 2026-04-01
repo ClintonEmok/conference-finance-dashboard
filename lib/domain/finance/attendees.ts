@@ -158,21 +158,21 @@ function deriveAttendeeOutstandingAmount(
 
 type ConvexAttendee = {
   _id: string
-  providerAttendeeId: string | null
-  providerIssuedTicketId: string | null
-  providerOrderId: string
-  eventId: string
   orderId: string
-  name: string | null
+  name: string
   email: string | null
-  ticketTypeLabel: string | null
-  genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+  gender: "male" | "female" | "mixed" | "unknown"
+  location: string | null
+  assignedRoomId: string | null
   allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
   priorityReason: string | null
-  ageGroup: string | null
-  ticketCategory: string | null
-  assignedRoomId: string | null
-  customAnswers: unknown | null
+  ticketTypeLabel: string | null
+  orderProviderOrderId: string | null
+  orderEventId: string | null
+  orderStatus: string | null
+  orderTotalAmountMinor: number | null
+  orderSubmittedAt: number | null
+  orderOrderedAt: number | null
 }
 
 type ConvexOrder = {
@@ -182,6 +182,7 @@ type ConvexOrder = {
   normalizedStatus: CanonicalOrderStatus | null
   totalAmountMinor: number | null
   orderedAt: number | null
+  submittedAt: number | null
 }
 
 type ConvexEvent = {
@@ -232,32 +233,23 @@ export async function getAttendeeLedger(
   const { from, to } = normalizeRange(filters)
   const { page, pageSize } = normalizePagination(filters.page, filters.pageSize)
 
-  const [
-    allAttendees,
-    availableEvents,
-    allOrders,
-    allRooms,
-    allHotels,
-    allRoomTypes,
-  ] = (await Promise.all([
-    convexQuery(api.attendees.getAttendees, {
-      eventId: eventId ?? undefined,
-    }),
-    convexQuery(api.events.getEvents, {}),
-    convexQuery(api.orders.getOrders, {}),
-    convexQuery(api.accommodation.getRooms, {}),
-    convexQuery(api.accommodation.getHotels, {}),
-    convexQuery(api.accommodation.getRoomTypes, {}),
-  ])) as [
-    ConvexAttendee[],
-    ConvexEvent[],
-    ConvexOrder[],
-    ConvexRoom[],
-    ConvexHotel[],
-    ConvexRoomType[],
-  ]
+  const [allAttendees, availableEvents, allRooms, allHotels, allRoomTypes] =
+    (await Promise.all([
+      convexQuery(api.attendees.getAttendeesWithTickets, {
+        eventId: eventId ?? undefined,
+      }),
+      convexQuery(api.events.getEvents, {}),
+      convexQuery(api.accommodation.getRooms, {}),
+      convexQuery(api.accommodation.getHotels, {}),
+      convexQuery(api.accommodation.getRoomTypes, {}),
+    ])) as [
+      ConvexAttendee[],
+      ConvexEvent[],
+      ConvexRoom[],
+      ConvexHotel[],
+      ConvexRoomType[],
+    ]
 
-  const orderMap = new Map(allOrders.map((o) => [o._id, o]))
   const eventMap = new Map(availableEvents.map((e) => [e._id, e]))
   const roomMap = new Map(allRooms.map((r) => [r._id, r]))
   const hotelMap = new Map(allHotels.map((h) => [h._id, h]))
@@ -286,9 +278,8 @@ export async function getAttendeeLedger(
   const toTime = to.getTime()
 
   let filteredAttendees = allAttendees.filter((a) => {
-    const order = orderMap.get(a.orderId)
-    if (!order?.orderedAt) return false
-    const orderTime = order.orderedAt
+    const orderTime = a.orderOrderedAt ?? a.orderSubmittedAt ?? null
+    if (!orderTime) return false
     return orderTime >= fromTime && orderTime <= toTime
   })
 
@@ -298,17 +289,14 @@ export async function getAttendeeLedger(
       (a) =>
         a.name?.toLowerCase().includes(searchLower) ||
         a.email?.toLowerCase().includes(searchLower) ||
-        a.ticketTypeLabel?.toLowerCase().includes(searchLower) ||
-        a.providerOrderId.toLowerCase().includes(searchLower)
+        a.ticketTypeLabel?.toLowerCase().includes(searchLower)
     )
   }
 
   const matchedTotalsByProviderOrderId =
     await buildMatchedTotalsByProviderOrderId(
       filteredAttendees.map((attendee) => ({
-        providerOrderId:
-          orderMap.get(attendee.orderId)?.providerOrderId ??
-          attendee.providerOrderId,
+        providerOrderId: attendee.orderProviderOrderId ?? "",
       }))
     )
 
@@ -320,22 +308,22 @@ export async function getAttendeeLedger(
   )
 
   const rows: AttendeeLedgerRow[] = paginatedAttendees.map((attendee) => {
-    const order = orderMap.get(attendee.orderId)
-    const event = eventMap.get(attendee.eventId)
+    const eventId = attendee.orderEventId
+    const event = eventId ? eventMap.get(eventId) : undefined
     const room = attendee.assignedRoomId
       ? roomMap.get(attendee.assignedRoomId)
       : null
     const hotel = room ? hotelMap.get(room.hotelId) : null
     const roomType = room ? roomTypeMap.get(room.roomTypeId) : null
 
-    const totalAmountMinor = order?.totalAmountMinor ?? 0
-    const normalizedStatus = (order?.normalizedStatus ??
+    const totalAmountMinor = attendee.orderTotalAmountMinor ?? 0
+    const normalizedStatus = (attendee.orderStatus ??
       "pending") as CanonicalOrderStatus
     const attendeeIds = attendeeIdsByOrderId.get(attendee.orderId) ?? []
     const attendeeCount = attendeeIds.length
     const attendeePosition =
       attendeePositionByOrderId.get(attendee.orderId)?.get(attendee._id) ?? 0
-    const providerOrderId = order?.providerOrderId ?? attendee.providerOrderId
+    const providerOrderId = attendee.orderProviderOrderId ?? ""
     const matchedAmountMinor =
       matchedTotalsByProviderOrderId.get(providerOrderId) ?? 0
     const orderOutstandingAmountMinor = deriveOrderOutstandingAmount(
@@ -346,13 +334,13 @@ export async function getAttendeeLedger(
 
     return {
       attendeeId: attendee._id,
-      providerAttendeeId: attendee.providerAttendeeId,
-      providerIssuedTicketId: attendee.providerIssuedTicketId,
-      providerOrderId: attendee.providerOrderId,
-      eventId: attendee.eventId,
+      providerAttendeeId: null,
+      providerIssuedTicketId: null,
+      providerOrderId,
+      eventId: eventId ?? "",
       eventSlug: event?.slug ?? "",
       eventTitle: event?.title ?? "",
-      attendeeName: attendee.name ?? null,
+      attendeeName: attendee.name,
       attendeeEmail: attendee.email ?? null,
       ticketTypeLabel: attendee.ticketTypeLabel ?? null,
       normalizedStatus,
@@ -362,17 +350,15 @@ export async function getAttendeeLedger(
         attendeeCount,
         attendeePosition
       ),
-      genderType: attendee.genderType,
-      location:
-        (attendee.customAnswers as { location?: string } | null)?.location ??
-        null,
-      remarks:
-        (attendee.customAnswers as { remarks?: string } | null)?.remarks ??
-        null,
+      genderType: attendee.gender
+        ? (attendee.gender.toUpperCase() as AttendeeLedgerRow["genderType"])
+        : null,
+      location: attendee.location ?? null,
+      remarks: null,
       allocationPriority: attendee.allocationPriority ?? "NORMAL",
       priorityReason: attendee.priorityReason,
-      ageGroup: attendee.ageGroup,
-      ticketCategory: attendee.ticketCategory,
+      ageGroup: null,
+      ticketCategory: null,
       roomStatus:
         room && hotel && roomType
           ? {
@@ -387,8 +373,8 @@ export async function getAttendeeLedger(
               hotelName: null,
               roomTypeLabel: null,
             },
-      orderedAt: order?.orderedAt
-        ? new Date(order.orderedAt).toISOString()
+      orderedAt: attendee.orderOrderedAt
+        ? new Date(attendee.orderOrderedAt).toISOString()
         : null,
     }
   })

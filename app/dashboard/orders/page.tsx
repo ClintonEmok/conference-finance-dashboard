@@ -33,8 +33,8 @@ type OrdersPayload = {
     pageSize: number
   }
   availableEvents: Array<{
-    providerEventId: string
-    name: string | null
+    eventId: string
+    title: string | null
   }>
   page: {
     number: number
@@ -267,8 +267,8 @@ export default function OrdersPage() {
             >
               <option value="">All Events</option>
               {payload?.availableEvents.map((e) => (
-                <option key={e.providerEventId} value={e.providerEventId}>
-                  {e.name?.trim() || e.providerEventId}
+                <option key={e.eventId} value={e.eventId}>
+                  {e.title?.trim() || e.eventId}
                 </option>
               ))}
             </select>

@@ -78,9 +78,11 @@ export async function GET(request: Request) {
       rows: ledger.rows,
     })
   } catch (error) {
+    console.error("Error loading attendees:", error)
     const message = error instanceof Error ? error.message : "Invalid request"
 
     if (message.startsWith("Invalid") || message.includes("must be")) {
+
       return NextResponse.json(
         {
           error: {
