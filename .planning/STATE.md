@@ -4,13 +4,13 @@ milestone: v3.0
 milestone_name: Canonical Orders Foundation
 status: roadmap_created
 stopped_at: Roadmap created for milestone v3.0
-last_updated: "2026-04-01T00:00:00.000Z"
-last_activity: 2026-04-01 - Created roadmap for phases 26-30
+last_updated: "2026-04-01T10:44:46.000Z"
+last_activity: 2026-04-01 - Completed quick task 260401-hcw (internal orders canonicalization fix)
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 80
+  completed_plans: 78
 ---
 
 # Project State
@@ -25,18 +25,18 @@ See: `.planning/PROJECT.md` (updated 2026-04-01)
 ## Current Position
 
 Phase: 26 of 30 (Canonical Runtime Contract)
-Plan: —
-Status: Ready to plan
-Last activity: 2026-04-01 — Roadmap created for milestone v3.0
+Plan: 01 (quick task 260401-hcw complete)
+Status: In progress
+Last activity: 2026-04-01 — Completed 26-01 quick runtime contract hardening
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
 - Total phases in active milestone: 5
 - Completed phases in active milestone: 0
-- Total plans completed: 0
-- Current milestone progress: 0%
+- Total plans completed: 78
+- Current milestone progress: 98%
 
 ## Accumulated Context
 
@@ -52,10 +52,12 @@ Progress: [░░░░░░░░░░] 0%
 - Internal canonical tables must become runtime truth before any provider redesign.
 - Finance/runtime truth comes before removing legacy provider dependencies.
 - Ticket Tailor redesign remains out of scope for v3.0; keep it as ingest/mapping only.
+- Payment writes must persist canonical `orders._id`; provider order ids remain lookup-only inputs.
+- Missing provider ids and totals should stay explicit as `null` across Convex, API, and dashboard contracts.
 
 ### Pending Todos
 
-- None captured yet for v3.0.
+- Continue phase-26 planned sequence after quick contract hardening.
 
 ### Blockers/Concerns
 
@@ -65,5 +67,5 @@ Progress: [░░░░░░░░░░] 0%
 ## Session Continuity
 
 Last session: 2026-04-01 00:00
-Stopped at: Roadmap created and files updated for milestone v3.0
+Stopped at: Completed quick task 260401-hcw and summary documentation
 Resume file: None
