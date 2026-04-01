@@ -1,5 +1,4 @@
-"use client"
-
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { SignupStep } from "@/components/signup/state"
 
@@ -28,33 +27,45 @@ export function SignupNavigation({
   const isLastStep = currentStepIndex === totalSteps - 1
 
   return (
-    <div className="flex gap-2 pt-4">
-      <Button
-        type="button"
-        variant="outline"
-        onClick={onBack}
-        disabled={isFirstStep || isSubmitting}
-        className="touch:min-h-12 min-h-11 flex-1 md:flex-none"
-      >
-        Back
-      </Button>
+    <div className="flex flex-col-reverse gap-3 pt-6 sm:flex-row sm:justify-end">
+      {!isFirstStep && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onBack}
+          disabled={isSubmitting}
+          className="h-11 px-6 font-bold sm:min-w-32"
+        >
+          <ChevronLeft className="mr-2 size-4" />
+          Back
+        </Button>
+      )}
+      
       {!showSubmit ? (
         <Button
           type="button"
           onClick={onNext}
           disabled={!canProceed}
-          className="touch:min-h-12 min-h-11 flex-1 md:flex-none"
+          className="h-11 px-8 font-bold sm:min-w-40"
         >
-          {isLastStep ? "Review" : "Next"}
+          {isLastStep ? "Review & Finish" : "Continue"}
+          <ChevronRight className="ml-2 size-4" />
         </Button>
       ) : (
         <Button
           type="button"
           onClick={onNext}
           disabled={!canProceed || isSubmitting}
-          className="touch:min-h-12 min-h-11 flex-1 md:flex-none"
+          className="h-11 px-8 font-bold sm:min-w-40"
         >
-          {isSubmitting ? "Submitting..." : submitLabel}
+          {isSubmitting ? (
+            <>
+              <Loader2 className="mr-2 size-4 animate-spin" />
+              Processing...
+            </>
+          ) : (
+            submitLabel
+          )}
         </Button>
       )}
     </div>

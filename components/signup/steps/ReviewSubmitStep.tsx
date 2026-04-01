@@ -344,10 +344,6 @@ export function ReviewSubmitStep({
           <p>{submitError.message}</p>
         </div>
       ) : null}
-
-      <Button type="button" onClick={onSubmit} disabled={isSubmitting}>
-        {isSubmitting ? "Submitting..." : "Submit signup"}
-      </Button>
     </div>
   )
 }
