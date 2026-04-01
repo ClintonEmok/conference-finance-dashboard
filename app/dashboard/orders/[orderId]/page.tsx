@@ -33,7 +33,7 @@ type PaymentStatus =
 type OrderAttendeePayload = {
   order: {
     id: string
-    providerOrderId: string
+    providerOrderId: string | null
     normalizedStatus: "paid" | "refunded" | "cancelled" | "pending" | null
     isArchived?: boolean
     archivedAt: string | null
@@ -244,6 +244,8 @@ export default function OrderDetailPage({ params }: PageProps) {
   }, [eventId, params])
 
   const metrics = useMemo(() => {
+    const hasKnownTotal =
+      typeof orderPayload?.order.totalAmountMinor === "number"
     const totalAmountMinor = orderPayload?.order.totalAmountMinor ?? 0
     const matchedPayments = payments.filter(
       (payment) =>
@@ -261,9 +263,9 @@ export default function OrderDetailPage({ params }: PageProps) {
     )
     const overpaidAmountMinor = Math.max(0, paidAmountMinor - totalAmountMinor)
     const coverage =
-      totalAmountMinor > 0
+      hasKnownTotal && totalAmountMinor > 0
         ? Math.min(100, Math.round((paidAmountMinor / totalAmountMinor) * 100))
-        : 0
+        : null
 
     const attendeeCount = orderPayload?.attendees.length ?? 0
     const sharedOutstandingPerAttendeeMinor =
@@ -275,6 +277,7 @@ export default function OrderDetailPage({ params }: PageProps) {
       outstandingAmountMinor,
       overpaidAmountMinor,
       coverage,
+      hasKnownTotal,
       attendeeCount,
       sharedOutstandingPerAttendeeMinor,
     }
@@ -371,7 +374,8 @@ export default function OrderDetailPage({ params }: PageProps) {
             <CardHeader>
               <CardTitle className="flex flex-wrap items-center gap-2 text-2xl">
                 <span className="font-mono text-lg">
-                  {orderPayload.order.providerOrderId}
+                  {orderPayload.order.providerOrderId ??
+                    "Missing provider order ID"}
                 </span>
                 <Badge
                   variant={statusBadgeVariant(
@@ -416,7 +420,9 @@ export default function OrderDetailPage({ params }: PageProps) {
                     Order total
                   </p>
                   <p className="mt-1.5 text-2xl font-semibold tracking-tight">
-                    {formatMoney(metrics.totalAmountMinor)}
+                    {metrics.hasKnownTotal
+                      ? formatMoney(metrics.totalAmountMinor)
+                      : "Missing amount"}
                   </p>
                 </article>
                 <article className="rounded-lg border border-border/70 bg-background p-3">
@@ -432,7 +438,9 @@ export default function OrderDetailPage({ params }: PageProps) {
                     Outstanding
                   </p>
                   <p className="mt-1.5 text-2xl font-semibold tracking-tight text-rose-600 dark:text-rose-300">
-                    {formatMoney(metrics.outstandingAmountMinor)}
+                    {metrics.hasKnownTotal
+                      ? formatMoney(metrics.outstandingAmountMinor)
+                      : "Missing amount"}
                   </p>
                 </article>
                 <article className="rounded-lg border border-border/70 bg-background p-3">
@@ -448,7 +456,7 @@ export default function OrderDetailPage({ params }: PageProps) {
                     Coverage
                   </p>
                   <p className="mt-1.5 text-2xl font-semibold tracking-tight">
-                    {metrics.coverage}%
+                    {metrics.coverage === null ? "N/A" : `${metrics.coverage}%`}
                   </p>
                 </article>
               </div>

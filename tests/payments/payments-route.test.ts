@@ -98,6 +98,49 @@ describe("/api/payments route", () => {
     })
   })
 
+  it("preserves null order facts instead of coercing to defaults", async () => {
+    vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
+    vi.mocked(listPayments).mockResolvedValue({
+      total: 1,
+      payments: [
+        {
+          _id: "payment_3",
+          source: "cash",
+          sourceId: null,
+          payerName: "Casey",
+          payerAccountNumber: null,
+          amountMinor: 500,
+          paidAt: Date.parse("2026-03-26T10:00:00.000Z"),
+          orderId: "ORD-MISSING",
+          status: "manual_assignment",
+          matchedAt: Date.parse("2026-03-26T10:05:00.000Z"),
+          matchedBy: "user_1",
+          reference: null,
+          notes: null,
+          providerPayload: null,
+        },
+      ],
+    })
+
+    vi.mocked(convexQuery).mockResolvedValue({
+      _id: "jt7providerdoc",
+      providerOrderId: null,
+      buyerName: null,
+      totalAmountMinor: null,
+    })
+
+    const response = await GET(new Request("http://localhost/api/payments"))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.payments[0].order).toEqual({
+      id: "jt7providerdoc",
+      providerOrderId: null,
+      buyerName: null,
+      totalAmountMinor: null,
+    })
+  })
+
   it("falls back to Convex order id lookup when provider lookup misses", async () => {
     vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
     vi.mocked(listPayments).mockResolvedValue({

@@ -9,8 +9,10 @@ import { getReconciliationRows } from "@/lib/domain/finance/reconciliation"
 
 const baseOrder = {
   providerOrderId: "ORD-1",
-  providerEventId: "event-1",
-  eventName: "Conference",
+  orderId: "jt7order1",
+  eventId: "event-1",
+  eventSlug: "conference",
+  eventTitle: "Conference",
   normalizedStatus: "pending",
   totalAmountMinor: 1000,
   currency: "EUR",
@@ -27,7 +29,7 @@ describe("getReconciliationRows outstanding totals", () => {
     vi.mocked(convexQuery)
       .mockResolvedValueOnce([baseOrder])
       .mockResolvedValueOnce([
-        { providerEventId: "event-1", name: "Conference" },
+        { eventId: "event-1", slug: "conference", title: "Conference" },
       ])
       .mockResolvedValueOnce([
         {
@@ -68,7 +70,7 @@ describe("getReconciliationRows outstanding totals", () => {
         },
       ])
       .mockResolvedValueOnce([
-        { providerEventId: "event-1", name: "Conference" },
+        { eventId: "event-1", slug: "conference", title: "Conference" },
       ])
       .mockResolvedValueOnce([
         {
@@ -87,5 +89,30 @@ describe("getReconciliationRows outstanding totals", () => {
     expect(result.totals.outstandingMinor).toBe(200)
     expect(result.rows).toHaveLength(1)
     expect(result.rows[0]?.outstandingMinor).toBe(200)
+  })
+
+  it("keeps missing amounts explicit and does not inflate outstanding", async () => {
+    vi.mocked(convexQuery)
+      .mockResolvedValueOnce([
+        {
+          ...baseOrder,
+          providerOrderId: null,
+          totalAmountMinor: null,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { eventId: "event-1", slug: "conference", title: "Conference" },
+      ])
+      .mockResolvedValueOnce([])
+
+    const result = await getReconciliationRows()
+
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0]).toMatchObject({
+      providerOrderId: null,
+      totalAmountMinor: null,
+      outstandingMinor: 0,
+      reasons: ["missing-amount", "pending-payment"],
+    })
   })
 })

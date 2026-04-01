@@ -43,14 +43,14 @@ type OrdersPayload = {
     totalPages: number
   }
   rows: Array<{
-    providerOrderId: string
-    providerEventId: string
-    eventName: string | null
+    providerOrderId: string | null
+    eventId: string
+    eventTitle: string | null
     normalizedStatus: CanonicalOrderStatus
     isArchived: boolean
     archivedAt: string | null
     archiveReason: string | null
-    totalAmountMinor: number
+    totalAmountMinor: number | null
     currency: string | null
     orderedAt: string | null
     buyerName: string | null
@@ -208,7 +208,10 @@ export default function OrdersPage() {
                 </p>
                 <p className="mt-0.5 text-xl font-bold">
                   {formatMoney(
-                    payload.rows.reduce((acc, r) => acc + r.totalAmountMinor, 0)
+                    payload.rows.reduce(
+                      (acc, r) => acc + (r.totalAmountMinor ?? 0),
+                      0
+                    )
                   )}
                 </p>
                 <p className="mt-0.5 text-[9px] font-medium text-muted-foreground/60 italic">
@@ -402,82 +405,98 @@ export default function OrdersPage() {
                   </td>
                 </tr>
               ) : (
-                payload?.rows.map((row) => (
-                  <tr
-                    key={row.providerOrderId}
-                    onClick={() =>
-                      router.push(
-                        `/dashboard/orders/${row.providerOrderId}?eventId=${row.providerEventId}`
-                      )
-                    }
-                    className="group cursor-pointer transition-colors hover:bg-muted/30"
-                  >
-                    <td className="px-6 py-5">
-                      <div className="font-mono text-[10px] font-bold text-primary/70">
-                        {row.providerOrderId}
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {row.orderedAt
-                          ? new Date(row.orderedAt).toLocaleString("en-GB", {
-                              day: "2-digit",
-                              month: "short",
-                              year: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : "-"}
-                      </div>
-                    </td>
-                    <td className="px-6 py-5">
-                      <div className="font-bold text-foreground">
-                        {row.buyerName || "Anonymous"}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground/60">
-                        {row.buyerEmail}
-                      </div>
-                    </td>
-                    <td className="px-6 py-5">
-                      <div className="text-xs font-semibold">
-                        {row.eventName ?? "Unknown event"}
-                      </div>
-                    </td>
-                    <td className="px-6 py-5 text-right font-bold tabular-nums">
-                      {formatMoney(row.totalAmountMinor)}
-                    </td>
-                    <td className="px-6 py-5 text-center">
-                      <div className="flex flex-col items-center gap-1.5">
-                        <Badge
-                          variant={
-                            row.normalizedStatus === "paid"
-                              ? "secondary"
-                              : row.normalizedStatus === "cancelled"
-                                ? "destructive"
-                                : "outline"
+                payload?.rows.map((row) =>
+                  (() => {
+                    const displayOrderId = row.providerOrderId?.trim() || "—"
+                    const displayAmount =
+                      typeof row.totalAmountMinor === "number"
+                        ? formatMoney(row.totalAmountMinor)
+                        : "Missing amount"
+
+                    return (
+                      <tr
+                        key={`${row.providerOrderId ?? "missing"}-${row.eventId}-${row.orderedAt ?? "na"}`}
+                        onClick={() => {
+                          if (!row.providerOrderId) {
+                            return
                           }
-                          className={cn(
-                            "h-6 rounded-lg px-2 text-[10px] font-bold tracking-wider uppercase",
-                            row.normalizedStatus === "paid" &&
-                              "border-none bg-emerald-500/10 text-emerald-600",
-                            row.normalizedStatus === "pending" &&
-                              "border-none bg-orange-500/10 text-orange-600"
-                          )}
-                        >
-                          {row.normalizedStatus}
-                        </Badge>
-                        {row.isArchived && (
-                          <div className="flex items-center gap-1 text-[9px] font-bold text-muted-foreground/50 uppercase">
-                            <Archive className="size-2.5" /> Archived
+                          router.push(
+                            `/dashboard/orders/${row.providerOrderId}?eventId=${row.eventId}`
+                          )
+                        }}
+                        className="group cursor-pointer transition-colors hover:bg-muted/30"
+                      >
+                        <td className="px-6 py-5">
+                          <div className="font-mono text-[10px] font-bold text-primary/70">
+                            {displayOrderId}
                           </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-5">
-                      <div className="flex size-8 items-center justify-center rounded-full bg-muted/40 text-muted-foreground/40 transition-all group-hover:bg-primary/10 group-hover:text-primary">
-                        <ChevronRight className="size-4" />
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {row.orderedAt
+                              ? new Date(row.orderedAt).toLocaleString(
+                                  "en-GB",
+                                  {
+                                    day: "2-digit",
+                                    month: "short",
+                                    year: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  }
+                                )
+                              : "-"}
+                          </div>
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="font-bold text-foreground">
+                            {row.buyerName || "Anonymous"}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground/60">
+                            {row.buyerEmail}
+                          </div>
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="text-xs font-semibold">
+                            {row.eventTitle ?? "Unknown event"}
+                          </div>
+                        </td>
+                        <td className="px-6 py-5 text-right font-bold tabular-nums">
+                          {displayAmount}
+                        </td>
+                        <td className="px-6 py-5 text-center">
+                          <div className="flex flex-col items-center gap-1.5">
+                            <Badge
+                              variant={
+                                row.normalizedStatus === "paid"
+                                  ? "secondary"
+                                  : row.normalizedStatus === "cancelled"
+                                    ? "destructive"
+                                    : "outline"
+                              }
+                              className={cn(
+                                "h-6 rounded-lg px-2 text-[10px] font-bold tracking-wider uppercase",
+                                row.normalizedStatus === "paid" &&
+                                  "border-none bg-emerald-500/10 text-emerald-600",
+                                row.normalizedStatus === "pending" &&
+                                  "border-none bg-orange-500/10 text-orange-600"
+                              )}
+                            >
+                              {row.normalizedStatus}
+                            </Badge>
+                            {row.isArchived && (
+                              <div className="flex items-center gap-1 text-[9px] font-bold text-muted-foreground/50 uppercase">
+                                <Archive className="size-2.5" /> Archived
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="flex size-8 items-center justify-center rounded-full bg-muted/40 text-muted-foreground/40 transition-all group-hover:bg-primary/10 group-hover:text-primary">
+                            <ChevronRight className="size-4" />
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })()
+                )
               )}
             </tbody>
           </table>

@@ -30,8 +30,8 @@ type ReconciliationPayload = {
     status: CanonicalOrderStatus | null
   }
   availableEvents: Array<{
-    providerEventId: string
-    name: string | null
+    eventId: string
+    title: string | null
   }>
   totals: {
     rows: number
@@ -39,11 +39,11 @@ type ReconciliationPayload = {
   }
   rows: Array<{
     orderId: string | null
-    providerOrderId: string
-    providerEventId: string
+    providerOrderId: string | null
+    eventId: string
     eventTitle: string | null
     normalizedStatus: CanonicalOrderStatus
-    totalAmountMinor: number
+    totalAmountMinor: number | null
     currency: string | null
     orderedAt: string | null
     refundedAt: string | null
@@ -285,13 +285,15 @@ export default function ReconciliationPage() {
               </div>
             ) : (
               rows.map((row) => {
-                const displayId = row.orderId ?? row.providerOrderId
+                const displayProviderOrderId = row.providerOrderId ?? "—"
+                const displayId = row.orderId ?? displayProviderOrderId
                 const followUpHref = buildReconciliationFollowUpHref({
                   attendeeId:
-                    resolvedAttendeeIdsByOrderId[row.providerOrderId] ?? null,
+                    resolvedAttendeeIdsByOrderId[row.providerOrderId ?? ""] ??
+                    null,
                   orderId: row.orderId ?? undefined,
-                  providerOrderId: row.providerOrderId,
-                  providerEventId: row.providerEventId,
+                  providerOrderId: row.providerOrderId ?? undefined,
+                  providerEventId: row.eventId,
                 })
 
                 return (
@@ -311,7 +313,7 @@ export default function ReconciliationPage() {
                                 {row.orderId}
                               </>
                             ) : (
-                              row.providerOrderId
+                              displayProviderOrderId
                             )}
                           </p>
                           <h4 className="mt-1 truncate font-bold text-foreground">
@@ -343,7 +345,9 @@ export default function ReconciliationPage() {
                             Amount
                           </p>
                           <p className="mt-0.5 font-bold text-foreground">
-                            {formatMoney(row.totalAmountMinor)}
+                            {typeof row.totalAmountMinor === "number"
+                              ? formatMoney(row.totalAmountMinor)
+                              : "Missing amount"}
                           </p>
                         </div>
                         <div className="text-right">
@@ -373,8 +377,8 @@ export default function ReconciliationPage() {
 
                       <div className="rounded-2xl border border-border/30 bg-background/20 p-1">
                         <OrderAttendeeBreakdown
-                          orderId={row.orderId ?? row.providerOrderId}
-                          eventId={row.providerEventId}
+                          orderId={row.orderId ?? row.providerOrderId ?? ""}
+                          eventId={row.eventId}
                           onResolvedAttendeeId={handleResolvedAttendeeId}
                         />
                       </div>
