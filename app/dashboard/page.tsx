@@ -74,20 +74,20 @@ type AttendeesSnippetPayload = {
     attendeeEmail: string | null
     genderType: GenderType | null
     providerOrderId: string
-    eventName: string | null
+    eventTitle: string | null
     roomStatus:
-      | {
-          status: "assigned"
-          roomLabel: string
-          hotelName: string
-          roomTypeLabel: string
-        }
-      | {
-          status: "unassigned"
-          roomLabel: null
-          hotelName: null
-          roomTypeLabel: null
-        }
+    | {
+      status: "assigned"
+      roomLabel: string
+      hotelName: string
+      roomTypeLabel: string
+    }
+    | {
+      status: "unassigned"
+      roomLabel: null
+      hotelName: null
+      roomTypeLabel: null
+    }
   }>
 }
 
@@ -232,7 +232,7 @@ export default function DashboardPage() {
           setAttendeesPayload(null)
           setErrorMessage(
             body?.error?.message ??
-              `Failed to load revenue metrics (${response.status}).`
+            `Failed to load revenue metrics (${response.status}).`
           )
           return
         }
@@ -290,46 +290,46 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {isLoading
           ? Array.from({ length: 4 }).map((_, i) => (
-              <article
-                key={i}
-                className="relative flex flex-col justify-center overflow-hidden rounded-xl border border-[rgba(113,84,255,0.4)] bg-[linear-gradient(145deg,rgba(113,84,255,0.92),rgba(83,56,171,0.88))] p-5 shadow-[0_12px_32px_rgba(78,52,166,0.14)]"
-              >
-                <Skeleton className="h-3 w-16 bg-white/20" />
-                <Skeleton className="mt-3 h-8 w-24 bg-white/30" />
-              </article>
-            ))
+            <article
+              key={i}
+              className="relative flex flex-col justify-center overflow-hidden rounded-xl border border-[rgba(113,84,255,0.4)] bg-[linear-gradient(145deg,rgba(113,84,255,0.92),rgba(83,56,171,0.88))] p-5 shadow-[0_12px_32px_rgba(78,52,166,0.14)]"
+            >
+              <Skeleton className="h-3 w-16 bg-white/20" />
+              <Skeleton className="mt-3 h-8 w-24 bg-white/30" />
+            </article>
+          ))
           : [
-              {
-                label: "Gross",
-                value: payload ? formatMoney(payload.totals.grossMinor) : "--",
-              },
-              {
-                label: "Paid",
-                value: payload ? formatMoney(payload.totals.paidMinor) : "--",
-              },
-              {
-                label: "Refunded",
-                value: payload
-                  ? formatMoney(payload.totals.refundedMinor)
-                  : "--",
-              },
-              {
-                label: "Net",
-                value: payload ? formatMoney(payload.totals.netMinor) : "--",
-              },
-            ].map((metric) => (
-              <article
-                key={metric.label}
-                className="relative flex flex-col justify-center overflow-hidden rounded-xl border border-[rgba(113,84,255,0.4)] bg-[linear-gradient(145deg,rgba(113,84,255,0.92),rgba(83,56,171,0.88))] p-5 shadow-[0_12px_32px_rgba(78,52,166,0.14)] transition-transform hover:scale-[1.02]"
-              >
-                <p className="relative z-10 text-[11px] font-semibold tracking-[0.18em] text-white/70 uppercase">
-                  {metric.label}
-                </p>
-                <p className="relative z-10 mt-2 text-2xl font-bold text-white">
-                  {metric.value}
-                </p>
-              </article>
-            ))}
+            {
+              label: "Gross",
+              value: payload ? formatMoney(payload.totals.grossMinor) : "--",
+            },
+            {
+              label: "Paid",
+              value: payload ? formatMoney(payload.totals.paidMinor) : "--",
+            },
+            {
+              label: "Refunded",
+              value: payload
+                ? formatMoney(payload.totals.refundedMinor)
+                : "--",
+            },
+            {
+              label: "Net",
+              value: payload ? formatMoney(payload.totals.netMinor) : "--",
+            },
+          ].map((metric) => (
+            <article
+              key={metric.label}
+              className="relative flex flex-col justify-center overflow-hidden rounded-xl border border-[rgba(113,84,255,0.4)] bg-[linear-gradient(145deg,rgba(113,84,255,0.92),rgba(83,56,171,0.88))] p-5 shadow-[0_12px_32px_rgba(78,52,166,0.14)] transition-transform hover:scale-[1.02]"
+            >
+              <p className="relative z-10 text-[11px] font-semibold tracking-[0.18em] text-white/70 uppercase">
+                {metric.label}
+              </p>
+              <p className="relative z-10 mt-2 text-2xl font-bold text-white">
+                {metric.value}
+              </p>
+            </article>
+          ))}
       </div>
 
       {errorMessage && (
@@ -526,7 +526,7 @@ export default function DashboardPage() {
                             </td>
                             <td className="px-4 py-3 text-muted-foreground">
                               <div className="max-w-[100px] truncate">
-                                {row.eventName ?? "-"}
+                                {row.eventTitle ?? "-"}
                               </div>
                             </td>
                             <td className="px-4 py-3 text-muted-foreground">
@@ -561,70 +561,70 @@ export default function DashboardPage() {
                 <div className="mt-3 space-y-4 rounded-xl border border-white/60 bg-white/40 p-5 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5">
                   {isLoading || !payload
                     ? Array.from({ length: 4 }).map((_, i) => (
-                        <div key={i}>
-                          <div className="mb-2 flex items-center justify-between">
-                            <Skeleton className="h-2.5 w-12" />
-                            <Skeleton className="h-2.5 w-8" />
-                          </div>
-                          <Skeleton className="h-1.5 w-full rounded-full" />
+                      <div key={i}>
+                        <div className="mb-2 flex items-center justify-between">
+                          <Skeleton className="h-2.5 w-12" />
+                          <Skeleton className="h-2.5 w-8" />
                         </div>
-                      ))
+                        <Skeleton className="h-1.5 w-full rounded-full" />
+                      </div>
+                    ))
                     : [
-                        [
-                          "Paid",
-                          payload.statusCounts.paid,
-                          "bg-[linear-gradient(135deg,#7154ff,#5238aa)] text-white",
-                        ],
-                        [
-                          "Pending",
-                          payload.statusCounts.pending,
-                          "bg-amber-400 text-amber-950",
-                        ],
-                        [
-                          "Refunded",
-                          payload.statusCounts.refunded,
-                          "bg-slate-300 text-slate-800 dark:bg-slate-600 dark:text-slate-100",
-                        ],
-                        [
-                          "Cancelled",
-                          payload.statusCounts.cancelled,
-                          "bg-destructive/60 text-destructive",
-                        ],
-                      ].map(([label, value, colorClass]) => {
-                        const statusCounts = payload?.statusCounts
-                        const total =
-                          statusCounts.paid +
-                          statusCounts.pending +
-                          statusCounts.refunded +
-                          statusCounts.cancelled
-                        const numericValue = Number(value)
-                        const width =
-                          total === 0 || numericValue === 0
-                            ? 0
-                            : Math.max(
-                                6,
-                                Math.round((numericValue / total) * 100)
-                              )
+                      [
+                        "Paid",
+                        payload.statusCounts.paid,
+                        "bg-[linear-gradient(135deg,#7154ff,#5238aa)] text-white",
+                      ],
+                      [
+                        "Pending",
+                        payload.statusCounts.pending,
+                        "bg-amber-400 text-amber-950",
+                      ],
+                      [
+                        "Refunded",
+                        payload.statusCounts.refunded,
+                        "bg-slate-300 text-slate-800 dark:bg-slate-600 dark:text-slate-100",
+                      ],
+                      [
+                        "Cancelled",
+                        payload.statusCounts.cancelled,
+                        "bg-destructive/60 text-destructive",
+                      ],
+                    ].map(([label, value, colorClass]) => {
+                      const statusCounts = payload?.statusCounts
+                      const total =
+                        statusCounts.paid +
+                        statusCounts.pending +
+                        statusCounts.refunded +
+                        statusCounts.cancelled
+                      const numericValue = Number(value)
+                      const width =
+                        total === 0 || numericValue === 0
+                          ? 0
+                          : Math.max(
+                            6,
+                            Math.round((numericValue / total) * 100)
+                          )
 
-                        return (
-                          <div key={String(label)}>
-                            <div className="mb-1.5 flex items-center justify-between text-xs">
-                              <span className="font-semibold text-foreground">
-                                {label}
-                              </span>
-                              <span className="text-muted-foreground tabular-nums">
-                                {value}
-                              </span>
-                            </div>
-                            <div className="h-1.5 overflow-hidden rounded-full bg-black/5 dark:bg-white/5">
-                              <div
-                                className={`h-full rounded-full ${colorClass}`}
-                                style={{ width: `${width}%` }}
-                              />
-                            </div>
+                      return (
+                        <div key={String(label)}>
+                          <div className="mb-1.5 flex items-center justify-between text-xs">
+                            <span className="font-semibold text-foreground">
+                              {label}
+                            </span>
+                            <span className="text-muted-foreground tabular-nums">
+                              {value}
+                            </span>
                           </div>
-                        )
-                      })}
+                          <div className="h-1.5 overflow-hidden rounded-full bg-black/5 dark:bg-white/5">
+                            <div
+                              className={`h-full rounded-full ${colorClass}`}
+                              style={{ width: `${width}%` }}
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
                 </div>
               </div>
 
