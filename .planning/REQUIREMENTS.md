@@ -1,78 +1,75 @@
 # Requirements: Conference Finance Dashboard
 
-**Defined:** 2026-03-29
-**Core Value (v2.0 focus):** Give public attendees a guided, low-friction signup flow that captures accommodation-ready data so families can self-assign rooms and operators can run room allocation with fewer manual fixes.
+**Defined:** 2026-04-01
+**Core Value:** Give church finance admins one reliable place to track conference revenue, reconcile ticket sales with payment collections, and act on outstanding balances quickly.
 
-## v2.0 Requirements (Replanned)
+## v3.0 Requirements
 
-### User-Facing Signup Journey
+### Runtime Truth
 
-- [ ] **USF-01**: Public attendees can complete a multi-step signup flow in this order: (1) ticket selection, (2) accommodation assignment when enabled for the event, (3) attendee details + notes, (4) review + submit.
-- [ ] **USF-02**: Ticket choices shown in step 1 are sourced from admin-configured event ticket types; unavailable or sold-out types cannot be selected.
-- [ ] **USF-03**: The accommodation step appears only when the selected event has accommodation enabled and available room inventory.
-- [ ] **USF-04**: The primary booker can assign names across selected room beds for their group/family in a single submission flow (booker-managed assignment).
-- [ ] **USF-05**: Any unassigned bed is clearly labeled before submit as an open spot that may be filled by another attendee ("random fill" warning).
-- [ ] **USF-06**: Public submission path applies abuse controls (rate limiting + honeypot and/or idempotency token) to reduce spam/duplicate accidental submissions.
+- [ ] **RTM-01**: Finance and operations reads return order, attendee, and balance data from canonical internal tables without requiring runtime `ticketTailor*` queries.
+- [ ] **RTM-02**: New and updated order-payment joins use one canonical internal order identifier contract.
+- [ ] **RTM-03**: Ticket Tailor data is accessed through explicit ingest and mapping boundaries instead of acting as runtime finance truth.
 
-### Attendee Data for Rooming
+### Canonical Money Model
 
-- [ ] **RMD-01**: Each attendee record in the signup flow captures required rooming details: gender, location/city, dietary restrictions, roommate request, and phone number.
-- [ ] **RMD-02**: Roommate request supports both positive preference (want to room with) and soft exclusion notes (prefer not to room with) as free-text guidance.
-- [ ] **RMD-03**: Validation prevents submission when required attendee rooming fields are missing.
+- [ ] **FIN-01**: Each order has one deterministic canonical total in minor units that stays consistent across ledger, detail, reconciliation, and exports.
+- [ ] **FIN-02**: Each attendee has a canonical payable amount derived from internal order facts instead of equal-split heuristics.
+- [ ] **FIN-03**: Payments can be explicitly allocated to orders and, where needed, attendees so partial, split, and overpayments are auditable.
+- [ ] **FIN-04**: Reconciliation surfaces show reason codes derived from canonical totals, payables, and payment allocations.
 
-### Contracts & Domain Model
+### Migration and Cutover
 
-- [ ] **DOM-01**: Canonical event model remains source-aware (`integration` vs `internal`) while exposing one shared public contract for event, ticket types, accommodation inventory, and room constraints.
-- [ ] **DOM-02**: Signup write path stores one submission envelope (booker + attendees + ticket selections + room assignments + notes) atomically so data cannot partially persist.
-- [ ] **DOM-03**: Capacity and duplicate-protection checks run in the same write transaction as submission insert.
+- [ ] **MIG-01**: Canonical finance data can be widened, backfilled, and dual-written safely against existing production-shaped records.
+- [ ] **MIG-02**: Canonical outputs can be compared against legacy outputs with parity checks before final cutover.
+- [ ] **MIG-03**: Runtime provider fallbacks and legacy compatibility paths can be removed after canonical parity is validated.
 
-### Operator Handoff & Compatibility
+## Future Requirements
 
-- [ ] **OPS-01**: Operator accommodation views can consume submitted room assignments and notes without requiring data reshaping.
-- [ ] **OPS-02**: Existing Ticket Tailor and Tikkie flows remain backward compatible for integration-backed events while internal signup paths adopt the same canonical event/ticket contracts.
+### Reporting and Explainability
 
-## Future Requirements (Post-v2.0)
+- **RPT-01**: Operator can drill from order total to attendee payable to payment allocation with explainable amount provenance.
+- **RPT-02**: Operator can capture notes or provenance for manual allocations and finance overrides.
+- **RPT-03**: Operator can view canonical reporting slices by event, payable state, allocation state, and balance state.
 
-- Public attendee self-service edits after submission (manage own booking portal)
-- Rule-based roommate matching engine (beyond free-text requests)
-- Waitlist flow when accommodation or ticket capacity is full
-- Rich household account system across multiple events
+### Provider Boundary Redesign
 
-## Out of Scope (v2.0)
+- **INT-01**: Ticket Tailor raw ingest and mapping tables are redesigned after canonical internal runtime cutover is complete.
+- **INT-02**: Provider-specific visibility, refund, and archive semantics are modeled without leaking into core runtime reads.
 
-| Feature                                  | Reason                                                     |
-| ---------------------------------------- | ---------------------------------------------------------- |
-| Full attendee login/account area         | Focus is one guided submission flow, not account lifecycle |
-| Automated perfect room allocation engine | v2.0 captures data for operators; optimization can follow  |
-| Multi-tenant church/org support          | Project remains single-org scoped                          |
-| Discount/coupon commerce features        | Not needed for current church conference operations        |
+## Out of Scope
+
+| Feature                                            | Reason                                                                                                        |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Full Ticket Tailor table redesign in v3.0          | Internal runtime truth must be stabilized first; provider redesign is a follow-up milestone                   |
+| New public signup UX features                      | This milestone is focused on finance correctness and canonical internal data, not new attendee-facing breadth |
+| Advanced discount/coupon/refund commerce expansion | Expands the money model before core totals, payables, and allocations are trustworthy                         |
+| Multi-tenant church/org support                    | Project remains single-org scoped                                                                             |
 
 ## Traceability
 
+Which phases cover which requirements. Updated during roadmap creation.
+
 | Requirement | Phase | Status  |
 | ----------- | ----- | ------- |
-| USF-01      | 18    | Pending |
-| USF-02      | 18    | Pending |
-| USF-03      | 18    | Pending |
-| USF-04      | 19    | Pending |
-| USF-05      | 19    | Pending |
-| USF-06      | 18    | Pending |
-| RMD-01      | 19    | Pending |
-| RMD-02      | 19    | Pending |
-| RMD-03      | 19    | Pending |
-| DOM-01      | 18    | Pending |
-| DOM-02      | 18    | Pending |
-| DOM-03      | 18    | Pending |
-| OPS-01      | 20    | Pending |
-| OPS-02      | 20    | Pending |
+| RTM-01      | —     | Pending |
+| RTM-02      | —     | Pending |
+| RTM-03      | —     | Pending |
+| FIN-01      | —     | Pending |
+| FIN-02      | —     | Pending |
+| FIN-03      | —     | Pending |
+| FIN-04      | —     | Pending |
+| MIG-01      | —     | Pending |
+| MIG-02      | —     | Pending |
+| MIG-03      | —     | Pending |
 
 **Coverage:**
 
-- v2.0 requirements: 14 total
-- Mapped to phases: 14
-- Unmapped: 0
+- v3.0 requirements: 10 total
+- Mapped to phases: 0
+- Unmapped: 10 ⚠️
 
 ---
 
-_Requirements defined: 2026-03-29_
-_Last updated: 2026-03-29 after milestone replan focused on non-admin signup and accommodation assignment_
+_Requirements defined: 2026-04-01_
+_Last updated: 2026-04-01 after defining milestone v3.0 canonical orders foundation scope_
