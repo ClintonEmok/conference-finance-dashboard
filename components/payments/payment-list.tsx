@@ -40,7 +40,6 @@ type Payment = {
   createdAt: string
   order: {
     id: string
-    providerOrderId: string
     buyerName: string
     totalAmountMinor: number
   } | null
@@ -224,7 +223,7 @@ export function PaymentList({
                 Status
               </TableHead>
               <TableHead className="h-10 text-[10px] font-black tracking-[0.2em] text-muted-foreground/40 uppercase">
-                Matching ID
+                Order ID
               </TableHead>
               <TableHead className="h-10 px-6 text-right text-[10px] font-black tracking-[0.2em] text-muted-foreground/40 uppercase">
                 Action
@@ -315,7 +314,7 @@ export function PaymentList({
                         <div className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
                         <div>
                           <p className="text-[10px] leading-none font-black tracking-widest text-foreground uppercase">
-                            {payment.order.providerOrderId}
+                            {payment.order.id}
                           </p>
                           <p className="mt-1 max-w-[100px] truncate text-[10px] leading-none text-muted-foreground/60">
                             {payment.order.buyerName}

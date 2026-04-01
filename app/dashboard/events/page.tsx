@@ -7,7 +7,6 @@ import {
   Calendar,
   ChevronRight,
   Plus,
-  Filter,
   Search,
   Copy,
   Check,
@@ -58,30 +57,6 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   )
 }
 
-type EventSource = "internal" | "ticketTailor"
-
-function getSourceBadge(source: EventSource) {
-  switch (source) {
-    case "internal":
-      return (
-        <Badge variant="secondary" className="h-5 text-[10px]">
-          Internal
-        </Badge>
-      )
-    case "ticketTailor":
-      return (
-        <Badge
-          variant="outline"
-          className="h-5 border-purple-500/50 bg-purple-50 text-[10px] text-purple-600"
-        >
-          TT
-        </Badge>
-      )
-    default:
-      return null
-  }
-}
-
 function getStatusBadge(isPublished: boolean) {
   if (isPublished) {
     return (
@@ -104,7 +79,6 @@ export default function EventsPage() {
   const router = useRouter()
   const events = useEvents()
 
-  const [sourceFilter, setSourceFilter] = useState<"all" | EventSource>("all")
   const [statusFilter, setStatusFilter] = useState<
     "all" | "published" | "draft"
   >("all")
@@ -114,14 +88,8 @@ export default function EventsPage() {
     if (!events) return []
 
     return events
+      .filter((event) => event.primarySourceKind === "internal")
       .filter((event) => {
-        // Source filter
-        if (sourceFilter !== "all") {
-          const source =
-            event.primarySourceKind === "internal" ? "internal" : "ticketTailor"
-          if (source !== sourceFilter) return false
-        }
-
         // Status filter
         if (statusFilter !== "all") {
           if (statusFilter === "published" && !event.isPublished) return false
@@ -142,7 +110,7 @@ export default function EventsPage() {
         // Sort by startsAt ascending (next event first)
         return (a.startsAt ?? 0) - (b.startsAt ?? 0)
       })
-  }, [events, sourceFilter, statusFilter, searchQuery])
+  }, [events, statusFilter, searchQuery])
 
   const isLoading = events === undefined
 
@@ -179,24 +147,9 @@ export default function EventsPage() {
       {/* Filters */}
       <article className="rounded-xl border border-border/50 bg-card/40 p-6 backdrop-blur-xl">
         <div className="flex flex-wrap items-end gap-4">
-          <div className="min-w-[200px] flex-1 space-y-1.5">
-            <label className="ml-1 flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-              <Filter className="size-3" /> Source
-            </label>
-            <select
-              value={sourceFilter}
-              onChange={(e) => setSourceFilter(e.target.value as any)}
-              className="h-11 w-full rounded-lg border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
-            >
-              <option value="all">All Sources</option>
-              <option value="internal">Internal</option>
-              <option value="ticketTailor">TicketTailor</option>
-            </select>
-          </div>
-
           <div className="min-w-[150px] flex-1 space-y-1.5">
             <label className="ml-1 flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-              <Filter className="size-3" /> Status
+              Status
             </label>
             <select
               value={statusFilter}

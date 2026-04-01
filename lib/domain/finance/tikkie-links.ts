@@ -39,7 +39,8 @@ export type TikkiePaymentLinkView = TikkiePaymentLinkDto & {
 }
 
 export type TikkiePaymentLinksByOrderSummary = {
-  providerOrderId: string
+  providerOrderId: string | null
+  orderId: string | null
   count: number
   links: TikkiePaymentLinkView[]
   latestLink: TikkiePaymentLinkView | null
@@ -63,7 +64,8 @@ export type CreateTikkiePaymentLinkResult = {
 }
 
 export type ListTikkiePaymentLinksByOrderInput = {
-  providerOrderId: string
+  providerOrderId?: string | null
+  orderId?: string | null
 }
 
 export type RefreshTikkiePaymentLinkStatusInput = {
@@ -464,20 +466,40 @@ export async function createTikkiePaymentLink(
 export async function listTikkiePaymentLinksByOrder(
   input: ListTikkiePaymentLinksByOrderInput
 ): Promise<TikkiePaymentLinksByOrderSummary> {
-  const providerOrderId = normalizeProviderIdentifier(
-    input.providerOrderId,
-    "providerOrderId"
-  )
+  const providerOrderId =
+    typeof input.providerOrderId === "string" && input.providerOrderId.trim()
+      ? normalizeProviderIdentifier(input.providerOrderId, "providerOrderId")
+      : null
+  const orderId =
+    typeof input.orderId === "string" && input.orderId.trim()
+      ? input.orderId.trim()
+      : null
 
-  const orders = (await convexQuery(api.orders.getOrderByProviderId, {
-    providerOrderId,
-  })) as { _id: string }[]
+  let resolvedOrderId = orderId
+  let resolvedProviderOrderId = providerOrderId
 
-  const orderId = orders[0]?._id
+  if (!resolvedOrderId && resolvedProviderOrderId) {
+    const orders = (await convexQuery(api.orders.getOrderByProviderId, {
+      providerOrderId: resolvedProviderOrderId,
+    })) as { _id: string }[]
 
-  const links = orderId
+    resolvedOrderId = orders[0]?._id ?? null
+  }
+
+  if (!resolvedProviderOrderId && resolvedOrderId) {
+    const order = (await convexQuery(api.orders.getOrderById, {
+      orderId: resolvedOrderId,
+    })) as { providerOrderId?: string | null } | null
+
+    resolvedProviderOrderId =
+      order && typeof order.providerOrderId === "string"
+        ? normalizeProviderIdentifier(order.providerOrderId, "providerOrderId")
+        : null
+  }
+
+  const links = resolvedOrderId
     ? ((await convexQuery(api.tikkie.getPaymentLinks, {
-        orderId,
+        orderId: resolvedOrderId,
       })) as DbTikkiePaymentLink[])
     : []
 
@@ -490,7 +512,8 @@ export async function listTikkiePaymentLinksByOrder(
   const latestLink = mappedLinks[0] ?? null
 
   return {
-    providerOrderId,
+    providerOrderId: resolvedProviderOrderId,
+    orderId: resolvedOrderId,
     count: mappedLinks.length,
     links: mappedLinks,
     latestLink,

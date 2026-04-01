@@ -36,7 +36,6 @@ type RoomDetailPayload = {
       attendeeId: string
       attendeeName: string | null
       attendeeEmail: string | null
-      providerOrderId: string
       providerEventId: string
       eventName: string | null
       ticketTypeLabel: string | null
@@ -338,10 +337,10 @@ export default function RoomDetailPage() {
                         {occupant.attendeeName ?? "Unnamed attendee"}
                       </p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {occupant.attendeeEmail ?? occupant.providerOrderId}
+                        {occupant.attendeeEmail ?? occupant.attendeeId}
                       </p>
                       <p className="mt-2 text-sm text-muted-foreground">
-                        {occupant.eventName ?? occupant.providerEventId}
+                        {occupant.eventName ?? "Unknown event"}
                         {occupant.ticketTypeLabel
                           ? ` · ${occupant.ticketTypeLabel}`
                           : ""}
@@ -351,7 +350,7 @@ export default function RoomDetailPage() {
                     <div className="flex flex-wrap gap-2">
                       <Button asChild variant="outline" className="rounded-xl">
                         <Link
-                          href={`/dashboard/attendees/${occupant.attendeeId}?search=${encodeURIComponent(occupant.attendeeName ?? occupant.providerOrderId)}&eventId=${encodeURIComponent(occupant.providerEventId)}&source=room-detail`}
+                          href={`/dashboard/attendees/${occupant.attendeeId}`}
                         >
                           Open attendee detail
                           <ArrowRight className="ml-2 size-4" />

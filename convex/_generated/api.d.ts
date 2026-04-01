@@ -334,7 +334,7 @@ export declare const api: {
       {
         allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
         assignedRoomId?: string;
-        attendeeId: Id<"ticketTailorAttendees">;
+        attendeeId: string;
         email?: string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
         name?: string;
@@ -690,6 +690,7 @@ export declare const api: {
         to?: number;
       },
       Array<{
+        amountDueMinor: number | null;
         archiveReason: string | null;
         archivedAt: string | null;
         buyerEmail: string | null;
@@ -702,9 +703,9 @@ export declare const api: {
         normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
         orderId?: string;
         orderedAt: string | null;
-        providerOrderId: string;
+        providerOrderId: string | null;
         refundedAt: string | null;
-        totalAmountMinor: number;
+        totalAmountMinor: number | null;
       }>
     >;
     getOrdersWithFilters: FunctionReference<
@@ -720,6 +721,7 @@ export declare const api: {
       },
       {
         orders: Array<{
+          amountDueMinor: number | null;
           archiveReason: string | null;
           archivedAt: string | null;
           buyerEmail: string | null;
@@ -732,9 +734,9 @@ export declare const api: {
           normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
           orderId?: string;
           orderedAt: string | null;
-          providerOrderId: string;
+          providerOrderId: string | null;
           refundedAt: string | null;
-          totalAmountMinor: number;
+          totalAmountMinor: number | null;
         }>;
         totalPages: number;
         totalRows: number;
@@ -746,19 +748,21 @@ export declare const api: {
       { orderId: Id<"orders"> },
       {
         attendees: Array<{
+          amountDueMinor: number;
           id: Id<"orderAttendees">;
           name: string;
           normalizedStatus: string;
           ticketTypeLabel: string;
         }>;
         order: {
+          amountDueMinor: number | null;
           archiveReason: string | null;
           archivedAt: string | null;
           id: Id<"orders">;
           isArchived?: boolean;
           normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
           orderedAt: string | null;
-          providerOrderId: string;
+          providerOrderId: string | null;
           totalAmountMinor?: number;
         };
       } | null
@@ -775,9 +779,9 @@ export declare const api: {
       { eventId?: Id<"events"> | string; limit?: number; search: string },
       Array<{
         buyerName: string | null;
-        id: Id<"orders"> | Id<"ticketTailorOrders">;
-        providerOrderId: string;
-        totalAmountMinor: number;
+        id: Id<"orders">;
+        providerOrderId: string | null;
+        totalAmountMinor: number | null;
       }>
     >;
     updateOrderStatus: FunctionReference<
@@ -2084,6 +2088,12 @@ export declare const internal: {
           seenProviderOrderIds: Array<string>;
         },
         { archived: number; scanned: number }
+      >;
+      internalBackfillMissingOrderTotals: FunctionReference<
+        "mutation",
+        "internal",
+        { limit?: number },
+        { patched: number; scanned: number; unchanged: number }
       >;
       internalUpsertTicketTailorOrder: FunctionReference<
         "mutation",

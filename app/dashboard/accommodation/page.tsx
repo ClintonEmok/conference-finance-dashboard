@@ -105,7 +105,6 @@ type AccommodationWorkspacePayload = {
       attendeeId: string
       attendeeName: string | null
       attendeeEmail: string | null
-      providerOrderId: string
       providerEventId: string
       eventName: string | null
       ticketTypeLabel: string | null
@@ -123,7 +122,6 @@ type AccommodationWorkspacePayload = {
     attendeeId: string
     attendeeName: string | null
     attendeeEmail: string | null
-    providerOrderId: string
     providerEventId: string
     eventName: string | null
     ticketTypeLabel: string | null
@@ -1591,11 +1589,7 @@ export default function AccommodationPage() {
                         </div>
                         <div className="flex shrink-0 items-center gap-1.5">
                           <Link
-                            href={`/dashboard/attendees/${attendee.attendeeId}?search=${encodeURIComponent(
-                              appliedSearch ||
-                                attendee.attendeeName ||
-                                attendee.providerOrderId
-                            )}&eventId=${encodeURIComponent(appliedEventId || attendee.providerEventId)}`}
+                            href={`/dashboard/attendees/${attendee.attendeeId}`}
                             onClick={(e) => e.stopPropagation()}
                             className="p-1 text-muted-foreground transition-colors hover:text-primary"
                           >

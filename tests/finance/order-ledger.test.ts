@@ -103,6 +103,7 @@ describe("order-ledger domain", () => {
             isArchived: false,
             archivedAt: null,
             archiveReason: null,
+            amountDueMinor: 5000,
             totalAmountMinor: 5000,
             currency: "EUR",
             orderedAt: "2026-03-30T10:00:00.000Z",
@@ -140,6 +141,7 @@ describe("order-ledger domain", () => {
       expect(result.filters.eventId).toBe("event-integration-1")
       expect(result.rows).toHaveLength(1)
       expect(result.rows[0].eventId).toBe("event-integration-1")
+      expect(result.rows[0].amountDueMinor).toBe(5000)
       expect(result.availableEvents).toHaveLength(2)
     })
 

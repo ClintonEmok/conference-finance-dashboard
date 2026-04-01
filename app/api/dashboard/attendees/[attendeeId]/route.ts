@@ -4,7 +4,6 @@ import { requireApiUser } from "@/lib/auth/server"
 import { api } from "@/lib/convex/api"
 import { convexMutation } from "@/lib/convex/server"
 import { getAttendeeDetail } from "@/lib/domain/finance/attendee-detail"
-import type { Id } from "@/convex/_generated/dataModel"
 
 export const dynamic = "force-dynamic"
 
@@ -51,6 +50,7 @@ export async function GET(
 
     return NextResponse.json(detail)
   } catch (error) {
+    console.error("Error loading attendee detail:", error)
     const message = error instanceof Error ? error.message : "Invalid request"
 
     if (
@@ -148,11 +148,22 @@ export async function PATCH(
       )
     }
 
-    await convexMutation(api.attendees.updateAttendee, {
-      attendeeId: normalizedAttendeeId as Id<"ticketTailorAttendees">,
-      tikkieAmountOverrideMinor: updateData.tikkieAmountOverrideMinor,
-      genderType: updateData.genderType,
-    })
+    const mutationArgs: {
+      attendeeId: string
+      tikkieAmountOverrideMinor?: number
+      genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+    } = { attendeeId: normalizedAttendeeId }
+
+    if (updateData.tikkieAmountOverrideMinor !== undefined) {
+      mutationArgs.tikkieAmountOverrideMinor =
+        updateData.tikkieAmountOverrideMinor
+    }
+
+    if (updateData.genderType !== undefined) {
+      mutationArgs.genderType = updateData.genderType
+    }
+
+    await convexMutation(api.attendees.updateAttendee as any, mutationArgs)
 
     return NextResponse.json({
       attendee: {
@@ -162,6 +173,7 @@ export async function PATCH(
       },
     })
   } catch (error) {
+    console.error("Error updating attendee detail:", error)
     const message = error instanceof Error ? error.message : "Invalid request"
 
     if (message.includes("not found")) {

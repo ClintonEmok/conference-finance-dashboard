@@ -706,19 +706,11 @@ export default function EventDetailPage({
                     Kind
                   </p>
                   <p className="text-sm font-medium capitalize">
-                    {event.primarySourceKind}
+                    {event.primarySourceKind === "internal"
+                      ? "Internal"
+                      : "Integration"}
                   </p>
                 </div>
-                {event.primarySourceProvider && (
-                  <div>
-                    <p className="text-xs tracking-wider text-muted-foreground uppercase">
-                      Provider
-                    </p>
-                    <p className="text-sm font-medium">
-                      {event.primarySourceProvider}
-                    </p>
-                  </div>
-                )}
               </CardContent>
             </Card>
           </div>

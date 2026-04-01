@@ -71,7 +71,6 @@ type EventData = {
 
 type Order = {
   id: string
-  providerOrderId: string
   buyerName: string
   totalAmountMinor: number
 }
@@ -842,9 +841,7 @@ export function EventTikkieSection({
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="font-mono text-xs">
-                        {order.providerOrderId}
-                      </div>
+                      <div className="font-mono text-xs">{order.id}</div>
                       <div className="text-sm">{order.buyerName}</div>
                     </div>
                     <div className="text-sm font-medium">

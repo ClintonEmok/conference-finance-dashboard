@@ -1,7 +1,6 @@
 "use client"
 
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState, useCallback } from "react"
 import {
   BedDouble,
@@ -38,11 +37,10 @@ type AttendeeDetailPayload = {
     name: string | null
     email: string | null
     ticketTypeLabel: string | null
+    amountDueMinor: number
     ticketStatus: string | null
     checkedInAt: string | null
     providerIssuedTicketId: string | null
-    providerOrderId: string
-    providerEventId: string
   }
   event: {
     id: string
@@ -50,12 +48,11 @@ type AttendeeDetailPayload = {
   }
   order: {
     id: string
-    providerOrderId: string
-    providerEventId: string
     buyerName: string | null
     buyerEmail: string | null
     normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
     orderedAt: string | null
+    amountDueMinor: number
     totalAmountMinor: number
   }
   finance: {
@@ -80,18 +77,18 @@ type AttendeeDetailPayload = {
     url: string | null
   }>
   roomStatus:
-    | {
-        status: "assigned"
-        roomLabel: string
-        hotelName: string
-        roomTypeLabel: string
-      }
-    | {
-        status: "unassigned"
-        roomLabel: null
-        hotelName: null
-        roomTypeLabel: null
-      }
+  | {
+    status: "assigned"
+    roomLabel: string
+    hotelName: string
+    roomTypeLabel: string
+  }
+  | {
+    status: "unassigned"
+    roomLabel: null
+    hotelName: null
+    roomTypeLabel: null
+  }
   signals: {
     genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
     location: string | null
@@ -119,16 +116,13 @@ export default function AttendeeDetailPage({
 }: {
   params: Promise<{ attendeeId: string }>
 }) {
-  const searchParams = useSearchParams()
   const [attendeeId, setAttendeeId] = useState<string | null>(null)
   const [payload, setPayload] = useState<AttendeeDetailPayload | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [selectedGender, setSelectedGender] = useState<"" | GenderType>("")
   const [isSavingGender, setIsSavingGender] = useState(false)
-
-  const attendeeSearch = searchParams.get("search")
-  const eventId = searchParams.get("eventId")
+  const orderLinkHref = payload ? `/dashboard/orders/${payload.order.id}` : "#"
 
   const loadAttendeeDetail = useCallback(
     async (targetId: string, silent = false) => {
@@ -196,11 +190,12 @@ export default function AttendeeDetailPage({
     .join("")
     .toUpperCase()
     .slice(0, 2)
-  const paymentProgress =
-    Math.round(
-      (payload.finance.paidAmountMinor / payload.order.totalAmountMinor) * 100
-    ) || 0
+  const paid = payload.finance.paidAmountMinor;
+  const due = payload.attendee.amountDueMinor;
 
+  const paymentProgress =
+    due === 0 ? 100 : Math.min(100, Math.round((paid / due) * 100));
+  console.log("Payment progress:", paymentProgress, { paid, due })
   return (
     <div className="animate-in space-y-8 pb-12 duration-700 fade-in slide-in-from-bottom-4">
       {/* Premium Header */}
@@ -267,9 +262,7 @@ export default function AttendeeDetailPage({
               variant="outline"
               className="h-12 rounded-2xl px-6 shadow-sm transition-all hover:bg-primary/5 active:scale-95"
             >
-              <Link
-                href={`/dashboard/orders/${payload.order.providerOrderId}?eventId=${payload.order.providerEventId}`}
-              >
+              <Link href={orderLinkHref}>
                 <CreditCard className="mr-2 size-4 text-primary" /> Order Detail
               </Link>
             </Button>
@@ -309,7 +302,7 @@ export default function AttendeeDetailPage({
                   Total Due
                 </p>
                 <p className="mt-1 text-2xl font-bold text-foreground">
-                  {formatMoney(payload.order.totalAmountMinor)}
+                  {formatMoney(payload.attendee.amountDueMinor)}
                 </p>
               </div>
               <div className="rounded-lg border border-emerald-500/10 bg-emerald-500/5 p-5">

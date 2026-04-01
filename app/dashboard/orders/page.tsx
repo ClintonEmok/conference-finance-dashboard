@@ -43,13 +43,14 @@ type OrdersPayload = {
     totalPages: number
   }
   rows: Array<{
-    providerOrderId: string | null
+    orderId: string
     eventId: string
     eventTitle: string | null
     normalizedStatus: CanonicalOrderStatus
     isArchived: boolean
     archivedAt: string | null
     archiveReason: string | null
+    amountDueMinor: number | null
     totalAmountMinor: number | null
     currency: string | null
     orderedAt: string | null
@@ -204,18 +205,18 @@ export default function OrdersPage() {
               </div>
               <div>
                 <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-                  Transaction Value
+                  Amount Due
                 </p>
                 <p className="mt-0.5 text-xl font-bold">
                   {formatMoney(
                     payload.rows.reduce(
-                      (acc, r) => acc + (r.totalAmountMinor ?? 0),
+                      (acc, r) => acc + (r.amountDueMinor ?? 0),
                       0
                     )
                   )}
                 </p>
                 <p className="mt-0.5 text-[9px] font-medium text-muted-foreground/60 italic">
-                  Current page total
+                  Current page due total
                 </p>
               </div>
             </div>
@@ -407,21 +408,21 @@ export default function OrdersPage() {
               ) : (
                 payload?.rows.map((row) =>
                   (() => {
-                    const displayOrderId = row.providerOrderId?.trim() || "—"
+                    const displayOrderId = row.orderId?.trim() || "—"
                     const displayAmount =
-                      typeof row.totalAmountMinor === "number"
-                        ? formatMoney(row.totalAmountMinor)
+                      typeof row.amountDueMinor === "number"
+                        ? formatMoney(row.amountDueMinor)
                         : "Missing amount"
 
                     return (
                       <tr
-                        key={`${row.providerOrderId ?? "missing"}-${row.eventId}-${row.orderedAt ?? "na"}`}
+                        key={`${row.orderId}-${row.eventId}-${row.orderedAt ?? "na"}`}
                         onClick={() => {
-                          if (!row.providerOrderId) {
+                          if (!row.orderId) {
                             return
                           }
                           router.push(
-                            `/dashboard/orders/${row.providerOrderId}?eventId=${row.eventId}`
+                            `/dashboard/orders/${row.orderId}?eventId=${row.eventId}`
                           )
                         }}
                         className="group cursor-pointer transition-colors hover:bg-muted/30"

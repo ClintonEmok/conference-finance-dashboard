@@ -8,6 +8,7 @@ import {
   orderLedgerRowValidator,
   orderSearchRowValidator,
 } from "../lib/types/order"
+import { loadOrderAmountDueBreakdowns } from "./finance"
 
 // Helper functions work on extension data
 function isOrderRemoved(ttOrder: any) {
@@ -105,14 +106,19 @@ export const getOrders = query({
 
     // Join with extension data for visibility/status filtering
     const visibleOrders = await getVisibleOrdersWithExtensions(ctx, orderIds)
+    const eventSourceKindsById = await loadEventSourceKindsById(ctx)
 
     // Map back to order objects with merged extension data
-    const result = visibleOrders.map(({ order, extension }) => ({
-      ...order,
-      ...extension,
-      _id: order._id,
-      _creationTime: order._creationTime,
-    }))
+    const result = visibleOrders
+      .filter(({ order }) =>
+        isInternalEvent(eventSourceKindsById, order.eventId)
+      )
+      .map(({ order, extension }) => ({
+        ...order,
+        ...extension,
+        _id: order._id,
+        _creationTime: order._creationTime,
+      }))
 
     if (args.status) {
       return result.filter((o) => o.status === args.status)
@@ -133,6 +139,11 @@ export const getOrderById = query({
 
       const combined = await getOrderWithExtension(ctx, orderId)
       if (!combined || !isOrderVisible(combined.extension)) {
+        return null
+      }
+
+      const eventSourceKindsById = await loadEventSourceKindsById(ctx)
+      if (!isInternalEvent(eventSourceKindsById, combined.order.eventId)) {
         return null
       }
 
@@ -160,6 +171,11 @@ export const getOrderByProviderId = query({
       .first()
 
     if (!extension || !isOrderVisible(extension)) {
+      return null
+    }
+
+    const eventSourceKindsById = await loadEventSourceKindsById(ctx)
+    if (!isInternalEvent(eventSourceKindsById, order.eventId)) {
       return null
     }
 
@@ -557,6 +573,73 @@ async function loadEventSlugsById(ctx: QueryCtx): Promise<Map<string, string>> {
   return new Map(events.map((event) => [String(event._id), event.slug]))
 }
 
+async function loadEventSourceKindsById(
+  ctx: QueryCtx
+): Promise<Map<string, "integration" | "internal">> {
+  const events = await ctx.db.query("events").take(200)
+  return new Map(
+    events.map((event) => [String(event._id), event.primarySourceKind])
+  )
+}
+
+function isInternalEvent(
+  eventSourceKindsById: Map<string, "integration" | "internal">,
+  eventId?: Id<"events"> | string | null
+) {
+  if (!eventId) {
+    return false
+  }
+
+  return eventSourceKindsById.get(String(eventId)) === "internal"
+}
+
+async function loadPaymentTotalsByOrderKey(ctx: QueryCtx) {
+  const payments = await ctx.db.query("payments").take(1000)
+  const totalsByOrderKey = new Map<string, number>()
+
+  for (const payment of payments) {
+    if (
+      payment.status !== "manual_assignment" &&
+      payment.status !== "auto_matched"
+    ) {
+      continue
+    }
+
+    const rawOrderId =
+      typeof payment.orderId === "string" ? payment.orderId.trim() : ""
+    if (!rawOrderId) {
+      continue
+    }
+
+    totalsByOrderKey.set(
+      rawOrderId,
+      (totalsByOrderKey.get(rawOrderId) ?? 0) + payment.amountMinor
+    )
+  }
+
+  return totalsByOrderKey
+}
+
+function getMatchedPaymentTotalForOrder(
+  order: {
+    _id: Id<"orders">
+    providerOrderId?: string | null
+  },
+  totalsByOrderKey: Map<string, number>
+) {
+  const keys = new Set<string>([String(order._id)])
+  if (order.providerOrderId) {
+    keys.add(order.providerOrderId)
+  }
+
+  let total = 0
+  for (const key of keys) {
+    total += totalsByOrderKey.get(key) ?? 0
+  }
+
+  return total
+}
+
 export const getOrdersWithFilters = query({
   args: {
     eventId: v.optional(v.string()),
@@ -581,8 +664,10 @@ export const getOrdersWithFilters = query({
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     const candidates = await listCandidateOrders(ctx, args, 500)
+    const eventSourceKindsById = await loadEventSourceKindsById(ctx)
     const orders = candidates
       .filter((order) => !isOrderRemoved(order))
+      .filter((order) => isInternalEvent(eventSourceKindsById, order.eventId))
       .filter((order) => matchesOrderFilters(order, args))
       .sort(sortOrdersByNewest)
 
@@ -592,10 +677,15 @@ export const getOrdersWithFilters = query({
     const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
     const skip = (page - 1) * pageSize
     const paginatedOrders = orders.slice(skip, skip + pageSize)
+    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      paginatedOrders
+    )
 
     const eventNamesById = await loadEventNamesById(ctx)
     const eventSlugsById = await loadEventSlugsById(ctx)
     const ordersWithEvent = paginatedOrders.map((order) => ({
+      orderId: order._id,
       providerOrderId: order.providerOrderId ?? null,
       eventId: order.eventId ? String(order.eventId) : "",
       eventSlug: resolveEventSlug(eventSlugsById, order.eventId),
@@ -607,6 +697,10 @@ export const getOrdersWithFilters = query({
         ? new Date(order.archivedAt).toISOString()
         : null,
       archiveReason: order.archiveReason ?? null,
+      amountDueMinor:
+        amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
+        order.totalAmountMinor ??
+        null,
       totalAmountMinor: order.totalAmountMinor ?? null,
       currency: order.currency ?? null,
       orderedAt: order.orderedAt
@@ -658,7 +752,11 @@ export const getOrderCount = query({
       })
     )
 
-    let filtered = withExtensions.filter((o) => !isOrderRemoved(o))
+    const eventSourceKindsById = await loadEventSourceKindsById(ctx)
+
+    let filtered = withExtensions
+      .filter((o) => !isOrderRemoved(o))
+      .filter((o) => isInternalEvent(eventSourceKindsById, o.eventId))
 
     if (args.eventId) {
       filtered = filtered.filter((o) => o.eventId === args.eventId)
@@ -729,9 +827,18 @@ export const getOrdersForReconciliation = query({
       return true
     })
 
+    const eventSourceKindsById = await loadEventSourceKindsById(ctx)
+    const visibleOrders = filtered.filter((order) =>
+      isInternalEvent(eventSourceKindsById, order.eventId)
+    )
+    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      visibleOrders
+    )
+
     // Join with extension data for additional fields, preserving canonical order._id
     const withExtensions = await Promise.all(
-      filtered.map(async (order) => {
+      visibleOrders.map(async (order) => {
         const extension = await ctx.db
           .query("ticketTailorOrders")
           .withIndex("orderId", (q) => q.eq("orderId", order._id))
@@ -760,6 +867,10 @@ export const getOrdersForReconciliation = query({
           ? new Date(extension.archivedAt).toISOString()
           : null,
         archiveReason: extension?.archiveReason ?? null,
+        amountDueMinor:
+          amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
+          order.totalAmountMinor ??
+          null,
         totalAmountMinor: order.totalAmountMinor ?? null,
         currency: order.currency ?? null,
         orderedAt: order.orderedAt
@@ -806,13 +917,21 @@ export const searchOrders = query({
           .query("ticketTailorOrders")
           .withIndex("orderId", (q) => q.eq("orderId", order._id))
           .first()
-        return { ...order, ...extension }
+        return {
+          ...order,
+          ...extension,
+          _id: order._id,
+          _creationTime: order._creationTime,
+        }
       })
     )
+
+    const eventSourceKindsById = await loadEventSourceKindsById(ctx)
 
     const filtered = withExtensions.filter(
       (o) =>
         !isOrderRemoved(o) &&
+        isInternalEvent(eventSourceKindsById, o.eventId) &&
         (!search ||
           (o.bookerName && o.bookerName.toLowerCase().includes(search)) ||
           (o.providerOrderId &&
@@ -824,9 +943,9 @@ export const searchOrders = query({
       .slice(0, limit)
       .map((order) => ({
         id: order._id,
-        providerOrderId: order.providerOrderId ?? "",
+        providerOrderId: order.providerOrderId ?? null,
         buyerName: order.bookerName ?? null,
-        totalAmountMinor: order.totalAmountMinor ?? 0,
+        totalAmountMinor: order.totalAmountMinor ?? null,
       }))
   },
 })
@@ -840,6 +959,7 @@ export const getOrderWithAttendees = query({
       order: v.object({
         id: v.id("orders"),
         providerOrderId: nullableStringValidator,
+        amountDueMinor: v.union(v.number(), v.null()),
         normalizedStatus: v.optional(canonicalOrderStatusValidator),
         isArchived: v.optional(v.boolean()),
         archivedAt: nullableStringValidator,
@@ -853,6 +973,7 @@ export const getOrderWithAttendees = query({
           name: v.string(),
           ticketTypeLabel: v.string(),
           normalizedStatus: v.string(),
+          amountDueMinor: v.number(),
         })
       ),
     }),
@@ -862,12 +983,25 @@ export const getOrderWithAttendees = query({
     const order = await ctx.db.get("orders", args.orderId)
     if (!order) return null
 
+    const amountDueBreakdownByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      [{ _id: order._id }]
+    )
+    const amountDueBreakdown = amountDueBreakdownByOrderId.get(
+      String(order._id)
+    )
+
     const extension = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("orderId", (q) => q.eq("orderId", order._id))
       .first()
 
     if (extension && isOrderRemoved(extension)) return null
+
+    const eventSourceKindsById = await loadEventSourceKindsById(ctx)
+    if (!isInternalEvent(eventSourceKindsById, order.eventId)) {
+      return null
+    }
 
     const attendees = await ctx.db
       .query("orderAttendees")
@@ -878,6 +1012,8 @@ export const getOrderWithAttendees = query({
       order: {
         id: order._id,
         providerOrderId: order.providerOrderId ?? null,
+        amountDueMinor:
+          amountDueBreakdown?.amountDueMinor ?? order.totalAmountMinor ?? null,
         normalizedStatus: order.status ?? undefined,
         isArchived: extension?.isArchived,
         archivedAt: extension?.archivedAt
@@ -896,6 +1032,8 @@ export const getOrderWithAttendees = query({
         name: a.name ?? "Unnamed attendee",
         ticketTypeLabel: "-",
         normalizedStatus: "pending",
+        amountDueMinor:
+          amountDueBreakdown?.amountDueByAttendeeId.get(String(a._id)) ?? 0,
       })),
     }
   },
@@ -940,7 +1078,12 @@ export const getOrderPaymentStatus = query({
       })
     )
 
-    const visibleOrders = withExtensions.filter((o) => !isOrderRemoved(o))
+    const eventSourceKindsById = await loadEventSourceKindsById(ctx)
+
+    const visibleOrders = withExtensions.filter(
+      (o) =>
+        !isOrderRemoved(o) && isInternalEvent(eventSourceKindsById, o.eventId)
+    )
 
     const payments = await ctx.db.query("payments").order("desc").take(1000)
 

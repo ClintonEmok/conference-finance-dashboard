@@ -248,8 +248,8 @@ type AttendeeForMatch = {
   id: string
   eventId: string
   orderId: string
-  providerOrderId: string
-  providerEventId: string
+  providerOrderId: string | null
+  providerEventId: string | null
   ticketTypeLabel: string | null
   tikkieAmountOverrideMinor: number | null
 }
@@ -257,16 +257,19 @@ type AttendeeForMatch = {
 export async function matchTemplateForAttendee(
   attendee: AttendeeForMatch
 ): Promise<TemplateMatchResult> {
-  const providerOrderId = attendee.providerOrderId.trim()
-  if (!providerOrderId) {
-    throw new Error("Invalid attendee. 'providerOrderId' is required.")
+  const providerOrderId = attendee.providerOrderId?.trim() ?? ""
+  const orderId = attendee.orderId.trim()
+  const referenceOrderId = providerOrderId || orderId
+
+  if (!referenceOrderId) {
+    throw new Error("Invalid attendee. 'orderId' is required.")
   }
 
   if (
     attendee.tikkieAmountOverrideMinor !== null &&
     attendee.tikkieAmountOverrideMinor > 0
   ) {
-    const description = `Order ${providerOrderId}`.slice(0, 35)
+    const description = `Order ${referenceOrderId}`.slice(0, 35)
     const expiryDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
       .toISOString()
       .slice(0, 10)
@@ -276,7 +279,7 @@ export async function matchTemplateForAttendee(
       amountMinor: attendee.tikkieAmountOverrideMinor,
       description,
       expiryDate,
-      referenceId: providerOrderId.slice(0, 35),
+      referenceId: referenceOrderId.slice(0, 35),
       source: "override",
       templateId: null,
     }
@@ -310,14 +313,14 @@ export async function matchTemplateForAttendee(
         amountMinor: template.amountMinor,
         description,
         expiryDate,
-        referenceId: providerOrderId.slice(0, 35),
+        referenceId: referenceOrderId.slice(0, 35),
         source: "template",
         templateId: template._id,
       }
     }
   }
 
-  const description = `Order ${providerOrderId}`.slice(0, 35)
+  const description = `Order ${referenceOrderId}`.slice(0, 35)
   const expiryDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10)
@@ -327,7 +330,7 @@ export async function matchTemplateForAttendee(
     amountMinor: 0,
     description,
     expiryDate,
-    referenceId: providerOrderId.slice(0, 35),
+    referenceId: referenceOrderId.slice(0, 35),
     source: "default",
     templateId: null,
   }

@@ -1,6 +1,10 @@
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 import { buildMatchedTotalsByProviderOrderId } from "@/lib/domain/finance/matched-payments"
+import {
+  allocateMinorAmountByWeight,
+  deriveBalanceAmounts,
+} from "@/lib/domain/finance/amounts"
 
 export type AttendeeLedgerFilters = {
   eventId?: string | null
@@ -15,9 +19,10 @@ export type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 
 export type AttendeeLedgerRow = {
   attendeeId: string
+  orderId: string
   providerAttendeeId: string | null
   providerIssuedTicketId: string | null
-  providerOrderId: string
+  providerOrderId: string | null
   eventId: string
   eventSlug: string
   eventTitle: string
@@ -25,8 +30,11 @@ export type AttendeeLedgerRow = {
   attendeeEmail: string | null
   ticketTypeLabel: string | null
   normalizedStatus: CanonicalOrderStatus
+  amountDueMinor: number
   totalAmountMinor: number
+  paidAmountMinor: number
   outstandingAmountMinor: number
+  overpaidAmountMinor: number
   genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
   location: string | null
   remarks: string | null
@@ -167,10 +175,12 @@ type ConvexAttendee = {
   allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
   priorityReason: string | null
   ticketTypeLabel: string | null
+  amountDueMinor: number
   orderProviderOrderId: string | null
   orderEventId: string | null
   orderStatus: string | null
   orderTotalAmountMinor: number | null
+  orderAmountDueMinor: number | null
   orderSubmittedAt: number | null
   orderOrderedAt: number | null
 }
@@ -186,20 +196,11 @@ type ConvexOrder = {
 }
 
 type ConvexEvent = {
-  _id: string
-  _creationTime: number
+  eventId: string
   slug: string
-  title: string
-  startsAt: number
-  endsAt?: number
-  timezone: string
-  currency: string
-  isPublished: boolean
-  isSignupOpen: boolean
-  accommodationEnabled: boolean
-  primarySourceKind: "integration" | "internal"
-  primarySourceProvider?: string
-  updatedAt: number
+  title: string | null
+  startsAt: number | null
+  currency: string | null
 }
 
 type ConvexRoom = {
@@ -238,7 +239,7 @@ export async function getAttendeeLedger(
       convexQuery(api.attendees.getAttendeesWithTickets, {
         eventId: eventId ?? undefined,
       }),
-      convexQuery(api.events.getEvents, {}),
+      convexQuery(api.events.getEventsForLedger, {}),
       convexQuery(api.accommodation.getRooms, {}),
       convexQuery(api.accommodation.getHotels, {}),
       convexQuery(api.accommodation.getRoomTypes, {}),
@@ -250,7 +251,7 @@ export async function getAttendeeLedger(
       ConvexRoomType[],
     ]
 
-  const eventMap = new Map(availableEvents.map((e) => [e._id, e]))
+  const eventMap = new Map(availableEvents.map((e) => [e.eventId, e]))
   const roomMap = new Map(allRooms.map((r) => [r._id, r]))
   const hotelMap = new Map(allHotels.map((h) => [h._id, h]))
   const roomTypeMap = new Map(allRoomTypes.map((rt) => [rt._id, rt]))
@@ -296,7 +297,8 @@ export async function getAttendeeLedger(
   const matchedTotalsByProviderOrderId =
     await buildMatchedTotalsByProviderOrderId(
       filteredAttendees.map((attendee) => ({
-        providerOrderId: attendee.orderProviderOrderId ?? "",
+        providerOrderId: attendee.orderProviderOrderId ?? null,
+        orderId: attendee.orderId,
       }))
     )
 
@@ -306,6 +308,46 @@ export async function getAttendeeLedger(
     (page - 1) * pageSize,
     page * pageSize
   )
+
+  const balancesByAttendeeId = new Map<
+    string,
+    {
+      paidAmountMinor: number
+      outstandingAmountMinor: number
+      overpaidAmountMinor: number
+    }
+  >()
+
+  const attendeesByOrderId = new Map<string, typeof filteredAttendees>()
+  for (const attendee of filteredAttendees) {
+    const existing = attendeesByOrderId.get(attendee.orderId) ?? []
+    existing.push(attendee)
+    attendeesByOrderId.set(attendee.orderId, existing)
+  }
+
+  for (const [orderId, attendeesForOrder] of attendeesByOrderId.entries()) {
+    const providerOrderId =
+      attendeesForOrder[0]?.orderProviderOrderId ?? orderId
+    const orderPaidAmountMinor =
+      matchedTotalsByProviderOrderId.get(providerOrderId) ?? 0
+    const paidAmountByAttendeeId = allocateMinorAmountByWeight(
+      orderPaidAmountMinor,
+      attendeesForOrder.map((attendee) => ({
+        id: attendee._id,
+        weightMinor: attendee.amountDueMinor,
+      }))
+    )
+
+    for (const attendee of attendeesForOrder) {
+      balancesByAttendeeId.set(
+        attendee._id,
+        deriveBalanceAmounts(
+          attendee.amountDueMinor,
+          paidAmountByAttendeeId.get(attendee._id) ?? 0
+        )
+      )
+    }
+  }
 
   const rows: AttendeeLedgerRow[] = paginatedAttendees.map((attendee) => {
     const eventId = attendee.orderEventId
@@ -317,26 +359,19 @@ export async function getAttendeeLedger(
     const roomType = room ? roomTypeMap.get(room.roomTypeId) : null
 
     const totalAmountMinor = attendee.orderTotalAmountMinor ?? 0
+    const amountDueMinor = attendee.amountDueMinor
     const normalizedStatus = (attendee.orderStatus ??
       "pending") as CanonicalOrderStatus
-    const attendeeIds = attendeeIdsByOrderId.get(attendee.orderId) ?? []
-    const attendeeCount = attendeeIds.length
-    const attendeePosition =
-      attendeePositionByOrderId.get(attendee.orderId)?.get(attendee._id) ?? 0
-    const providerOrderId = attendee.orderProviderOrderId ?? ""
-    const matchedAmountMinor =
-      matchedTotalsByProviderOrderId.get(providerOrderId) ?? 0
-    const orderOutstandingAmountMinor = deriveOrderOutstandingAmount(
-      normalizedStatus,
-      totalAmountMinor,
-      matchedAmountMinor
-    )
+    const balance =
+      balancesByAttendeeId.get(attendee._id) ??
+      deriveBalanceAmounts(amountDueMinor, 0)
 
     return {
       attendeeId: attendee._id,
+      orderId: attendee.orderId,
       providerAttendeeId: null,
       providerIssuedTicketId: null,
-      providerOrderId,
+      providerOrderId: attendee.orderProviderOrderId ?? null,
       eventId: eventId ?? "",
       eventSlug: event?.slug ?? "",
       eventTitle: event?.title ?? "",
@@ -344,12 +379,11 @@ export async function getAttendeeLedger(
       attendeeEmail: attendee.email ?? null,
       ticketTypeLabel: attendee.ticketTypeLabel ?? null,
       normalizedStatus,
+      amountDueMinor,
       totalAmountMinor,
-      outstandingAmountMinor: deriveAttendeeOutstandingAmount(
-        orderOutstandingAmountMinor,
-        attendeeCount,
-        attendeePosition
-      ),
+      paidAmountMinor: balance.paidAmountMinor,
+      outstandingAmountMinor: balance.outstandingAmountMinor,
+      overpaidAmountMinor: balance.overpaidAmountMinor,
       genderType: attendee.gender
         ? (attendee.gender.toUpperCase() as AttendeeLedgerRow["genderType"])
         : null,
@@ -390,11 +424,11 @@ export async function getAttendeeLedger(
       pageSize,
     },
     availableEvents: availableEvents.map((e) => ({
-      eventId: e._id,
+      eventId: e.eventId,
       slug: e.slug,
-      title: e.title,
-      startsAt: new Date(e.startsAt).toISOString(),
-      currency: e.currency,
+      title: e.title ?? "",
+      startsAt: e.startsAt ? new Date(e.startsAt).toISOString() : "",
+      currency: e.currency ?? "",
     })),
     page: {
       number: page,

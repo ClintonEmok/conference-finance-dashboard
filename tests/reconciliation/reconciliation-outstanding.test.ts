@@ -14,6 +14,7 @@ const baseOrder = {
   eventSlug: "conference",
   eventTitle: "Conference",
   normalizedStatus: "pending",
+  amountDueMinor: 1000,
   totalAmountMinor: 1000,
   currency: "EUR",
   orderedAt: "2026-03-20T10:00:00.000Z",
@@ -55,6 +56,7 @@ describe("getReconciliationRows outstanding totals", () => {
     expect(result.rows).toHaveLength(1)
     expect(result.rows[0]).toMatchObject({
       providerOrderId: "ORD-1",
+      amountDueMinor: 1000,
       outstandingMinor: 0,
       reasons: ["pending-payment"],
     })
@@ -66,6 +68,7 @@ describe("getReconciliationRows outstanding totals", () => {
         {
           ...baseOrder,
           providerOrderId: "ORD-LEGACY",
+          amountDueMinor: 900,
           totalAmountMinor: 900,
         },
       ])
@@ -88,6 +91,7 @@ describe("getReconciliationRows outstanding totals", () => {
 
     expect(result.totals.outstandingMinor).toBe(200)
     expect(result.rows).toHaveLength(1)
+    expect(result.rows[0]?.amountDueMinor).toBe(900)
     expect(result.rows[0]?.outstandingMinor).toBe(200)
   })
 
@@ -97,6 +101,7 @@ describe("getReconciliationRows outstanding totals", () => {
         {
           ...baseOrder,
           providerOrderId: null,
+          amountDueMinor: null,
           totalAmountMinor: null,
         },
       ])
@@ -110,6 +115,7 @@ describe("getReconciliationRows outstanding totals", () => {
     expect(result.rows).toHaveLength(1)
     expect(result.rows[0]).toMatchObject({
       providerOrderId: null,
+      amountDueMinor: null,
       totalAmountMinor: null,
       outstandingMinor: 0,
       reasons: ["missing-amount", "pending-payment"],

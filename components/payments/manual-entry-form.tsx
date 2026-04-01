@@ -17,7 +17,6 @@ import { Card, CardContent } from "@/components/ui/card"
 
 type Order = {
   id: string
-  providerOrderId: string
   buyerName: string | null
   totalAmountMinor: number | null
 }
@@ -149,8 +148,8 @@ export function ManualPaymentEntryForm({ onSuccess }: ManualEntryFormProps) {
 
   function handleSelectOrder(order: Order) {
     setSelectedOrder(order)
-    setValues((current) => ({ ...current, orderId: order.providerOrderId }))
-    setOrderSearch(order.buyerName || order.providerOrderId)
+    setValues((current) => ({ ...current, orderId: order.id }))
+    setOrderSearch(order.buyerName || order.id)
     setShowDropdown(false)
   }
 
@@ -173,7 +172,7 @@ export function ManualPaymentEntryForm({ onSuccess }: ManualEntryFormProps) {
           ? "/api/payments/bank-transfer"
           : "/api/payments/cash"
       const body = {
-        orderId: selectedOrder?.providerOrderId ?? values.orderId,
+        orderId: selectedOrder?.id ?? values.orderId,
         amountMinor: values.amountMinor,
         paidAt: values.paidAt,
         payerName: values.payerName.trim(),
@@ -333,7 +332,7 @@ export function ManualPaymentEntryForm({ onSuccess }: ManualEntryFormProps) {
                           {order.buyerName || "Unknown"}
                         </div>
                         <div className="text-xs text-slate-500">
-                          {order.providerOrderId} ·{" "}
+                          {order.id} ·{" "}
                           {order.totalAmountMinor
                             ? formatMoney(order.totalAmountMinor)
                             : "N/A"}
@@ -346,8 +345,7 @@ export function ManualPaymentEntryForm({ onSuccess }: ManualEntryFormProps) {
             {selectedOrder && (
               <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/50 dark:bg-emerald-950/20">
                 <p className="text-sm text-emerald-800 dark:text-emerald-200">
-                  Selected:{" "}
-                  {selectedOrder.buyerName || selectedOrder.providerOrderId}
+                  Selected: {selectedOrder.buyerName || selectedOrder.id}
                 </p>
               </div>
             )}

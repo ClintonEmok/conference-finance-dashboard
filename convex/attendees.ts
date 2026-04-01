@@ -4,6 +4,216 @@ import { paginationOptsValidator } from "convex/server"
 import { requireIdentity } from "./auth"
 import { api } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
+import type { MutationCtx, QueryCtx } from "./_generated/server"
+import { loadOrderAmountDueBreakdowns } from "./finance"
+
+type AttendeeResolveCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">
+
+function normalizeLowerGenderToUpper(
+  gender: "male" | "female" | "mixed" | "unknown"
+): "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" {
+  switch (gender) {
+    case "male":
+      return "MALE"
+    case "female":
+      return "FEMALE"
+    case "mixed":
+      return "MIXED"
+    case "unknown":
+    default:
+      return "UNKNOWN"
+  }
+}
+
+function normalizeUpperGenderToLower(
+  gender: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+): "male" | "female" | "mixed" | "unknown" {
+  switch (gender) {
+    case "MALE":
+      return "male"
+    case "FEMALE":
+      return "female"
+    case "MIXED":
+      return "mixed"
+    case "UNKNOWN":
+    default:
+      return "unknown"
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+}
+
+function mergeCustomAnswers(input: {
+  canonicalAttendee?: {
+    location?: string | null
+    dietaryRestrictions?: string | null
+    roommatePreference?: string | null
+    roommateAvoid?: string | null
+  } | null
+  ticketTailorAttendee?: { customAnswers?: unknown } | null
+}) {
+  const customAnswers = isPlainObject(input.ticketTailorAttendee?.customAnswers)
+    ? { ...input.ticketTailorAttendee!.customAnswers }
+    : {}
+
+  if (input.canonicalAttendee?.location && !("location" in customAnswers)) {
+    customAnswers.location = input.canonicalAttendee.location
+  }
+
+  if (
+    input.canonicalAttendee?.dietaryRestrictions &&
+    !("dietary" in customAnswers)
+  ) {
+    customAnswers.dietary = input.canonicalAttendee.dietaryRestrictions
+  }
+
+  if (
+    input.canonicalAttendee?.roommatePreference &&
+    !("roommatePreference" in customAnswers)
+  ) {
+    customAnswers.roommatePreference =
+      input.canonicalAttendee.roommatePreference
+  }
+
+  if (
+    input.canonicalAttendee?.roommateAvoid &&
+    !("roommateAvoid" in customAnswers)
+  ) {
+    customAnswers.roommateAvoid = input.canonicalAttendee.roommateAvoid
+  }
+
+  return Object.keys(customAnswers).length > 0 ? customAnswers : null
+}
+
+async function getTicketFinancialsForAttendee(
+  ctx: AttendeeResolveCtx,
+  orderId: Id<"orders">,
+  attendeeId: string
+) {
+  const selections = await ctx.db
+    .query("orderTicketSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", orderId))
+    .take(100)
+
+  const selection = selections.find(
+    (entry: { attendeeId?: unknown }) => String(entry.attendeeId) === attendeeId
+  )
+
+  if (!selection) {
+    return {
+      ticketTypeLabel: null,
+      amountDueMinor: 0,
+    }
+  }
+
+  const ticketType = await ctx.db.get(
+    selection.ticketTypeId as Id<"ticketTypes">
+  )
+
+  return {
+    ticketTypeLabel: ticketType?.label ?? null,
+    amountDueMinor:
+      ticketType && Number.isFinite(ticketType.priceMinor)
+        ? ticketType.priceMinor * selection.quantity
+        : 0,
+  }
+}
+
+async function resolveAttendeeRecordByStringId(
+  ctx: AttendeeResolveCtx,
+  attendeeId: string
+) {
+  const canonicalAttendeeId = ctx.db.normalizeId("orderAttendees", attendeeId)
+
+  if (canonicalAttendeeId) {
+    const canonicalAttendee = await ctx.db.get(
+      "orderAttendees",
+      canonicalAttendeeId
+    )
+
+    if (!canonicalAttendee) {
+      return null
+    }
+
+    const order = await ctx.db.get("orders", canonicalAttendee.orderId)
+
+    if (!order) {
+      return null
+    }
+
+    const ticketTailorAttendee = await ctx.db
+      .query("ticketTailorAttendees")
+      .withIndex("attendeeId", (q) => q.eq("attendeeId", canonicalAttendeeId))
+      .first()
+
+    const ticketFinancials = await getTicketFinancialsForAttendee(
+      ctx,
+      canonicalAttendee.orderId,
+      String(canonicalAttendeeId)
+    )
+
+    return {
+      canonicalAttendee,
+      ticketTailorAttendee,
+      order,
+      ticketFinancials: {
+        ...ticketFinancials,
+        ticketTypeLabel:
+          ticketTailorAttendee?.ticketTypeLabel ??
+          ticketFinancials.ticketTypeLabel,
+      },
+    }
+  }
+
+  const ticketTailorAttendeeId = ctx.db.normalizeId(
+    "ticketTailorAttendees",
+    attendeeId
+  )
+
+  if (!ticketTailorAttendeeId) {
+    return null
+  }
+
+  const ticketTailorAttendee = await ctx.db.get(
+    "ticketTailorAttendees",
+    ticketTailorAttendeeId
+  )
+
+  if (!ticketTailorAttendee) {
+    return null
+  }
+
+  const canonicalAttendee = ticketTailorAttendee.attendeeId
+    ? await ctx.db.get("orderAttendees", ticketTailorAttendee.attendeeId)
+    : null
+  const order = await ctx.db.get("orders", ticketTailorAttendee.orderId)
+
+  if (!order) {
+    return null
+  }
+
+  const ticketFinancials = canonicalAttendee
+    ? await getTicketFinancialsForAttendee(
+        ctx,
+        ticketTailorAttendee.orderId,
+        String(canonicalAttendee._id)
+      )
+    : { ticketTypeLabel: null, amountDueMinor: 0 }
+
+  return {
+    canonicalAttendee,
+    ticketTailorAttendee,
+    order,
+    ticketFinancials: {
+      ...ticketFinancials,
+      ticketTypeLabel:
+        ticketTailorAttendee.ticketTypeLabel ??
+        ticketFinancials.ticketTypeLabel,
+    },
+  }
+}
 
 function filterAttendees(
   attendees: Array<{
@@ -120,6 +330,7 @@ export const getAttendeesWithTickets = query({
 
     const orderMap = new Map(orders.map((o) => [o._id, o]))
     const orderIds = new Set(orders.map((o) => o._id))
+    const amountDueByOrderId = await loadOrderAmountDueBreakdowns(ctx, orders)
 
     // Get all attendees for these orders
     const allAttendees = await ctx.db.query("orderAttendees").collect()
@@ -159,6 +370,9 @@ export const getAttendeesWithTickets = query({
     // Return attendees with ticketTypeLabel AND order data
     return attendees.map((a) => {
       const order = orderMap.get(a.orderId)
+      const amountBreakdown = amountDueByOrderId.get(String(a.orderId))
+      const amountDueMinor =
+        amountBreakdown?.amountDueByAttendeeId.get(String(a._id)) ?? 0
       return {
         _id: a._id,
         orderId: a.orderId,
@@ -170,11 +384,13 @@ export const getAttendeesWithTickets = query({
         allocationPriority: a.allocationPriority ?? null,
         priorityReason: a.priorityReason ?? null,
         ticketTypeLabel: ticketLabelByAttendeeId.get(String(a._id)) ?? null,
+        amountDueMinor,
         // Order data embedded
         orderProviderOrderId: order?.providerOrderId ?? null,
         orderEventId: order?.eventId ?? null,
         orderStatus: order?.status ?? null,
         orderTotalAmountMinor: order?.totalAmountMinor ?? null,
+        orderAmountDueMinor: amountBreakdown?.amountDueMinor ?? null,
         orderSubmittedAt: order?.submittedAt ?? null,
         orderOrderedAt: order?.orderedAt ?? null,
       }
@@ -298,7 +514,7 @@ export const upsertAttendee = mutation({
 
 export const updateAttendee = mutation({
   args: {
-    attendeeId: v.id("ticketTailorAttendees"),
+    attendeeId: v.string(),
     assignedRoomId: v.optional(v.string()),
     name: v.optional(v.string()),
     email: v.optional(v.string()),
@@ -323,9 +539,91 @@ export const updateAttendee = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const { attendeeId, ...updates } = args
-    await ctx.db.patch("ticketTailorAttendees", attendeeId, updates)
-    return attendeeId
+
+    const resolved = await resolveAttendeeRecordByStringId(ctx, args.attendeeId)
+
+    if (!resolved) {
+      throw new Error("Attendee not found.")
+    }
+
+    const extensionUpdates: {
+      assignedRoomId?: string
+      name?: string
+      email?: string
+      genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+      allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+      priorityReason?: string
+      tikkieAmountOverrideMinor?: number
+    } = {}
+
+    const coreUpdates: {
+      assignedRoomId?: string
+      name?: string
+      email?: string
+      gender?: "male" | "female" | "mixed" | "unknown"
+      allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+      priorityReason?: string
+    } = {}
+
+    if (args.assignedRoomId !== undefined) {
+      extensionUpdates.assignedRoomId = args.assignedRoomId
+      coreUpdates.assignedRoomId = args.assignedRoomId
+    }
+
+    if (args.name !== undefined) {
+      extensionUpdates.name = args.name
+      coreUpdates.name = args.name
+    }
+
+    if (args.email !== undefined) {
+      extensionUpdates.email = args.email
+      coreUpdates.email = args.email
+    }
+
+    if (args.genderType !== undefined) {
+      extensionUpdates.genderType = args.genderType
+      coreUpdates.gender = normalizeUpperGenderToLower(args.genderType)
+    }
+
+    if (args.allocationPriority !== undefined) {
+      extensionUpdates.allocationPriority = args.allocationPriority
+      coreUpdates.allocationPriority = args.allocationPriority
+    }
+
+    if (args.priorityReason !== undefined) {
+      extensionUpdates.priorityReason = args.priorityReason
+      coreUpdates.priorityReason = args.priorityReason
+    }
+
+    if (args.tikkieAmountOverrideMinor !== undefined) {
+      extensionUpdates.tikkieAmountOverrideMinor =
+        args.tikkieAmountOverrideMinor
+    }
+
+    if (resolved.canonicalAttendee && Object.keys(coreUpdates).length > 0) {
+      await ctx.db.patch(
+        "orderAttendees",
+        resolved.canonicalAttendee._id,
+        coreUpdates
+      )
+    }
+
+    if (
+      resolved.ticketTailorAttendee &&
+      Object.keys(extensionUpdates).length > 0
+    ) {
+      await ctx.db.patch(
+        "ticketTailorAttendees",
+        resolved.ticketTailorAttendee._id,
+        extensionUpdates
+      )
+    }
+
+    return (
+      resolved.canonicalAttendee?._id ??
+      resolved.ticketTailorAttendee?._id ??
+      args.attendeeId
+    )
   },
 })
 
@@ -374,15 +672,67 @@ export const getAttendeeByStringId = query({
   args: { attendeeId: v.string() },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const attendeeId = ctx.db.normalizeId(
-      "ticketTailorAttendees",
-      args.attendeeId
-    )
+    const resolved = await resolveAttendeeRecordByStringId(ctx, args.attendeeId)
 
-    if (!attendeeId) {
+    if (!resolved) {
       return null
     }
 
-    return await ctx.db.get("ticketTailorAttendees", attendeeId)
+    const canonicalAttendee = resolved.canonicalAttendee
+    const ticketTailorAttendee = resolved.ticketTailorAttendee
+    const order = resolved.order
+
+    return {
+      _id: canonicalAttendee?._id ?? ticketTailorAttendee?._id,
+      name: ticketTailorAttendee?.name ?? canonicalAttendee?.name ?? null,
+      email: ticketTailorAttendee?.email ?? canonicalAttendee?.email ?? null,
+      ticketTypeLabel: resolved.ticketFinancials.ticketTypeLabel ?? null,
+      amountDueMinor: resolved.ticketFinancials.amountDueMinor ?? 0,
+      ticketStatus: ticketTailorAttendee?.ticketStatus ?? null,
+      checkedInAt: ticketTailorAttendee?.checkedInAt ?? null,
+      providerIssuedTicketId:
+        ticketTailorAttendee?.providerIssuedTicketId ?? null,
+      providerOrderId:
+        ticketTailorAttendee?.providerOrderId ?? order.providerOrderId ?? null,
+      providerEventId:
+        ticketTailorAttendee?.providerEventId ?? order.providerEventId ?? null,
+      eventId: order.eventId,
+      orderId: canonicalAttendee?.orderId ?? ticketTailorAttendee?.orderId,
+      assignedRoomId:
+        ticketTailorAttendee?.assignedRoomId ??
+        canonicalAttendee?.assignedRoomId ??
+        null,
+      customAnswers: mergeCustomAnswers({
+        canonicalAttendee: canonicalAttendee
+          ? {
+              location: canonicalAttendee.location ?? null,
+              dietaryRestrictions:
+                canonicalAttendee.dietaryRestrictions ?? null,
+              roommatePreference: canonicalAttendee.roommatePreference ?? null,
+              roommateAvoid: canonicalAttendee.roommateAvoid ?? null,
+            }
+          : null,
+        ticketTailorAttendee: ticketTailorAttendee
+          ? { customAnswers: ticketTailorAttendee.customAnswers }
+          : null,
+      }),
+      genderType:
+        ticketTailorAttendee?.genderType ??
+        (canonicalAttendee
+          ? normalizeLowerGenderToUpper(canonicalAttendee.gender)
+          : null),
+      allocationPriority:
+        ticketTailorAttendee?.allocationPriority ??
+        canonicalAttendee?.allocationPriority ??
+        null,
+      priorityReason:
+        ticketTailorAttendee?.priorityReason ??
+        canonicalAttendee?.priorityReason ??
+        null,
+      ageGroup: ticketTailorAttendee?.ageGroup ?? null,
+      ticketCategory: ticketTailorAttendee?.ticketCategory ?? null,
+      tikkieAmountOverrideMinor:
+        ticketTailorAttendee?.tikkieAmountOverrideMinor ?? null,
+    }
   },
 })

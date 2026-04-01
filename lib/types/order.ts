@@ -32,6 +32,7 @@ export const orderLedgerRowValidator = v.object({
   isArchived: v.boolean(),
   archivedAt: nullableStringValidator,
   archiveReason: nullableStringValidator,
+  amountDueMinor: v.union(v.number(), v.null()),
   totalAmountMinor: v.union(v.number(), v.null()),
   currency: nullableStringValidator,
   orderedAt: nullableStringValidator,
@@ -44,8 +45,8 @@ export const orderLedgerRowValidator = v.object({
  * Order search row — minimal shape for order picker dropdowns.
  */
 export const orderSearchRowValidator = v.object({
-  id: v.union(v.id("orders"), v.id("ticketTailorOrders")),
-  providerOrderId: v.string(),
+  id: v.id("orders"),
+  providerOrderId: nullableStringValidator,
   buyerName: nullableStringValidator,
-  totalAmountMinor: v.number(),
+  totalAmountMinor: v.union(v.number(), v.null()),
 })

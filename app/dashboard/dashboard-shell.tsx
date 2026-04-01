@@ -124,10 +124,6 @@ const navigationSections: NavigationSection[] = [
             href: "/dashboard/settings/ticket-types",
             label: "Payment templates",
           },
-          {
-            href: "/dashboard/ticket-tailor/sync",
-            label: "Ticket Tailor sync",
-          },
         ],
       },
     ],

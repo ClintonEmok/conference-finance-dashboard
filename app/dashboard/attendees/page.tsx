@@ -58,7 +58,6 @@ type AttendeesPayload = {
     attendeeId: string
     providerAttendeeId: string | null
     providerIssuedTicketId: string | null
-    providerOrderId: string
     eventId: string
     eventTitle: string | null
     attendeeName: string | null

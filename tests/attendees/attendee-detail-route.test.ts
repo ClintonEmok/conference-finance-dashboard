@@ -68,8 +68,9 @@ describe("/api/dashboard/attendees/[attendeeId] route", () => {
         ticketStatus: "issued",
         checkedInAt: null,
         providerIssuedTicketId: "issued_1",
-        providerOrderId: "order_1",
-        providerEventId: "event_1",
+        providerOrderId: null,
+        providerEventId: null,
+        amountDueMinor: 2500,
         tikkieAmountOverrideMinor: 2500,
       },
       signals: {
@@ -90,12 +91,13 @@ describe("/api/dashboard/attendees/[attendeeId] route", () => {
       },
       order: {
         id: "order_1",
-        providerOrderId: "order_1",
-        providerEventId: "event_1",
+        providerOrderId: null,
+        providerEventId: null,
         buyerName: "Ada Lovelace",
         buyerEmail: "ada@example.com",
         normalizedStatus: "pending" as const,
         orderedAt: "2026-03-01T10:00:00.000Z",
+        amountDueMinor: 2500,
         totalAmountMinor: 5000,
       },
       finance: {
@@ -123,9 +125,9 @@ describe("/api/dashboard/attendees/[attendeeId] route", () => {
         templateFallback: null,
         actions: {
           createEndpoint: "/api/dashboard/tikkie-links",
-          listEndpoint: "/api/dashboard/tikkie-links?providerOrderId=order_1",
+          listEndpoint: "/api/dashboard/tikkie-links?orderId=order_1",
           refreshEndpoint:
-            "/api/dashboard/tikkie-links?providerOrderId=order_1&refresh=1",
+            "/api/dashboard/tikkie-links?orderId=order_1&refresh=1",
           updateOverrideEndpoint: "/api/dashboard/attendees/attendee_1",
         },
       },

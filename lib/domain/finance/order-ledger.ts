@@ -13,6 +13,7 @@ export type OrderLedgerFilters = {
 }
 
 export type OrderLedgerRow = {
+  orderId: string
   providerOrderId: string | null
   eventId: string
   eventSlug: string
@@ -21,6 +22,7 @@ export type OrderLedgerRow = {
   isArchived: boolean
   archivedAt: string | null
   archiveReason: string | null
+  amountDueMinor: number | null
   totalAmountMinor: number | null
   currency: string | null
   orderedAt: string | null
@@ -168,13 +170,24 @@ export async function getOrderLedger(
       totalRows: ordersResult.totalRows,
       totalPages: ordersResult.totalPages,
     },
-    rows: ordersResult.orders,
+    rows: ordersResult.orders.map((row) => {
+      const typedRow = row as typeof row & {
+        amountDueMinor?: number | null
+      }
+
+      return {
+        ...typedRow,
+        orderId: typedRow.orderId ?? "",
+        amountDueMinor:
+          typedRow.amountDueMinor ?? typedRow.totalAmountMinor ?? null,
+      }
+    }),
   }
 }
 
 export function buildOrderLedgerCsv(rows: OrderLedgerRow[]) {
   const headers = [
-    "providerOrderId",
+    "orderId",
     "eventId",
     "eventSlug",
     "eventTitle",
@@ -182,6 +195,7 @@ export function buildOrderLedgerCsv(rows: OrderLedgerRow[]) {
     "isArchived",
     "archivedAt",
     "archiveReason",
+    "amountDueMinor",
     "totalAmountMinor",
     "currency",
     "orderedAt",
@@ -194,7 +208,7 @@ export function buildOrderLedgerCsv(rows: OrderLedgerRow[]) {
   for (const row of rows) {
     lines.push(
       [
-        row.providerOrderId,
+        row.orderId,
         row.eventId,
         row.eventSlug,
         row.eventTitle,
@@ -202,6 +216,7 @@ export function buildOrderLedgerCsv(rows: OrderLedgerRow[]) {
         row.isArchived,
         row.archivedAt,
         row.archiveReason,
+        row.amountDueMinor,
         row.totalAmountMinor,
         row.currency,
         row.orderedAt,

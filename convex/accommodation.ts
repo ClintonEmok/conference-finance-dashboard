@@ -319,8 +319,18 @@ export const getRoomAllocationBoard = query({
 
     const normalizedLocationFilter = normalizeOptionalString(args.location)
 
+    const internalCanonicalEvents = canonicalEvents.filter(
+      (event) => event.primarySourceKind === "internal"
+    )
+    const internalEventIds = new Set(
+      internalCanonicalEvents.map((event) => String(event._id))
+    )
+    const scopedOrders = allOrders.filter((order) =>
+      internalEventIds.has(String(order.eventId))
+    )
+
     // Build order lookup for event scoping
-    const orderById = new Map(allOrders.map((o) => [o._id as string, o]))
+    const orderById = new Map(scopedOrders.map((o) => [o._id as string, o]))
 
     // Filter attendees to those belonging to scoped orders
     const scopedAttendees = allOrderAttendees.filter((a) => {
@@ -403,7 +413,7 @@ export const getRoomAllocationBoard = query({
 
     // Build mapping from canonical eventId to event info
     const canonicalEventById = new Map(
-      canonicalEvents.map((e) => [e._id as string, e])
+      internalCanonicalEvents.map((e) => [e._id as string, e])
     )
 
     const attendeesByRoom: Record<string, typeof scopedAttendees> = {}
@@ -426,10 +436,11 @@ export const getRoomAllocationBoard = query({
           : null
         return {
           attendeeId: a._id,
+          orderId: order?._id ?? null,
           attendeeName: a.name ?? null,
           attendeeEmail: a.email ?? null,
-          providerOrderId: order?.providerOrderId ?? "",
-          providerEventId: order?.providerEventId ?? "",
+          providerOrderId: order?.providerOrderId ?? null,
+          providerEventId: order?.providerEventId ?? null,
           eventId: canonicalEvent?._id ?? null,
           eventName: canonicalEvent?.title ?? null,
           ticketTypeLabel: null,
@@ -476,10 +487,11 @@ export const getRoomAllocationBoard = query({
         attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
       return {
         attendeeId: a._id,
+        orderId: order?._id ?? null,
         attendeeName: a.name ?? null,
         attendeeEmail: a.email ?? null,
-        providerOrderId: order?.providerOrderId ?? "",
-        providerEventId: order?.providerEventId ?? "",
+        providerOrderId: order?.providerOrderId ?? null,
+        providerEventId: order?.providerEventId ?? null,
         eventId: canonicalEvent?._id ?? null,
         eventName: canonicalEvent?.title ?? null,
         ticketTypeLabel: null,
@@ -504,7 +516,7 @@ export const getRoomAllocationBoard = query({
     })
 
     // --- Canonical submission queue rows ---
-    const submissionIds = allOrders.map((s) => s._id)
+    const submissionIds = scopedOrders.map((s) => s._id)
 
     const [orderAttendeesList, orderAssignmentsList] = submissionIds.length
       ? await Promise.all([
@@ -700,7 +712,9 @@ export const getRoomAllocationBoard = query({
         hasPriority: args.hasPriority ?? null,
       },
       availableEvents: canonicalEvents
-        .filter((e) => e.accommodationEnabled)
+        .filter(
+          (e) => e.accommodationEnabled && e.primarySourceKind === "internal"
+        )
         .map((e) => ({
           eventId: e._id,
           slug: e.slug,
@@ -820,7 +834,7 @@ export const listAccommodationInventory = query({
         ctx.db.query("accommodationHotels").take(200),
         ctx.db.query("accommodationRoomTypes").take(100),
         ctx.db.query("accommodationRooms").take(500),
-        ctx.db.query("ticketTailorAttendees").take(2000),
+        ctx.db.query("orderAttendees").take(2000),
       ])
 
     const eventHotels = await ctx.db.query("accommodationEventHotels").take(200)
@@ -866,7 +880,9 @@ export const listAccommodationInventory = query({
 
     return {
       availableEvents: canonicalEvents
-        .filter((e) => e.accommodationEnabled)
+        .filter(
+          (e) => e.accommodationEnabled && e.primarySourceKind === "internal"
+        )
         .map((e) => ({
           eventId: e._id,
           slug: e.slug,

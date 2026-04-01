@@ -66,6 +66,7 @@ describe("allocation proposal compatibility strategy", () => {
             hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
             roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
             occupants: [],
+            pendingAssignments: [],
           },
           {
             id: "room-2",
@@ -78,6 +79,7 @@ describe("allocation proposal compatibility strategy", () => {
             hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
             roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
             occupants: [],
+            pendingAssignments: [],
           },
         ],
         unassignedAttendees: [
@@ -138,6 +140,7 @@ describe("allocation proposal compatibility strategy", () => {
             hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
             roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
             occupants: [],
+            pendingAssignments: [],
           },
         ],
         unassignedAttendees: [
@@ -199,6 +202,7 @@ describe("allocation proposal compatibility strategy", () => {
             hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
             roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
             occupants: [],
+            pendingAssignments: [],
           },
           {
             id: "room-2",
@@ -211,6 +215,7 @@ describe("allocation proposal compatibility strategy", () => {
             hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
             roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
             occupants: [],
+            pendingAssignments: [],
           },
         ],
         unassignedAttendees: [

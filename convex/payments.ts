@@ -9,6 +9,7 @@ import {
   paymentStatusValidator,
   paymentDocValidator,
 } from "../lib/types/payment"
+import { loadOrderAmountDueBreakdowns } from "./finance"
 
 // ---------------------------------------------------------------------------
 // Shared cleanup helper for legacy Tikkie payment records.
@@ -340,6 +341,11 @@ export const autoMatchPayments = mutation({
       )
       .take(500)
 
+    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      orders
+    )
+
     // Bounded: capped batch for auto-match
     const payments = await ctx.db.query("payments").take(1000)
 
@@ -386,8 +392,14 @@ export const autoMatchPayments = mutation({
 
       // Match on normalized buyer name PLUS exact amount
       const matchingOrder = orderLookup.get(normalizedPayerName)
+      const orderAmountDueMinor = matchingOrder
+        ? (amountDueBreakdownsByOrderId.get(String(matchingOrder._id))
+            ?.amountDueMinor ??
+          matchingOrder.totalAmountMinor ??
+          0)
+        : 0
 
-      if (matchingOrder && matchingOrder.totalAmountMinor === paymentAmount) {
+      if (matchingOrder && orderAmountDueMinor === paymentAmount) {
         await ctx.db.patch("payments", payment._id, {
           orderId: matchingOrder._id,
           status: "auto_matched",
@@ -404,7 +416,11 @@ export const autoMatchPayments = mutation({
         const attendeeMatch = orderAttendees.some(
           (name) => name === normalizedPayerName
         )
-        if (attendeeMatch && order.totalAmountMinor === paymentAmount) {
+        const orderAmountDueMinor =
+          amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
+          order.totalAmountMinor ??
+          0
+        if (attendeeMatch && orderAmountDueMinor === paymentAmount) {
           await ctx.db.patch("payments", payment._id, {
             orderId: order._id,
             status: "auto_matched",
@@ -439,7 +455,14 @@ export const getPaymentSummary = query({
 
     const orderId = ctx.db.normalizeId("orders", args.orderId)
     const order = orderId ? await ctx.db.get("orders", orderId) : null
-    const orderTotal = order?.totalAmountMinor ?? 0
+    const amountDueBreakdownByOrderId = order
+      ? await loadOrderAmountDueBreakdowns(ctx, [order])
+      : new Map()
+    const orderTotal =
+      amountDueBreakdownByOrderId.get(String(order?._id ?? ""))
+        ?.amountDueMinor ??
+      order?.totalAmountMinor ??
+      0
 
     return {
       totalPaid,

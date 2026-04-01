@@ -7,32 +7,6 @@ import { convexMutation, convexQuery } from "@/lib/convex/server"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ orderId: string }> }
-) {
-  const authResult = await requireApiUser()
-
-  if (authResult instanceof NextResponse) {
-    return authResult
-  }
-
-  const { orderId } = await params
-
-  const result = await convexQuery(api.orders.getOrderWithAttendees, {
-    orderId: orderId as Id<"orders">,
-  })
-
-  if (!result) {
-    return NextResponse.json(
-      { error: { message: "Order not found." } },
-      { status: 404 }
-    )
-  }
-
-  return NextResponse.json(result)
-}
-
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ orderId: string }> }

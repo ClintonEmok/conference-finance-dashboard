@@ -115,16 +115,20 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url)
   const providerOrderIdParam = url.searchParams.get("providerOrderId")
+  const orderIdParam = url.searchParams.get("orderId")
 
-  if (!providerOrderIdParam) {
-    return badRequest("Invalid 'providerOrderId'. Value is required.")
+  if (!providerOrderIdParam && !orderIdParam) {
+    return badRequest(
+      "Invalid 'providerOrderId' or 'orderId'. Value is required."
+    )
   }
 
   try {
-    const providerOrderId = normalizeProviderIdentifier(
-      providerOrderIdParam,
-      "providerOrderId"
-    )
+    const providerOrderId = providerOrderIdParam
+      ? normalizeProviderIdentifier(providerOrderIdParam, "providerOrderId")
+      : null
+    const orderId =
+      orderIdParam && orderIdParam.trim() ? orderIdParam.trim() : null
     const shouldRefresh = ["1", "true", "yes"].includes(
       (url.searchParams.get("refresh") ?? "").toLowerCase()
     )
@@ -132,6 +136,7 @@ export async function GET(request: Request) {
     if (shouldRefresh) {
       const linksForRefresh = await listTikkiePaymentLinksByOrder({
         providerOrderId,
+        orderId,
       })
 
       for (const link of linksForRefresh.links) {
@@ -147,6 +152,7 @@ export async function GET(request: Request) {
 
     const links = await listTikkiePaymentLinksByOrder({
       providerOrderId,
+      orderId,
     })
 
     return NextResponse.json({

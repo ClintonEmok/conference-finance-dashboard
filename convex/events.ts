@@ -83,13 +83,15 @@ export const getEventsForLedger = query({
       return (a.title ?? "").localeCompare(b.title ?? "")
     })
 
-    return sorted.map((e) => ({
-      eventId: e._id,
-      slug: e.slug,
-      title: e.title ?? null,
-      startsAt: e.startsAt ?? null,
-      currency: e.currency ?? null,
-    }))
+    return sorted
+      .filter((e) => e.primarySourceKind === "internal")
+      .map((e) => ({
+        eventId: e._id,
+        slug: e.slug,
+        title: e.title ?? null,
+        startsAt: e.startsAt ?? null,
+        currency: e.currency ?? null,
+      }))
   },
 })
 
@@ -120,7 +122,9 @@ export const getEventsWithAccommodation = query({
   handler: async (ctx) => {
     const events = await ctx.db.query("events").collect()
     return events
-      .filter((e) => e.accommodationEnabled)
+      .filter(
+        (e) => e.accommodationEnabled && e.primarySourceKind === "internal"
+      )
       .sort((a, b) => {
         const aTime = a.startsAt ?? 0
         const bTime = b.startsAt ?? 0

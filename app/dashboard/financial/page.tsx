@@ -40,7 +40,6 @@ type BalanceResponse = {
     title: string | null
   }>
   rows: Array<{
-    providerOrderId: string
     eventName: string | null
     normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
     totalAmountMinor: number

@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
+import { useQuery } from "convex/react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -22,6 +23,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { api } from "@/lib/convex/api"
+import type { Id } from "@/convex/_generated/dataModel"
 
 type PaymentStatus =
   | "auto_matched"
@@ -33,11 +36,11 @@ type PaymentStatus =
 type OrderAttendeePayload = {
   order: {
     id: string
-    providerOrderId: string | null
     normalizedStatus: "paid" | "refunded" | "cancelled" | "pending" | null
     isArchived?: boolean
     archivedAt: string | null
     archiveReason: string | null
+    amountDueMinor: number | null
     totalAmountMinor: number | null
     orderedAt: string | null
   }
@@ -46,6 +49,7 @@ type OrderAttendeePayload = {
     name: string
     ticketTypeLabel: string
     normalizedStatus: string
+    amountDueMinor: number
   }>
 }
 
@@ -105,19 +109,12 @@ function paymentStatusVariant(status: PaymentStatus) {
 
 export default function OrderDetailPage({ params }: PageProps) {
   const searchParams = useSearchParams()
-  const [providerOrderId, setProviderOrderId] = useState<string | null>(null)
-  const [orderPayload, setOrderPayload] = useState<OrderAttendeePayload | null>(
-    null
-  )
-  const [payments, setPayments] = useState<PaymentsPayload["payments"]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [orderId, setOrderId] = useState<string | null>(null)
   const [isRemoving, setIsRemoving] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [removeErrorMessage, setRemoveErrorMessage] = useState<string | null>(
     null
   )
 
-  const eventId = searchParams.get("eventId")
   const source = searchParams.get("source")
   const attendeeId = searchParams.get("attendeeId")
   const attendeeSearch = searchParams.get("search")
@@ -125,9 +122,6 @@ export default function OrderDetailPage({ params }: PageProps) {
   const backHref = useMemo(() => {
     if (source === "attendee-detail" && attendeeId) {
       const params = new URLSearchParams()
-      if (eventId) {
-        params.set("eventId", eventId)
-      }
       if (attendeeSearch) {
         params.set("search", attendeeSearch)
       }
@@ -137,116 +131,71 @@ export default function OrderDetailPage({ params }: PageProps) {
     }
 
     return "/dashboard/orders"
-  }, [attendeeId, attendeeSearch, eventId, source])
+  }, [attendeeId, attendeeSearch, source])
 
   useEffect(() => {
     let cancelled = false
 
-    async function resolveParamsAndLoad() {
+    async function resolveParams() {
       const resolved = await params
 
       if (cancelled) {
         return
       }
 
-      setProviderOrderId(resolved.orderId)
-
-      if (!eventId) {
-        setErrorMessage("Missing event context for this order.")
-        setIsLoading(false)
-        return
-      }
-
-      setIsLoading(true)
-      setErrorMessage(null)
-
-      try {
-        const orderResponse = await fetch(
-          `/api/dashboard/orders/${encodeURIComponent(resolved.orderId)}?eventId=${encodeURIComponent(eventId)}`
-        )
-
-        const orderBody = (await orderResponse.json().catch(() => null)) as
-          | OrderAttendeePayload
-          | { error?: { message?: string } }
-          | null
-
-        if (!orderResponse.ok) {
-          if (!cancelled) {
-            setOrderPayload(null)
-            setPayments([])
-            setErrorMessage(
-              orderBody && "error" in orderBody
-                ? (orderBody.error?.message ?? "Failed to load order details.")
-                : "Failed to load order details."
-            )
-            setIsLoading(false)
-          }
-          return
-        }
-
-        const orderData = orderBody as OrderAttendeePayload
-        const paymentQueries = [
-          orderData.order.id,
-          orderData.order.providerOrderId,
-        ]
-        const mergedPayments = new Map<
-          string,
-          PaymentsPayload["payments"][number]
-        >()
-
-        for (const orderIdValue of paymentQueries) {
-          if (!orderIdValue) {
-            continue
-          }
-
-          const paymentResponse = await fetch(
-            `/api/payments?orderId=${encodeURIComponent(orderIdValue)}&limit=100`
-          )
-
-          if (!paymentResponse.ok) {
-            continue
-          }
-
-          const paymentBody = (await paymentResponse.json()) as PaymentsPayload
-
-          for (const payment of paymentBody.payments ?? []) {
-            mergedPayments.set(payment.id, payment)
-          }
-        }
-
-        if (!cancelled) {
-          const sortedPayments = Array.from(mergedPayments.values()).sort(
-            (a, b) =>
-              new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime()
-          )
-
-          setOrderPayload(orderData)
-          setPayments(sortedPayments)
-        }
-      } catch {
-        if (!cancelled) {
-          setOrderPayload(null)
-          setPayments([])
-          setErrorMessage("Network error while loading order details.")
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false)
-        }
-      }
+      setOrderId(resolved.orderId)
     }
 
-    void resolveParamsAndLoad()
+    void resolveParams()
 
     return () => {
       cancelled = true
     }
-  }, [eventId, params])
+  }, [params])
+
+  const normalizedOrderId = orderId?.trim() ?? ""
+  const hasOrderId = normalizedOrderId.length > 0
+
+  const orderQuery = useQuery(
+    api.orders.getOrderWithAttendees,
+    hasOrderId ? { orderId: normalizedOrderId as Id<"orders"> } : "skip"
+  )
+
+  const paymentDocs = useQuery(
+    api.payments.getPayments,
+    hasOrderId ? { orderId: normalizedOrderId } : "skip"
+  )
+
+  const orderPayload = (orderQuery ?? null) as OrderAttendeePayload | null
+
+  const payments = useMemo<PaymentsPayload["payments"]>(
+    () =>
+      (paymentDocs ?? [])
+        .map((payment) => ({
+          id: payment._id,
+          source: payment.source,
+          payerName: payment.payerName,
+          amountMinor: payment.amountMinor,
+          paidAt: new Date(payment.paidAt).toISOString(),
+          status: payment.status ?? null,
+          orderId: payment.orderId ?? null,
+          reference: payment.reference ?? null,
+          notes: payment.notes ?? null,
+        }))
+        .sort(
+          (a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime()
+        ),
+    [paymentDocs]
+  )
+
+  const isLoading =
+    !hasOrderId || orderQuery === undefined || paymentDocs === undefined
+  const errorMessage =
+    hasOrderId && orderQuery === null ? "Order not found." : null
 
   const metrics = useMemo(() => {
-    const hasKnownTotal =
-      typeof orderPayload?.order.totalAmountMinor === "number"
-    const totalAmountMinor = orderPayload?.order.totalAmountMinor ?? 0
+    const hasKnownDue = typeof orderPayload?.order.amountDueMinor === "number"
+    const amountDueMinor = orderPayload?.order.amountDueMinor ?? 0
     const matchedPayments = payments.filter(
       (payment) =>
         payment.status === "auto_matched" ||
@@ -257,27 +206,27 @@ export default function OrderDetailPage({ params }: PageProps) {
       0
     )
 
-    const outstandingAmountMinor = Math.max(
-      0,
-      totalAmountMinor - paidAmountMinor
-    )
-    const overpaidAmountMinor = Math.max(0, paidAmountMinor - totalAmountMinor)
+    const outstandingAmountMinor = Math.max(0, amountDueMinor - paidAmountMinor)
+    const overpaidAmountMinor = Math.max(0, paidAmountMinor - amountDueMinor)
     const coverage =
-      hasKnownTotal && totalAmountMinor > 0
-        ? Math.min(100, Math.round((paidAmountMinor / totalAmountMinor) * 100))
-        : null
+      hasKnownDue && amountDueMinor > 0
+        ? Math.min(100, Math.round((paidAmountMinor / amountDueMinor) * 100))
+        : amountDueMinor === 0
+          ? 100
+          : null
+
 
     const attendeeCount = orderPayload?.attendees.length ?? 0
     const sharedOutstandingPerAttendeeMinor =
       attendeeCount > 0 ? Math.ceil(outstandingAmountMinor / attendeeCount) : 0
 
     return {
-      totalAmountMinor,
+      amountDueMinor,
       paidAmountMinor,
       outstandingAmountMinor,
       overpaidAmountMinor,
       coverage,
-      hasKnownTotal,
+      hasKnownDue,
       attendeeCount,
       sharedOutstandingPerAttendeeMinor,
     }
@@ -295,7 +244,7 @@ export default function OrderDetailPage({ params }: PageProps) {
   }, [orderPayload])
 
   async function removeOrderLocally() {
-    if (!providerOrderId || !eventId || !canRemoveLocally) {
+    if (!orderId || !canRemoveLocally) {
       return
     }
 
@@ -311,7 +260,7 @@ export default function OrderDetailPage({ params }: PageProps) {
 
     try {
       const response = await fetch(
-        `/api/dashboard/orders/${encodeURIComponent(providerOrderId)}?eventId=${encodeURIComponent(eventId)}`,
+        `/api/dashboard/orders/${encodeURIComponent(orderId)}`,
         {
           method: "DELETE",
         }
@@ -323,7 +272,7 @@ export default function OrderDetailPage({ params }: PageProps) {
         } | null
         setRemoveErrorMessage(
           body?.error?.message ??
-            "Failed to remove this order from local records."
+          "Failed to remove this order from local records."
         )
         return
       }
@@ -374,12 +323,11 @@ export default function OrderDetailPage({ params }: PageProps) {
             <CardHeader>
               <CardTitle className="flex flex-wrap items-center gap-2 text-2xl">
                 <span className="font-mono text-lg">
-                  {orderPayload.order.providerOrderId ??
-                    "Missing provider order ID"}
+                  {orderPayload.order.id}
                 </span>
                 <Badge
                   variant={statusBadgeVariant(
-                    orderPayload.order.normalizedStatus
+                    orderPayload.order.normalizedStatus ?? null
                   )}
                 >
                   {orderPayload.order.normalizedStatus ?? "pending"}
@@ -389,8 +337,7 @@ export default function OrderDetailPage({ params }: PageProps) {
                 )}
               </CardTitle>
               <CardDescription>
-                Ordered {formatDateTime(orderPayload.order.orderedAt)} ·{" "}
-                {eventId ?? "Unknown event"}
+                Ordered {formatDateTime(orderPayload.order.orderedAt)}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -417,11 +364,11 @@ export default function OrderDetailPage({ params }: PageProps) {
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                 <article className="rounded-lg border border-border/70 bg-background p-3">
                   <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                    Order total
+                    Order due
                   </p>
                   <p className="mt-1.5 text-2xl font-semibold tracking-tight">
-                    {metrics.hasKnownTotal
-                      ? formatMoney(metrics.totalAmountMinor)
+                    {metrics.hasKnownDue
+                      ? formatMoney(metrics.amountDueMinor)
                       : "Missing amount"}
                   </p>
                 </article>
@@ -438,7 +385,7 @@ export default function OrderDetailPage({ params }: PageProps) {
                     Outstanding
                   </p>
                   <p className="mt-1.5 text-2xl font-semibold tracking-tight text-rose-600 dark:text-rose-300">
-                    {metrics.hasKnownTotal
+                    {metrics.hasKnownDue
                       ? formatMoney(metrics.outstandingAmountMinor)
                       : "Missing amount"}
                   </p>
@@ -463,8 +410,8 @@ export default function OrderDetailPage({ params }: PageProps) {
 
               <article className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground">
                 {metrics.attendeeCount > 1
-                  ? `This order has ${metrics.attendeeCount} attendees. Payment progress is tracked at order level and shared across the group. Current shared outstanding is about ${formatMoney(metrics.sharedOutstandingPerAttendeeMinor)} per attendee if split evenly.`
-                  : "This order has one attendee, so order progress maps directly to that attendee."}
+                  ? `This order has ${metrics.attendeeCount} attendees. Payment progress is tracked against attendee ticket dues, with current outstanding averaging about ${formatMoney(metrics.sharedOutstandingPerAttendeeMinor)} per attendee.`
+                  : "This order has one attendee, so order progress maps directly to that attendee's ticket due."}
               </article>
             </CardContent>
           </Card>
@@ -492,9 +439,7 @@ export default function OrderDetailPage({ params }: PageProps) {
                           <TableHead>Attendee</TableHead>
                           <TableHead>Ticket</TableHead>
                           <TableHead>Status</TableHead>
-                          <TableHead className="text-right">
-                            Shared due
-                          </TableHead>
+                          <TableHead className="text-right">Due</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -521,9 +466,7 @@ export default function OrderDetailPage({ params }: PageProps) {
                               </Badge>
                             </TableCell>
                             <TableCell className="text-right text-sm">
-                              {formatMoney(
-                                metrics.sharedOutstandingPerAttendeeMinor
-                              )}
+                              {formatMoney(attendee.amountDueMinor)}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -594,7 +537,7 @@ export default function OrderDetailPage({ params }: PageProps) {
         </>
       )}
 
-      {!providerOrderId && !isLoading && !orderPayload && !errorMessage && (
+      {!orderId && !isLoading && !orderPayload && !errorMessage && (
         <article className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
           No order selected.
         </article>

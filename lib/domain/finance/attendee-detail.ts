@@ -1,9 +1,13 @@
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
+import type { Id } from "@/convex/_generated/dataModel"
 import { buildMatchedTotalsByProviderOrderId } from "@/lib/domain/finance/matched-payments"
+import {
+  allocateMinorAmountByWeight,
+  deriveBalanceAmounts,
+} from "@/lib/domain/finance/amounts"
 import { matchTemplateForAttendee } from "@/lib/domain/finance/tikkie-templates"
 import {
-  buildTikkieGenerationDefaults,
   deriveTikkieLinkCheckState,
   mapTikkiePaymentLink,
   type TikkieLinkCheckState,
@@ -32,6 +36,23 @@ type PaymentMatchStatus =
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 
+type OrderWithAttendeesOrder = {
+  id: string
+  providerOrderId: string | null
+  providerEventId: string | null
+  buyerName: string | null
+  buyerEmail: string | null
+  normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
+  orderedAt: string | null
+  amountDueMinor: number | null
+  totalAmountMinor: number | null
+}
+
+type OrderWithAttendeesAttendee = {
+  id: string
+  amountDueMinor: number
+}
+
 type PaymentRecord = {
   _id: string
   amountMinor: number
@@ -52,11 +73,12 @@ export type AttendeeDetail = {
     name: string | null
     email: string | null
     ticketTypeLabel: string | null
+    amountDueMinor: number
     ticketStatus: string | null
     checkedInAt: string | null
     providerIssuedTicketId: string | null
-    providerOrderId: string
-    providerEventId: string
+    providerOrderId: string | null
+    providerEventId: string | null
     tikkieAmountOverrideMinor: number | null
   }
   signals: {
@@ -82,12 +104,13 @@ export type AttendeeDetail = {
   }
   order: {
     id: string
-    providerOrderId: string
-    providerEventId: string
+    providerOrderId: string | null
+    providerEventId: string | null
     buyerName: string | null
     buyerEmail: string | null
     normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
     orderedAt: string | null
+    amountDueMinor: number
     totalAmountMinor: number
   }
   finance: {
@@ -177,11 +200,12 @@ export async function getAttendeeDetail(
     name: string | null
     email: string | null
     ticketTypeLabel: string | null
+    amountDueMinor: number
     ticketStatus: string | null
     checkedInAt: number | null
     providerIssuedTicketId: string | null
-    providerOrderId: string
-    providerEventId: string
+    providerOrderId: string | null
+    providerEventId: string | null
     eventId: string
     orderId: string
     assignedRoomId: string | null
@@ -204,16 +228,26 @@ export async function getAttendeeDetail(
       })
     : Promise.resolve(null)
 
-  const [event, order, paymentLinks, allPayments, assignedRoomData] =
-    await Promise.all([
-      convexQuery(api.events.getEventById, { eventId: attendee.eventId }),
-      convexQuery(api.orders.getOrderById, { orderId: attendee.orderId }),
-      convexQuery(api.tikkie.getPaymentLinksByOrderId, {
-        orderId: attendee.orderId,
-      }),
-      convexQuery(api.payments.getPayments, {}),
-      assignedRoomPromise,
-    ])
+  const [
+    event,
+    orderWithAttendees,
+    paymentLinks,
+    allPayments,
+    assignedRoomData,
+  ] = await Promise.all([
+    convexQuery(api.events.getEventById, { eventId: attendee.eventId }),
+    convexQuery(api.orders.getOrderWithAttendees, {
+      orderId: attendee.orderId as Id<"orders">,
+    }) as Promise<{
+      order: OrderWithAttendeesOrder
+      attendees: OrderWithAttendeesAttendee[]
+    } | null>,
+    convexQuery(api.tikkie.getPaymentLinksByOrderId, {
+      orderId: attendee.orderId,
+    }),
+    convexQuery(api.payments.getPayments, {}),
+    assignedRoomPromise,
+  ])
 
   const [hotelData, roomTypeData] = await Promise.all([
     assignedRoomData
@@ -232,6 +266,9 @@ export async function getAttendeeDetail(
   const hotel = hotelData
   const roomType = roomTypeData
 
+  const order = orderWithAttendees?.order ?? null
+  const orderAttendees = orderWithAttendees?.attendees ?? []
+
   if (!order) {
     throw new Error("Order not found.")
   }
@@ -240,23 +277,35 @@ export async function getAttendeeDetail(
     throw new Error("Event not found.")
   }
 
-  const totalAmountMinor = order.totalAmountMinor ?? 0
+  const orderAmountDueMinor =
+    order.amountDueMinor ?? order.totalAmountMinor ?? 0
   const matchedTotalsByProviderOrderId =
     await buildMatchedTotalsByProviderOrderId([
       {
         providerOrderId: order.providerOrderId,
+        orderId: order.id,
       },
     ])
-  const paidAmountMinor = Math.max(
+  const paymentMatchKey = order.providerOrderId ?? order.id
+  const orderPaidAmountMinor = Math.max(
     0,
-    matchedTotalsByProviderOrderId.get(order.providerOrderId) ?? 0
+    matchedTotalsByProviderOrderId.get(paymentMatchKey) ?? 0
   )
-  const overpaidAmountMinor = Math.max(0, paidAmountMinor - totalAmountMinor)
-  const outstandingAmountMinor = deriveOutstandingAmount({
-    normalizedStatus: order.normalizedStatus,
-    totalAmountMinor,
-    paidAmountMinor,
-  })
+  const paidShareByAttendeeId = allocateMinorAmountByWeight(
+    orderPaidAmountMinor,
+    orderAttendees.map((orderAttendee) => ({
+      id: orderAttendee.id,
+      weightMinor: orderAttendee.amountDueMinor,
+    }))
+  )
+  const attendeeAmountDueMinor =
+    orderAttendees.find((orderAttendee) => orderAttendee.id === attendee._id)
+      ?.amountDueMinor ?? attendee.amountDueMinor
+  const attendeePaidAmountMinor = paidShareByAttendeeId.get(attendee._id) ?? 0
+  const balance = deriveBalanceAmounts(
+    attendeeAmountDueMinor,
+    attendeePaidAmountMinor
+  )
 
   const paymentHistoryFromTikkie = paymentLinks.flatMap(
     (link: (typeof paymentLinks)[number]) => [
@@ -312,7 +361,7 @@ export async function getAttendeeDetail(
 
     if (rawOrderId === order.providerOrderId) {
       providerOrderId = rawOrderId
-    } else if (rawOrderId === order._id) {
+    } else if (rawOrderId === order.id) {
       providerOrderId = order.providerOrderId
     } else if (legacyLookupCache.has(rawOrderId)) {
       providerOrderId = legacyLookupCache.get(rawOrderId) ?? null
@@ -408,12 +457,6 @@ export async function getAttendeeDetail(
     ticketTypeLabel: attendee.ticketTypeLabel,
     tikkieAmountOverrideMinor: attendee.tikkieAmountOverrideMinor,
   })
-  const generationDefaults = {
-    amountMinor: templateMatch.amountMinor,
-    expiryDate: templateMatch.expiryDate,
-    description: templateMatch.description,
-    referenceId: templateMatch.referenceId,
-  }
 
   let templateFallback: AttendeeDetail["tikkie"]["templateFallback"] = null
   if (attendee.ticketTypeLabel && attendee.ticketTypeLabel.trim()) {
@@ -443,7 +486,15 @@ export async function getAttendeeDetail(
     }
   }
 
-  const listEndpoint = `/api/dashboard/tikkie-links?providerOrderId=${encodeURIComponent(order.providerOrderId)}`
+  const listEndpoint = order.providerOrderId
+    ? `/api/dashboard/tikkie-links?providerOrderId=${encodeURIComponent(order.providerOrderId)}`
+    : `/api/dashboard/tikkie-links?orderId=${encodeURIComponent(order.id)}`
+  const generationDefaults = {
+    amountMinor: templateMatch.amountMinor,
+    expiryDate: templateMatch.expiryDate,
+    description: templateMatch.description,
+    referenceId: templateMatch.referenceId,
+  }
 
   const roomStatus: RoomStatus = assignedRoom
     ? {
@@ -465,6 +516,7 @@ export async function getAttendeeDetail(
       name: attendee.name,
       email: attendee.email,
       ticketTypeLabel: attendee.ticketTypeLabel,
+      amountDueMinor: attendeeAmountDueMinor,
       ticketStatus: attendee.ticketStatus,
       checkedInAt: attendee.checkedInAt
         ? new Date(attendee.checkedInAt).toISOString()
@@ -499,7 +551,7 @@ export async function getAttendeeDetail(
       name: event.name,
     },
     order: {
-      id: order._id,
+      id: order.id,
       providerOrderId: order.providerOrderId,
       providerEventId: order.providerEventId,
       buyerName: order.buyerName,
@@ -508,12 +560,13 @@ export async function getAttendeeDetail(
       orderedAt: order.orderedAt
         ? new Date(order.orderedAt).toISOString()
         : null,
-      totalAmountMinor,
+      amountDueMinor: orderAmountDueMinor,
+      totalAmountMinor: order.totalAmountMinor ?? 0,
     },
     finance: {
-      outstandingAmountMinor,
-      paidAmountMinor,
-      overpaidAmountMinor,
+      outstandingAmountMinor: balance.outstandingAmountMinor,
+      paidAmountMinor: balance.paidAmountMinor,
+      overpaidAmountMinor: balance.overpaidAmountMinor,
       installmentProgress: {
         totalLinks: paymentLinks.length,
         paidLinks: paymentLinks.filter(

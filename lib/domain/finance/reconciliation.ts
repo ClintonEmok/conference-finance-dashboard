@@ -23,6 +23,7 @@ export type ReconciliationRow = {
   eventSlug: string
   eventTitle: string | null
   normalizedStatus: CanonicalOrderStatus
+  amountDueMinor: number | null
   totalAmountMinor: number | null
   currency: string | null
   orderedAt: string | null
@@ -89,16 +90,17 @@ function normalizeRange(filters: ReconciliationFilters) {
 
 function deriveReconciliation(order: {
   normalizedStatus: CanonicalOrderStatus
+  amountDueMinor: number | null
   totalAmountMinor: number | null
   refundedAt: Date | null
   matchedAmountMinor: number
 }) {
-  const amount = order.totalAmountMinor ?? 0
+  const amount = order.amountDueMinor ?? 0
   const remainingAmount = Math.max(0, amount - order.matchedAmountMinor)
   const reasons: ReconciliationReason[] = []
   let outstandingMinor = 0
 
-  if (order.totalAmountMinor === null) {
+  if (order.amountDueMinor === null) {
     reasons.push("missing-amount")
   }
 
@@ -152,14 +154,22 @@ export async function getReconciliationRows(
   let outstandingMinor = 0
 
   for (const order of orders) {
-    const providerOrderLookupKey =
-      order.providerOrderId ?? order.orderId ?? null
+    const typedOrder = order as typeof order & {
+      amountDueMinor?: number | null
+    }
 
-    const refundedAtDate = order.refundedAt ? new Date(order.refundedAt) : null
+    const providerOrderLookupKey =
+      typedOrder.providerOrderId ?? typedOrder.orderId ?? null
+
+    const refundedAtDate = typedOrder.refundedAt
+      ? new Date(typedOrder.refundedAt)
+      : null
 
     const reconciliation = deriveReconciliation({
-      normalizedStatus: order.normalizedStatus,
-      totalAmountMinor: order.totalAmountMinor,
+      normalizedStatus: typedOrder.normalizedStatus,
+      amountDueMinor:
+        typedOrder.amountDueMinor ?? typedOrder.totalAmountMinor ?? null,
+      totalAmountMinor: typedOrder.totalAmountMinor,
       refundedAt: refundedAtDate,
       matchedAmountMinor:
         (providerOrderLookupKey
@@ -174,16 +184,18 @@ export async function getReconciliationRows(
     outstandingMinor += reconciliation.outstandingMinor
 
     rows.push({
-      orderId: order.orderId ?? null,
-      providerOrderId: order.providerOrderId ?? null,
-      eventId: order.eventId,
-      eventSlug: order.eventSlug,
-      eventTitle: order.eventTitle,
-      normalizedStatus: order.normalizedStatus,
-      totalAmountMinor: order.totalAmountMinor,
-      currency: order.currency,
-      orderedAt: order.orderedAt,
-      refundedAt: order.refundedAt,
+      orderId: typedOrder.orderId ?? null,
+      providerOrderId: typedOrder.providerOrderId ?? null,
+      eventId: typedOrder.eventId,
+      eventSlug: typedOrder.eventSlug,
+      eventTitle: typedOrder.eventTitle,
+      normalizedStatus: typedOrder.normalizedStatus,
+      amountDueMinor:
+        typedOrder.amountDueMinor ?? typedOrder.totalAmountMinor ?? null,
+      totalAmountMinor: typedOrder.totalAmountMinor,
+      currency: typedOrder.currency,
+      orderedAt: typedOrder.orderedAt,
+      refundedAt: typedOrder.refundedAt,
       outstandingMinor: reconciliation.outstandingMinor,
       reasons: reconciliation.reasons,
     })

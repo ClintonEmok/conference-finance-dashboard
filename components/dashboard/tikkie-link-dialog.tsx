@@ -17,8 +17,10 @@ export type TikkieLinkDialogValues = {
 }
 
 export type TikkieLinkDialogDefaults = TikkieLinkDialogValues & {
-  providerOrderId: string
-  providerEventId: string
+  orderId: string
+  eventId: string
+  providerOrderId?: string
+  providerEventId?: string
 }
 
 type TikkieLinkDialogProps = {
@@ -169,10 +171,10 @@ export function TikkieLinkDialog({
         <CardContent className="space-y-5 p-5">
           <div className="grid gap-3 md:grid-cols-3">
             {[
-              { label: "Order", value: defaults.providerOrderId, icon: Link2 },
+              { label: "Order", value: defaults.orderId, icon: Link2 },
               {
                 label: "Event",
-                value: defaults.providerEventId,
+                value: defaults.eventId,
                 icon: CalendarClock,
               },
               {
