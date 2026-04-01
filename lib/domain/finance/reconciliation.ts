@@ -17,6 +17,7 @@ export type ReconciliationReason =
   | "refund-without-refunded-at"
 
 export type ReconciliationRow = {
+  orderId: string | null
   providerOrderId: string
   eventId: string
   eventSlug: string
@@ -168,6 +169,7 @@ export async function getReconciliationRows(
     outstandingMinor += reconciliation.outstandingMinor
 
     rows.push({
+      orderId: order.orderId ?? null,
       providerOrderId: order.providerOrderId,
       eventId: order.eventId,
       eventSlug: order.eventSlug,

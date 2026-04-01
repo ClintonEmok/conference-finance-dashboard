@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation } from "convex/react"
 import { api } from "@/lib/convex/api"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export function useOrders(args?: {
   eventId?: string
@@ -18,13 +19,9 @@ export function useOrderByProviderId(providerOrderId: string) {
   return useQuery(api.orders.getOrderByProviderId, { providerOrderId })
 }
 
-export function useOrderWithAttendeesByProviderId(
-  providerOrderId: string,
-  providerEventId: string
-) {
-  return useQuery(api.orders.getOrderWithAttendeesByProviderId, {
-    providerOrderId,
-    providerEventId,
+export function useOrderWithAttendees(orderId: string) {
+  return useQuery(api.orders.getOrderWithAttendees, {
+    orderId: orderId as Id<"orders">,
   })
 }
 

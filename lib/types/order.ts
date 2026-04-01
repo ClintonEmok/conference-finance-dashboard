@@ -23,6 +23,7 @@ export const nullableStringValidator = v.union(v.string(), v.null())
  * Source-agnostic: uses canonical event fields (eventId, eventSlug, eventTitle).
  */
 export const orderLedgerRowValidator = v.object({
+  orderId: v.optional(v.string()),
   providerOrderId: v.string(),
   eventId: v.string(),
   eventSlug: v.string(),

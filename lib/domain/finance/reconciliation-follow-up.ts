@@ -1,32 +1,36 @@
 type ReconciliationFollowUpHrefInput = {
   attendeeId?: string | null
-  providerOrderId: string
+  orderId?: string | null
+  providerOrderId?: string | null
   providerEventId?: string | null
 }
 
 export function buildReconciliationFollowUpHref({
   attendeeId,
+  orderId,
   providerOrderId,
   providerEventId,
 }: ReconciliationFollowUpHrefInput) {
   const trimmedAttendeeId = attendeeId?.trim() ?? ""
-  const trimmedOrderId = providerOrderId.trim()
+  const trimmedOrderId = orderId?.trim() ?? ""
+  const trimmedProviderOrderId = providerOrderId?.trim() ?? ""
   const trimmedEventId = providerEventId?.trim() ?? ""
+  const searchId = trimmedOrderId || trimmedProviderOrderId
 
   if (trimmedAttendeeId) {
     const params = new URLSearchParams()
     params.set("source", "reconciliation")
 
-    if (trimmedOrderId) {
-      params.set("orderId", trimmedOrderId)
+    if (searchId) {
+      params.set("orderId", searchId)
     }
 
     if (trimmedEventId) {
       params.set("eventId", trimmedEventId)
     }
 
-    if (trimmedOrderId) {
-      params.set("search", trimmedOrderId)
+    if (searchId) {
+      params.set("search", searchId)
     }
 
     const query = params.toString()
@@ -37,8 +41,8 @@ export function buildReconciliationFollowUpHref({
 
   const params = new URLSearchParams()
 
-  if (trimmedOrderId) {
-    params.set("search", trimmedOrderId)
+  if (searchId) {
+    params.set("search", searchId)
   }
 
   if (trimmedEventId) {
@@ -47,8 +51,8 @@ export function buildReconciliationFollowUpHref({
 
   params.set("source", "reconciliation")
 
-  if (trimmedOrderId) {
-    params.set("orderId", trimmedOrderId)
+  if (searchId) {
+    params.set("orderId", searchId)
   }
 
   return `/dashboard/attendees?${params.toString()}`

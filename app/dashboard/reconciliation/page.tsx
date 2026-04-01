@@ -38,9 +38,10 @@ type ReconciliationPayload = {
     outstandingMinor: number
   }
   rows: Array<{
+    orderId: string | null
     providerOrderId: string
     providerEventId: string
-    eventName: string | null
+    eventTitle: string | null
     normalizedStatus: CanonicalOrderStatus
     totalAmountMinor: number
     currency: string | null
@@ -284,26 +285,37 @@ export default function ReconciliationPage() {
               </div>
             ) : (
               rows.map((row) => {
+                const displayId = row.orderId ?? row.providerOrderId
                 const followUpHref = buildReconciliationFollowUpHref({
                   attendeeId:
                     resolvedAttendeeIdsByOrderId[row.providerOrderId] ?? null,
+                  orderId: row.orderId ?? undefined,
                   providerOrderId: row.providerOrderId,
                   providerEventId: row.providerEventId,
                 })
 
                 return (
                   <article
-                    key={row.providerOrderId}
+                    key={displayId}
                     className="flex flex-col overflow-hidden rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl transition-all hover:border-primary/30"
                   >
                     <div className="p-5 pb-0">
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0 flex-1">
                           <p className="font-mono text-[10px] font-bold tracking-wider text-primary/70 uppercase">
-                            {row.providerOrderId}
+                            {row.orderId ? (
+                              <>
+                                <span className="text-muted-foreground/60">
+                                  ID:{" "}
+                                </span>
+                                {row.orderId}
+                              </>
+                            ) : (
+                              row.providerOrderId
+                            )}
                           </p>
                           <h4 className="mt-1 truncate font-bold text-foreground">
-                            {row.eventName ?? "Unknown event"}
+                            {row.eventTitle ?? "Unknown event"}
                           </h4>
                           <p className="mt-0.5 text-[10px] font-medium text-muted-foreground">
                             {row.orderedAt
@@ -361,7 +373,7 @@ export default function ReconciliationPage() {
 
                       <div className="rounded-2xl border border-border/30 bg-background/20 p-1">
                         <OrderAttendeeBreakdown
-                          orderId={row.providerOrderId}
+                          orderId={row.orderId ?? row.providerOrderId}
                           eventId={row.providerEventId}
                           onResolvedAttendeeId={handleResolvedAttendeeId}
                         />

@@ -33,6 +33,14 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { useEventsWithAccommodation } from "@/lib/convex/hooks/events"
 import {
@@ -101,6 +109,14 @@ type AccommodationWorkspacePayload = {
       providerEventId: string
       eventName: string | null
       ticketTypeLabel: string | null
+    }>
+    pendingAssignments: Array<{
+      assignmentId: string
+      attendeeId: string
+      attendeeName: string | null
+      attendeeEmail: string | null
+      assignmentIntent: "assign" | "skip"
+      sortOrder: number
     }>
   }>
   unassignedAttendees: Array<{
@@ -293,6 +309,28 @@ export default function AccommodationPage() {
     string | null
   >(null)
   const [showSubmissionDetail, setShowSubmissionDetail] = useState(false)
+
+  // Pending assignment confirmation dialog state
+  const [selectedPendingAssignment, setSelectedPendingAssignment] = useState<{
+    assignmentId: string
+    attendeeId: string
+    attendeeName: string | null
+    attendeeEmail: string | null
+    roomId: string
+    roomLabel: string
+  } | null>(null)
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  const [alternativeRooms, setAlternativeRooms] = useState<
+    Array<{
+      slotId: string
+      roomId: string
+      roomLabel: string
+      roomType: string
+      capacity: number | null
+      occupantCount: number
+      availableSpots: number | null
+    }>
+  >([])
 
   const [appliedEventId, setAppliedEventId] = useState("")
   const [appliedSearch, setAppliedSearch] = useState("")
@@ -666,6 +704,107 @@ export default function AccommodationPage() {
       setAssignmentMessage(
         "Attendee removed from room. Occupancy has been refreshed from live server data."
       )
+      await loadWorkspace()
+    } finally {
+      setIsMutating(false)
+    }
+  }
+
+  async function confirmPendingAssignment(
+    assignmentId: string,
+    slotId?: string
+  ) {
+    setIsMutating(true)
+    setAssignmentMessage(null)
+    setAlternativeRooms([])
+
+    try {
+      const response = await fetch(
+        "/api/dashboard/accommodation/assignments/confirm",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assignmentId, slotId }),
+        }
+      )
+
+      const body = (await response.json().catch(() => null)) as {
+        success?: boolean
+        error?: string
+        message?: string
+        alternatives?: Array<{
+          slotId: string
+          roomId: string
+          roomLabel: string
+          roomType: string
+          capacity: number | null
+          occupantCount: number
+          availableSpots: number | null
+        }>
+      } | null
+
+      if (!response.ok) {
+        setErrors((current) => ({
+          ...current,
+          assignments: body?.message ?? "Failed to confirm assignment.",
+        }))
+        return
+      }
+
+      if (body?.error === "SLOT_FULL") {
+        // Room is full, show alternatives
+        setAlternativeRooms(body.alternatives ?? [])
+        setAssignmentMessage(
+          "The requested room is full. Please select an alternative."
+        )
+        return
+      }
+
+      if (body?.success) {
+        setErrors((current) => ({ ...current, assignments: null }))
+        setAssignmentMessage("Buyer assignment confirmed successfully.")
+        setShowConfirmDialog(false)
+        setSelectedPendingAssignment(null)
+        await loadWorkspace()
+      }
+    } finally {
+      setIsMutating(false)
+    }
+  }
+
+  async function removePendingAssignment(
+    assignmentId: string,
+    reason?: string
+  ) {
+    setIsMutating(true)
+    setAssignmentMessage(null)
+
+    try {
+      const response = await fetch(
+        `/api/dashboard/accommodation/assignments/remove`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assignmentId, reason }),
+        }
+      )
+
+      const body = (await response.json().catch(() => null)) as {
+        error?: { message?: string }
+      } | null
+
+      if (!response.ok) {
+        setErrors((current) => ({
+          ...current,
+          assignments: body?.error?.message ?? "Failed to remove assignment.",
+        }))
+        return
+      }
+
+      setErrors((current) => ({ ...current, assignments: null }))
+      setAssignmentMessage("Buyer assignment removed.")
+      setShowConfirmDialog(false)
+      setSelectedPendingAssignment(null)
       await loadWorkspace()
     } finally {
       setIsMutating(false)
@@ -1624,6 +1763,50 @@ export default function AccommodationPage() {
                         </div>
                       ))}
 
+                      {/* Render Pending Assignments (Buyer Intent) */}
+                      {room.pendingAssignments?.map((pending) => (
+                        <div
+                          key={pending.assignmentId}
+                          className="group flex items-center justify-between rounded-xl border border-dashed border-gray-300 bg-gray-100/50 p-2 shadow-sm transition-colors hover:border-gray-400 hover:bg-gray-100"
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gray-200">
+                              <Clock className="size-3.5 text-gray-500" />
+                            </div>
+                            <div className="flex flex-col">
+                              <p className="truncate text-xs font-medium text-gray-700">
+                                {pending.attendeeName ??
+                                  pending.attendeeEmail ??
+                                  "Unnamed"}
+                              </p>
+                              <p className="text-[9px] text-gray-400">
+                                Buyer request
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 shrink-0 px-2 text-xs font-medium text-emerald-600 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-emerald-50 hover:text-emerald-700"
+                            onClick={() => {
+                              setSelectedPendingAssignment({
+                                assignmentId: pending.assignmentId,
+                                attendeeId: pending.attendeeId,
+                                attendeeName: pending.attendeeName,
+                                attendeeEmail: pending.attendeeEmail,
+                                roomId: room.id,
+                                roomLabel: room.label,
+                              })
+                              setAlternativeRooms([])
+                              setShowConfirmDialog(true)
+                            }}
+                          >
+                            Confirm
+                          </Button>
+                        </div>
+                      ))}
+
                       {/* Render Empty Slots */}
                       {Array.from({ length: room.availableBeds }).map(
                         (_, i) => (
@@ -1703,6 +1886,110 @@ export default function AccommodationPage() {
           </div>
         </div>
       </section>
+
+      {/* Confirmation Dialog for Buyer Assignments */}
+      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Confirm Buyer Assignment</DialogTitle>
+            <DialogDescription>
+              Review the buyer's room request before confirming.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedPendingAssignment && (
+            <div className="space-y-4 py-4">
+              <div className="rounded-lg border bg-muted/50 p-4">
+                <p className="text-sm font-medium text-foreground">
+                  {selectedPendingAssignment.attendeeName ??
+                    selectedPendingAssignment.attendeeEmail ??
+                    "Unnamed Attendee"}
+                </p>
+                {selectedPendingAssignment.attendeeEmail &&
+                  selectedPendingAssignment.attendeeName && (
+                    <p className="text-xs text-muted-foreground">
+                      {selectedPendingAssignment.attendeeEmail}
+                    </p>
+                  )}
+              </div>
+
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <ArrowRight className="size-4" />
+                <span>Assign to:</span>
+                <span className="font-medium text-foreground">
+                  {selectedPendingAssignment.roomLabel}
+                </span>
+              </div>
+
+              {alternativeRooms.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-amber-600">
+                    Alternative rooms available:
+                  </p>
+                  <div className="max-h-40 space-y-2 overflow-y-auto">
+                    {alternativeRooms.map((alt) => (
+                      <button
+                        key={alt.slotId}
+                        type="button"
+                        onClick={() =>
+                          confirmPendingAssignment(
+                            selectedPendingAssignment.assignmentId,
+                            alt.slotId
+                          )
+                        }
+                        className="w-full rounded-lg border p-3 text-left transition-colors hover:bg-muted"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">
+                            {alt.roomLabel}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {alt.availableSpots} spots available
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {alt.roomType} • {alt.occupantCount}/{alt.capacity}{" "}
+                          occupied
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                if (selectedPendingAssignment) {
+                  removePendingAssignment(
+                    selectedPendingAssignment.assignmentId
+                  )
+                }
+              }}
+              disabled={isMutating}
+            >
+              Decline
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                if (selectedPendingAssignment) {
+                  confirmPendingAssignment(
+                    selectedPendingAssignment.assignmentId
+                  )
+                }
+              }}
+              disabled={isMutating || alternativeRooms.length > 0}
+            >
+              {isMutating ? "Confirming..." : "Confirm Assignment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

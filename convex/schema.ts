@@ -219,10 +219,21 @@ export default defineSchema({
       slotId: v.id("accommodationSlots"),
       assignmentIntent: v.union(v.literal("assign"), v.literal("skip")),
       sortOrder: v.number(),
+      status: v.optional(
+        v.union(
+          v.literal("pending"),
+          v.literal("confirmed"),
+          v.literal("declined")
+        )
+      ),
+      confirmedAt: v.optional(v.number()),
+      confirmedBy: v.optional(v.string()),
     })
   )
     .index("by_orderId", ["orderId"])
-    .index("by_slotId", ["slotId"]),
+    .index("by_slotId", ["slotId"])
+    .index("by_attendeeId", ["attendeeId"])
+    .index("by_status", ["status"]),
 
   orderIdempotency: defineTable(
     v.object({

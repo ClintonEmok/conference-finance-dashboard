@@ -298,9 +298,12 @@ export type DataModel = {
     document: {
       assignmentIntent: "assign" | "skip";
       attendeeId: Id<"orderAttendees">;
+      confirmedAt?: number;
+      confirmedBy?: string;
       orderId: Id<"orders">;
       slotId: Id<"accommodationSlots">;
       sortOrder: number;
+      status?: "pending" | "confirmed" | "declined";
       _id: Id<"orderAssignments">;
       _creationTime: number;
     };
@@ -309,14 +312,19 @@ export type DataModel = {
       | "_id"
       | "assignmentIntent"
       | "attendeeId"
+      | "confirmedAt"
+      | "confirmedBy"
       | "orderId"
       | "slotId"
-      | "sortOrder";
+      | "sortOrder"
+      | "status";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_attendeeId: ["attendeeId", "_creationTime"];
       by_orderId: ["orderId", "_creationTime"];
       by_slotId: ["slotId", "_creationTime"];
+      by_status: ["status", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

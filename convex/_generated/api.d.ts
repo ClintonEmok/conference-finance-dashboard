@@ -39,6 +39,15 @@ export declare const api: {
       { eventProviderEventId: string; hotelId: string },
       any
     >;
+    confirmBuyerAssignment: FunctionReference<
+      "mutation",
+      "public",
+      {
+        assignmentId: Id<"orderAssignments">;
+        slotId?: Id<"accommodationSlots">;
+      },
+      any
+    >;
     createHotel: FunctionReference<
       "mutation",
       "public",
@@ -184,6 +193,12 @@ export declare const api: {
       any
     >;
     listAccommodationInventory: FunctionReference<"query", "public", {}, any>;
+    removeBuyerAssignment: FunctionReference<
+      "mutation",
+      "public",
+      { assignmentId: Id<"orderAssignments">; reason?: string },
+      any
+    >;
     unassignAttendeeFromRoom: FunctionReference<
       "mutation",
       "public",
@@ -685,6 +700,7 @@ export declare const api: {
         eventTitle: string | null;
         isArchived: boolean;
         normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
+        orderId?: string;
         orderedAt: string | null;
         providerOrderId: string;
         refundedAt: string | null;
@@ -714,6 +730,7 @@ export declare const api: {
           eventTitle: string | null;
           isArchived: boolean;
           normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
+          orderId?: string;
           orderedAt: string | null;
           providerOrderId: string;
           refundedAt: string | null;
@@ -723,10 +740,10 @@ export declare const api: {
         totalRows: number;
       }
     >;
-    getOrderWithAttendeesByProviderId: FunctionReference<
+    getOrderWithAttendees: FunctionReference<
       "query",
       "public",
-      { providerEventId: string; providerOrderId: string },
+      { orderId: Id<"orders"> },
       {
         attendees: Array<{
           id: Id<"orderAttendees">;

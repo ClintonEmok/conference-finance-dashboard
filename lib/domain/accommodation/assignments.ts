@@ -1,5 +1,6 @@
 import { api } from "@/lib/convex/api"
 import { convexQuery, convexMutation } from "@/lib/convex/server"
+import { Id } from "@/convex/_generated/dataModel"
 
 type RoomAvailability = "all" | "empty" | "available" | "full"
 
@@ -92,6 +93,14 @@ export type RoomAllocationBoard = {
       providerEventId: string
       eventName: string | null
       ticketTypeLabel: string | null
+    }>
+    pendingAssignments: Array<{
+      assignmentId: string
+      attendeeId: string
+      attendeeName: string | null
+      attendeeEmail: string | null
+      assignmentIntent: "assign" | "skip"
+      sortOrder: number
     }>
   }>
   unassignedAttendees: Array<{
@@ -618,4 +627,53 @@ export async function generateAllocationProposal(input: {
       familyGroupsKeptTogether,
     },
   }
+}
+
+export type ConfirmBuyerAssignmentResult =
+  | {
+      success: true
+      assignmentId: string
+      attendeeId: string
+      slotId: string
+      roomId: string
+    }
+  | {
+      success: false
+      error: "ROOM_FULL"
+      message: string
+      alternatives: Array<{
+        slotId: string
+        roomId: string
+        roomLabel: string
+        roomType: string
+        capacity: number
+        occupantCount: number
+        availableSpots: number
+      }>
+    }
+
+export async function confirmBuyerAssignment(input: {
+  assignmentId: string
+  slotId?: string | null
+}): Promise<ConfirmBuyerAssignmentResult> {
+  return await convexMutation(api.accommodation.confirmBuyerAssignment, {
+    assignmentId: input.assignmentId as Id<"orderAssignments">,
+    slotId: input.slotId
+      ? (input.slotId as Id<"accommodationSlots">)
+      : undefined,
+  })
+}
+
+export async function removeBuyerAssignment(input: {
+  assignmentId: string
+  reason?: string | null
+}): Promise<{
+  success: boolean
+  assignmentId: string
+  attendeeId: string
+}> {
+  return await convexMutation(api.accommodation.removeBuyerAssignment, {
+    assignmentId: input.assignmentId as Id<"orderAssignments">,
+    reason: input.reason ?? undefined,
+  })
 }

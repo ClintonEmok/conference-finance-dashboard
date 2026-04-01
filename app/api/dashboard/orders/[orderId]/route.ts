@@ -2,12 +2,13 @@ import { NextResponse } from "next/server"
 
 import { requireApiUser } from "@/lib/auth/server"
 import { api } from "@/lib/convex/api"
+import { Id } from "@/convex/_generated/dataModel"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
 
 export const dynamic = "force-dynamic"
 
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ orderId: string }> }
 ) {
   const authResult = await requireApiUser()
@@ -17,23 +18,10 @@ export async function GET(
   }
 
   const { orderId } = await params
-  const params$ = new URL(request.url).searchParams
-  const eventId = params$.get("eventId")
 
-  if (!eventId) {
-    return NextResponse.json(
-      { error: { message: "Missing required 'eventId' query parameter." } },
-      { status: 400 }
-    )
-  }
-
-  const result = await convexQuery(
-    api.orders.getOrderWithAttendeesByProviderId,
-    {
-      providerOrderId: orderId,
-      providerEventId: eventId,
-    }
-  )
+  const result = await convexQuery(api.orders.getOrderWithAttendees, {
+    orderId: orderId as Id<"orders">,
+  })
 
   if (!result) {
     return NextResponse.json(
@@ -46,7 +34,7 @@ export async function GET(
 }
 
 export async function DELETE(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ orderId: string }> }
 ) {
   const authResult = await requireApiUser()
@@ -56,23 +44,10 @@ export async function DELETE(
   }
 
   const { orderId } = await params
-  const params$ = new URL(request.url).searchParams
-  const eventId = params$.get("eventId")
 
-  if (!eventId) {
-    return NextResponse.json(
-      { error: { message: "Missing required 'eventId' query parameter." } },
-      { status: 400 }
-    )
-  }
-
-  const order = await convexQuery(
-    api.orders.getOrderWithAttendeesByProviderId,
-    {
-      providerOrderId: orderId,
-      providerEventId: eventId,
-    }
-  )
+  const order = await convexQuery(api.orders.getOrderWithAttendees, {
+    orderId: orderId as Id<"orders">,
+  })
 
   if (!order) {
     return NextResponse.json(

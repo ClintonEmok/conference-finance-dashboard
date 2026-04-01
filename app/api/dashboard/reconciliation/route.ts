@@ -66,7 +66,7 @@ export async function GET(request: Request) {
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid request"
-
+    console.error("Error loading reconciliation data:", error)
     if (message.startsWith("Invalid") || message.includes("Expected one of") || message.includes("must be")) {
       return NextResponse.json(
         {

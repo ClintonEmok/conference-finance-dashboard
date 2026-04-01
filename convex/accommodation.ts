@@ -294,7 +294,7 @@ export const getRoomAllocationBoard = query({
       hotels,
       roomTypes,
       rooms,
-      allAttendees,
+      allOrderAttendees,
       familyMembers,
       accommodationSlotDocs,
       allOrders,
@@ -304,7 +304,7 @@ export const getRoomAllocationBoard = query({
       ctx.db.query("accommodationHotels").take(200),
       ctx.db.query("accommodationRoomTypes").take(100),
       ctx.db.query("accommodationRooms").take(500),
-      ctx.db.query("ticketTailorAttendees").take(2000),
+      ctx.db.query("orderAttendees").take(2000),
       ctx.db.query("attendeeFamilyMembers").take(2000),
       ctx.db.query("accommodationSlots").take(1000),
       eventId
@@ -319,6 +319,17 @@ export const getRoomAllocationBoard = query({
 
     const normalizedLocationFilter = normalizeOptionalString(args.location)
 
+    // Build order lookup for event scoping
+    const orderById = new Map(allOrders.map((o) => [o._id as string, o]))
+
+    // Filter attendees to those belonging to scoped orders
+    const scopedAttendees = allOrderAttendees.filter((a) => {
+      const order = orderById.get(a.orderId as string)
+      if (!order) return false
+      if (eventId && order.eventId !== eventId) return false
+      return true
+    })
+
     const attendeeFamilyGroupByAttendeeId = new Map<string, string>()
     for (const familyMember of familyMembers) {
       if (!attendeeFamilyGroupByAttendeeId.has(familyMember.attendeeId)) {
@@ -330,10 +341,10 @@ export const getRoomAllocationBoard = query({
     }
 
     const attendeeCountByOrderId = new Map<string, number>()
-    for (const attendee of allAttendees) {
+    for (const attendee of scopedAttendees) {
       attendeeCountByOrderId.set(
-        attendee.providerOrderId,
-        (attendeeCountByOrderId.get(attendee.providerOrderId) ?? 0) + 1
+        attendee.orderId as string,
+        (attendeeCountByOrderId.get(attendee.orderId as string) ?? 0) + 1
       )
     }
 
@@ -345,55 +356,58 @@ export const getRoomAllocationBoard = query({
       return true
     })
 
-    const unassignedAttendees = allAttendees.filter((a) => {
+    const unassignedAttendees = scopedAttendees.filter((a) => {
       if (a.assignedRoomId) return false
-      if (eventId && !providerEventIds.includes(a.providerEventId)) return false
       const attendeeFamilyGroupId =
         attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
 
-      return attendeeMatchesSignalFilters({
-        attendee: a,
-        attendeeFamilyGroupId,
-        filters: {
-          genderType: args.genderType,
-          familyGroupId: args.familyGroupId,
-          location: normalizedLocationFilter ?? undefined,
-          allocationPriority: args.allocationPriority,
-          hasPriority: args.hasPriority,
-        },
-      })
+      const genderType =
+        a.gender === "male"
+          ? "MALE"
+          : a.gender === "female"
+            ? "FEMALE"
+            : a.gender === "mixed"
+              ? "MIXED"
+              : "UNKNOWN"
+
+      if (args.genderType && genderType !== args.genderType) return false
+      if (args.familyGroupId && attendeeFamilyGroupId !== args.familyGroupId)
+        return false
+
+      const normalizedLocation = normalizeOptionalString(a.location)
+      if (
+        normalizedLocationFilter &&
+        (!normalizedLocation ||
+          normalizedLocation.toLowerCase() !==
+            normalizedLocationFilter.toLowerCase())
+      )
+        return false
+
+      if (
+        args.allocationPriority &&
+        a.allocationPriority !== args.allocationPriority
+      )
+        return false
+
+      if (
+        args.hasPriority !== undefined &&
+        hasPriorityAttendee(a.allocationPriority ?? null) !== args.hasPriority
+      )
+        return false
+
+      return true
     })
 
     const hotelMap = new Map(hotels.map((h) => [h._id as string, h]))
     const roomTypeMap = new Map(roomTypes.map((rt) => [rt._id as string, rt]))
 
-    // Build mapping from providerEventId to canonical event info
-    // We use eventSources to bridge provider IDs to canonical events
-    const canonicalEventByProviderId = new Map<
-      string,
-      (typeof canonicalEvents)[number]
-    >()
-    for (const event of canonicalEvents) {
-      // Find event sources for this canonical event
-      const sources = await ctx.db
-        .query("eventSources")
-        .withIndex("by_eventId", (q) => q.eq("eventId", event._id))
-        .take(10)
-      for (const source of sources) {
-        canonicalEventByProviderId.set(source.externalEventId, event)
-      }
-      // Also check if event's slug matches any providerEventId (direct mapping)
-      const providerEvent = events.find((e) => e.providerEventId === event.slug)
-      if (providerEvent) {
-        canonicalEventByProviderId.set(providerEvent.providerEventId, event)
-      }
-    }
+    // Build mapping from canonical eventId to event info
+    const canonicalEventById = new Map(
+      canonicalEvents.map((e) => [e._id as string, e])
+    )
 
-    // Legacy map for TT events (for backward compat)
-    const ttEventMap = new Map(events.map((e) => [e.providerEventId, e]))
-
-    const attendeesByRoom: Record<string, typeof allAttendees> = {}
-    for (const attendee of allAttendees) {
+    const attendeesByRoom: Record<string, typeof scopedAttendees> = {}
+    for (const attendee of scopedAttendees) {
       if (attendee.assignedRoomId) {
         if (!attendeesByRoom[attendee.assignedRoomId]) {
           attendeesByRoom[attendee.assignedRoomId] = []
@@ -406,17 +420,19 @@ export const getRoomAllocationBoard = query({
       const hotel = hotelMap.get(room.hotelId as string)
       const roomType = roomTypeMap.get(room.roomTypeId as string)
       const occupants = (attendeesByRoom[room._id] ?? []).map((a) => {
-        const canonicalEvent = canonicalEventByProviderId.get(a.providerEventId)
-        const ttEvent = ttEventMap.get(a.providerEventId)
+        const order = orderById.get(a.orderId as string)
+        const canonicalEvent = order
+          ? canonicalEventById.get(order.eventId as string)
+          : null
         return {
           attendeeId: a._id,
           attendeeName: a.name ?? null,
           attendeeEmail: a.email ?? null,
-          providerOrderId: a.providerOrderId,
-          providerEventId: a.providerEventId,
+          providerOrderId: order?.providerOrderId ?? "",
+          providerEventId: order?.providerEventId ?? "",
           eventId: canonicalEvent?._id ?? null,
-          eventName: canonicalEvent?.title ?? ttEvent?.name ?? null,
-          ticketTypeLabel: a.ticketTypeLabel ?? null,
+          eventName: canonicalEvent?.title ?? null,
+          ticketTypeLabel: null,
         }
       })
       const occupiedBeds = occupants.length
@@ -447,34 +463,40 @@ export const getRoomAllocationBoard = query({
             }
           : undefined,
         occupants,
+        pendingAssignments: pendingAssignmentsByRoom.get(room._id) ?? [],
       }
     })
 
     const mappedUnassignedAttendees = unassignedAttendees.map((a) => {
-      const canonicalEvent = canonicalEventByProviderId.get(a.providerEventId)
-      const ttEvent = ttEventMap.get(a.providerEventId)
-      const customAnswers =
-        a.customAnswers && typeof a.customAnswers === "object"
-          ? (a.customAnswers as { location?: string; remarks?: string })
-          : undefined
+      const order = orderById.get(a.orderId as string)
+      const canonicalEvent = order
+        ? canonicalEventById.get(order.eventId as string)
+        : null
       const attendeeFamilyGroupId =
         attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
       return {
         attendeeId: a._id,
         attendeeName: a.name ?? null,
         attendeeEmail: a.email ?? null,
-        providerOrderId: a.providerOrderId,
-        providerEventId: a.providerEventId,
+        providerOrderId: order?.providerOrderId ?? "",
+        providerEventId: order?.providerEventId ?? "",
         eventId: canonicalEvent?._id ?? null,
-        eventName: canonicalEvent?.title ?? ttEvent?.name ?? null,
-        ticketTypeLabel: a.ticketTypeLabel ?? null,
-        genderType: a.genderType ?? null,
+        eventName: canonicalEvent?.title ?? null,
+        ticketTypeLabel: null,
+        genderType:
+          a.gender === "male"
+            ? "MALE"
+            : a.gender === "female"
+              ? "FEMALE"
+              : a.gender === "mixed"
+                ? "MIXED"
+                : "UNKNOWN",
         allocationPriority: a.allocationPriority ?? null,
-        location: getAttendeeLocation(customAnswers),
-        remarks: customAnswers?.remarks ?? null,
+        location: a.location ?? null,
+        remarks: null,
         hasFamily: hasFamilySignal({
           attendeeId: a._id,
-          providerOrderId: a.providerOrderId,
+          providerOrderId: order?.providerOrderId ?? "",
           attendeeFamilyGroupId,
           attendeeCountByOrderId,
         }),
@@ -509,11 +531,61 @@ export const getRoomAllocationBoard = query({
         ])
       : [[], []]
 
-    const orderById = new Map(allOrders.map((s) => [s._id as string, s]))
+    // orderById already declared above
 
     const slotById = new Map(
       accommodationSlotDocs.map((s) => [s._id as string, s])
     )
+
+    // Build mapping from slotId to roomId
+    const slotIdToRoomId = new Map<string, string>()
+    for (const slot of accommodationSlotDocs) {
+      slotIdToRoomId.set(slot._id as string, slot.roomId as string)
+    }
+
+    // Build pending assignments by room
+    const pendingAssignmentsByRoom = new Map<
+      string,
+      Array<{
+        assignmentId: string
+        attendeeId: string
+        attendeeName: string | null
+        attendeeEmail: string | null
+        assignmentIntent: "assign" | "skip"
+        sortOrder: number
+      }>
+    >()
+
+    // Filter pending assignments: assignmentIntent="assign" and (status is undefined/pending)
+    for (const assignment of orderAssignmentsList) {
+      const assignmentAny = assignment as any
+      const isPending =
+        assignment.assignmentIntent === "assign" &&
+        (!assignmentAny.status || assignmentAny.status === "pending")
+
+      if (!isPending) continue
+
+      const roomId = slotIdToRoomId.get(assignment.slotId as string)
+      if (!roomId) continue
+
+      const attendee = await ctx.db.get(
+        "orderAttendees",
+        assignment.attendeeId as Id<"orderAttendees">
+      )
+
+      const pendingAssignment = {
+        assignmentId: assignment._id as string,
+        attendeeId: assignment.attendeeId as string,
+        attendeeName: attendee?.name ?? null,
+        attendeeEmail: attendee?.email ?? null,
+        assignmentIntent: assignment.assignmentIntent,
+        sortOrder: assignment.sortOrder,
+      }
+
+      const existing = pendingAssignmentsByRoom.get(roomId) ?? []
+      existing.push(pendingAssignment)
+      pendingAssignmentsByRoom.set(roomId, existing)
+    }
 
     const assignmentByAttendeeId = new Map<
       string,
@@ -1837,6 +1909,193 @@ export const getAccommodationSummaryForEvent = query({
       totalSlots: slots.length,
       assignableSlots: assignableSlots.length,
       submissionsCount: orders.length,
+    }
+  },
+})
+
+/**
+ * Confirm a pending buyer assignment and assign attendee to a room.
+ * Allows admin to modify slot assignment if needed.
+ * Returns alternative room suggestions if requested slot is full.
+ */
+export const confirmBuyerAssignment = mutation({
+  args: {
+    assignmentId: v.id("orderAssignments"),
+    slotId: v.optional(v.id("accommodationSlots")),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    // Get the pending assignment
+    const assignment = await ctx.db.get("orderAssignments", args.assignmentId)
+    if (!assignment) {
+      throw new Error("Assignment not found")
+    }
+
+    if (assignment.status !== "pending") {
+      throw new Error("Assignment is not pending")
+    }
+
+    // Get the order for context
+    const order = await ctx.db.get("orders", assignment.orderId)
+    if (!order) {
+      throw new Error("Order not found")
+    }
+
+    // Determine which slot to use
+    let targetSlotId = args.slotId || assignment.slotId
+    if (!targetSlotId) {
+      throw new Error("No slot specified for assignment")
+    }
+
+    // Get the target slot
+    const slot = await ctx.db.get("accommodationSlots", targetSlotId)
+    if (!slot) {
+      throw new Error("Slot not found")
+    }
+
+    // Get the room to check capacity
+    const room = await ctx.db.get("accommodationRooms", slot.roomId)
+    if (!room) {
+      throw new Error("Room not found")
+    }
+
+    // Count current occupants in this room
+    const occupants = await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_assignedRoomId", (q) =>
+        q.eq("assignedRoomId", slot.roomId)
+      )
+      .take(room.capacity + 1)
+
+    const occupantCount = occupants.length
+
+    // Check if room has capacity
+    if (occupantCount >= room.capacity) {
+      // Room is full - find alternative rooms with capacity
+      const allSlots = await ctx.db
+        .query("accommodationSlots")
+        .withIndex("by_eventId", (q) => q.eq("eventId", slot.eventId))
+        .take(100)
+
+      // Get rooms with available space
+      const alternatives: Array<{
+        slotId: string
+        roomId: string
+        roomLabel: string
+        roomType: string
+        capacity: number
+        occupantCount: number
+        availableSpots: number
+      }> = []
+
+      for (const altSlot of allSlots) {
+        if (alternatives.length >= 10) break
+
+        const altRoom = await ctx.db.get("accommodationRooms", altSlot.roomId)
+        if (!altRoom) continue
+
+        const altOccupants = await ctx.db
+          .query("orderAttendees")
+          .withIndex("by_assignedRoomId", (q) =>
+            q.eq("assignedRoomId", altSlot.roomId)
+          )
+          .take(altRoom.capacity + 1)
+
+        if (altOccupants.length < altRoom.capacity) {
+          const roomType = await ctx.db.get(
+            "accommodationRoomTypes",
+            altRoom.roomTypeId as Id<"accommodationRoomTypes">
+          )
+
+          alternatives.push({
+            slotId: altSlot._id,
+            roomId: altSlot.roomId,
+            roomLabel: altRoom.label,
+            roomType: roomType?.label || "Unknown",
+            capacity: altRoom.capacity,
+            occupantCount: altOccupants.length,
+            availableSpots: altRoom.capacity - altOccupants.length,
+          })
+        }
+      }
+
+      return {
+        success: false,
+        error: "ROOM_FULL",
+        message: "The requested room is at full capacity",
+        alternatives,
+      }
+    }
+
+    // Get current user identity for confirmedBy
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) {
+      throw new Error("Unauthorized")
+    }
+
+    // Update assignment status
+    await ctx.db.patch(args.assignmentId, {
+      status: "confirmed",
+      confirmedAt: Date.now(),
+      confirmedBy: identity.subject,
+      slotId: targetSlotId,
+    })
+
+    // Assign the attendee to the room
+    await ctx.db.patch("orderAttendees", assignment.attendeeId, {
+      assignedRoomId: slot.roomId,
+    })
+
+    return {
+      success: true,
+      assignmentId: args.assignmentId,
+      attendeeId: assignment.attendeeId,
+      slotId: targetSlotId,
+      roomId: slot.roomId,
+    }
+  },
+})
+
+/**
+ * Remove (decline/reject) a pending buyer assignment without assigning.
+ * Updates status to 'declined' and records who declined it.
+ */
+export const removeBuyerAssignment = mutation({
+  args: {
+    assignmentId: v.id("orderAssignments"),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    // Get the pending assignment
+    const assignment = await ctx.db.get("orderAssignments", args.assignmentId)
+    if (!assignment) {
+      throw new Error("Assignment not found")
+    }
+
+    if (assignment.status !== "pending") {
+      throw new Error("Assignment is not pending")
+    }
+
+    // Get current user identity for confirmedBy (we use confirmedBy to track who processed it)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) {
+      throw new Error("Unauthorized")
+    }
+
+    // Update assignment status to declined
+    await ctx.db.patch(args.assignmentId, {
+      status: "declined",
+      confirmedAt: Date.now(),
+      confirmedBy: identity.subject,
+    })
+
+    return {
+      success: true,
+      assignmentId: args.assignmentId,
+      attendeeId: assignment.attendeeId,
     }
   },
 })
