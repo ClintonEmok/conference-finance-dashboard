@@ -93,6 +93,7 @@ export function OrderAttendeeBreakdown({
           setData(body)
         }
       } catch (err) {
+        console.error("Error loading order attendee breakdown:", err)
         if (!cancelled) {
           setError(
             err instanceof Error ? err.message : "Failed to load attendees"

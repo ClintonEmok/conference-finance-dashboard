@@ -301,6 +301,12 @@ export declare const api: {
       },
       any
     >;
+    getAttendeesWithTickets: FunctionReference<
+      "query",
+      "public",
+      { eventId?: string },
+      any
+    >;
     unassignRoom: FunctionReference<
       "mutation",
       "public",

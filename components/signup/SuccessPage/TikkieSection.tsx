@@ -35,7 +35,7 @@ export function TikkieSection({ tikkieUrl, eventName }: TikkieSectionProps) {
   }
 
   return (
-    <Card className="border-blue-200 bg-blue-50/50">
+    <Card className="border-blue-200 bg-blue-25/50">
       <CardHeader>
         <CardTitle className="text-base">Complete Your Payment</CardTitle>
       </CardHeader>
@@ -55,7 +55,7 @@ export function TikkieSection({ tikkieUrl, eventName }: TikkieSectionProps) {
           {/* Link & Actions */}
           <div className="flex-1 space-y-3">
             <div className="flex items-center gap-2">
-              <code className="flex-1 truncate rounded bg-white px-2 py-1 text-xs text-muted-foreground">
+              <code className="flex-1 truncate rounded px-2 py-1 text-xs text-muted-foreground">
                 {tikkieUrl}
               </code>
               <Button
