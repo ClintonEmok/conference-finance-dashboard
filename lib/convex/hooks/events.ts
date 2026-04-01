@@ -70,6 +70,10 @@ export function useUpdateTicketType() {
   return useMutation(api.events.updateTicketType)
 }
 
+export function useReorderTicketTypes() {
+  return useMutation(api.events.reorderTicketTypes)
+}
+
 export function useDeleteTicketType() {
   return useMutation(api.events.deleteTicketType)
 }

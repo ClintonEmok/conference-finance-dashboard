@@ -94,6 +94,7 @@ export default defineSchema({
       label: v.string(),
       priceMinor: v.number(),
       maxQuantity: v.optional(v.number()),
+      sortOrder: v.optional(v.number()),
       soldCount: v.optional(v.number()),
       isActive: v.boolean(),
       visibility: v.union(v.literal("public"), v.literal("hidden")),

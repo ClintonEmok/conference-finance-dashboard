@@ -862,6 +862,7 @@ export type DataModel = {
       maxQuantity?: number;
       priceMinor: number;
       soldCount?: number;
+      sortOrder?: number;
       unavailableReason?: string;
       updatedAt: number;
       visibility: "public" | "hidden";
@@ -878,6 +879,7 @@ export type DataModel = {
       | "maxQuantity"
       | "priceMinor"
       | "soldCount"
+      | "sortOrder"
       | "unavailableReason"
       | "updatedAt"
       | "visibility";

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, use } from "react"
+import { useEffect, useState, use } from "react"
 import { Id } from "@/convex/_generated/dataModel"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -25,6 +25,7 @@ import {
   CreditCard,
   ExternalLink,
   Ticket,
+  GripVertical,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -57,10 +58,13 @@ import {
   useTicketTypesForEvent,
   useCreateTicketType,
   useUpdateTicketType,
+  useReorderTicketTypes,
   useDeleteTicketType,
   useAttendeesForEvent,
   useCreateManualAttendee,
 } from "@/lib/convex/hooks/events"
+import { DragDropProvider } from "@dnd-kit/react"
+import { isSortable, useSortable } from "@dnd-kit/react/sortable"
 import { EventTikkieSection } from "@/components/dashboard/event-tikkie-section"
 
 type TabKey =
@@ -92,6 +96,87 @@ const CURRENCIES = [
   { code: "EUR", name: "Euro" },
   { code: "USD", name: "US Dollar" },
 ]
+
+function reorderItems(items: string[], fromIndex: number, toIndex: number) {
+  const next = [...items]
+  const [moved] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, moved)
+  return next
+}
+
+function TicketTypeRow({
+  ticket,
+  index,
+  eventCurrency,
+  onEdit,
+  onDelete,
+}: {
+  ticket: any
+  index: number
+  eventCurrency: string
+  onEdit: (ticket: any) => void
+  onDelete: (ticketTypeId: string) => void
+}) {
+  const sortable = useSortable({ id: ticket._id, index })
+
+  return (
+    <div
+      ref={sortable.ref}
+      className={cn(
+        "flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 p-4",
+        sortable.isDragging && "opacity-70"
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <Button
+          ref={sortable.handleRef as any}
+          variant="ghost"
+          size="icon"
+          className="mt-0.5 size-8 cursor-grab"
+          aria-label={`Reorder ${ticket.label}`}
+        >
+          <GripVertical className="size-4" />
+        </Button>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <p className="font-medium">{ticket.label}</p>
+            <Badge
+              variant={ticket.isActive ? "default" : "outline"}
+              className="text-[10px]"
+            >
+              {ticket.isActive ? "Active" : "Inactive"}
+            </Badge>
+            <Badge variant="outline" className="text-[10px]">
+              {ticket.visibility}
+            </Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {eventCurrency} {(ticket.priceMinor / 100).toFixed(2)}
+            {ticket.maxQuantity && (
+              <span className="ml-2">
+                · {ticket.maxQuantity - (ticket.soldCount || 0)} of{" "}
+                {ticket.maxQuantity} available
+              </span>
+            )}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={() => onEdit(ticket)}>
+          <Edit className="size-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-destructive hover:bg-destructive/10"
+          onClick={() => onDelete(ticket._id)}
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 function getStatusBadge(isPublished: boolean, isSignupOpen: boolean) {
   if (!isPublished) {
@@ -204,7 +289,25 @@ export default function EventDetailPage({
   const ticketTypes = useTicketTypesForEvent(event?._id)
   const createTicketType = useCreateTicketType()
   const updateTicketType = useUpdateTicketType()
+  const reorderTicketTypes = useReorderTicketTypes()
   const deleteTicketType = useDeleteTicketType()
+  const [ticketOrder, setTicketOrder] = useState<string[]>([])
+
+  useEffect(() => {
+    const nextOrder = ticketTypes.ticketTypes.map((ticket: any) =>
+      String(ticket._id)
+    )
+    setTicketOrder((current) => {
+      if (
+        current.length === nextOrder.length &&
+        current.every((id, index) => id === nextOrder[index])
+      ) {
+        return current
+      }
+
+      return nextOrder
+    })
+  }, [ticketTypes.ticketTypes])
 
   // Ticket form state
   const [isAddingTicket, setIsAddingTicket] = useState(false)
@@ -406,6 +509,35 @@ export default function EventDetailPage({
     }
   }
 
+  const handleTicketDragEnd = async (eventData: any) => {
+    if (eventData.canceled) return
+
+    const { source } = eventData.operation
+    if (!isSortable(source)) return
+
+    const sortableSource = source as any
+
+    const { initialIndex, index } = sortableSource
+    if (initialIndex === index) return
+
+    const previousOrder = ticketOrder.length
+      ? ticketOrder
+      : ticketTypes.ticketTypes.map((ticket: any) => String(ticket._id))
+    const nextOrder = reorderItems(previousOrder, initialIndex, index)
+
+    setTicketOrder(nextOrder)
+
+    try {
+      await reorderTicketTypes({
+        eventId: event._id,
+        orderedTicketTypeIds: nextOrder as any,
+      })
+    } catch (err) {
+      console.error("Failed to reorder ticket types:", err)
+      setTicketOrder(previousOrder)
+    }
+  }
+
   const startEditingTicket = (ticket: any) => {
     setEditingTicketId(ticket._id)
     setTicketLabel(ticket.label)
@@ -426,6 +558,10 @@ export default function EventDetailPage({
   }
 
   const isSignupOpenDisabled = !editIsPublished
+  const orderedTicketIds =
+    ticketOrder.length === ticketTypes.ticketTypes.length
+      ? ticketOrder
+      : ticketTypes.ticketTypes.map((ticket: any) => String(ticket._id))
 
   if (event === undefined) {
     return (
@@ -1262,56 +1398,30 @@ export default function EventDetailPage({
                   </p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {ticketTypes.ticketTypes.map((ticket: any) => (
-                    <div
-                      key={ticket._id}
-                      className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 p-4"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium">{ticket.label}</p>
-                          <Badge
-                            variant={ticket.isActive ? "default" : "outline"}
-                            className="text-[10px]"
-                          >
-                            {ticket.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                          <Badge variant="outline" className="text-[10px]">
-                            {ticket.visibility}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {event.currency}{" "}
-                          {(ticket.priceMinor / 100).toFixed(2)}
-                          {ticket.maxQuantity && (
-                            <span className="ml-2">
-                              · {ticket.maxQuantity - (ticket.soldCount || 0)}{" "}
-                              of {ticket.maxQuantity} available
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => startEditingTicket(ticket)}
-                        >
-                          <Edit className="size-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-destructive hover:bg-destructive/10"
-                          onClick={() => handleDeleteTicket(ticket._id)}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <DragDropProvider onDragEnd={handleTicketDragEnd}>
+                  <div className="space-y-3">
+                    {orderedTicketIds.map((ticketId: string, index: number) => {
+                      const ticket = ticketTypes.ticketTypes.find(
+                        (item: any) => String(item._id) === ticketId
+                      )
+
+                      if (!ticket) {
+                        return null
+                      }
+
+                      return (
+                        <TicketTypeRow
+                          key={ticket._id}
+                          ticket={ticket}
+                          index={index}
+                          eventCurrency={event.currency}
+                          onEdit={startEditingTicket}
+                          onDelete={handleDeleteTicket}
+                        />
+                      )
+                    })}
+                  </div>
+                </DragDropProvider>
               )}
             </CardContent>
           </Card>

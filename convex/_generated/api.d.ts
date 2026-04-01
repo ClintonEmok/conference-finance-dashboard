@@ -553,6 +553,12 @@ export declare const api: {
       { eventId: Id<"events"> },
       any
     >;
+    reorderTicketTypes: FunctionReference<
+      "mutation",
+      "public",
+      { eventId: Id<"events">; orderedTicketTypeIds: Array<Id<"ticketTypes">> },
+      any
+    >;
     updateEvent: FunctionReference<
       "mutation",
       "public",
@@ -581,6 +587,7 @@ export declare const api: {
         label?: string;
         maxQuantity?: number;
         priceMinor?: number;
+        sortOrder?: number;
         ticketTypeId: Id<"ticketTypes">;
         visibility?: "public" | "hidden";
       },
