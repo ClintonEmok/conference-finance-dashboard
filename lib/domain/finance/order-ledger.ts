@@ -13,7 +13,7 @@ export type OrderLedgerFilters = {
 }
 
 export type OrderLedgerRow = {
-  providerOrderId: string
+  providerOrderId: string | null
   eventId: string
   eventSlug: string
   eventTitle: string | null
@@ -21,7 +21,7 @@ export type OrderLedgerRow = {
   isArchived: boolean
   archivedAt: string | null
   archiveReason: string | null
-  totalAmountMinor: number
+  totalAmountMinor: number | null
   currency: string | null
   orderedAt: string | null
   buyerName: string | null

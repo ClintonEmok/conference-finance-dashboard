@@ -24,7 +24,7 @@ export const nullableStringValidator = v.union(v.string(), v.null())
  */
 export const orderLedgerRowValidator = v.object({
   orderId: v.optional(v.string()),
-  providerOrderId: v.string(),
+  providerOrderId: nullableStringValidator,
   eventId: v.string(),
   eventSlug: v.string(),
   eventTitle: nullableStringValidator,
@@ -32,7 +32,7 @@ export const orderLedgerRowValidator = v.object({
   isArchived: v.boolean(),
   archivedAt: nullableStringValidator,
   archiveReason: nullableStringValidator,
-  totalAmountMinor: v.number(),
+  totalAmountMinor: v.union(v.number(), v.null()),
   currency: nullableStringValidator,
   orderedAt: nullableStringValidator,
   refundedAt: nullableStringValidator,

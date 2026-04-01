@@ -484,6 +484,16 @@ function matchesOrderFilters(
   return true
 }
 
+function resolveEventSlug(
+  eventSlugsById: Map<string, string>,
+  eventId?: Id<"events">
+): string {
+  if (!eventId) {
+    return ""
+  }
+  return eventSlugsById.get(String(eventId)) ?? ""
+}
+
 async function listCandidateOrders(
   ctx: QueryCtx,
   args: {
@@ -586,12 +596,9 @@ export const getOrdersWithFilters = query({
     const eventNamesById = await loadEventNamesById(ctx)
     const eventSlugsById = await loadEventSlugsById(ctx)
     const ordersWithEvent = paginatedOrders.map((order) => ({
-      providerOrderId: order.providerOrderId ?? "",
+      providerOrderId: order.providerOrderId ?? null,
       eventId: order.eventId ? String(order.eventId) : "",
-      eventSlug:
-        eventSlugsById.get(order.eventId ? String(order.eventId) : "") ??
-        order.eventId ??
-        "",
+      eventSlug: resolveEventSlug(eventSlugsById, order.eventId),
       eventTitle:
         eventNamesById.get(order.eventId ? String(order.eventId) : "") ?? null,
       normalizedStatus: order.status ?? "pending",
@@ -600,7 +607,7 @@ export const getOrdersWithFilters = query({
         ? new Date(order.archivedAt).toISOString()
         : null,
       archiveReason: order.archiveReason ?? null,
-      totalAmountMinor: order.totalAmountMinor ?? 0,
+      totalAmountMinor: order.totalAmountMinor ?? null,
       currency: order.currency ?? null,
       orderedAt: order.orderedAt
         ? new Date(order.orderedAt).toISOString()
@@ -741,12 +748,9 @@ export const getOrdersForReconciliation = query({
       .map(({ order, extension }) => ({
         orderId: order._id,
         providerOrderId:
-          order.providerOrderId ?? extension?.providerOrderId ?? "",
+          order.providerOrderId ?? extension?.providerOrderId ?? null,
         eventId: order.eventId ? String(order.eventId) : "",
-        eventSlug:
-          eventSlugsById.get(order.eventId ? String(order.eventId) : "") ??
-          order.eventId ??
-          "",
+        eventSlug: resolveEventSlug(eventSlugsById, order.eventId),
         eventTitle:
           eventNamesById.get(order.eventId ? String(order.eventId) : "") ??
           null,
@@ -756,7 +760,7 @@ export const getOrdersForReconciliation = query({
           ? new Date(extension.archivedAt).toISOString()
           : null,
         archiveReason: extension?.archiveReason ?? null,
-        totalAmountMinor: order.totalAmountMinor ?? 0,
+        totalAmountMinor: order.totalAmountMinor ?? null,
         currency: order.currency ?? null,
         orderedAt: order.orderedAt
           ? new Date(order.orderedAt).toISOString()

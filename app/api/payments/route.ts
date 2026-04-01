@@ -20,9 +20,9 @@ const allowedSources: PaymentSource[] = ["tikkie", "bank_transfer", "cash"]
 
 type ResolvedOrder = {
   id: string
-  providerOrderId: string
-  buyerName: string
-  totalAmountMinor: number
+  providerOrderId: string | null
+  buyerName: string | null
+  totalAmountMinor: number | null
 }
 
 function parseFilters(request: Request) {
@@ -62,15 +62,15 @@ function parseFilters(request: Request) {
 
 function mapResolvedOrder(order: {
   _id: string
-  providerOrderId: string
+  providerOrderId?: string | null
   buyerName?: string | null
   totalAmountMinor?: number | null
 }): ResolvedOrder {
   return {
     id: order._id,
-    providerOrderId: order.providerOrderId,
-    buyerName: order.buyerName ?? "Unknown",
-    totalAmountMinor: order.totalAmountMinor ?? 0,
+    providerOrderId: order.providerOrderId ?? null,
+    buyerName: order.buyerName ?? null,
+    totalAmountMinor: order.totalAmountMinor ?? null,
   }
 }
 

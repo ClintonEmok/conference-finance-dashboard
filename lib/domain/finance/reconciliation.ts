@@ -18,12 +18,12 @@ export type ReconciliationReason =
 
 export type ReconciliationRow = {
   orderId: string | null
-  providerOrderId: string
+  providerOrderId: string | null
   eventId: string
   eventSlug: string
   eventTitle: string | null
   normalizedStatus: CanonicalOrderStatus
-  totalAmountMinor: number
+  totalAmountMinor: number | null
   currency: string | null
   orderedAt: string | null
   refundedAt: string | null
@@ -152,6 +152,9 @@ export async function getReconciliationRows(
   let outstandingMinor = 0
 
   for (const order of orders) {
+    const providerOrderLookupKey =
+      order.providerOrderId ?? order.orderId ?? null
+
     const refundedAtDate = order.refundedAt ? new Date(order.refundedAt) : null
 
     const reconciliation = deriveReconciliation({
@@ -159,7 +162,9 @@ export async function getReconciliationRows(
       totalAmountMinor: order.totalAmountMinor,
       refundedAt: refundedAtDate,
       matchedAmountMinor:
-        matchedTotalsByProviderOrderId.get(order.providerOrderId) ?? 0,
+        (providerOrderLookupKey
+          ? matchedTotalsByProviderOrderId.get(providerOrderLookupKey)
+          : undefined) ?? 0,
     })
 
     if (reconciliation.reasons.length === 0) {
@@ -170,7 +175,7 @@ export async function getReconciliationRows(
 
     rows.push({
       orderId: order.orderId ?? null,
-      providerOrderId: order.providerOrderId,
+      providerOrderId: order.providerOrderId ?? null,
       eventId: order.eventId,
       eventSlug: order.eventSlug,
       eventTitle: order.eventTitle,

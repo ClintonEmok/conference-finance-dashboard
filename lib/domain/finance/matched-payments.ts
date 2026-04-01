@@ -16,7 +16,7 @@ type PaymentForReconciliation = {
 }
 
 export async function buildMatchedTotalsByProviderOrderId(
-  orders: Array<{ providerOrderId: string }>
+  orders: Array<{ providerOrderId: string | null; orderId?: string | null }>
 ): Promise<Map<string, number>> {
   const payments = (await convexQuery(api.payments.getPayments, {})) as
     | PaymentForReconciliation[]
@@ -25,7 +25,9 @@ export async function buildMatchedTotalsByProviderOrderId(
 
   const matchedTotalsByProviderOrderId = new Map<string, number>()
   const knownProviderOrderIds = new Set(
-    orders.map((order) => order.providerOrderId).filter(Boolean)
+    orders
+      .map((order) => order.providerOrderId ?? order.orderId ?? null)
+      .filter((value): value is string => Boolean(value))
   )
   const legacyLookupCache = new Map<string, string | null>()
 
