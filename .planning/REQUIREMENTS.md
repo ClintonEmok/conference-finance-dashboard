@@ -52,24 +52,24 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status  |
 | ----------- | ----- | ------- |
-| RTM-01      | —     | Pending |
-| RTM-02      | —     | Pending |
-| RTM-03      | —     | Pending |
-| FIN-01      | —     | Pending |
-| FIN-02      | —     | Pending |
-| FIN-03      | —     | Pending |
-| FIN-04      | —     | Pending |
-| MIG-01      | —     | Pending |
-| MIG-02      | —     | Pending |
-| MIG-03      | —     | Pending |
+| RTM-01      | 29    | Pending |
+| RTM-02      | 26    | Pending |
+| RTM-03      | 30    | Pending |
+| FIN-01      | 27    | Pending |
+| FIN-02      | 27    | Pending |
+| FIN-03      | 27    | Pending |
+| FIN-04      | 29    | Pending |
+| MIG-01      | 28    | Pending |
+| MIG-02      | 28    | Pending |
+| MIG-03      | 30    | Pending |
 
 **Coverage:**
 
 - v3.0 requirements: 10 total
-- Mapped to phases: 0
-- Unmapped: 10 ⚠️
+- Mapped to phases: 10
+- Unmapped: 0 ✓
 
 ---
 
 _Requirements defined: 2026-04-01_
-_Last updated: 2026-04-01 after defining milestone v3.0 canonical orders foundation scope_
+_Last updated: 2026-04-01 after creating roadmap for milestone v3.0 canonical orders foundation_

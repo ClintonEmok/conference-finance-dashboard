@@ -1,204 +1,142 @@
 # Roadmap: Conference Finance Dashboard
 
+## Overview
+
+v3.0 focuses on making canonical internal order, attendee, payable, and payment data trustworthy enough to drive finance and operations without runtime dependence on `ticketTailor*` tables. The milestone stays brownfield and internal-first: stabilize runtime truth, define deterministic money rules, migrate safely, then remove legacy fallbacks without attempting a full Ticket Tailor redesign.
+
 ## Milestones
 
 - ✅ **v1.0 MVP** — shipped 2026-03-27 (archive: `.planning/milestones/v1.0-ROADMAP.md`, requirements: `.planning/milestones/v1.0-REQUIREMENTS.md`, audit: `.planning/milestones/v1.0-MILESTONE-AUDIT.md`)
-- 🚧 **v2.0 Attendee Signup + Accommodation Self-Assignment** — replanned 2026-03-29
+- ✅ **v2.0 Attendee Signup + Accommodation Self-Assignment** — groundwork delivered in phases 18-25
+- 🚧 **v3.0 Canonical Orders Foundation** — planned 2026-04-01
 
-## Active Milestone: v2.0
+## Active Milestone: v3.0 Canonical Orders Foundation
 
-**Objective:** Deliver a public, multi-step signup journey that feels native, captures accommodation-ready attendee details, and lets families/groups assign rooms themselves before submission.
+**Objective:** Make internal order, attendee, payable, and payment-reconciliation tables the sole runtime source for finance and operational queries before any provider-model redesign.
 
 ### Scope
 
-- Public ticket-first signup flow
-- Conditional accommodation step for eligible events
-- Booker-managed room assignment for family/group submissions
-- Attendee details capture for rooming decisions (gender, location, dietary, phone, roommate request)
-- Canonical contracts that keep integration-backed and internal events compatible
-- Operator handoff for room allocations using submitted data
+- Canonical internal runtime truth for finance and ops reads
+- Deterministic order totals, attendee payables, and payment allocations
+- Brownfield-safe widen/backfill/dual-write/parity/cutover workflow
+- Runtime deprecation of `ticketTailor*` query dependencies
+- Explicit provider ingest and mapping boundary for Ticket Tailor
 
 ### Out of Scope
 
-- Full attendee account portal and post-submit self-service edits
-- Automated optimization-based rooming engine
+- Full Ticket Tailor table redesign
+- New public signup UX features unrelated to order/finance correctness
 - Multi-tenant support
-- Replacing Ticket Tailor/Tikkie source behavior for existing integration-backed events
 
 ## Phases
 
-- [ ] **Phase 18: Signup Domain Foundation**
-- [ ] **Phase 19: Public Multi-Step Signup Experience**
-- [ ] **Phase 20: Operator Handoff + Compatibility Layer**
+- [ ] **Phase 26: Canonical Runtime Contract** - Normalize runtime identity and isolate provider data behind ingest/mapping boundaries.
+- [ ] **Phase 27: Deterministic Money Model** - Define canonical totals, attendee payables, and payment allocation truth.
+- [ ] **Phase 28: Safe Migration and Parity** - Backfill and dual-write canonical finance data with production-safe parity checks.
+- [ ] **Phase 29: Canonical Runtime Read Cutover** - Move finance and operational reads onto canonical internal tables with reconciliation reason codes.
+- [ ] **Phase 30: Legacy Path Removal** - Remove validated fallbacks and leave Ticket Tailor as ingest/mapping only.
 
 ---
 
-### Phase 18: Signup Domain Foundation
+### Phase 26: Canonical Runtime Contract
 
-**Goal:** Create the canonical data and mutation foundation for ticket-first signup with optional accommodation assignment.
+**Goal:** New and updated runtime joins use one internal order identity contract, while provider data is accessed through explicit ingest/mapping boundaries instead of direct runtime truth.
 
-**Depends on:** v1.0 baseline + completed hardening work from prior phase 17
+**Depends on:** Phase 25
 
-**Requirements:** USF-01, USF-02, USF-03, USF-06, DOM-01, DOM-02, DOM-03
+**Requirements:** RTM-02
 
 **Success Criteria:**
 
-1. One source-aware event/ticket/accommodation read contract powers public signup for both integration and internal events
-2. Signup submission mutation persists booker, attendees, ticket selections, assignments, and notes atomically
-3. Capacity and duplicate guards are enforced in the same transaction as writes
-4. Accommodation eligibility is represented explicitly so the UI can conditionally show/hide the room-assignment step
-5. Public submission path includes abuse protection (rate limit + honeypot/idempotency strategy)
+1. New and updated order-payment joins resolve through one canonical internal `orders` identifier contract.
+2. Runtime write paths no longer need mixed internal/provider order identifiers to link payments, orders, and attendees.
+3. Verifiable runtime contracts exist for where provider data is allowed, so later cutover work can remove direct `ticketTailor*` dependencies safely.
 
-Plans:
-
-- [ ] 18-01-PLAN.md — Canonical signup contracts (event + ticket + accommodation + room constraints)
-- [ ] 18-02-PLAN.md — Atomic submission mutation (`booker + attendees + assignments + notes`)
-- [ ] 18-03-PLAN.md — Transactional guards + public abuse controls (capacity, duplicate checks, idempotent retries, rate limit/honeypot)
+**Plans:** TBD
 
 ---
 
-### Phase 19: Public Multi-Step Signup Experience
+### Phase 27: Deterministic Money Model
 
-**Goal:** Deliver the non-admin flow end-to-end: tickets first, then accommodations, then attendee details/notes, then review/submit.
+**Goal:** Canonical internal facts produce one deterministic answer for order totals, attendee payables, and payment allocation state.
 
-**Depends on:** Phase 18
+**Depends on:** Phase 26
 
-**Requirements:** USF-04, USF-05, RMD-01, RMD-02, RMD-03
+**Requirements:** FIN-01, FIN-02, FIN-03
 
 **Success Criteria:**
 
-1. Public users can complete a 4-step journey without auth and submit successfully
-2. Booker can assign names to room beds for their family/group in one flow
-3. Unfilled beds are clearly marked with random-fill warning before confirmation
-4. Required attendee rooming fields block submission when missing and show actionable validation copy
+1. The same order returns one canonical total in minor units across ledger, detail, reconciliation, and export contexts.
+2. Each attendee shows a canonical payable amount derived from internal order facts rather than equal-split heuristics.
+3. Partial, split, and overpayments can be recorded as explicit allocations to orders and, when needed, attendees.
+4. Payment allocation records are auditable enough to explain how collected money was applied.
 
-Plans:
-
-- [ ] 19-01-PLAN.md — Route + step shell for ticket-first signup flow
-- [ ] 19-02-PLAN.md — Accommodation assignment UI (family/group bed mapping + unfilled-bed warnings)
-- [ ] 19-03-PLAN.md — Attendee details/notes + review/submit UX
+**Plans:** TBD
 
 ---
 
-### Phase 20: Operator Handoff + Compatibility Layer
+### Phase 28: Safe Migration and Parity
 
-**Goal:** Ensure submitted signup data is immediately useful to operators and remains compatible with existing integration-backed finance workflows.
+**Goal:** Canonical finance data can be introduced safely into existing production-shaped records and proven against legacy outputs before cutover.
 
-**Depends on:** Phase 18, Phase 19
+**Depends on:** Phase 27
 
-**Requirements:** OPS-01, OPS-02
-
-**Success Criteria:**
-
-1. Operator room/allocation views can read submitted assignment + note fields directly
-2. Internal and integration events continue to share source-agnostic dashboard read models
-3. Existing Ticket Tailor/Tikkie behaviors remain stable while internal signup data enters the same downstream operational flows
-
-Plans:
-
-- [x] 20-01-PLAN.md — Operator read model for submitted rooming data (assignments + notes)
-- [ ] 20-02-PLAN.md — Source-agnostic adapter updates (internal + integration compatibility)
-- [ ] 20-03-PLAN.md — End-to-end verification: signup submission -> operator rooming workflow
-
-### Phase 21: Accommodation UX Redesign
-
-**Goal:** Make adding accommodation to an event feel like a coherent single workflow. Move from scattered multi-page setup to inline event settings flow.
-
-**Depends on:** Phase 20
+**Requirements:** MIG-01, MIG-02
 
 **Success Criteria:**
 
-1. Event settings page becomes the primary accommodation setup interface (inline hotel linking, room creation, room type management)
-2. Single unified mutation for hotel-to-event linking (consolidated from two parallel mutations)
-3. Automatic slot generation when rooms are provisioned/linked for an event
-4. Clear status indicators and guardrails (warn when linking hotels with 0 rooms)
-5. Scope Reach Management modal removed from inventory page
+1. Canonical finance fields can be widened and backfilled against existing data without destructive resets.
+2. Live write paths can dual-write legacy and canonical facts while current dashboard and sync behavior stays operational.
+3. Operators or developers can compare canonical outputs against legacy outputs with explicit parity checks before final cutover.
 
-Plans:
+**Plans:** TBD
 
-- [x] 21-01-PLAN.md — Consolidate hotel linking mutations + add auto-slot generation ✓
-- [x] 21-02-PLAN.md — Redesign event settings accommodation section (inline flow) ✓
-- [x] 21-03-PLAN.md — Remove Scope Reach modal and deprecated linking path ✓
+---
 
-### Phase 22: Redesign signup UX for family ticket allocation with attendee grouping and room bedslot allocation UI ✓ COMPLETE
+### Phase 29: Canonical Runtime Read Cutover
 
-**Goal:** Redesign the public signup flow to let families/groups determine how their attendees get allocated across bedslots. New step order: Tickets → Attendee Details → Rooms → Review.
+**Goal:** Finance and operations reads use canonical internal tables as runtime truth, with reconciliation logic derived from canonical totals, payables, and allocations.
 
-**Requirements**: USF-04, USF-05, RMD-01, RMD-02, RMD-03
+**Depends on:** Phase 28
 
-**Depends on:** Phase 21
-**Plans:** 3/3 plans complete
+**Requirements:** RTM-01, FIN-04
 
-Plans:
+**Success Criteria:**
 
-- [x] 22-01-PLAN.md — Flow reorder + location field (foundation) ✓
-- [x] 22-02-PLAN.md — Room assignment redesign with bedslot grouping (core UI) ✓
-- [x] 22-03-PLAN.md — Review step restructure with expandable sections (final polish) ✓
+1. Finance and operations reads return order, attendee, and balance data from canonical internal tables without requiring runtime `ticketTailor*` queries.
+2. Reconciliation surfaces show reason codes derived from canonical totals, attendee payables, and payment allocations.
+3. Operators can trace an order's balance from canonical total through payable and allocation facts without relying on provider runtime truth.
 
-### Phase 23: Add email confirmation and show tikkie link (payment). after signup is completed and improve tracking. we can fetch tikkie automatically already, but payments are done by name. payment details only show first letter and last name
+**Plans:** TBD
 
-**Goal:** Add email confirmation to signup submissions and display Tikkie payment links after signup completion. Improve payment tracking with privacy-aware name matching (first letter + last name display). Add buyer details step and clear localStorage on completion.
-**Requirements**: USF-01, USF-06
-**Depends on:** Phase 22
-**Plans:** 6/6 plans complete
+---
 
-Plans:
+### Phase 30: Legacy Path Removal
 
-- [x] 23-01-PLAN.md — Email infrastructure and async confirmation emails with Resend ✓
-- [x] 23-02-PLAN.md — Success page with expandable sections and booking reference routing ✓
-- [x] 23-03-PLAN.md — Tikkie link display with QR code on success page and in emails ✓
-- [x] 23-04-PLAN.md — Privacy-aware name masking and attendee name payment matching ✓
-- [x] 23-05-PLAN.md — Buyer details step (between tickets and attendees) ✓
-- [x] 23-06-PLAN.md — Clear localStorage draft after successful submission ✓
+**Goal:** Remove validated legacy compatibility paths and leave Ticket Tailor as a secondary ingest/mapping boundary rather than runtime finance truth.
 
-### Phase 24: canonical orders rewrite
+**Depends on:** Phase 29
 
-**Goal:** Consolidate parallel data models (TicketTailor sync tables + submission tables) into unified "orders" core with provider-specific extension tables.
-**Requirements**: DOM-01, DOM-02, DOM-03
-**Depends on:** Phase 23
-**Plans:** 6/6 plans complete
+**Requirements:** RTM-03, MIG-03
 
-Plans:
+**Success Criteria:**
 
-- [x] 24-01-PLAN.md — Schema rewrite: submissions→orders, slim TT tables with FKs to core ✓
-- [x] 24-02-PLAN.md — TT sync pipeline: write to core + extension tables simultaneously ✓
-- [x] 24-03-PLAN.md — Order management + Tikkie: read from core orders table ✓
-- [x] 24-04-PLAN.md — Payment matching: read orders from core table ✓
-- [x] 24-05-PLAN.md — Accommodation board: read from core + extension tables ✓
-- [x] 24-06-PLAN.md — Signup submission: write to core orders tables ✓
+1. Runtime provider fallbacks and other legacy compatibility paths can be removed after canonical parity is validated.
+2. Ticket Tailor data remains available for ingest, raw diagnostics, and mapping, but no longer acts as runtime finance truth.
+3. Canonical runtime behavior remains stable after legacy path removal, without requiring a full Ticket Tailor redesign in this milestone.
 
-### Phase 25: Concerns fixing
-
-**Goal:** Address CRITICAL-severity audit findings — protect exposed data via auth guards, eliminate dead code and Prisma remnants, consolidate duplicate HTTP client.
-**Requirements**: CRITICAL-01, CRITICAL-02, CRITICAL-03
-**Depends on:** Phase 24
-**Plans:** 3/3 plans complete
-
-Plans:
-
-- [x] 25-01-PLAN.md — Add auth guards to unprotected Convex queries (orders, payments, tikkie, attendees, accommodation, sync)
-- [x] 25-02-PLAN.md — Delete Prisma remnants, stale tests, debug logging; consolidate duplicate cleanup mutations
-- [x] 25-03-PLAN.md — Consolidate duplicate HTTP client in autoSync.ts with shared client
+**Plans:** TBD
 
 ---
 
 ## Progress
 
-| Phase                                       | Goal                                                            | Requirements                   | Plans | Status  |
-| ------------------------------------------- | --------------------------------------------------------------- | ------------------------------ | ----- | ------- |
-| 18 - Signup Domain Foundation               | Canonical contracts + atomic signup writes                      | USF-01..03, USF-06, DOM-01..03 | 3     | Pending |
-| 19 - Public Multi-Step Signup Experience    | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3     | Pending |
-| 20 - Operator Handoff + Compatibility Layer | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3     | Pending |
+| Phase                               | Goal                                             | Requirements           | Plans | Status      |
+| ----------------------------------- | ------------------------------------------------ | ---------------------- | ----- | ----------- |
+| 26 - Canonical Runtime Contract     | Normalize runtime identity and provider boundary | RTM-02                 | TBD   | Not started |
+| 27 - Deterministic Money Model      | Deterministic totals, payables, and allocations  | FIN-01, FIN-02, FIN-03 | TBD   | Not started |
+| 28 - Safe Migration and Parity      | Brownfield-safe backfill, dual-write, and parity | MIG-01, MIG-02         | TBD   | Not started |
+| 29 - Canonical Runtime Read Cutover | Canonical finance and ops runtime reads          | RTM-01, FIN-04         | TBD   | Not started |
+| 30 - Legacy Path Removal            | Remove fallbacks after canonical validation      | RTM-03, MIG-03         | TBD   | Not started |
 
-| Phase                                                | Goal                                                            | Requirements                   | Plans      | Status     |
-| ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ | ---------- | ---------- | ---------- |
-| 18 - Signup Domain Foundation                        | Canonical contracts + atomic signup writes                      | USF-01..03, USF-06, DOM-01..03 | 3          | Pending    |
-| 19 - Public Multi-Step Signup Experience             | Ticket-first non-admin flow + room assignment                   | USF-04..05, RMD-01..03         | 3          | Pending    |
-| 20 - Operator Handoff + Compatibility Layer          | Use submitted rooming data in ops without breaking integrations | OPS-01..02                     | 3          | Pending    |
-| 21 - Accommodation UX Redesign                       | Inline event settings accommodation flow                        | —                              | 3          | Complete   |
-| 22 - Redesign signup UX for family ticket allocation | Family ticket allocation with attendee grouping                 | USF-04..05, RMD-01..03         | 3          | Complete   |
-| 23 - Email confirmation + Tikkie + Privacy tracking  | Email confirmations, Tikkie links, privacy masking              | Complete                       | 2026-03-31 | Complete   |
-| 24 - Canonical orders rewrite                        | Unified orders core with TT extension tables                    | DOM-01..03                     | Complete   | 2026-03-31 |
-| 25 - Concerns fixing                                 | Address CRITICAL audit findings, eliminate dead code            | CRITICAL-01..03                | 3          | Complete   | 2026-03-31 |
-
-**Totals:** 8 phases, 30 plans, 19 requirements mapped
+**Totals:** 5 phases, 10 requirements mapped, phase numbering continues from Phase 25.
