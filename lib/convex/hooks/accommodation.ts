@@ -8,8 +8,11 @@ export function useHotels() {
   return useQuery(api.accommodation.getHotels)
 }
 
-export function useHotelById(hotelId: string) {
-  return useQuery(api.accommodation.getHotelById, { hotelId })
+export function useHotelById(hotelId: string | undefined) {
+  return useQuery(
+    api.accommodation.getHotelById,
+    hotelId ? { hotelId } : "skip"
+  )
 }
 
 export function useEventHotels(eventId: string) {
