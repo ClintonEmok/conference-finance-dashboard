@@ -33,6 +33,33 @@ function toMinorAmount(value: unknown): number | undefined {
   return undefined
 }
 
+export function resolveBackfillTotalAmountMinor(input: {
+  currentTotalAmountMinor?: number
+  rawPayload?: unknown
+}): number | null {
+  if (typeof input.currentTotalAmountMinor === "number") {
+    return null
+  }
+
+  const raw =
+    typeof input.rawPayload === "object" &&
+    input.rawPayload !== null &&
+    !Array.isArray(input.rawPayload)
+      ? (input.rawPayload as Record<string, unknown>)
+      : null
+
+  if (!raw) {
+    return null
+  }
+
+  const resolved =
+    toMinorAmount(raw.total) ??
+    toMinorAmount(raw.amount) ??
+    toMinorAmount(raw.total_amount)
+
+  return typeof resolved === "number" ? resolved : null
+}
+
 // Public mutations (require authentication)
 
 export const upsertTicketTailorOrder = mutation({
@@ -428,6 +455,62 @@ export const internalArchiveMissingOrdersForEvent = internalMutation({
     return {
       scanned: ttOrders.length,
       archived,
+    }
+  },
+})
+
+export const internalBackfillMissingOrderTotals = internalMutation({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    patched: v.number(),
+    unchanged: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(500, Math.floor(args.limit ?? 250)))
+    const orders = await ctx.db.query("orders").order("desc").take(limit)
+
+    let patched = 0
+    let unchanged = 0
+
+    for (const order of orders) {
+      if (order.source !== "integration") {
+        unchanged += 1
+        continue
+      }
+
+      if (typeof order.totalAmountMinor === "number") {
+        unchanged += 1
+        continue
+      }
+
+      const extension = await ctx.db
+        .query("ticketTailorOrders")
+        .withIndex("orderId", (q) => q.eq("orderId", order._id))
+        .first()
+
+      const backfilledTotal = resolveBackfillTotalAmountMinor({
+        currentTotalAmountMinor: order.totalAmountMinor,
+        rawPayload: extension?.rawPayload,
+      })
+
+      if (typeof backfilledTotal !== "number") {
+        unchanged += 1
+        continue
+      }
+
+      await ctx.db.patch("orders", order._id, {
+        totalAmountMinor: backfilledTotal,
+      })
+      patched += 1
+    }
+
+    return {
+      scanned: orders.length,
+      patched,
+      unchanged,
     }
   },
 })

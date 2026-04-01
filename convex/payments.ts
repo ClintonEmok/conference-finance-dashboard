@@ -102,6 +102,37 @@ async function cleanupLegacyTikkiePaymentsHelper(
   return { scanned, patched }
 }
 
+async function resolveCanonicalOrderId(
+  ctx: MutationCtx,
+  orderId: string | undefined
+): Promise<Id<"orders"> | undefined> {
+  const normalized = orderId?.trim()
+  if (!normalized) {
+    return undefined
+  }
+
+  const byProviderOrder = await ctx.db
+    .query("orders")
+    .withIndex("by_providerOrderId", (q) => q.eq("providerOrderId", normalized))
+    .first()
+
+  if (byProviderOrder) {
+    return byProviderOrder._id
+  }
+
+  const normalizedId = ctx.db.normalizeId("orders", normalized)
+  if (!normalizedId) {
+    throw new Error("Order not found")
+  }
+
+  const existingOrder = await ctx.db.get("orders", normalizedId)
+  if (!existingOrder) {
+    throw new Error("Order not found")
+  }
+
+  return existingOrder._id
+}
+
 export const getPayments = query({
   args: {
     orderId: v.optional(v.string()),
@@ -191,11 +222,13 @@ export const createPayment = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    const canonicalOrderId = await resolveCanonicalOrderId(ctx, args.orderId)
     const id = await ctx.db.insert("payments", {
       ...args,
+      orderId: canonicalOrderId,
       status:
-        args.status ?? (args.orderId ? "manual_assignment" : "unassigned"),
-      matchedAt: args.orderId ? Date.now() : undefined,
+        args.status ?? (canonicalOrderId ? "manual_assignment" : "unassigned"),
+      matchedAt: canonicalOrderId ? Date.now() : undefined,
     })
     return id
   },
@@ -265,8 +298,12 @@ export const assignPaymentToOrder = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    const canonicalOrderId = await resolveCanonicalOrderId(ctx, args.orderId)
+    if (!canonicalOrderId) {
+      throw new Error("Order not found")
+    }
     await ctx.db.patch("payments", args.paymentId, {
-      orderId: args.orderId,
+      orderId: canonicalOrderId,
       status: args.status ?? "manual_assignment",
       matchedAt: Date.now(),
       matchedBy: args.matchedBy,
@@ -476,8 +513,12 @@ export const internalAssignPaymentToOrder = internalMutation({
     matchedBy: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const canonicalOrderId = await resolveCanonicalOrderId(ctx, args.orderId)
+    if (!canonicalOrderId) {
+      throw new Error("Order not found")
+    }
     await ctx.db.patch("payments", args.paymentId, {
-      orderId: args.orderId,
+      orderId: canonicalOrderId,
       status: args.status ?? "manual_assignment",
       matchedAt: Date.now(),
       matchedBy: args.matchedBy,

@@ -125,6 +125,28 @@ function normalizeRequiredOrderId(value: string): string {
   return normalized
 }
 
+async function resolveCanonicalOrderId(orderId: string): Promise<Id<"orders">> {
+  const normalized = normalizeRequiredOrderId(orderId)
+
+  const byProviderOrder = await convexQuery(api.orders.getOrderByProviderId, {
+    providerOrderId: normalized,
+  })
+
+  if (byProviderOrder?._id) {
+    return byProviderOrder._id as Id<"orders">
+  }
+
+  const byOrderId = await convexQuery(api.orders.getOrderById, {
+    orderId: normalized,
+  })
+
+  if (byOrderId?._id) {
+    return byOrderId._id as Id<"orders">
+  }
+
+  throw new Error("Order not found for payment assignment")
+}
+
 function normalizeAmountMinor(value: number): number {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(
@@ -154,8 +176,9 @@ export async function createBankTransferPayment(
   input: CreateBankTransferPaymentInput,
   userId: string
 ): Promise<PaymentDto> {
+  const canonicalOrderId = await resolveCanonicalOrderId(input.orderId)
+
   const validated = {
-    orderId: normalizeRequiredOrderId(input.orderId),
     amountMinor: normalizeAmountMinor(input.amountMinor),
     paidAt: normalizePaidAt(input.paidAt),
     payerName: normalizePayerName(input.payerName),
@@ -166,7 +189,7 @@ export async function createBankTransferPayment(
 
   const id = await convexMutation(api.payments.createPayment, {
     source: "bank_transfer",
-    orderId: validated.orderId,
+    orderId: canonicalOrderId,
     amountMinor: validated.amountMinor,
     paidAt: validated.paidAt,
     payerName: validated.payerName,
@@ -191,8 +214,9 @@ export async function createCashPayment(
   input: CreateCashPaymentInput,
   userId: string
 ): Promise<PaymentDto> {
+  const canonicalOrderId = await resolveCanonicalOrderId(input.orderId)
+
   const validated = {
-    orderId: normalizeRequiredOrderId(input.orderId),
     amountMinor: normalizeAmountMinor(input.amountMinor),
     paidAt: normalizePaidAt(input.paidAt),
     payerName: normalizePayerName(input.payerName),
@@ -201,7 +225,7 @@ export async function createCashPayment(
 
   const id = await convexMutation(api.payments.createPayment, {
     source: "cash",
-    orderId: validated.orderId,
+    orderId: canonicalOrderId,
     amountMinor: validated.amountMinor,
     paidAt: validated.paidAt,
     payerName: validated.payerName,
@@ -225,11 +249,11 @@ export async function assignPaymentToOrder(
   input: AssignPaymentInput,
   userId: string
 ): Promise<PaymentDto> {
-  const validatedOrderId = normalizeRequiredOrderId(input.orderId)
+  const canonicalOrderId = await resolveCanonicalOrderId(input.orderId)
 
   await convexMutation(api.payments.assignPaymentToOrder, {
     paymentId: paymentId as Id<"payments">,
-    orderId: validatedOrderId as Id<"orders">,
+    orderId: canonicalOrderId,
     status: "manual_assignment",
     matchedBy: userId,
   })
