@@ -12,13 +12,10 @@ import {
   Sparkles,
   ChevronDown,
   PartyPopper,
-  Mail,
-  Phone,
-  ArrowRight,
 } from "lucide-react"
 import { formatMoney } from "@/lib/format"
 import { TikkieSection } from "./TikkieSection"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -347,12 +344,14 @@ export function SuccessView({
                 </div>
               ))}
               <Separator className="my-2 bg-border/50" />
-              <div className="flex items-center justify-between px-2">
-                <span className="text-sm font-bold text-muted-foreground">Total</span>
-                <span className="text-xl font-black text-foreground">
-                  {formatMoney(submission.totalAmountMinor ?? 0)}
-                </span>
-              </div>
+              {submission.totalAmountMinor != null && (
+                <div className="flex items-center justify-between px-2">
+                  <span className="text-sm font-bold text-muted-foreground">Total</span>
+                  <span className="text-xl font-black text-foreground">
+                    {formatMoney(submission.totalAmountMinor)}
+                  </span>
+                </div>
+              )}
             </div>
           </CollapsibleSection>
 
