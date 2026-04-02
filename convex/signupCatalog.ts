@@ -242,8 +242,18 @@ export const getPublicSignupCatalog = query({
           .take(EVENT_TICKET_LIMIT)
 
         const tickets = ticketTypes
+          .slice()
+          .sort((left, right) => {
+            const leftSort = left.sortOrder ?? left._creationTime
+            const rightSort = right.sortOrder ?? right._creationTime
+
+            if (leftSort !== rightSort) {
+              return leftSort - rightSort
+            }
+
+            return left.label.localeCompare(right.label)
+          })
           .map(mapTicket)
-          .sort((left, right) => left.label.localeCompare(right.label))
 
         const accommodation = !event.accommodationEnabled
           ? {
