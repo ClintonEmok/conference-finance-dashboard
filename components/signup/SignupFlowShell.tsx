@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { usePublicSignupCatalog } from "@/lib/convex/hooks/signup"
+import { Skeleton } from "@/components/ui/skeleton"
+import { normalizePublicSignupCatalog } from "@/lib/domain/signup/catalog"
+import { usePublicSignupCatalogRaw } from "@/lib/convex/hooks/signup"
 import {
   createInitialSignupDraft,
   deriveAttendeeDraftsFromTicketSelections,
@@ -33,6 +35,8 @@ import {
 } from "@/components/signup/submission-client"
 import { SignupProgress } from "@/components/signup/SignupProgress"
 import { SignupNavigation } from "@/components/signup/SignupNavigation"
+import { SignupSummary } from "@/components/signup/SignupSummary"
+import { Separator } from "@/components/ui/separator"
 import type { SignupSubmissionResult } from "@/lib/types/signup"
 
 type SignupFlowShellProps = {
@@ -41,7 +45,11 @@ type SignupFlowShellProps = {
 
 export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   const router = useRouter()
-  const catalog = usePublicSignupCatalog()
+  const catalogRaw = usePublicSignupCatalogRaw()
+  const catalog = useMemo(
+    () => normalizePublicSignupCatalog(catalogRaw),
+    [catalogRaw]
+  )
   const event = catalog.find((entry) => entry.slug === slug)
   const [draft, setDraft] = useState<SignupDraft | null>(null)
   const [attendeeValidation, setAttendeeValidation] =
@@ -148,6 +156,23 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   ])
 
   // Early returns after all hooks are called
+  if (catalogRaw === undefined) {
+    return (
+      <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Loading signup...</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Skeleton className="h-4 w-56" />
+            <Skeleton className="h-4 w-80" />
+            <Skeleton className="h-24 w-full" />
+          </CardContent>
+        </Card>
+      </main>
+    )
+  }
+
   if (!event) {
     return (
       <main className="mx-auto flex min-h-svh w-full max-w-4xl items-center justify-center p-6">
@@ -156,8 +181,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
             <CardTitle>Signup event not found</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            This signup link is unavailable. Return to the event page and try
-            again.
+            We couldn&apos;t find a published signup event for this link.
           </CardContent>
         </Card>
       </main>
@@ -420,98 +444,164 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
             : "Review & submit"
 
   return (
-    <main className="mx-auto w-full max-w-5xl p-4 md:p-6">
-      <Card className="mb-4 md:mb-6">
-        <CardHeader className="space-y-3 md:space-y-4">
-          <CardTitle>{activeEvent.title} signup</CardTitle>
-          <SignupProgress
-            currentStep={activeDraft.step}
-            completedByStep={completedByStep}
-            onStepClick={moveToStep}
-            canAccessStep={canAccessStep}
-          />
-        </CardHeader>
-      </Card>
+    <div className="min-h-svh bg-muted/30">
+      <main className="mx-auto flex h-full min-h-svh max-w-[1400px] flex-col gap-6 p-4 md:p-8 lg:flex-row lg:items-start lg:gap-10">
+        {/* Sidebar: Progress & Summary */}
+        <div className="flex flex-col gap-6 lg:sticky lg:top-8 lg:w-[340px] lg:shrink-0">
+          <Card className="shadow-sm">
+            <CardHeader className="space-y-6 pb-8">
+              <div className="space-y-1">
+                <p className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/60 uppercase">
+                  Event Registration
+                </p>
+                <CardTitle className="text-xl font-bold tracking-tight">
+                  {activeEvent.title}
+                </CardTitle>
+              </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{stepTitle}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 text-sm text-muted-foreground">
-          {activeDraft.step === "tickets" ? (
-            <>
-              <TicketStep
-                ticketSelections={effectiveTicketSelections}
-                onChange={handleTicketSelectionsChange}
+              <SignupProgress
+                currentStep={activeDraft.step}
+                completedByStep={completedByStep}
+                onStepClick={moveToStep}
+                canAccessStep={canAccessStep}
               />
-              {totalSelectedTickets <= 0 ? (
-                <p className="font-medium text-destructive">
-                  Select at least one ticket to continue.
-                </p>
-              ) : null}
-            </>
-          ) : null}
-          {activeDraft.step === "buyer" ? (
-            <>
-              <BuyerDetailsStep
-                booker={activeDraft.booker}
-                onBookerChange={handleBookerChange}
-              />
-              {!completedByStep.buyer ? (
-                <p className="font-medium text-destructive">
-                  Fill in all your details to continue.
-                </p>
-              ) : null}
-            </>
-          ) : null}
-          {activeDraft.step === "rooms" ? (
-            <>
-              <RoomAssignmentStep
-                event={activeEvent}
-                attendees={activeDraft.attendees}
-                assignments={activeDraft.assignments}
-                acknowledgeRandomFill={activeDraft.acknowledgeRandomFill}
-                onAssignmentChange={handleRoomAssignmentsChange}
-                onAcknowledgeRandomFillChange={handleAcknowledgeRandomFill}
-              />
-              {activeEvent.accommodation.eligible &&
-              roomSummary.unfilledBeds > 0 &&
-              !activeDraft.acknowledgeRandomFill ? (
-                <p className="font-medium text-destructive">
-                  Acknowledge random-fill risk or assign all beds before
-                  continuing.
-                </p>
-              ) : null}
-            </>
-          ) : null}
-          {activeDraft.step === "attendees" ? (
-            <AttendeeDetailsStep
-              attendees={activeDraft.attendees}
-              validationSummary={attendeeValidation}
-              onAttendeeChange={handleAttendeeChange}
-            />
-          ) : null}
-          {activeDraft.step === "review" ? (
-            <ReviewSubmitStep
-              draft={activeDraft}
-              event={activeEvent}
-              submitResult={submitResult}
-              submitError={submitError}
-              isSubmitting={isSubmitting}
-              onSubmit={handleSubmitFromReview}
-            />
-          ) : null}
+            </CardHeader>
+          </Card>
 
-          <SignupNavigation
-            currentStepIndex={currentStepIndex}
-            totalSteps={SIGNUP_STEP_ORDER.length}
-            canProceed={completedByStep[activeDraft.step]}
-            onBack={moveBack}
-            onNext={moveNext}
-            isSubmitting={isSubmitting}
-          />
-        </CardContent>
-      </Card>
-    </main>
+          <Card className="hidden shadow-sm lg:block">
+            <CardHeader>
+              <CardTitle className="text-sm font-bold tracking-wider text-muted-foreground uppercase">
+                Registration Summary
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SignupSummary event={activeEvent} draft={activeDraft} />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Main Content: Active Step */}
+        <div className="flex flex-1 flex-col gap-6">
+          <Card className="flex-1 shadow-sm">
+            <CardHeader className="border-b bg-muted/5 pb-6">
+              <div className="flex flex-col gap-1">
+                <CardTitle className="text-2xl font-bold tracking-tight">
+                  {stepTitle}
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Complete this section to proceed to the next step.
+                </p>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-8">
+              <div className="space-y-8">
+                {activeDraft.step === "tickets" && (
+                  <div className="space-y-6">
+                    <TicketStep
+                      ticketSelections={effectiveTicketSelections}
+                      onChange={handleTicketSelectionsChange}
+                    />
+                    {totalSelectedTickets <= 0 && (
+                      <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
+                        Please select at least one ticket to continue with your
+                        registration.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeDraft.step === "buyer" && (
+                  <div className="space-y-6">
+                    <BuyerDetailsStep
+                      booker={activeDraft.booker}
+                      onBookerChange={handleBookerChange}
+                    />
+                    {!completedByStep.buyer && (
+                      <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
+                        Please provide your contact information to continue.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeDraft.step === "rooms" && (
+                  <div className="space-y-6">
+                    <RoomAssignmentStep
+                      event={activeEvent}
+                      attendees={activeDraft.attendees}
+                      assignments={activeDraft.assignments}
+                      acknowledgeRandomFill={activeDraft.acknowledgeRandomFill}
+                      onAssignmentChange={handleRoomAssignmentsChange}
+                      onAcknowledgeRandomFillChange={
+                        handleAcknowledgeRandomFill
+                      }
+                    />
+                    {activeEvent.accommodation.eligible &&
+                      roomSummary.unfilledBeds > 0 &&
+                      !activeDraft.acknowledgeRandomFill && (
+                        <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
+                          Acknowledge random-fill risk or assign all beds before
+                          continuing.
+                        </div>
+                      )}
+                  </div>
+                )}
+
+                {activeDraft.step === "attendees" && (
+                  <AttendeeDetailsStep
+                    attendees={activeDraft.attendees}
+                    validationSummary={attendeeValidation}
+                    onAttendeeChange={handleAttendeeChange}
+                  />
+                )}
+
+                {activeDraft.step === "review" && (
+                  <ReviewSubmitStep
+                    draft={activeDraft}
+                    event={activeEvent}
+                    submitResult={submitResult}
+                    submitError={submitError}
+                    isSubmitting={isSubmitting}
+                    onSubmit={handleSubmitFromReview}
+                  />
+                )}
+
+                <Separator className="my-8" />
+
+                <SignupNavigation
+                  currentStepIndex={currentStepIndex}
+                  totalSteps={SIGNUP_STEP_ORDER.length}
+                  canProceed={
+                    completedByStep[activeDraft.step] ||
+                    activeDraft.step === "review"
+                  }
+                  onBack={moveBack}
+                  onNext={
+                    activeDraft.step === "review"
+                      ? handleSubmitFromReview
+                      : moveNext
+                  }
+                  isSubmitting={isSubmitting}
+                  showSubmit={activeDraft.step === "review"}
+                  submitLabel="Complete Registration"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Mobile Summary (only visible on small screens) */}
+          <Card className="bg-muted/10 lg:hidden">
+            <CardHeader>
+              <CardTitle className="text-sm font-bold tracking-wider text-muted-foreground uppercase">
+                Registration Summary
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SignupSummary event={activeEvent} draft={activeDraft} />
+            </CardContent>
+          </Card>
+        </div>
+      </main>
+    </div>
   )
 }

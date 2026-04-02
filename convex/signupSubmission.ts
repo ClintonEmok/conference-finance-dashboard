@@ -372,6 +372,7 @@ export const submitSignupEnvelope = mutation({
     const ticketTypeById = new Map(
       eventTicketTypes.map((ticketType) => [ticketType._id, ticketType])
     )
+    const soldCountIncrements = new Map<Id<"ticketTypes">, number>()
 
     for (const selection of args.ticketSelections) {
       if (!attendeeKeySet.has(selection.attendeeKey)) {
@@ -561,6 +562,23 @@ export const submitSignupEnvelope = mutation({
         ticketTypeId: selection.ticketTypeId,
         quantity: 1,
         sortOrder,
+      })
+
+      soldCountIncrements.set(
+        selection.ticketTypeId,
+        (soldCountIncrements.get(selection.ticketTypeId) ?? 0) + 1
+      )
+    }
+
+    for (const [ticketTypeId, increment] of soldCountIncrements) {
+      const ticketType = ticketTypeById.get(ticketTypeId)
+      if (!ticketType) {
+        continue
+      }
+
+      await ctx.db.patch(ticketTypeId, {
+        soldCount: (ticketType.soldCount ?? 0) + increment,
+        updatedAt: now,
       })
     }
 

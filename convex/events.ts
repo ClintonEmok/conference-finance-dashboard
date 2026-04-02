@@ -338,10 +338,21 @@ export const upsertTicketTailorEvent = mutation({
 export const getTicketTypesForEvent = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const ticketTypes = await ctx.db
       .query("ticketTypes")
       .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
       .collect()
+
+    return ticketTypes.sort((left, right) => {
+      const leftSort = left.sortOrder ?? left._creationTime
+      const rightSort = right.sortOrder ?? right._creationTime
+
+      if (leftSort !== rightSort) {
+        return leftSort - rightSort
+      }
+
+      return left.label.localeCompare(right.label)
+    })
   },
 })
 
@@ -357,11 +368,21 @@ export const createTicketType = mutation({
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     const now = Date.now()
+    const existingTicketTypes = await ctx.db
+      .query("ticketTypes")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .collect()
+    const nextSortOrder =
+      existingTicketTypes.reduce((maxSortOrder, ticketType) => {
+        return Math.max(maxSortOrder, ticketType.sortOrder ?? -1)
+      }, -1) + 1
+
     return await ctx.db.insert("ticketTypes", {
       eventId: args.eventId,
       label: args.label,
       priceMinor: args.priceMinor,
       maxQuantity: args.maxQuantity,
+      sortOrder: nextSortOrder,
       soldCount: 0,
       isActive: args.isActive ?? true,
       visibility: args.visibility ?? "public",
@@ -377,6 +398,7 @@ export const updateTicketType = mutation({
     label: v.optional(v.string()),
     priceMinor: v.optional(v.number()),
     maxQuantity: v.optional(v.number()),
+    sortOrder: v.optional(v.number()),
     isActive: v.optional(v.boolean()),
     visibility: v.optional(v.union(v.literal("public"), v.literal("hidden"))),
     availabilityState: v.optional(
@@ -391,6 +413,53 @@ export const updateTicketType = mutation({
       updatedAt: Date.now(),
     })
     return ticketTypeId
+  },
+})
+
+export const reorderTicketTypes = mutation({
+  args: {
+    eventId: v.id("events"),
+    orderedTicketTypeIds: v.array(v.id("ticketTypes")),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const ticketTypes = await ctx.db
+      .query("ticketTypes")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .collect()
+
+    if (ticketTypes.length !== args.orderedTicketTypeIds.length) {
+      throw new Error("Ticket order does not match the event ticket list")
+    }
+
+    const ticketTypeIds = new Set(
+      ticketTypes.map((ticketType) => String(ticketType._id))
+    )
+    const orderedIds = args.orderedTicketTypeIds.map((ticketTypeId) =>
+      String(ticketTypeId)
+    )
+
+    if (orderedIds.some((ticketTypeId) => !ticketTypeIds.has(ticketTypeId))) {
+      throw new Error("Ticket order contains an unknown ticket type")
+    }
+
+    if (new Set(orderedIds).size !== orderedIds.length) {
+      throw new Error("Ticket order contains duplicate ticket types")
+    }
+
+    const now = Date.now()
+    for (const [
+      sortOrder,
+      ticketTypeId,
+    ] of args.orderedTicketTypeIds.entries()) {
+      await ctx.db.patch(ticketTypeId, {
+        sortOrder,
+        updatedAt: now,
+      })
+    }
+
+    return args.eventId
   },
 })
 

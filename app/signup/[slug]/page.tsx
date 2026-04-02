@@ -17,23 +17,5 @@ export default function SignupPage({ params }: SignupPageProps) {
   const catalog = usePublicSignupCatalog()
   const event = catalog.find((entry) => entry.slug === slug)
 
-  if (!event) {
-    return (
-      <main className="mx-auto flex min-h-svh w-full max-w-3xl items-center justify-center p-6">
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle>Signup unavailable</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm text-muted-foreground">
-            <p>We couldn&apos;t find a published signup event for this link.</p>
-            <Button asChild>
-              <Link href="/">Back to home</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </main>
-    )
-  }
-
   return <SignupFlowShell slug={slug} />
 }

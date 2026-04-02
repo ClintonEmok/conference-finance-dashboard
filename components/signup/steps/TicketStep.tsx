@@ -1,8 +1,8 @@
 "use client"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 import { formatMoney } from "@/lib/format"
 import { type TicketSelectionDraft } from "@/components/signup/state"
 
@@ -47,22 +47,30 @@ export function TicketStep({ ticketSelections, onChange }: TicketStepProps) {
         const disabled = !ticket.selectable
 
         return (
-          <Card key={ticket.ticketTypeId}>
+          <Card 
+            key={ticket.ticketTypeId}
+            className={cn(
+              "transition-all",
+              !ticket.selectable && "opacity-60 saturate-50 bg-muted/20"
+            )}
+          >
             <CardHeader>
-              <CardTitle className="text-base">{ticket.label}</CardTitle>
-              <p className="text-sm text-muted-foreground">
+              <CardTitle className={cn(
+                "text-base font-bold tracking-tight",
+                !ticket.selectable && "text-muted-foreground"
+              )}>
+                {ticket.label}
+              </CardTitle>
+              <p className="text-sm font-medium text-muted-foreground">
                 {formatMoney(ticket.priceMinor)}
               </p>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <Badge variant={ticket.selectable ? "default" : "outline"}>
-                  {ticket.selectable ? "Selectable" : "Unavailable"}
-                </Badge>
-                <p className="text-xs text-muted-foreground">
+              {ticket.reason && (
+                <p className="text-xs font-semibold text-destructive uppercase tracking-wide">
                   {ticketReasonCopy(ticket.reason)}
                 </p>
-              </div>
+              )}
 
               <div className="flex items-center gap-2">
                 <Button

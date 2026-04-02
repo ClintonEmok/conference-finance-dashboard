@@ -1,6 +1,8 @@
 "use client"
 
-import { Badge } from "@/components/ui/badge"
+import { Check } from "lucide-react"
+
+import { cn } from "@/lib/utils"
 import { SIGNUP_STEP_ORDER, type SignupStep } from "@/components/signup/state"
 
 type SignupProgressProps = {
@@ -11,11 +13,11 @@ type SignupProgressProps = {
 }
 
 const STEP_LABELS: Record<SignupStep, string> = {
-  tickets: "Tickets",
-  buyer: "Your Details",
-  attendees: "Attendee details",
-  rooms: "Rooms",
-  review: "Review & submit",
+  tickets: "Ticket Selection",
+  buyer: "Contact Details",
+  attendees: "Attendee Info",
+  rooms: "Room Assignment",
+  review: "Review & Submit",
 }
 
 export function SignupProgress({
@@ -27,34 +29,86 @@ export function SignupProgress({
   const currentStepIndex = SIGNUP_STEP_ORDER.indexOf(currentStep)
 
   return (
-    <div className="relative">
-      <div className="flex gap-2 overflow-x-auto pb-2 md:grid md:grid-cols-5 md:overflow-visible md:pb-0">
+    <nav aria-label="Signup Progress" className="w-full">
+      <div className="flex gap-4 overflow-x-auto pb-4 md:flex-col md:overflow-visible md:pb-0">
         {SIGNUP_STEP_ORDER.map((step, index) => {
           const isActive = currentStep === step
           const isComplete = completedByStep[step] && index < currentStepIndex
+          const isUpcoming = index > currentStepIndex
           const label = STEP_LABELS[step]
+          const isDisabled = !canAccessStep(step)
 
           return (
             <button
               key={step}
               type="button"
-              className="min-w-[120px] shrink-0 rounded-lg border border-border/70 px-3 py-2 text-left transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50 md:min-w-0"
-              disabled={!canAccessStep(step)}
+              disabled={isDisabled}
               onClick={() => onStepClick(step)}
+              className={cn(
+                "group flex min-w-[140px] items-start gap-3 text-left transition-all focus-visible:outline-none md:min-w-0",
+                isDisabled ? "cursor-not-allowed opacity-40" : "hover:opacity-80"
+              )}
             >
-              <p className="text-xs text-muted-foreground">Step {index + 1}</p>
-              <p className="text-sm font-medium">{label}</p>
-              {isActive ? (
-                <Badge className="mt-2">Active</Badge>
-              ) : isComplete ? (
-                <Badge className="mt-2" variant="secondary">
-                  Complete
-                </Badge>
-              ) : null}
+              <div className="relative flex flex-col items-center">
+                <div
+                  className={cn(
+                    "flex size-7 items-center justify-center rounded-full border-2 transition-all duration-300",
+                    isComplete
+                      ? "border-primary bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                      : isActive
+                        ? "ring-offset-background border-primary ring-2 ring-primary/40 ring-offset-2"
+                        : "border-muted-foreground/30 bg-background"
+                  )}
+                >
+                  {isComplete ? (
+                    <Check className="size-4 stroke-[3px]" />
+                  ) : (
+                    <span
+                      className={cn(
+                        "text-[10px] font-bold",
+                        isActive ? "text-primary" : "text-muted-foreground"
+                      )}
+                    >
+                      {index + 1}
+                    </span>
+                  )}
+                </div>
+                {index < SIGNUP_STEP_ORDER.length - 1 && (
+                  <div
+                    className={cn(
+                      "mt-1 hidden h-8 w-[2px] rounded-full transition-colors duration-300 md:block",
+                      isComplete ? "bg-primary" : "bg-muted/30"
+                    )}
+                  />
+                )}
+              </div>
+
+              <div className="flex flex-col pt-0.5">
+                <span
+                  className={cn(
+                    "text-[10px] font-black uppercase tracking-widest transition-colors",
+                    isActive ? "text-primary" : "text-muted-foreground/50"
+                  )}
+                >
+                  Step {index + 1}
+                </span>
+                <span
+                  className={cn(
+                    "text-sm font-bold tracking-tight whitespace-nowrap",
+                    isActive
+                      ? "text-foreground"
+                      : isUpcoming
+                        ? "text-muted-foreground/60"
+                        : "text-foreground/80"
+                  )}
+                >
+                  {label}
+                </span>
+              </div>
             </button>
           )
         })}
       </div>
-    </div>
+    </nav>
   )
 }
