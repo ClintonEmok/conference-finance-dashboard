@@ -3,6 +3,9 @@ import { api } from "@/convex/_generated/api"
 import { fetchQuery } from "convex/nextjs"
 import { SuccessView } from "@/components/signup/SuccessPage/SuccessView"
 
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
 interface SuccessPageProps {
   params: Promise<{ bookingRef: string }>
 }
