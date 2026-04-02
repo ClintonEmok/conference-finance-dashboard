@@ -1,13 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { Calendar, CheckCircle2, ChevronRight, Clock, Info, MapPin, Tag, Wallet } from "lucide-react"
+import { Calendar, ChevronRight, Tag } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { formatMoney } from "@/lib/format"
-import { cn } from "@/lib/utils"
+import { Card } from "@/components/ui/card"
 
 type TicketInfo = {
   ticketTypeId: string
