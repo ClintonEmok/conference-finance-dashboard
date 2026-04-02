@@ -7,7 +7,8 @@ import { ChevronLeft } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { usePublicSignupCatalog } from "@/lib/convex/hooks/signup"
+import { usePublicSignupCatalogRaw } from "@/lib/convex/hooks/signup"
+import { normalizePublicSignupCatalog } from "@/lib/domain/signup/catalog"
 import { EventEntryContent } from "@/components/events/EventEntryContent"
 import { EventEntrySkeleton } from "@/components/events/EventEntrySkeleton"
 
@@ -17,22 +18,20 @@ type EventEntryPageProps = {
 
 function EventDataLoader({ slug }: { slug: string }) {
   const searchParams = useSearchParams()
-  const catalog = usePublicSignupCatalog()
-  
+  const catalogRaw = usePublicSignupCatalogRaw()
+
+  // While catalog is loading, the hook returns undefined.
+  // Treat only the undefined state as loading so that a legitimately
+  // empty catalog ([]) can fall through to the "event not found" UI.
+  if (!catalogRaw) {
+    return <EventEntrySkeleton />
+  }
+
+  const catalog = normalizePublicSignupCatalog(catalogRaw)
+
   // Find the event in the catalog
   const event = catalog.find((entry) => entry.slug === slug)
   const restoreIntent = searchParams.get("restore")
-
-  // While catalog is loading (returns empty array or undefined in some cases)
-  // Our hook normalizePublicSignupCatalog returns [] if undefined
-  // So we check if we have results or if it's actually empty
-  if (catalog.length === 0) {
-    // We need a way to know if it's "loading" vs "empty"
-    // Since usePublicSignupCatalog doesn't expose isLoading, 
-    // we'll treat empty as loading for a brief moment or use a better check if possible.
-    // However, the redesign is the main part.
-    return <EventEntrySkeleton />
-  }
 
   if (!event) {
     return (

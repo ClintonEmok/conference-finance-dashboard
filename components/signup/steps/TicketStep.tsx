@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { cn, formatPrice } from "@/lib/utils" // Imported from our central utilities
+import { cn } from "@/lib/utils"
 import { formatMoney } from "@/lib/format"
 import { type TicketSelectionDraft } from "@/components/signup/state"
 

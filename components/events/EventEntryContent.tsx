@@ -39,28 +39,13 @@ function formatEventDateRange(
     timeZone: timezone,
   })
 
-  const timeFormatter = new Intl.DateTimeFormat("en-GB", {
-    timeStyle: "short",
-    timeZone: timezone,
-  })
-
   const startStr = formatter.format(new Date(startsAt))
-  const startTimeStr = timeFormatter.format(new Date(startsAt))
   const endStr = endsAt ? formatter.format(new Date(endsAt)) : null
-  const endTimeStr = endsAt ? timeFormatter.format(new Date(endsAt)) : null
 
   if (endStr && startStr !== endStr) {
     return `${startStr} - ${endStr}`
   }
   return startStr
-}
-
-function ticketReasonCopy(reason: string | null) {
-  if (reason === "sold_out") return "All tickets sold out"
-  if (reason === "disabled") return "Currently unavailable"
-  if (reason === "hidden") return "Not publicly visible"
-  if (reason === "not_on_sale") return "Not on sale yet"
-  return "Available for registration"
 }
 
 function signupStatusCopy(reason: string | null) {

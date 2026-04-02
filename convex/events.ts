@@ -444,6 +444,10 @@ export const reorderTicketTypes = mutation({
       throw new Error("Ticket order contains an unknown ticket type")
     }
 
+    if (new Set(orderedIds).size !== orderedIds.length) {
+      throw new Error("Ticket order contains duplicate ticket types")
+    }
+
     const now = Date.now()
     for (const [
       sortOrder,
