@@ -1,5 +1,6 @@
 "use client"
 
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -75,8 +76,16 @@ export function AttendeeDetailsStep({
 
       {attendees.map((attendee, index) => (
         <Card key={attendee.attendeeKey}>
-          <CardHeader>
+          <CardHeader className="space-y-2">
             <CardTitle className="text-base">Attendee {index + 1}</CardTitle>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                Selected ticket
+              </span>
+              <Badge variant="secondary" className="h-6 rounded-full px-2.5">
+                {attendee.ticketLabel || "Unassigned"}
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2 md:gap-3">
             <div className="space-y-1">
