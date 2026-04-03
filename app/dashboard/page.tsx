@@ -31,11 +31,14 @@ type RevenueResponse = {
     trendGranularity: "day"
   }
   availableEvents: Array<{
-    providerEventId: string
-    name: string | null
+    eventId: string
+    slug: string
+    title: string | null
+    startsAt: number | null
+    currency: string | null
   }>
   totals: {
-    grossMinor: number
+    orderValueMinor: number
     paidMinor: number
     refundedMinor: number
     netMinor: number
@@ -49,7 +52,7 @@ type RevenueResponse = {
   trend: Array<{
     bucket: string
     eventLabel: string
-    grossMinor: number
+    orderValueMinor: number
     paidMinor: number
     refundedMinor: number
     netMinor: number
@@ -293,8 +296,10 @@ export default function DashboardPage() {
             ))
           : [
               {
-                label: "Gross",
-                value: payload ? formatMoney(payload.totals.grossMinor) : "--",
+                label: "Order value",
+                value: payload
+                  ? formatMoney(payload.totals.orderValueMinor)
+                  : "--",
               },
               {
                 label: "Paid",
@@ -357,7 +362,7 @@ export default function DashboardPage() {
                             Orders
                           </th>
                           <th className="px-4 py-3 text-right font-semibold">
-                            Gross
+                            Order value
                           </th>
                           <th className="px-4 py-3 text-right font-semibold">
                             Net
@@ -402,7 +407,7 @@ export default function DashboardPage() {
                             Orders
                           </th>
                           <th className="px-4 py-3 text-right font-semibold">
-                            Gross
+                            Order value
                           </th>
                           <th className="px-4 py-3 text-right font-semibold">
                             Net
@@ -425,7 +430,7 @@ export default function DashboardPage() {
                               {bucket.orderCount}
                             </td>
                             <td className="px-4 py-3 text-right text-foreground tabular-nums">
-                              {formatMoney(bucket.grossMinor)}
+                              {formatMoney(bucket.orderValueMinor)}
                             </td>
                             <td className="px-4 py-3 text-right font-semibold text-foreground tabular-nums">
                               {formatMoney(bucket.netMinor)}

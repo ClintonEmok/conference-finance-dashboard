@@ -368,6 +368,31 @@ export declare const api: {
       any
     >;
   };
+  emailActions: {
+    sendSignupConfirmationTest: FunctionReference<
+      "action",
+      "public",
+      {
+        attendeeCount: number;
+        bookerName: string;
+        bookingRef: string;
+        eventDate: string;
+        eventLocation: string;
+        eventName: string;
+        roomAssignments: Array<{
+          bedCount: number;
+          hotelName: string;
+          roomType: string;
+        }>;
+        successPageUrl: string;
+        tikkieAmountMinor?: number;
+        tikkieCurrency?: string;
+        tikkieUrl?: string;
+        to: string;
+      },
+      { emailId?: string; error?: string; success: boolean }
+    >;
+  };
   emailMutations: {
     triggerSignupConfirmationEmail: FunctionReference<
       "mutation",

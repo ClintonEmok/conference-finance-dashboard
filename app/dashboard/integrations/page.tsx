@@ -3,6 +3,7 @@ import {
   getIntegrationStatus,
   type IntegrationStatusRecord,
 } from "@/lib/integrations/status"
+import { ResendTestSection } from "@/components/dashboard/resend-test-section"
 
 const stateStyles: Record<
   IntegrationStatusRecord["state"],
@@ -124,6 +125,8 @@ export default async function IntegrationsPage() {
           )
         })}
       </div>
+
+      <ResendTestSection />
     </section>
   )
 }

@@ -561,7 +561,7 @@ async function loadEventNamesById(
   ctx: QueryCtx
 ): Promise<Map<string, string | null>> {
   // Bounded: small number of events - using canonical events table
-  const events = await ctx.db.query("events").take(200)
+  const events = await ctx.db.query("events").collect()
   return new Map(
     events.map((event) => [String(event._id), event.title ?? null])
   )
@@ -569,14 +569,14 @@ async function loadEventNamesById(
 
 async function loadEventSlugsById(ctx: QueryCtx): Promise<Map<string, string>> {
   // Bounded: small number of events - using canonical events table
-  const events = await ctx.db.query("events").take(200)
+  const events = await ctx.db.query("events").collect()
   return new Map(events.map((event) => [String(event._id), event.slug]))
 }
 
 async function loadEventSourceKindsById(
   ctx: QueryCtx
 ): Promise<Map<string, "integration" | "internal">> {
-  const events = await ctx.db.query("events").take(200)
+  const events = await ctx.db.query("events").collect()
   return new Map(
     events.map((event) => [String(event._id), event.primarySourceKind])
   )
@@ -739,7 +739,7 @@ export const getOrderCount = query({
   },
   handler: async (ctx, args) => {
     // Bounded: capped read for count aggregation
-    let orders = await ctx.db.query("orders").order("desc").take(500)
+    const orders = await ctx.db.query("orders").order("desc").take(500)
 
     // Join with extension data for visibility filtering
     const withExtensions = await Promise.all(
@@ -804,15 +804,15 @@ export const getOrdersForReconciliation = query({
           q.eq("eventId", args.eventId! as Id<"events">)
         )
         .order("desc")
-        .take(500)
+        .collect()
     } else if (args.status) {
       orders = await ctx.db
         .query("orders")
         .withIndex("by_status", (q) => q.eq("status", args.status!))
         .order("desc")
-        .take(500)
+        .collect()
     } else {
-      orders = await ctx.db.query("orders").order("desc").take(500)
+      orders = await ctx.db.query("orders").order("desc").collect()
     }
 
     // Filter by date range in memory (orderedAt is not indexed)
