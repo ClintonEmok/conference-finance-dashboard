@@ -15,6 +15,11 @@ import {
 } from "lucide-react"
 import { formatMoney } from "@/lib/format"
 import { TikkieSection } from "./TikkieSection"
+import { Card, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { cn } from "@/lib/utils"
 
 interface SubmissionAttendee {
   name: string
@@ -66,7 +71,7 @@ function AnimatedCheck() {
   return (
     <div className="relative">
       <svg
-        className="h-24 w-24 text-emerald-400"
+        className="h-20 w-20 text-emerald-500"
         viewBox="0 0 100 100"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
@@ -96,7 +101,7 @@ function AnimatedCheck() {
         <path
           d="M30 52 L45 67 L70 35"
           stroke="currentColor"
-          strokeWidth="4"
+          strokeWidth="6"
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeDasharray="60"
@@ -110,18 +115,16 @@ function AnimatedCheck() {
 
 // Confetti effect component
 function Confetti() {
-  const colors = ["#10b981", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6"]
-
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      {[...Array(50)].map((_, i) => (
+      {[...Array(30)].map((_, i) => (
         <div
           key={i}
-          className="absolute h-2 w-2 animate-[confetti-fall_3s_ease-out_forwards]"
+          className="absolute h-1.5 w-1.5 animate-[confetti-fall_3s_ease-out_forwards]"
           style={{
             left: `${Math.random() * 100}%`,
             top: `-10px`,
-            backgroundColor: colors[Math.floor(Math.random() * colors.length)],
+            backgroundColor: ["#10b981", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6"][Math.floor(Math.random() * 5)],
             animationDelay: `${Math.random() * 2}s`,
             transform: `rotate(${Math.random() * 360}deg)`,
           }}
@@ -131,66 +134,51 @@ function Confetti() {
   )
 }
 
-// Expandable section with smooth animation
-function ExpandableCard({
+function CollapsibleSection({
   title,
   icon: Icon,
-  badge,
+  count,
   children,
-  defaultExpanded = false,
+  defaultOpen = false,
 }: {
   title: string
   icon: React.ElementType
-  badge: string
+  count?: number
   children: React.ReactNode
-  defaultExpanded?: boolean
+  defaultOpen?: boolean
 }) {
-  const [isOpen, setIsOpen] = useState(defaultExpanded)
+  const [isOpen, setIsOpen] = useState(defaultOpen)
 
   return (
-    <div className="group overflow-hidden rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm transition-all duration-300 hover:bg-white/10">
+    <Card className="overflow-hidden border-none bg-card/40 shadow-lg ring-1 ring-border/50">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between p-6 text-left"
+        className="flex w-full items-center justify-between p-6 text-left transition-colors hover:bg-muted/30"
       >
         <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-br from-violet-500/20 to-purple-600/20">
-            <Icon className="h-6 w-6 text-violet-300" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Icon className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-white">{title}</h3>
-            <p className="text-sm text-white/50">{badge} items</p>
+            <h3 className="text-lg font-bold tracking-tight text-foreground">{title}</h3>
+            {count !== undefined && (
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest">
+                {count} {count === 1 ? "item" : "items"}
+              </p>
+            )}
           </div>
         </div>
-        <div
-          className={`flex h-10 w-10 items-center justify-center rounded-full bg-white/5 transition-transform duration-300 ${
-            isOpen ? "rotate-180" : ""
-          }`}
-        >
-          <ChevronDown className="h-5 w-5 text-white/60" />
-        </div>
+        <ChevronDown className={cn("h-5 w-5 text-muted-foreground transition-transform duration-300", isOpen && "rotate-180")} />
       </button>
-      <div
-        className={`overflow-hidden transition-all duration-300 ease-in-out ${
-          isOpen ? "max-h-[800px] opacity-100" : "max-h-0 opacity-0"
-        }`}
-      >
-        <div className="border-t border-white/10 px-6 pt-4 pb-6">
-          {children}
+      <div className={cn("grid transition-all duration-300 ease-in-out", isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0")}>
+        <div className="overflow-hidden">
+          <div className="border-t border-border/50 p-6 space-y-4">
+            {children}
+          </div>
         </div>
       </div>
-    </div>
+    </Card>
   )
-}
-
-function formatEventDate(startsAt: number): string {
-  const date = new Date(startsAt)
-  return new Intl.DateTimeFormat("en-GB", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  }).format(date)
 }
 
 export function SuccessView({
@@ -205,6 +193,8 @@ export function SuccessView({
     setMounted(true)
   }, [])
 
+  if (!mounted) return null
+
   const handleCopy = () => {
     if (submission.bookingRef) {
       navigator.clipboard.writeText(submission.bookingRef)
@@ -215,276 +205,212 @@ export function SuccessView({
 
   const totalAttendees = submission.attendees.length
   const totalRooms = submission.roomAssignments.length
-  const totalTickets = submission.ticketSelections.reduce(
-    (sum, ts) => sum + ts.quantity,
-    0
-  )
-
-  if (!mounted) return null
+  const totalTickets = submission.ticketSelections.reduce((sum, ts) => sum + ts.quantity, 0)
+  const formattedDate = new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "full",
+  }).format(new Date(event.startsAt))
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-      {/* Animated background */}
-      <div className="absolute inset-0">
-        <div className="absolute top-0 left-1/4 h-96 w-96 animate-pulse rounded-full bg-emerald-500/10 blur-3xl" />
-        <div
-          className="absolute right-1/4 bottom-0 h-96 w-96 animate-pulse rounded-full bg-violet-500/10 blur-3xl"
-          style={{ animationDelay: "1s" }}
-        />
-        <div className="absolute top-1/2 left-1/2 h-[800px] w-[800px] -translate-x-1/2 -translate-y-1/2 transform rounded-full bg-blue-500/5 blur-3xl" />
-      </div>
-
-      {/* Confetti */}
+    <div className="relative mx-auto w-full max-w-4xl space-y-12 p-6 animate-in fade-in duration-1000">
       <Confetti />
 
-      {/* Main content */}
-      <div className="relative z-10 container mx-auto max-w-3xl px-4 py-12">
-        {/* Hero Section */}
-        <div className="mb-12 text-center">
-          <div className="mb-6 inline-flex animate-[fadeInUp_0.6s_ease-out] items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-400">
-            <Sparkles className="h-4 w-4" />
-            <span>Booking Confirmed</span>
-          </div>
+      {/* Hero Section */}
+      <div className="flex flex-col items-center text-center space-y-8 py-12">
+        <div className="relative">
+          <div className="absolute inset-0 -m-4 animate-pulse rounded-full bg-emerald-500/10 blur-2xl" />
+          <AnimatedCheck />
+        </div>
 
-          <div className="mb-6 flex animate-[fadeInUp_0.6s_ease-out_0.2s_both] justify-center">
-            <AnimatedCheck />
-          </div>
-
-          <h1
-            className="mb-4 animate-[fadeInUp_0.6s_ease-out_0.3s_both] text-4xl font-bold text-white md:text-5xl"
-            style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}
-          >
+        <div className="space-y-4">
+          <Badge variant="outline" className="rounded-full border-emerald-500/20 bg-emerald-500/10 px-4 py-1 text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-widest text-[10px]">
+            <Sparkles className="mr-2 h-3.5 w-3.5" />
+            Registration Successful
+          </Badge>
+          <h1 className="text-4xl font-black tracking-tight text-foreground sm:text-6xl">
             You&apos;re all set!
           </h1>
-
-          <p className="mx-auto max-w-lg animate-[fadeInUp_0.6s_ease-out_0.4s_both] text-lg text-white/60">
-            Your booking for{" "}
-            <span className="font-medium text-white">{event.name}</span> has
-            been confirmed. We&apos;ve sent a confirmation email to{" "}
-            <span className="text-white">{submission.bookerEmail}</span>.
+          <p className="mx-auto max-w-xl text-lg text-muted-foreground font-medium">
+            Your booking for <span className="text-foreground font-bold">{event.name}</span> is confirmed.
+            A confirmation has been sent to <span className="text-foreground font-bold">{submission.bookerEmail}</span>.
           </p>
         </div>
+      </div>
 
-        {/* Booking Reference Card */}
-        <div className="mb-8 animate-[fadeInUp_0.6s_ease-out_0.5s_both] rounded-3xl border border-white/10 bg-gradient-to-r from-violet-600/20 via-purple-600/20 to-pink-600/20 p-8 backdrop-blur-xl">
-          <div className="flex flex-col items-center gap-6 md:flex-row">
-            <div className="flex-1 text-center md:text-left">
-              <p className="mb-2 text-sm tracking-wider text-white/50 uppercase">
-                Booking Reference
-              </p>
-              <div className="flex items-center justify-center gap-3 md:justify-start">
-                <code className="text-3xl font-bold tracking-wider text-white">
-                  {submission.bookingRef}
-                </code>
-                <button
-                  onClick={handleCopy}
-                  className="group rounded-xl border border-white/10 bg-white/5 p-3 transition-all duration-200 hover:bg-white/10"
-                  title="Copy booking reference"
-                >
-                  {copied ? (
-                    <CheckCircle className="h-5 w-5 text-emerald-400" />
-                  ) : (
-                    <Copy className="h-5 w-5 text-white/60 transition-colors group-hover:text-white" />
+      <div className="grid gap-8 lg:grid-cols-12">
+        {/* Left Column: Key Info */}
+        <div className="space-y-8 lg:col-span-12">
+          {/* Booking Ref Card */}
+          <Card className="overflow-hidden border-none bg-gradient-to-br from-primary/10 via-primary/5 to-transparent shadow-2xl backdrop-blur-xl ring-1 ring-primary/20">
+            <CardContent className="p-8 sm:p-10">
+              <div className="flex flex-col items-center justify-between gap-8 md:flex-row text-center md:text-left">
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white mt-4">
+                    Booking Reference
+                  </p>
+                  <div className="flex items-center justify-center gap-4 md:justify-start">
+                    <code className="text-4xl font-black tracking-tighter text-white sm:text-5xl">
+                      {submission.bookingRef}
+                    </code>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleCopy}
+                      className="h-10 w-10 rounded-xl bg-primary/5 hover:bg-primary/10"
+                    >
+                      {copied ? (
+                        <CheckCircle className="h-5 w-5 text-emerald-500" />
+                      ) : (
+                        <Copy className="h-5 w-5 text-primary/60" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="hidden h-16 w-px bg-primary/10 md:block" />
+
+                <div className="flex gap-10">
+                  <div className="space-y-1">
+                    <p className="text-3xl font-black text-foreground">{totalTickets}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">Tickets</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-3xl font-black text-foreground">{totalAttendees}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">Attendees</p>
+                  </div>
+                  {totalRooms > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-3xl font-black text-foreground">{totalRooms}</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">Rooms</p>
+                    </div>
                   )}
-                </button>
-              </div>
-            </div>
-
-            <div className="hidden h-16 w-px bg-white/10 md:block" />
-
-            <div className="flex gap-8 text-center">
-              <div>
-                <p className="text-2xl font-bold text-white">{totalTickets}</p>
-                <p className="text-sm text-white/50">Tickets</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-white">
-                  {totalAttendees}
-                </p>
-                <p className="text-sm text-white/50">Attendees</p>
-              </div>
-              {totalRooms > 0 && (
-                <div>
-                  <p className="text-2xl font-bold text-white">{totalRooms}</p>
-                  <p className="text-sm text-white/50">Rooms</p>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
+              </div>
+            </CardContent>
+          </Card>
 
-        {/* Event Details */}
-        <div className="mb-8 animate-[fadeInUp_0.6s_ease-out_0.6s_both] rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
-          <div className="flex items-start gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-br from-blue-500/20 to-cyan-500/20">
-              <PartyPopper className="h-7 w-7 text-blue-300" />
-            </div>
-            <div className="flex-1">
-              <h2 className="mb-2 text-xl font-semibold text-white">
-                {event.name}
-              </h2>
-              <div className="flex flex-wrap gap-4 text-sm text-white/60">
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  <span>{formatEventDate(event.startsAt)}</span>
+          {/* Event Context Card */}
+          <Card className="overflow-hidden border-none bg-card/40 p-1 shadow-xl ring-1 ring-border/50">
+            <div className="rounded-[calc(var(--radius)-1px)] bg-card p-6">
+              <div className="flex flex-col gap-6 md:flex-row md:items-center">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-secondary/50 text-secondary-foreground ring-1 ring-border">
+                  <PartyPopper className="h-7 w-7" />
                 </div>
-                {event.location && (
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4" />
-                    <span>{event.location}</span>
+                <div className="flex-1 space-y-1">
+                  <h2 className="text-2xl font-black tracking-tight text-foreground">{event.name}</h2>
+                  <div className="flex flex-wrap gap-4 text-sm font-medium text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-primary" />
+                      {formattedDate}
+                    </div>
+                    {event.location && (
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-primary" />
+                        {event.location}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {submission.totalAmountMinor !== undefined && (
+                  <div className="md:text-right">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 mb-1">Total Amount</p>
+                    <p className="text-3xl font-black text-foreground">
+                      {formatMoney(submission.totalAmountMinor)}
+                    </p>
                   </div>
                 )}
               </div>
             </div>
-            {submission.totalAmountMinor !== undefined && (
-              <div className="text-right">
-                <p className="text-sm text-white/50">Total</p>
-                <p className="text-2xl font-bold text-white">
-                  {formatMoney(submission.totalAmountMinor)}
-                </p>
-              </div>
-            )}
-          </div>
+          </Card>
         </div>
 
-        {/* Expandable Sections */}
-        <div className="mb-8 animate-[fadeInUp_0.6s_ease-out_0.7s_both] space-y-4">
-          {/* Tickets Section */}
-          <ExpandableCard
-            title="Tickets"
-            icon={Ticket}
-            badge={totalTickets.toString()}
-            defaultExpanded={true}
-          >
+        {/* Details Sections */}
+        <div className="space-y-6 lg:col-span-12">
+          <CollapsibleSection title="Tickets Summary" icon={Ticket} count={totalTickets} defaultOpen={true}>
             <div className="space-y-3">
               {submission.ticketSelections.map((ticket) => (
-                <div
-                  key={ticket.ticketTypeId}
-                  className="flex items-center justify-between rounded-xl border border-white/5 bg-white/5 p-4 transition-colors hover:bg-white/10"
-                >
-                  <div>
-                    <p className="font-medium text-white">
-                      {ticket.ticketTypeName}
-                    </p>
-                    <p className="text-sm text-white/50">
+                <div key={ticket.ticketTypeId} className="flex items-center justify-between rounded-2xl border border-border/50 bg-muted/20 p-4">
+                  <div className="space-y-1">
+                    <p className="font-bold text-foreground">{ticket.ticketTypeName}</p>
+                    <p className="text-xs text-muted-foreground">
                       {formatMoney(ticket.pricePerTicketMinor)} each
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-lg font-semibold text-white">
-                      × {ticket.quantity}
-                    </p>
-                    <p className="text-sm text-white/50">
-                      {formatMoney(
-                        ticket.pricePerTicketMinor * ticket.quantity
-                      )}
+                    <p className="text-lg font-black text-foreground">× {ticket.quantity}</p>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {formatMoney(ticket.pricePerTicketMinor * ticket.quantity)}
                     </p>
                   </div>
                 </div>
               ))}
-              {submission.totalAmountMinor !== undefined && (
-                <div className="flex items-center justify-between border-t border-white/10 pt-4">
-                  <span className="text-white/70">Total Amount</span>
-                  <span className="text-xl font-bold text-white">
+              <Separator className="my-2 bg-border/50" />
+              {submission.totalAmountMinor != null && (
+                <div className="flex items-center justify-between px-2">
+                  <span className="text-sm font-bold text-muted-foreground">Total</span>
+                  <span className="text-xl font-black text-foreground">
                     {formatMoney(submission.totalAmountMinor)}
                   </span>
                 </div>
               )}
             </div>
-          </ExpandableCard>
+          </CollapsibleSection>
 
-          {/* Attendees Section */}
-          <ExpandableCard
-            title="Attendees"
-            icon={Users}
-            badge={totalAttendees.toString()}
-            defaultExpanded={false}
-          >
-            <div className="space-y-3">
+          <CollapsibleSection title="Attendees List" icon={Users} count={totalAttendees}>
+            <div className="grid gap-4 sm:grid-cols-2">
               {submission.attendees.map((attendee, index) => (
-                <div
-                  key={index}
-                  className="rounded-xl border border-white/5 bg-white/5 p-4"
-                >
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-lg font-medium text-white">
-                      {attendee.name}
-                    </p>
-                    <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium text-white/80">
+                <div key={index} className="rounded-2xl border border-border/50 bg-muted/20 p-5 space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <p className="font-bold text-foreground leading-none">{attendee.name}</p>
+                      {attendee.email && (
+                        <p className="text-xs text-muted-foreground truncate">{attendee.email}</p>
+                      )}
+                    </div>
+                    <Badge variant="secondary" className="rounded-lg text-[10px] font-black uppercase tracking-widest whitespace-nowrap">
                       {attendee.ticketType}
-                    </span>
+                    </Badge>
                   </div>
-                  {attendee.email && (
-                    <p className="text-sm text-white/50">{attendee.email}</p>
-                  )}
                   {attendee.assignedRoom && (
-                    <div className="mt-2 flex items-center gap-2 text-sm text-emerald-400">
+                    <div className="flex items-center gap-2 rounded-xl bg-primary/5 px-3 py-2 text-xs font-bold text-primary">
                       <Bed className="h-4 w-4" />
-                      <span>{attendee.assignedRoom}</span>
+                      {attendee.assignedRoom}
                     </div>
                   )}
                 </div>
               ))}
             </div>
-          </ExpandableCard>
+          </CollapsibleSection>
 
-          {/* Room Assignments Section */}
           {totalRooms > 0 && (
-            <ExpandableCard
-              title="Room Assignments"
-              icon={Bed}
-              badge={totalRooms.toString()}
-              defaultExpanded={false}
-            >
-              <div className="space-y-3">
+            <CollapsibleSection title="Room Assignments" icon={Bed} count={totalRooms}>
+              <div className="grid gap-4 sm:grid-cols-2">
                 {submission.roomAssignments.map((room, index) => (
-                  <div
-                    key={index}
-                    className="rounded-xl border border-white/5 bg-white/5 p-4"
-                  >
+                  <div key={index} className="rounded-2xl border border-border/50 bg-muted/20 p-5 space-y-3">
                     <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium text-white">
-                          {room.roomType}
-                        </p>
-                        <p className="text-sm text-white/50">
-                          {room.hotelName}
-                        </p>
+                      <div className="space-y-1">
+                        <p className="font-bold text-foreground">{room.roomType}</p>
+                        <p className="text-xs text-muted-foreground">{room.hotelName}</p>
                       </div>
-                      <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-sm text-white/80">
-                        <Bed className="h-4 w-4" />
-                        <span>
-                          {room.bedCount} bed{room.bedCount !== 1 ? "s" : ""}
-                        </span>
-                      </div>
+                      <Badge variant="outline" className="rounded-lg border-primary/20 bg-primary/5 text-[10px] font-black uppercase tracking-widest">
+                        {room.bedCount} Bed{room.bedCount !== 1 ? "s" : ""}
+                      </Badge>
                     </div>
                   </div>
                 ))}
               </div>
-            </ExpandableCard>
+            </CollapsibleSection>
           )}
-        </div>
 
-        {/* Tikkie Payment Section */}
-        <div className="animate-[fadeInUp_0.6s_ease-out_0.8s_both]">
-          <TikkieSection tikkieUrl={tikkieUrl ?? null} eventName={event.name} />
-        </div>
+          {/* Payment Section */}
+          <div className="pt-4">
+            <TikkieSection tikkieUrl={tikkieUrl ?? null} eventName={event.name} />
+          </div>
 
-        {/* Footer */}
-        <div className="mt-12 animate-[fadeInUp_0.6s_ease-out_0.9s_both] text-center">
-          <p className="text-sm text-white/40">
-            Keep your booking reference safe. Questions?{" "}
-            <a
-              href="#"
-              className="text-violet-400 underline underline-offset-4 transition-colors hover:text-violet-300"
-            >
-              Contact the event organizers
-            </a>
-          </p>
+          {/* Footer Info */}
         </div>
       </div>
 
-      {/* CSS Animations */}
+      {/* Global CSS for animations */}
       <style jsx global>{`
         @keyframes draw {
           to {
@@ -501,17 +427,8 @@ export function SuccessView({
             opacity: 0;
           }
         }
-        @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
       `}</style>
     </div>
   )
 }
+
