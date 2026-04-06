@@ -54,6 +54,7 @@ export type AttendeeLedgerRow = {
         roomLabel: null
         hotelName: null
         roomTypeLabel: null
+        expectedRoomTypeLabel: string | null
       }
   orderedAt: string | null
 }
@@ -176,6 +177,7 @@ type ConvexAttendee = {
   priorityReason: string | null
   ticketTypeLabel: string | null
   amountDueMinor: number
+  allocatedRoomTypeId: string | null
   orderProviderOrderId: string | null
   orderEventId: string | null
   orderStatus: string | null
@@ -406,6 +408,9 @@ export async function getAttendeeLedger(
               roomLabel: null,
               hotelName: null,
               roomTypeLabel: null,
+              expectedRoomTypeLabel: attendee.allocatedRoomTypeId
+                ? (roomTypeMap.get(attendee.allocatedRoomTypeId)?.label ?? null)
+                : null,
             },
       orderedAt: attendee.orderOrderedAt
         ? new Date(attendee.orderOrderedAt).toISOString()
