@@ -322,6 +322,7 @@ export default function EventDetailPage({
   const [ticketVisibility, setTicketVisibility] = useState<"public" | "hidden">(
     "public"
   )
+  const [ticketRoomTypeId, setTicketRoomTypeId] = useState<string | null>(null)
 
   const formatDateTimeLocal = (timestamp: number) => {
     const date = new Date(timestamp)
@@ -472,6 +473,7 @@ export default function EventDetailPage({
         maxQuantity: ticketQuantity ? parseInt(ticketQuantity) : undefined,
         isActive: ticketIsActive,
         visibility: ticketVisibility,
+        roomTypeId: ticketRoomTypeId ?? undefined,
       })
       // Reset form
       setTicketLabel("")
@@ -479,6 +481,7 @@ export default function EventDetailPage({
       setTicketQuantity("")
       setTicketIsActive(true)
       setTicketVisibility("public")
+      setTicketRoomTypeId(null)
       setIsAddingTicket(false)
     } catch (err) {
       console.error("Failed to create ticket:", err)
@@ -495,6 +498,7 @@ export default function EventDetailPage({
         maxQuantity: ticketQuantity ? parseInt(ticketQuantity) : undefined,
         isActive: ticketIsActive,
         visibility: ticketVisibility,
+        roomTypeId: ticketRoomTypeId ?? undefined,
       })
       setEditingTicketId(null)
       setTicketLabel("")
@@ -550,6 +554,7 @@ export default function EventDetailPage({
     setTicketQuantity(ticket.maxQuantity?.toString() ?? "")
     setTicketIsActive(ticket.isActive)
     setTicketVisibility(ticket.visibility)
+    setTicketRoomTypeId(ticket.roomTypeId ?? null)
   }
 
   const cancelTicketEdit = () => {
@@ -560,6 +565,7 @@ export default function EventDetailPage({
     setTicketQuantity("")
     setTicketIsActive(true)
     setTicketVisibility("public")
+    setTicketRoomTypeId(null)
   }
 
   const isSignupOpenDisabled = !editIsPublished
@@ -1398,6 +1404,30 @@ export default function EventDetailPage({
                         <option value="hidden">Hidden</option>
                       </select>
                     </div>
+                    {event?.accommodationEnabled && (
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">
+                          Room Type Override
+                        </label>
+                        <select
+                          value={ticketRoomTypeId ?? ""}
+                          onChange={(e) =>
+                            setTicketRoomTypeId(e.target.value || null)
+                          }
+                          className="h-10 w-full rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
+                        >
+                          <option value="">Use event default</option>
+                          {roomTypes.roomTypes.map((rt: any) => (
+                            <option key={rt._id} value={rt._id}>
+                              {rt.label}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-muted-foreground">
+                          Overrides the event default room type for this ticket
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <label className="flex items-center gap-2 text-sm">
