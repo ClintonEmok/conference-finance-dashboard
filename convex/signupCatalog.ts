@@ -18,6 +18,7 @@ const publicSignupTicketValidator = v.object({
   priceMinor: v.number(),
   selectable: v.boolean(),
   reason: v.union(ticketUnavailableReasonValidator, v.null()),
+  roomTypeId: v.optional(v.id("accommodationRoomTypes")),
 })
 
 const publicSignupAccommodationSlotValidator = v.object({
@@ -35,6 +36,7 @@ const publicSignupCatalogEventValidator = v.object({
   endsAt: v.optional(v.number()),
   timezone: v.string(),
   currency: v.string(),
+  defaultRoomTypeId: v.optional(v.id("accommodationRoomTypes")),
   source: v.object({
     kind: v.union(v.literal("integration"), v.literal("internal")),
     provider: v.union(v.string(), v.null()),
@@ -60,6 +62,7 @@ function mapTicket(ticket: Doc<"ticketTypes">) {
       priceMinor: ticket.priceMinor,
       selectable: true,
       reason: null,
+      roomTypeId: ticket.roomTypeId ?? undefined,
     }
   }
 
@@ -77,6 +80,7 @@ function mapTicket(ticket: Doc<"ticketTypes">) {
     priceMinor: ticket.priceMinor,
     selectable: false,
     reason,
+    roomTypeId: ticket.roomTypeId ?? undefined,
   }
 }
 
@@ -277,6 +281,7 @@ export const getPublicSignupCatalog = query({
           endsAt: event.endsAt,
           timezone: event.timezone,
           currency: event.currency,
+          defaultRoomTypeId: event.defaultRoomTypeId ?? undefined,
           source: {
             kind: event.primarySourceKind,
             provider:

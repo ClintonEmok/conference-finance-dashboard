@@ -21,6 +21,7 @@ export type TicketSelectionDraft = {
   quantity: number
   selectable: boolean
   reason: TicketUnavailableReason | null
+  roomTypeId?: string
 }
 
 export type AttendeeDraft = {
