@@ -118,6 +118,18 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     return validateAttendeeDetails(draft.attendees)
   }, [draft?.attendees])
 
+  const skipRooms = useMemo(() => {
+    if (!event || !draft) return false
+    if (!event.accommodation.eligible) return false
+    if (draft.attendees.length === 0) return false
+    return draft.attendees.every((attendee) => {
+      const ticket = event.tickets.find(
+        (t) => t.ticketTypeId === attendee.ticketTypeId
+      )
+      return (ticket?.roomTypeId ?? event.defaultRoomTypeId) != null
+    })
+  }, [event, draft?.attendees])
+
   const completedByStep: Record<SignupStep, boolean> = useMemo(() => {
     if (!event || !draft) {
       return {
@@ -136,6 +148,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       tickets: totalSelectedTickets > 0,
       buyer: buyerComplete,
       rooms:
+        skipRooms ||
         !event.accommodation.eligible ||
         roomSummary.unfilledBeds === 0 ||
         draft.acknowledgeRandomFill,
@@ -153,6 +166,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     attendeeValidationSnapshot.isValid,
     roomSummary.unfilledBeds,
     totalSelectedTickets,
+    skipRooms,
   ])
 
   // Early returns after all hooks are called
@@ -279,15 +293,24 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       return
     }
 
-    const nextIndex = Math.min(
-      currentStepIndex + 1,
-      SIGNUP_STEP_ORDER.length - 1
-    )
+    let nextIndex = Math.min(currentStepIndex + 1, SIGNUP_STEP_ORDER.length - 1)
+
+    // Skip rooms step when all attendees have an effective room type
+    if (skipRooms && SIGNUP_STEP_ORDER[currentStepIndex] === "attendees") {
+      nextIndex = SIGNUP_STEP_ORDER.indexOf("review")
+    }
+
     moveToStep(SIGNUP_STEP_ORDER[nextIndex])
   }
 
   function moveBack() {
-    const previousIndex = Math.max(currentStepIndex - 1, 0)
+    let previousIndex = Math.max(currentStepIndex - 1, 0)
+
+    // Skip rooms step when all attendees have an effective room type
+    if (skipRooms && SIGNUP_STEP_ORDER[currentStepIndex] === "review") {
+      previousIndex = SIGNUP_STEP_ORDER.indexOf("attendees")
+    }
+
     moveToStep(SIGNUP_STEP_ORDER[previousIndex])
   }
 
@@ -301,6 +324,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
           quantity: 0,
           selectable: ticket.selectable,
           reason: ticket.reason,
+          roomTypeId: ticket.roomTypeId,
         }))
 
   function handleTicketSelectionsChange(
@@ -464,6 +488,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                 completedByStep={completedByStep}
                 onStepClick={moveToStep}
                 canAccessStep={canAccessStep}
+                skipRooms={skipRooms}
               />
             </CardHeader>
           </Card>
@@ -563,6 +588,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                     submitError={submitError}
                     isSubmitting={isSubmitting}
                     onSubmit={handleSubmitFromReview}
+                    skipRooms={skipRooms}
                   />
                 )}
 
