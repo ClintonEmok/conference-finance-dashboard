@@ -1129,7 +1129,7 @@ export default function EventDetailPage({
                       className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
                     >
                       <option value="">None</option>
-                      {roomTypes.roomTypes.map((rt: any) => (
+                      {roomTypes.map((rt: any) => (
                         <option key={rt._id} value={rt._id}>
                           {rt.label}
                         </option>
@@ -1417,7 +1417,7 @@ export default function EventDetailPage({
                           className="h-10 w-full rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
                         >
                           <option value="">Use event default</option>
-                          {roomTypes.roomTypes.map((rt: any) => (
+                          {roomTypes.map((rt: any) => (
                             <option key={rt._id} value={rt._id}>
                               {rt.label}
                             </option>
