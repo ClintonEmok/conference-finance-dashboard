@@ -270,6 +270,9 @@ export default function EventDetailPage({
   const [editIsSignupOpen, setEditIsSignupOpen] = useState(false)
   const [editAccommodationEnabled, setEditAccommodationEnabled] =
     useState(false)
+  const [editDefaultRoomTypeId, setEditDefaultRoomTypeId] = useState<
+    string | null
+  >(null)
 
   // Hotel selection state
   const [isLinkingHotel, setIsLinkingHotel] = useState(false)
@@ -338,6 +341,7 @@ export default function EventDetailPage({
     setEditIsPublished(event.isPublished)
     setEditIsSignupOpen(event.isSignupOpen)
     setEditAccommodationEnabled(event.accommodationEnabled)
+    setEditDefaultRoomTypeId(event.defaultRoomTypeId ?? null)
     setIsEditing(true)
   }
 
@@ -359,6 +363,7 @@ export default function EventDetailPage({
         isPublished: editIsPublished,
         isSignupOpen: editIsPublished && editIsSignupOpen,
         accommodationEnabled: editAccommodationEnabled,
+        defaultRoomTypeId: editDefaultRoomTypeId ?? undefined,
       })
       setIsEditing(false)
     } catch (err) {
@@ -1099,6 +1104,42 @@ export default function EventDetailPage({
                   )}
                 </div>
               </div>
+
+              {/* Default Room Type */}
+              {event.accommodationEnabled && (
+                <div className="mt-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Default Room Type</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Fallback room type for tickets without a specific override
+                    </p>
+                  </div>
+                  {isEditing ? (
+                    <select
+                      value={editDefaultRoomTypeId ?? ""}
+                      onChange={(e) =>
+                        setEditDefaultRoomTypeId(e.target.value || null)
+                      }
+                      className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
+                    >
+                      <option value="">None</option>
+                      {roomTypes.roomTypes.map((rt: any) => (
+                        <option key={rt._id} value={rt._id}>
+                          {rt.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Badge variant="outline">
+                      {event.defaultRoomTypeId
+                        ? (roomTypes.roomTypes.find(
+                            (rt: any) => rt._id === event.defaultRoomTypeId
+                          )?.label ?? "Unknown")
+                        : "Not set"}
+                    </Badge>
+                  )}
+                </div>
+              )}
 
               {/* Hotels Section - Enhanced with LinkedHotelCard */}
               {event.accommodationEnabled && !isEditing && (
