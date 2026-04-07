@@ -1138,9 +1138,9 @@ export default function EventDetailPage({
                   ) : (
                     <Badge variant="outline">
                       {event.defaultRoomTypeId
-                        ? (roomTypes.roomTypes.find(
-                            (rt: any) => rt._id === event.defaultRoomTypeId
-                          )?.label ?? "Unknown")
+                        ? (roomTypes.find(
+                          (rt: any) => rt._id === event.defaultRoomTypeId
+                        )?.label ?? "Unknown")
                         : "Not set"}
                     </Badge>
                   )}
@@ -1458,7 +1458,7 @@ export default function EventDetailPage({
 
               {/* Ticket List */}
               {ticketTypes === undefined ||
-              ticketTypes.ticketTypes === undefined ? (
+                ticketTypes.ticketTypes === undefined ? (
                 <Skeleton className="h-48" />
               ) : ticketTypes.ticketTypes.length === 0 ? (
                 <div className="py-12 text-center text-muted-foreground">

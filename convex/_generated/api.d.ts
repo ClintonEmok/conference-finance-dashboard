@@ -433,6 +433,7 @@ export declare const api: {
       {
         accommodationEnabled?: boolean;
         currency: string;
+        defaultRoomTypeId?: Id<"accommodationRoomTypes">;
         endsAt?: number;
         isPublished?: boolean;
         isSignupOpen?: boolean;
@@ -471,6 +472,7 @@ export declare const api: {
         label: string;
         maxQuantity?: number;
         priceMinor: number;
+        roomTypeId?: Id<"accommodationRoomTypes">;
         visibility?: "public" | "hidden";
       },
       any
@@ -509,6 +511,7 @@ export declare const api: {
         _id: Id<"events">;
         accommodationEnabled: boolean;
         currency: string;
+        defaultRoomTypeId?: Id<"accommodationRoomTypes">;
         endsAt?: number;
         isPublished: boolean;
         isSignupOpen: boolean;
@@ -554,6 +557,7 @@ export declare const api: {
         _id: Id<"events">;
         accommodationEnabled: boolean;
         currency: string;
+        defaultRoomTypeId?: Id<"accommodationRoomTypes">;
         endsAt?: number;
         isPublished: boolean;
         isSignupOpen: boolean;
@@ -590,6 +594,7 @@ export declare const api: {
       {
         accommodationEnabled?: boolean;
         currency?: string;
+        defaultRoomTypeId?: Id<"accommodationRoomTypes">;
         endsAt?: number;
         eventId: Id<"events">;
         isPublished?: boolean;
@@ -612,6 +617,7 @@ export declare const api: {
         label?: string;
         maxQuantity?: number;
         priceMinor?: number;
+        roomTypeId?: Id<"accommodationRoomTypes">;
         sortOrder?: number;
         ticketTypeId: Id<"ticketTypes">;
         visibility?: "public" | "hidden";
@@ -1008,6 +1014,7 @@ export declare const api: {
           }>;
         };
         currency: string;
+        defaultRoomTypeId?: Id<"accommodationRoomTypes">;
         endsAt?: number;
         eventId: Id<"events">;
         slug: string;
@@ -1021,6 +1028,7 @@ export declare const api: {
           label: string;
           priceMinor: number;
           reason: "sold_out" | "disabled" | "hidden" | "not_on_sale" | null;
+          roomTypeId?: Id<"accommodationRoomTypes">;
           selectable: boolean;
           ticketTypeId: Id<"ticketTypes">;
         }>;
