@@ -4,7 +4,6 @@ import { useState } from "react"
 import { Copy, CheckCircle, Ticket, Users, Bed, CreditCard } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -76,7 +75,14 @@ export function SummaryCard({
             </div>
             <p className="text-2xl font-black text-foreground">{totalAttendees}</p>
           </div>
-          <div className="flex flex-col gap-1 p-6 transition-colors hover:bg-muted/30 col-span-2 sm:col-span-1">
+          <div className="flex flex-col gap-1 p-6 transition-colors hover:bg-muted/30">
+            <div className="flex items-center gap-2 text-primary">
+              <Bed className="h-4 w-4" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">Rooms</span>
+            </div>
+            <p className="text-2xl font-black text-foreground">{totalRooms}</p>
+          </div>
+          <div className="flex flex-col gap-1 p-6 transition-colors hover:bg-muted/30">
             <div className="flex items-center gap-2 text-primary">
               <CreditCard className="h-4 w-4" />
               <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">Total</span>
