@@ -54,7 +54,6 @@ export function buildSubmissionBodyFromDraft(
       location: attendee.location,
       dietaryRestrictions: attendee.dietaryRestrictions,
       roommatePreference: attendee.roommatePreference,
-      roommateAvoid: attendee.roommateAvoid,
     })),
     ticketSelections: draft.attendees.map((attendee) => ({
       attendeeKey: attendee.attendeeKey,

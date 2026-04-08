@@ -215,11 +215,6 @@ export function ReviewSubmitStep({
                     value={attendee.roommatePreference}
                     isEmpty={!attendee.roommatePreference}
                   />
-                  <AttendeeDetailRow
-                    label="Avoid"
-                    value={attendee.roommateAvoid}
-                    isEmpty={!attendee.roommateAvoid}
-                  />
                 </div>
               </div>
             ))}

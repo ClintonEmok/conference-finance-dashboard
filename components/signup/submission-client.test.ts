@@ -32,7 +32,6 @@ const draftFixture: SignupDraft = {
       location: "Amsterdam",
       dietaryRestrictions: "none",
       roommatePreference: "Sarah",
-      roommateAvoid: "snoring",
     },
   ],
   assignments: {

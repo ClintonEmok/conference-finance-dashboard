@@ -35,7 +35,6 @@ export type AttendeeDraft = {
   location: string
   dietaryRestrictions: string
   roommatePreference: string
-  roommateAvoid: string
 }
 
 export type SignupDraft = {
@@ -101,7 +100,6 @@ export function deriveAttendeeDraftsFromTicketSelections(
           location: "",
           dietaryRestrictions: "",
           roommatePreference: "",
-          roommateAvoid: "",
         }
       )
     }
