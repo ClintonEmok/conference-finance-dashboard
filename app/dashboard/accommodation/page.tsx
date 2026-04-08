@@ -161,7 +161,6 @@ type AccommodationWorkspacePayload = {
     // Assignment intent and notes
     assignmentIntent: "auto_assign" | "manual_select" | "defer" | null
     roommatePreference: string | null
-    roommateAvoid: string | null
     dietaryRestrictions: string | null
     bookerName: string | null
     submittedAt: string
@@ -1393,7 +1392,6 @@ export default function AccommodationPage() {
 
                                   {/* Preferences */}
                                   {(submission.roommatePreference ||
-                                    submission.roommateAvoid ||
                                     submission.dietaryRestrictions) && (
                                     <Card>
                                       <CardHeader className="pb-3">
@@ -1409,16 +1407,6 @@ export default function AccommodationPage() {
                                             </p>
                                             <p className="text-sm text-foreground">
                                               {submission.roommatePreference}
-                                            </p>
-                                          </div>
-                                        )}
-                                        {submission.roommateAvoid && (
-                                          <div>
-                                            <p className="text-xs text-muted-foreground">
-                                              Roommate to avoid
-                                            </p>
-                                            <p className="text-sm text-foreground">
-                                              {submission.roommateAvoid}
                                             </p>
                                           </div>
                                         )}

@@ -959,6 +959,8 @@ export const getOrderWithAttendees = query({
       order: v.object({
         id: v.id("orders"),
         providerOrderId: nullableStringValidator,
+        buyerName: nullableStringValidator,
+        buyerEmail: nullableStringValidator,
         amountDueMinor: v.union(v.number(), v.null()),
         normalizedStatus: v.optional(canonicalOrderStatusValidator),
         isArchived: v.optional(v.boolean()),
@@ -971,6 +973,9 @@ export const getOrderWithAttendees = query({
         v.object({
           id: v.id("orderAttendees"),
           name: v.string(),
+          email: nullableStringValidator,
+          roommatePreference: nullableStringValidator,
+          roommateAvoid: nullableStringValidator,
           ticketTypeLabel: v.string(),
           normalizedStatus: v.string(),
           amountDueMinor: v.number(),
@@ -1012,6 +1017,8 @@ export const getOrderWithAttendees = query({
       order: {
         id: order._id,
         providerOrderId: order.providerOrderId ?? null,
+        buyerName: order.bookerName ?? null,
+        buyerEmail: order.bookerEmail ?? null,
         amountDueMinor:
           amountDueBreakdown?.amountDueMinor ?? order.totalAmountMinor ?? null,
         normalizedStatus: order.status ?? undefined,
@@ -1030,6 +1037,9 @@ export const getOrderWithAttendees = query({
       attendees: attendees.map((a) => ({
         id: a._id,
         name: a.name ?? "Unnamed attendee",
+        email: a.email ?? null,
+        roommatePreference: a.roommatePreference ?? null,
+        roommateAvoid: a.roommateAvoid ?? null,
         ticketTypeLabel: "-",
         normalizedStatus: "pending",
         amountDueMinor:

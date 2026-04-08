@@ -26,6 +26,11 @@ export type SubmissionQueueRow = {
   sortOrder: number
 }
 
+type RoommateSignals = {
+  roommatePreference?: string | null
+  roommateAvoid?: string | null
+}
+
 export type RoomAllocationBoardFilters = {
   eventId?: string | null
   search?: string | null
@@ -130,6 +135,8 @@ export type RoomAllocationBoard = {
     location: string | null
     remarks: string | null
     hasFamily: boolean
+    roommatePreference?: string | null
+    roommateAvoid?: string | null
   }>
   submissionQueueRows: SubmissionQueueRow[]
   summary: {
@@ -183,6 +190,38 @@ type RoomState = {
   remainingBeds: number
   projectedGenders: Set<Exclude<AttendeeGender, null>>
   projectedOrderIds: Set<string>
+  projectedOccupantSignatures: Set<string>
+}
+
+function normalizeRoommateTokens(value: string | null | undefined): string[] {
+  if (!value) return []
+  return value
+    .split(/[;,\n]/)
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean)
+}
+
+function buildPersonSignatures(
+  attendeeName: string | null | undefined,
+  attendeeEmail: string | null | undefined
+): string[] {
+  const signatures = [attendeeName, attendeeEmail]
+    .map((value) => value?.trim().toLowerCase() ?? "")
+    .filter(Boolean)
+  return [...new Set(signatures)]
+}
+
+function roommatePreferenceRank(
+  attendee: ProposalAttendee & RoommateSignals,
+  roomState: RoomState
+): number {
+  const preferredTokens = normalizeRoommateTokens(attendee.roommatePreference)
+  if (preferredTokens.length === 0) return 0
+  return preferredTokens.some((token) =>
+    roomState.projectedOccupantSignatures.has(token)
+  )
+    ? 1
+    : 0
 }
 
 function normalizeOptionalString(
@@ -510,6 +549,11 @@ export async function generateAllocationProposal(input: {
           canonicalOrderKey(occupant.orderId, occupant.attendeeId)
         )
       ),
+      projectedOccupantSignatures: new Set(
+        room.occupants.flatMap((occupant) =>
+          buildPersonSignatures(occupant.attendeeName, occupant.attendeeEmail)
+        )
+      ),
     }))
 
   const attendeeCountByOrderId = new Map<string, number>()
@@ -567,6 +611,10 @@ export async function generateAllocationProposal(input: {
           attendeeGender,
           roomState.projectedGenders
         )
+        const preferredRoommateRank = roommatePreferenceRank(
+          attendee,
+          roomState
+        )
         const availabilityRank =
           roomState.room.availability === "available" ? 1 : 0
         const remainingBedsAfterPlacement = roomState.remainingBeds - 1
@@ -575,6 +623,7 @@ export async function generateAllocationProposal(input: {
           roomState,
           familyRank,
           genderRank,
+          preferredRoommateRank,
           availabilityRank,
           remainingBedsAfterPlacement,
         }
@@ -582,6 +631,9 @@ export async function generateAllocationProposal(input: {
       .sort((a, b) => {
         if (a.familyRank !== b.familyRank) return b.familyRank - a.familyRank
         if (a.genderRank !== b.genderRank) return b.genderRank - a.genderRank
+        if (a.preferredRoommateRank !== b.preferredRoommateRank) {
+          return b.preferredRoommateRank - a.preferredRoommateRank
+        }
         if (a.availabilityRank !== b.availabilityRank) {
           return b.availabilityRank - a.availabilityRank
         }
@@ -610,6 +662,12 @@ export async function generateAllocationProposal(input: {
       bestRoom.remainingBeds -= 1
       bestRoom.projectedGenders.add(attendeeGender)
       bestRoom.projectedOrderIds.add(attendeeOrderKey)
+      for (const signature of buildPersonSignatures(
+        attendee.attendeeName,
+        attendee.attendeeEmail
+      )) {
+        bestRoom.projectedOccupantSignatures.add(signature)
+      }
 
       suggestions.push({
         attendeeId: attendee.attendeeId,
