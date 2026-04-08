@@ -37,6 +37,7 @@ import { SignupProgress } from "@/components/signup/SignupProgress"
 import { SignupNavigation } from "@/components/signup/SignupNavigation"
 import { SignupSummary } from "@/components/signup/SignupSummary"
 import { SignupHeader } from "@/components/signup/SignupHeader"
+import { shouldSkipRoomsStep } from "@/components/signup/flow-rules"
 import { Separator } from "@/components/ui/separator"
 import type { SignupSubmissionResult } from "@/lib/types/signup"
 
@@ -121,14 +122,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
   const skipRooms = useMemo(() => {
     if (!event || !draft) return false
-    if (!event.accommodation.eligible) return false
-    if (draft.attendees.length === 0) return false
-    return draft.attendees.every((attendee) => {
-      const ticket = event.tickets.find(
-        (t) => t.ticketTypeId === attendee.ticketTypeId
-      )
-      return (ticket?.roomTypeId ?? event.defaultRoomTypeId) != null
-    })
+    return shouldSkipRoomsStep(event, draft.attendees)
   }, [event, draft?.attendees])
 
   const completedByStep: Record<SignupStep, boolean> = useMemo(() => {
@@ -470,7 +464,10 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
   return (
     <div className="min-h-svh bg-muted/30">
-      <SignupHeader eventName={activeEvent.title} stepTitle={`Step ${currentStepIndex + 1}: ${stepTitle}`} />
+      <SignupHeader
+        eventName={activeEvent.title}
+        stepTitle={`Step ${currentStepIndex + 1}: ${stepTitle}`}
+      />
       <main className="mx-auto flex h-full max-w-[1400px] flex-col gap-6 p-4 md:p-8 lg:flex-row lg:items-start lg:gap-10">
         {/* Sidebar: Progress & Summary */}
         <div className="flex flex-col gap-6 lg:sticky lg:top-28 lg:w-[340px] lg:shrink-0">
@@ -480,7 +477,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                 <p className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/60 uppercase">
                   Event Registration
                 </p>
-                <div className="h-2 w-12 bg-primary/20 rounded-full mb-4" />
+                <div className="mb-4 h-2 w-12 rounded-full bg-primary/20" />
               </div>
 
               <SignupProgress
