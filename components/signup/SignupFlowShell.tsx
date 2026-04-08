@@ -36,6 +36,8 @@ import {
 import { SignupProgress } from "@/components/signup/SignupProgress"
 import { SignupNavigation } from "@/components/signup/SignupNavigation"
 import { SignupSummary } from "@/components/signup/SignupSummary"
+import { SignupHeader } from "@/components/signup/SignupHeader"
+import { shouldSkipRoomsStep } from "@/components/signup/flow-rules"
 import { Separator } from "@/components/ui/separator"
 import type { SignupSubmissionResult } from "@/lib/types/signup"
 
@@ -118,6 +120,11 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     return validateAttendeeDetails(draft.attendees)
   }, [draft?.attendees])
 
+  const skipRooms = useMemo(() => {
+    if (!event || !draft) return false
+    return shouldSkipRoomsStep(event, draft.attendees)
+  }, [event, draft?.attendees])
+
   const completedByStep: Record<SignupStep, boolean> = useMemo(() => {
     if (!event || !draft) {
       return {
@@ -136,6 +143,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       tickets: totalSelectedTickets > 0,
       buyer: buyerComplete,
       rooms:
+        skipRooms ||
         !event.accommodation.eligible ||
         roomSummary.unfilledBeds === 0 ||
         draft.acknowledgeRandomFill,
@@ -153,6 +161,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     attendeeValidationSnapshot.isValid,
     roomSummary.unfilledBeds,
     totalSelectedTickets,
+    skipRooms,
   ])
 
   // Early returns after all hooks are called
@@ -279,15 +288,24 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       return
     }
 
-    const nextIndex = Math.min(
-      currentStepIndex + 1,
-      SIGNUP_STEP_ORDER.length - 1
-    )
+    let nextIndex = Math.min(currentStepIndex + 1, SIGNUP_STEP_ORDER.length - 1)
+
+    // Skip rooms step when all attendees have an effective room type
+    if (skipRooms && SIGNUP_STEP_ORDER[currentStepIndex] === "attendees") {
+      nextIndex = SIGNUP_STEP_ORDER.indexOf("review")
+    }
+
     moveToStep(SIGNUP_STEP_ORDER[nextIndex])
   }
 
   function moveBack() {
-    const previousIndex = Math.max(currentStepIndex - 1, 0)
+    let previousIndex = Math.max(currentStepIndex - 1, 0)
+
+    // Skip rooms step when all attendees have an effective room type
+    if (skipRooms && SIGNUP_STEP_ORDER[currentStepIndex] === "review") {
+      previousIndex = SIGNUP_STEP_ORDER.indexOf("attendees")
+    }
+
     moveToStep(SIGNUP_STEP_ORDER[previousIndex])
   }
 
@@ -301,6 +319,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
           quantity: 0,
           selectable: ticket.selectable,
           reason: ticket.reason,
+          roomTypeId: ticket.roomTypeId,
         }))
 
   function handleTicketSelectionsChange(
@@ -445,18 +464,20 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
   return (
     <div className="min-h-svh bg-muted/30">
-      <main className="mx-auto flex h-full min-h-svh max-w-[1400px] flex-col gap-6 p-4 md:p-8 lg:flex-row lg:items-start lg:gap-10">
+      <SignupHeader
+        eventName={activeEvent.title}
+        stepTitle={`Step ${currentStepIndex + 1}: ${stepTitle}`}
+      />
+      <main className="mx-auto flex h-full max-w-[1400px] flex-col gap-6 p-4 md:p-8 lg:flex-row lg:items-start lg:gap-10">
         {/* Sidebar: Progress & Summary */}
-        <div className="flex flex-col gap-6 lg:sticky lg:top-8 lg:w-[340px] lg:shrink-0">
+        <div className="flex flex-col gap-6 lg:sticky lg:top-28 lg:w-[340px] lg:shrink-0">
           <Card className="shadow-sm">
             <CardHeader className="space-y-6 pb-8">
               <div className="space-y-1">
                 <p className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/60 uppercase">
                   Event Registration
                 </p>
-                <CardTitle className="text-xl font-bold tracking-tight">
-                  {activeEvent.title}
-                </CardTitle>
+                <div className="mb-4 h-2 w-12 rounded-full bg-primary/20" />
               </div>
 
               <SignupProgress
@@ -464,6 +485,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                 completedByStep={completedByStep}
                 onStepClick={moveToStep}
                 canAccessStep={canAccessStep}
+                skipRooms={skipRooms}
               />
             </CardHeader>
           </Card>
@@ -563,6 +585,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                     submitError={submitError}
                     isSubmitting={isSubmitting}
                     onSubmit={handleSubmitFromReview}
+                    skipRooms={skipRooms}
                   />
                 )}
 

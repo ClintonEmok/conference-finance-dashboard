@@ -57,6 +57,7 @@ export default defineSchema({
       isPublished: v.boolean(),
       isSignupOpen: v.boolean(),
       accommodationEnabled: v.boolean(),
+      defaultRoomTypeId: v.optional(v.id("accommodationRoomTypes")),
       primarySourceKind: v.union(
         v.literal("integration"),
         v.literal("internal")
@@ -103,6 +104,7 @@ export default defineSchema({
         v.literal("unavailable")
       ),
       unavailableReason: v.optional(v.string()),
+      roomTypeId: v.optional(v.id("accommodationRoomTypes")),
       updatedAt: v.number(),
     })
   )
@@ -194,6 +196,7 @@ export default defineSchema({
           v.literal("LOW")
         )
       ),
+      allocatedRoomTypeId: v.optional(v.id("accommodationRoomTypes")),
       priorityReason: v.optional(v.string()),
     })
   )

@@ -234,23 +234,6 @@ export function AttendeeDetailsStep({
                 }
               />
             </div>
-
-            <div className="space-y-1 md:col-span-2">
-              <Label>Roommate avoid</Label>
-              <Input
-                value={attendee.roommateAvoid}
-                onChange={(event) =>
-                  onAttendeeChange(
-                    attendee.attendeeKey,
-                    "roommateAvoid",
-                    event.currentTarget.value
-                  )
-                }
-                onBlur={() =>
-                  onFieldBlur?.(attendee.attendeeKey, "roommateAvoid")
-                }
-              />
-            </div>
           </CardContent>
         </Card>
       ))}

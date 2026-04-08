@@ -270,6 +270,9 @@ export default function EventDetailPage({
   const [editIsSignupOpen, setEditIsSignupOpen] = useState(false)
   const [editAccommodationEnabled, setEditAccommodationEnabled] =
     useState(false)
+  const [editDefaultRoomTypeId, setEditDefaultRoomTypeId] = useState<
+    string | null
+  >(null)
 
   // Hotel selection state
   const [isLinkingHotel, setIsLinkingHotel] = useState(false)
@@ -319,6 +322,7 @@ export default function EventDetailPage({
   const [ticketVisibility, setTicketVisibility] = useState<"public" | "hidden">(
     "public"
   )
+  const [ticketRoomTypeId, setTicketRoomTypeId] = useState<string | null>(null)
 
   const formatDateTimeLocal = (timestamp: number) => {
     const date = new Date(timestamp)
@@ -338,6 +342,7 @@ export default function EventDetailPage({
     setEditIsPublished(event.isPublished)
     setEditIsSignupOpen(event.isSignupOpen)
     setEditAccommodationEnabled(event.accommodationEnabled)
+    setEditDefaultRoomTypeId(event.defaultRoomTypeId ?? null)
     setIsEditing(true)
   }
 
@@ -359,6 +364,7 @@ export default function EventDetailPage({
         isPublished: editIsPublished,
         isSignupOpen: editIsPublished && editIsSignupOpen,
         accommodationEnabled: editAccommodationEnabled,
+        defaultRoomTypeId: editDefaultRoomTypeId ?? undefined,
       })
       setIsEditing(false)
     } catch (err) {
@@ -467,6 +473,7 @@ export default function EventDetailPage({
         maxQuantity: ticketQuantity ? parseInt(ticketQuantity) : undefined,
         isActive: ticketIsActive,
         visibility: ticketVisibility,
+        roomTypeId: ticketRoomTypeId ?? undefined,
       })
       // Reset form
       setTicketLabel("")
@@ -474,6 +481,7 @@ export default function EventDetailPage({
       setTicketQuantity("")
       setTicketIsActive(true)
       setTicketVisibility("public")
+      setTicketRoomTypeId(null)
       setIsAddingTicket(false)
     } catch (err) {
       console.error("Failed to create ticket:", err)
@@ -490,6 +498,7 @@ export default function EventDetailPage({
         maxQuantity: ticketQuantity ? parseInt(ticketQuantity) : undefined,
         isActive: ticketIsActive,
         visibility: ticketVisibility,
+        roomTypeId: ticketRoomTypeId ?? undefined,
       })
       setEditingTicketId(null)
       setTicketLabel("")
@@ -545,6 +554,7 @@ export default function EventDetailPage({
     setTicketQuantity(ticket.maxQuantity?.toString() ?? "")
     setTicketIsActive(ticket.isActive)
     setTicketVisibility(ticket.visibility)
+    setTicketRoomTypeId(ticket.roomTypeId ?? null)
   }
 
   const cancelTicketEdit = () => {
@@ -555,6 +565,7 @@ export default function EventDetailPage({
     setTicketQuantity("")
     setTicketIsActive(true)
     setTicketVisibility("public")
+    setTicketRoomTypeId(null)
   }
 
   const isSignupOpenDisabled = !editIsPublished
@@ -1100,6 +1111,42 @@ export default function EventDetailPage({
                 </div>
               </div>
 
+              {/* Default Room Type */}
+              {event.accommodationEnabled && (
+                <div className="mt-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Default Room Type</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Fallback room type for tickets without a specific override
+                    </p>
+                  </div>
+                  {isEditing ? (
+                    <select
+                      value={editDefaultRoomTypeId ?? ""}
+                      onChange={(e) =>
+                        setEditDefaultRoomTypeId(e.target.value || null)
+                      }
+                      className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
+                    >
+                      <option value="">None</option>
+                      {roomTypes.map((rt: any) => (
+                        <option key={rt._id} value={rt._id}>
+                          {rt.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Badge variant="outline">
+                      {event.defaultRoomTypeId
+                        ? (roomTypes.find(
+                          (rt: any) => rt._id === event.defaultRoomTypeId
+                        )?.label ?? "Unknown")
+                        : "Not set"}
+                    </Badge>
+                  )}
+                </div>
+              )}
+
               {/* Hotels Section - Enhanced with LinkedHotelCard */}
               {event.accommodationEnabled && !isEditing && (
                 <div className="mt-6 border-t border-border/50 pt-6">
@@ -1357,6 +1404,30 @@ export default function EventDetailPage({
                         <option value="hidden">Hidden</option>
                       </select>
                     </div>
+                    {event?.accommodationEnabled && (
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">
+                          Room Type Override
+                        </label>
+                        <select
+                          value={ticketRoomTypeId ?? ""}
+                          onChange={(e) =>
+                            setTicketRoomTypeId(e.target.value || null)
+                          }
+                          className="h-10 w-full rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
+                        >
+                          <option value="">Use event default</option>
+                          {roomTypes.map((rt: any) => (
+                            <option key={rt._id} value={rt._id}>
+                              {rt.label}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-muted-foreground">
+                          Overrides the event default room type for this ticket
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <label className="flex items-center gap-2 text-sm">
@@ -1387,7 +1458,7 @@ export default function EventDetailPage({
 
               {/* Ticket List */}
               {ticketTypes === undefined ||
-              ticketTypes.ticketTypes === undefined ? (
+                ticketTypes.ticketTypes === undefined ? (
                 <Skeleton className="h-48" />
               ) : ticketTypes.ticketTypes.length === 0 ? (
                 <div className="py-12 text-center text-muted-foreground">

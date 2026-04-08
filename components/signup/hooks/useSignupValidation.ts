@@ -78,9 +78,6 @@ export function validateAttendee(
   if (preferenceError)
     errors.push({ field: "roommatePreference", message: preferenceError })
 
-  const avoidError = validateRequired(attendee.roommateAvoid, "Roommate avoid")
-  if (avoidError) errors.push({ field: "roommateAvoid", message: avoidError })
-
   return {
     attendeeKey: attendee.attendeeKey,
     errors,

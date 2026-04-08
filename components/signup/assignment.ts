@@ -142,9 +142,11 @@ export function canDropAttendeeIntoSlot(
     return false
   }
 
-  // Allow drop even if target slot is occupied (swap will be handled)
-  // Only block if the attendee is already in this exact slot
   if (targetSlot.attendeeId === attendeeId) {
+    return false
+  }
+
+  if (targetSlot.attendeeId !== null) {
     return false
   }
 

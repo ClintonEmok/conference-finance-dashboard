@@ -27,6 +27,7 @@ export const getEvents = query({
       isPublished: v.boolean(),
       isSignupOpen: v.boolean(),
       accommodationEnabled: v.boolean(),
+      defaultRoomTypeId: v.optional(v.id("accommodationRoomTypes")),
       primarySourceKind: v.union(
         v.literal("integration"),
         v.literal("internal")
@@ -111,6 +112,7 @@ export const getEventsWithAccommodation = query({
       isPublished: v.boolean(),
       isSignupOpen: v.boolean(),
       accommodationEnabled: v.boolean(),
+      defaultRoomTypeId: v.optional(v.id("accommodationRoomTypes")),
       primarySourceKind: v.union(
         v.literal("integration"),
         v.literal("internal")
@@ -145,6 +147,7 @@ export const createEvent = mutation({
     isPublished: v.optional(v.boolean()),
     isSignupOpen: v.optional(v.boolean()),
     accommodationEnabled: v.optional(v.boolean()),
+    defaultRoomTypeId: v.optional(v.id("accommodationRoomTypes")),
     primarySourceKind: v.optional(
       v.union(v.literal("integration"), v.literal("internal"))
     ),
@@ -177,6 +180,7 @@ export const createEvent = mutation({
       isPublished: args.isPublished ?? false,
       isSignupOpen: args.isSignupOpen ?? false,
       accommodationEnabled: args.accommodationEnabled ?? false,
+      defaultRoomTypeId: args.defaultRoomTypeId,
       primarySourceKind: args.primarySourceKind ?? "internal",
       primarySourceProvider: args.primarySourceProvider,
       updatedAt: now,
@@ -196,6 +200,7 @@ export const updateEvent = mutation({
     isPublished: v.optional(v.boolean()),
     isSignupOpen: v.optional(v.boolean()),
     accommodationEnabled: v.optional(v.boolean()),
+    defaultRoomTypeId: v.optional(v.id("accommodationRoomTypes")),
     primarySourceKind: v.optional(
       v.union(v.literal("integration"), v.literal("internal"))
     ),
@@ -364,6 +369,7 @@ export const createTicketType = mutation({
     maxQuantity: v.optional(v.number()),
     isActive: v.optional(v.boolean()),
     visibility: v.optional(v.union(v.literal("public"), v.literal("hidden"))),
+    roomTypeId: v.optional(v.id("accommodationRoomTypes")),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
@@ -387,6 +393,7 @@ export const createTicketType = mutation({
       isActive: args.isActive ?? true,
       visibility: args.visibility ?? "public",
       availabilityState: "selectable",
+      roomTypeId: args.roomTypeId,
       updatedAt: now,
     })
   },
@@ -404,6 +411,7 @@ export const updateTicketType = mutation({
     availabilityState: v.optional(
       v.union(v.literal("selectable"), v.literal("unavailable"))
     ),
+    roomTypeId: v.optional(v.id("accommodationRoomTypes")),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)

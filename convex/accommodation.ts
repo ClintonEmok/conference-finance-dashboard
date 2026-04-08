@@ -512,6 +512,7 @@ export const getRoomAllocationBoard = query({
         eventId: canonicalEvent?._id ?? null,
         eventName: canonicalEvent?.title ?? null,
         ticketTypeLabel: null,
+        allocatedRoomTypeId: (a.allocatedRoomTypeId as string) ?? null,
         genderType:
           a.gender === "male"
             ? "MALE"

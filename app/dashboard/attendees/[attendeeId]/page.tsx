@@ -77,18 +77,19 @@ type AttendeeDetailPayload = {
     url: string | null
   }>
   roomStatus:
-  | {
-    status: "assigned"
-    roomLabel: string
-    hotelName: string
-    roomTypeLabel: string
-  }
-  | {
-    status: "unassigned"
-    roomLabel: null
-    hotelName: null
-    roomTypeLabel: null
-  }
+    | {
+        status: "assigned"
+        roomLabel: string
+        hotelName: string
+        roomTypeLabel: string
+      }
+    | {
+        status: "unassigned"
+        roomLabel: null
+        hotelName: null
+        roomTypeLabel: null
+        expectedRoomTypeLabel: string | null
+      }
   signals: {
     genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
     location: string | null
@@ -190,11 +191,11 @@ export default function AttendeeDetailPage({
     .join("")
     .toUpperCase()
     .slice(0, 2)
-  const paid = payload.finance.paidAmountMinor;
-  const due = payload.attendee.amountDueMinor;
+  const paid = payload.finance.paidAmountMinor
+  const due = payload.attendee.amountDueMinor
 
   const paymentProgress =
-    due === 0 ? 100 : Math.min(100, Math.round((paid / due) * 100));
+    due === 0 ? 100 : Math.min(100, Math.round((paid / due) * 100))
   console.log("Payment progress:", paymentProgress, { paid, due })
   return (
     <div className="animate-in space-y-8 pb-12 duration-700 fade-in slide-in-from-bottom-4">
@@ -445,6 +446,12 @@ export default function AttendeeDetailPage({
                   </span>
                 </div>
               )}
+              {payload.roomStatus.status === "unassigned" &&
+                payload.roomStatus.expectedRoomTypeLabel && (
+                  <p className="mt-3 text-xs font-bold text-amber-200/80">
+                    Expected type: {payload.roomStatus.expectedRoomTypeLabel}
+                  </p>
+                )}
             </div>
           </article>
 

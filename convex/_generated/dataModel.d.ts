@@ -220,6 +220,7 @@ export type DataModel = {
     document: {
       accommodationEnabled: boolean;
       currency: string;
+      defaultRoomTypeId?: Id<"accommodationRoomTypes">;
       endsAt?: number;
       isPublished: boolean;
       isSignupOpen: boolean;
@@ -238,6 +239,7 @@ export type DataModel = {
       | "_id"
       | "accommodationEnabled"
       | "currency"
+      | "defaultRoomTypeId"
       | "endsAt"
       | "isPublished"
       | "isSignupOpen"
@@ -331,6 +333,7 @@ export type DataModel = {
   };
   orderAttendees: {
     document: {
+      allocatedRoomTypeId?: Id<"accommodationRoomTypes">;
       allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
       assignedRoomId?: string;
       attendeeKey: string;
@@ -351,6 +354,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "allocatedRoomTypeId"
       | "allocationPriority"
       | "assignedRoomId"
       | "attendeeKey"
@@ -861,6 +865,7 @@ export type DataModel = {
       label: string;
       maxQuantity?: number;
       priceMinor: number;
+      roomTypeId?: Id<"accommodationRoomTypes">;
       soldCount?: number;
       sortOrder?: number;
       unavailableReason?: string;
@@ -878,6 +883,7 @@ export type DataModel = {
       | "label"
       | "maxQuantity"
       | "priceMinor"
+      | "roomTypeId"
       | "soldCount"
       | "sortOrder"
       | "unavailableReason"

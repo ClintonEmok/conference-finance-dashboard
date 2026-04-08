@@ -136,7 +136,7 @@ type AccommodationWorkspacePayload = {
     providerEventId: string
     eventName: string | null
     ticketTypeLabel: string | null
-    matchingRoomCount: number
+    allocatedRoomTypeId: string | null
     // Signal fields
     genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
     location: string | null
@@ -168,10 +168,10 @@ type AccommodationWorkspacePayload = {
     // Unresolved state
     isUnresolved: boolean
     unresolvedReason:
-    | "no_assignment_record"
-    | "skipped_intent"
-    | "slot_not_assignable"
-    | null
+      | "no_assignment_record"
+      | "skipped_intent"
+      | "slot_not_assignable"
+      | null
   }>
   summary: {
     totalRooms: number
@@ -1227,10 +1227,10 @@ export default function AccommodationPage() {
                                 {row.isUnresolved && row.unresolvedReason && (
                                   <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
                                     {row.unresolvedReason ===
-                                      "no_assignment_record"
+                                    "no_assignment_record"
                                       ? "No record"
                                       : row.unresolvedReason ===
-                                        "skipped_intent"
+                                          "skipped_intent"
                                         ? "Skipped"
                                         : "Not assignable"}
                                   </span>
@@ -1320,14 +1320,14 @@ export default function AccommodationPage() {
                                       <div className="flex flex-wrap gap-2">
                                         {submission.genderType &&
                                           submission.genderType !==
-                                          "UNKNOWN" && (
+                                            "UNKNOWN" && (
                                             <span
                                               className={cn(
                                                 "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize",
                                                 submission.genderType === "MALE"
                                                   ? "border-blue-500/20 bg-blue-500/10 text-blue-500"
                                                   : submission.genderType ===
-                                                    "FEMALE"
+                                                      "FEMALE"
                                                     ? "border-pink-500/20 bg-pink-500/10 text-pink-500"
                                                     : "border-border/40 bg-muted/30 text-muted-foreground/80"
                                               )}
@@ -1365,13 +1365,13 @@ export default function AccommodationPage() {
                                           </p>
                                           <p className="text-xs text-orange-600/80 dark:text-orange-400/80">
                                             {submission.unresolvedReason ===
-                                              "no_assignment_record"
+                                            "no_assignment_record"
                                               ? "No assignment record found"
                                               : submission.unresolvedReason ===
-                                                "skipped_intent"
+                                                  "skipped_intent"
                                                 ? "Assignment was skipped"
                                                 : submission.unresolvedReason ===
-                                                  "slot_not_assignable"
+                                                    "slot_not_assignable"
                                                   ? "Selected slot is not assignable"
                                                   : "Unknown reason"}
                                           </p>
@@ -1395,46 +1395,46 @@ export default function AccommodationPage() {
                                   {(submission.roommatePreference ||
                                     submission.roommateAvoid ||
                                     submission.dietaryRestrictions) && (
-                                      <Card>
-                                        <CardHeader className="pb-3">
-                                          <CardTitle className="text-sm font-medium">
-                                            Preferences
-                                          </CardTitle>
-                                        </CardHeader>
-                                        <CardContent className="space-y-3">
-                                          {submission.roommatePreference && (
-                                            <div>
-                                              <p className="text-xs text-muted-foreground">
-                                                Roommate preference
-                                              </p>
-                                              <p className="text-sm text-foreground">
-                                                {submission.roommatePreference}
-                                              </p>
-                                            </div>
-                                          )}
-                                          {submission.roommateAvoid && (
-                                            <div>
-                                              <p className="text-xs text-muted-foreground">
-                                                Roommate to avoid
-                                              </p>
-                                              <p className="text-sm text-foreground">
-                                                {submission.roommateAvoid}
-                                              </p>
-                                            </div>
-                                          )}
-                                          {submission.dietaryRestrictions && (
-                                            <div>
-                                              <p className="text-xs text-muted-foreground">
-                                                Dietary restrictions
-                                              </p>
-                                              <p className="text-sm text-foreground">
-                                                {submission.dietaryRestrictions}
-                                              </p>
-                                            </div>
-                                          )}
-                                        </CardContent>
-                                      </Card>
-                                    )}
+                                    <Card>
+                                      <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm font-medium">
+                                          Preferences
+                                        </CardTitle>
+                                      </CardHeader>
+                                      <CardContent className="space-y-3">
+                                        {submission.roommatePreference && (
+                                          <div>
+                                            <p className="text-xs text-muted-foreground">
+                                              Roommate preference
+                                            </p>
+                                            <p className="text-sm text-foreground">
+                                              {submission.roommatePreference}
+                                            </p>
+                                          </div>
+                                        )}
+                                        {submission.roommateAvoid && (
+                                          <div>
+                                            <p className="text-xs text-muted-foreground">
+                                              Roommate to avoid
+                                            </p>
+                                            <p className="text-sm text-foreground">
+                                              {submission.roommateAvoid}
+                                            </p>
+                                          </div>
+                                        )}
+                                        {submission.dietaryRestrictions && (
+                                          <div>
+                                            <p className="text-xs text-muted-foreground">
+                                              Dietary restrictions
+                                            </p>
+                                            <p className="text-sm text-foreground">
+                                              {submission.dietaryRestrictions}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </CardContent>
+                                    </Card>
+                                  )}
 
                                   {/* Booking Info */}
                                   <Card>
@@ -1672,10 +1672,11 @@ export default function AccommodationPage() {
                   return (
                     <div
                       key={attendee.attendeeId}
-                      className={`group relative flex w-full cursor-pointer flex-col items-start rounded-xl border p-4 transition-all select-none ${isSelected
+                      className={`group relative flex w-full cursor-pointer flex-col items-start rounded-xl border p-4 transition-all select-none ${
+                        isSelected
                           ? "selected-attendee border-[rgba(113,84,255,0.6)] bg-[rgba(113,84,255,0.08)] shadow-[0_0_20px_rgba(113,84,255,0.1)]"
                           : "border-border/40 bg-background/50 hover:bg-muted/30"
-                        }`}
+                      }`}
                       onClick={() =>
                         toggleAttendeeSelection(attendee.attendeeId)
                       }
@@ -1683,10 +1684,11 @@ export default function AccommodationPage() {
                       <div className="flex w-full items-start justify-between">
                         <div className="flex items-center gap-2 truncate">
                           <div
-                            className={`flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors ${isSelected
+                            className={`flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
+                              isSelected
                                 ? "border-primary bg-primary text-primary-foreground"
                                 : "border-border bg-background"
-                              }`}
+                            }`}
                           >
                             {isSelected && <Check className="size-3" />}
                           </div>
@@ -1715,15 +1717,23 @@ export default function AccommodationPage() {
                       </p>
 
                       <div className="mt-3 ml-7 flex flex-wrap gap-1.5">
+                        {attendee.allocatedRoomTypeId && (
+                          <span className="rounded-md bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-600">
+                            {payload.roomTypes.find(
+                              (rt) => rt.id === attendee.allocatedRoomTypeId
+                            )?.label ?? "Room type"}
+                          </span>
+                        )}
                         {attendee.genderType &&
                           attendee.genderType !== "UNKNOWN" && (
                             <span
-                              className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize ${attendee.genderType === "MALE"
+                              className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize ${
+                                attendee.genderType === "MALE"
                                   ? "border-blue-500/20 bg-blue-500/10 text-blue-500"
                                   : attendee.genderType === "FEMALE"
                                     ? "border-pink-500/20 bg-pink-500/10 text-pink-500"
                                     : "border-border/40 bg-muted/30 text-muted-foreground/80"
-                                }`}
+                              }`}
                             >
                               {attendee.genderType.toLowerCase()}
                             </span>
@@ -1738,6 +1748,42 @@ export default function AccommodationPage() {
                           <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600">
                             Group
                           </span>
+                        )}
+                        {attendee.allocatedRoomTypeId && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-6 rounded-md bg-violet-500/10 px-2 text-[10px] font-medium text-violet-600 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-violet-600 hover:text-white"
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              if (
+                                confirm(
+                                  `Fulfill room type assignment for ${attendee.attendeeName ?? "attendee"}?`
+                                )
+                              ) {
+                                const matchingRoom = payload.rooms.find(
+                                  (room) =>
+                                    room.roomType.id ===
+                                      attendee.allocatedRoomTypeId &&
+                                    room.availableBeds > 0
+                                )
+                                if (matchingRoom) {
+                                  await assignAttendeeToSpecificRoom(
+                                    attendee.attendeeId,
+                                    matchingRoom.id
+                                  )
+                                } else {
+                                  setErrors((current) => ({
+                                    ...current,
+                                    assignments:
+                                      "No available rooms of the matching room type.",
+                                  }))
+                                }
+                              }
+                            }}
+                          >
+                            Fulfill
+                          </Button>
                         )}
                       </div>
                     </div>
@@ -1922,10 +1968,11 @@ export default function AccommodationPage() {
                                 )
                               }
                             }}
-                            className={`flex h-[46px] items-center justify-center rounded-xl border border-dashed transition-all ${selectedAttendeeIds.length > 0
+                            className={`flex h-[46px] items-center justify-center rounded-xl border border-dashed transition-all ${
+                              selectedAttendeeIds.length > 0
                                 ? "cursor-pointer border-[rgba(113,84,255,0.4)] bg-[rgba(113,84,255,0.05)] text-[rgba(113,84,255,0.8)] hover:border-[rgba(113,84,255,0.6)] hover:bg-[rgba(113,84,255,0.1)]"
                                 : "cursor-not-allowed border-border/40 bg-background/50 text-muted-foreground/50"
-                              }`}
+                            }`}
                           >
                             <span className="text-xs font-medium">
                               {selectedAttendeeIds.length > 0

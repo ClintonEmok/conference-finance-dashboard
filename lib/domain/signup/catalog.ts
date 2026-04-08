@@ -23,12 +23,14 @@ export type PublicSignupCatalogEvent = {
     provider: string | null
     externalEventId: string | null
   }
+  defaultRoomTypeId?: string
   tickets: Array<{
     ticketTypeId: string
     label: string
     priceMinor: number
     selectable: boolean
     reason: TicketUnavailableReason | null
+    roomTypeId?: string
   }>
   accommodation: {
     eligible: boolean

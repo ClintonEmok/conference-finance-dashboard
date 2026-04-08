@@ -21,6 +21,7 @@ export type TicketSelectionDraft = {
   quantity: number
   selectable: boolean
   reason: TicketUnavailableReason | null
+  roomTypeId?: string
 }
 
 export type AttendeeDraft = {
@@ -34,7 +35,6 @@ export type AttendeeDraft = {
   location: string
   dietaryRestrictions: string
   roommatePreference: string
-  roommateAvoid: string
 }
 
 export type SignupDraft = {
@@ -100,7 +100,6 @@ export function deriveAttendeeDraftsFromTicketSelections(
           location: "",
           dietaryRestrictions: "",
           roommatePreference: "",
-          roommateAvoid: "",
         }
       )
     }

@@ -34,7 +34,9 @@ export default function DashboardLoading() {
                   <th className="px-4 py-3 font-semibold">Date</th>
                   <th className="px-4 py-3 font-semibold">Event</th>
                   <th className="px-4 py-3 text-right font-semibold">Orders</th>
-                  <th className="px-4 py-3 text-right font-semibold">Gross</th>
+                  <th className="px-4 py-3 text-right font-semibold">
+                    Order value
+                  </th>
                   <th className="px-4 py-3 text-right font-semibold">Net</th>
                 </tr>
               </thead>

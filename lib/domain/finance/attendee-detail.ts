@@ -26,6 +26,7 @@ type RoomStatus =
       roomLabel: null
       hotelName: null
       roomTypeLabel: null
+      expectedRoomTypeLabel: string | null
     }
 
 type PaymentMatchStatus =
@@ -216,6 +217,7 @@ export async function getAttendeeDetail(
     ageGroup: string | null
     ticketCategory: string | null
     tikkieAmountOverrideMinor: number | null
+    allocatedRoomTypeId: string | null
   } | null
 
   if (!attendee) {
@@ -249,7 +251,7 @@ export async function getAttendeeDetail(
     assignedRoomPromise,
   ])
 
-  const [hotelData, roomTypeData] = await Promise.all([
+  const [hotelData, roomTypeData, expectedRoomTypeData] = await Promise.all([
     assignedRoomData
       ? convexQuery(api.accommodation.getHotelById, {
           hotelId: assignedRoomData.hotelId,
@@ -258,6 +260,11 @@ export async function getAttendeeDetail(
     assignedRoomData
       ? convexQuery(api.accommodation.getRoomTypeById, {
           roomTypeId: assignedRoomData.roomTypeId,
+        })
+      : Promise.resolve(null),
+    attendee.allocatedRoomTypeId
+      ? convexQuery(api.accommodation.getRoomTypeById, {
+          roomTypeId: attendee.allocatedRoomTypeId,
         })
       : Promise.resolve(null),
   ])
@@ -508,6 +515,7 @@ export async function getAttendeeDetail(
         roomLabel: null,
         hotelName: null,
         roomTypeLabel: null,
+        expectedRoomTypeLabel: expectedRoomTypeData?.label ?? null,
       }
 
   return {

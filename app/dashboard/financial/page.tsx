@@ -17,7 +17,7 @@ import { EventTikkieSection } from "@/components/dashboard/event-tikkie-section"
 
 type RevenueResponse = {
   totals: {
-    grossMinor: number
+    orderValueMinor: number
     paidMinor: number
     refundedMinor: number
     netMinor: number
@@ -162,11 +162,13 @@ export default function FinancialPage() {
         <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
             {
-              label: "Total revenue",
-              value: revenue ? formatMoney(revenue.totals.grossMinor) : "--",
+              label: "Order value",
+              value: revenue
+                ? formatMoney(revenue.totals.orderValueMinor)
+                : "--",
               sub: revenue
                 ? `${revenue.statusCounts.paid} paid orders`
-                : "Calculated gross",
+                : "Calculated from order selections",
               trend: "up",
             },
             {

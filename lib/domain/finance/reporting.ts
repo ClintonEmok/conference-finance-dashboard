@@ -28,7 +28,7 @@ export type RevenueOverview = {
     currency: string | null
   }>
   totals: {
-    grossMinor: number
+    orderValueMinor: number
     paidMinor: number
     refundedMinor: number
     netMinor: number
@@ -37,7 +37,7 @@ export type RevenueOverview = {
   trend: Array<{
     bucket: string
     eventLabel: string
-    grossMinor: number
+    orderValueMinor: number
     paidMinor: number
     refundedMinor: number
     netMinor: number
@@ -97,7 +97,8 @@ export async function getRevenueOverview(
     eventSlug: string
     eventTitle: string | null
     normalizedStatus: CanonicalStatus
-    totalAmountMinor: number
+    amountDueMinor: number | null
+    totalAmountMinor: number | null
     currency: string | null
     orderedAt: string | null
     refundedAt: string | null
@@ -148,7 +149,7 @@ export async function getRevenueOverview(
   const trendMap = new Map<
     string,
     {
-      grossMinor: number
+      orderValueMinor: number
       paidMinor: number
       refundedMinor: number
       netMinor: number
@@ -157,7 +158,7 @@ export async function getRevenueOverview(
     }
   >()
 
-  let grossMinor = 0
+  let orderValueMinor = 0
   let paidMinor = 0
   let refundedMinor = 0
 
@@ -166,7 +167,7 @@ export async function getRevenueOverview(
       continue
     }
 
-    const amountMinor = order.totalAmountMinor ?? 0
+    const amountMinor = order.amountDueMinor ?? 0
     const bucket =
       trendGranularity === "day"
         ? toUtcDayBucket(new Date(order.orderedAt))
@@ -174,14 +175,14 @@ export async function getRevenueOverview(
 
     const current = trendMap.get(bucket) ?? {
       eventLabel: order.eventTitle?.trim() || order.eventSlug,
-      grossMinor: 0,
+      orderValueMinor: 0,
       paidMinor: 0,
       refundedMinor: 0,
       netMinor: 0,
       orderCount: 0,
     }
 
-    current.grossMinor += amountMinor
+    current.orderValueMinor += amountMinor
     current.orderCount += 1
 
     const nextEventLabel = order.eventTitle?.trim() || order.eventSlug
@@ -201,7 +202,7 @@ export async function getRevenueOverview(
 
     current.netMinor = current.paidMinor - current.refundedMinor
 
-    grossMinor += amountMinor
+    orderValueMinor += amountMinor
     trendMap.set(bucket, current)
   }
 
@@ -224,7 +225,7 @@ export async function getRevenueOverview(
     },
     availableEvents,
     totals: {
-      grossMinor,
+      orderValueMinor,
       paidMinor,
       refundedMinor,
       netMinor,

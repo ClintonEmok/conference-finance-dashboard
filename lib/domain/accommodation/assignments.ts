@@ -124,6 +124,7 @@ export type RoomAllocationBoard = {
     providerEventId: string
     eventName: string | null
     ticketTypeLabel: string | null
+    allocatedRoomTypeId: string | null
     genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
     allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
     location: string | null
