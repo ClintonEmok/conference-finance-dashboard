@@ -36,6 +36,7 @@ import {
 import { SignupProgress } from "@/components/signup/SignupProgress"
 import { SignupNavigation } from "@/components/signup/SignupNavigation"
 import { SignupSummary } from "@/components/signup/SignupSummary"
+import { SignupHeader } from "@/components/signup/SignupHeader"
 import { Separator } from "@/components/ui/separator"
 import type { SignupSubmissionResult } from "@/lib/types/signup"
 
@@ -469,18 +470,17 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
   return (
     <div className="min-h-svh bg-muted/30">
-      <main className="mx-auto flex h-full min-h-svh max-w-[1400px] flex-col gap-6 p-4 md:p-8 lg:flex-row lg:items-start lg:gap-10">
+      <SignupHeader eventName={activeEvent.title} stepTitle={`Step ${currentStepIndex + 1}: ${stepTitle}`} />
+      <main className="mx-auto flex h-full max-w-[1400px] flex-col gap-6 p-4 md:p-8 lg:flex-row lg:items-start lg:gap-10">
         {/* Sidebar: Progress & Summary */}
-        <div className="flex flex-col gap-6 lg:sticky lg:top-8 lg:w-[340px] lg:shrink-0">
+        <div className="flex flex-col gap-6 lg:sticky lg:top-28 lg:w-[340px] lg:shrink-0">
           <Card className="shadow-sm">
             <CardHeader className="space-y-6 pb-8">
               <div className="space-y-1">
                 <p className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/60 uppercase">
                   Event Registration
                 </p>
-                <CardTitle className="text-xl font-bold tracking-tight">
-                  {activeEvent.title}
-                </CardTitle>
+                <div className="h-2 w-12 bg-primary/20 rounded-full mb-4" />
               </div>
 
               <SignupProgress
