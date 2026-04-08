@@ -524,6 +524,8 @@ export const getRoomAllocationBoard = query({
         allocationPriority: a.allocationPriority ?? null,
         location: a.location ?? null,
         remarks: null,
+        roommatePreference: a.roommatePreference ?? null,
+        roommateAvoid: a.roommateAvoid ?? null,
         hasFamily: hasFamilySignal({
           attendeeId: a._id,
           orderId: order?._id ?? null,

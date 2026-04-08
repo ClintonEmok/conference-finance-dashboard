@@ -787,15 +787,20 @@ export declare const api: {
       {
         attendees: Array<{
           amountDueMinor: number;
+          email: string | null;
           id: Id<"orderAttendees">;
           name: string;
           normalizedStatus: string;
+          roommateAvoid: string | null;
+          roommatePreference: string | null;
           ticketTypeLabel: string;
         }>;
         order: {
           amountDueMinor: number | null;
           archiveReason: string | null;
           archivedAt: string | null;
+          buyerEmail: string | null;
+          buyerName: string | null;
           id: Id<"orders">;
           isArchived?: boolean;
           normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";

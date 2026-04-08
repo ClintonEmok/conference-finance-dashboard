@@ -280,6 +280,77 @@ describe("allocation proposal compatibility strategy", () => {
     )
   })
 
+  it("does not treat roommate avoid as a hard placement constraint", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-1",
+            label: "A-101",
+            capacity: 2,
+            occupiedBeds: 1,
+            availableBeds: 1,
+            availability: "available",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [
+              {
+                attendeeId: "attendee-existing",
+                attendeeName: "Jamie",
+                attendeeEmail: "jamie@example.com",
+                orderId: "order-existing",
+                providerOrderId: "order-existing",
+                providerEventId: "event-1",
+                eventName: "Camp",
+                ticketTypeLabel: null,
+              },
+            ],
+            pendingAssignments: [],
+          },
+          {
+            id: "room-2",
+            label: "B-201",
+            capacity: 2,
+            occupiedBeds: 0,
+            availableBeds: 2,
+            availability: "empty",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+        ],
+        unassignedAttendees: [
+          {
+            attendeeId: "attendee-new",
+            attendeeName: "Morgan",
+            attendeeEmail: "morgan@example.com",
+            orderId: "order-new",
+            providerOrderId: "order-new",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "UNKNOWN",
+            allocationPriority: "NORMAL",
+            location: null,
+            remarks: null,
+            roommatePreference: null,
+            roommateAvoid: "Jamie",
+            hasFamily: false,
+          },
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    expect(proposal.suggestions).toHaveLength(1)
+    expect(proposal.suggestions[0]?.roomId).toBe("room-1")
+  })
+
   it("prioritizes critical attendees before lower-priority names", async () => {
     vi.mocked(convexQuery).mockResolvedValueOnce(
       buildBoard({
