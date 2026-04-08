@@ -108,6 +108,7 @@ type AccommodationWorkspacePayload = {
       providerEventId: string
       eventName: string | null
       ticketTypeLabel: string | null
+      orderId: string | null
     }>
     pendingAssignments: Array<{
       assignmentId: string
@@ -133,6 +134,7 @@ type AccommodationWorkspacePayload = {
     attendeeId: string
     attendeeName: string | null
     attendeeEmail: string | null
+    orderId: string | null
     providerEventId: string
     eventName: string | null
     ticketTypeLabel: string | null
@@ -618,6 +620,32 @@ export default function AccommodationPage() {
     }
 
     await assignAttendeeToSpecificRoom(attendeeId, roomId)
+  }
+
+  function pickFulfillRoom(
+    attendee: {
+      allocatedRoomTypeId: string | null
+      orderId: string | null
+    },
+    rooms: AccommodationWorkspacePayload["rooms"]
+  ) {
+    if (!attendee.allocatedRoomTypeId) return null
+
+    const candidates = rooms.filter(
+      (room) =>
+        room.roomType.id === attendee.allocatedRoomTypeId &&
+        room.availableBeds > 0
+    )
+
+    const sameOrderRoom = attendee.orderId
+      ? candidates.find((room) =>
+          room.occupants.some(
+            (occupant) => occupant.orderId === attendee.orderId
+          )
+        )
+      : null
+
+    return sameOrderRoom ?? candidates[0] ?? null
   }
 
   async function assignAttendeeToSpecificRoom(
@@ -1749,11 +1777,9 @@ export default function AccommodationPage() {
                                   `Fulfill room type assignment for ${attendee.attendeeName ?? "attendee"}?`
                                 )
                               ) {
-                                const matchingRoom = payload.rooms.find(
-                                  (room) =>
-                                    room.roomType.id ===
-                                      attendee.allocatedRoomTypeId &&
-                                    room.availableBeds > 0
+                                const matchingRoom = pickFulfillRoom(
+                                  attendee,
+                                  payload.rooms
                                 )
                                 if (matchingRoom) {
                                   await assignAttendeeToSpecificRoom(
