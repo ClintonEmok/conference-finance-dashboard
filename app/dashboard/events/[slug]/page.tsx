@@ -270,9 +270,8 @@ export default function EventDetailPage({
   const [editIsSignupOpen, setEditIsSignupOpen] = useState(false)
   const [editAccommodationEnabled, setEditAccommodationEnabled] =
     useState(false)
-  const [editDefaultRoomTypeId, setEditDefaultRoomTypeId] = useState<
-    string | null
-  >(null)
+  const [editDefaultRoomTypeId, setEditDefaultRoomTypeId] =
+    useState<Id<"accommodationRoomTypes"> | null>(null)
 
   // Hotel selection state
   const [isLinkingHotel, setIsLinkingHotel] = useState(false)
@@ -322,7 +321,8 @@ export default function EventDetailPage({
   const [ticketVisibility, setTicketVisibility] = useState<"public" | "hidden">(
     "public"
   )
-  const [ticketRoomTypeId, setTicketRoomTypeId] = useState<string | null>(null)
+  const [ticketRoomTypeId, setTicketRoomTypeId] =
+    useState<Id<"accommodationRoomTypes"> | null>(null)
 
   const formatDateTimeLocal = (timestamp: number) => {
     const date = new Date(timestamp)
@@ -1124,7 +1124,11 @@ export default function EventDetailPage({
                     <select
                       value={editDefaultRoomTypeId ?? ""}
                       onChange={(e) =>
-                        setEditDefaultRoomTypeId(e.target.value || null)
+                        setEditDefaultRoomTypeId(
+                          e.target.value
+                            ? (e.target.value as Id<"accommodationRoomTypes">)
+                            : null
+                        )
                       }
                       className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
                     >
@@ -1139,8 +1143,8 @@ export default function EventDetailPage({
                     <Badge variant="outline">
                       {event.defaultRoomTypeId
                         ? (roomTypes.find(
-                          (rt: any) => rt._id === event.defaultRoomTypeId
-                        )?.label ?? "Unknown")
+                            (rt: any) => rt._id === event.defaultRoomTypeId
+                          )?.label ?? "Unknown")
                         : "Not set"}
                     </Badge>
                   )}
@@ -1412,7 +1416,12 @@ export default function EventDetailPage({
                         <select
                           value={ticketRoomTypeId ?? ""}
                           onChange={(e) =>
-                            setTicketRoomTypeId(e.target.value || null)
+                            setTicketRoomTypeId(
+                              e.target.value
+                                ? (e.target
+                                    .value as Id<"accommodationRoomTypes">)
+                                : null
+                            )
                           }
                           className="h-10 w-full rounded-lg border border-border/40 bg-background/50 px-3 text-sm"
                         >
@@ -1458,7 +1467,7 @@ export default function EventDetailPage({
 
               {/* Ticket List */}
               {ticketTypes === undefined ||
-                ticketTypes.ticketTypes === undefined ? (
+              ticketTypes.ticketTypes === undefined ? (
                 <Skeleton className="h-48" />
               ) : ticketTypes.ticketTypes.length === 0 ? (
                 <div className="py-12 text-center text-muted-foreground">
