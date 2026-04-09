@@ -8,6 +8,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react"
 import {
@@ -190,6 +191,12 @@ type InventoryErrorState = {
   assignments: string | null
 }
 
+type AssignmentToastState = {
+  id: number
+  title: string
+  lines: string[]
+}
+
 const emptyPayload: AccommodationWorkspacePayload = {
   generatedAt: new Date(0).toISOString(),
   filters: {
@@ -274,6 +281,9 @@ export default function AccommodationPage() {
   const [assignmentMessage, setAssignmentMessage] = useState<string | null>(
     null
   )
+  const [assignmentToast, setAssignmentToast] =
+    useState<AssignmentToastState | null>(null)
+  const toastIdRef = useRef(0)
 
   const [eventIdInput, setEventIdInput] = useState("")
   const [searchInput, setSearchInput] = useState("")
@@ -532,6 +542,69 @@ export default function AccommodationPage() {
     [payload.rooms]
   )
 
+  const roomLabelById = useMemo(() => {
+    return new Map(payload.rooms.map((room) => [room.id, room.label]))
+  }, [payload.rooms])
+
+  const attendeeNameById = useMemo(() => {
+    const names = new Map<string, string>()
+
+    for (const attendee of payload.unassignedAttendees) {
+      names.set(
+        attendee.attendeeId,
+        attendee.attendeeName ?? "Unnamed attendee"
+      )
+    }
+
+    for (const room of payload.rooms) {
+      for (const occupant of room.occupants) {
+        names.set(
+          occupant.attendeeId,
+          occupant.attendeeName ?? "Unnamed attendee"
+        )
+      }
+    }
+
+    for (const suggestion of payload.buyerSuggestions ?? []) {
+      names.set(
+        suggestion.attendeeId,
+        suggestion.attendeeName ?? "Unnamed attendee"
+      )
+    }
+
+    return names
+  }, [payload.buyerSuggestions, payload.rooms, payload.unassignedAttendees])
+
+  const showAssignmentToast = useCallback((title: string, lines: string[]) => {
+    const sanitizedLines = lines
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .slice(0, 4)
+
+    toastIdRef.current += 1
+    setAssignmentToast({
+      id: toastIdRef.current,
+      title,
+      lines: sanitizedLines,
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!assignmentToast) {
+      return
+    }
+
+    const timeout = window.setTimeout(() => {
+      setAssignmentToast((current) =>
+        current?.id === assignmentToast.id ? null : current
+      )
+    }, 4500)
+
+    return () => {
+      window.clearTimeout(timeout)
+    }
+  }, [assignmentToast])
+
   const buyerSuggestions = useMemo(() => {
     return [...(payload.buyerSuggestions ?? [])].sort((a, b) => {
       if ((a.roomLabel ?? "") !== (b.roomLabel ?? "")) {
@@ -648,6 +721,106 @@ export default function AccommodationPage() {
     return sameOrderRoom ?? candidates[0] ?? null
   }
 
+  function getFulfillGroupAttendees(
+    attendee: AccommodationWorkspacePayload["unassignedAttendees"][number],
+    allUnassignedAttendees: AccommodationWorkspacePayload["unassignedAttendees"]
+  ) {
+    if (!attendee.orderId || !attendee.allocatedRoomTypeId) {
+      return [attendee]
+    }
+
+    const sameOrderPendingAssignments = allUnassignedAttendees
+      .filter((candidate) => candidate.orderId === attendee.orderId)
+      .map((candidate) => ({
+        attendeeId: candidate.attendeeId,
+        roomId: getPendingBuyerAssignment(candidate.attendeeId)?.roomId ?? null,
+      }))
+      .filter((candidate) => candidate.roomId !== null)
+
+    if (sameOrderPendingAssignments.length > 0) {
+      const clickedRequestedRoomId =
+        getPendingBuyerAssignment(attendee.attendeeId)?.roomId ?? null
+
+      if (!clickedRequestedRoomId) {
+        return [attendee]
+      }
+
+      const sameRequestedRoomGroup = allUnassignedAttendees.filter(
+        (candidate) => {
+          if (candidate.orderId !== attendee.orderId) {
+            return false
+          }
+
+          const candidateRequestedRoomId =
+            getPendingBuyerAssignment(candidate.attendeeId)?.roomId ?? null
+          return candidateRequestedRoomId === clickedRequestedRoomId
+        }
+      )
+
+      return sameRequestedRoomGroup.length > 0
+        ? sameRequestedRoomGroup
+        : [attendee]
+    }
+
+    const sameOrderAndRoomType = allUnassignedAttendees.filter(
+      (candidate) =>
+        candidate.orderId === attendee.orderId &&
+        candidate.allocatedRoomTypeId === attendee.allocatedRoomTypeId
+    )
+
+    return sameOrderAndRoomType.length > 0 ? sameOrderAndRoomType : [attendee]
+  }
+
+  function pickGroupFulfillRoom(
+    attendees: AccommodationWorkspacePayload["unassignedAttendees"],
+    rooms: AccommodationWorkspacePayload["rooms"]
+  ) {
+    if (attendees.length === 0) return null
+
+    const roomTypeId = attendees[0]?.allocatedRoomTypeId
+    const orderId = attendees[0]?.orderId
+
+    if (!roomTypeId) return null
+
+    const candidates = rooms
+      .filter(
+        (room) => room.roomType.id === roomTypeId && room.availableBeds > 0
+      )
+      .filter((room) => room.availableBeds >= attendees.length)
+      .sort((a, b) => {
+        const aHasSameOrderOccupant = orderId
+          ? a.occupants.some((occupant) => occupant.orderId === orderId)
+          : false
+        const bHasSameOrderOccupant = orderId
+          ? b.occupants.some((occupant) => occupant.orderId === orderId)
+          : false
+
+        if (aHasSameOrderOccupant !== bHasSameOrderOccupant) {
+          return aHasSameOrderOccupant ? -1 : 1
+        }
+
+        const aBedsAfterPlacement = a.availableBeds - attendees.length
+        const bBedsAfterPlacement = b.availableBeds - attendees.length
+        if (aBedsAfterPlacement !== bBedsAfterPlacement) {
+          return aBedsAfterPlacement - bBedsAfterPlacement
+        }
+
+        return a.label.localeCompare(b.label)
+      })
+
+    return candidates[0] ?? null
+  }
+
+  function getPendingBuyerAssignment(attendeeId: string) {
+    return (
+      payload.buyerSuggestions?.find(
+        (assignment) =>
+          assignment.attendeeId === attendeeId &&
+          assignment.assignmentIntent === "assign"
+      ) ?? null
+    )
+  }
+
   async function assignAttendeeToSpecificRoom(
     attendeeId: string,
     roomId: string
@@ -682,16 +855,32 @@ export default function AccommodationPage() {
         return
       }
 
+      const attendeeName =
+        attendeeNameById.get(attendeeId) ?? "Unnamed attendee"
+      const roomLabel = roomLabelById.get(roomId) ?? "selected room"
+
       setErrors((current) => ({ ...current, assignments: null }))
       setAssignmentMessage(
         "Attendee assigned. Occupancy has been refreshed from live server data."
       )
+      showAssignmentToast("Room assignment saved", [
+        `${attendeeName} -> ${roomLabel}`,
+      ])
       setSelectedRoomByAttendee((current) => {
         const next = { ...current }
         delete next[attendeeId]
         return next
       })
       await loadWorkspace()
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to assign attendee to room."
+      setErrors((current) => ({
+        ...current,
+        assignments: message,
+      }))
     } finally {
       setIsMutating(false)
     }
@@ -709,14 +898,51 @@ export default function AccommodationPage() {
     try {
       // Loop or use a bulk endpoint if available. For now, sequential per current API pattern
       for (const id of attendeeIds) {
-        await fetch("/api/dashboard/accommodation/assignments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ attendeeId: id, roomId }),
-        })
+        const response = await fetch(
+          "/api/dashboard/accommodation/assignments",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ attendeeId: id, roomId }),
+          }
+        )
+
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string }
+        } | null
+
+        if (!response.ok) {
+          setErrors((prev) => ({
+            ...prev,
+            assignments:
+              body?.error?.message ??
+              `Failed while assigning attendee ${id} in group action.`,
+          }))
+          return
+        }
       }
 
+      const roomLabel = roomLabelById.get(roomId) ?? "selected room"
+      const assignmentLines = attendeeIds
+        .slice(0, 3)
+        .map(
+          (id) =>
+            `${attendeeNameById.get(id) ?? "Unnamed attendee"} -> ${roomLabel}`
+        )
+
+      if (attendeeIds.length > 3) {
+        const remainder = attendeeIds.length - 3
+        assignmentLines.push(
+          `+${remainder} more attendee${remainder === 1 ? "" : "s"}`
+        )
+      }
+
+      setErrors((prev) => ({ ...prev, assignments: null }))
       setAssignmentMessage(`Assigned ${attendeeIds.length} attendees.`)
+      showAssignmentToast(
+        `Assigned ${attendeeIds.length} attendee${attendeeIds.length === 1 ? "" : "s"}`,
+        assignmentLines
+      )
       setSelectedAttendeeIds([])
       await loadWorkspace()
     } catch (e) {
@@ -811,8 +1037,27 @@ export default function AccommodationPage() {
       }
 
       if (body?.success) {
+        const suggestion = payload.buyerSuggestions?.find(
+          (item) => item.assignmentId === assignmentId
+        )
+        const selectedAlternativeRoomLabel =
+          slotId != null
+            ? alternativeRooms.find((room) => room.slotId === slotId)?.roomLabel
+            : null
+        const resolvedRoomLabel =
+          selectedAlternativeRoomLabel ??
+          suggestion?.roomLabel ??
+          "requested room"
+        const attendeeName =
+          suggestion?.attendeeName ??
+          attendeeNameById.get(suggestion?.attendeeId ?? "") ??
+          "Unnamed attendee"
+
         setErrors((current) => ({ ...current, assignments: null }))
         setAssignmentMessage("Buyer assignment confirmed successfully.")
+        showAssignmentToast("Buyer request fulfilled", [
+          `${attendeeName} -> ${resolvedRoomLabel}`,
+        ])
         setShowConfirmDialog(false)
         setSelectedPendingAssignment(null)
         await loadWorkspace()
@@ -1685,6 +1930,11 @@ export default function AccommodationPage() {
                   const isSelected = selectedAttendeeIds.includes(
                     attendee.attendeeId
                   )
+                  const fulfillGroupAttendees = getFulfillGroupAttendees(
+                    attendee,
+                    payload.unassignedAttendees
+                  )
+                  const isGroupFulfill = fulfillGroupAttendees.length > 1
                   return (
                     <div
                       key={attendee.attendeeId}
@@ -1772,31 +2022,74 @@ export default function AccommodationPage() {
                             className="h-6 rounded-md bg-violet-500/10 px-2 text-[10px] font-medium text-violet-600 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-violet-600 hover:text-white"
                             onClick={async (e) => {
                               e.stopPropagation()
-                              if (
-                                confirm(
-                                  `Fulfill room type assignment for ${attendee.attendeeName ?? "attendee"}?`
+                              const attendeesWithPendingAssignments =
+                                fulfillGroupAttendees
+                                  .map((groupMember) => ({
+                                    attendeeId: groupMember.attendeeId,
+                                    assignment: getPendingBuyerAssignment(
+                                      groupMember.attendeeId
+                                    ),
+                                  }))
+                                  .filter((entry) => entry.assignment !== null)
+                                  .map((entry) => ({
+                                    attendeeId: entry.attendeeId,
+                                    assignmentId:
+                                      entry.assignment!.assignmentId,
+                                  }))
+
+                              for (const entry of attendeesWithPendingAssignments) {
+                                await confirmPendingAssignment(
+                                  entry.assignmentId
                                 )
-                              ) {
-                                const matchingRoom = pickFulfillRoom(
-                                  attendee,
-                                  payload.rooms
+                              }
+
+                              const remainingAttendees =
+                                fulfillGroupAttendees.filter(
+                                  (groupMember) =>
+                                    !attendeesWithPendingAssignments.some(
+                                      (entry) =>
+                                        entry.attendeeId ===
+                                        groupMember.attendeeId
+                                    )
                                 )
-                                if (matchingRoom) {
+
+                              if (remainingAttendees.length === 0) {
+                                return
+                              }
+
+                              const matchingRoom = isGroupFulfill
+                                ? pickGroupFulfillRoom(
+                                    remainingAttendees,
+                                    payload.rooms
+                                  )
+                                : pickFulfillRoom(attendee, payload.rooms)
+                              if (matchingRoom) {
+                                if (isGroupFulfill) {
+                                  await assignMultipleAttendeesToRoom(
+                                    remainingAttendees.map(
+                                      (groupMember) => groupMember.attendeeId
+                                    ),
+                                    matchingRoom.id
+                                  )
+                                } else {
                                   await assignAttendeeToSpecificRoom(
                                     attendee.attendeeId,
                                     matchingRoom.id
                                   )
-                                } else {
-                                  setErrors((current) => ({
-                                    ...current,
-                                    assignments:
-                                      "No available rooms of the matching room type.",
-                                  }))
                                 }
+                              } else {
+                                setErrors((current) => ({
+                                  ...current,
+                                  assignments: isGroupFulfill
+                                    ? `No room has enough available beds to fulfill this group (${fulfillGroupAttendees.length}).`
+                                    : "No available rooms of the matching room type.",
+                                }))
                               }
                             }}
                           >
-                            Fulfill
+                            {isGroupFulfill
+                              ? `Fulfill ${fulfillGroupAttendees.length}`
+                              : "Fulfill"}
                           </Button>
                         )}
                       </div>
@@ -2150,6 +2443,42 @@ export default function AccommodationPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {assignmentToast && (
+        <div className="pointer-events-none fixed right-4 bottom-4 z-50 w-[min(26rem,calc(100vw-2rem))]">
+          <article
+            className="pointer-events-auto rounded-xl border border-emerald-300/60 bg-emerald-50/95 p-3 shadow-lg backdrop-blur dark:border-emerald-800 dark:bg-emerald-950/85"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+                  {assignmentToast.title}
+                </p>
+                <div className="mt-1 space-y-1">
+                  {assignmentToast.lines.map((line) => (
+                    <p
+                      key={line}
+                      className="truncate text-xs text-emerald-700 dark:text-emerald-300"
+                    >
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="rounded-md p-1 text-emerald-700 transition-colors hover:bg-emerald-100 hover:text-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900"
+                onClick={() => setAssignmentToast(null)}
+                aria-label="Dismiss assignment notification"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          </article>
+        </div>
+      )}
     </section>
   )
 }

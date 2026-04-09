@@ -1995,7 +1995,8 @@ export const confirmBuyerAssignment = mutation({
       throw new Error("Assignment not found")
     }
 
-    if (assignment.status !== "pending") {
+    const assignmentStatus = assignment.status ?? "pending"
+    if (assignmentStatus !== "pending") {
       throw new Error("Assignment is not pending")
     }
 
@@ -2138,7 +2139,8 @@ export const removeBuyerAssignment = mutation({
       throw new Error("Assignment not found")
     }
 
-    if (assignment.status !== "pending") {
+    const assignmentStatus = assignment.status ?? "pending"
+    if (assignmentStatus !== "pending") {
       throw new Error("Assignment is not pending")
     }
 
