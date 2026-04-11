@@ -1,8 +1,9 @@
 "use client"
 
 import Link from "next/link"
+import Image from "next/image"
 import { usePathname } from "next/navigation"
-import { useState } from "react"
+import { useState, useMemo, useEffect } from "react"
 import {
   BedDouble,
   ChevronRight,
@@ -16,6 +17,24 @@ import {
 
 import { LogoutButton } from "@/app/dashboard/logout-button"
 import { cn } from "@/lib/utils"
+import { NavBreadcrumbs } from "@/components/dashboard/nav-breadcrumbs"
+import { TooltipProvider } from "@/components/ui/tooltip"
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
+  SidebarSeparator,
+} from "@/components/ui/sidebar"
 
 type DashboardShellProps = {
   userEmail: string
@@ -84,6 +103,10 @@ const navigationSections: NavigationSection[] = [
             href: "/dashboard/orders",
             label: "Orders",
           },
+          {
+            href: "/dashboard/settings/ticket-types",
+            label: "Payment templates",
+          },
         ],
       },
     ],
@@ -119,12 +142,6 @@ const navigationSections: NavigationSection[] = [
         label: "Integrations",
         description: "Connections and health",
         icon: ShieldEllipsis,
-        children: [
-          {
-            href: "/dashboard/settings/ticket-types",
-            label: "Payment templates",
-          },
-        ],
       },
     ],
   },
@@ -136,6 +153,38 @@ function isPathActive(pathname: string, href: string) {
 
 export function DashboardShell({ userEmail, children }: DashboardShellProps) {
   const pathname = usePathname()
+  const [open, setOpen] = useState(true)
+
+  // Detect if we are in a "scoped" page (detail view)
+  const isScoped = useMemo(() => {
+    const scopedPatterns = [
+      /^\/dashboard\/events\/(?!new$)[^/]+/,
+      /^\/dashboard\/orders\/[^/]+/,
+      /^\/dashboard\/attendees\/[^/]+/,
+      /^\/dashboard\/accommodation\/(?!inventory$)[^/]+/,
+    ]
+    return scopedPatterns.some((pattern) => pattern.test(pathname))
+  }, [pathname])
+
+  // Auto-collapse logic when entering a scoped view
+  const [lastPathname, setLastPathname] = useState(pathname)
+
+  useEffect(() => {
+    if (pathname !== lastPathname) {
+      // If we just navigated into a scoped view from a non-scoped one
+      const wasScoped = [
+        /^\/dashboard\/events\/(?!new$)[^/]+/,
+        /^\/dashboard\/orders\/[^/]+/,
+        /^\/dashboard\/attendees\/[^/]+/,
+        /^\/dashboard\/accommodation\/(?!inventory$)[^/]+/,
+      ].some((pattern) => pattern.test(lastPathname))
+
+      if (isScoped && !wasScoped) {
+        setOpen(false)
+      }
+      setLastPathname(pathname)
+    }
+  }, [pathname, isScoped, lastPathname])
 
   const [expandedByHref, setExpandedByHref] = useState<Record<string, boolean>>(
     () => {
@@ -165,266 +214,128 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
   }
 
   return (
-    <div className="min-h-svh bg-black text-foreground">
-      <div className="mx-auto grid min-h-svh gap-4 px-4 py-4 transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] lg:grid-cols-[240px_minmax(0,1fr)] lg:px-6 lg:py-6">
-        <aside className="relative hidden lg:flex lg:flex-col">
-          <div className="sticky top-6 flex h-[calc(100svh-3rem)] w-full">
-            <div className="flex w-full flex-col overflow-hidden rounded-xl border border-white/60 bg-white/85 shadow-[0_18px_48px_rgba(40,24,82,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-white/8 dark:shadow-[0_18px_48px_rgba(0,0,0,0.2)]">
-              <div className="flex h-[64px] shrink-0 items-center p-5">
-                <div className="ml-2.5 flex-1 overflow-hidden">
-                  <h1 className="text-[11px] font-black tracking-tight text-foreground uppercase">
-                    DCLM Netherlands
-                  </h1>
-                  <p className="text-[9px] leading-none font-bold tracking-widest text-muted-foreground/50 uppercase">
-                    Conference Dashboard
-                  </p>
-                </div>
+    <TooltipProvider>
+      <SidebarProvider open={open} onOpenChange={setOpen}>
+        <Sidebar collapsible="icon" className="border-r border-white/60 dark:border-white/10">
+          <SidebarHeader className="h-[64px] justify-center group-data-[collapsible=icon]:px-2">
+            <div className="flex items-center gap-3 group-data-[collapsible=icon]:justify-center">
+              <Image
+                src="/dlbc-logo.png"
+                alt="DLBC"
+                width={32}
+                height={32}
+                className="size-8 shrink-0 rounded-lg object-contain"
+                priority
+              />
+              <div className="flex flex-col overflow-hidden group-data-[collapsible=icon]:hidden">
+                <h1 className="text-[11px] font-black tracking-tight text-foreground uppercase">
+                  DCLM Netherlands
+                </h1>
+                <p className="text-[9px] leading-none font-bold tracking-widest text-muted-foreground/50 uppercase">
+                  Conference Dashboard
+                </p>
               </div>
+            </div>
+          </SidebarHeader>
 
-              <nav className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-2">
-                {navigationSections.map((section) => (
-                  <div
-                    key={section.title}
-                    className="flex flex-col gap-1 focus-visible:outline-none"
-                  >
-                    <hr className="mx-3 my-1 border-border/20 opacity-30" />
-
+          <SidebarContent className="gap-0">
+            {navigationSections.map((section) => (
+              <SidebarGroup key={section.title}>
+                <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">
+                  {section.title}
+                </SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
                     {section.items.map((item) => {
                       const Icon = item.icon
                       const hasChildren = Boolean(item.children?.length)
-                      const childActive = Boolean(
-                        item.children?.some((child) =>
-                          isPathActive(pathname, child.href)
-                        )
-                      )
-                      const active =
-                        isPathActive(pathname, item.href) || childActive
-                      const expanded = hasChildren
-                        ? Boolean(expandedByHref[item.href]) || childActive
-                        : false
+                      const active = isPathActive(pathname, item.href) ||
+                        item.children?.some(c => isPathActive(pathname, c.href))
 
                       return (
-                        <div key={item.href} className="flex flex-col">
-                          <div className="group relative">
-                            <Link
-                              href={item.href}
-                              className={cn(
-                                "relative z-10 flex items-center gap-2.5 rounded-lg px-3 py-2 transition-all duration-200",
-                                active
-                                  ? "bg-primary text-white shadow-lg shadow-primary/20"
-                                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                              )}
-                            >
-                              <Icon className="size-4 shrink-0" />
-                              <span className="flex-1 text-[11px] font-bold tracking-wider uppercase">
-                                {item.label}
-                              </span>
-                            </Link>
-
-                            {hasChildren && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  toggleExpanded(item.href)
-                                }}
-                                className={cn(
-                                  "absolute top-1/2 right-2 z-20 flex size-6 -translate-y-1/2 items-center justify-center rounded-md transition-colors",
-                                  active
-                                    ? "text-white hover:bg-white/20"
-                                    : "text-muted-foreground hover:bg-black/5"
-                                )}
-                              >
-                                <ChevronRight
-                                  className={cn(
-                                    "size-4 transition-transform duration-200",
-                                    expanded && "rotate-90"
-                                  )}
-                                />
-                              </button>
+                        <SidebarMenuItem key={item.href}>
+                          <SidebarMenuButton
+                            asChild
+                            isActive={active}
+                            tooltip={item.label}
+                            className={cn(
+                              "transition-all duration-200",
+                              active && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground shadow-sm"
                             )}
-                          </div>
+                          >
+                            <Link href={item.href}>
+                              <Icon />
+                              <span className="font-bold tracking-tight uppercase group-data-[collapsible=icon]:hidden">{item.label}</span>
+                            </Link>
+                          </SidebarMenuButton>
 
-                          {hasChildren && expanded && (
-                            <div className="mt-1 ml-4 flex flex-col gap-0.5 border-l border-border/30 pl-3">
-                              {item.children?.map((child) => {
-                                const childIsActive = isPathActive(
-                                  pathname,
-                                  child.href
-                                )
-                                return (
-                                  <Link
-                                    key={child.href}
-                                    href={child.href}
-                                    className={cn(
-                                      "block rounded-md px-3 py-1.5 text-[10px] font-bold tracking-wide whitespace-nowrap uppercase transition-colors",
-                                      childIsActive
-                                        ? "bg-primary/5 text-primary"
-                                        : "text-muted-foreground/60 hover:bg-muted/30 hover:text-foreground"
-                                    )}
-                                  >
-                                    {child.label}
-                                  </Link>
-                                )
-                              })}
+                          {hasChildren && !isScoped && expandedByHref[item.href] && (
+                            <div className="mt-1 ml-4 flex flex-col gap-0.5 border-l border-border/30 pl-3 group-data-[collapsible=icon]:hidden">
+                              {item.children?.map((child) => (
+                                <Link
+                                  key={child.href}
+                                  href={child.href}
+                                  className={cn(
+                                    "block rounded-md px-3 py-1.5 text-[10px] font-bold tracking-wide uppercase transition-colors",
+                                    isPathActive(pathname, child.href)
+                                      ? "bg-primary/10 text-primary"
+                                      : "text-muted-foreground/60 hover:bg-muted/30 hover:text-foreground"
+                                  )}
+                                >
+                                  {child.label}
+                                </Link>
+                              ))}
                             </div>
                           )}
-                        </div>
+                        </SidebarMenuItem>
                       )
                     })}
-                  </div>
-                ))}
-              </nav>
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            ))}
+          </SidebarContent>
 
-              <div className="shrink-0 p-4 transition-all duration-300">
-                <div className="flex items-center justify-between gap-2 overflow-hidden rounded-lg border border-border/40 bg-white/40 px-2.5 py-2.5 shadow-sm backdrop-blur transition-all duration-300 dark:bg-black/20">
-                  <div className="min-w-0">
-                    <p className="truncate text-[10px] font-black tracking-widest text-foreground uppercase">
-                      {userEmail.split("@")[0]}
-                    </p>
-                    <p className="mt-0.5 truncate text-[8px] font-bold tracking-[0.2em] text-muted-foreground/40 uppercase">
-                      Conference OP
-                    </p>
-                  </div>
-                  <LogoutButton className="h-6 rounded-md bg-muted/50 px-2 text-[8px] font-black tracking-widest uppercase transition-colors hover:bg-muted" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </aside>
-
-        <div className="flex min-w-0 flex-col transition-all duration-300">
-          <div className="flex-1 rounded-xl border border-white/60 bg-white/78 p-4 shadow-[0_20px_56px_rgba(40,24,82,0.06)] backdrop-blur-xl lg:p-7 dark:border-white/10 dark:bg-white/6 dark:shadow-[0_20px_56px_rgba(0,0,0,0.18)]">
-            <div className="mb-6 flex flex-col gap-4 lg:hidden">
-              <div className="rounded-xl bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] p-5 text-primary-foreground shadow-[0_18px_48px_rgba(74,48,164,0.24)]">
-                <p className="text-[10px] font-semibold tracking-[0.2em] text-primary-foreground/70 uppercase">
-                  DCLM Conference Dashboard
+          <SidebarFooter>
+            <div className={cn(
+              "flex items-center gap-3 rounded-xl border border-border/40 bg-white/40 p-2.5 shadow-sm backdrop-blur dark:bg-black/20 transition-all",
+              !open && "border-transparent bg-transparent p-0 shadow-none justify-center"
+            )}>
+              <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
+                <p className="truncate text-[10px] font-black tracking-widest text-foreground uppercase">
+                  {userEmail.split("@")[0]}
                 </p>
-                <h1 className="mt-2 text-2xl font-bold tracking-tight">
-                  Command center
-                </h1>
-                <p className="mt-2 text-[13px] leading-relaxed text-primary-foreground/85">
-                  Move from balances to attendee follow-up and room placement
-                  without losing context.
+                <p className="truncate text-[8px] font-bold tracking-[0.2em] text-muted-foreground/40 uppercase">
+                  Conference OP
                 </p>
               </div>
-
-              <div className="space-y-4">
-                {navigationSections.map((section) => (
-                  <div key={section.title} className="space-y-2">
-                    <p className="px-1 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                      {section.title}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {section.items.map((item) => {
-                        const Icon = item.icon
-                        const hasChildren = Boolean(item.children?.length)
-                        const childActive = Boolean(
-                          item.children?.some((child) =>
-                            isPathActive(pathname, child.href)
-                          )
-                        )
-                        const isExpanded = hasChildren
-                          ? Boolean(expandedByHref[item.href]) || childActive
-                          : false
-                        const active =
-                          isPathActive(pathname, item.href) || childActive
-
-                        return (
-                          <div key={item.href} className="contents">
-                            <Link
-                              href={item.href}
-                              className={cn(
-                                "flex items-center gap-2.5 rounded-md border px-3.5 py-[10px] text-[13px] font-semibold shadow-sm transition-colors",
-                                active
-                                  ? "border-transparent bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] text-white shadow-primary/20"
-                                  : "border-border bg-background/80 text-foreground hover:bg-muted"
-                              )}
-                            >
-                              <Icon className="size-[18px]" />
-                              {item.label}
-                            </Link>
-                            {hasChildren && (
-                              <button
-                                type="button"
-                                aria-label={
-                                  isExpanded
-                                    ? `Collapse ${item.label}`
-                                    : `Expand ${item.label}`
-                                }
-                                aria-expanded={isExpanded}
-                                onClick={() => toggleExpanded(item.href)}
-                                className={cn(
-                                  "flex items-center justify-center rounded-md border px-2.5 py-[10px] shadow-sm transition-colors",
-                                  active
-                                    ? "border-transparent bg-[linear-gradient(145deg,rgba(113,84,255,0.94),rgba(82,56,170,0.92))] text-white"
-                                    : "border-border bg-background/60 text-muted-foreground hover:bg-muted"
-                                )}
-                              >
-                                <ChevronRight
-                                  className={cn(
-                                    "size-[14px] transition-transform",
-                                    isExpanded && "rotate-90"
-                                  )}
-                                />
-                              </button>
-                            )}
-                          </div>
-                        )
-                      })}
-
-                      {section.items.flatMap((item) => {
-                        const childActive = Boolean(
-                          item.children?.some((child) =>
-                            isPathActive(pathname, child.href)
-                          )
-                        )
-
-                        if (!expandedByHref[item.href] && !childActive) {
-                          return []
-                        }
-
-                        return (item.children ?? []).map((child) => {
-                          const active = isPathActive(pathname, child.href)
-
-                          return (
-                            <Link
-                              key={child.href}
-                              href={child.href}
-                              className={cn(
-                                "rounded-md border px-3.5 py-[10px] text-xs font-semibold shadow-sm transition-colors",
-                                active
-                                  ? "border-transparent bg-primary/10 text-primary"
-                                  : "border-border/80 bg-background/40 text-muted-foreground hover:bg-muted hover:text-foreground"
-                              )}
-                            >
-                              {child.label}
-                            </Link>
-                          )
-                        })
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background/70 px-4 py-3 shadow-sm dark:bg-white/6">
-                <div>
-                  <p className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                    Signed in
-                  </p>
-                  <p className="text-sm font-semibold text-foreground">
-                    {userEmail}
-                  </p>
-                </div>
-                <LogoutButton className="h-8 rounded-lg px-3 text-[11px] font-semibold" />
-              </div>
+              <LogoutButton
+                className={cn(
+                  "h-6 rounded-md bg-muted/20 px-2 text-[8px] font-black tracking-widest uppercase transition-colors hover:bg-muted/40",
+                  !open && "px-0 size-8 rounded-lg"
+                )}
+                showIconOnly={!open}
+              />
             </div>
+          </SidebarFooter>
+        </Sidebar>
 
-            <main className="min-w-0">{children}</main>
+        <SidebarInset className="bg-black/5 dark:bg-white/2">
+          <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-white/60 bg-white/80 px-4 backdrop-blur-xl dark:border-white/10 dark:bg-black/40">
+            <div className="flex items-center gap-4">
+              <SidebarTrigger className="-ml-1" />
+              <SidebarSeparator orientation="vertical" className="mr-2 h-4" />
+              <NavBreadcrumbs />
+            </div>
+          </header>
+
+          <div className="flex-1 p-4 lg:p-6 overflow-x-hidden">
+            <div className="mx-auto max-w-7xl">
+              {children}
+            </div>
           </div>
-        </div>
-      </div>
-    </div>
+        </SidebarInset>
+      </SidebarProvider>
+    </TooltipProvider>
   )
 }

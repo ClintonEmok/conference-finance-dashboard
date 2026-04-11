@@ -1,12 +1,11 @@
 "use client"
 
-import Link from "next/link"
+import { use, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "convex/react"
-
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Card,
   CardContent,
@@ -25,6 +24,10 @@ import {
 } from "@/components/ui/table"
 import { api } from "@/lib/convex/api"
 import type { Id } from "@/convex/_generated/dataModel"
+import { formatMoney } from "@/lib/format"
+import { cn } from "@/lib/utils"
+import { Separator } from "@/components/ui/separator"
+import { CreditCard, Users, Receipt, AlertCircle, Trash2, Calendar, ShieldCheck, Clock, Zap } from "lucide-react"
 
 type PaymentStatus =
   | "auto_matched"
@@ -73,13 +76,17 @@ type PageProps = {
   }>
 }
 
-import { formatMoney } from "@/lib/format"
-
 function formatDateTime(value: string | null) {
   if (!value) return "-"
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toLocaleString()
+  return parsed.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }
 
 function statusBadgeVariant(status: string | null) {
@@ -108,52 +115,16 @@ function paymentStatusVariant(status: PaymentStatus) {
 }
 
 export default function OrderDetailPage({ params }: PageProps) {
+  const { orderId: rawOrderId } = use(params)
   const searchParams = useSearchParams()
-  const [orderId, setOrderId] = useState<string | null>(null)
   const [isRemoving, setIsRemoving] = useState(false)
-  const [removeErrorMessage, setRemoveErrorMessage] = useState<string | null>(
-    null
-  )
+  const [removeErrorMessage, setRemoveErrorMessage] = useState<string | null>(null)
 
   const source = searchParams.get("source")
   const attendeeId = searchParams.get("attendeeId")
   const attendeeSearch = searchParams.get("search")
 
-  const backHref = useMemo(() => {
-    if (source === "attendee-detail" && attendeeId) {
-      const params = new URLSearchParams()
-      if (attendeeSearch) {
-        params.set("search", attendeeSearch)
-      }
-      params.set("source", "order-detail")
-
-      return `/dashboard/attendees/${encodeURIComponent(attendeeId)}?${params.toString()}`
-    }
-
-    return "/dashboard/orders"
-  }, [attendeeId, attendeeSearch, source])
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function resolveParams() {
-      const resolved = await params
-
-      if (cancelled) {
-        return
-      }
-
-      setOrderId(resolved.orderId)
-    }
-
-    void resolveParams()
-
-    return () => {
-      cancelled = true
-    }
-  }, [params])
-
-  const normalizedOrderId = orderId?.trim() ?? ""
+  const normalizedOrderId = rawOrderId?.trim() ?? ""
   const hasOrderId = normalizedOrderId.length > 0
 
   const orderQuery = useQuery(
@@ -188,10 +159,8 @@ export default function OrderDetailPage({ params }: PageProps) {
     [paymentDocs]
   )
 
-  const isLoading =
-    !hasOrderId || orderQuery === undefined || paymentDocs === undefined
-  const errorMessage =
-    hasOrderId && orderQuery === null ? "Order not found." : null
+  const isLoading = !hasOrderId || orderQuery === undefined || paymentDocs === undefined
+  const errorMessage = hasOrderId && orderQuery === null ? "Order not found." : null
 
   const metrics = useMemo(() => {
     const hasKnownDue = typeof orderPayload?.order.amountDueMinor === "number"
@@ -233,47 +202,32 @@ export default function OrderDetailPage({ params }: PageProps) {
   }, [orderPayload, payments])
 
   const canRemoveLocally = useMemo(() => {
-    if (!orderPayload) {
-      return false
-    }
-
-    return (
-      orderPayload.order.isArchived === true ||
-      orderPayload.order.normalizedStatus === "cancelled"
-    )
+    if (!orderPayload) return false
+    return orderPayload.order.isArchived === true || orderPayload.order.normalizedStatus === "cancelled"
   }, [orderPayload])
 
   async function removeOrderLocally() {
-    if (!orderId || !canRemoveLocally) {
-      return
-    }
+    if (!normalizedOrderId || !canRemoveLocally) return
 
     const confirmed = window.confirm(
       "Remove this order from local dashboard records? This hides it from order views and reports."
     )
-    if (!confirmed) {
-      return
-    }
+    if (!confirmed) return
 
     setIsRemoving(true)
     setRemoveErrorMessage(null)
 
     try {
       const response = await fetch(
-        `/api/dashboard/orders/${encodeURIComponent(orderId)}`,
-        {
-          method: "DELETE",
-        }
+        `/api/dashboard/orders/${encodeURIComponent(normalizedOrderId)}`,
+        { method: "DELETE" }
       )
 
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as {
           error?: { message?: string }
         } | null
-        setRemoveErrorMessage(
-          body?.error?.message ??
-          "Failed to remove this order from local records."
-        )
+        setRemoveErrorMessage(body?.error?.message ?? "Failed to remove order.")
         return
       }
 
@@ -285,188 +239,146 @@ export default function OrderDetailPage({ params }: PageProps) {
     }
   }
 
-  return (
-    <section className="space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold">Order payment detail</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Track one order across all its attendees and all assigned payments.
-          </p>
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-32 w-full rounded-2xl" />
+        <div className="grid gap-6 lg:grid-cols-2">
+           <Skeleton className="h-96 rounded-2xl" />
+           <Skeleton className="h-96 rounded-2xl" />
         </div>
-        <Button asChild variant="outline">
-          <Link href={backHref}>Back</Link>
-        </Button>
-      </header>
+      </div>
+    )
+  }
 
+  if (errorMessage) {
+    return (
+      <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-8 text-center">
+        <AlertCircle className="mx-auto mb-4 size-12 text-destructive opacity-40" />
+        <h3 className="text-lg font-bold text-destructive">Error</h3>
+        <p className="text-sm text-destructive/70">{errorMessage}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
       {removeErrorMessage && (
-        <article className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
+        <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive flex items-center gap-3">
+          <AlertCircle className="size-4" />
           {removeErrorMessage}
-        </article>
+        </div>
       )}
 
-      {errorMessage && (
-        <article className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
-          {errorMessage}
-        </article>
-      )}
-
-      {!errorMessage && isLoading && (
-        <article className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
-          Loading order payment detail...
-        </article>
-      )}
-
-      {!errorMessage && !isLoading && orderPayload && (
+      {orderPayload && (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex flex-wrap items-center gap-2 text-2xl">
-                <span className="font-mono text-lg">
-                  {orderPayload.order.id}
-                </span>
-                <Badge
-                  variant={statusBadgeVariant(
-                    orderPayload.order.normalizedStatus ?? null
-                  )}
-                >
-                  {orderPayload.order.normalizedStatus ?? "pending"}
-                </Badge>
-                {orderPayload.order.isArchived && (
-                  <Badge variant="outline">Archived</Badge>
-                )}
-              </CardTitle>
-              <CardDescription>
-                Ordered {formatDateTime(orderPayload.order.orderedAt)}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {canRemoveLocally && (
-                <article className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
-                  {orderPayload.order.isArchived
-                    ? "This order is archived because it is missing upstream in Ticket Tailor."
-                    : "This order is cancelled."}{" "}
-                  You can remove it from local records if you no longer need it.
-                  <div className="mt-2">
+          {/* Hero Card */}
+          <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+            <CardHeader className="pb-8">
+              <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-xl font-bold tracking-tight bg-primary/10 text-primary px-3 py-1 rounded-lg">
+                      {orderPayload.order.id}
+                    </span>
+                    <Badge
+                      variant={statusBadgeVariant(orderPayload.order.normalizedStatus ?? null)}
+                      className="rounded-full px-3 py-0.5 font-bold uppercase tracking-widest text-[10px]"
+                    >
+                      {orderPayload.order.normalizedStatus ?? "pending"}
+                    </Badge>
+                  </div>
+                  <CardDescription className="text-sm font-medium">
+                    Placed on {formatDateTime(orderPayload.order.orderedAt)}
+                  </CardDescription>
+                </div>
+                
+                {canRemoveLocally && (
+                  <div className="flex items-center gap-4 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+                    <div className="space-y-1">
+                      <p className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-widest">Order Archived</p>
+                      <p className="text-[10px] text-amber-600/70">Missing upstream in provider.</p>
+                    </div>
                     <Button
-                      type="button"
                       variant="destructive"
                       size="sm"
                       onClick={removeOrderLocally}
-                      disabled={isRemoving || !canRemoveLocally}
+                      disabled={isRemoving}
+                      className="rounded-lg h-8 px-3 font-bold text-[10px] uppercase tracking-wider"
                     >
-                      {isRemoving ? "Removing..." : "Remove from local records"}
+                      {isRemoving ? "Removing..." : "Remove Locally"}
                     </Button>
                   </div>
-                </article>
-              )}
-
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                <article className="rounded-lg border border-border/70 bg-background p-3">
-                  <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                    Order due
-                  </p>
-                  <p className="mt-1.5 text-2xl font-semibold tracking-tight">
-                    {metrics.hasKnownDue
-                      ? formatMoney(metrics.amountDueMinor)
-                      : "Missing amount"}
-                  </p>
-                </article>
-                <article className="rounded-lg border border-border/70 bg-background p-3">
-                  <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                    Matched paid
-                  </p>
-                  <p className="mt-1.5 text-2xl font-semibold tracking-tight text-emerald-700 dark:text-emerald-300">
-                    {formatMoney(metrics.paidAmountMinor)}
-                  </p>
-                </article>
-                <article className="rounded-lg border border-border/70 bg-background p-3">
-                  <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                    Outstanding
-                  </p>
-                  <p className="mt-1.5 text-2xl font-semibold tracking-tight text-rose-600 dark:text-rose-300">
-                    {metrics.hasKnownDue
-                      ? formatMoney(metrics.outstandingAmountMinor)
-                      : "Missing amount"}
-                  </p>
-                </article>
-                <article className="rounded-lg border border-border/70 bg-background p-3">
-                  <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                    Overpaid
-                  </p>
-                  <p className="mt-1.5 text-2xl font-semibold tracking-tight text-amber-600 dark:text-amber-300">
-                    {formatMoney(metrics.overpaidAmountMinor)}
-                  </p>
-                </article>
-                <article className="rounded-lg border border-border/70 bg-background p-3">
-                  <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                    Coverage
-                  </p>
-                  <p className="mt-1.5 text-2xl font-semibold tracking-tight">
-                    {metrics.coverage === null ? "N/A" : `${metrics.coverage}%`}
-                  </p>
-                </article>
+                )}
               </div>
-
-              <article className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground">
-                {metrics.attendeeCount > 1
-                  ? `This order has ${metrics.attendeeCount} attendees. Payment progress is tracked against attendee ticket dues, with current outstanding averaging about ${formatMoney(metrics.sharedOutstandingPerAttendeeMinor)} per attendee.`
-                  : "This order has one attendee, so order progress maps directly to that attendee's ticket due."}
-              </article>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                {[
+                  { label: "Order Due", value: metrics.hasKnownDue ? formatMoney(metrics.amountDueMinor) : "Missing", icon: Receipt, color: "text-foreground" },
+                  { label: "Paid Amount", value: formatMoney(metrics.paidAmountMinor), icon: ShieldCheck, color: "text-emerald-600 dark:text-emerald-400" },
+                  { label: "Outstanding", value: metrics.hasKnownDue ? formatMoney(metrics.outstandingAmountMinor) : "Missing", icon: Clock, color: "text-rose-600 dark:text-rose-400" },
+                  { label: "Overpaid", value: formatMoney(metrics.overpaidAmountMinor), icon: AlertCircle, color: "text-amber-600 dark:text-amber-300" },
+                  { label: "Coverage", value: metrics.coverage === null ? "N/A" : `${metrics.coverage}%`, icon: Zap, color: "text-primary" },
+                ].map((item, i) => (
+                  <article key={i} className="rounded-2xl border border-white/60 bg-white/50 p-4 transition-all hover:bg-white/80 dark:border-white/5 dark:bg-white/5 dark:hover:bg-white/10">
+                    <p className="text-[10px] font-black tracking-[0.2em] text-muted-foreground uppercase mb-3 px-1">{item.label}</p>
+                    <div className="flex items-center justify-between">
+                      <span className={cn("text-2xl font-black tracking-tight", item.color)}>
+                        {item.value}
+                      </span>
+                      <item.icon className={cn("size-5 opacity-20", item.color)} />
+                    </div>
+                  </article>
+                ))}
+              </div>
+              
+              <div className="mt-6 flex items-center gap-3 rounded-xl bg-primary/5 p-4 border border-primary/10">
+                <Users className="size-4 text-primary" />
+                <p className="text-xs font-medium text-muted-foreground">
+                  {metrics.attendeeCount > 1
+                    ? `Consolidated ledger for ${metrics.attendeeCount} attendees. Outstanding averages ${formatMoney(metrics.sharedOutstandingPerAttendeeMinor)} per ticket.`
+                    : "Direct progress mapping for a single attendee order."}
+                </p>
+              </div>
             </CardContent>
           </Card>
 
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-            <Card>
+          <div className="grid gap-8 lg:grid-cols-5">
+            {/* Attendees Section */}
+            <Card className="lg:col-span-3 border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
               <CardHeader>
-                <CardTitle className="text-lg">
-                  Attendees under this order
-                </CardTitle>
-                <CardDescription>
-                  Everyone listed here shares the same order payment progress.
-                </CardDescription>
+                <CardTitle className="text-lg font-bold">Attendees</CardTitle>
+                <CardDescription>Consolidated ticket data for this order</CardDescription>
               </CardHeader>
               <CardContent>
                 {orderPayload.attendees.length === 0 ? (
-                  <p className="rounded-md border border-border/70 p-3 text-sm text-muted-foreground">
-                    No attendees found under this order.
-                  </p>
+                  <div className="py-12 text-center rounded-2xl border border-dashed border-white/20">
+                    <Users className="mx-auto mb-3 size-10 opacity-10" />
+                    <p className="text-sm font-bold tracking-widest uppercase opacity-40">No attendees</p>
+                  </div>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto rounded-xl border border-white/20 bg-background/20">
                     <Table>
-                      <TableHeader>
+                      <TableHeader className="bg-white/10">
                         <TableRow>
-                          <TableHead>Attendee</TableHead>
-                          <TableHead>Ticket</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Due</TableHead>
+                          <TableHead className="text-[10px] font-black uppercase tracking-widest h-10">Attendee</TableHead>
+                          <TableHead className="text-[10px] font-black uppercase tracking-widest h-10">Ticket</TableHead>
+                          <TableHead className="text-[10px] font-black uppercase tracking-widest h-10 text-right">Due</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {orderPayload.attendees.map((attendee) => (
-                          <TableRow key={attendee.id}>
-                            <TableCell>
-                              <div className="text-sm font-medium">
-                                {attendee.name}
-                              </div>
-                              <div className="font-mono text-[11px] text-muted-foreground">
-                                {attendee.id}
-                              </div>
+                          <TableRow key={attendee.id} className="border-white/5">
+                            <TableCell className="py-4">
+                              <p className="text-sm font-bold">{attendee.name}</p>
+                              <p className="text-[10px] font-mono text-muted-foreground/60">{attendee.id}</p>
                             </TableCell>
-                            <TableCell className="text-sm text-muted-foreground">
-                              {attendee.ticketTypeLabel}
+                            <TableCell className="py-4">
+                              <Badge variant="outline" className="text-[10px] font-medium border-white/20">{attendee.ticketTypeLabel}</Badge>
                             </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={statusBadgeVariant(
-                                  attendee.normalizedStatus
-                                )}
-                              >
-                                {attendee.normalizedStatus}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right text-sm">
-                              {formatMoney(attendee.amountDueMinor)}
+                            <TableCell className="py-4 text-right">
+                              <span className="text-sm font-black tabular-nums">{formatMoney(attendee.amountDueMinor)}</span>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -477,56 +389,55 @@ export default function OrderDetailPage({ params }: PageProps) {
               </CardContent>
             </Card>
 
-            <Card>
+            {/* Payments Section */}
+            <Card className="lg:col-span-2 border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
               <CardHeader>
-                <CardTitle className="text-lg">Assigned payments</CardTitle>
-                <CardDescription>
-                  Payments matched to this order (manual or automatic).
-                </CardDescription>
+                <CardTitle className="text-lg font-bold">Assigned Payments</CardTitle>
+                <CardDescription>Matched to this order ID</CardDescription>
               </CardHeader>
               <CardContent>
                 {payments.length === 0 ? (
-                  <p className="rounded-md border border-border/70 p-3 text-sm text-muted-foreground">
-                    No payments assigned to this order yet.
-                  </p>
+                  <div className="py-12 text-center rounded-2xl border border-dashed border-white/20">
+                    <CreditCard className="mx-auto mb-3 size-10 opacity-10" />
+                    <p className="text-sm font-bold tracking-widest uppercase opacity-40">No payments</p>
+                  </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {payments.map((payment) => (
                       <article
                         key={payment.id}
-                        className="rounded-lg border border-border/70 bg-background px-3 py-2.5"
+                        className="group relative rounded-2xl border border-white/60 bg-white/60 p-4 transition-all hover:bg-white/80 dark:border-white/5 dark:bg-white/5 dark:hover:bg-white/10"
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-sm font-medium">
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-1">
+                            <p className="text-sm font-bold tracking-tight">
                               {maskPaymentPayer(payment.payerName)}
                             </p>
-                            <p className="text-xs text-muted-foreground">
-                              {paymentSourceLabel(payment.source)} ·{" "}
-                              {formatDateTime(payment.paidAt)}
-                            </p>
-                            {(payment.reference || payment.notes) && (
-                              <p className="mt-1 text-[11px] text-muted-foreground">
-                                {[payment.reference, payment.notes]
-                                  .filter((value): value is string =>
-                                    Boolean(value && value.trim())
-                                  )
-                                  .join(" · ")}
-                              </p>
-                            )}
+                            <div className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground/60">
+                              <span>{paymentSourceLabel(payment.source)}</span>
+                              <span>•</span>
+                              <span>{formatDateTime(payment.paidAt)}</span>
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-sm font-semibold text-foreground">
+                          <div className="text-right space-y-1">
+                            <p className="text-sm font-black text-foreground tabular-nums">
                               {formatMoney(payment.amountMinor)}
                             </p>
                             <Badge
                               variant={paymentStatusVariant(payment.status)}
-                              className="mt-1 capitalize"
+                              className="text-[9px] font-black uppercase tracking-widest h-4 px-1.5"
                             >
                               {paymentStatusLabel(payment.status)}
                             </Badge>
                           </div>
                         </div>
+                        {(payment.reference || payment.notes) && (
+                          <p className="mt-3 text-[10px] text-muted-foreground/50 border-t border-white/10 pt-2 italic">
+                            {[payment.reference, payment.notes]
+                              .filter((v): v is string => Boolean(v && v.trim()))
+                              .join(" — ")}
+                          </p>
+                        )}
                       </article>
                     ))}
                   </div>
@@ -536,12 +447,6 @@ export default function OrderDetailPage({ params }: PageProps) {
           </div>
         </>
       )}
-
-      {!orderId && !isLoading && !orderPayload && !errorMessage && (
-        <article className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
-          No order selected.
-        </article>
-      )}
-    </section>
+    </div>
   )
 }
