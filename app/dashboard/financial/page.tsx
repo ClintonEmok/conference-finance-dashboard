@@ -14,6 +14,14 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 import { Button } from "@/components/ui/button"
 import { EventTikkieSection } from "@/components/dashboard/event-tikkie-section"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 
 type RevenueResponse = {
   totals: {
@@ -37,12 +45,15 @@ type BalanceResponse = {
   }
   availableEvents: Array<{
     eventId: string
+    slug: string
     title: string | null
   }>
   rows: Array<{
-    eventName: string | null
+    eventId: string
+    eventTitle: string | null
     normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
-    totalAmountMinor: number
+    amountDueMinor?: number | null
+    totalAmountMinor: number | null
     outstandingMinor: number
   }>
 }
@@ -125,6 +136,63 @@ export default function FinancialPage() {
     void load()
   }, [])
 
+  const portfolio = useMemo(() => {
+    if (!balances) return []
+
+    const eventMap = new Map<string, { slug: string; title: string }>()
+    if (balances.availableEvents) {
+      for (const event of balances.availableEvents) {
+        eventMap.set(event.eventId, {
+          slug: event.slug,
+          title: event.title || "Unnamed Event",
+        })
+      }
+    }
+
+    const map = new Map<
+      string,
+      {
+        eventName: string
+        eventSlug: string
+        totalExpected: number
+        totalCollected: number
+        totalOutstanding: number
+      }
+    >()
+
+    if (balances.rows) {
+      for (const row of balances.rows) {
+        if (row.normalizedStatus === "cancelled") continue
+
+        const eventInfo = eventMap.get(row.eventId)
+        if (!eventInfo) continue
+
+        if (!map.has(row.eventId)) {
+          map.set(row.eventId, {
+            eventName: eventInfo.title,
+            eventSlug: eventInfo.slug,
+            totalExpected: 0,
+            totalCollected: 0,
+            totalOutstanding: 0,
+          })
+        }
+
+        const entry = map.get(row.eventId)!
+        const expectedVal = row.amountDueMinor ?? row.totalAmountMinor ?? 0
+
+        entry.totalExpected += expectedVal
+        entry.totalOutstanding += Math.max(0, row.outstandingMinor ?? 0)
+
+        const collected = Math.max(0, expectedVal - (row.outstandingMinor ?? 0))
+        entry.totalCollected += collected
+      }
+    }
+
+    return Array.from(map.values()).sort(
+      (a, b) => b.totalExpected - a.totalExpected
+    )
+  }, [balances])
+
   if (isLoading) return <FinancialSkeleton />
 
   return (
@@ -202,8 +270,8 @@ export default function FinancialPage() {
             <article
               key={card.label}
               className={`group overflow-hidden rounded-2xl border transition-all hover:scale-[1.02] ${card.isWarning
-                  ? "border-orange-500/20 bg-orange-500/5 shadow-[0_8px_30px_rgb(249,115,22,0.08)]"
-                  : "border-[rgba(113,84,255,0.3)] bg-[linear-gradient(145deg,rgba(113,84,255,0.05),rgba(113,84,255,0.02))] shadow-sm"
+                ? "border-orange-500/20 bg-orange-500/5 shadow-[0_8px_30px_rgb(249,115,22,0.08)]"
+                : "border-[rgba(113,84,255,0.3)] bg-[linear-gradient(145deg,rgba(113,84,255,0.05),rgba(113,84,255,0.02))] shadow-sm"
                 } p-6`}
             >
               <div className="flex items-center justify-between">
@@ -236,6 +304,89 @@ export default function FinancialPage() {
         </article>
       )}
 
+      {portfolio.length > 0 && (
+        <article className="animate-in slide-in-from-bottom-4 duration-700 delay-100 fill-mode-both rounded-3xl border border-border/50 bg-card/40 p-8 shadow-sm backdrop-blur-xl">
+          <div className="mb-6">
+            <p className="text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase">
+              Event Portfolio
+            </p>
+            <h3 className="mt-2 text-2xl font-bold text-foreground">
+              Cross-event revenue breakdown
+            </h3>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {portfolio.map((row) => {
+              const coverage =
+                row.totalExpected > 0
+                  ? Math.round((row.totalCollected / row.totalExpected) * 100)
+                  : 0
+
+              return (
+                <Link
+                  key={row.eventName}
+                  href={`/dashboard/events/${row.eventSlug}`}
+                  className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-border/40 bg-background/50 p-6 transition-all hover:border-primary/40 hover:bg-muted/30"
+                >
+                  <div>
+                    <h4
+                      className="mb-6 truncate text-lg font-bold text-foreground group-hover:text-primary transition-colors"
+                      title={row.eventName}
+                    >
+                      {row.eventName}
+                    </h4>
+
+                    <div className="mb-8 grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
+                          Expected
+                        </p>
+                        <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
+                          {formatMoney(row.totalExpected)}
+                        </p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-bold tracking-wider text-primary/80 uppercase">
+                          Collected
+                        </p>
+                        <p className="font-mono text-sm font-bold tabular-nums text-primary">
+                          {formatMoney(row.totalCollected)}
+                        </p>
+                      </div>
+                      <div className="col-span-2 space-y-1.5 rounded-lg bg-black/5 p-3 dark:bg-white/5 transition-colors group-hover:bg-primary/5">
+                        <p className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
+                          Deficit
+                        </p>
+                        <p
+                          className={`font-mono text-sm font-medium tabular-nums ${row.totalOutstanding > 0 ? "text-orange-500" : "text-muted-foreground"}`}
+                        >
+                          {row.totalOutstanding > 0
+                            ? formatMoney(row.totalOutstanding)
+                            : "Fully settled"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 pt-2">
+                    <div className="flex items-center justify-between text-[9px] font-black tracking-widest text-muted-foreground uppercase">
+                      <span>Coverage</span>
+                      <span>{coverage}%</span>
+                    </div>
+                    <div className="h-1.5 w-full flex-1 overflow-hidden rounded-full bg-secondary/80">
+                      <div
+                        className="h-full bg-primary transition-all duration-1000 ease-out"
+                        style={{
+                          width: `${Math.min(100, Math.max(0, coverage))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        </article>
+      )}
 
       <article className="rounded-3xl border border-border/50 bg-card/40 p-8 shadow-sm backdrop-blur-xl">
         <div className="mb-8">
