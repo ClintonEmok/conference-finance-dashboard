@@ -16,7 +16,6 @@ import {
 } from "lucide-react"
 
 import { api } from "@/convex/_generated/api"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
@@ -30,34 +29,6 @@ function formatDateTime(value: number | null): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value))
-}
-
-function paymentStatusLabel(
-  status: "unpaid" | "partial" | "paid" | "overpaid"
-) {
-  switch (status) {
-    case "paid":
-      return "Paid"
-    case "overpaid":
-      return "Overpaid"
-    case "partial":
-      return "In progress"
-    default:
-      return "Awaiting payment"
-  }
-}
-
-function statusBadgeClass(status: "unpaid" | "partial" | "paid" | "overpaid") {
-  switch (status) {
-    case "paid":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-    case "overpaid":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-    case "partial":
-      return "border-primary/20 bg-primary/10 text-primary"
-    default:
-      return "border-muted-foreground/20 bg-muted/40 text-muted-foreground"
-  }
 }
 
 function TrackPaymentSkeleton() {
@@ -107,15 +78,9 @@ export default function TrackPaymentPage() {
   return (
     <div className="min-h-svh bg-[radial-gradient(ellipse_at_top,rgba(113,84,255,0.08),transparent_50%),linear-gradient(180deg,rgba(2,6,23,0.02),transparent_24%)] pt-12 md:pt-24">
       <main className="container mx-auto max-w-6xl px-4 pb-24 md:px-8">
-        
+
         {/* HERO SEARCH */}
         <section className="mx-auto max-w-xl text-center mb-16">
-          <Badge
-            variant="secondary"
-            className="mb-6 rounded-full px-4 py-1 text-[10px] font-black tracking-[0.2em] shadow-sm uppercase bg-primary/10 text-primary border-primary/20"
-          >
-            Public Tracker
-          </Badge>
           <h1 className="text-4xl font-black tracking-tight text-foreground sm:text-5xl lg:text-6xl mb-4">
             Track Booking
           </h1>
@@ -148,7 +113,7 @@ export default function TrackPaymentPage() {
         </section>
 
         <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-700 fade-in delay-150 fill-mode-both">
-          
+
           {isSearching ? <TrackPaymentSkeleton /> : null}
 
           {notFound ? (
@@ -163,7 +128,7 @@ export default function TrackPaymentPage() {
 
           {result ? (
             <div className="space-y-8 duration-700 animate-in fade-in slide-in-from-bottom-4">
-              
+
               {/* TOP ACTION BAR - PAYMENT OR SUCCESS */}
               {result.tracking.payment.remainingMinor > 0 ? (
                 <div className="rounded-3xl border border-border/50 bg-card/60 shadow-lg backdrop-blur-2xl overflow-hidden ring-1 ring-white/5">
@@ -200,16 +165,6 @@ export default function TrackPaymentPage() {
                         </p>
                       </div>
                       <div className="flex flex-col items-end gap-2 shrink-0">
-                        <Badge
-                          className={cn(
-                            "rounded-full px-3 py-1 text-[10px] font-black tracking-[0.2em] uppercase",
-                            statusBadgeClass(result.tracking.payment.paymentStatus)
-                          )}
-                        >
-                          {paymentStatusLabel(
-                            result.tracking.payment.paymentStatus
-                          )}
-                        </Badge>
                         <span className="font-mono text-xs font-semibold tracking-[0.1em] text-muted-foreground/80">
                           {result.tracking.bookingRef}
                         </span>
@@ -277,7 +232,7 @@ export default function TrackPaymentPage() {
                     <h3 className="mb-6 text-[10px] font-bold tracking-[0.2em] uppercase text-muted-foreground">
                       Digital Receipt
                     </h3>
-                    
+
                     <div className="grid gap-3 text-sm mb-6">
                       <SummaryRow
                         icon={Users}
@@ -300,21 +255,21 @@ export default function TrackPaymentPage() {
                         )}
                       />
                     </div>
-                    
+
                     <div className="space-y-2">
-                       {result.submission.ticketSelections.map((ticket) => (
-                         <div
-                            key={ticket.id}
-                            className="flex items-center justify-between rounded-xl bg-background/50 px-4 py-3 text-sm border border-border/30 shadow-sm"
-                         >
-                            <span className="font-medium text-foreground">
-                              {ticket.ticketTypeName}
-                            </span>
-                            <span className="text-muted-foreground tabular-nums">
-                              {ticket.quantity} × {formatMoney(ticket.pricePerTicketMinor)}
-                            </span>
-                         </div>
-                       ))}
+                      {result.submission.ticketSelections.map((ticket) => (
+                        <div
+                          key={ticket.id}
+                          className="flex items-center justify-between rounded-xl bg-background/50 px-4 py-3 text-sm border border-border/30 shadow-sm"
+                        >
+                          <span className="font-medium text-foreground">
+                            {ticket.ticketTypeName}
+                          </span>
+                          <span className="text-muted-foreground tabular-nums">
+                            {ticket.quantity} × {formatMoney(ticket.pricePerTicketMinor)}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </article>
                 </div>
@@ -351,9 +306,9 @@ export default function TrackPaymentPage() {
                     <p className="mb-4 text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase">
                       Need help?
                     </p>
-                    <Button asChild variant="outline" className="w-full rounded-full border-border/40 bg-card/40 backdrop-blur-xl transition-colors hover:bg-muted/40">
-                      <a href="mailto:support@deeperlife.nl">Contact Support</a>
-                    </Button>
+                    <div className="w-full rounded-full border border-border/40 bg-card/40 py-2 text-sm text-muted-foreground backdrop-blur-xl">
+                      Email us at <span className="font-bold text-foreground">it-support@deeperlife.nl</span>
+                    </div>
                   </div>
                 </div>
               </div>
