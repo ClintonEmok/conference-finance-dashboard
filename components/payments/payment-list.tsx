@@ -293,7 +293,7 @@ export function PaymentList({
                   <TableCell className="py-4">
                     <div>
                       <p className="text-xs leading-none font-bold text-foreground">
-                        {maskPaymentPayer(payment.payerName)}
+                        {(payment.payerName)}
                       </p>
                       <p className="mt-1 max-w-[120px] truncate text-[10px] leading-none text-muted-foreground/60">
                         {payment.payerAccountNumber || "Account hidden"}
@@ -333,7 +333,7 @@ export function PaymentList({
                   <TableCell className="px-6 py-4 text-right">
                     {(payment.status === "unassigned" ||
                       payment.status === "ambiguous") &&
-                    onAssign ? (
+                      onAssign ? (
                       <Button
                         variant="outline"
                         size="sm"

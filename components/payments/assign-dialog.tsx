@@ -128,7 +128,7 @@ export function AssignDialog({
           <div className="grid gap-1 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Payer:</span>
-              <span>{maskPaymentPayer(payment.payerName)}</span>
+              <span>{(payment.payerName)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Amount:</span>

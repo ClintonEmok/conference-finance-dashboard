@@ -70,12 +70,6 @@ type EventData = {
   }
 }
 
-type Order = {
-  id: string
-  buyerName: string
-  amountDueMinor: number | null
-}
-
 function formatDate(epochMs: number) {
   return new Date(epochMs).toLocaleDateString("en-US", {
     year: "numeric",
@@ -125,7 +119,7 @@ export function EventTikkieSection({
     useState<string>(events[0]?.eventId ?? "")
   const selectedEventId = propSelectedEventId ?? internalSelectedEventId
   const setSelectedEventId = propSelectedEventId
-    ? () => {}
+    ? () => { }
     : setInternalSelectedEventId
   const [eventData, setEventData] = useState<EventData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -141,16 +135,6 @@ export function EventTikkieSection({
   const [isCreatingLink, setIsCreatingLink] = useState(false)
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null)
   const [failedCopyLinkId, setFailedCopyLinkId] = useState<string | null>(null)
-
-  // Assign modal state
-  const [assigningPaymentId, setAssigningPaymentId] = useState<string | null>(
-    null
-  )
-  const [assignSearch, setAssignSearch] = useState("")
-  const [assignOrders, setAssignOrders] = useState<Order[]>([])
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
-  const [isAssigning, setIsAssigning] = useState(false)
-  const [isSearching, setIsSearching] = useState(false)
 
   useEffect(() => {
     if (events.length === 0) {
@@ -193,44 +177,6 @@ export function EventTikkieSection({
   useEffect(() => {
     void fetchData(selectedEventId)
   }, [selectedEventId, fetchData])
-
-  // Debounced order search for assign modal
-  useEffect(() => {
-    if (!assigningPaymentId) {
-      setAssignSearch("")
-      setAssignOrders([])
-      setSelectedOrder(null)
-      return
-    }
-    setAssignSearch("")
-    setAssignOrders([])
-    setSelectedOrder(null)
-  }, [assigningPaymentId])
-
-  useEffect(() => {
-    if (!assignSearch.trim()) {
-      setAssignOrders([])
-      return
-    }
-    const timer = setTimeout(async () => {
-      setIsSearching(true)
-      try {
-        const params = new URLSearchParams()
-        params.set("q", assignSearch.trim())
-        params.set("limit", "10")
-        const res = await fetch(`/api/orders/search?${params.toString()}`)
-        if (res.ok) {
-          const data = await res.json()
-          setAssignOrders(data.orders ?? [])
-        }
-      } catch {
-        // silently fail
-      } finally {
-        setIsSearching(false)
-      }
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [assignSearch])
 
   function closeCreateModal() {
     setIsCreateModalOpen(false)
@@ -344,49 +290,6 @@ export function EventTikkieSection({
     }
   }
 
-  async function handleAssign(paymentId: string) {
-    if (!selectedOrder) return
-    setIsAssigning(true)
-    setActionError(null)
-    try {
-      const res = await fetch("/api/dashboard/tikkie-event-links", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentId, orderId: selectedOrder.id }),
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        throw new Error(body?.error?.message ?? "Failed to assign payment")
-      }
-      setAssigningPaymentId(null)
-      await fetchData(selectedEventId)
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to assign")
-    } finally {
-      setIsAssigning(false)
-    }
-  }
-
-  async function handleAutoMatch() {
-    setActionError(null)
-    try {
-      const res = await fetch("/api/dashboard/tikkie-event-links/auto-match", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId: selectedEventId }),
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        throw new Error(body?.error?.message ?? "Failed to auto-match")
-      }
-      await fetchData(selectedEventId)
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "Failed to auto-match"
-      )
-    }
-  }
-
   const links = eventData?.links ?? []
   const hasLink = links.length > 0
   const quota = eventData?.quota
@@ -409,10 +312,10 @@ export function EventTikkieSection({
           </button>
           <div>
             <p className="text-xs font-semibold tracking-[0.22em] text-muted-foreground uppercase">
-              Event Tikkie payments
+              Tikkie context
             </p>
             <h3 className="text-lg font-semibold text-foreground">
-              Track payments per event
+              Track link status and payment totals
             </h3>
           </div>
         </div>
@@ -498,16 +401,6 @@ export function EventTikkieSection({
                     {formatMinorOrNA(eventData.stats.totalAmountMinor)}
                   </strong>
                 </span>
-                {!readOnly && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleAutoMatch}
-                    className="ml-auto"
-                  >
-                    Auto-match
-                  </Button>
-                )}
               </div>
 
               <div className="space-y-3">
@@ -637,7 +530,7 @@ export function EventTikkieSection({
                                 {linkPayments.map((p) => (
                                   <TableRow key={p._id}>
                                     <TableCell className="font-medium">
-                                      {maskPaymentPayer(p.payerName)}
+                                      {(p.payerName)}
                                     </TableCell>
                                     <TableCell>
                                       {formatMinorOrNA(p.amountMinor)}
@@ -648,20 +541,7 @@ export function EventTikkieSection({
                                     <TableCell>
                                       <MatchBadge status={p.matchStatus} />
                                     </TableCell>
-                                    <TableCell className="text-right">
-                                      {!readOnly &&
-                                        p.matchStatus === "unmatched" && (
-                                          <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() =>
-                                              setAssigningPaymentId(p._id)
-                                            }
-                                          >
-                                            Assign
-                                          </Button>
-                                        )}
-                                    </TableCell>
+                                    <TableCell className="text-right"></TableCell>
                                   </TableRow>
                                 ))}
                               </TableBody>
@@ -696,11 +576,10 @@ export function EventTikkieSection({
 
           {quota && (
             <div
-              className={`rounded-md border px-3 py-2 text-sm ${
-                isQuotaExceeded
+              className={`rounded-md border px-3 py-2 text-sm ${isQuotaExceeded
                   ? "border-amber-300 bg-amber-50 text-amber-900"
                   : "border-border bg-muted/40 text-muted-foreground"
-              }`}
+                }`}
             >
               <p>
                 Monthly Tikkie quota: <strong>{quota.used}</strong>/
@@ -794,89 +673,6 @@ export function EventTikkieSection({
                 : isQuotaExceeded
                   ? "Quota reached"
                   : "Create link"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Assign payment modal */}
-      <Dialog
-        open={!!assigningPaymentId}
-        onOpenChange={(open) => {
-          if (!open) setAssigningPaymentId(null)
-        }}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Assign Payment to Order</DialogTitle>
-            <DialogDescription>
-              Search for an order to assign this unmatched Tikkie payment.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium">
-              Search for Order
-            </label>
-            <Input
-              type="text"
-              placeholder="Search by buyer name or order ID..."
-              value={assignSearch}
-              onChange={(e) => setAssignSearch(e.target.value)}
-            />
-          </div>
-
-          <div className="max-h-48 overflow-y-auto rounded-md border">
-            {isSearching ? (
-              <div className="p-4 text-center text-sm text-muted-foreground">
-                Searching...
-              </div>
-            ) : assignOrders.length === 0 && assignSearch ? (
-              <div className="p-4 text-center text-sm text-muted-foreground">
-                No orders found
-              </div>
-            ) : assignOrders.length === 0 ? (
-              <div className="p-4 text-center text-sm text-muted-foreground">
-                Type to search for orders
-              </div>
-            ) : (
-              assignOrders.map((order) => (
-                <div
-                  key={order.id}
-                  className={`cursor-pointer border-b p-3 last:border-b-0 ${
-                    selectedOrder?.id === order.id
-                      ? "bg-primary/10"
-                      : "hover:bg-muted/50"
-                  }`}
-                  onClick={() => setSelectedOrder(order)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-mono text-xs">{order.id}</div>
-                      <div className="text-sm">{order.buyerName}</div>
-                    </div>
-                    <div className="text-sm font-medium">
-                      {formatMinorOrNA(order.amountDueMinor)}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setAssigningPaymentId(null)}
-              disabled={isAssigning}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => handleAssign(assigningPaymentId!)}
-              disabled={!selectedOrder || isAssigning}
-            >
-              {isAssigning ? "Assigning..." : "Assign Payment"}
             </Button>
           </DialogFooter>
         </DialogContent>

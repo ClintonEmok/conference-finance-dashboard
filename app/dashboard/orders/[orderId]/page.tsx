@@ -261,8 +261,8 @@ export default function OrderDetailPage({ params }: PageProps) {
       <div className="space-y-6">
         <Skeleton className="h-32 w-full rounded-2xl" />
         <div className="grid gap-6 lg:grid-cols-2">
-           <Skeleton className="h-96 rounded-2xl" />
-           <Skeleton className="h-96 rounded-2xl" />
+          <Skeleton className="h-96 rounded-2xl" />
+          <Skeleton className="h-96 rounded-2xl" />
         </div>
       </div>
     )
@@ -309,7 +309,7 @@ export default function OrderDetailPage({ params }: PageProps) {
                     Placed on {formatDateTime(orderPayload.order.orderedAt)}
                   </CardDescription>
                 </div>
-                
+
                 {canRemoveLocally && (
                   <div className="flex items-center gap-4 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
                     <div className="space-y-1">
@@ -349,7 +349,7 @@ export default function OrderDetailPage({ params }: PageProps) {
                   </article>
                 ))}
               </div>
-              
+
               <div className="mt-6 flex items-center gap-3 rounded-xl bg-primary/5 p-4 border border-primary/10">
                 <Users className="size-4 text-primary" />
                 <p className="text-xs font-medium text-muted-foreground">
@@ -413,10 +413,10 @@ export default function OrderDetailPage({ params }: PageProps) {
                   <CardTitle className="text-lg font-bold">Assigned Payments</CardTitle>
                   <CardDescription>Matched to this order ID</CardDescription>
                 </div>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setIsAssignSheetOpen(true)} 
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsAssignSheetOpen(true)}
                   className="rounded-lg border-white/20 h-8 text-[11px] font-bold uppercase transition-all hover:bg-white/10"
                 >
                   <Plus className="mr-2 size-3" /> Assign
@@ -438,7 +438,7 @@ export default function OrderDetailPage({ params }: PageProps) {
                         <div className="flex items-start justify-between">
                           <div className="space-y-1 max-w-[60%]">
                             <p className="text-sm font-bold tracking-tight truncate">
-                              {maskPaymentPayer(payment.payerName)}
+                              {(payment.payerName)}
                             </p>
                             <div className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground/60">
                               <span className="truncate">{paymentSourceLabel(payment.source)}</span>
