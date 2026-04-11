@@ -201,11 +201,10 @@ export default function FinancialPage() {
           ].map((card) => (
             <article
               key={card.label}
-              className={`group overflow-hidden rounded-2xl border transition-all hover:scale-[1.02] ${
-                card.isWarning
+              className={`group overflow-hidden rounded-2xl border transition-all hover:scale-[1.02] ${card.isWarning
                   ? "border-orange-500/20 bg-orange-500/5 shadow-[0_8px_30px_rgb(249,115,22,0.08)]"
                   : "border-[rgba(113,84,255,0.3)] bg-[linear-gradient(145deg,rgba(113,84,255,0.05),rgba(113,84,255,0.02))] shadow-sm"
-              } p-6`}
+                } p-6`}
             >
               <div className="flex items-center justify-between">
                 <p
@@ -237,7 +236,6 @@ export default function FinancialPage() {
         </article>
       )}
 
-      <EventTikkieSection events={events} readOnly />
 
       <article className="rounded-3xl border border-border/50 bg-card/40 p-8 shadow-sm backdrop-blur-xl">
         <div className="mb-8">

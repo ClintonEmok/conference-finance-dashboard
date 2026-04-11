@@ -821,10 +821,10 @@ export declare const api: {
       "public",
       { eventId?: Id<"events"> | string; limit?: number; search: string },
       Array<{
+        amountDueMinor: number | null;
         buyerName: string | null;
         id: Id<"orders">;
         providerOrderId: string | null;
-        totalAmountMinor: number | null;
       }>
     >;
     updateOrderStatus: FunctionReference<

@@ -27,7 +27,9 @@ import type { Id } from "@/convex/_generated/dataModel"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
-import { CreditCard, Users, Receipt, AlertCircle, Trash2, Calendar, ShieldCheck, Clock, Zap } from "lucide-react"
+import { CreditCard, Users, Receipt, AlertCircle, Trash2, Calendar, ShieldCheck, Clock, Zap, Plus, Loader2, Link2Off } from "lucide-react"
+import { AssignPaymentSheet } from "./assign-payment-sheet"
+import { useUnassignPayment } from "@/lib/convex/hooks/payments"
 
 type PaymentStatus =
   | "auto_matched"
@@ -119,6 +121,21 @@ export default function OrderDetailPage({ params }: PageProps) {
   const searchParams = useSearchParams()
   const [isRemoving, setIsRemoving] = useState(false)
   const [removeErrorMessage, setRemoveErrorMessage] = useState<string | null>(null)
+  const [isAssignSheetOpen, setIsAssignSheetOpen] = useState(false)
+  const [isUnassigningId, setIsUnassigningId] = useState<string | null>(null)
+  const unassignPayment = useUnassignPayment()
+
+  const handleUnassign = async (paymentId: string) => {
+    if (!window.confirm("Are you sure you want to unlink this payment?")) return
+    setIsUnassigningId(paymentId)
+    try {
+      await unassignPayment({ paymentId: paymentId as Id<"payments"> })
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setIsUnassigningId(null)
+    }
+  }
 
   const source = searchParams.get("source")
   const attendeeId = searchParams.get("attendeeId")
@@ -391,9 +408,19 @@ export default function OrderDetailPage({ params }: PageProps) {
 
             {/* Payments Section */}
             <Card className="lg:col-span-2 border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
-              <CardHeader>
-                <CardTitle className="text-lg font-bold">Assigned Payments</CardTitle>
-                <CardDescription>Matched to this order ID</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+                <div className="space-y-1">
+                  <CardTitle className="text-lg font-bold">Assigned Payments</CardTitle>
+                  <CardDescription>Matched to this order ID</CardDescription>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setIsAssignSheetOpen(true)} 
+                  className="rounded-lg border-white/20 h-8 text-[11px] font-bold uppercase transition-all hover:bg-white/10"
+                >
+                  <Plus className="mr-2 size-3" /> Assign
+                </Button>
               </CardHeader>
               <CardContent>
                 {payments.length === 0 ? (
@@ -409,14 +436,14 @@ export default function OrderDetailPage({ params }: PageProps) {
                         className="group relative rounded-2xl border border-white/60 bg-white/60 p-4 transition-all hover:bg-white/80 dark:border-white/5 dark:bg-white/5 dark:hover:bg-white/10"
                       >
                         <div className="flex items-start justify-between">
-                          <div className="space-y-1">
-                            <p className="text-sm font-bold tracking-tight">
+                          <div className="space-y-1 max-w-[60%]">
+                            <p className="text-sm font-bold tracking-tight truncate">
                               {maskPaymentPayer(payment.payerName)}
                             </p>
                             <div className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground/60">
-                              <span>{paymentSourceLabel(payment.source)}</span>
+                              <span className="truncate">{paymentSourceLabel(payment.source)}</span>
                               <span>•</span>
-                              <span>{formatDateTime(payment.paidAt)}</span>
+                              <span className="shrink-0">{formatDateTime(payment.paidAt)}</span>
                             </div>
                           </div>
                           <div className="text-right space-y-1">
@@ -430,6 +457,22 @@ export default function OrderDetailPage({ params }: PageProps) {
                               {paymentStatusLabel(payment.status)}
                             </Badge>
                           </div>
+                        </div>
+                        <div className="absolute -right-2 -top-2 opacity-0 transition-opacity group-hover:opacity-100">
+                          <Button
+                            variant="destructive"
+                            size="icon"
+                            className="size-7 rounded-full shadow-md"
+                            onClick={() => handleUnassign(payment.id)}
+                            disabled={isUnassigningId === payment.id}
+                            title="Unlink Payment"
+                          >
+                            {isUnassigningId === payment.id ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <Link2Off className="size-3.5" />
+                            )}
+                          </Button>
                         </div>
                         {(payment.reference || payment.notes) && (
                           <p className="mt-3 text-[10px] text-muted-foreground/50 border-t border-white/10 pt-2 italic">
@@ -446,6 +489,16 @@ export default function OrderDetailPage({ params }: PageProps) {
             </Card>
           </div>
         </>
+      )}
+
+      {hasOrderId && metrics && (
+        <AssignPaymentSheet
+          open={isAssignSheetOpen}
+          onOpenChange={setIsAssignSheetOpen}
+          orderId={normalizedOrderId}
+          outstandingAmountMinor={metrics.outstandingAmountMinor}
+          bookerName={orderPayload?.attendees?.[0]?.name}
+        />
       )}
     </div>
   )

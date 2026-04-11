@@ -32,7 +32,7 @@ type Payment = {
 type Order = {
   id: string
   buyerName: string | null
-  totalAmountMinor: number | null
+  amountDueMinor: number | null
 }
 
 type AssignDialogProps = {
@@ -53,6 +53,10 @@ function formatDate(isoString: string) {
 function getBuyerLabel(buyerName: string | null) {
   const value = buyerName?.trim()
   return value && value.length > 0 ? value : "Unknown buyer"
+}
+
+function isFiniteMinorValue(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value)
 }
 
 export function AssignDialog({
@@ -129,7 +133,9 @@ export function AssignDialog({
             <div className="flex justify-between">
               <span className="text-muted-foreground">Amount:</span>
               <span className="font-medium">
-                {formatMoney(payment.amountMinor)}
+                {isFiniteMinorValue(payment.amountMinor)
+                  ? formatMoney(payment.amountMinor)
+                  : "N/A"}
               </span>
             </div>
             <div className="flex justify-between">
@@ -174,15 +180,16 @@ export function AssignDialog({
               </div>
             ) : (
               orders.map((order) => (
+
                 <div
                   key={order.id}
-                  className={`cursor-pointer border-b p-3 last:border-b-0 ${
-                    selectedOrder?.id === order.id
-                      ? "bg-primary/10"
-                      : "hover:bg-muted/50"
-                  }`}
+                  className={`cursor-pointer border-b p-3 last:border-b-0 ${selectedOrder?.id === order.id
+                    ? "bg-primary/10"
+                    : "hover:bg-muted/50"
+                    }`}
                   onClick={() => setSelectedOrder(order)}
                 >
+
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="font-mono text-xs">
@@ -194,8 +201,8 @@ export function AssignDialog({
                     </div>
                     <div className="text-right">
                       <div className="text-sm font-medium">
-                        {typeof order.totalAmountMinor === "number"
-                          ? formatMoney(order.totalAmountMinor)
+                        {isFiniteMinorValue(order.amountDueMinor)
+                          ? formatMoney(order.amountDueMinor)
                           : "N/A"}
                       </div>
                     </div>
@@ -220,10 +227,10 @@ export function AssignDialog({
                 <span>{getBuyerLabel(selectedOrder.buyerName)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Total:</span>
+                <span className="text-muted-foreground">Amount due:</span>
                 <span className="font-medium">
-                  {typeof selectedOrder.totalAmountMinor === "number"
-                    ? formatMoney(selectedOrder.totalAmountMinor)
+                  {isFiniteMinorValue(selectedOrder.amountDueMinor)
+                    ? formatMoney(selectedOrder.amountDueMinor)
                     : "N/A"}
                 </span>
               </div>

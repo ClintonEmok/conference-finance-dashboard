@@ -20,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { formatMoney } from "@/lib/format"
 import { maskPaymentPayer } from "@/lib/utils/privacy"
 
 type Event = {
@@ -72,10 +73,8 @@ type EventData = {
 type Order = {
   id: string
   buyerName: string
-  totalAmountMinor: number
+  amountDueMinor: number | null
 }
-
-import { formatMoney } from "@/lib/format"
 
 function formatDate(epochMs: number) {
   return new Date(epochMs).toLocaleDateString("en-US", {
@@ -83,6 +82,14 @@ function formatDate(epochMs: number) {
     month: "short",
     day: "numeric",
   })
+}
+
+function isFiniteMinorValue(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value)
+}
+
+function formatMinorOrNA(value: unknown) {
+  return isFiniteMinorValue(value) ? formatMoney(value) : "N/A"
 }
 
 function toDateInputValue(date: Date) {
@@ -488,7 +495,7 @@ export function EventTikkieSection({
                 <span>
                   Total:{" "}
                   <strong>
-                    {formatMoney(eventData.stats.totalAmountMinor)}
+                    {formatMinorOrNA(eventData.stats.totalAmountMinor)}
                   </strong>
                 </span>
                 {!readOnly && (
@@ -513,7 +520,11 @@ export function EventTikkieSection({
                   ).length
                   const unmatchedCount = linkPayments.length - matchedCount
                   const paidTotalMinor = linkPayments.reduce(
-                    (sum, payment) => sum + payment.amountMinor,
+                    (sum, payment) =>
+                      sum +
+                      (isFiniteMinorValue(payment.amountMinor)
+                        ? payment.amountMinor
+                        : 0),
                     0
                   )
 
@@ -531,7 +542,7 @@ export function EventTikkieSection({
                           <p className="text-xs text-muted-foreground">
                             Created{" "}
                             {formatDate(link._creationTime ?? Date.now())} ·{" "}
-                            {formatMoney(link.amountMinor)} requested
+                            {formatMinorOrNA(link.amountMinor)} requested
                           </p>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -579,7 +590,7 @@ export function EventTikkieSection({
                           <p>
                             Requested amount:{" "}
                             <strong className="text-foreground">
-                              {formatMoney(link.amountMinor)}
+                              {formatMinorOrNA(link.amountMinor)}
                             </strong>
                           </p>
                           <p>
@@ -593,7 +604,7 @@ export function EventTikkieSection({
                           <p>
                             Received total:{" "}
                             <strong className="text-foreground">
-                              {formatMoney(paidTotalMinor)}
+                              {formatMinorOrNA(paidTotalMinor)}
                             </strong>
                           </p>
                           <p className="md:col-span-2">
@@ -629,7 +640,7 @@ export function EventTikkieSection({
                                       {maskPaymentPayer(p.payerName)}
                                     </TableCell>
                                     <TableCell>
-                                      {formatMoney(p.amountMinor)}
+                                      {formatMinorOrNA(p.amountMinor)}
                                     </TableCell>
                                     <TableCell>
                                       {formatDate(p.paidAt)}
@@ -845,7 +856,7 @@ export function EventTikkieSection({
                       <div className="text-sm">{order.buyerName}</div>
                     </div>
                     <div className="text-sm font-medium">
-                      {formatMoney(order.totalAmountMinor)}
+                      {formatMinorOrNA(order.amountDueMinor)}
                     </div>
                   </div>
                 </div>

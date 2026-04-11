@@ -938,6 +938,11 @@ export const searchOrders = query({
             o.providerOrderId.toLowerCase().includes(search)))
     )
 
+    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      filtered
+    )
+
     return filtered
       .sort(sortOrdersByNewest)
       .slice(0, limit)
@@ -945,7 +950,10 @@ export const searchOrders = query({
         id: order._id,
         providerOrderId: order.providerOrderId ?? null,
         buyerName: order.bookerName ?? null,
-        totalAmountMinor: order.totalAmountMinor ?? null,
+        amountDueMinor:
+          amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
+          order.totalAmountMinor ??
+          null,
       }))
   },
 })
