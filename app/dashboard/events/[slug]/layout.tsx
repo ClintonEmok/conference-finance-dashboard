@@ -15,17 +15,6 @@ import {
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar"
 import { useEventBySlug } from "@/lib/convex/hooks/events"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
