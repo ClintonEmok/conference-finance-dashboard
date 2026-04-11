@@ -711,6 +711,7 @@ export const getByBookingRef = query({
       totalAmountMinor: v.optional(v.number()),
       ticketSelections: v.array(
         v.object({
+          id: v.string(),
           ticketTypeId: v.string(),
           ticketTypeName: v.string(),
           quantity: v.number(),
@@ -759,6 +760,7 @@ export const getByBookingRef = query({
     const ticketSelections = ticketSelectionRows.map((ts) => {
       const ticketType = ticketTypeById.get(String(ts.ticketTypeId))
       return {
+        id: String(ts._id),
         ticketTypeId: String(ts.ticketTypeId),
         ticketTypeName: ticketType?.label ?? "Unknown Ticket",
         quantity: ts.quantity,

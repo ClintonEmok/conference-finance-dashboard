@@ -821,10 +821,10 @@ export declare const api: {
       "public",
       { eventId?: Id<"events"> | string; limit?: number; search: string },
       Array<{
+        amountDueMinor: number | null;
         buyerName: string | null;
         id: Id<"orders">;
         providerOrderId: string | null;
-        totalAmountMinor: number | null;
       }>
     >;
     updateOrderStatus: FunctionReference<
@@ -998,6 +998,38 @@ export declare const api: {
       any
     >;
   };
+  publicTracking: {
+    getByBookingRef: FunctionReference<
+      "query",
+      "public",
+      { bookingRef: string },
+      null | {
+        bookingRef: string;
+        event: { slug: string; startsAt: number; title: string };
+        order: {
+          amountDueMinor: number | null;
+          buyerEmail: string | null;
+          buyerName: string | null;
+          buyerPhone: string | null;
+          orderedAt: number | null;
+          status: string | null;
+          submittedAt: number | null;
+          totalAmountMinor: number | null;
+        };
+        payment: {
+          paymentCount: number;
+          paymentStatus: "unpaid" | "partial" | "paid" | "overpaid";
+          progressPercent: number;
+          remainingMinor: number;
+          totalDueMinor: number;
+          totalPaidMinor: number;
+        };
+        tikkieAmountMinor: number | null;
+        tikkieDescription: string | null;
+        tikkieUrl: string | null;
+      }
+    >;
+  };
   signupCatalog: {
     getPublicSignupCatalog: FunctionReference<
       "query",
@@ -1068,6 +1100,7 @@ export declare const api: {
         submissionId: Id<"orders">;
         submittedAt?: number;
         ticketSelections: Array<{
+          id: string;
           pricePerTicketMinor: number;
           quantity: number;
           ticketTypeId: string;

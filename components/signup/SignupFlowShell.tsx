@@ -24,10 +24,7 @@ import {
 import { TicketStep } from "@/components/signup/steps/TicketStep"
 import { RoomAssignmentStep } from "@/components/signup/steps/RoomAssignmentStep"
 import { BuyerDetailsStep } from "@/components/signup/steps/BuyerDetailsStep"
-import {
-  AttendeeDetailsStep,
-  type AttendeeValidationSummary,
-} from "@/components/signup/steps/AttendeeDetailsStep"
+import { AttendeeDetailsStep } from "@/components/signup/steps/AttendeeDetailsStep"
 import { ReviewSubmitStep } from "@/components/signup/steps/ReviewSubmitStep"
 import {
   submitSignupDraft,
@@ -38,6 +35,12 @@ import { SignupNavigation } from "@/components/signup/SignupNavigation"
 import { SignupSummary } from "@/components/signup/SignupSummary"
 import { SignupHeader } from "@/components/signup/SignupHeader"
 import { shouldSkipRoomsStep } from "@/components/signup/flow-rules"
+import {
+  validateSignupAttendees,
+  validateSignupBooker,
+  type SignupAttendeeValidationSummary,
+  type SignupBookerValidationSummary,
+} from "@/components/signup/validation"
 import { Separator } from "@/components/ui/separator"
 import type { SignupSubmissionResult } from "@/lib/types/signup"
 
@@ -54,8 +57,10 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   )
   const event = catalog.find((entry) => entry.slug === slug)
   const [draft, setDraft] = useState<SignupDraft | null>(null)
+  const [buyerValidation, setBuyerValidation] =
+    useState<SignupBookerValidationSummary | null>(null)
   const [attendeeValidation, setAttendeeValidation] =
-    useState<AttendeeValidationSummary | null>(null)
+    useState<SignupAttendeeValidationSummary | null>(null)
   const [submitResult, setSubmitResult] =
     useState<SignupSubmissionResult | null>(null)
   const [submitError, setSubmitError] = useState<{
@@ -115,10 +120,21 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     return summarizeUnfilledBeds(roomBoard)
   }, [roomBoard])
 
-  const attendeeValidationSnapshot = useMemo(() => {
-    if (!draft) return { isValid: false, byAttendee: {} }
-    return validateAttendeeDetails(draft.attendees)
-  }, [draft?.attendees])
+  const buyerValidationSnapshot = useMemo(
+    () =>
+      draft
+        ? validateSignupBooker(draft.booker)
+        : { isValid: false, errors: {} },
+    [draft?.booker]
+  )
+
+  const attendeeValidationSnapshot = useMemo(
+    () =>
+      draft
+        ? validateSignupAttendees(draft.attendees)
+        : { isValid: false, byAttendee: {} },
+    [draft?.attendees]
+  )
 
   const skipRooms = useMemo(() => {
     if (!event || !draft) return false
@@ -135,13 +151,9 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
         review: false,
       }
     }
-    const buyerComplete =
-      draft.booker.name.trim().length > 0 &&
-      draft.booker.email.trim().length > 0 &&
-      draft.booker.phone.trim().length > 0
     return {
       tickets: totalSelectedTickets > 0,
-      buyer: buyerComplete,
+      buyer: buyerValidationSnapshot.isValid,
       rooms:
         skipRooms ||
         !event.accommodation.eligible ||
@@ -154,10 +166,8 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   }, [
     draft?.acknowledgeRandomFill,
     draft?.attendees?.length,
-    draft?.booker?.name,
-    draft?.booker?.email,
-    draft?.booker?.phone,
     event?.accommodation?.eligible,
+    buyerValidationSnapshot.isValid,
     attendeeValidationSnapshot.isValid,
     roomSummary.unfilledBeds,
     totalSelectedTickets,
@@ -212,26 +222,6 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   const activeEvent = event
   const activeDraft = draft
 
-  function validateAttendeeDetails(attendees: SignupDraft["attendees"]) {
-    const byAttendee: Record<string, string[]> = {}
-
-    for (const attendee of attendees) {
-      const missingFields: string[] = []
-
-      if (!attendee.name.trim()) missingFields.push("name")
-      if (!attendee.gender) missingFields.push("gender")
-
-      byAttendee[attendee.attendeeKey] = missingFields
-    }
-
-    return {
-      isValid: Object.values(byAttendee).every(
-        (missing) => missing.length === 0
-      ),
-      byAttendee,
-    }
-  }
-
   function canAccessStep(step: SignupStep) {
     const targetIndex = SIGNUP_STEP_ORDER.indexOf(step)
     if (targetIndex <= currentStepIndex) {
@@ -255,7 +245,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
     const targetIndex = SIGNUP_STEP_ORDER.indexOf(step)
     if (activeDraft.step === "attendees" && targetIndex > currentStepIndex) {
-      const validation = validateAttendeeDetails(activeDraft.attendees)
+      const validation = validateSignupAttendees(activeDraft.attendees)
       setAttendeeValidation(validation)
       if (!validation.isValid) {
         return
@@ -267,17 +257,15 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
   function moveNext() {
     if (activeDraft.step === "buyer") {
-      const buyerComplete =
-        activeDraft.booker.name.trim().length > 0 &&
-        activeDraft.booker.email.trim().length > 0 &&
-        activeDraft.booker.phone.trim().length > 0
-      if (!buyerComplete) {
+      const validation = validateSignupBooker(activeDraft.booker)
+      setBuyerValidation(validation)
+      if (!validation.isValid) {
         return
       }
     }
 
     if (activeDraft.step === "attendees") {
-      const validation = validateAttendeeDetails(activeDraft.attendees)
+      const validation = validateSignupAttendees(activeDraft.attendees)
       setAttendeeValidation(validation)
       if (!validation.isValid) {
         return
@@ -403,6 +391,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     field: keyof SignupDraft["booker"],
     value: string
   ) {
+    setBuyerValidation(null)
     setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
@@ -420,8 +409,20 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     })
   }
 
+  function handleBookerFieldBlur() {
+    setBuyerValidation(validateSignupBooker(activeDraft.booker))
+  }
+
   async function handleSubmitFromReview() {
-    const validation = validateAttendeeDetails(activeDraft.attendees)
+    const buyerValidationResult = validateSignupBooker(activeDraft.booker)
+    setBuyerValidation(buyerValidationResult)
+
+    if (!buyerValidationResult.isValid) {
+      setDraft((current) => (current ? { ...current, step: "buyer" } : current))
+      return
+    }
+
+    const validation = validateSignupAttendees(activeDraft.attendees)
     setAttendeeValidation(validation)
 
     if (!validation.isValid) {
@@ -537,6 +538,8 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                     <BuyerDetailsStep
                       booker={activeDraft.booker}
                       onBookerChange={handleBookerChange}
+                      errors={buyerValidation?.errors}
+                      onFieldBlur={handleBookerFieldBlur}
                     />
                     {!completedByStep.buyer && (
                       <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">

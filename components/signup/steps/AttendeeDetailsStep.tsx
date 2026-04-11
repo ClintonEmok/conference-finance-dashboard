@@ -5,15 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import type { AttendeeDraft } from "@/components/signup/state"
-
-export type AttendeeValidationSummary = {
-  isValid: boolean
-  byAttendee: Record<string, string[]>
-}
+import type { SignupAttendeeValidationSummary } from "@/components/signup/validation"
 
 type AttendeeDetailsStepProps = {
   attendees: AttendeeDraft[]
-  validationSummary: AttendeeValidationSummary | null
+  validationSummary: SignupAttendeeValidationSummary | null
   onAttendeeChange: (
     attendeeKey: string,
     field: keyof AttendeeDraft,
@@ -29,7 +25,7 @@ function fieldLabel(field: string) {
 }
 
 function hasFieldError(
-  validationSummary: AttendeeValidationSummary | null,
+  validationSummary: SignupAttendeeValidationSummary | null,
   attendeeKey: string,
   field: string
 ) {
@@ -55,7 +51,7 @@ export function AttendeeDetailsStep({
           <p className="font-medium">
             Complete required attendee fields before review.
           </p>
-          <ul className="mt-2 list-disc space-y-1 pl-5">
+          <ul className="mt-5 list-disc space-y-1 pl-5">
             {attendees.map((attendee, index) => {
               const missingFields =
                 validationSummary?.byAttendee[attendee.attendeeKey] ?? []
@@ -75,7 +71,7 @@ export function AttendeeDetailsStep({
       ) : null}
 
       {attendees.map((attendee, index) => (
-        <Card key={attendee.attendeeKey}>
+        <Card key={attendee.attendeeKey} className="mt-5">
           <CardHeader className="space-y-2">
             <CardTitle className="text-base">Attendee {index + 1}</CardTitle>
             <div className="flex items-center gap-2">

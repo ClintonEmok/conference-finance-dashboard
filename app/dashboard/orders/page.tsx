@@ -235,7 +235,7 @@ export default function OrdersPage() {
                     (payload.rows.filter((r) => r.normalizedStatus === "paid")
                       .length /
                       payload.rows.length) *
-                      100 || 0
+                    100 || 0
                   )}
                   %
                 </p>
@@ -347,7 +347,7 @@ export default function OrdersPage() {
                   Order ID / Date
                 </th>
                 <th className="px-6 py-4 text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase">
-                  Buyer Context
+                  Buyer
                 </th>
                 <th className="px-6 py-4 text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase">
                   Event
@@ -434,15 +434,15 @@ export default function OrdersPage() {
                           <div className="mt-1 text-xs text-muted-foreground">
                             {row.orderedAt
                               ? new Date(row.orderedAt).toLocaleString(
-                                  "en-GB",
-                                  {
-                                    day: "2-digit",
-                                    month: "short",
-                                    year: "numeric",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  }
-                                )
+                                "en-GB",
+                                {
+                                  day: "2-digit",
+                                  month: "short",
+                                  year: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                }
+                              )
                               : "-"}
                           </div>
                         </td>
@@ -475,9 +475,9 @@ export default function OrdersPage() {
                               className={cn(
                                 "h-6 rounded-lg px-2 text-[10px] font-bold tracking-wider uppercase",
                                 row.normalizedStatus === "paid" &&
-                                  "border-none bg-emerald-500/10 text-emerald-600",
+                                "border-none bg-emerald-500/10 text-emerald-600",
                                 row.normalizedStatus === "pending" &&
-                                  "border-none bg-orange-500/10 text-orange-600"
+                                "border-none bg-orange-500/10 text-orange-600"
                               )}
                             >
                               {row.normalizedStatus}

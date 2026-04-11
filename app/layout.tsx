@@ -1,6 +1,7 @@
 import { ClerkProvider } from "@clerk/nextjs"
 import type { Metadata } from "next"
 import { Geist_Mono, Outfit } from "next/font/google"
+import "react-phone-number-input/style.css"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"

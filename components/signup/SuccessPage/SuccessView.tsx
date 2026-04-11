@@ -1,17 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import {
-  Calendar,
-  MapPin,
-  Ticket,
-  Users,
-  Bed,
-  PartyPopper,
-} from "lucide-react"
+import Link from "next/link"
+import { Calendar, MapPin, Ticket, Users, Bed, PartyPopper } from "lucide-react"
 import { TikkieSection } from "./TikkieSection"
 import { SignupHeader } from "../SignupHeader"
 import { SummaryCard } from "./SummaryCard"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -122,7 +117,13 @@ function Confetti() {
           style={{
             left: `${Math.random() * 100}%`,
             top: `-20px`,
-            backgroundColor: ["#10b981", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6"][Math.floor(Math.random() * 5)],
+            backgroundColor: [
+              "#10b981",
+              "#3b82f6",
+              "#f59e0b",
+              "#ec4899",
+              "#8b5cf6",
+            ][Math.floor(Math.random() * 5)],
             animationDelay: `${Math.random() * 3}s`,
             transform: `rotate(${Math.random() * 360}deg)`,
           }}
@@ -147,7 +148,10 @@ export function SuccessView({
 
   const totalAttendees = submission.attendees.length
   const totalRooms = submission.roomAssignments.length
-  const totalTickets = submission.ticketSelections.reduce((sum, ts) => sum + ts.quantity, 0)
+  const totalTickets = submission.ticketSelections.reduce(
+    (sum, ts) => sum + ts.quantity,
+    0
+  )
   const formattedDate = new Intl.DateTimeFormat("en-GB", {
     dateStyle: "full",
   }).format(new Date(event.startsAt))
@@ -160,12 +164,10 @@ export function SuccessView({
 
       <main className="container mx-auto max-w-7xl px-6 py-8 md:py-12">
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-
           {/* Main Content: Left Column (lg: 8/12) */}
           <div className="space-y-12 lg:col-span-8">
-
             {/* Hero Section */}
-            <section className="flex flex-col items-center text-center space-y-6 md:items-start md:text-left">
+            <section className="flex flex-col items-center space-y-6 text-center md:items-start md:text-left">
               <div className="relative inline-block">
                 <div className="absolute inset-0 -m-4 animate-pulse rounded-full bg-emerald-500/10 blur-2xl" />
                 <AnimatedCheck />
@@ -174,9 +176,16 @@ export function SuccessView({
                 <h1 className="text-4xl font-black tracking-tight text-foreground sm:text-6xl lg:text-7xl">
                   You&apos;re confirmed!
                 </h1>
-                <p className="mx-auto max-w-2xl text-lg text-muted-foreground font-medium md:mx-0">
-                  Great news! Your booking for <span className="text-foreground font-bold">{event.name}</span> is successfully registered.
-                  We&apos;ve sent a confirmation to <span className="text-foreground font-bold">{submission.bookerEmail}</span>.
+                <p className="mx-auto max-w-2xl text-lg font-medium text-muted-foreground md:mx-0">
+                  Great news! Your booking for{" "}
+                  <span className="font-bold text-foreground">
+                    {event.name}
+                  </span>{" "}
+                  is successfully registered. We&apos;ve sent a confirmation to{" "}
+                  <span className="font-bold text-foreground">
+                    {submission.bookerEmail}
+                  </span>
+                  .
                 </p>
               </div>
             </section>
@@ -188,7 +197,9 @@ export function SuccessView({
                   <PartyPopper className="h-8 w-8" />
                 </div>
                 <div className="flex-1 space-y-2">
-                  <h2 className="text-2xl font-black tracking-tight text-foreground">{event.name}</h2>
+                  <h2 className="text-2xl font-black tracking-tight text-foreground">
+                    {event.name}
+                  </h2>
                   <div className="flex flex-wrap gap-4 text-sm font-semibold text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4 text-primary" />
@@ -213,9 +224,12 @@ export function SuccessView({
                     <Users className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold tracking-tight">Attendees List</h3>
-                    <p className="text-xs font-black uppercase tracking-widest text-muted-foreground/60">
-                      {totalAttendees} registered {totalAttendees === 1 ? "person" : "people"}
+                    <h3 className="text-xl font-bold tracking-tight">
+                      Attendees List
+                    </h3>
+                    <p className="text-xs font-black tracking-widest text-muted-foreground/60 uppercase">
+                      {totalAttendees} registered{" "}
+                      {totalAttendees === 1 ? "person" : "people"}
                     </p>
                   </div>
                 </div>
@@ -229,12 +243,19 @@ export function SuccessView({
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="space-y-1">
-                        <p className="font-bold text-foreground transition-colors group-hover:text-primary">{attendee.name}</p>
+                        <p className="font-bold text-foreground transition-colors group-hover:text-primary">
+                          {attendee.name}
+                        </p>
                         {attendee.email && (
-                          <p className="text-xs text-muted-foreground truncate max-w-[150px]">{attendee.email}</p>
+                          <p className="max-w-[150px] truncate text-xs text-muted-foreground">
+                            {attendee.email}
+                          </p>
                         )}
                       </div>
-                      <Badge variant="secondary" className="rounded-lg text-[10px] font-black uppercase tracking-widest">
+                      <Badge
+                        variant="secondary"
+                        className="rounded-lg text-[10px] font-black tracking-widest uppercase"
+                      >
                         {attendee.ticketType}
                       </Badge>
                     </div>
@@ -255,20 +276,38 @@ export function SuccessView({
                 totalRooms={totalRooms}
                 totalAmountMinor={submission.totalAmountMinor}
               />
+
+              <Card className="border-none bg-card/40 shadow-xl ring-1 ring-border/50 backdrop-blur-xl">
+                <CardContent className="space-y-4 p-6">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/70 uppercase">
+                      Payment tracker
+                    </p>
+                    <p className="text-sm font-semibold text-foreground">
+                      Check your payment progress later.
+                    </p>
+                  </div>
+                  <Button asChild className="w-full">
+                    <Link href="/track-payment">Open tracker</Link>
+                  </Button>
+                </CardContent>
+              </Card>
             </div>
           </aside>
 
           {/* Full Width Payment Section */}
-          <div className="lg:col-span-12 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-300">
-            <TikkieSection tikkieUrl={tikkieUrl ?? null} eventName={event.name} />
+          <div className="animate-in delay-300 duration-700 fade-in slide-in-from-bottom-4 lg:col-span-12">
+            <TikkieSection
+              tikkieUrl={tikkieUrl ?? null}
+              eventName={event.name}
+            />
           </div>
-
         </div>
       </main>
 
       <footer className="mt-auto border-t border-border/50 bg-card/20 py-12">
-        <div className="container mx-auto max-w-7xl px-6 text-center space-y-6">
-          <div className="flex justify-center opacity-30 grayscale hover:grayscale-0 transition-all duration-500">
+        <div className="container mx-auto max-w-7xl space-y-6 px-6 text-center">
+          <div className="flex justify-center opacity-30 grayscale transition-all duration-500 hover:grayscale-0">
             <Image
               src="/dlbc-logo.png"
               alt="Logo"
@@ -277,7 +316,7 @@ export function SuccessView({
               className="object-contain"
             />
           </div>
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground/40">
+          <p className="text-xs font-black tracking-[0.2em] text-muted-foreground/40 uppercase">
             Powered by DCLM Netherlands &copy; 2026
           </p>
         </div>

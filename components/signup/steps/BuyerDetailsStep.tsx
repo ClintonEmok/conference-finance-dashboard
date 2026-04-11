@@ -1,9 +1,19 @@
 "use client"
 
+import { forwardRef, type ComponentPropsWithoutRef } from "react"
+import PhoneInput from "react-phone-number-input"
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import type { SignupDraft } from "@/components/signup/state"
+
+const PhoneField = forwardRef<
+  HTMLInputElement,
+  ComponentPropsWithoutRef<"input">
+>(function PhoneField(props, ref) {
+  return <Input ref={ref} type="tel" autoComplete="tel" {...props} />
+})
 
 type BuyerDetailsStepProps = {
   booker: SignupDraft["booker"]
@@ -19,7 +29,7 @@ export function BuyerDetailsStep({
   onFieldBlur,
 }: BuyerDetailsStepProps) {
   return (
-    <Card>
+    <Card className="mt-5">
       <CardHeader>
         <CardTitle className="text-base">Your Details</CardTitle>
       </CardHeader>
@@ -59,12 +69,11 @@ export function BuyerDetailsStep({
 
         <div className="space-y-1">
           <Label>Phone Number *</Label>
-          <Input
-            type="tel"
+          <PhoneInput
+            defaultCountry="NL"
+            inputComponent={PhoneField}
             value={booker.phone}
-            onChange={(event) =>
-              onBookerChange("phone", event.currentTarget.value)
-            }
+            onChange={(value) => onBookerChange("phone", value ?? "")}
             onBlur={() => onFieldBlur?.("phone")}
             placeholder="+31 6 12345678"
             aria-invalid={!!errors.phone}

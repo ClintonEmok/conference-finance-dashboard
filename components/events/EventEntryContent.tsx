@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Calendar, ChevronRight, Tag } from "lucide-react"
+import { Calendar, ChevronRight, CreditCard, Tag } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -61,7 +61,8 @@ function signupStatusCopy(reason: string | null) {
     return {
       label: "Limited Status",
       variant: "outline" as const,
-      detail: "Signup is open, but accommodation assignment is currently limited.",
+      detail:
+        "Signup is open, but accommodation assignment is currently limited.",
     }
   }
 
@@ -75,21 +76,23 @@ function signupStatusCopy(reason: string | null) {
 export function EventEntryContent({ event }: EventEntryContentProps) {
   const signupOpen = event.tickets.some((ticket) => ticket.selectable)
   const status = signupStatusCopy(event.accommodation.reason)
-  const dateRange = formatEventDateRange(event.startsAt, event.endsAt, event.timezone)
+  const dateRange = formatEventDateRange(
+    event.startsAt,
+    event.endsAt,
+    event.timezone
+  )
 
   return (
-    <main className="mx-auto w-full max-w-5xl space-y-12 p-6 animate-in fade-in duration-700">
+    <main className="mx-auto w-full max-w-5xl animate-in space-y-12 p-6 duration-700 fade-in">
       {/* Hero Section */}
       <section className="relative overflow-hidden rounded-[2.5rem] bg-card p-1 shadow-2xl transition-all duration-500 hover:shadow-primary/5">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-primary/5 opacity-50" />
-        <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-primary/10 blur-3xl" />
+        <div className="absolute -top-20 -right-20 h-64 w-64 rounded-full bg-primary/10 blur-3xl" />
         <div className="absolute -bottom-20 -left-20 h-64 w-64 rounded-full bg-primary/10 blur-3xl" />
 
         <div className="relative rounded-[calc(2.5rem-4px)] bg-card/60 backdrop-blur-xl">
           <div className="flex flex-col items-center gap-10 p-10 py-16 text-center sm:p-20">
             <div className="space-y-6">
-
-
               <div className="space-y-4">
                 <h1 className="text-4xl font-black tracking-tight text-foreground sm:text-6xl lg:text-7xl">
                   {event.title}
@@ -110,21 +113,34 @@ export function EventEntryContent({ event }: EventEntryContentProps) {
                 className="h-14 rounded-2xl bg-primary px-10 text-lg font-bold shadow-xl shadow-primary/20 transition-all hover:scale-105 hover:bg-primary/95 active:scale-95 disabled:grayscale"
                 disabled={!signupOpen}
               >
-                <Link href={`/signup/${event.slug}`} className="flex items-center gap-2">
+                <Link
+                  href={`/signup/${event.slug}`}
+                  className="flex items-center gap-2"
+                >
                   Start Registration
                   <ChevronRight className="h-5 w-5" />
                 </Link>
               </Button>
 
               <p className="max-w-md text-sm leading-relaxed text-muted-foreground/80">
-                {status.detail} Registration consists of choosing tickets, rooms, and providing attendee details.
+                {status.detail} Registration consists of choosing tickets,
+                rooms, and providing attendee details.
               </p>
+
+              <Button
+                asChild
+                variant="outline"
+                className="h-12 rounded-2xl border-primary/20 bg-primary/5 text-primary hover:bg-primary/10"
+              >
+                <Link href="/track-payment" className="flex items-center gap-2">
+                  Track payments
+                  <CreditCard className="h-4 w-4" />
+                </Link>
+              </Button>
             </div>
           </div>
         </div>
       </section>
-
-
 
       {/* Support Section */}
       <section className="grid gap-6">
@@ -134,11 +150,17 @@ export function EventEntryContent({ event }: EventEntryContentProps) {
               <Tag className="h-10 w-10" />
             </div>
             <div className="space-y-4">
-              <h3 className="text-2xl font-black tracking-tight text-foreground">Need help?</h3>
+              <h3 className="text-2xl font-black tracking-tight text-foreground">
+                Need help?
+              </h3>
               <p className="mx-auto max-w-xs text-sm leading-relaxed text-muted-foreground">
-                If you encounter any issues during the registration process, please contact our support team.
+                If you encounter any issues during the registration process,
+                please contact our support team.
               </p>
-              <Button variant="outline" className="h-12 w-full rounded-2xl border-primary/20 bg-primary/5 text-primary hover:bg-primary/10">
+              <Button
+                variant="outline"
+                className="h-12 w-full rounded-2xl border-primary/20 bg-primary/5 text-primary hover:bg-primary/10"
+              >
                 Contact Support
               </Button>
             </div>
