@@ -507,47 +507,6 @@ export function EventTikkieSection({
                             </strong>
                           </p>
                         </div>
-
-                        {linkPayments.length === 0 ? (
-                          <p className="text-sm text-muted-foreground">
-                            No payments received yet on this link.
-                          </p>
-                        ) : (
-                          <div className="overflow-x-auto rounded-lg border border-border">
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Payer</TableHead>
-                                  <TableHead>Amount</TableHead>
-                                  <TableHead>Date</TableHead>
-                                  <TableHead>Status</TableHead>
-                                  <TableHead className="text-right">
-                                    Action
-                                  </TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {linkPayments.map((p) => (
-                                  <TableRow key={p._id}>
-                                    <TableCell className="font-medium">
-                                      {(p.payerName)}
-                                    </TableCell>
-                                    <TableCell>
-                                      {formatMinorOrNA(p.amountMinor)}
-                                    </TableCell>
-                                    <TableCell>
-                                      {formatDate(p.paidAt)}
-                                    </TableCell>
-                                    <TableCell>
-                                      <MatchBadge status={p.matchStatus} />
-                                    </TableCell>
-                                    <TableCell className="text-right"></TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </div>
-                        )}
                       </div>
                     </details>
                   )
@@ -577,8 +536,8 @@ export function EventTikkieSection({
           {quota && (
             <div
               className={`rounded-md border px-3 py-2 text-sm ${isQuotaExceeded
-                  ? "border-amber-300 bg-amber-50 text-amber-900"
-                  : "border-border bg-muted/40 text-muted-foreground"
+                ? "border-amber-300 bg-amber-50 text-amber-900"
+                : "border-border bg-muted/40 text-muted-foreground"
                 }`}
             >
               <p>
