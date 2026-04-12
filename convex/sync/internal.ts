@@ -22,27 +22,27 @@ export const internalGetUnassignedPayments = internalQuery({
 export const internalGetPaidOrders = internalQuery({
   args: {},
   handler: async (ctx) => {
-    // Query orders table by status index instead of ticketTailorOrders
-    const orders = await ctx.db
-      .query("orders")
-      .withIndex("by_status", (q) => q.eq("status", "paid"))
-      .collect()
+    // Signup orders start with an unset status, so treat every active order
+    // as a match candidate and let payment matching decide whether it fits.
+    const orders = await ctx.db.query("orders").order("desc").take(500)
 
     const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
       ctx,
       orders
     )
 
-    return orders.map((o) => ({
-      _id: o._id,
-      eventId: o.eventId,
-      bookerName: o.bookerName ?? null,
-      totalAmountMinor: o.totalAmountMinor ?? null,
-      amountDueMinor:
-        amountDueBreakdownsByOrderId.get(String(o._id))?.amountDueMinor ??
-        o.totalAmountMinor ??
-        null,
-    }))
+    return orders
+      .filter((o) => o.status !== "cancelled" && o.status !== "refunded")
+      .map((o) => ({
+        _id: o._id,
+        eventId: o.eventId,
+        bookerName: o.bookerName ?? null,
+        totalAmountMinor: o.totalAmountMinor ?? null,
+        amountDueMinor:
+          amountDueBreakdownsByOrderId.get(String(o._id))?.amountDueMinor ??
+          o.totalAmountMinor ??
+          null,
+      }))
   },
 })
 
