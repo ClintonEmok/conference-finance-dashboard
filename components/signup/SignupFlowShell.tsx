@@ -68,6 +68,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     message: string
   } | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const [idempotencyKey] = useState(() => `signup-${Date.now()}`)
 
   // Use primitive values for stable effect dependencies
@@ -140,6 +141,12 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     if (!event || !draft) return false
     return shouldSkipRoomsStep(event, draft.attendees)
   }, [event, draft?.attendees])
+
+  useEffect(() => {
+    if (draft?.step !== "review") {
+      setCaptchaToken(null)
+    }
+  }, [draft?.step])
 
   const completedByStep: Record<SignupStep, boolean> = useMemo(() => {
     if (!event || !draft) {
@@ -316,6 +323,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
+    setCaptchaToken(null)
     setDraft((current) => {
       if (!current) {
         return current
@@ -342,6 +350,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
+    setCaptchaToken(null)
     setDraft((current) =>
       current
         ? invalidateDownstreamForRoomChange(current, nextAssignments)
@@ -350,6 +359,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   }
 
   function handleAcknowledgeRandomFill(checked: boolean) {
+    setCaptchaToken(null)
     setDraft((current) =>
       current
         ? {
@@ -368,6 +378,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
+    setCaptchaToken(null)
     setDraft((current) => {
       if (!current) {
         return current
@@ -395,6 +406,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
+    setCaptchaToken(null)
     setDraft((current) => {
       if (!current) {
         return current
@@ -411,6 +423,11 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
   function handleBookerFieldBlur() {
     setBuyerValidation(validateSignupBooker(activeDraft.booker))
+  }
+
+  function handleCaptchaTokenChange(token: string | null) {
+    setCaptchaToken(token)
+    setSubmitError(null)
   }
 
   async function handleSubmitFromReview() {
@@ -432,15 +449,32 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       return
     }
 
+    if (!captchaToken) {
+      setSubmitError({
+        code: "CAPTCHA_REQUIRED",
+        message: "Complete the verification challenge before submitting.",
+      })
+      return
+    }
+
     setIsSubmitting(true)
     setSubmitError(null)
 
-    const result = await submitSignupDraft(activeDraft, { idempotencyKey })
+    const result = await submitSignupDraft(activeDraft, {
+      idempotencyKey,
+      captchaToken,
+    })
 
     if (!result.ok) {
       setSubmitResult(null)
       setSubmitError(result.error)
       setIsSubmitting(false)
+      if (
+        result.error.code === "CAPTCHA_REQUIRED" ||
+        result.error.code === "CAPTCHA_FAILED"
+      ) {
+        setCaptchaToken(null)
+      }
       return
     }
 
@@ -458,7 +492,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       : activeDraft.step === "buyer"
         ? "Your Details"
         : activeDraft.step === "rooms"
-          ? "Rooms"
+          ? "Room Preferences"
           : activeDraft.step === "attendees"
             ? "Attendee details"
             : "Review & submit"
@@ -583,11 +617,11 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                 {activeDraft.step === "review" && (
                   <ReviewSubmitStep
                     draft={activeDraft}
-                    event={activeEvent}
                     submitResult={submitResult}
                     submitError={submitError}
                     isSubmitting={isSubmitting}
-                    onSubmit={handleSubmitFromReview}
+                    captchaToken={captchaToken}
+                    onCaptchaTokenChange={handleCaptchaTokenChange}
                     skipRooms={skipRooms}
                   />
                 )}
@@ -599,7 +633,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                   totalSteps={SIGNUP_STEP_ORDER.length}
                   canProceed={
                     completedByStep[activeDraft.step] ||
-                    activeDraft.step === "review"
+                    (activeDraft.step === "review" && Boolean(captchaToken))
                   }
                   onBack={moveBack}
                   onNext={

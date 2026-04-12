@@ -130,7 +130,7 @@ export function RoomAssignmentStep({
       {attendees.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Your Attendees</CardTitle>
+            <CardTitle className="text-base">Room Preferences</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
@@ -162,7 +162,7 @@ export function RoomAssignmentStep({
                     )}
                     {isAssigned && (
                       <span className="ml-1.5 text-xs text-muted-foreground">
-                        ✓ assigned
+                        ✓ selected
                       </span>
                     )}
                   </div>
@@ -170,7 +170,8 @@ export function RoomAssignmentStep({
               })}
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              Drag unassigned attendees to a room below.
+              Drag attendees to a preferred room. Final placement is confirmed
+              by the organizer.
             </p>
           </CardContent>
         </Card>
@@ -235,7 +236,7 @@ export function RoomAssignmentStep({
                         {slot.isEmpty ? (
                           <span className="text-xs text-muted-foreground">
                             {allAssigned
-                              ? "Will be assigned by organizer"
+                              ? "Will be finalized by organizer"
                               : "Empty bed"}
                           </span>
                         ) : (
@@ -245,7 +246,7 @@ export function RoomAssignmentStep({
                             </span>
                             {slot.isAllocatedByCurrentProcess && (
                               <span className="rounded bg-primary/20 px-1 py-0.5 text-xs text-primary">
-                                yours
+                                selected
                               </span>
                             )}
                           </>

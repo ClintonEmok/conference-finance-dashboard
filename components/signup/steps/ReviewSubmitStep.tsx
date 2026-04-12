@@ -1,29 +1,21 @@
 "use client"
 
 import { useMemo } from "react"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import type { SignupDraft, AttendeeDraft } from "@/components/signup/state"
 import type { SignupClientErrorCode } from "@/components/signup/submission-client"
 import type { SignupSubmissionResult } from "@/lib/types/signup"
-import type { PublicSignupCatalogEvent } from "@/lib/domain/signup/catalog"
 import { ReviewSection } from "@/components/signup/ReviewSection"
-import {
-  buildAllocationSummary,
-  buildAssignmentBoard,
-  type AllocationSummary,
-} from "@/components/signup/assignment"
+import { TurnstileCaptcha } from "@/components/signup/TurnstileCaptcha"
 import { formatMoney } from "@/lib/format"
-import { AlertCircle } from "lucide-react"
 
 type ReviewSubmitStepProps = {
   draft: SignupDraft
-  event: PublicSignupCatalogEvent
   submitResult: SignupSubmissionResult | null
   submitError: { code: SignupClientErrorCode; message: string } | null
   isSubmitting: boolean
-  onSubmit: () => void
+  captchaToken: string | null
+  onCaptchaTokenChange: (token: string | null) => void
   skipRooms?: boolean
 }
 
@@ -54,38 +46,20 @@ function AttendeeDetailRow({
 
 export function ReviewSubmitStep({
   draft,
-  event,
   submitResult,
   submitError,
   isSubmitting,
-  onSubmit,
+  captchaToken,
+  onCaptchaTokenChange,
   skipRooms = false,
 }: ReviewSubmitStepProps) {
-  const allocationSummary = useMemo<AllocationSummary>(() => {
-    const board = buildAssignmentBoard(
-      draft.attendees.map((attendee) => ({
-        attendeeId: attendee.attendeeKey,
-        name: attendee.name || `Attendee ${attendee.attendeeKey}`,
-      })),
-      event.accommodation.slots,
-      draft.assignments
-    )
-    return buildAllocationSummary(
-      board,
-      draft.attendees,
-      event.accommodation.slots
-    )
-  }, [draft.attendees, draft.assignments, event.accommodation.slots])
-
   const totalPrice = useMemo(() => {
     return draft.ticketSelections.reduce((sum, ticket) => {
       return sum + ticket.priceMinor * ticket.quantity
     }, 0)
   }, [draft.ticketSelections])
 
-  const hasUnfilledBeds = allocationSummary.rooms.some(
-    (room) => room.unfilledBeds > 0
-  )
+  const showAccommodationPreferences = draft.attendees.length > 1
 
   if (submitResult) {
     return null
@@ -222,147 +196,25 @@ export function ReviewSubmitStep({
         )}
       </ReviewSection>
 
-      {/* Room Allocations Section */}
-      {skipRooms ? (
-        <ReviewSection
-          title="Accommodation"
-          subtitle="Will be assigned by organizer"
-          badge={draft.attendees.length}
-          defaultExpanded={true}
-        >
-          <div className="space-y-3">
-            {draft.attendees.map((attendee, index) => {
-              const ticket = event.tickets.find(
-                (t) => t.ticketTypeId === attendee.ticketTypeId
-              )
-              const effectiveRoomTypeId =
-                ticket?.roomTypeId ?? event.defaultRoomTypeId
-
-              return (
-                <div
-                  key={attendee.attendeeKey}
-                  className="flex items-center justify-between rounded-md border border-border/50 p-3"
-                >
-                  <div>
-                    <p className="font-medium text-foreground">
-                      {attendee.name || `Attendee ${index + 1}`}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {attendee.ticketLabel}
-                    </p>
-                  </div>
-                  <span className="text-xs text-muted-foreground">
-                    Room will be assigned by organizer
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        </ReviewSection>
-      ) : (
-        <ReviewSection
-          title="Room Allocations"
-          subtitle={
-            allocationSummary.unassignedAttendees.length > 0
-              ? `${allocationSummary.unassignedAttendees.length} unassigned`
-              : undefined
-          }
-          badge={
-            allocationSummary.rooms.filter((r) => r.occupants.length > 0).length
-          }
-          defaultExpanded={true}
-        >
-          {allocationSummary.rooms.length === 0 ? (
-            <p className="text-muted-foreground">No accommodation available.</p>
-          ) : (
-            <div className="space-y-3">
-              {allocationSummary.rooms
-                .filter((room) => room.occupants.length > 0)
-                .map((room) => (
-                  <div
-                    key={room.roomLabel}
-                    className="rounded-md border border-border/50 p-3"
-                  >
-                    <div className="mb-2 flex items-center justify-between">
-                      <div>
-                        <p className="font-medium text-foreground">
-                          {room.roomLabel}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {room.roomTypeLabel}
-                        </p>
-                      </div>
-                      {room.unfilledBeds > 0 ? (
-                        <span className="text-xs font-medium text-amber-600">
-                          {room.unfilledBeds} unfilled bed
-                          {room.unfilledBeds !== 1 ? "s" : ""}
-                        </span>
-                      ) : (
-                        <span className="text-xs font-medium text-green-600">
-                          Full
-                        </span>
-                      )}
-                    </div>
-                    <ul className="list-disc space-y-1 pl-4 text-sm">
-                      {room.occupants.map((occupant) => (
-                        <li key={occupant.attendeeKey}>
-                          <span className="text-foreground">
-                            {occupant.name}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {" "}
-                            ({occupant.ticketLabel}
-                            {occupant.location ? `, ${occupant.location}` : ""}
-                            {occupant.gender
-                              ? `, ${formatAttendeeGender(occupant.gender)}`
-                              : ""}
-                            )
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-
-              {allocationSummary.unassignedAttendees.length > 0 ? (
-                <Alert
-                  variant="destructive"
-                  className="border-amber-500/50 bg-amber-500/10"
-                >
-                  <AlertCircle className="h-4 w-4 text-amber-600" />
-                  <AlertTitle className="text-amber-800">
-                    Unassigned Attendees (
-                    {allocationSummary.unassignedAttendees.length})
-                  </AlertTitle>
-                  <AlertDescription className="text-amber-700">
-                    <ul className="mt-2 list-disc space-y-1 pl-4">
-                      {allocationSummary.unassignedAttendees.map((attendee) => (
-                        <li key={attendee.attendeeKey}>
-                          {attendee.name} ({attendee.ticketLabel})
-                        </li>
-                      ))}
-                    </ul>
-                  </AlertDescription>
-                </Alert>
-              ) : null}
-
-              {hasUnfilledBeds &&
-                allocationSummary.unassignedAttendees.length === 0 ? (
-                <Alert className="border-amber-500/50 bg-amber-500/10">
-                  <AlertCircle className="h-4 w-4 text-amber-600" />
-                  <AlertTitle className="text-amber-800">
-                    Unfilled Beds
-                  </AlertTitle>
-                  <AlertDescription className="text-amber-700">
-                    Some rooms have unfilled beds. You can go back to assign
-                    more attendees or submit with unassigned beds.
-                  </AlertDescription>
-                </Alert>
-              ) : null}
-            </div>
-          )}
-        </ReviewSection>
-      )}
+      {showAccommodationPreferences ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              Accommodation Preferences
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>
+              Room preferences have been captured for {draft.attendees.length}{" "}
+              attendees.
+            </p>
+            <p>
+              Final room allocation will be completed by the organizer after
+              submission.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {draft.notes.trim() ? (
         <Card>
@@ -374,6 +226,19 @@ export function ReviewSubmitStep({
           </CardContent>
         </Card>
       ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Verification</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <TurnstileCaptcha
+            siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ""}
+            token={captchaToken}
+            onTokenChange={onCaptchaTokenChange}
+          />
+        </CardContent>
+      </Card>
 
       {submitError ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
