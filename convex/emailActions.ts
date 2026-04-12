@@ -3,7 +3,8 @@
 import { action, internalAction, type ActionCtx } from "./_generated/server"
 import { v } from "convex/values"
 import { Resend } from "@convex-dev/resend"
-import { components } from "./_generated/api"
+import { api, components, internal } from "./_generated/api"
+import type { Id } from "./_generated/dataModel"
 import { render } from "@react-email/render"
 import SignupConfirmationEmail from "../lib/email/templates/signup-confirmation"
 
@@ -27,6 +28,7 @@ type SignupConfirmationEmailArgs = {
     hotelName: string
     bedCount: number
   }>
+  trackPaymentUrl: string
   successPageUrl: string
 }
 
@@ -48,6 +50,7 @@ const signupConfirmationArgs = {
       bedCount: v.number(),
     })
   ),
+  trackPaymentUrl: v.string(),
   successPageUrl: v.string(),
 }
 
@@ -73,7 +76,7 @@ async function sendSignupConfirmationEmail(
         tikkieAmountMinor: args.tikkieAmountMinor,
         tikkieCurrency: args.tikkieCurrency,
         attendeeCount: args.attendeeCount,
-        roomAssignments: args.roomAssignments,
+        trackPaymentUrl: args.trackPaymentUrl,
         successPageUrl: args.successPageUrl,
       })
     )
@@ -91,11 +94,14 @@ Attendees: ${args.attendeeCount}
 
 ${args.tikkieUrl ? `Please complete your payment: ${args.tikkieUrl}` : ""}
 
+Track your payment progress: ${args.trackPaymentUrl}
+Just enter your booking reference: ${args.bookingRef}
+
 View your booking: ${args.successPageUrl}
 
-This email was sent by Conference Finance.`.trim()
+This email was sent by DCLM NL Conference.`.trim()
 
-    const fromName = process.env.RESEND_FROM_NAME || "Conference Finance"
+    const fromName = process.env.RESEND_FROM_NAME || "DCLM NL Conference"
     const fromEmail = process.env.RESEND_FROM_EMAIL || "noreply@example.com"
 
     const emailId = await resend.sendEmail(ctx, {
@@ -119,6 +125,71 @@ This email was sent by Conference Finance.`.trim()
   }
 }
 
+async function sendOrderConfirmationResendEmail(
+  ctx: ActionCtx,
+  orderId: Id<"orders">
+) {
+  const order = await ctx.runQuery(api.orders.getOrderWithAttendees, {
+    orderId,
+  })
+
+  if (!order) {
+    return { success: false, error: "Order not found" }
+  }
+
+  if (!order.order.eventId) {
+    return { success: false, error: "Order is missing event data" }
+  }
+
+  if (!order.order.buyerEmail) {
+    return { success: false, error: "Order is missing a buyer email" }
+  }
+
+  if (!order.order.bookingRef) {
+    return { success: false, error: "Order is missing a booking reference" }
+  }
+
+  const event = await ctx.runQuery(api.events.getEventById, {
+    eventId: String(order.order.eventId),
+  })
+
+  const tikkieLink = await ctx.runQuery(
+    api.tikkie.getEventPaymentLinkForSuccess,
+    { eventId: order.order.eventId }
+  )
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+
+  const result = await sendSignupConfirmationEmail(ctx, {
+    to: order.order.buyerEmail,
+    bookerName: order.order.buyerName ?? "Guest",
+    bookingRef: order.order.bookingRef,
+    eventName: event?.title ?? "Conference",
+    eventDate: event?.startsAt
+      ? new Date(event.startsAt).toLocaleDateString("en-GB")
+      : new Date().toLocaleDateString("en-GB"),
+    eventLocation: "",
+    tikkieUrl: tikkieLink?.paymentUrl,
+    tikkieAmountMinor: tikkieLink?.amountMinor,
+    tikkieCurrency: event?.currency,
+    attendeeCount: order.attendees.length,
+    roomAssignments: [],
+    trackPaymentUrl: `${appUrl}/track-payment`,
+    successPageUrl: `${appUrl}/signup/success/${order.order.bookingRef}`,
+  })
+
+  if (result.success) {
+    await ctx.runMutation(internal.emailMutations.logSentEmail, {
+      recipient: order.order.buyerEmail,
+      bookingRef: order.order.bookingRef,
+      emailId: result.emailId,
+      emailType: "order_confirmation_resend",
+    })
+  }
+
+  return result
+}
+
 export const sendSignupConfirmation = internalAction({
   args: signupConfirmationArgs,
   returns: signupConfirmationReturns,
@@ -129,4 +200,11 @@ export const sendSignupConfirmationTest = action({
   args: signupConfirmationArgs,
   returns: signupConfirmationReturns,
   handler: async (ctx, args) => sendSignupConfirmationEmail(ctx, args),
+})
+
+export const resendOrderConfirmation = action({
+  args: { orderId: v.id("orders") },
+  returns: signupConfirmationReturns,
+  handler: async (ctx, args) =>
+    sendOrderConfirmationResendEmail(ctx, args.orderId),
 })

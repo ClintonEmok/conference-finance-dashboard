@@ -2,7 +2,7 @@
 
 import { use, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { useQuery } from "convex/react"
+import { useAction, useQuery } from "convex/react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -27,7 +27,21 @@ import type { Id } from "@/convex/_generated/dataModel"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
-import { CreditCard, Users, Receipt, AlertCircle, Trash2, Calendar, ShieldCheck, Clock, Zap, Plus, Loader2, Link2Off } from "lucide-react"
+import {
+  CreditCard,
+  Users,
+  Receipt,
+  AlertCircle,
+  Trash2,
+  Calendar,
+  ShieldCheck,
+  Clock,
+  Zap,
+  Plus,
+  Loader2,
+  Link2Off,
+  Mail,
+} from "lucide-react"
 import { AssignPaymentSheet } from "./assign-payment-sheet"
 import { useUnassignPayment } from "@/lib/convex/hooks/payments"
 
@@ -41,6 +55,10 @@ type PaymentStatus =
 type OrderAttendeePayload = {
   order: {
     id: string
+    buyerName: string | null
+    buyerEmail: string | null
+    bookingRef: string | null
+    eventId: string | null
     normalizedStatus: "paid" | "refunded" | "cancelled" | "pending" | null
     isArchived?: boolean
     archivedAt: string | null
@@ -120,10 +138,20 @@ export default function OrderDetailPage({ params }: PageProps) {
   const { orderId: rawOrderId } = use(params)
   const searchParams = useSearchParams()
   const [isRemoving, setIsRemoving] = useState(false)
-  const [removeErrorMessage, setRemoveErrorMessage] = useState<string | null>(null)
+  const [removeErrorMessage, setRemoveErrorMessage] = useState<string | null>(
+    null
+  )
   const [isAssignSheetOpen, setIsAssignSheetOpen] = useState(false)
   const [isUnassigningId, setIsUnassigningId] = useState<string | null>(null)
+  const [isResendingEmail, setIsResendingEmail] = useState(false)
+  const [resendMessage, setResendMessage] = useState<string | null>(null)
+  const [resendErrorMessage, setResendErrorMessage] = useState<string | null>(
+    null
+  )
   const unassignPayment = useUnassignPayment()
+  const resendOrderConfirmation = useAction(
+    api.emailActions.resendOrderConfirmation
+  )
 
   const handleUnassign = async (paymentId: string) => {
     if (!window.confirm("Are you sure you want to unlink this payment?")) return
@@ -156,6 +184,50 @@ export default function OrderDetailPage({ params }: PageProps) {
 
   const orderPayload = (orderQuery ?? null) as OrderAttendeePayload | null
 
+  const canResendConfirmation = Boolean(
+    orderPayload?.order.buyerEmail && orderPayload?.order.bookingRef
+  )
+
+  async function resendConfirmationEmail() {
+    if (!hasOrderId || !canResendConfirmation) return
+
+    const confirmed = window.confirm(
+      "Resend the booking confirmation email to this customer?"
+    )
+    if (!confirmed) return
+
+    setIsResendingEmail(true)
+    setResendMessage(null)
+    setResendErrorMessage(null)
+
+    try {
+      const result = await resendOrderConfirmation({
+        orderId: normalizedOrderId as Id<"orders">,
+      })
+
+      if (!result.success) {
+        setResendErrorMessage(
+          result.error ?? "Failed to send confirmation email."
+        )
+        return
+      }
+
+      setResendMessage(
+        orderPayload?.order.buyerEmail
+          ? `Confirmation email sent to ${orderPayload.order.buyerEmail}.`
+          : "Confirmation email sent."
+      )
+    } catch (error) {
+      setResendErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to send confirmation email."
+      )
+    } finally {
+      setIsResendingEmail(false)
+    }
+  }
+
   const payments = useMemo<PaymentsPayload["payments"]>(
     () =>
       (paymentDocs ?? [])
@@ -176,8 +248,10 @@ export default function OrderDetailPage({ params }: PageProps) {
     [paymentDocs]
   )
 
-  const isLoading = !hasOrderId || orderQuery === undefined || paymentDocs === undefined
-  const errorMessage = hasOrderId && orderQuery === null ? "Order not found." : null
+  const isLoading =
+    !hasOrderId || orderQuery === undefined || paymentDocs === undefined
+  const errorMessage =
+    hasOrderId && orderQuery === null ? "Order not found." : null
 
   const metrics = useMemo(() => {
     const hasKnownDue = typeof orderPayload?.order.amountDueMinor === "number"
@@ -201,7 +275,6 @@ export default function OrderDetailPage({ params }: PageProps) {
           ? 100
           : null
 
-
     const attendeeCount = orderPayload?.attendees.length ?? 0
     const sharedOutstandingPerAttendeeMinor =
       attendeeCount > 0 ? Math.ceil(outstandingAmountMinor / attendeeCount) : 0
@@ -220,7 +293,10 @@ export default function OrderDetailPage({ params }: PageProps) {
 
   const canRemoveLocally = useMemo(() => {
     if (!orderPayload) return false
-    return orderPayload.order.isArchived === true || orderPayload.order.normalizedStatus === "cancelled"
+    return (
+      orderPayload.order.isArchived === true ||
+      orderPayload.order.normalizedStatus === "cancelled"
+    )
   }, [orderPayload])
 
   async function removeOrderLocally() {
@@ -279,11 +355,25 @@ export default function OrderDetailPage({ params }: PageProps) {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="animate-in space-y-8 duration-700 fade-in slide-in-from-bottom-4">
       {removeErrorMessage && (
-        <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive flex items-center gap-3">
+        <div className="flex items-center gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
           <AlertCircle className="size-4" />
           {removeErrorMessage}
+        </div>
+      )}
+
+      {resendErrorMessage && (
+        <div className="flex items-center gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
+          <AlertCircle className="size-4" />
+          {resendErrorMessage}
+        </div>
+      )}
+
+      {resendMessage && (
+        <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-700 dark:text-emerald-300">
+          <Mail className="size-4" />
+          {resendMessage}
         </div>
       )}
 
@@ -295,12 +385,14 @@ export default function OrderDetailPage({ params }: PageProps) {
               <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
                 <div className="space-y-2">
                   <div className="flex items-center gap-3">
-                    <span className="font-mono text-xl font-bold tracking-tight bg-primary/10 text-primary px-3 py-1 rounded-lg">
+                    <span className="rounded-lg bg-primary/10 px-3 py-1 font-mono text-xl font-bold tracking-tight text-primary">
                       {orderPayload.order.id}
                     </span>
                     <Badge
-                      variant={statusBadgeVariant(orderPayload.order.normalizedStatus ?? null)}
-                      className="rounded-full px-3 py-0.5 font-bold uppercase tracking-widest text-[10px]"
+                      variant={statusBadgeVariant(
+                        orderPayload.order.normalizedStatus ?? null
+                      )}
+                      className="rounded-full px-3 py-0.5 text-[10px] font-bold tracking-widest uppercase"
                     >
                       {orderPayload.order.normalizedStatus ?? "pending"}
                     </Badge>
@@ -313,44 +405,118 @@ export default function OrderDetailPage({ params }: PageProps) {
                 {canRemoveLocally && (
                   <div className="flex items-center gap-4 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
                     <div className="space-y-1">
-                      <p className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-widest">Order Archived</p>
-                      <p className="text-[10px] text-amber-600/70">Missing upstream in provider.</p>
+                      <p className="text-xs font-bold tracking-widest text-amber-700 uppercase dark:text-amber-400">
+                        Order Archived
+                      </p>
+                      <p className="text-[10px] text-amber-600/70">
+                        Missing upstream in provider.
+                      </p>
                     </div>
                     <Button
                       variant="destructive"
                       size="sm"
                       onClick={removeOrderLocally}
                       disabled={isRemoving}
-                      className="rounded-lg h-8 px-3 font-bold text-[10px] uppercase tracking-wider"
+                      className="h-8 rounded-lg px-3 text-[10px] font-bold tracking-wider uppercase"
                     >
                       {isRemoving ? "Removing..." : "Remove Locally"}
                     </Button>
                   </div>
                 )}
               </div>
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={resendConfirmationEmail}
+                  disabled={isResendingEmail || !canResendConfirmation}
+                  className="h-9 rounded-lg border-white/20 text-[11px] font-bold tracking-wider uppercase"
+                >
+                  {isResendingEmail ? (
+                    <>
+                      <Loader2 className="mr-2 size-3.5 animate-spin" />
+                      Sending
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="mr-2 size-3.5" />
+                      Send email
+                    </>
+                  )}
+                </Button>
+                {!canResendConfirmation && (
+                  <p className="text-xs text-muted-foreground">
+                    Missing recipient email or booking reference.
+                  </p>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                 {[
-                  { label: "Order Due", value: metrics.hasKnownDue ? formatMoney(metrics.amountDueMinor) : "Missing", icon: Receipt, color: "text-foreground" },
-                  { label: "Paid Amount", value: formatMoney(metrics.paidAmountMinor), icon: ShieldCheck, color: "text-emerald-600 dark:text-emerald-400" },
-                  { label: "Outstanding", value: metrics.hasKnownDue ? formatMoney(metrics.outstandingAmountMinor) : "Missing", icon: Clock, color: "text-rose-600 dark:text-rose-400" },
-                  { label: "Overpaid", value: formatMoney(metrics.overpaidAmountMinor), icon: AlertCircle, color: "text-amber-600 dark:text-amber-300" },
-                  { label: "Coverage", value: metrics.coverage === null ? "N/A" : `${metrics.coverage}%`, icon: Zap, color: "text-primary" },
+                  {
+                    label: "Order Due",
+                    value: metrics.hasKnownDue
+                      ? formatMoney(metrics.amountDueMinor)
+                      : "Missing",
+                    icon: Receipt,
+                    color: "text-foreground",
+                  },
+                  {
+                    label: "Paid Amount",
+                    value: formatMoney(metrics.paidAmountMinor),
+                    icon: ShieldCheck,
+                    color: "text-emerald-600 dark:text-emerald-400",
+                  },
+                  {
+                    label: "Outstanding",
+                    value: metrics.hasKnownDue
+                      ? formatMoney(metrics.outstandingAmountMinor)
+                      : "Missing",
+                    icon: Clock,
+                    color: "text-rose-600 dark:text-rose-400",
+                  },
+                  {
+                    label: "Overpaid",
+                    value: formatMoney(metrics.overpaidAmountMinor),
+                    icon: AlertCircle,
+                    color: "text-amber-600 dark:text-amber-300",
+                  },
+                  {
+                    label: "Coverage",
+                    value:
+                      metrics.coverage === null
+                        ? "N/A"
+                        : `${metrics.coverage}%`,
+                    icon: Zap,
+                    color: "text-primary",
+                  },
                 ].map((item, i) => (
-                  <article key={i} className="rounded-2xl border border-white/60 bg-white/50 p-4 transition-all hover:bg-white/80 dark:border-white/5 dark:bg-white/5 dark:hover:bg-white/10">
-                    <p className="text-[10px] font-black tracking-[0.2em] text-muted-foreground uppercase mb-3 px-1">{item.label}</p>
+                  <article
+                    key={i}
+                    className="rounded-2xl border border-white/60 bg-white/50 p-4 transition-all hover:bg-white/80 dark:border-white/5 dark:bg-white/5 dark:hover:bg-white/10"
+                  >
+                    <p className="mb-3 px-1 text-[10px] font-black tracking-[0.2em] text-muted-foreground uppercase">
+                      {item.label}
+                    </p>
                     <div className="flex items-center justify-between">
-                      <span className={cn("text-2xl font-black tracking-tight", item.color)}>
+                      <span
+                        className={cn(
+                          "text-2xl font-black tracking-tight",
+                          item.color
+                        )}
+                      >
                         {item.value}
                       </span>
-                      <item.icon className={cn("size-5 opacity-20", item.color)} />
+                      <item.icon
+                        className={cn("size-5 opacity-20", item.color)}
+                      />
                     </div>
                   </article>
                 ))}
               </div>
 
-              <div className="mt-6 flex items-center gap-3 rounded-xl bg-primary/5 p-4 border border-primary/10">
+              <div className="mt-6 flex items-center gap-3 rounded-xl border border-primary/10 bg-primary/5 p-4">
                 <Users className="size-4 text-primary" />
                 <p className="text-xs font-medium text-muted-foreground">
                   {metrics.attendeeCount > 1
@@ -363,39 +529,63 @@ export default function OrderDetailPage({ params }: PageProps) {
 
           <div className="grid gap-8 lg:grid-cols-5">
             {/* Attendees Section */}
-            <Card className="lg:col-span-3 border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+            <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur lg:col-span-3 dark:border-white/10 dark:bg-black/20">
               <CardHeader>
                 <CardTitle className="text-lg font-bold">Attendees</CardTitle>
-                <CardDescription>Consolidated ticket data for this order</CardDescription>
+                <CardDescription>
+                  Consolidated ticket data for this order
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 {orderPayload.attendees.length === 0 ? (
-                  <div className="py-12 text-center rounded-2xl border border-dashed border-white/20">
+                  <div className="rounded-2xl border border-dashed border-white/20 py-12 text-center">
                     <Users className="mx-auto mb-3 size-10 opacity-10" />
-                    <p className="text-sm font-bold tracking-widest uppercase opacity-40">No attendees</p>
+                    <p className="text-sm font-bold tracking-widest uppercase opacity-40">
+                      No attendees
+                    </p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto rounded-xl border border-white/20 bg-background/20">
                     <Table>
                       <TableHeader className="bg-white/10">
                         <TableRow>
-                          <TableHead className="text-[10px] font-black uppercase tracking-widest h-10">Attendee</TableHead>
-                          <TableHead className="text-[10px] font-black uppercase tracking-widest h-10">Ticket</TableHead>
-                          <TableHead className="text-[10px] font-black uppercase tracking-widest h-10 text-right">Due</TableHead>
+                          <TableHead className="h-10 text-[10px] font-black tracking-widest uppercase">
+                            Attendee
+                          </TableHead>
+                          <TableHead className="h-10 text-[10px] font-black tracking-widest uppercase">
+                            Ticket
+                          </TableHead>
+                          <TableHead className="h-10 text-right text-[10px] font-black tracking-widest uppercase">
+                            Due
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {orderPayload.attendees.map((attendee) => (
-                          <TableRow key={attendee.id} className="border-white/5">
+                          <TableRow
+                            key={attendee.id}
+                            className="border-white/5"
+                          >
                             <TableCell className="py-4">
-                              <p className="text-sm font-bold">{attendee.name}</p>
-                              <p className="text-[10px] font-mono text-muted-foreground/60">{attendee.id}</p>
+                              <p className="text-sm font-bold">
+                                {attendee.name}
+                              </p>
+                              <p className="font-mono text-[10px] text-muted-foreground/60">
+                                {attendee.id}
+                              </p>
                             </TableCell>
                             <TableCell className="py-4">
-                              <Badge variant="outline" className="text-[10px] font-medium border-white/20">{attendee.ticketTypeLabel}</Badge>
+                              <Badge
+                                variant="outline"
+                                className="border-white/20 text-[10px] font-medium"
+                              >
+                                {attendee.ticketTypeLabel}
+                              </Badge>
                             </TableCell>
                             <TableCell className="py-4 text-right">
-                              <span className="text-sm font-black tabular-nums">{formatMoney(attendee.amountDueMinor)}</span>
+                              <span className="text-sm font-black tabular-nums">
+                                {formatMoney(attendee.amountDueMinor)}
+                              </span>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -407,26 +597,30 @@ export default function OrderDetailPage({ params }: PageProps) {
             </Card>
 
             {/* Payments Section */}
-            <Card className="lg:col-span-2 border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+            <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur lg:col-span-2 dark:border-white/10 dark:bg-black/20">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
                 <div className="space-y-1">
-                  <CardTitle className="text-lg font-bold">Assigned Payments</CardTitle>
+                  <CardTitle className="text-lg font-bold">
+                    Assigned Payments
+                  </CardTitle>
                   <CardDescription>Matched to this order ID</CardDescription>
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setIsAssignSheetOpen(true)}
-                  className="rounded-lg border-white/20 h-8 text-[11px] font-bold uppercase transition-all hover:bg-white/10"
+                  className="h-8 rounded-lg border-white/20 text-[11px] font-bold uppercase transition-all hover:bg-white/10"
                 >
                   <Plus className="mr-2 size-3" /> Assign
                 </Button>
               </CardHeader>
               <CardContent>
                 {payments.length === 0 ? (
-                  <div className="py-12 text-center rounded-2xl border border-dashed border-white/20">
+                  <div className="rounded-2xl border border-dashed border-white/20 py-12 text-center">
                     <CreditCard className="mx-auto mb-3 size-10 opacity-10" />
-                    <p className="text-sm font-bold tracking-widest uppercase opacity-40">No payments</p>
+                    <p className="text-sm font-bold tracking-widest uppercase opacity-40">
+                      No payments
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -436,29 +630,33 @@ export default function OrderDetailPage({ params }: PageProps) {
                         className="group relative rounded-2xl border border-white/60 bg-white/60 p-4 transition-all hover:bg-white/80 dark:border-white/5 dark:bg-white/5 dark:hover:bg-white/10"
                       >
                         <div className="flex items-start justify-between">
-                          <div className="space-y-1 max-w-[60%]">
-                            <p className="text-sm font-bold tracking-tight truncate">
-                              {(payment.payerName)}
+                          <div className="max-w-[60%] space-y-1">
+                            <p className="truncate text-sm font-bold tracking-tight">
+                              {payment.payerName}
                             </p>
                             <div className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground/60">
-                              <span className="truncate">{paymentSourceLabel(payment.source)}</span>
+                              <span className="truncate">
+                                {paymentSourceLabel(payment.source)}
+                              </span>
                               <span>•</span>
-                              <span className="shrink-0">{formatDateTime(payment.paidAt)}</span>
+                              <span className="shrink-0">
+                                {formatDateTime(payment.paidAt)}
+                              </span>
                             </div>
                           </div>
-                          <div className="text-right space-y-1">
+                          <div className="space-y-1 text-right">
                             <p className="text-sm font-black text-foreground tabular-nums">
                               {formatMoney(payment.amountMinor)}
                             </p>
                             <Badge
                               variant={paymentStatusVariant(payment.status)}
-                              className="text-[9px] font-black uppercase tracking-widest h-4 px-1.5"
+                              className="h-4 px-1.5 text-[9px] font-black tracking-widest uppercase"
                             >
                               {paymentStatusLabel(payment.status)}
                             </Badge>
                           </div>
                         </div>
-                        <div className="absolute -right-2 -top-2 opacity-0 transition-opacity group-hover:opacity-100">
+                        <div className="absolute -top-2 -right-2 opacity-0 transition-opacity group-hover:opacity-100">
                           <Button
                             variant="destructive"
                             size="icon"
@@ -475,9 +673,11 @@ export default function OrderDetailPage({ params }: PageProps) {
                           </Button>
                         </div>
                         {(payment.reference || payment.notes) && (
-                          <p className="mt-3 text-[10px] text-muted-foreground/50 border-t border-white/10 pt-2 italic">
+                          <p className="mt-3 border-t border-white/10 pt-2 text-[10px] text-muted-foreground/50 italic">
                             {[payment.reference, payment.notes]
-                              .filter((v): v is string => Boolean(v && v.trim()))
+                              .filter((v): v is string =>
+                                Boolean(v && v.trim())
+                              )
                               .join(" — ")}
                           </p>
                         )}

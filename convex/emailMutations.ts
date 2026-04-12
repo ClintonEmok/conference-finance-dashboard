@@ -40,6 +40,7 @@ export const triggerSignupConfirmationEmail = mutation({
         bedCount: v.number(),
       })
     ),
+    trackPaymentUrl: v.string(),
     successPageUrl: v.string(),
   },
   returns: v.null(),

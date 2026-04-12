@@ -28,18 +28,26 @@ export function EmailTikkieSection({
   const hasFixedAmount = amountMinor && amountMinor > 0
 
   return (
-    <Section style={{ margin: "24px 0" }}>
+    <Section
+      style={{
+        margin: "24px 0",
+        padding: "20px",
+        backgroundColor: "#eff6ff",
+        border: "1px solid #dbeafe",
+        borderRadius: "12px",
+      }}
+    >
       <Heading
         as="h2"
         style={{
           fontSize: "18px",
-          color: "#111827",
-          marginBottom: "12px",
+          color: "#0f172a",
+          marginBottom: "10px",
         }}
       >
         Complete Your Payment
       </Heading>
-      <Text style={{ color: "#374151", fontSize: "14px" }}>
+      <Text style={{ color: "#334155", fontSize: "14px", margin: "0" }}>
         {hasFixedAmount
           ? `Please complete your payment of ${formatCurrency(amountMinor, currency)} for ${eventName} using the link below.`
           : `Please complete your payment for ${eventName} using the link below. You can pay any amount that covers your booking.`}
@@ -47,13 +55,13 @@ export function EmailTikkieSection({
       <Button
         href={tikkieUrl}
         style={{
-          backgroundColor: "#3b82f6",
+          backgroundColor: "#0f172a",
           color: "#ffffff",
-          padding: "12px 24px",
+          padding: "12px 20px",
           textDecoration: "none",
-          borderRadius: "6px",
+          borderRadius: "10px",
           display: "inline-block",
-          marginTop: "12px",
+          marginTop: "16px",
           fontSize: "14px",
           fontWeight: "600",
         }}
@@ -64,7 +72,7 @@ export function EmailTikkieSection({
         style={{
           marginTop: "12px",
           fontSize: "12px",
-          color: "#6b7280",
+          color: "#475569",
         }}
       >
         Or copy this link: {tikkieUrl}

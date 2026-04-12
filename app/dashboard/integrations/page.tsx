@@ -3,6 +3,8 @@ import {
   getIntegrationStatus,
   type IntegrationStatusRecord,
 } from "@/lib/integrations/status"
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
 import { ResendTestSection } from "@/components/dashboard/resend-test-section"
 
 const stateStyles: Record<
@@ -124,6 +126,16 @@ export default async function IntegrationsPage() {
             </article>
           )
         })}
+      </div>
+
+      <div className="rounded-lg border border-border/70 bg-card p-4 text-sm shadow-sm">
+        <p className="font-medium">Email preview</p>
+        <p className="mt-1 text-muted-foreground">
+          Open the styled signup confirmation preview in the dashboard.
+        </p>
+        <Button asChild variant="outline" className="mt-3">
+          <Link href="/dashboard/email-preview">Open preview</Link>
+        </Button>
       </div>
 
       <ResendTestSection />

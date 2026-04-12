@@ -330,6 +330,7 @@ async function triggerConfirmationEmail(
     tikkieCurrency: event?.currency,
     attendeeCount: attendees.length,
     roomAssignments,
+    trackPaymentUrl: `${appUrl}/track-payment`,
     successPageUrl: `${appUrl}/signup/success/${bookingRef}`,
   })
 }
