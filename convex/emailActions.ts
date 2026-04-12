@@ -117,6 +117,13 @@ This email was sent by DCLM NL Conference.`.trim()
       return { success: false, error: "Failed to send email" }
     }
 
+    await ctx.runMutation(internal.emailMutations.logSentEmail, {
+      recipient: args.to,
+      bookingRef: args.bookingRef,
+      emailId,
+      emailType: "signup_confirmation",
+    })
+
     return { success: true, emailId }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error"
@@ -141,7 +148,7 @@ async function sendOrderConfirmationResendEmail(
     return { success: false, error: "Order is missing event data" }
   }
 
-  if (!order.order.buyerEmail) {
+  if (!order.order.bookerEmail) {
     return { success: false, error: "Order is missing a buyer email" }
   }
 
@@ -161,8 +168,8 @@ async function sendOrderConfirmationResendEmail(
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
 
   const result = await sendSignupConfirmationEmail(ctx, {
-    to: order.order.buyerEmail,
-    bookerName: order.order.buyerName ?? "Guest",
+    to: order.order.bookerEmail,
+    bookerName: order.order.bookerName ?? "Guest",
     bookingRef: order.order.bookingRef,
     eventName: event?.title ?? "Conference",
     eventDate: event?.startsAt
@@ -180,7 +187,7 @@ async function sendOrderConfirmationResendEmail(
 
   if (result.success) {
     await ctx.runMutation(internal.emailMutations.logSentEmail, {
-      recipient: order.order.buyerEmail,
+      recipient: order.order.bookerEmail,
       bookingRef: order.order.bookingRef,
       emailId: result.emailId,
       emailType: "order_confirmation_resend",

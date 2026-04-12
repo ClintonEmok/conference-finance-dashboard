@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { mutation, query, type MutationCtx } from "./_generated/server"
 import type { Id } from "./_generated/dataModel"
+import { api, internal } from "./_generated/api"
 import {
   signupGenderValidator,
   signupSourceValidator,
@@ -58,6 +59,41 @@ const restorePayloadValidator = v.object({
     })
   ),
 })
+
+function buildSignupConfirmationRoomAssignments(
+  assignments: Array<{
+    attendeeKey: string
+    slotId: Id<"accommodationSlots">
+    assignmentIntent: "assign" | "skip"
+  }>
+) {
+  const uniqueSlotIds = new Set<string>()
+  const roomAssignments: Array<{
+    roomType: string
+    hotelName: string
+    bedCount: number
+  }> = []
+
+  for (const assignment of assignments) {
+    if (assignment.assignmentIntent !== "assign") {
+      continue
+    }
+
+    const slotId = String(assignment.slotId)
+    if (uniqueSlotIds.has(slotId)) {
+      continue
+    }
+
+    uniqueSlotIds.add(slotId)
+    roomAssignments.push({
+      roomType: "Room",
+      hotelName: "Assigned",
+      bedCount: 1,
+    })
+  }
+
+  return roomAssignments
+}
 
 function throwSubmissionError(
   code: SignupSubmissionErrorCode,
@@ -637,6 +673,49 @@ export const submitSignupEnvelope = mutation({
         orderId: submissionId,
         expiresAt: now + IDEMPOTENCY_WINDOW_MS,
       })
+    }
+
+    try {
+      const event = await ctx
+        .runQuery(api.events.getEventById, {
+          eventId: String(args.eventId),
+        })
+        .catch(() => null)
+
+      const tikkieLink = await ctx
+        .runQuery(api.tikkie.getEventPaymentLinkForSuccess, {
+          eventId: args.eventId,
+        })
+        .catch(() => null)
+
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+      const roomAssignments = buildSignupConfirmationRoomAssignments(
+        args.assignments
+      )
+
+      await ctx.scheduler.runAfter(
+        0,
+        internal.emailActions.sendSignupConfirmation,
+        {
+          to: bookerEmail,
+          bookerName,
+          bookingRef,
+          eventName: event?.title ?? "Conference",
+          eventDate: event?.startsAt
+            ? new Date(event.startsAt).toLocaleDateString("en-GB")
+            : new Date().toLocaleDateString("en-GB"),
+          eventLocation: "",
+          tikkieUrl: tikkieLink?.paymentUrl,
+          tikkieAmountMinor: tikkieLink?.amountMinor,
+          tikkieCurrency: event?.currency,
+          attendeeCount: args.attendees.length,
+          roomAssignments,
+          trackPaymentUrl: `${appUrl}/track-payment`,
+          successPageUrl: `${appUrl}/signup/success/${bookingRef}`,
+        }
+      )
+    } catch (error) {
+      console.error("Failed to queue signup confirmation email:", error)
     }
 
     return {

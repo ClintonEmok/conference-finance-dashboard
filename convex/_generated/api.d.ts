@@ -807,9 +807,9 @@ export declare const api: {
           amountDueMinor: number | null;
           archiveReason: string | null;
           archivedAt: string | null;
+          bookerEmail: string | null;
+          bookerName: string | null;
           bookingRef: string | null;
-          buyerEmail: string | null;
-          buyerName: string | null;
           eventId: Id<"events"> | null;
           id: Id<"orders">;
           isArchived?: boolean;

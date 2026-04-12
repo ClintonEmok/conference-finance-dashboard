@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation"
 import { useAction, useQuery } from "convex/react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Card,
@@ -41,6 +42,7 @@ import {
   Loader2,
   Link2Off,
   Mail,
+  CheckCircle2,
 } from "lucide-react"
 import { AssignPaymentSheet } from "./assign-payment-sheet"
 import { useUnassignPayment } from "@/lib/convex/hooks/payments"
@@ -56,7 +58,7 @@ type OrderAttendeePayload = {
   order: {
     id: string
     buyerName: string | null
-    buyerEmail: string | null
+    bookerEmail: string | null
     bookingRef: string | null
     eventId: string | null
     normalizedStatus: "paid" | "refunded" | "cancelled" | "pending" | null
@@ -185,7 +187,7 @@ export default function OrderDetailPage({ params }: PageProps) {
   const orderPayload = (orderQuery ?? null) as OrderAttendeePayload | null
 
   const canResendConfirmation = Boolean(
-    orderPayload?.order.buyerEmail && orderPayload?.order.bookingRef
+    orderPayload?.order.bookerEmail && orderPayload?.order.bookingRef
   )
 
   async function resendConfirmationEmail() {
@@ -213,8 +215,8 @@ export default function OrderDetailPage({ params }: PageProps) {
       }
 
       setResendMessage(
-        orderPayload?.order.buyerEmail
-          ? `Confirmation email sent to ${orderPayload.order.buyerEmail}.`
+        orderPayload?.order.bookerEmail
+          ? `Confirmation email sent to ${orderPayload.order.bookerEmail}.`
           : "Confirmation email sent."
       )
     } catch (error) {
@@ -364,17 +366,28 @@ export default function OrderDetailPage({ params }: PageProps) {
       )}
 
       {resendErrorMessage && (
-        <div className="flex items-center gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
+        <Alert
+          variant="destructive"
+          className="rounded-xl border-destructive/20"
+        >
           <AlertCircle className="size-4" />
-          {resendErrorMessage}
-        </div>
+          <AlertTitle className="text-destructive">Send failed</AlertTitle>
+          <AlertDescription className="text-destructive/80">
+            {resendErrorMessage}
+          </AlertDescription>
+        </Alert>
       )}
 
       {resendMessage && (
-        <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-700 dark:text-emerald-300">
-          <Mail className="size-4" />
-          {resendMessage}
-        </div>
+        <Alert className="rounded-xl border-emerald-500/20 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300">
+          <CheckCircle2 className="size-4" />
+          <AlertTitle className="text-emerald-700 dark:text-emerald-300">
+            Sent
+          </AlertTitle>
+          <AlertDescription className="text-emerald-700/90 dark:text-emerald-300/90">
+            {resendMessage}
+          </AlertDescription>
+        </Alert>
       )}
 
       {orderPayload && (
@@ -436,6 +449,11 @@ export default function OrderDetailPage({ params }: PageProps) {
                     <>
                       <Loader2 className="mr-2 size-3.5 animate-spin" />
                       Sending
+                    </>
+                  ) : resendMessage ? (
+                    <>
+                      <CheckCircle2 className="mr-2 size-3.5 text-emerald-600" />
+                      Sent
                     </>
                   ) : (
                     <>
