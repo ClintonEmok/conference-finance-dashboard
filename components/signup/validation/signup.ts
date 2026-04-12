@@ -20,6 +20,7 @@ export const signupBookerSchema = z.object({
 export const signupAttendeeSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   gender: z.enum(["male", "female", "mixed", "unknown"]),
+  location: z.string().trim().min(1, "Location is required"),
 })
 
 export type SignupBookerValidationSummary = {
@@ -85,7 +86,10 @@ export function validateSignupBooker(booker: {
 }
 
 export function validateSignupAttendees(
-  attendees: Pick<AttendeeDraft, "attendeeKey" | "name" | "gender">[]
+  attendees: Pick<
+    AttendeeDraft,
+    "attendeeKey" | "name" | "gender" | "location"
+  >[]
 ): SignupAttendeeValidationSummary {
   const byAttendee: Record<string, string[]> = {}
 
@@ -93,6 +97,7 @@ export function validateSignupAttendees(
     const result = signupAttendeeSchema.safeParse({
       name: attendee.name,
       gender: attendee.gender || "",
+      location: attendee.location,
     })
 
     if (result.success) {

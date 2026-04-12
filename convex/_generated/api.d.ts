@@ -369,6 +369,12 @@ export declare const api: {
     >;
   };
   emailActions: {
+    resendOrderConfirmation: FunctionReference<
+      "action",
+      "public",
+      { orderId: Id<"orders"> },
+      { emailId?: string; error?: string; success: boolean }
+    >;
     sendSignupConfirmationTest: FunctionReference<
       "action",
       "public",
@@ -389,6 +395,7 @@ export declare const api: {
         tikkieCurrency?: string;
         tikkieUrl?: string;
         to: string;
+        trackPaymentUrl: string;
       },
       { emailId?: string; error?: string; success: boolean }
     >;
@@ -414,6 +421,7 @@ export declare const api: {
         tikkieCurrency?: string;
         tikkieUrl?: string;
         to: string;
+        trackPaymentUrl: string;
       },
       null
     >;
@@ -799,8 +807,10 @@ export declare const api: {
           amountDueMinor: number | null;
           archiveReason: string | null;
           archivedAt: string | null;
-          buyerEmail: string | null;
-          buyerName: string | null;
+          bookerEmail: string | null;
+          bookerName: string | null;
+          bookingRef: string | null;
+          eventId: Id<"events"> | null;
           id: Id<"orders">;
           isArchived?: boolean;
           normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
@@ -1859,6 +1869,7 @@ export declare const internal: {
         tikkieCurrency?: string;
         tikkieUrl?: string;
         to: string;
+        trackPaymentUrl: string;
       },
       { emailId?: string; error?: string; success: boolean }
     >;

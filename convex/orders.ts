@@ -967,8 +967,10 @@ export const getOrderWithAttendees = query({
       order: v.object({
         id: v.id("orders"),
         providerOrderId: nullableStringValidator,
-        buyerName: nullableStringValidator,
-        buyerEmail: nullableStringValidator,
+        bookerName: nullableStringValidator,
+        bookerEmail: nullableStringValidator,
+        bookingRef: nullableStringValidator,
+        eventId: v.union(v.id("events"), v.null()),
         amountDueMinor: v.union(v.number(), v.null()),
         normalizedStatus: v.optional(canonicalOrderStatusValidator),
         isArchived: v.optional(v.boolean()),
@@ -1025,8 +1027,10 @@ export const getOrderWithAttendees = query({
       order: {
         id: order._id,
         providerOrderId: order.providerOrderId ?? null,
-        buyerName: order.bookerName ?? null,
-        buyerEmail: order.bookerEmail ?? null,
+        bookerName: order.bookerName ?? null,
+        bookerEmail: order.bookerEmail ?? null,
+        bookingRef: order.bookingRef ?? null,
+        eventId: order.eventId ?? null,
         amountDueMinor:
           amountDueBreakdown?.amountDueMinor ?? order.totalAmountMinor ?? null,
         normalizedStatus: order.status ?? undefined,

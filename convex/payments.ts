@@ -5,6 +5,10 @@ import { requireIdentity } from "./auth"
 import type { Id } from "./_generated/dataModel"
 import type { MutationCtx } from "./_generated/server"
 import {
+  evaluateOrderPaymentMatch,
+  type OrderPaymentMatchCandidate,
+} from "../lib/domain/finance/payment-matching"
+import {
   paymentSourceValidator,
   paymentStatusValidator,
   paymentDocValidator,
@@ -352,26 +356,9 @@ export const autoMatchPayments = mutation({
     const unassignedPayments = payments.filter((p) => p.status === "unassigned")
     const matched: string[] = []
 
-    // Normalize booker names once upfront
-    const orderLookup = new Map<string, (typeof orders)[0]>()
-    for (const order of orders) {
-      const normalizedBookerName = order.bookerName?.toLowerCase().trim() ?? ""
-      if (!normalizedBookerName) continue
-
-      // Store orders by normalized booker name for exact-match lookup
-      // Exact amount will be checked per-payment
-      const key = normalizedBookerName
-      if (!orderLookup.has(key)) {
-        orderLookup.set(key, order)
-      }
-    }
-
-    // Pre-fetch attendees for attendee-name matching fallback
-    // Fetch attendees for all orders (orderAttendees has by_orderId index, no eventId)
     const orderIds = orders.map((o) => o._id)
     const attendeesByOrder = new Map<string, string[]>()
 
-    // Bounded: fetch attendees for each order (max 500 orders * reasonable attendees per order)
     for (const orderId of orderIds.slice(0, 500)) {
       const attendees = await ctx.db
         .query("orderAttendees")
@@ -386,22 +373,28 @@ export const autoMatchPayments = mutation({
       }
     }
 
+    const orderMatchCandidates: OrderPaymentMatchCandidate[] = orders.map(
+      (order) => ({
+        orderId: String(order._id),
+        bookerName: order.bookerName ?? null,
+        attendeeNames: attendeesByOrder.get(String(order._id)) ?? [],
+        amountDueMinor:
+          amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
+          order.totalAmountMinor ??
+          0,
+      })
+    )
+
     for (const payment of unassignedPayments) {
-      const normalizedPayerName = payment.payerName.toLowerCase().trim()
-      const paymentAmount = payment.amountMinor
+      const match = evaluateOrderPaymentMatch(
+        payment.payerName,
+        payment.amountMinor,
+        orderMatchCandidates
+      )
 
-      // Match on normalized buyer name PLUS exact amount
-      const matchingOrder = orderLookup.get(normalizedPayerName)
-      const orderAmountDueMinor = matchingOrder
-        ? (amountDueBreakdownsByOrderId.get(String(matchingOrder._id))
-            ?.amountDueMinor ??
-          matchingOrder.totalAmountMinor ??
-          0)
-        : 0
-
-      if (matchingOrder && orderAmountDueMinor === paymentAmount) {
+      if (match?.status === "auto_matched") {
         await ctx.db.patch("payments", payment._id, {
-          orderId: matchingOrder._id,
+          orderId: match.orderId as Id<"orders">,
           status: "auto_matched",
           matchedAt: Date.now(),
           matchedBy: "auto",
@@ -410,26 +403,13 @@ export const autoMatchPayments = mutation({
         continue
       }
 
-      // Fallback: try attendee name match with exact amount
-      for (const order of orders) {
-        const orderAttendees = attendeesByOrder.get(order._id) ?? []
-        const attendeeMatch = orderAttendees.some(
-          (name) => name === normalizedPayerName
-        )
-        const orderAmountDueMinor =
-          amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-          order.totalAmountMinor ??
-          0
-        if (attendeeMatch && orderAmountDueMinor === paymentAmount) {
-          await ctx.db.patch("payments", payment._id, {
-            orderId: order._id,
-            status: "auto_matched",
-            matchedAt: Date.now(),
-            matchedBy: "auto",
-          })
-          matched.push(payment._id)
-          break
-        }
+      if (match?.status === "ambiguous") {
+        await ctx.db.patch("payments", payment._id, {
+          orderId: undefined,
+          status: "ambiguous",
+          matchedAt: undefined,
+          matchedBy: undefined,
+        })
       }
     }
 
@@ -540,6 +520,16 @@ export const internalAssignPaymentToOrder = internalMutation({
     if (!canonicalOrderId) {
       throw new Error("Order not found")
     }
+
+    const payment = await ctx.db.get("payments", args.paymentId)
+    if (!payment) {
+      throw new Error("Payment not found")
+    }
+
+    if (payment.status !== "unassigned") {
+      return args.paymentId
+    }
+
     await ctx.db.patch("payments", args.paymentId, {
       orderId: canonicalOrderId,
       status: args.status ?? "manual_assignment",

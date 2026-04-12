@@ -17,7 +17,7 @@ const STEP_LABELS: Record<SignupStep, string> = {
   tickets: "Ticket Selection",
   buyer: "Contact Details",
   attendees: "Attendee Info",
-  rooms: "Room Assignment",
+  rooms: "Room Preferences",
   review: "Review & Submit",
 }
 

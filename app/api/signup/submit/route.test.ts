@@ -1,13 +1,31 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextResponse } from "next/server"
 
 const mocks = vi.hoisted(() => ({
   submitSignup: vi.fn(),
   enforceRateLimit: vi.fn(),
+  convexQuery: vi.fn(),
+  convexMutation: vi.fn(),
   SignupSubmissionValidationError: class SignupSubmissionValidationError extends Error {
     code = "INVALID_SUBMISSION"
   },
 }))
+
+function mockTurnstileSuccess() {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+    return Promise.resolve(
+      new Response(JSON.stringify({ success: true }), { status: 200 })
+    )
+  })
+}
+
+function mockTurnstileFailure() {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+    return Promise.resolve(
+      new Response(JSON.stringify({ success: false }), { status: 200 })
+    )
+  })
+}
 
 vi.mock("@/lib/domain/signup/submission", () => ({
   submitSignup: mocks.submitSignup,
@@ -18,6 +36,11 @@ vi.mock("@/lib/rate-limit", () => ({
   enforceRateLimit: mocks.enforceRateLimit,
 }))
 
+vi.mock("@/lib/convex/server", () => ({
+  convexQuery: mocks.convexQuery,
+  convexMutation: mocks.convexMutation,
+}))
+
 import { POST } from "@/app/api/signup/submit/route"
 import { submitSignup } from "@/lib/domain/signup/submission"
 import { enforceRateLimit } from "@/lib/rate-limit"
@@ -26,9 +49,15 @@ describe("POST /api/signup/submit", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(enforceRateLimit).mockReturnValue(null)
+    process.env.TURNSTILE_SECRET_KEY = "test-turnstile-secret"
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it("returns 201 with stable submission reference fields", async () => {
+    mockTurnstileSuccess()
     vi.mocked(submitSignup).mockResolvedValueOnce({
       submissionId: "j57d20f4n13n3m6v3kz5z2n6sh7mf3j8",
       bookingRef: "BK-20260329-ABC12345",
@@ -78,6 +107,7 @@ describe("POST /api/signup/submit", () => {
         body: JSON.stringify({
           eventId: "j57a0f4n13n3m6v3kz5z2n6sh7mew4p2",
           source: "internal",
+          captchaToken: "turnstile-token",
           booker: {
             name: "Booker",
             email: "booker@example.com",
@@ -172,6 +202,7 @@ describe("POST /api/signup/submit", () => {
   })
 
   it("returns 400 with INVALID_SUBMISSION when validation fails", async () => {
+    mockTurnstileSuccess()
     vi.mocked(submitSignup).mockRejectedValueOnce(
       new mocks.SignupSubmissionValidationError(
         "Invalid 'attendees'. At least one attendee is required."
@@ -185,6 +216,7 @@ describe("POST /api/signup/submit", () => {
         body: JSON.stringify({
           eventId: "event_1",
           source: "internal",
+          captchaToken: "turnstile-token",
           booker: { name: "Booker", email: "booker@example.com" },
           attendees: [],
           ticketSelections: [],
@@ -204,6 +236,7 @@ describe("POST /api/signup/submit", () => {
   })
 
   it("maps uniqueness conflicts to 409 SUBMISSION_CONFLICT", async () => {
+    mockTurnstileSuccess()
     vi.mocked(submitSignup).mockRejectedValueOnce(
       new Error("SUBMISSION_CONFLICT: Duplicate attendee key 'a-1'")
     )
@@ -215,6 +248,7 @@ describe("POST /api/signup/submit", () => {
         body: JSON.stringify({
           eventId: "j57a0f4n13n3m6v3kz5z2n6sh7mew4p2",
           source: "internal",
+          captchaToken: "turnstile-token",
           booker: { name: "Booker", email: "booker@example.com" },
           attendees: [
             {
@@ -304,7 +338,65 @@ describe("POST /api/signup/submit", () => {
     expect(submitSignup).not.toHaveBeenCalled()
   })
 
+  it("rejects missing captcha tokens before verification", async () => {
+    const response = await POST(
+      new Request("http://localhost/api/signup/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId: "event_1",
+          source: "internal",
+          booker: { name: "Booker", email: "booker@example.com" },
+          attendees: [],
+          ticketSelections: [],
+        }),
+      })
+    )
+
+    const body = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(body).toEqual({
+      error: {
+        code: "CAPTCHA_REQUIRED",
+        message: "Complete the verification challenge and try again.",
+      },
+    })
+    expect(submitSignup).not.toHaveBeenCalled()
+  })
+
+  it("rejects invalid captcha tokens with CAPTCHA_FAILED", async () => {
+    mockTurnstileFailure()
+
+    const response = await POST(
+      new Request("http://localhost/api/signup/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId: "event_1",
+          source: "internal",
+          captchaToken: "bad-token",
+          booker: { name: "Booker", email: "booker@example.com" },
+          attendees: [],
+          ticketSelections: [],
+        }),
+      })
+    )
+
+    const body = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(body).toEqual({
+      error: {
+        code: "CAPTCHA_FAILED",
+        message: "Verification failed. Please try again.",
+      },
+    })
+    expect(submitSignup).not.toHaveBeenCalled()
+  })
+
   it("returns same reference and restore payload on idempotent retry", async () => {
+    mockTurnstileSuccess()
     const byKey = new Map<string, Awaited<ReturnType<typeof submitSignup>>>()
 
     vi.mocked(submitSignup).mockImplementation(async (_payload, options) => {
@@ -342,6 +434,7 @@ describe("POST /api/signup/submit", () => {
     const payload = {
       eventId: "j57a0f4n13n3m6v3kz5z2n6sh7mew4p2",
       source: "internal",
+      captchaToken: "turnstile-token",
       booker: { name: "Booker", email: "booker@example.com" },
       attendees: [
         {
@@ -405,6 +498,7 @@ describe("POST /api/signup/submit", () => {
   })
 
   it("forwards explicit x-idempotency-key header unchanged", async () => {
+    mockTurnstileSuccess()
     vi.mocked(submitSignup).mockResolvedValueOnce({
       submissionId: "j57d20f4n13n3m6v3kz5z2n6sh7mf3j8",
       bookingRef: "BK-20260329-ABC12345",
@@ -432,6 +526,7 @@ describe("POST /api/signup/submit", () => {
         body: JSON.stringify({
           eventId: "j57a0f4n13n3m6v3kz5z2n6sh7mew4p2",
           source: "internal",
+          captchaToken: "turnstile-token",
           booker: { name: "Booker", email: "booker@example.com" },
           attendees: [
             {

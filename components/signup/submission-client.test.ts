@@ -67,6 +67,7 @@ describe("signup-flow submission client", () => {
 
     const result = await submitSignupDraft(draftFixture, {
       idempotencyKey: "idem-1",
+      captchaToken: "turnstile-token",
     })
 
     expect(result).toEqual({
@@ -85,6 +86,43 @@ describe("signup-flow submission client", () => {
         headers: expect.objectContaining({
           "Content-Type": "application/json",
           "x-idempotency-key": "idem-1",
+        }),
+        body: JSON.stringify({
+          eventId: "event_1",
+          source: "internal",
+          notes: "Near entrance please",
+          booker: {
+            name: "Booker",
+            email: "booker@example.com",
+            phone: "+31699999999",
+          },
+          attendees: [
+            {
+              attendeeKey: "ticket_1-1",
+              name: "Jane Doe",
+              email: "jane@example.com",
+              phone: "+31612345678",
+              gender: "female",
+              location: "Amsterdam",
+              dietaryRestrictions: "none",
+              roommatePreference: "Sarah",
+            },
+          ],
+          ticketSelections: [
+            {
+              attendeeKey: "ticket_1-1",
+              ticketTypeId: "ticket_1",
+              quantity: 1,
+            },
+          ],
+          assignments: [
+            {
+              attendeeKey: "ticket_1-1",
+              slotId: "slot_1",
+              assignmentIntent: "assign",
+            },
+          ],
+          captchaToken: "turnstile-token",
         }),
       })
     )

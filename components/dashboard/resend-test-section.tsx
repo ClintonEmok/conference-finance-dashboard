@@ -55,6 +55,10 @@ export function ResendTestSection() {
           bedCount: 1,
         },
       ],
+      trackPaymentUrl:
+        typeof window === "undefined"
+          ? "http://localhost:3000/track-payment"
+          : `${window.location.origin}/track-payment`,
       successPageUrl:
         typeof window === "undefined"
           ? "http://localhost:3000/dashboard/integrations"
@@ -84,6 +88,7 @@ export function ResendTestSection() {
         eventLocation: defaults.eventLocation,
         attendeeCount: defaults.attendeeCount,
         roomAssignments: defaults.roomAssignments,
+        trackPaymentUrl: defaults.trackPaymentUrl,
         successPageUrl: defaults.successPageUrl,
       })
 

@@ -21,6 +21,7 @@ type AttendeeDetailsStepProps = {
 function fieldLabel(field: string) {
   if (field === "name") return "name"
   if (field === "gender") return "gender"
+  if (field === "location") return "location"
   return field
 }
 
@@ -173,8 +174,13 @@ export function AttendeeDetailsStep({
             </div>
 
             <div className="space-y-1">
-              <Label>Location</Label>
+              <Label>Location *</Label>
               <select
+                aria-invalid={hasFieldError(
+                  validationSummary,
+                  attendee.attendeeKey,
+                  "location"
+                )}
                 value={attendee.location}
                 className="touch:text-base h-11 w-full rounded-lg border border-input bg-transparent px-3 text-sm"
                 onChange={(event) =>
@@ -195,6 +201,15 @@ export function AttendeeDetailsStep({
                 <option value="Hungary">Hungary</option>
                 <option value="Other">Other</option>
               </select>
+              {hasFieldError(
+                validationSummary,
+                attendee.attendeeKey,
+                "location"
+              ) ? (
+                <p className="text-xs text-destructive">
+                  Location is required.
+                </p>
+              ) : null}
             </div>
 
             <div className="space-y-1">

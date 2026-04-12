@@ -13,6 +13,8 @@ export type SignupClientErrorCode =
   | "SUBMISSION_CONFLICT"
   | "RATE_LIMITED"
   | "HONEYPOT_TRIGGERED"
+  | "CAPTCHA_REQUIRED"
+  | "CAPTCHA_FAILED"
   | "SUBMISSION_FAILED"
 
 export type SignupClientSubmitResult =
@@ -31,7 +33,9 @@ export type SignupClientSubmitResult =
 export type SignupSubmissionBody = Omit<
   SignupSubmissionEnvelope,
   "idempotencyKey" | "payloadFingerprint" | "honeypotSeen"
->
+> & {
+  captchaToken?: string
+}
 
 export function buildSubmissionBodyFromDraft(
   draft: SignupDraft
@@ -82,6 +86,8 @@ function mapKnownErrorCode(code: string): SignupClientErrorCode {
   if (code === "SUBMISSION_CONFLICT") return "SUBMISSION_CONFLICT"
   if (code === "RATE_LIMITED") return "RATE_LIMITED"
   if (code === "HONEYPOT_TRIGGERED") return "HONEYPOT_TRIGGERED"
+  if (code === "CAPTCHA_REQUIRED") return "CAPTCHA_REQUIRED"
+  if (code === "CAPTCHA_FAILED") return "CAPTCHA_FAILED"
   return "SUBMISSION_FAILED"
 }
 
@@ -116,10 +122,14 @@ function createIdempotencyKey() {
 
 export async function submitSignupDraft(
   draft: SignupDraft,
-  options?: { idempotencyKey?: string }
+  options?: { idempotencyKey?: string; captchaToken?: string }
 ): Promise<SignupClientSubmitResult> {
   const body = buildSubmissionBodyFromDraft(draft)
   const idempotencyKey = options?.idempotencyKey ?? createIdempotencyKey()
+
+  if (options?.captchaToken) {
+    body.captchaToken = options.captchaToken
+  }
 
   try {
     const response = await fetch("/api/signup/submit", {
