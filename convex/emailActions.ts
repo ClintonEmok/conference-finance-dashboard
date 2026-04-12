@@ -60,6 +60,19 @@ const signupConfirmationReturns = v.object({
   error: v.optional(v.string()),
 })
 
+const backfillSignupConfirmationArgs = {
+  dryRun: v.optional(v.boolean()),
+  limit: v.optional(v.number()),
+}
+
+const backfillSignupConfirmationReturns = v.object({
+  dryRun: v.boolean(),
+  scanned: v.number(),
+  queued: v.number(),
+  skipped: v.number(),
+  candidates: v.array(v.string()),
+})
+
 async function sendSignupConfirmationEmail(
   ctx: ActionCtx,
   args: SignupConfirmationEmailArgs

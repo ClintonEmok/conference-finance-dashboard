@@ -11,7 +11,7 @@ function computeProgress(
   totalPaidMinor: number,
   totalDueMinor: number
 ): number {
-  if (totalDueMinor <= 0) return 0
+  if (totalDueMinor <= 0) return 100
   return Math.min(100, Math.round((totalPaidMinor / totalDueMinor) * 100))
 }
 
