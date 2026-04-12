@@ -1,258 +1,76 @@
 import { describe, it, expect } from "vitest"
 
-/**
- * Tests for the payment matching algorithm used in Convex mutations.
- * The matching logic is replicated here as pure functions to verify behavior
- * without requiring Convex runtime context.
- */
+import {
+  evaluateOrderPaymentMatch,
+  scoreNameMatch,
+} from "@/lib/domain/finance/payment-matching"
 
-// --- Matching helpers (mirrors Convex logic) ---
-
-function normalizeForMatch(name: string): string {
-  return name.toLowerCase().trim()
-}
-
-function matchByName(
-  payerName: string,
-  buyerName: string | null | undefined
-): boolean {
-  if (!buyerName) return false
-  return normalizeForMatch(payerName) === normalizeForMatch(buyerName)
-}
-
-function matchByAttendeeName(
-  payerName: string,
-  attendeeNames: string[]
-): boolean {
-  const normalized = normalizeForMatch(payerName)
-  return attendeeNames.some((name) => normalizeForMatch(name) === normalized)
-}
-
-function matchPayment(
-  payment: { payerName: string; amountMinor: number },
-  order: {
-    _id: string
-    buyerName: string | null
-    totalAmountMinor: number | null
-  },
-  attendeeNames: string[]
-): boolean {
-  // First: exact buyer name match
-  if (matchByName(payment.payerName, order.buyerName)) {
-    return true
-  }
-
-  // Fallback: attendee name match WITH exact amount
-  if (
-    matchByAttendeeName(payment.payerName, attendeeNames) &&
-    order.totalAmountMinor != null &&
-    order.totalAmountMinor === payment.amountMinor
-  ) {
-    return true
-  }
-
-  return false
-}
-
-// --- Test data ---
-
-const makeOrder = (
-  overrides: Partial<{
-    _id: string
-    buyerName: string | null
-    totalAmountMinor: number | null
-  }> = {}
-) => ({
-  _id: "order_1",
-  buyerName: "Jane Doe",
-  totalAmountMinor: 10000,
-  ...overrides,
-})
-
-const makePayment = (
-  overrides: Partial<{ payerName: string; amountMinor: number }> = {}
-) => ({
-  payerName: "Jane Doe",
-  amountMinor: 10000,
-  ...overrides,
-})
-
-// --- Tests ---
-
-describe("payment matching - booker name", () => {
-  it("matches when buyer name equals payer name exactly", () => {
-    const order = makeOrder({ buyerName: "Jane Doe" })
-    const payment = makePayment({ payerName: "Jane Doe" })
-
-    expect(matchPayment(payment, order, [])).toBe(true)
+describe("payment matching - name scoring", () => {
+  it("matches exact names case-insensitively", () => {
+    expect(scoreNameMatch("Jane Doe", "jane doe")).toBe(100)
   })
 
-  it("matches case-insensitively", () => {
-    const order = makeOrder({ buyerName: "Jane Doe" })
-    const payment = makePayment({ payerName: "jane doe" })
-
-    expect(matchPayment(payment, order, [])).toBe(true)
+  it("treats surname-only matches as strong signals", () => {
+    expect(scoreNameMatch("Jane Doe", "Doe")).toBeGreaterThanOrEqual(80)
   })
 
-  it("trims whitespace before matching", () => {
-    const order = makeOrder({ buyerName: "  Jane Doe  " })
-    const payment = makePayment({ payerName: "Jane Doe" })
-
-    expect(matchPayment(payment, order, [])).toBe(true)
-  })
-
-  it("does not match when buyer name differs", () => {
-    const order = makeOrder({ buyerName: "Jane Doe" })
-    const payment = makePayment({ payerName: "John Smith" })
-
-    expect(matchPayment(payment, order, [])).toBe(false)
-  })
-
-  it("does not match when buyer name is null", () => {
-    const order = makeOrder({ buyerName: null })
-    const payment = makePayment({ payerName: "Jane Doe" })
-
-    expect(matchPayment(payment, order, [])).toBe(false)
+  it("returns a weak score for unrelated names", () => {
+    expect(scoreNameMatch("Jane Doe", "Bob Wilson")).toBe(0)
   })
 })
 
-describe("payment matching - attendee name fallback", () => {
-  it("matches by attendee name when booker name does not match", () => {
-    const order = makeOrder({
-      buyerName: "Jane Doe",
-      totalAmountMinor: 10000,
-    })
-    const payment = makePayment({
-      payerName: "John Smith",
-      amountMinor: 10000,
-    })
+describe("payment matching - booker first", () => {
+  it("auto-matches when the booker name is strong and the amount fits", () => {
+    const match = evaluateOrderPaymentMatch("Jane Doe", 5000, [
+      {
+        orderId: "order_1",
+        bookerName: "Jane Doe",
+        amountDueMinor: 10000,
+      },
+    ])
 
-    expect(matchPayment(payment, order, ["John Smith", "Bob Wilson"])).toBe(
-      true
-    )
+    expect(match).toEqual({ status: "auto_matched", orderId: "order_1" })
   })
 
-  it("requires exact amount match for attendee fallback", () => {
-    const order = makeOrder({
-      buyerName: "Jane Doe",
-      totalAmountMinor: 10000,
-    })
-    const payment = makePayment({
-      payerName: "John Smith",
-      amountMinor: 5000,
-    })
+  it("still auto-matches when the payment is partial", () => {
+    const match = evaluateOrderPaymentMatch("Jane Doe", 5000, [
+      {
+        orderId: "order_1",
+        bookerName: "Jane Doe",
+        amountDueMinor: 10000,
+      },
+    ])
 
-    expect(matchPayment(payment, order, ["John Smith"])).toBe(false)
+    expect(match?.status).toBe("auto_matched")
   })
 
-  it("matches first matching attendee", () => {
-    const order = makeOrder({
-      buyerName: "Jane Doe",
-      totalAmountMinor: 10000,
-    })
-    const payment = makePayment({
-      payerName: "Bob Wilson",
-      amountMinor: 10000,
-    })
+  it("does not auto-match on attendee names alone", () => {
+    const match = evaluateOrderPaymentMatch("John Smith", 10000, [
+      {
+        orderId: "order_1",
+        bookerName: "Jane Doe",
+        attendeeNames: ["John Smith"],
+        amountDueMinor: 10000,
+      },
+    ])
 
-    expect(
-      matchPayment(payment, order, ["John Smith", "Bob Wilson", "Alice Brown"])
-    ).toBe(true)
+    expect(match).toEqual({ status: "ambiguous" })
   })
 
-  it("does not match attendees when booker already matches", () => {
-    const order = makeOrder({
-      buyerName: "Jane Doe",
-      totalAmountMinor: 10000,
-    })
-    const payment = makePayment({
-      payerName: "Jane Doe",
-      amountMinor: 10000,
-    })
+  it("marks close booker ties as ambiguous", () => {
+    const match = evaluateOrderPaymentMatch("Jane Doe", 10000, [
+      {
+        orderId: "order_1",
+        bookerName: "Jane Doe",
+        amountDueMinor: 10000,
+      },
+      {
+        orderId: "order_2",
+        bookerName: "Jane Doe",
+        amountDueMinor: 10000,
+      },
+    ])
 
-    // Booker matches - should match regardless of attendees
-    expect(matchPayment(payment, order, ["Someone Else"])).toBe(true)
-  })
-
-  it("handles case-insensitive attendee matching", () => {
-    const order = makeOrder({
-      buyerName: "Jane Doe",
-      totalAmountMinor: 10000,
-    })
-    const payment = makePayment({
-      payerName: "john smith",
-      amountMinor: 10000,
-    })
-
-    expect(matchPayment(payment, order, ["JOHN SMITH"])).toBe(true)
-  })
-
-  it("returns false when neither booker nor attendees match", () => {
-    const order = makeOrder({
-      buyerName: "Jane Doe",
-      totalAmountMinor: 10000,
-    })
-    const payment = makePayment({
-      payerName: "Unknown Person",
-      amountMinor: 10000,
-    })
-
-    expect(matchPayment(payment, order, ["John Smith", "Bob Wilson"])).toBe(
-      false
-    )
-  })
-
-  it("returns false with empty attendee list and non-matching booker", () => {
-    const order = makeOrder({
-      buyerName: "Jane Doe",
-      totalAmountMinor: 10000,
-    })
-    const payment = makePayment({
-      payerName: "Unknown Person",
-      amountMinor: 10000,
-    })
-
-    expect(matchPayment(payment, order, [])).toBe(false)
-  })
-})
-
-describe("payment matching - amount requirements", () => {
-  it("booker match does not require amount check (matched by name alone)", () => {
-    const order = makeOrder({
-      buyerName: "Jane Doe",
-      totalAmountMinor: 10000,
-    })
-    const payment = makePayment({
-      payerName: "Jane Doe",
-      amountMinor: 5000,
-    })
-
-    // Booker name match: amount not checked in current logic
-    expect(matchPayment(payment, order, [])).toBe(true)
-  })
-
-  it("attendee fallback requires exact amount match", () => {
-    const order = makeOrder({
-      buyerName: "Jane Doe",
-      totalAmountMinor: 10000,
-    })
-
-    // Same amount - should match
-    expect(
-      matchPayment(
-        makePayment({ payerName: "John Smith", amountMinor: 10000 }),
-        order,
-        ["John Smith"]
-      )
-    ).toBe(true)
-
-    // Different amount - should NOT match
-    expect(
-      matchPayment(
-        makePayment({ payerName: "John Smith", amountMinor: 9999 }),
-        order,
-        ["John Smith"]
-      )
-    ).toBe(false)
+    expect(match).toEqual({ status: "ambiguous" })
   })
 })

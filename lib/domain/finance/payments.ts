@@ -2,6 +2,10 @@ import { getPaymentRequestPayments } from "@/lib/integrations/tikkie/client"
 import { api } from "@/lib/convex/api"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
 import type { Id } from "@/convex/_generated/dataModel"
+import {
+  selectBestBookerMatch,
+  type BookerOnlyMatchCandidate,
+} from "./payment-matching"
 
 export type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 
@@ -406,28 +410,38 @@ export async function autoMatchPayments(): Promise<AutoMatchResult> {
     {}
   )
 
+  const matchingOrders = (await convexQuery(api.orders.getOrders, {
+    status: "paid",
+  })) as Array<{ _id: string; buyerName: string | null }>
+
+  const bookerCandidates: BookerOnlyMatchCandidate[] = matchingOrders.map(
+    (order) => ({
+      orderId: order._id,
+      bookerName: order.buyerName,
+    })
+  )
+
   for (const payment of unassignedPayments) {
-    const matchingOrders = (await convexQuery(api.orders.getOrders, {
-      status: "paid",
-    })) as Array<{ _id: string; buyerName: string | null }>
+    const match = selectBestBookerMatch(payment.payerName, bookerCandidates)
 
-    const matches = matchingOrders.filter(
-      (o) => o.buyerName?.toLowerCase() === payment.payerName.toLowerCase()
-    )
-
-    if (matches.length === 0) {
+    if (!match) {
       result.unchanged++
-    } else if (matches.length === 1) {
+      continue
+    }
+
+    if (match.status === "auto_matched") {
       await convexMutation(api.payments.assignPaymentToOrder, {
         paymentId: payment._id as Id<"payments">,
-        orderId: matches[0]._id as Id<"orders">,
+        orderId: match.orderId as Id<"orders">,
         status: "auto_matched",
         matchedBy: "auto",
       })
+
       result.autoMatched++
-    } else {
-      result.ambiguous++
+      continue
     }
+
+    result.ambiguous++
   }
 
   return result

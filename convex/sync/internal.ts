@@ -1,4 +1,5 @@
 import { internalQuery } from "../_generated/server"
+import { loadOrderAmountDueBreakdowns } from "../finance"
 
 // Internal queries for autoSync.ts and other actions
 // These run without auth since they're called from system-level actions
@@ -26,10 +27,21 @@ export const internalGetPaidOrders = internalQuery({
       .query("orders")
       .withIndex("by_status", (q) => q.eq("status", "paid"))
       .collect()
+
+    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      orders
+    )
+
     return orders.map((o) => ({
       _id: o._id,
+      eventId: o.eventId,
       bookerName: o.bookerName ?? null,
       totalAmountMinor: o.totalAmountMinor ?? null,
+      amountDueMinor:
+        amountDueBreakdownsByOrderId.get(String(o._id))?.amountDueMinor ??
+        o.totalAmountMinor ??
+        null,
     }))
   },
 })
