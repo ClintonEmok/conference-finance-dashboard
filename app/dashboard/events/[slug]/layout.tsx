@@ -19,6 +19,7 @@ import { useEventBySlug } from "@/lib/convex/hooks/events"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { EventSwitcher } from "@/components/dashboard/event-switcher"
 
 interface EventLayoutProps {
   children: React.ReactNode
@@ -111,11 +112,12 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
-      {/* Secondary Sidebar (Sub-nav) */}
       <aside className="w-full shrink-0 lg:w-64">
         <div className="sticky top-20 space-y-4">
           <div className="flex flex-col gap-4 rounded-2xl border border-white/60 bg-white/40 p-5 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
-            <div className="space-y-1">
+            <EventSwitcher currentSlug={slug} />
+
+            <div className="space-y-1 border-t border-border/40 pt-4">
               <h2 className="text-xs font-black tracking-[0.2em] text-muted-foreground/50 uppercase">
                 Active Event
               </h2>
@@ -142,6 +144,12 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
                   View public page
                 </span>
                 <ExternalLink className="size-3 text-muted-foreground/50 group-hover:text-primary" />
+              </Link>
+              <Link
+                href="/dashboard/events"
+                className="text-[10px] font-bold text-primary hover:underline"
+              >
+                Back to chooser
               </Link>
             </div>
           </div>
@@ -180,7 +188,6 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
         </div>
       </aside>
 
-      {/* Main Context Area */}
       <div className="min-w-0 flex-1">
         <div className="animate-in duration-700 fade-in slide-in-from-bottom-2">
           {children}
