@@ -1,7 +1,7 @@
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 import type { Id } from "@/convex/_generated/dataModel"
-import { buildMatchedTotalsByProviderOrderId } from "@/lib/domain/finance/matched-payments"
+import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
 import {
   allocateMinorAmountByWeight,
   deriveBalanceAmounts,
@@ -36,6 +36,33 @@ type PaymentMatchStatus =
   | "unassigned"
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
+
+async function resolveCanonicalPaymentOrderId(
+  rawOrderId: string,
+  cache: Map<string, string | null>
+): Promise<string | null> {
+  if (cache.has(rawOrderId)) {
+    return cache.get(rawOrderId) ?? null
+  }
+
+  const byOrderId = await convexQuery(api.orders.getOrderById, {
+    orderId: rawOrderId,
+  })
+
+  if (byOrderId?._id) {
+    const canonicalOrderId = byOrderId._id as string
+    cache.set(rawOrderId, canonicalOrderId)
+    return canonicalOrderId
+  }
+
+  const byProviderOrder = await convexQuery(api.orders.getOrderByProviderId, {
+    providerOrderId: rawOrderId,
+  })
+
+  const canonicalOrderId = byProviderOrder?._id ?? null
+  cache.set(rawOrderId, canonicalOrderId)
+  return canonicalOrderId
+}
 
 type OrderWithAttendeesOrder = {
   id: string
@@ -286,17 +313,16 @@ export async function getAttendeeDetail(
 
   const orderAmountDueMinor =
     order.amountDueMinor ?? order.totalAmountMinor ?? 0
-  const matchedTotalsByProviderOrderId =
-    await buildMatchedTotalsByProviderOrderId([
-      {
-        providerOrderId: order.providerOrderId,
-        orderId: order.id,
-      },
-    ])
-  const paymentMatchKey = order.providerOrderId ?? order.id
+  const matchedTotalsByOrderId = await buildMatchedTotalsByOrderId([
+    {
+      orderId: order.id,
+      providerOrderId: order.providerOrderId,
+    },
+  ])
+  const paymentMatchKey = order.id
   const orderPaidAmountMinor = Math.max(
     0,
-    matchedTotalsByProviderOrderId.get(paymentMatchKey) ?? 0
+    matchedTotalsByOrderId.get(paymentMatchKey) ?? 0
   )
   const paidShareByAttendeeId = allocateMinorAmountByWeight(
     orderPaidAmountMinor,
@@ -342,7 +368,7 @@ export async function getAttendeeDetail(
   )
 
   const assignedPayments: PaymentRecord[] = []
-  const legacyLookupCache = new Map<string, string | null>()
+  const canonicalLookupCache = new Map<string, string | null>()
 
   for (const payment of (allPayments ?? []) as PaymentRecord[]) {
     if (
@@ -364,29 +390,17 @@ export async function getAttendeeDetail(
       continue
     }
 
-    let providerOrderId: string | null = null
-
-    if (rawOrderId === order.providerOrderId) {
-      providerOrderId = rawOrderId
-    } else if (rawOrderId === order.id) {
-      providerOrderId = order.providerOrderId
-    } else if (legacyLookupCache.has(rawOrderId)) {
-      providerOrderId = legacyLookupCache.get(rawOrderId) ?? null
-    } else {
-      const legacyOrder = await convexQuery(api.orders.getOrderById, {
-        orderId: rawOrderId,
-      })
-
-      const fallbackProviderOrderId =
-        legacyOrder && typeof legacyOrder.providerOrderId === "string"
-          ? legacyOrder.providerOrderId.trim()
-          : ""
-
-      providerOrderId = fallbackProviderOrderId || null
-      legacyLookupCache.set(rawOrderId, providerOrderId)
+    if (rawOrderId === order.id) {
+      assignedPayments.push(payment)
+      continue
     }
 
-    if (providerOrderId !== order.providerOrderId) {
+    const canonicalOrderId = await resolveCanonicalPaymentOrderId(
+      rawOrderId,
+      canonicalLookupCache
+    )
+
+    if (canonicalOrderId !== order.id) {
       continue
     }
 
@@ -493,9 +507,7 @@ export async function getAttendeeDetail(
     }
   }
 
-  const listEndpoint = order.providerOrderId
-    ? `/api/dashboard/tikkie-links?providerOrderId=${encodeURIComponent(order.providerOrderId)}`
-    : `/api/dashboard/tikkie-links?orderId=${encodeURIComponent(order.id)}`
+  const listEndpoint = `/api/dashboard/tikkie-links?orderId=${encodeURIComponent(order.id)}`
   const generationDefaults = {
     amountMinor: templateMatch.amountMinor,
     expiryDate: templateMatch.expiryDate,

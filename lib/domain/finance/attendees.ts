@@ -1,6 +1,6 @@
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
-import { buildMatchedTotalsByProviderOrderId } from "@/lib/domain/finance/matched-payments"
+import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
 import {
   allocateMinorAmountByWeight,
   deriveBalanceAmounts,
@@ -328,13 +328,12 @@ export async function getAttendeeLedger(
     )
   }
 
-  const matchedTotalsByProviderOrderId =
-    await buildMatchedTotalsByProviderOrderId(
-      filteredAttendees.map((attendee) => ({
-        providerOrderId: attendee.orderProviderOrderId ?? null,
-        orderId: attendee.orderId,
-      }))
-    )
+  const matchedTotalsByOrderId = await buildMatchedTotalsByOrderId(
+    filteredAttendees.map((attendee) => ({
+      orderId: attendee.orderId,
+      providerOrderId: attendee.orderProviderOrderId ?? null,
+    }))
+  )
 
   const totalRows = filteredAttendees.length
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
@@ -360,10 +359,7 @@ export async function getAttendeeLedger(
   }
 
   for (const [orderId, attendeesForOrder] of attendeesByOrderId.entries()) {
-    const providerOrderId =
-      attendeesForOrder[0]?.orderProviderOrderId ?? orderId
-    const orderPaidAmountMinor =
-      matchedTotalsByProviderOrderId.get(providerOrderId) ?? 0
+    const orderPaidAmountMinor = matchedTotalsByOrderId.get(orderId) ?? 0
     const paidAmountByAttendeeId = allocateMinorAmountByWeight(
       orderPaidAmountMinor,
       attendeesForOrder.map((attendee) => ({

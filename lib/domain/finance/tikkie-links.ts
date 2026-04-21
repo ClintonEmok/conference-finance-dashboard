@@ -50,6 +50,7 @@ export type TikkiePaymentLinksByOrderSummary = {
 }
 
 export type CreateTikkiePaymentLinkInput = {
+  orderId?: string | null
   providerOrderId: string
   providerEventId: string
   amountMinor: number
@@ -343,6 +344,10 @@ export function validateCreateTikkiePaymentLinkInput(
   input: CreateTikkiePaymentLinkInput
 ) {
   return {
+    orderId:
+      typeof input.orderId === "string" && input.orderId.trim()
+        ? input.orderId.trim()
+        : null,
     providerOrderId: normalizeProviderIdentifier(
       input.providerOrderId,
       "providerOrderId"
@@ -366,10 +371,42 @@ function mapProviderStatus(providerStatus: string) {
   return "expired" as const
 }
 
-async function resolveOrder(providerOrderId: string, providerEventId: string) {
+async function resolveOrder(params: {
+  orderId?: string | null
+  providerOrderId: string
+  providerEventId: string
+}): Promise<{
+  _id: string
+  providerEventId: string | null
+  providerOrderId?: string | null
+}> {
+  if (params.orderId) {
+    const order = (await convexQuery(api.orders.getOrderById, {
+      orderId: params.orderId,
+    })) as {
+      _id: string
+      providerEventId: string | null
+      providerOrderId?: string | null
+    } | null
+
+    if (order) {
+      if (order.providerEventId !== params.providerEventId) {
+        throw new Error(
+          "Invalid provider identifiers. 'providerEventId' does not match the order."
+        )
+      }
+
+      return order
+    }
+  }
+
   const orders = (await convexQuery(api.orders.getOrderByProviderId, {
-    providerOrderId,
-  })) as { _id: string; providerEventId: string }[]
+    providerOrderId: params.providerOrderId,
+  })) as {
+    _id: string
+    providerEventId: string
+    providerOrderId?: string | null
+  }[]
 
   const order = orders[0]
 
@@ -377,7 +414,7 @@ async function resolveOrder(providerOrderId: string, providerEventId: string) {
     throw new Error("Order not found for given 'providerOrderId'.")
   }
 
-  if (order.providerEventId !== providerEventId) {
+  if (order.providerEventId !== params.providerEventId) {
     throw new Error(
       "Invalid provider identifiers. 'providerEventId' does not match the order."
     )
@@ -390,6 +427,7 @@ export async function createTikkiePaymentLink(
   input: CreateTikkiePaymentLinkInput
 ): Promise<CreateTikkiePaymentLinkResult> {
   const {
+    orderId,
     providerOrderId,
     providerEventId,
     amountMinor,
@@ -398,7 +436,15 @@ export async function createTikkiePaymentLink(
     referenceId,
   } = validateCreateTikkiePaymentLinkInput(input)
 
-  const order = await resolveOrder(providerOrderId, providerEventId)
+  const order = await resolveOrder({
+    orderId,
+    providerOrderId,
+    providerEventId,
+  })
+  const resolvedProviderOrderId =
+    typeof order.providerOrderId === "string"
+      ? normalizeProviderIdentifier(order.providerOrderId, "providerOrderId")
+      : providerOrderId
 
   const providerResponse = await createPaymentRequest({
     amountInCents: amountMinor,
@@ -426,7 +472,7 @@ export async function createTikkiePaymentLink(
   }
 
   const linkId = await convexMutation(api.tikkie.createPaymentLink, {
-    providerOrderId,
+    providerOrderId: resolvedProviderOrderId,
     providerEventId,
     orderId: order._id,
     paymentRequestToken: providerResponse.paymentRequestToken,
@@ -441,7 +487,7 @@ export async function createTikkiePaymentLink(
 
   const newLink: DbTikkiePaymentLink = {
     _id: linkId,
-    providerOrderId,
+    providerOrderId: resolvedProviderOrderId,
     providerEventId,
     orderId: order._id,
     paymentRequestToken: providerResponse.paymentRequestToken,
@@ -475,26 +521,46 @@ export async function listTikkiePaymentLinksByOrder(
       ? input.orderId.trim()
       : null
 
-  let resolvedOrderId = orderId
-  let resolvedProviderOrderId = providerOrderId
+  let resolvedOrderId: string | null = null
+  let resolvedProviderOrderId: string | null = null
 
-  if (!resolvedOrderId && resolvedProviderOrderId) {
-    const orders = (await convexQuery(api.orders.getOrderByProviderId, {
-      providerOrderId: resolvedProviderOrderId,
-    })) as { _id: string }[]
-
-    resolvedOrderId = orders[0]?._id ?? null
-  }
-
-  if (!resolvedProviderOrderId && resolvedOrderId) {
+  if (orderId) {
     const order = (await convexQuery(api.orders.getOrderById, {
-      orderId: resolvedOrderId,
-    })) as { providerOrderId?: string | null } | null
+      orderId,
+    })) as { _id: string; providerOrderId?: string | null } | null
 
+    if (order) {
+      resolvedOrderId = order._id
+      resolvedProviderOrderId =
+        typeof order.providerOrderId === "string"
+          ? normalizeProviderIdentifier(order.providerOrderId, "providerOrderId")
+          : null
+    } else if (providerOrderId) {
+      const orders = (await convexQuery(api.orders.getOrderByProviderId, {
+        providerOrderId,
+      })) as { _id: string; providerOrderId?: string | null }[]
+
+      const legacyOrder = orders[0]
+      resolvedOrderId = legacyOrder?._id ?? null
+      resolvedProviderOrderId =
+        legacyOrder && typeof legacyOrder.providerOrderId === "string"
+          ? normalizeProviderIdentifier(
+              legacyOrder.providerOrderId,
+              "providerOrderId"
+            )
+          : providerOrderId
+    }
+  } else if (providerOrderId) {
+    const orders = (await convexQuery(api.orders.getOrderByProviderId, {
+      providerOrderId,
+    })) as { _id: string; providerOrderId?: string | null }[]
+
+    const order = orders[0]
+    resolvedOrderId = order?._id ?? null
     resolvedProviderOrderId =
       order && typeof order.providerOrderId === "string"
         ? normalizeProviderIdentifier(order.providerOrderId, "providerOrderId")
-        : null
+        : providerOrderId
   }
 
   const links = resolvedOrderId
