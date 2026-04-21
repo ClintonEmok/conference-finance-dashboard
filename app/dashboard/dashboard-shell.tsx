@@ -100,8 +100,8 @@ const navigationSections: NavigationSection[] = [
             label: "Payments",
           },
           {
-            href: "/dashboard/orders",
-            label: "Orders",
+            href: "/dashboard/manage-orders",
+            label: "Manage Orders",
           },
           {
             href: "/dashboard/settings/ticket-types",
@@ -159,6 +159,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
   const isScoped = useMemo(() => {
     const scopedPatterns = [
       /^\/dashboard\/events\/(?!new$)[^/]+/,
+      /^\/dashboard\/manage-orders\/[^/]+/,
       /^\/dashboard\/orders\/[^/]+/,
       /^\/dashboard\/attendees\/[^/]+/,
       /^\/dashboard\/accommodation\/(?!inventory$)[^/]+/,
@@ -174,6 +175,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
       // If we just navigated into a scoped view from a non-scoped one
       const wasScoped = [
         /^\/dashboard\/events\/(?!new$)[^/]+/,
+        /^\/dashboard\/manage-orders\/[^/]+/,
         /^\/dashboard\/orders\/[^/]+/,
         /^\/dashboard\/attendees\/[^/]+/,
         /^\/dashboard\/accommodation\/(?!inventory$)[^/]+/,

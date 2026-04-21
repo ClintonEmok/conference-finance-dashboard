@@ -215,7 +215,7 @@ export default function FinancialPage() {
               asChild
               className="h-11 rounded-xl px-6 shadow-lg shadow-primary/20"
             >
-              <Link href="/dashboard/orders">Open ledger</Link>
+              <Link href="/dashboard/manage-orders">Open ledger</Link>
             </Button>
             <Button
               asChild
@@ -401,7 +401,7 @@ export default function FinancialPage() {
         <div className="grid gap-4 sm:grid-cols-3">
           {[
             {
-              href: "/dashboard/orders",
+              href: "/dashboard/manage-orders",
               icon: ReceiptText,
               title: "Ledger",
               desc: "Review logs & exports.",
@@ -413,7 +413,7 @@ export default function FinancialPage() {
               desc: "Reconcile balances.",
             },
             {
-              href: "/dashboard/orders",
+              href: "/dashboard/manage-orders",
               icon: FileOutput,
               title: "Bank Export",
               desc: "Generate exports.",

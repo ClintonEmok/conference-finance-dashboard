@@ -118,7 +118,7 @@ export default function AttendeeDetailPage({
   const [isSavingGender, setIsSavingGender] = useState(false)
   
   const attendeeId = rawAttendeeId?.trim() ?? ""
-  const orderLinkHref = payload ? `/dashboard/orders/${payload.order.id}` : "#"
+  const orderLinkHref = payload ? `/dashboard/manage-orders/${payload.order.id}` : "#"
 
   const loadAttendeeDetail = useCallback(
     async (targetId: string, silent = false) => {
