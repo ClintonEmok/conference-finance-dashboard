@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { format } from "date-fns"
 import {
   Calendar,
@@ -12,13 +13,11 @@ import {
   Check,
   ExternalLink,
 } from "lucide-react"
-import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useEvents } from "@/lib/convex/hooks/events"
-import { cn } from "@/lib/utils"
 
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false)
@@ -68,6 +67,7 @@ function getStatusBadge(isPublished: boolean) {
       </Badge>
     )
   }
+
   return (
     <Badge variant="outline" className="h-5 text-[10px]">
       Draft
@@ -79,24 +79,20 @@ export default function EventsPage() {
   const router = useRouter()
   const events = useEvents()
 
-  const [statusFilter, setStatusFilter] = useState<
-    "all" | "published" | "draft"
-  >("all")
+  const [statusFilter, setStatusFilter] = useState<"all" | "published" | "draft">("all")
   const [searchQuery, setSearchQuery] = useState("")
 
-  const filteredEvents = useMemo(() => {
+  const chooserEvents = useMemo(() => {
     if (!events) return []
 
     return events
       .filter((event) => event.primarySourceKind === "internal")
       .filter((event) => {
-        // Status filter
         if (statusFilter !== "all") {
           if (statusFilter === "published" && !event.isPublished) return false
           if (statusFilter === "draft" && event.isPublished) return false
         }
 
-        // Search filter
         if (searchQuery) {
           const query = searchQuery.toLowerCase()
           const matchesTitle = event.title?.toLowerCase().includes(query)
@@ -106,46 +102,143 @@ export default function EventsPage() {
 
         return true
       })
-      .sort((a, b) => {
-        // Sort by startsAt ascending (next event first)
-        return (a.startsAt ?? 0) - (b.startsAt ?? 0)
-      })
+      .sort((a, b) => (b.startsAt ?? 0) - (a.startsAt ?? 0))
   }, [events, statusFilter, searchQuery])
 
+  const recentEvents = chooserEvents.slice(0, 3)
   const isLoading = events === undefined
 
   return (
     <div className="animate-in space-y-8 duration-700 fade-in">
-      {/* Header */}
-      <header className="flex flex-col gap-4 px-1 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight text-foreground">
-            Events
-            {events && (
-              <Badge
-                variant="outline"
-                className="ml-2 flex h-5 items-center font-mono text-[10px] tracking-wider uppercase"
-              >
-                {events.length} Total
-              </Badge>
-            )}
+      <header className="flex flex-col gap-5 px-1 sm:flex-row sm:items-start sm:justify-between">
+        <div className="max-w-3xl space-y-3">
+          <p className="text-[10px] font-bold tracking-[0.22em] text-muted-foreground uppercase">
+            Event chooser
+          </p>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">
+            Choose an event
           </h1>
-          <p className="mt-1 text-muted-foreground">
-            Manage conference events and their settings.
+          <p className="text-sm leading-6 text-muted-foreground">
+            Open an existing event to work inside its dashboard, or create a new
+            one when you need a fresh scope.
           </p>
         </div>
+
         <div className="flex items-center gap-3">
           <Link href="/dashboard/events/new">
             <Button className="h-11 rounded-2xl bg-primary px-5 text-white shadow-lg shadow-primary/20 transition-all active:scale-95">
               <Plus className="mr-2 size-4" />
-              New Event
+              New event
             </Button>
           </Link>
         </div>
       </header>
 
-      {/* Filters */}
-      <article className="rounded-xl border border-border/50 bg-card/40 p-6 backdrop-blur-xl">
+      <article className="rounded-3xl border border-border/50 bg-card/40 p-6 shadow-sm backdrop-blur-xl">
+        <div className="mb-5 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase">
+              Recent events
+            </p>
+            <h2 className="mt-2 text-2xl font-bold tracking-tight text-foreground">
+              Open the latest work first
+            </h2>
+          </div>
+          <Link href="/dashboard/events/new" className="text-sm font-medium text-primary hover:underline">
+            New event
+          </Link>
+        </div>
+
+        {isLoading ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <article key={i} className="rounded-2xl border border-border/50 bg-background/50 p-5">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="mt-2 h-3 w-24" />
+                <Skeleton className="mt-4 h-20 w-full" />
+              </article>
+            ))}
+          </div>
+        ) : recentEvents.length > 0 ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {recentEvents.map((event) => (
+              <article key={event._id} className="rounded-2xl border border-border/50 bg-background/60 p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-base font-semibold text-foreground">
+                      {event.title ?? event.slug}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">{event.slug}</p>
+                  </div>
+                  {getStatusBadge(event.isPublished)}
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                  <div>
+                    <p className="font-semibold text-foreground">Starts</p>
+                    <p>{event.startsAt ? format(new Date(event.startsAt), "MMM d, yyyy") : "Not set"}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">Type</p>
+                    <p>{event.isPublished ? "Published" : "Draft"}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <Link href={`/dashboard/events/${event.slug}`}>
+                    <Button size="sm" className="rounded-xl">
+                      Open event
+                    </Button>
+                  </Link>
+                  {event.isPublished ? (
+                    <div className="flex flex-col items-end gap-1">
+                      <a
+                        href={`/events/${event.slug}`}
+                        onClick={(e) => e.stopPropagation()}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <ExternalLink className="size-3" />
+                        <span>/events/{event.slug}</span>
+                      </a>
+                      <a
+                        href={`/signup/${event.slug}`}
+                        onClick={(e) => e.stopPropagation()}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs text-primary transition-colors hover:bg-muted hover:text-primary"
+                      >
+                        <ExternalLink className="size-3" />
+                        <span>/signup/{event.slug}</span>
+                      </a>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground italic">Draft only</span>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-border/60 bg-background/50 p-8 text-center">
+            <h3 className="text-lg font-semibold text-foreground">No events yet</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Create your first event to start working in an event-scoped dashboard.
+            </p>
+            <div className="mt-5">
+              <Link href="/dashboard/events/new">
+                <Button className="rounded-xl">
+                  <Plus className="mr-2 size-4" />
+                  New event
+                </Button>
+              </Link>
+            </div>
+          </div>
+        )}
+      </article>
+
+      <article className="rounded-3xl border border-border/50 bg-card/40 p-6 shadow-sm backdrop-blur-xl">
         <div className="flex flex-wrap items-end gap-4">
           <div className="min-w-[150px] flex-1 space-y-1.5">
             <label className="ml-1 flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
@@ -156,7 +249,7 @@ export default function EventsPage() {
               onChange={(e) => setStatusFilter(e.target.value as any)}
               className="h-11 w-full rounded-lg border border-border/40 bg-background/50 px-4 text-sm transition-all focus:ring-2 focus:ring-primary/20"
             >
-              <option value="all">All Statuses</option>
+              <option value="all">All statuses</option>
               <option value="published">Published</option>
               <option value="draft">Draft</option>
             </select>
@@ -177,7 +270,6 @@ export default function EventsPage() {
         </div>
       </article>
 
-      {/* Event Table */}
       <article className="overflow-hidden rounded-xl border border-border/50 bg-card/40 shadow-sm backdrop-blur-xl">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left text-sm">
@@ -195,7 +287,9 @@ export default function EventsPage() {
                 <th className="px-6 py-4 text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase">
                   Public URLs
                 </th>
-                <th className="w-10 px-6 py-4"></th>
+                <th className="w-28 px-6 py-4 text-right text-[10px] font-bold tracking-wider text-muted-foreground/70 uppercase">
+                  Action
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/20">
@@ -222,7 +316,7 @@ export default function EventsPage() {
                     </td>
                   </tr>
                 ))
-              ) : filteredEvents.length === 0 ? (
+              ) : chooserEvents.length === 0 ? (
                 <tr>
                   <td
                     colSpan={5}
@@ -234,33 +328,23 @@ export default function EventsPage() {
                   </td>
                 </tr>
               ) : (
-                filteredEvents.map((event) => (
+                chooserEvents.map((event) => (
                   <tr
                     key={event._id}
-                    onClick={() =>
-                      router.push(`/dashboard/events/${event.slug}`)
-                    }
+                    onClick={() => router.push(`/dashboard/events/${event.slug}`)}
                     className="group cursor-pointer transition-colors hover:bg-muted/30"
                   >
                     <td className="px-6 py-5">
-                      <div className="font-semibold text-foreground">
-                        {event.title}
-                      </div>
-                      <div className="mt-0.5 font-mono text-xs text-muted-foreground/60">
-                        {event.slug}
-                      </div>
+                      <div className="font-semibold text-foreground">{event.title ?? event.slug}</div>
+                      <div className="mt-0.5 font-mono text-xs text-muted-foreground/60">{event.slug}</div>
                     </td>
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-2 text-sm">
                         <Calendar className="size-3.5 text-muted-foreground" />
-                        {event.startsAt
-                          ? format(new Date(event.startsAt), "MMM d, yyyy")
-                          : "-"}
+                        {event.startsAt ? format(new Date(event.startsAt), "MMM d, yyyy") : "-"}
                       </div>
                     </td>
-                    <td className="px-6 py-5">
-                      {getStatusBadge(event.isPublished)}
-                    </td>
+                    <td className="px-6 py-5">{getStatusBadge(event.isPublished)}</td>
                     <td className="px-6 py-5">
                       {event.isPublished ? (
                         <div className="space-y-1">
@@ -298,15 +382,18 @@ export default function EventsPage() {
                           </div>
                         </div>
                       ) : (
-                        <span className="text-xs text-muted-foreground italic">
-                          Not published
-                        </span>
+                        <span className="text-xs text-muted-foreground italic">Not published</span>
                       )}
                     </td>
-                    <td className="px-6 py-5">
-                      <div className="flex size-8 items-center justify-center rounded-full bg-muted/40 text-muted-foreground/40 transition-all group-hover:bg-primary/10 group-hover:text-primary">
-                        <ChevronRight className="size-4" />
-                      </div>
+                    <td className="px-6 py-5 text-right">
+                      <Link
+                        href={`/dashboard/events/${event.slug}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 rounded-xl border border-border/50 bg-background/70 px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-primary hover:text-primary-foreground"
+                      >
+                        Open event
+                        <ChevronRight className="size-3" />
+                      </Link>
                     </td>
                   </tr>
                 ))
