@@ -2,6 +2,7 @@ import { query, mutation, internalMutation } from "../_generated/server"
 import { v } from "convex/values"
 import { requireIdentity } from "../auth"
 import type { Id } from "../_generated/dataModel"
+import { buildCanonicalOrderStatusPatch } from "../orders"
 
 // Helper functions
 
@@ -98,16 +99,32 @@ export const upsertTicketTailorOrder = mutation({
       )
       .first()
 
+    const existingTT = await ctx.db
+      .query("ticketTailorOrders")
+      .withIndex("providerOrderId", (q) =>
+        q.eq("providerOrderId", args.providerOrderId)
+      )
+      .first()
+
+    const statusPatch = args.normalizedStatus
+      ? buildCanonicalOrderStatusPatch({
+          normalizedStatus: args.normalizedStatus,
+          refundedAt: args.refundedAt,
+          cancelledAt: args.cancelledAt,
+          existingExtension: existingTT,
+        })
+      : null
+
     let orderId: Id<"orders">
 
     const orderPatchFields = {
       providerEventId: args.providerEventId,
-      status: args.normalizedStatus,
       bookerEmail: args.buyerEmail,
       bookerName: args.buyerName,
       currency: args.currency,
       totalAmountMinor: args.totalAmountMinor,
       orderedAt: args.orderedAt,
+      ...(statusPatch ? statusPatch.orderPatch : {}),
     }
 
     if (existingOrder) {
@@ -127,22 +144,12 @@ export const upsertTicketTailorOrder = mutation({
       })
     }
 
-    // Upsert ticketTailorOrders extension
-    const existingTT = await ctx.db
-      .query("ticketTailorOrders")
-      .withIndex("providerOrderId", (q) =>
-        q.eq("providerOrderId", args.providerOrderId)
-      )
-      .first()
-
     const ttFields = {
       orderId,
       providerEventId: args.providerEventId,
       providerStatus: args.providerStatus,
-      normalizedStatus: args.normalizedStatus,
+      ...(statusPatch ? statusPatch.extensionPatch : {}),
       normalizationNote: args.normalizationNote,
-      refundedAt: args.refundedAt,
-      cancelledAt: args.cancelledAt,
       rawPayload: args.rawPayload,
     }
 
@@ -197,12 +204,17 @@ export const archiveMissingOrdersForEvent = mutation({
         continue
       }
 
+      const statusPatch = buildCanonicalOrderStatusPatch({
+        normalizedStatus: "cancelled",
+        cancelledAt: now,
+        existingExtension: order,
+      })
+
       await ctx.db.patch("ticketTailorOrders", order._id, {
         isArchived: true,
         archivedAt: order.archivedAt ?? now,
         archiveReason: reason,
-        normalizedStatus: "cancelled",
-        cancelledAt: order.cancelledAt ?? now,
+        ...statusPatch.extensionPatch,
         normalizationNote:
           "Order missing from latest Ticket Tailor sync; archived locally.",
       })
@@ -305,30 +317,39 @@ export const internalUpsertTicketTailorOrder = internalMutation({
       )
       .first()
 
+    const statusPatch = args.normalizedStatus
+      ? buildCanonicalOrderStatusPatch({
+          normalizedStatus: args.normalizedStatus,
+          refundedAt,
+          cancelledAt,
+          existingExtension: existingTT,
+        })
+      : null
+
     let orderId: Id<"orders">
 
     if (existingOrder) {
       orderId = existingOrder._id
       await ctx.db.patch("orders", existingOrder._id, {
         providerEventId: args.providerEventId,
-        status: args.normalizedStatus,
         bookerEmail: buyer,
         bookerName: buyerName,
         currency: currency,
         totalAmountMinor: totalAmountMinor,
         orderedAt: orderedAt,
+        ...(statusPatch ? statusPatch.orderPatch : {}),
       })
     } else {
       orderId = await ctx.db.insert("orders", {
         source: "integration",
         providerOrderId: args.providerOrderId,
         providerEventId: args.providerEventId,
-        status: args.normalizedStatus,
         bookerEmail: buyer,
         bookerName: buyerName,
         currency: currency,
         totalAmountMinor: totalAmountMinor,
         orderedAt: orderedAt,
+        ...(statusPatch ? statusPatch.orderPatch : {}),
       })
     }
 
@@ -341,12 +362,10 @@ export const internalUpsertTicketTailorOrder = internalMutation({
         orderId,
         providerEventId: args.providerEventId,
         providerStatus: args.providerStatus,
-        normalizedStatus: args.normalizedStatus,
+        ...(statusPatch ? statusPatch.extensionPatch : {}),
         normalizationNote: args.normalizationNote,
         isArchived: args.isArchived ?? false,
         archiveReason: undefined,
-        refundedAt: refundedAt,
-        cancelledAt: cancelledAt,
         rawPayload: args.rawPayload,
       })
     } else {
@@ -355,11 +374,9 @@ export const internalUpsertTicketTailorOrder = internalMutation({
         providerEventId: args.providerEventId,
         orderId,
         providerStatus: args.providerStatus,
-        normalizedStatus: args.normalizedStatus,
+        ...(statusPatch ? statusPatch.extensionPatch : {}),
         normalizationNote: args.normalizationNote,
         isArchived: args.isArchived ?? false,
-        refundedAt: refundedAt,
-        cancelledAt: cancelledAt,
         rawPayload: args.rawPayload,
       })
     }
@@ -401,13 +418,18 @@ export const internalArchiveMissingOrdersForEvent = internalMutation({
         continue
       }
 
+      const statusPatch = buildCanonicalOrderStatusPatch({
+        normalizedStatus: "cancelled",
+        cancelledAt: now,
+        existingExtension: ttOrder,
+      })
+
       // Patch ticketTailorOrders (extension)
       await ctx.db.patch("ticketTailorOrders", ttOrder._id, {
         isArchived: true,
         archivedAt: ttOrder.archivedAt ?? now,
         archiveReason: reason,
-        normalizedStatus: "cancelled",
-        cancelledAt: ttOrder.cancelledAt ?? now,
+        ...statusPatch.extensionPatch,
         normalizationNote:
           "Order missing from latest Ticket Tailor sync; archived locally.",
       })

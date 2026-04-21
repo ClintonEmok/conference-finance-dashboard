@@ -411,30 +411,64 @@ export const updateOrderStatus = mutation({
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
 
-    // Update core table status
-    await ctx.db.patch("orders", args.orderId, {
-      status: args.normalizedStatus,
-    })
-
-    // Update extension table timestamps
     const extension = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
       .first()
 
+    const statusPatch = buildCanonicalOrderStatusPatch({
+      normalizedStatus: args.normalizedStatus,
+      existingExtension: extension,
+    })
+
+    // Update core table status
+    await ctx.db.patch("orders", args.orderId, statusPatch.orderPatch)
+
+    // Update extension table timestamps
     if (extension) {
-      await ctx.db.patch("ticketTailorOrders", extension._id, {
-        normalizedStatus: args.normalizedStatus,
-        refundedAt:
-          args.normalizedStatus === "refunded" ? Date.now() : undefined,
-        cancelledAt:
-          args.normalizedStatus === "cancelled" ? Date.now() : undefined,
-      })
+      await ctx.db.patch("ticketTailorOrders", extension._id, statusPatch.extensionPatch)
     }
 
     return args.orderId
   },
 })
+
+export function buildCanonicalOrderStatusPatch(params: {
+  normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
+  existingExtension?: {
+    refundedAt?: number | null
+    cancelledAt?: number | null
+  } | null
+  refundedAt?: number | null
+  cancelledAt?: number | null
+}) {
+  const orderPatch = {
+    status: params.normalizedStatus,
+  }
+
+  const extensionPatch: {
+    normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
+    refundedAt?: number
+    cancelledAt?: number
+  } = {
+    normalizedStatus: params.normalizedStatus,
+  }
+
+  if (params.normalizedStatus === "refunded") {
+    extensionPatch.refundedAt =
+      params.refundedAt ?? params.existingExtension?.refundedAt ?? Date.now()
+  }
+
+  if (params.normalizedStatus === "cancelled") {
+    extensionPatch.cancelledAt =
+      params.cancelledAt ?? params.existingExtension?.cancelledAt ?? Date.now()
+  }
+
+  return {
+    orderPatch,
+    extensionPatch,
+  }
+}
 
 type CandidateOrder = {
   _id: Id<"orders">
