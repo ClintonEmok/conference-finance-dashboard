@@ -51,7 +51,7 @@ describe("/api/payments route", () => {
     expect(convexQuery).not.toHaveBeenCalled()
   })
 
-  it("enriches linked payments using provider order id lookup first", async () => {
+  it("enriches linked payments using canonical order id lookup first", async () => {
     vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
     vi.mocked(listPayments).mockResolvedValue({
       total: 1,
@@ -87,8 +87,8 @@ describe("/api/payments route", () => {
 
     expect(response.status).toBe(200)
     expect(convexQuery).toHaveBeenCalledTimes(1)
-    expect(convexQuery).toHaveBeenCalledWith(api.orders.getOrderByProviderId, {
-      providerOrderId: "ORD-123",
+    expect(convexQuery).toHaveBeenCalledWith(api.orders.getOrderById, {
+      orderId: "ORD-123",
     })
     expect(body.payments[0].order).toEqual({
       id: "jt7providerdoc",
@@ -141,7 +141,7 @@ describe("/api/payments route", () => {
     })
   })
 
-  it("falls back to Convex order id lookup when provider lookup misses", async () => {
+  it("preserves null order facts when canonical lookup misses", async () => {
     vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
     vi.mocked(listPayments).mockResolvedValue({
       total: 1,
@@ -165,32 +165,15 @@ describe("/api/payments route", () => {
       ],
     })
 
-    vi.mocked(convexQuery).mockResolvedValueOnce(null).mockResolvedValueOnce({
-      _id: "jt7legacyorderid",
-      providerOrderId: "ORD-LEGACY",
-      buyerName: "Bob Buyer",
-      totalAmountMinor: 3200,
-    })
+    vi.mocked(convexQuery).mockResolvedValueOnce(null)
 
     const response = await GET(new Request("http://localhost/api/payments"))
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(convexQuery).toHaveBeenNthCalledWith(
-      1,
-      api.orders.getOrderByProviderId,
-      {
-        providerOrderId: "jt7legacyorderid",
-      }
-    )
-    expect(convexQuery).toHaveBeenNthCalledWith(2, api.orders.getOrderById, {
+    expect(convexQuery).toHaveBeenCalledWith(api.orders.getOrderById, {
       orderId: "jt7legacyorderid",
     })
-    expect(body.payments[0].order).toEqual({
-      id: "jt7legacyorderid",
-      providerOrderId: "ORD-LEGACY",
-      buyerName: "Bob Buyer",
-      totalAmountMinor: 3200,
-    })
+    expect(body.payments[0].order).toBeNull()
   })
 })

@@ -38,6 +38,7 @@ describe("internal orders canonicalization", () => {
 
   it("writes payments using canonical order ids from provider order inputs", async () => {
     vi.mocked(convexQuery)
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ _id: "jt7canonicalorder" })
       .mockResolvedValueOnce({
         _id: "payment_1",
@@ -62,6 +63,13 @@ describe("internal orders canonicalization", () => {
 
     expect(convexQuery).toHaveBeenNthCalledWith(
       1,
+      api.orders.getOrderById,
+      {
+        orderId: "ORD-123",
+      }
+    )
+    expect(convexQuery).toHaveBeenNthCalledWith(
+      2,
       api.orders.getOrderByProviderId,
       {
         providerOrderId: "ORD-123",
@@ -103,13 +111,13 @@ describe("internal orders canonicalization", () => {
 
     expect(convexQuery).toHaveBeenNthCalledWith(
       1,
-      api.orders.getOrderByProviderId,
+      api.orders.getOrderById,
       {
-        providerOrderId: "jt7legacyorder",
+        orderId: "jt7legacyorder",
       }
     )
-    expect(convexQuery).toHaveBeenNthCalledWith(2, api.orders.getOrderById, {
-      orderId: "jt7legacyorder",
+    expect(convexQuery).toHaveBeenNthCalledWith(2, api.orders.getOrderByProviderId, {
+      providerOrderId: "jt7legacyorder",
     })
     expect(convexMutation).toHaveBeenCalledWith(
       api.payments.assignPaymentToOrder,

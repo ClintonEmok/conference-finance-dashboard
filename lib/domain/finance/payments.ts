@@ -138,20 +138,20 @@ function normalizeRequiredOrderId(value: string): string {
 async function resolveCanonicalOrderId(orderId: string): Promise<Id<"orders">> {
   const normalized = normalizeRequiredOrderId(orderId)
 
-  const byProviderOrder = await convexQuery(api.orders.getOrderByProviderId, {
-    providerOrderId: normalized,
-  })
-
-  if (byProviderOrder?._id) {
-    return byProviderOrder._id as Id<"orders">
-  }
-
   const byOrderId = await convexQuery(api.orders.getOrderById, {
     orderId: normalized,
   })
 
   if (byOrderId?._id) {
     return byOrderId._id as Id<"orders">
+  }
+
+  const byProviderOrder = await convexQuery(api.orders.getOrderByProviderId, {
+    providerOrderId: normalized,
+  })
+
+  if (byProviderOrder?._id) {
+    return byProviderOrder._id as Id<"orders">
   }
 
   throw new Error("Order not found for payment assignment")
