@@ -433,6 +433,115 @@ export const updateOrderStatus = mutation({
   },
 })
 
+function normalizeNullableTextInput(
+  value: string | null | undefined
+): string | undefined {
+  if (value === null || value === undefined) {
+    return undefined
+  }
+
+  const normalized = value.trim()
+  return normalized || undefined
+}
+
+export const updateOrderDetails = mutation({
+  args: {
+    orderId: v.id("orders"),
+    bookerName: v.optional(nullableStringValidator),
+    bookerEmail: v.optional(nullableStringValidator),
+    bookingRef: v.optional(nullableStringValidator),
+    normalizedStatus: v.optional(canonicalOrderStatusValidator),
+    totalAmountMinor: v.optional(v.union(v.number(), v.null())),
+    orderedAt: v.optional(v.union(v.number(), v.null())),
+  },
+  returns: v.id("orders"),
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const order = await ctx.db.get("orders", args.orderId)
+    if (!order) {
+      throw new Error("Order not found")
+    }
+
+    const extension = await ctx.db
+      .query("ticketTailorOrders")
+      .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
+      .first()
+
+    const orderPatch: {
+      bookerName?: string
+      bookerEmail?: string
+      bookingRef?: string
+      status?: "paid" | "refunded" | "cancelled" | "pending"
+      totalAmountMinor?: number
+      orderedAt?: number
+    } = {}
+
+    if (args.bookerName !== undefined) {
+      orderPatch.bookerName = normalizeNullableTextInput(args.bookerName)
+    }
+
+    if (args.bookerEmail !== undefined) {
+      orderPatch.bookerEmail = normalizeNullableTextInput(args.bookerEmail)
+    }
+
+    if (args.bookingRef !== undefined) {
+      orderPatch.bookingRef = normalizeNullableTextInput(args.bookingRef)
+    }
+
+    if (args.totalAmountMinor !== undefined) {
+      if (
+        args.totalAmountMinor !== null &&
+        (!Number.isInteger(args.totalAmountMinor) || args.totalAmountMinor < 0)
+      ) {
+        throw new Error(
+          "Invalid 'totalAmountMinor'. Expected a non-negative integer or null to clear."
+        )
+      }
+
+      if (args.totalAmountMinor !== null) {
+        orderPatch.totalAmountMinor = args.totalAmountMinor
+      }
+    }
+
+    if (args.orderedAt !== undefined) {
+      if (
+        args.orderedAt !== null &&
+        (!Number.isFinite(args.orderedAt) || args.orderedAt < 0)
+      ) {
+        throw new Error(
+          "Invalid 'orderedAt'. Expected a Unix timestamp in milliseconds or null to clear."
+        )
+      }
+
+      if (args.orderedAt !== null) {
+        orderPatch.orderedAt = args.orderedAt
+      }
+    }
+
+    if (args.normalizedStatus !== undefined) {
+      const statusPatch = buildCanonicalOrderStatusPatch({
+        normalizedStatus: args.normalizedStatus,
+        existingExtension: extension,
+      })
+
+      orderPatch.status = statusPatch.orderPatch.status
+
+      if (extension) {
+        await ctx.db.patch("ticketTailorOrders", extension._id, {
+          ...statusPatch.extensionPatch,
+        })
+      }
+    }
+
+    if (Object.keys(orderPatch).length > 0) {
+      await ctx.db.patch("orders", args.orderId, orderPatch)
+    }
+
+    return args.orderId
+  },
+})
+
 export function buildCanonicalOrderStatusPatch(params: {
   normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
   existingExtension?: {

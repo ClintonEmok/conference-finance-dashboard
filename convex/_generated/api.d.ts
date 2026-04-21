@@ -837,6 +837,20 @@ export declare const api: {
         providerOrderId: string | null;
       }>
     >;
+    updateOrderDetails: FunctionReference<
+      "mutation",
+      "public",
+      {
+        bookerEmail?: string | null;
+        bookerName?: string | null;
+        bookingRef?: string | null;
+        normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
+        orderId: Id<"orders">;
+        orderedAt?: number | null;
+        totalAmountMinor?: number | null;
+      },
+      Id<"orders">
+    >;
     updateOrderStatus: FunctionReference<
       "mutation",
       "public",
