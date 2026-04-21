@@ -2,7 +2,7 @@ import { query, mutation, internalMutation } from "./_generated/server"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
 import type { Id } from "./_generated/dataModel"
-import { formatPaymentReference } from "../lib/domain/finance/payments"
+import { formatPaymentReference } from "../lib/domain/finance/payment-reference"
 
 // Constants for quota enforcement
 const DEFAULT_MONTHLY_TIKKIE_CREATION_LIMIT = 5
