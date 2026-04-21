@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Canonical Orders Foundation
 status: in_progress
-stopped_at: Completed 26-order-ops-refresh-01-PLAN.md
-last_updated: "2026-04-21T10:32:50Z"
+stopped_at: Completed 26-order-ops-refresh-02-PLAN.md
+last_updated: "2026-04-21T12:23:23Z"
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -24,15 +24,15 @@ See: `.planning/PROJECT.md` (updated 2026-04-01)
 ## Current Position
 
 Phase: 26 (order-ops-refresh) — EXECUTING
-Plan: 1 of 3 complete
-Next: Plan 2 of 3 pending
+Plan: 2 of 3 complete
+Next: Plan 3 of 3 pending
 
 ## Performance Metrics
 
 - Total phases in active milestone: 5
 - Completed phases in active milestone: 0
-- Total plans completed: 78
-- Current milestone progress: 98%
+- Total plans completed: 79
+- Current milestone progress: 99%
 
 ## Accumulated Context
 
@@ -50,6 +50,8 @@ Next: Plan 2 of 3 pending
 - Ticket Tailor redesign remains out of scope for v3.0; keep it as ingest/mapping only.
 - Payment writes must persist canonical `orders._id`; provider order ids remain lookup-only inputs.
 - Missing provider ids and totals should stay explicit as `null` across Convex, API, and dashboard contracts.
+- The manage-orders route is the primary operator entry point; legacy orders URLs are compatibility redirects only.
+- Inline order and attendee edits should reuse the existing PATCH APIs and refresh the detail surface immediately.
 
 ### Pending Todos
 
@@ -62,6 +64,6 @@ Next: Plan 2 of 3 pending
 
 ## Session Continuity
 
-Last session: 2026-04-21 10:32 UTC
-Stopped at: Completed 26-order-ops-refresh-01-PLAN.md
+Last session: 2026-04-21 12:23 UTC
+Stopped at: Completed 26-order-ops-refresh-02-PLAN.md
 Resume file: None
