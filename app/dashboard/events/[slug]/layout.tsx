@@ -71,9 +71,13 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
   }
 
   const menuItems = [
-    { label: "Overview", icon: Calendar, href: `/dashboard/events/${slug}` },
     {
-      label: "Attendees",
+      label: "Event overview",
+      icon: Calendar,
+      href: `/dashboard/events/${slug}`,
+    },
+    {
+      label: "Contact people",
       icon: Users,
       href: `/dashboard/events/${slug}/attendees`,
     },

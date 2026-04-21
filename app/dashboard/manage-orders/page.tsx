@@ -1,7 +1,7 @@
 "use client"
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   FileDown,
   ChevronLeft,
@@ -74,7 +74,9 @@ import { formatMoney } from "@/lib/format"
 
 export default function OrdersPage() {
   const router = useRouter()
-  const [eventIdInput, setEventIdInput] = useState("")
+  const searchParams = useSearchParams()
+  const initialEventId = searchParams.get("eventId") ?? ""
+  const [eventIdInput, setEventIdInput] = useState(initialEventId)
   const [statusInput, setStatusInput] = useState<"all" | CanonicalOrderStatus>(
     "all"
   )
@@ -86,7 +88,7 @@ export default function OrdersPage() {
   })
   const [toInput, setToInput] = useState(() => toDateInputValue(new Date()))
 
-  const [appliedEventId, setAppliedEventId] = useState("")
+  const [appliedEventId, setAppliedEventId] = useState(initialEventId)
   const [appliedStatus, setAppliedStatus] = useState<
     "all" | CanonicalOrderStatus
   >("all")

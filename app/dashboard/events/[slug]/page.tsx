@@ -1,16 +1,18 @@
 "use client"
 
 import { use } from "react"
-import {
-  Calendar,
-  Users,
-  Ticket,
-  CreditCard,
-  BedDouble,
-  ArrowRight,
-} from "lucide-react"
 import Link from "next/link"
+import { format } from "date-fns"
+import {
+  ArrowRight,
+  BedDouble,
+  Calendar,
+  CreditCard,
+  Ticket,
+  Users,
+} from "lucide-react"
 
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -18,14 +20,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import {
-  useAttendeesForEvent,
-  useTicketTypesForEvent,
-  useEventBySlug,
-} from "@/lib/convex/hooks/events"
+import { Badge } from "@/components/ui/badge"
+import { useEventBySlug, useAttendeesForEvent, useTicketTypesForEvent } from "@/lib/convex/hooks/events"
 import { useAccommodationSummaryForEvent } from "@/lib/convex/hooks/accommodation"
-import { format } from "date-fns"
 
 export default function EventOverviewPage({
   params,
@@ -34,150 +31,211 @@ export default function EventOverviewPage({
 }) {
   const { slug } = use(params)
   const event = useEventBySlug(slug)
+  const { attendees } = useAttendeesForEvent(event?._id)
+  const { ticketTypes } = useTicketTypesForEvent(event?._id)
+  const accommodationSummary = useAccommodationSummaryForEvent(event?._id)
 
   if (!event) return null
 
+  const hasAccommodation = Boolean(event.accommodationEnabled)
+  const hotelCount = accommodationSummary?.hotelsLinked ?? 0
+  const slotCount = accommodationSummary?.totalSlots ?? 0
+  const submissionCount = accommodationSummary?.submissionsCount ?? 0
+
   return (
-    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-      {/* Quick Stats */}
-      <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur lg:col-span-2 dark:border-white/10 dark:bg-black/20">
-        <CardHeader>
-          <CardTitle>Event Summary</CardTitle>
-          <CardDescription>Key metrics and information</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-6 sm:grid-cols-2">
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Calendar className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">Date & Time</p>
-                <p className="text-xs text-muted-foreground">
-                  {format(new Date(event.startsAt), "PPP p")}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Users className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">Attendees</p>
-                <p className="text-xs text-muted-foreground">
-                  Total registrations tracked
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Ticket className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">Capacity</p>
-                <p className="text-xs text-muted-foreground">
-                  Available vs Sold
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <CreditCard className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">Finance</p>
-                <p className="text-xs text-muted-foreground">
-                  Revenue and Outstanding
-                </p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Configuration Card */}
+    <div className="space-y-6">
       <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
         <CardHeader>
-          <CardTitle>Event Config</CardTitle>
-          <CardDescription>Integration settings</CardDescription>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-3">
+              <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
+                Event hub
+              </p>
+              <CardTitle className="text-3xl font-bold tracking-tight">
+                {event.title}
+              </CardTitle>
+              <CardDescription className="max-w-2xl text-muted-foreground/80">
+                Use this surface to jump into the event overview, manage contact
+                people, review tickets, and keep finance and accommodation work
+                close at hand.
+              </CardDescription>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <Button asChild className="rounded-xl shadow-lg shadow-primary/20">
+                <Link href={`/dashboard/events/${slug}/overview`}>
+                  Open overview
+                </Link>
+              </Button>
+              <Button asChild variant="outline" className="rounded-xl">
+                <Link href={`/dashboard/events/${slug}/attendees`}>
+                  Contact people
+                </Link>
+              </Button>
+              <Button asChild variant="outline" className="rounded-xl">
+                <Link href={`/dashboard/events/${slug}/settings`}>
+                  Edit event
+                </Link>
+              </Button>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between border-b border-white/10 py-2">
-            <span className="text-sm text-muted-foreground">Timezone</span>
-            <span className="text-sm font-medium">{event.timezone}</span>
-          </div>
-          <div className="flex items-center justify-between border-b border-white/10 py-2">
-            <span className="text-sm text-muted-foreground">Currency</span>
-            <span className="text-sm font-medium">{event.currency}</span>
-          </div>
-          <div className="flex items-center justify-between py-2">
-            <span className="text-sm text-muted-foreground">Accommodation</span>
-            <span className="text-sm font-medium">
-              {event.accommodationEnabled ? "Enabled" : "Disabled"}
-            </span>
-          </div>
-          <Button
-            asChild
-            variant="outline"
-            className="mt-2 w-full rounded-xl border-white/20 hover:bg-white/10"
-          >
-            <Link href={`/dashboard/events/${slug}/settings`}>
-              Manage Settings <ArrowRight className="ml-2 size-3" />
-            </Link>
-          </Button>
-        </CardContent>
       </Card>
 
-      {/* Shortcuts Grid */}
-      <div className="grid grid-cols-2 gap-4 lg:col-span-3">
-        <Link
-          href={`/dashboard/events/${slug}/tickets`}
-          className="group flex flex-col items-center justify-center rounded-2xl border border-white/40 bg-white/40 p-6 shadow-sm backdrop-blur transition-all hover:border-primary/50 hover:bg-white/60 dark:border-white/10 dark:bg-black/20 dark:hover:bg-black/40"
-        >
-          <Ticket className="mb-3 size-8 text-primary transition-transform group-hover:scale-110" />
-          <span className="text-sm font-bold">Tickets</span>
-          <span className="mt-1 text-[10px] tracking-widest text-muted-foreground uppercase">
-            Manage Pricing
-          </span>
-        </Link>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {[
+          {
+            label: "Contact people",
+            value: attendees.length,
+            desc: "Registrations in scope",
+            icon: Users,
+          },
+          {
+            label: "Ticket types",
+            value: ticketTypes.length,
+            desc: "Pricing and product setup",
+            icon: Ticket,
+          },
+          {
+            label: "Hotels linked",
+            value: hasAccommodation ? hotelCount : "Off",
+            desc: hasAccommodation
+              ? `${slotCount} room slots`
+              : "Accommodation disabled",
+            icon: BedDouble,
+          },
+          {
+            label: "Submissions",
+            value: hasAccommodation ? submissionCount : "—",
+            desc: "Accommodation activity",
+            icon: CreditCard,
+          },
+        ].map((stat) => {
+          const Icon = stat.icon
 
-        <Link
-          href={`/dashboard/events/${slug}/attendees`}
-          className="group flex flex-col items-center justify-center rounded-2xl border border-white/40 bg-white/40 p-6 shadow-sm backdrop-blur transition-all hover:border-primary/50 hover:bg-white/60 dark:border-white/10 dark:bg-black/20 dark:hover:bg-black/40"
-        >
-          <Users className="mb-3 size-8 text-primary transition-transform group-hover:scale-110" />
-          <span className="text-sm font-bold">Attendees</span>
-          <span className="mt-1 text-[10px] tracking-widest text-muted-foreground uppercase">
-            Directory
-          </span>
-        </Link>
+          return (
+            <Card
+              key={stat.label}
+              className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20"
+            >
+              <CardContent className="flex items-start justify-between gap-4 p-6">
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
+                    {stat.label}
+                  </p>
+                  <p className="text-3xl font-bold tracking-tight text-foreground">
+                    {stat.value}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{stat.desc}</p>
+                </div>
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <Icon className="size-5" />
+                </div>
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
 
-        <Link
-          href={`/dashboard/events/${slug}/payments`}
-          className="group flex flex-col items-center justify-center rounded-2xl border border-white/40 bg-white/40 p-6 shadow-sm backdrop-blur transition-all hover:border-primary/50 hover:bg-white/60 dark:border-white/10 dark:bg-black/20 dark:hover:bg-black/40"
-        >
-          <CreditCard className="mb-3 size-8 text-primary transition-transform group-hover:scale-110" />
-          <span className="text-sm font-bold">Finance</span>
-          <span className="mt-1 text-[10px] tracking-widest text-muted-foreground uppercase">
-            Tikkie & Matching
-          </span>
-        </Link>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+          <CardHeader>
+            <CardTitle>Quick routes</CardTitle>
+            <CardDescription>
+              Move from the event hub into the right operator surface.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            {[
+              {
+                href: `/dashboard/events/${slug}/overview`,
+                title: "Event overview",
+                desc: "Totals, status mix, and drilldowns.",
+              },
+              {
+                href: `/dashboard/events/${slug}/attendees`,
+                title: "Contact people",
+                desc: "Review names, emails, and follow-up.",
+              },
+              {
+                href: `/dashboard/events/${slug}/tickets`,
+                title: "Tickets",
+                desc: "Adjust products and pricing.",
+              },
+              {
+                href: `/dashboard/events/${slug}/payments`,
+                title: "Finance",
+                desc: "Track collections and matching.",
+              },
+              {
+                href: hasAccommodation
+                  ? `/dashboard/events/${slug}/accommodation`
+                  : `/dashboard/events/${slug}/settings`,
+                title: hasAccommodation ? "Rooms" : "Settings",
+                desc: hasAccommodation
+                  ? "Room placement and hotel links."
+                  : "Enable accommodation first.",
+              },
+              {
+                href: `/dashboard/events/${slug}/settings`,
+                title: "Edit event",
+                desc: "Adjust the event configuration.",
+              },
+            ].map((item) => (
+              <Link
+                key={item.title}
+                href={item.href}
+                className="group rounded-2xl border border-border/50 bg-background/50 p-4 transition-all hover:border-primary/40 hover:bg-muted/30"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-foreground group-hover:text-primary">
+                      {item.title}
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {item.desc}
+                    </p>
+                  </div>
+                  <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+                </div>
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
 
-        <Link
-          href={`/dashboard/events/${slug}/accommodation`}
-          className="group flex flex-col items-center justify-center rounded-2xl border border-white/40 bg-white/40 p-6 shadow-sm backdrop-blur transition-all hover:border-primary/50 hover:bg-white/60 dark:border-white/10 dark:bg-black/20 dark:hover:bg-black/40"
-        >
-          <BedDouble className="mb-3 size-8 text-primary transition-transform group-hover:scale-110" />
-          <span className="text-sm font-bold">Rooms</span>
-          <span className="mt-1 text-[10px] tracking-widest text-muted-foreground uppercase">
-            Assignments
-          </span>
-        </Link>
+        <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+          <CardHeader>
+            <CardTitle>Event context</CardTitle>
+            <CardDescription>
+              The basics operators need before they drill down.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between border-b border-border/40 py-2">
+              <span className="text-sm text-muted-foreground">Start</span>
+              <span className="text-sm font-medium">
+                {format(new Date(event.startsAt), "PPP p")}
+              </span>
+            </div>
+            <div className="flex items-center justify-between border-b border-border/40 py-2">
+              <span className="text-sm text-muted-foreground">Timezone</span>
+              <span className="text-sm font-medium">{event.timezone}</span>
+            </div>
+            <div className="flex items-center justify-between border-b border-border/40 py-2">
+              <span className="text-sm text-muted-foreground">Currency</span>
+              <span className="text-sm font-medium">{event.currency}</span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-sm text-muted-foreground">Accommodation</span>
+              <span className="text-sm font-medium">
+                {hasAccommodation ? "Enabled" : "Disabled"}
+              </span>
+            </div>
+            <Badge variant="outline" className="mt-2">
+              ID: {event.slug}
+            </Badge>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )
