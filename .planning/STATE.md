@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Canonical Orders Foundation
-  status: complete
-  stopped_at: Completed 27-02-PLAN.md
-  last_updated: "2026-04-21T19:09:10Z"
+  status: in_progress
+  stopped_at: Checkpoint pending after 27-03-PLAN.md
+  last_updated: "2026-04-21T20:45:08Z"
 progress:
   total_phases: 6
   completed_phases: 2
@@ -23,9 +23,9 @@ See: `.planning/PROJECT.md` (updated 2026-04-01)
 
 ## Current Position
 
-Phase: 27 (event-scoped-dashboard) — COMPLETE
-Plan: 02 of 02 complete
-Next: Phase 28 planning / follow-up
+Phase: 27 (event-scoped-dashboard) — checkpoint pending
+Plan: 03 of 03 complete (awaiting human verification)
+Next: Human verify fullscreen chooser/loading behavior, then Phase 28 planning / follow-up
 
 ## Performance Metrics
 
@@ -59,17 +59,17 @@ Next: Phase 28 planning / follow-up
 ### Pending Todos
 
 - Phase 26 gap-closure plans 04-06 are complete; phase 27 is the next planned step.
-- Phase 27 will make the dashboard event-scoped.
+- Phase 27 is now in human verification after the fullscreen chooser/loading gap closure.
 
 ### Blockers/Concerns
 
 - Brownfield migration must preserve existing dashboard, signup, sync, and Tikkie behavior during dual-write and cutover.
 - Historical edge cases around formula parity and payment allocation rules still need plan-level validation in later phases.
 - The dashboard entry flow needs to stay simple for single-event admins, with event-first navigation.
-- No blockers from phase 27; remaining follow-up is further polish of event-scoped utility surfaces if future phases need it.
+- Awaiting human verification for phase 27 plan 03; no code blockers remain.
 
 ## Session Continuity
 
-Last session: 2026-04-21 19:09 UTC
-Stopped at: Completed 27-02-PLAN.md
+Last session: 2026-04-21 20:45 UTC
+Stopped at: Checkpoint pending after 27-03-PLAN.md
 Resume file: None
