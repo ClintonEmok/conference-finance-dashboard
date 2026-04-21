@@ -8,7 +8,7 @@
 cosmic-walrus/
 ├── app/                          # Next.js App Router
 │   ├── api/dashboard/            # Dashboard API routes
-│   ├── dashboard/                # Dashboard pages (orders, payments, etc.)
+│   ├── dashboard/                # Dashboard pages (manage-orders, payments, etc.)
 │   ├── events/[slug]/            # Public event pages
 │   ├── signup/[slug]/            # Public signup flow
 │   └── page.tsx                  # Landing page
@@ -82,8 +82,10 @@ cosmic-walrus/
 
 **Entry Points:**
 - Dashboard home: `app/dashboard/page.tsx`
-- Orders list: `app/dashboard/orders/page.tsx`
-- Order detail: `app/dashboard/orders/[orderId]/page.tsx`
+- Manage orders: `app/dashboard/manage-orders/page.tsx`
+- Manage order detail: `app/dashboard/manage-orders/[orderId]/page.tsx`
+- Legacy orders redirect: `app/dashboard/orders/page.tsx`
+- Legacy order detail redirect: `app/dashboard/orders/[orderId]/page.tsx`
 - Reconciliation: `app/dashboard/reconciliation/page.tsx`
 - Payments: `app/dashboard/payments/page.tsx`
 

@@ -4,7 +4,7 @@ milestone: v3.0
 milestone_name: Canonical Orders Foundation
 status: in_progress
 stopped_at: Completed 26-order-ops-refresh-02-PLAN.md
-last_updated: "2026-04-21T12:23:23Z"
+  last_updated: "2026-04-21T12:23:52Z"
 progress:
   total_phases: 5
   completed_phases: 0
@@ -55,7 +55,7 @@ Next: Plan 3 of 3 pending
 
 ### Pending Todos
 
-- Continue phase-26 planned sequence after quick contract hardening.
+- Continue phase-26 planned sequence after the manage-orders cutover and inline edit workflow landing.
 
 ### Blockers/Concerns
 

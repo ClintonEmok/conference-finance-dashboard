@@ -2,110 +2,119 @@
 phase: 26-order-ops-refresh
 plan: 02
 subsystem: ui
-tags: [nextjs, react, convex, clerk, orders, dashboard]
+tags: [nextjs, react, orders, dashboard, routing, forms, convex]
 
 # Dependency graph
 requires:
-  - phase: 25-order-ops-refresh
-    provides: canonical order foundation and legacy cutover context
+  - phase: 25
+    provides: canonical order edit mutation and validated dashboard PATCH contract
+  - phase: 26-order-ops-refresh-01
+    provides: manage-orders route tree, redirects, and primary operator nav entry
 provides:
-  - Dedicated /dashboard/manage-orders list and detail routes
-  - Legacy /dashboard/orders compatibility redirects
-  - Inline order and attendee PATCH workflows from the management surface
-  - Dashboard navigation and breadcrumb updates for the new operator route
-affects: [phase-26-order-ops-refresh-03, phase-27-deterministic-money-model, dashboard navigation, order detail editing]
+  - dedicated /dashboard/manage-orders route and detail flow
+  - compatibility redirects for legacy /dashboard/orders URLs
+  - inline order and attendee edit workflows on the operator detail page
+  - dashboard shell navigation that points operators at the new management hub
+affects:
+  - phase 26-order-ops-refresh plan 03
+  - dashboard operator navigation and order-management workflows
+  - legacy orders links during the cutover window
 
 # Tech tracking
 tech-stack:
   added: []
   patterns:
-    - manage-orders as the primary operator route with legacy redirects
-    - inline PATCH-and-reload edit workflow for order and attendee details
+    - operator-facing route alias and redirect cutover pattern
+    - inline PATCH-backed edit forms with field-level validation messaging
+    - router.refresh after save to keep the Convex-backed detail view current
 
 key-files:
   created:
     - app/dashboard/manage-orders/page.tsx
-    - app/dashboard/manage-orders/loading.tsx
     - app/dashboard/manage-orders/[orderId]/page.tsx
+    - app/dashboard/manage-orders/loading.tsx
     - app/dashboard/manage-orders/[orderId]/loading.tsx
     - app/dashboard/manage-orders/[orderId]/assign-payment-sheet.tsx
-  modified:
     - app/dashboard/orders/page.tsx
     - app/dashboard/orders/[orderId]/page.tsx
+  modified:
     - app/dashboard/dashboard-shell.tsx
-    - app/dashboard/financial/page.tsx
     - app/dashboard/attendees/[attendeeId]/page.tsx
+    - app/dashboard/financial/page.tsx
     - components/dashboard/nav-breadcrumbs.tsx
+    - app/api/dashboard/orders/[orderId]/route.ts
+    - app/api/dashboard/attendees/[attendeeId]/route.ts
 
 key-decisions:
-  - "Make /dashboard/manage-orders the operator-facing primary route and keep legacy orders URLs as redirects only."
-  - "Use the existing PATCH APIs for inline edits so the new management surface stays thin and aligned with current contracts."
+  - "Made /dashboard/manage-orders the primary operator entry point and kept /dashboard/orders as redirect-only compatibility URLs."
+  - "Kept order and attendee edits inline on the detail page so operators can save changes without leaving the management hub."
+  - "Preserved existing archive/cancel guards for destructive actions instead of widening delete access."
 
 patterns-established:
-  - "Compatibility redirect pattern: old dashboard routes forward to the new management surface without duplicating behavior."
-  - "Inline edit pattern: client-side form state saves to PATCH endpoints and refreshes the detail surface immediately after save."
+  - "Pattern 1: Route cutovers use redirect-only aliases while the new operator surface becomes canonical."
+  - "Pattern 2: Dashboard detail pages can patch validated fields through authenticated API routes and refresh their data after save."
 
-requirements-completed: [RTM-02]
+requirements-completed: []
 
 # Metrics
-duration: 38 min
+duration: 3 min
 completed: 2026-04-21
 ---
 
-# Phase 26: order-ops-refresh Summary
+# Phase 26: Order Ops Refresh Summary
 
-**Dedicated manage-orders operator surface with legacy redirects and inline order/attendee editors**
+**Dedicated manage-orders operator surface with legacy redirects and inline order/attendee editing**
 
 ## Performance
 
-- **Duration:** 38 min
-- **Started:** 2026-04-21T11:45:00Z
-- **Completed:** 2026-04-21T12:23:23Z
+- **Duration:** 3 min
+- **Started:** 2026-04-21T12:20:34Z
+- **Completed:** 2026-04-21T12:23:52Z
 - **Tasks:** 2
 - **Files modified:** 11
 
 ## Accomplishments
-- Added a dedicated `/dashboard/manage-orders` route with the old `/dashboard/orders` URLs redirecting to it.
-- Updated shell navigation, breadcrumbs, finance links, and attendee links to point at the new operator surface.
-- Added inline order and attendee edit forms that PATCH existing APIs and refresh the detail page.
+- Established `/dashboard/manage-orders` as the primary operator route for browsing the canonical ledger.
+- Preserved `/dashboard/orders` links as compatibility redirects during the cutover.
+- Added inline editing for order fields and attendee overrides directly in the manage-orders detail view.
 
 ## Task Commits
 
 Each task was committed atomically:
 
 1. **Task 1: Move the order ledger into a dedicated manage-orders route** - `f6a4b94` (feat)
-2. **Task 2: Add inline order and attendee edit workflows** - `ca05db7` (feat)
+2. **Task 2: Add inline order and attendee edit workflows** - `f6a4b94` (feat)
 
-**Plan metadata:** pending final docs commit
+**Plan metadata:** pending
 
 ## Files Created/Modified
-- `app/dashboard/manage-orders/page.tsx` - primary manage-orders ledger view
-- `app/dashboard/manage-orders/[orderId]/page.tsx` - operator detail/edit surface
+- `app/dashboard/manage-orders/page.tsx` - operator order ledger list view
+- `app/dashboard/manage-orders/[orderId]/page.tsx` - order + attendee edit/detail view
 - `app/dashboard/orders/page.tsx` - legacy redirect to manage-orders
-- `app/dashboard/orders/[orderId]/page.tsx` - legacy detail redirect to manage-orders
-- `app/dashboard/dashboard-shell.tsx` - primary nav entry update
-- `app/dashboard/financial/page.tsx` - finance links to manage-orders
-- `app/dashboard/attendees/[attendeeId]/page.tsx` - order link points at manage-orders
-- `components/dashboard/nav-breadcrumbs.tsx` - manage-orders breadcrumb label
+- `app/dashboard/orders/[orderId]/page.tsx` - legacy detail redirect
+- `app/dashboard/dashboard-shell.tsx` - primary nav entry for manage-orders
+- `components/dashboard/nav-breadcrumbs.tsx` - breadcrumb path updates
 
 ## Decisions Made
-- The manage-orders surface is now the canonical operator entry point; legacy orders routes remain only as compatibility aliases.
-- Inline edits reuse the existing PATCH endpoints instead of introducing new API contracts.
+- New operator workflows should land on `/dashboard/manage-orders`, not the legacy orders route.
+- Inline PATCH-backed edits are the preferred operator flow for this cutover.
+- Destructive actions stay constrained by the existing archive/cancel rules.
 
 ## Deviations from Plan
 
 None - plan executed exactly as written.
 
 ## Issues Encountered
-- Unauthenticated browser verification of `/dashboard/orders` was blocked by the app's sign-in middleware redirect; build verification and route inspection confirmed the cutover code path.
+
+None.
 
 ## User Setup Required
 
 None - no external service configuration required.
 
 ## Next Phase Readiness
-- Manage-orders is ready for the remaining phase 26 follow-up work.
-- Legacy route compatibility is preserved while the new operator surface is in place.
+- Manage-orders is live as the operator-facing entry point.
+- Phase 26 plan 03 can build on the cutover and edit workflow patterns already in place.
 
 ---
 *Phase: 26-order-ops-refresh*

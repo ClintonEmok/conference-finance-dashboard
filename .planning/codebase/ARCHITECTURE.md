@@ -93,15 +93,20 @@
 
 ## Entry Points
 
-**Dashboard Orders Page:**
-- Location: `app/dashboard/orders/page.tsx`
-- Triggers: User navigation to `/dashboard/orders`
+**Manage Orders Page:**
+- Location: `app/dashboard/manage-orders/page.tsx`
+- Triggers: User navigation to `/dashboard/manage-orders`
 - Responsibilities: List orders with filters (event, status, date range), pagination, CSV export
 
-**Order Detail Page:**
-- Location: `app/dashboard/orders/[orderId]/page.tsx`
-- Triggers: Click on order row in orders list
-- Responsibilities: Show order details, attendees, payment assignments, outstanding amounts
+**Manage Order Detail Page:**
+- Location: `app/dashboard/manage-orders/[orderId]/page.tsx`
+- Triggers: Click on order row in manage-orders list
+- Responsibilities: Show order details, attendees, payment assignments, outstanding amounts, and inline edit workflows
+
+**Legacy Orders Redirects:**
+- Location: `app/dashboard/orders/page.tsx`, `app/dashboard/orders/[orderId]/page.tsx`
+- Triggers: Existing legacy `/dashboard/orders` links
+- Responsibilities: Redirect users to the manage-orders hub during the cutover
 
 **Orders API:**
 - Location: `app/api/dashboard/orders/route.ts`

@@ -52,7 +52,7 @@ v3.0 focuses on making canonical internal order, attendee, payable, and payment 
 2. Runtime write paths no longer need mixed internal/provider order identifiers to link payments, orders, and attendees.
 3. Verifiable runtime contracts exist for where provider data is allowed, so later cutover work can remove direct `ticketTailor*` dependencies safely.
 
-**Plans:** TBD
+**Plans:** 2/3
 
 ---
 
