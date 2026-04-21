@@ -3,14 +3,14 @@
 import { use } from "react"
 import {
   Calendar,
+  ChevronRight,
+  CreditCard,
+  ExternalLink,
+  Link as LinkIcon,
+  Settings,
   Users,
   Ticket,
-  CreditCard,
-  Settings,
-  Link as LinkIcon,
   BedDouble,
-  ChevronRight,
-  ExternalLink,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -18,8 +18,8 @@ import { usePathname } from "next/navigation"
 import { useEventBySlug } from "@/lib/convex/hooks/events"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { EventSwitcher } from "@/components/dashboard/event-switcher"
 
 interface EventLayoutProps {
   children: React.ReactNode
@@ -45,11 +45,8 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
   if (event === undefined) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-24 w-full rounded-2xl" />
-        <div className="grid grid-cols-[240px_1fr] gap-6">
-          <Skeleton className="h-[400px] rounded-xl" />
-          <Skeleton className="h-[600px] rounded-xl" />
-        </div>
+        <Skeleton className="h-44 w-full rounded-2xl" />
+        <Skeleton className="h-[600px] w-full rounded-2xl" />
       </div>
     )
   }
@@ -111,84 +108,61 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
   ]
 
   return (
-    <div className="flex flex-col gap-6 lg:flex-row">
-      <aside className="w-full shrink-0 lg:w-64">
-        <div className="sticky top-20 space-y-4">
-          <div className="flex flex-col gap-4 rounded-2xl border border-white/60 bg-white/40 p-5 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
-            <EventSwitcher currentSlug={slug} />
-
-            <div className="space-y-1 border-t border-border/40 pt-4">
-              <h2 className="text-xs font-black tracking-[0.2em] text-muted-foreground/50 uppercase">
-                Active Event
-              </h2>
-              <div className="flex flex-col gap-2">
-                <h3 className="text-lg leading-tight font-bold tracking-tight">
-                  {event.title}
-                </h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {getStatusBadge(event.isPublished, event.isSignupOpen)}
-                  <Badge variant="outline" className="h-4 text-[9px]">
-                    ID: {event.slug}
-                  </Badge>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2 border-t border-border/40 pt-4">
-              <Link
-                href={`/events/${event.slug}`}
-                target="_blank"
-                className="group flex items-center justify-between rounded-lg px-2 py-1.5 transition-colors hover:bg-primary/10"
-              >
-                <span className="text-[10px] font-bold text-muted-foreground group-hover:text-primary">
-                  View public page
-                </span>
-                <ExternalLink className="size-3 text-muted-foreground/50 group-hover:text-primary" />
-              </Link>
-              <Link
-                href="/dashboard/events"
-                className="text-[10px] font-bold text-primary hover:underline"
-              >
-                Back to chooser
-              </Link>
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-white/60 bg-white/50 p-5 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-3">
+            <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
+              Event scope
+            </p>
+            <h1 className="text-3xl font-bold tracking-tight">{event.title}</h1>
+            <div className="flex flex-wrap gap-1.5">
+              {getStatusBadge(event.isPublished, event.isSignupOpen)}
+              <Badge variant="outline" className="h-5 text-[9px]">
+                ID: {event.slug}
+              </Badge>
             </div>
           </div>
 
-          <nav className="rounded-2xl border border-white/60 bg-white/40 p-2 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
-            <div className="flex flex-col gap-1">
-              {menuItems.map((item) => {
-                if (item.show === false) return null
-                const isActive = item.href === pathname
-                const Icon = item.icon
-
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-bold transition-all duration-200",
-                      isActive
-                        ? "bg-primary text-white shadow-lg shadow-primary/20"
-                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                    )}
-                  >
-                    <Icon
-                      className={cn(
-                        "size-4",
-                        isActive ? "text-white" : "text-primary"
-                      )}
-                    />
-                    <span className="flex-1">{item.label}</span>
-                    {isActive && <ChevronRight className="size-3 opacity-50" />}
-                  </Link>
-                )
-              })}
-            </div>
-          </nav>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" className="rounded-xl">
+              <Link href={`/events/${event.slug}`} target="_blank">
+                <ExternalLink className="size-4" />
+                View public page
+              </Link>
+            </Button>
+            <Button asChild variant="ghost" className="rounded-xl">
+              <Link href="/dashboard/events">Back to chooser</Link>
+            </Button>
+          </div>
         </div>
-      </aside>
 
-      <div className="min-w-0 flex-1">
+        <nav className="mt-5 flex flex-wrap gap-2">
+          {menuItems.map((item) => {
+            if (item.show === false) return null
+            const isActive = item.href === pathname || pathname.startsWith(`${item.href}/`)
+            const Icon = item.icon
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition-all duration-200",
+                  isActive
+                    ? "border-primary/30 bg-primary text-primary-foreground shadow-sm"
+                    : "border-border/50 bg-background/60 text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                )}
+              >
+                <Icon className="size-3.5" />
+                <span>{item.label}</span>
+                {isActive && <ChevronRight className="size-3 opacity-60" />}
+              </Link>
+            )
+          })}
+        </nav>
+      </div>
+      <div className="min-w-0">
         <div className="animate-in duration-700 fade-in slide-in-from-bottom-2">
           {children}
         </div>
