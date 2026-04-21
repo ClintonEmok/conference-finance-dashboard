@@ -52,7 +52,7 @@ v3.0 focuses on making canonical internal order, attendee, payable, and payment 
 2. Runtime write paths no longer need mixed internal/provider order identifiers to link payments, orders, and attendees.
 3. Verifiable runtime contracts exist for where provider data is allowed, so later cutover work can remove direct `ticketTailor*` dependencies safely.
 
-**Plans:** 2/3
+**Plans:** 3/3
 
 ---
 
@@ -133,7 +133,7 @@ v3.0 focuses on making canonical internal order, attendee, payable, and payment 
 
 | Phase                               | Goal                                             | Requirements           | Plans | Status      |
 | ----------------------------------- | ------------------------------------------------ | ---------------------- | ----- | ----------- |
-| 26 - Canonical Runtime Contract     | Normalize runtime identity and provider boundary | RTM-02                 | 2/3   | In Progress |
+| 26 - Canonical Runtime Contract     | Normalize runtime identity and provider boundary | RTM-02                 | 3/3   | Complete    |
 | 27 - Deterministic Money Model      | Deterministic totals, payables, and allocations  | FIN-01, FIN-02, FIN-03 | TBD   | Not started |
 | 28 - Safe Migration and Parity      | Brownfield-safe backfill, dual-write, and parity | MIG-01, MIG-02         | TBD   | Not started |
 | 29 - Canonical Runtime Read Cutover | Canonical finance and ops runtime reads          | RTM-01, FIN-04         | TBD   | Not started |
