@@ -3,24 +3,16 @@
 import Link from "next/link"
 import {
   ArrowRight,
-  BedDouble,
   CalendarRange,
   HandCoins,
   RefreshCcwDot,
-  Users,
 } from "lucide-react"
 import { SyntheticEvent, useEffect, useMemo, useState } from "react"
+import { format } from "date-fns"
 
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { cn } from "@/lib/utils"
+import { formatMoney } from "@/lib/format"
 
 type RevenueResponse = {
   generatedAt: string
@@ -97,7 +89,11 @@ function toDateInputValue(date: Date) {
   return date.toISOString().slice(0, 10)
 }
 
-import { formatMoney } from "@/lib/format"
+function formatEventStartsAt(value: number | null) {
+  if (!value) return "Date not set"
+
+  return format(new Date(value), "MMM d, yyyy")
+}
 
 function toIsoBoundary(value: string, boundary: "start" | "end") {
   if (!value.trim()) {
@@ -116,29 +112,28 @@ function toIsoBoundary(value: string, boundary: "start" | "end") {
 
 const quickActions = [
   {
-    title: "Open financial workspace",
-    description: "Start with revenue, ledger, and collections in one route.",
-    href: "/dashboard/financial",
+    title: "Manage orders",
+    description: "Work the canonical order queue and drill into contact people.",
+    href: "/dashboard/manage-orders",
     icon: HandCoins,
   },
   {
-    title: "Review outstanding balances",
-    description: "Start with collection follow-up and resolve unpaid orders.",
-    href: "/dashboard/reconciliation",
+    title: "Open event overviews",
+    description: "Jump to the per-event overview surface for the current event.",
+    href: "/dashboard/events",
+    icon: CalendarRange,
+  },
+  {
+    title: "Financial drilldown",
+    description: "Scan revenue, balances, and collection follow-up in one place.",
+    href: "/dashboard/financial",
     icon: ArrowRight,
   },
   {
-    title: "Open attendee follow-up",
-    description:
-      "Check attendee context before sending someone into room placement.",
-    href: "/dashboard/attendees",
-    icon: Users,
-  },
-  {
-    title: "Manage room placement",
-    description: "Place unassigned attendees and monitor room pressure.",
-    href: "/dashboard/accommodation",
-    icon: BedDouble,
+    title: "Review reconciliation",
+    description: "Track unpaid, cancelled, and refund cases for follow-up.",
+    href: "/dashboard/reconciliation",
+    icon: RefreshCcwDot,
   },
 ] as const
 
@@ -162,6 +157,7 @@ export default function DashboardPage() {
   const [payload, setPayload] = useState<RevenueResponse | null>(null)
   const [attendeesPayload, setAttendeesPayload] =
     useState<AttendeesSnippetPayload | null>(null)
+  const visibleEvents = payload?.availableEvents.slice(0, 6) ?? []
 
   const inlineValidationError = useMemo(() => {
     const fromIso = toIsoBoundary(fromDateInput, "start")
@@ -276,12 +272,49 @@ export default function DashboardPage() {
     <section className="space-y-6">
       <header className="mb-4">
         <h2 className="text-2xl font-bold tracking-tight text-foreground">
-          Overview
+          Global overview
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Live snapshot of conference finance and attendee flow.
+          Live ops health across orders, balances, and event drilldowns.
         </p>
       </header>
+
+      <article className="rounded-3xl border border-border/50 bg-card/40 p-6 shadow-sm backdrop-blur-xl">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-3xl space-y-3">
+            <p className="text-[10px] font-bold tracking-[0.22em] text-muted-foreground uppercase">
+              Canonical overview
+            </p>
+            <h3 className="text-3xl font-bold tracking-tight text-foreground">
+              See global status, then jump straight to the right event.
+            </h3>
+            <p className="text-sm leading-6 text-muted-foreground">
+              Use this surface to spot revenue movement, collection gaps, and
+              the event overviews that need operator attention.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <Button asChild className="h-11 rounded-xl px-5 shadow-lg shadow-primary/20">
+              <Link href="/dashboard/manage-orders">Open manage orders</Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              className="h-11 rounded-xl border-border/60 bg-background/70 px-5 backdrop-blur"
+            >
+              <Link href="/dashboard/events">Browse event overviews</Link>
+            </Button>
+            <Button
+              asChild
+              variant="ghost"
+              className="h-11 rounded-xl px-5 text-foreground"
+            >
+              <Link href="/dashboard/financial">Open financial drilldown</Link>
+            </Button>
+          </div>
+        </div>
+      </article>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {isLoading
@@ -338,16 +371,74 @@ export default function DashboardPage() {
 
       {!errorMessage && (
         <>
+          {visibleEvents.length > 0 && (
+            <article className="rounded-3xl border border-border/50 bg-card/40 p-6 shadow-sm backdrop-blur-xl">
+              <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase">
+                    Event overviews
+                  </p>
+                  <h3 className="mt-2 text-2xl font-bold tracking-tight text-foreground">
+                    Jump into an event-level overview
+                  </h3>
+                </div>
+                <Link
+                  href="/dashboard/events"
+                  className="text-sm font-medium text-primary hover:underline"
+                >
+                  View all events
+                </Link>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {visibleEvents.map((event) => (
+                  <div
+                    key={event.eventId}
+                    className="rounded-2xl border border-border/50 bg-background/50 p-5"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h4 className="text-lg font-bold text-foreground">
+                          {event.title ?? event.slug}
+                        </h4>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {formatEventStartsAt(event.startsAt)} · {event.currency ?? "Currency unset"}
+                        </p>
+                      </div>
+                      <CalendarRange className="size-5 text-primary" />
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button asChild size="sm" className="rounded-xl">
+                        <Link href={`/dashboard/events/${event.slug}/overview`}>
+                          Open overview
+                        </Link>
+                      </Button>
+                      <Button
+                        asChild
+                        size="sm"
+                        variant="outline"
+                        className="rounded-xl"
+                      >
+                        <Link href="/dashboard/manage-orders">Manage orders</Link>
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </article>
+          )}
+
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
             {/* Main Data Column */}
             <div className="space-y-6">
               <div className="flex flex-col gap-3">
                 <div>
                   <h3 className="text-[11px] font-semibold tracking-[0.18em] text-foreground text-muted-foreground uppercase">
-                    Daily trend
+                    Global order trend
                   </h3>
                   <p className="mt-1 text-sm font-semibold tracking-tight text-foreground">
-                    Movement across the active window
+                    Movement across the active overview window
                   </p>
                 </div>
 
@@ -394,7 +485,7 @@ export default function DashboardPage() {
                   </div>
                 ) : payload?.trend.length === 0 ? (
                   <p className="rounded-xl border border-white/60 bg-white/50 p-4 text-xs text-muted-foreground shadow-sm dark:border-white/10 dark:bg-white/5">
-                    No synced orders found for the default scope.
+                    No synced orders found for the current overview window.
                   </p>
                 ) : (
                   <div className="overflow-x-auto rounded-xl border border-white/60 bg-white/40 pb-2 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5">
@@ -443,15 +534,15 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              {/* Attendees snippet */}
+              {/* Contact people snippet */}
               <div className="flex flex-col gap-3 pt-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-[11px] font-semibold tracking-[0.18em] text-foreground text-muted-foreground uppercase">
-                      Latest attendees
+                      Latest contact people
                     </h3>
                     <p className="mt-1 text-sm font-semibold tracking-tight text-foreground">
-                      Recent signups in scope
+                      Recent contact people in scope
                     </p>
                   </div>
                   <Button
@@ -460,7 +551,7 @@ export default function DashboardPage() {
                     className="h-8 rounded-md border-white/60 bg-white/40 px-3 text-xs backdrop-blur-md hover:bg-white/60 dark:border-white/10 dark:bg-white/5"
                   >
                     <Link href="/dashboard/attendees">
-                      View all <ArrowRight className="ml-1 size-3" />
+                      View all contact people <ArrowRight className="ml-1 size-3" />
                     </Link>
                   </Button>
                 </div>
@@ -470,7 +561,7 @@ export default function DashboardPage() {
                     <table className="min-w-full text-xs">
                       <thead>
                         <tr className="border-b border-border/20 text-left text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
-                          <th className="px-4 py-3 font-semibold">Attendee</th>
+                          <th className="px-4 py-3 font-semibold">Contact person</th>
                           <th className="px-4 py-3 font-semibold">Event</th>
                           <th className="px-4 py-3 font-semibold">Room</th>
                         </tr>
@@ -496,14 +587,14 @@ export default function DashboardPage() {
                   </div>
                 ) : !attendeesPayload || attendeesPayload.rows.length === 0 ? (
                   <p className="rounded-xl border border-white/60 bg-white/50 p-4 text-xs text-muted-foreground shadow-sm dark:border-white/10 dark:bg-white/5">
-                    No attendees found for the default scope.
+                    No contact people found for the current overview window.
                   </p>
                 ) : (
                   <div className="overflow-x-auto rounded-xl border border-white/60 bg-white/40 pb-2 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5">
                     <table className="min-w-full text-xs">
                       <thead>
                         <tr className="border-b border-border/20 text-left text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
-                          <th className="px-4 py-3 font-semibold">Attendee</th>
+                          <th className="px-4 py-3 font-semibold">Contact person</th>
                           <th className="px-4 py-3 font-semibold">Event</th>
                           <th className="px-4 py-3 font-semibold">Room</th>
                         </tr>
@@ -516,7 +607,7 @@ export default function DashboardPage() {
                           >
                             <td className="px-4 py-3">
                               <div className="font-medium text-foreground">
-                                {row.attendeeName ?? "Unnamed attendee"}
+                                {row.attendeeName ?? "Unnamed contact person"}
                               </div>
                               <div className="max-w-[120px] truncate text-muted-foreground">
                                 {row.attendeeEmail ?? "-"}
@@ -554,7 +645,7 @@ export default function DashboardPage() {
             <div className="space-y-6">
               <div>
                 <h3 className="text-[11px] font-semibold tracking-[0.18em] text-foreground text-muted-foreground uppercase">
-                  Status mix
+                  Order status mix
                 </h3>
                 <div className="mt-3 space-y-4 rounded-xl border border-white/60 bg-white/40 p-5 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-white/5">
                   {isLoading || !payload

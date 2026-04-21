@@ -185,6 +185,7 @@ type ConvexAttendee = {
   orderAmountDueMinor: number | null
   orderSubmittedAt: number | null
   orderOrderedAt: number | null
+  customAnswers?: unknown
 }
 
 type ConvexOrder = {
@@ -203,6 +204,15 @@ type ConvexEvent = {
   title: string | null
   startsAt: number | null
   currency: string | null
+}
+
+function readCustomAnswerText(
+  customAnswers: unknown,
+  key: "location" | "remarks"
+) {
+  if (!customAnswers || typeof customAnswers !== "object") return null
+  const value = (customAnswers as Record<string, unknown>)[key]
+  return typeof value === "string" && value.trim() ? value.trim() : null
 }
 
 type ConvexRoom = {
@@ -236,27 +246,47 @@ export async function getAttendeeLedger(
   const { from, to } = normalizeRange(filters)
   const { page, pageSize } = normalizePagination(filters.page, filters.pageSize)
 
-  const [allAttendees, availableEvents, allRooms, allHotels, allRoomTypes] =
+  const [allAttendees, availableEvents, allOrders, allRooms, allHotels, allRoomTypes] =
     (await Promise.all([
-      convexQuery(api.attendees.getAttendeesWithTickets, {
+      convexQuery(api.attendees.getAttendeesWithTickets, {}),
+      convexQuery(api.events.getEventsForLedger, {}),
+      convexQuery(api.orders.getOrders, {
         eventId: eventId ?? undefined,
       }),
-      convexQuery(api.events.getEventsForLedger, {}),
       convexQuery(api.accommodation.getRooms, {}),
       convexQuery(api.accommodation.getHotels, {}),
       convexQuery(api.accommodation.getRoomTypes, {}),
     ])) as [
       ConvexAttendee[],
       ConvexEvent[],
+      Array<{
+        _id: string
+        eventId: string
+        orderedAt: number | null
+        submittedAt: number | null
+        providerOrderId: string | null
+        normalizedStatus: CanonicalOrderStatus | null
+        totalAmountMinor: number | null
+      }>,
       ConvexRoom[],
       ConvexHotel[],
       ConvexRoomType[],
     ]
 
-  const eventMap = new Map(availableEvents.map((e) => [e.eventId, e]))
+  const eventMap = new Map(
+    availableEvents.map((e) => [e.eventId ?? (e as { _id?: string })._id ?? "", e])
+  )
+  const orderMap = new Map(allOrders.map((order) => [order._id, order]))
   const roomMap = new Map(allRooms.map((r) => [r._id, r]))
   const hotelMap = new Map(allHotels.map((h) => [h._id, h]))
   const roomTypeMap = new Map(allRoomTypes.map((rt) => [rt._id, rt]))
+
+  const eligibleAttendees = eventId
+    ? allAttendees.filter((attendee) => {
+        const order = orderMap.get(attendee.orderId)
+        return attendee.orderEventId === eventId || order?.eventId === eventId
+      })
+    : allAttendees
 
   const attendeeIdsByOrderId = new Map<string, string[]>()
   for (const attendee of allAttendees) {
@@ -280,9 +310,11 @@ export async function getAttendeeLedger(
   const fromTime = from.getTime()
   const toTime = to.getTime()
 
-  let filteredAttendees = allAttendees.filter((a) => {
-    const orderTime = a.orderOrderedAt ?? a.orderSubmittedAt ?? null
-    if (!orderTime) return false
+  let filteredAttendees = eligibleAttendees.filter((a) => {
+    const order = orderMap.get(a.orderId)
+    const orderTime =
+      a.orderOrderedAt ?? a.orderSubmittedAt ?? order?.orderedAt ?? order?.submittedAt ?? null
+    if (!orderTime) return true
     return orderTime >= fromTime && orderTime <= toTime
   })
 
@@ -352,7 +384,8 @@ export async function getAttendeeLedger(
   }
 
   const rows: AttendeeLedgerRow[] = paginatedAttendees.map((attendee) => {
-    const eventId = attendee.orderEventId
+    const order = orderMap.get(attendee.orderId)
+    const eventId = attendee.orderEventId ?? order?.eventId ?? null
     const event = eventId ? eventMap.get(eventId) : undefined
     const room = attendee.assignedRoomId
       ? roomMap.get(attendee.assignedRoomId)
@@ -389,8 +422,9 @@ export async function getAttendeeLedger(
       genderType: attendee.gender
         ? (attendee.gender.toUpperCase() as AttendeeLedgerRow["genderType"])
         : null,
-      location: attendee.location ?? null,
-      remarks: null,
+      location:
+        attendee.location ?? readCustomAnswerText(attendee.customAnswers, "location"),
+      remarks: readCustomAnswerText(attendee.customAnswers, "remarks"),
       allocationPriority: attendee.allocationPriority ?? "NORMAL",
       priorityReason: attendee.priorityReason,
       ageGroup: null,
@@ -414,7 +448,9 @@ export async function getAttendeeLedger(
             },
       orderedAt: attendee.orderOrderedAt
         ? new Date(attendee.orderOrderedAt).toISOString()
-        : null,
+        : order?.orderedAt
+          ? new Date(order.orderedAt).toISOString()
+          : null,
     }
   })
 
@@ -429,7 +465,7 @@ export async function getAttendeeLedger(
       pageSize,
     },
     availableEvents: availableEvents.map((e) => ({
-      eventId: e.eventId,
+      eventId: e.eventId ?? (e as { _id?: string })._id ?? "",
       slug: e.slug,
       title: e.title ?? "",
       startsAt: e.startsAt ? new Date(e.startsAt).toISOString() : "",
