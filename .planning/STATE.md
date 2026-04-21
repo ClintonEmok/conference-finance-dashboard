@@ -2,15 +2,14 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Canonical Orders Foundation
-status: roadmap_created
-stopped_at: Roadmap created for milestone v3.0
-last_updated: "2026-04-01T10:44:46.000Z"
-last_activity: 2026-04-01 - Completed quick task 260401-hcw (internal orders canonicalization fix)
+status: in_progress
+stopped_at: Completed 26-order-ops-refresh-01-PLAN.md
+last_updated: "2026-04-21T10:32:50Z"
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 80
-  completed_plans: 78
+  total_plans: 3
+  completed_plans: 1
 ---
 
 # Project State
@@ -20,16 +19,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-04-01)
 
 - **Core value:** One trusted dashboard for church conference finance operations.
-- **Current focus:** Phase 26 - Canonical Runtime Contract
+- **Current focus:** Phase 26 — order-ops-refresh
 
 ## Current Position
 
-Phase: 26 of 30 (Canonical Runtime Contract)
-Plan: 01 (quick task 260401-hcw complete)
-Status: In progress
-Last activity: 2026-04-01 — Completed 26-01 quick runtime contract hardening
-
-Progress: [██████████] 98%
+Phase: 26 (order-ops-refresh) — EXECUTING
+Plan: 1 of 3 complete
+Next: Plan 2 of 3 pending
 
 ## Performance Metrics
 
@@ -66,6 +62,6 @@ Progress: [██████████] 98%
 
 ## Session Continuity
 
-Last session: 2026-04-01 00:00
-Stopped at: Completed quick task 260401-hcw and summary documentation
+Last session: 2026-04-21 10:32 UTC
+Stopped at: Completed 26-order-ops-refresh-01-PLAN.md
 Resume file: None
