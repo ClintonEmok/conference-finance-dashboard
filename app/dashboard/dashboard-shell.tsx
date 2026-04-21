@@ -3,21 +3,13 @@
 import Link from "next/link"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
-import { useState, useMemo, useEffect } from "react"
-import {
-  BedDouble,
-  ChevronRight,
-  Calendar,
-  Home,
-  type LucideIcon,
-  ShieldEllipsis,
-  WalletCards,
-  Users,
-} from "lucide-react"
+import { useMemo, useState } from "react"
+import { Calendar, ShieldEllipsis, type LucideIcon } from "lucide-react"
 
 import { LogoutButton } from "@/app/dashboard/logout-button"
 import { cn } from "@/lib/utils"
 import { NavBreadcrumbs } from "@/components/dashboard/nav-breadcrumbs"
+import { EventSwitcher } from "@/components/dashboard/event-switcher"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import {
   Sidebar,
@@ -41,17 +33,11 @@ type DashboardShellProps = {
   children: React.ReactNode
 }
 
-type NavigationChildItem = {
-  href: string
-  label: string
-}
-
 type NavigationItem = {
   href: string
   label: string
   description: string
   icon: LucideIcon
-  children?: NavigationChildItem[]
 }
 
 type NavigationSection = {
@@ -61,76 +47,13 @@ type NavigationSection = {
 
 const navigationSections: NavigationSection[] = [
   {
-    title: "Overview",
-    items: [
-      {
-        href: "/dashboard",
-        label: "Overview",
-        description: "Daily command center",
-        icon: Home,
-      },
-    ],
-  },
-  {
     title: "Events",
     items: [
       {
         href: "/dashboard/events",
-        label: "Events",
-        description: "Manage conference events",
+        label: "Choose event",
+        description: "Return to the chooser",
         icon: Calendar,
-      },
-    ],
-  },
-  {
-    title: "Finance",
-    items: [
-      {
-        href: "/dashboard/financial",
-        label: "Financial",
-        description: "Revenue and forecasting",
-        icon: WalletCards,
-        children: [
-          {
-            href: "/dashboard/reconciliation",
-            label: "Reconciliation",
-          },
-          {
-            href: "/dashboard/payments",
-            label: "Payments",
-          },
-          {
-            href: "/dashboard/manage-orders",
-            label: "Manage Orders",
-          },
-          {
-            href: "/dashboard/settings/ticket-types",
-            label: "Payment templates",
-          },
-        ],
-      },
-    ],
-  },
-  {
-    title: "Operations",
-    items: [
-      {
-        href: "/dashboard/attendees",
-        label: "Attendees",
-        description: "People and payment context",
-        icon: Users,
-      },
-      {
-        href: "/dashboard/accommodation",
-        label: "Accommodation",
-        description: "Rooms and assignments",
-        icon: BedDouble,
-        children: [
-          {
-            href: "/dashboard/accommodation/inventory",
-            label: "Inventory",
-          },
-        ],
       },
     ],
   },
@@ -151,69 +74,18 @@ function isPathActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
+function getEventSlugFromPath(pathname: string) {
+  const match = pathname.match(
+    /^\/dashboard\/events\/(?!new(?:\/|$))([^/]+)(?:\/|$)/
+  )
+
+  return match?.[1] ?? null
+}
+
 export function DashboardShell({ userEmail, children }: DashboardShellProps) {
   const pathname = usePathname()
   const [open, setOpen] = useState(true)
-
-  // Detect if we are in a "scoped" page (detail view)
-  const isScoped = useMemo(() => {
-    const scopedPatterns = [
-      /^\/dashboard\/events\/(?!new$)[^/]+/,
-      /^\/dashboard\/manage-orders\/[^/]+/,
-      /^\/dashboard\/orders\/[^/]+/,
-      /^\/dashboard\/attendees\/[^/]+/,
-      /^\/dashboard\/accommodation\/(?!inventory$)[^/]+/,
-    ]
-    return scopedPatterns.some((pattern) => pattern.test(pathname))
-  }, [pathname])
-
-  // Auto-collapse logic when entering a scoped view
-  const [lastPathname, setLastPathname] = useState(pathname)
-
-  useEffect(() => {
-    if (pathname !== lastPathname) {
-      // If we just navigated into a scoped view from a non-scoped one
-      const wasScoped = [
-        /^\/dashboard\/events\/(?!new$)[^/]+/,
-        /^\/dashboard\/manage-orders\/[^/]+/,
-        /^\/dashboard\/orders\/[^/]+/,
-        /^\/dashboard\/attendees\/[^/]+/,
-        /^\/dashboard\/accommodation\/(?!inventory$)[^/]+/,
-      ].some((pattern) => pattern.test(lastPathname))
-
-      if (isScoped && !wasScoped) {
-        setOpen(false)
-      }
-      setLastPathname(pathname)
-    }
-  }, [pathname, isScoped, lastPathname])
-
-  const [expandedByHref, setExpandedByHref] = useState<Record<string, boolean>>(
-    () => {
-      const initial: Record<string, boolean> = {}
-
-      for (const section of navigationSections) {
-        for (const item of section.items) {
-          if (!item.children?.length) {
-            continue
-          }
-
-          initial[item.href] =
-            isPathActive(pathname, item.href) ||
-            item.children.some((child) => isPathActive(pathname, child.href))
-        }
-      }
-
-      return initial
-    }
-  )
-
-  function toggleExpanded(href: string) {
-    setExpandedByHref((current) => ({
-      ...current,
-      [href]: !current[href],
-    }))
-  }
+  const currentSlug = useMemo(() => getEventSlugFromPath(pathname), [pathname])
 
   return (
     <TooltipProvider>
@@ -241,6 +113,10 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
           </SidebarHeader>
 
           <SidebarContent className="gap-0">
+            <div className="px-3 pt-3 group-data-[collapsible=icon]:hidden">
+              <EventSwitcher currentSlug={currentSlug} />
+            </div>
+
             {navigationSections.map((section) => (
               <SidebarGroup key={section.title}>
                 <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">
@@ -250,9 +126,7 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                   <SidebarMenu>
                     {section.items.map((item) => {
                       const Icon = item.icon
-                      const hasChildren = Boolean(item.children?.length)
-                      const active = isPathActive(pathname, item.href) ||
-                        item.children?.some(c => isPathActive(pathname, c.href))
+                      const active = isPathActive(pathname, item.href)
 
                       return (
                         <SidebarMenuItem key={item.href}>
@@ -262,33 +136,17 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
                             tooltip={item.label}
                             className={cn(
                               "transition-all duration-200",
-                              active && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground shadow-sm"
+                              active &&
+                                "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground shadow-sm"
                             )}
                           >
                             <Link href={item.href}>
                               <Icon />
-                              <span className="font-bold tracking-tight uppercase group-data-[collapsible=icon]:hidden">{item.label}</span>
+                              <span className="font-bold tracking-tight uppercase group-data-[collapsible=icon]:hidden">
+                                {item.label}
+                              </span>
                             </Link>
                           </SidebarMenuButton>
-
-                          {hasChildren && !isScoped && expandedByHref[item.href] && (
-                            <div className="mt-1 ml-4 flex flex-col gap-0.5 border-l border-border/30 pl-3 group-data-[collapsible=icon]:hidden">
-                              {item.children?.map((child) => (
-                                <Link
-                                  key={child.href}
-                                  href={child.href}
-                                  className={cn(
-                                    "block rounded-md px-3 py-1.5 text-[10px] font-bold tracking-wide uppercase transition-colors",
-                                    isPathActive(pathname, child.href)
-                                      ? "bg-primary/10 text-primary"
-                                      : "text-muted-foreground/60 hover:bg-muted/30 hover:text-foreground"
-                                  )}
-                                >
-                                  {child.label}
-                                </Link>
-                              ))}
-                            </div>
-                          )}
                         </SidebarMenuItem>
                       )
                     })}
@@ -299,10 +157,12 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
           </SidebarContent>
 
           <SidebarFooter>
-            <div className={cn(
-              "flex items-center gap-3 rounded-xl border border-border/40 bg-white/40 p-2.5 shadow-sm backdrop-blur dark:bg-black/20 transition-all",
-              !open && "border-transparent bg-transparent p-0 shadow-none justify-center"
-            )}>
+            <div
+              className={cn(
+                "flex items-center gap-3 rounded-xl border border-border/40 bg-white/40 p-2.5 shadow-sm backdrop-blur dark:bg-black/20 transition-all",
+                !open && "border-transparent bg-transparent p-0 shadow-none justify-center"
+              )}
+            >
               <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
                 <p className="truncate text-[10px] font-black tracking-widest text-foreground uppercase">
                   {userEmail.split("@")[0]}
@@ -331,10 +191,8 @@ export function DashboardShell({ userEmail, children }: DashboardShellProps) {
             </div>
           </header>
 
-          <div className="flex-1 p-4 lg:p-6 overflow-x-hidden">
-            <div className="mx-auto max-w-7xl">
-              {children}
-            </div>
+          <div className="flex-1 overflow-x-hidden p-4 lg:p-6">
+            <div className="mx-auto max-w-7xl">{children}</div>
           </div>
         </SidebarInset>
       </SidebarProvider>
