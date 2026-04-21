@@ -1,7 +1,7 @@
 import type { CanonicalOrderStatus } from "@/lib/domain/finance/order-ledger"
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
-import { buildMatchedTotalsByProviderOrderId } from "@/lib/domain/finance/matched-payments"
+import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
 
 export type ReconciliationFilters = {
   eventId?: string | null
@@ -147,8 +147,7 @@ export async function getReconciliationRows(
     convexQuery(api.events.getEventsForLedger, {}),
   ])
 
-  const matchedTotalsByProviderOrderId =
-    await buildMatchedTotalsByProviderOrderId(orders)
+  const matchedTotalsByOrderId = await buildMatchedTotalsByOrderId(orders)
 
   const rows: ReconciliationRow[] = []
   let outstandingMinor = 0
@@ -158,8 +157,7 @@ export async function getReconciliationRows(
       amountDueMinor?: number | null
     }
 
-    const providerOrderLookupKey =
-      typedOrder.providerOrderId ?? typedOrder.orderId ?? null
+    const orderLookupKey = typedOrder.orderId ?? null
 
     const refundedAtDate = typedOrder.refundedAt
       ? new Date(typedOrder.refundedAt)
@@ -172,8 +170,8 @@ export async function getReconciliationRows(
       totalAmountMinor: typedOrder.totalAmountMinor,
       refundedAt: refundedAtDate,
       matchedAmountMinor:
-        (providerOrderLookupKey
-          ? matchedTotalsByProviderOrderId.get(providerOrderLookupKey)
+        (orderLookupKey
+          ? matchedTotalsByOrderId.get(orderLookupKey)
           : undefined) ?? 0,
     })
 

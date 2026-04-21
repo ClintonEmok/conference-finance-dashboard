@@ -15,18 +15,48 @@ type PaymentForReconciliation = {
   status?: PaymentMatchStatus | null
 }
 
-export async function buildMatchedTotalsByProviderOrderId(
-  orders: Array<{ providerOrderId: string | null; orderId?: string | null }>
+async function resolveCanonicalOrderIdForLegacyPayment(
+  orderId: string,
+  legacyLookupCache: Map<string, string | null>
+): Promise<string | null> {
+  if (legacyLookupCache.has(orderId)) {
+    return legacyLookupCache.get(orderId) ?? null
+  }
+
+  const byOrderId = await convexQuery(api.orders.getOrderById, {
+    orderId,
+  })
+
+  if (byOrderId?._id) {
+    const canonicalOrderId = byOrderId._id as string
+    legacyLookupCache.set(orderId, canonicalOrderId)
+    return canonicalOrderId
+  }
+
+  const byProviderOrder = await convexQuery(api.orders.getOrderByProviderId, {
+    providerOrderId: orderId,
+  })
+
+  const canonicalOrderId = byProviderOrder?._id ?? null
+  legacyLookupCache.set(orderId, canonicalOrderId)
+  return canonicalOrderId
+}
+
+export async function buildMatchedTotalsByOrderId(
+  orders: Array<{
+    orderId?: string | null
+    providerOrderId?: string | null
+  }>
 ): Promise<Map<string, number>> {
   const payments = (await convexQuery(api.payments.getPayments, {})) as
     | PaymentForReconciliation[]
     | null
     | undefined
 
-  const matchedTotalsByProviderOrderId = new Map<string, number>()
-  const knownProviderOrderIds = new Set(
+  const matchedTotalsByOrderId = new Map<string, number>()
+  const knownOrderIds = new Set(
     orders
-      .map((order) => order.providerOrderId ?? order.orderId ?? null)
+      .map((order) => order.orderId ?? null)
       .filter((value): value is string => Boolean(value))
   )
   const legacyLookupCache = new Map<string, string | null>()
@@ -49,35 +79,30 @@ export async function buildMatchedTotalsByProviderOrderId(
       continue
     }
 
-    let providerOrderId: string | null = null
+    let canonicalOrderId: string | null = null
 
-    if (knownProviderOrderIds.has(normalizedOrderId)) {
-      providerOrderId = normalizedOrderId
-    } else if (legacyLookupCache.has(normalizedOrderId)) {
-      providerOrderId = legacyLookupCache.get(normalizedOrderId) ?? null
+    if (knownOrderIds.has(normalizedOrderId)) {
+      canonicalOrderId = normalizedOrderId
     } else {
-      const legacyOrder = await convexQuery(api.orders.getOrderById, {
-        orderId: normalizedOrderId,
-      })
-      const fallbackProviderOrderId =
-        legacyOrder && typeof legacyOrder.providerOrderId === "string"
-          ? legacyOrder.providerOrderId.trim()
-          : ""
-
-      providerOrderId = fallbackProviderOrderId || null
-      legacyLookupCache.set(normalizedOrderId, providerOrderId)
+      canonicalOrderId =
+        (await resolveCanonicalOrderIdForLegacyPayment(
+          normalizedOrderId,
+          legacyLookupCache
+        )) ?? null
     }
 
-    if (!providerOrderId || !knownProviderOrderIds.has(providerOrderId)) {
+    if (!canonicalOrderId || !knownOrderIds.has(canonicalOrderId)) {
       continue
     }
 
-    matchedTotalsByProviderOrderId.set(
-      providerOrderId,
-      (matchedTotalsByProviderOrderId.get(providerOrderId) ?? 0) +
+    matchedTotalsByOrderId.set(
+      canonicalOrderId,
+      (matchedTotalsByOrderId.get(canonicalOrderId) ?? 0) +
         payment.amountMinor
     )
   }
 
-  return matchedTotalsByProviderOrderId
+  return matchedTotalsByOrderId
 }
+
+export const buildMatchedTotalsByProviderOrderId = buildMatchedTotalsByOrderId
