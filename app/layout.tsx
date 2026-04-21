@@ -27,14 +27,22 @@ export const metadata: Metadata = {
   description: siteDescription,
   applicationName: siteTitle,
   authors: [{ name: siteTitle }],
+  generator: "Next.js",
+  keywords: ["conference", "finance", "dashboard", "church", "management"],
+  referrer: "origin-when-cross-origin",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "white" },
+    { media: "(prefers-color-scheme: dark)", color: "black" },
+  ],
   openGraph: {
     type: "website",
     siteName: siteTitle,
     title: siteTitle,
     description: siteDescription,
+    locale: "en_US",
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: siteTitle,
     description: siteDescription,
   },
@@ -42,6 +50,13 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
     nocache: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
   },
 }
 

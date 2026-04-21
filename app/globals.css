@@ -126,5 +126,11 @@
 
   html {
     @apply font-sans;
+    scroll-behavior: smooth;
+  }
+
+  ::selection {
+    background: oklch(0.398 0.195 277.366 / 30%);
+    color: inherit;
   }
 }

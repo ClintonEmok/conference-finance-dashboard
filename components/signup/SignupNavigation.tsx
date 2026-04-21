@@ -1,3 +1,5 @@
+"use client"
+
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { SignupStep } from "@/components/signup/state"
@@ -40,7 +42,7 @@ export function SignupNavigation({
           Back
         </Button>
       )}
-      
+
       {!showSubmit ? (
         <Button
           type="button"
