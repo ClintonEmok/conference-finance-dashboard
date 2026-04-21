@@ -8,7 +8,7 @@ type DashboardLayoutProps = {
 export default async function DashboardLayout({
   children,
 }: DashboardLayoutProps) {
-  const user = await requirePageUser("/dashboard")
+  await requirePageUser("/dashboard")
 
-  return <DashboardSurface userEmail={user.email}>{children}</DashboardSurface>
+  return <DashboardSurface>{children}</DashboardSurface>
 }
