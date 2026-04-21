@@ -1,11 +1,20 @@
 "use client"
 
-import { use, useMemo, useState } from "react"
+import { use, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { useAction, useQuery } from "convex/react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Card,
@@ -53,6 +62,32 @@ type PaymentStatus =
   | "ambiguous"
   | "unassigned"
   | null
+
+type GenderType = "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+
+type OrderEditDraft = {
+  bookerName: string
+  bookerEmail: string
+  bookingRef: string
+  normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
+  totalAmountMinor: string
+  orderedAt: string
+}
+
+type AttendeeEditDraft = {
+  tikkieAmountOverrideMinor: string
+  genderType: "" | GenderType
+}
+
+type AttendeeDetailSnapshot = {
+  attendee: {
+    id: string
+    tikkieAmountOverrideMinor: number | null
+  }
+  signals: {
+    genderType: GenderType | null
+  }
+}
 
 type OrderAttendeePayload = {
   order: {
@@ -136,6 +171,33 @@ function paymentStatusVariant(status: PaymentStatus) {
   return "secondary" as const
 }
 
+function toDatetimeLocalValue(value: string | null) {
+  if (!value) return ""
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ""
+  return parsed.toISOString().slice(0, 16)
+}
+
+function parseDatetimeLocalValue(value: string) {
+  if (!value.trim()) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("Invalid orderedAt. Expected a valid date/time.")
+  }
+  return parsed.toISOString()
+}
+
+function parseMinorUnitInput(value: string, field: string) {
+  if (!value.trim()) return null
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(
+      `Invalid ${field}. Expected a non-negative whole number in minor units.`
+    )
+  }
+  return parsed
+}
+
 export default function OrderDetailPage({ params }: PageProps) {
   const { orderId: rawOrderId } = use(params)
   const searchParams = useSearchParams()
@@ -150,6 +212,22 @@ export default function OrderDetailPage({ params }: PageProps) {
   const [resendErrorMessage, setResendErrorMessage] = useState<string | null>(
     null
   )
+  const [isSavingOrder, setIsSavingOrder] = useState(false)
+  const [orderSaveError, setOrderSaveError] = useState<string | null>(null)
+  const [orderEditDraft, setOrderEditDraft] = useState<OrderEditDraft | null>(
+    null
+  )
+  const [attendeeDetailSnapshots, setAttendeeDetailSnapshots] = useState<
+    Record<string, AttendeeDetailSnapshot>
+  >({})
+  const [attendeeEditDrafts, setAttendeeEditDrafts] = useState<
+    Record<string, AttendeeEditDraft>
+  >({})
+  const [savingAttendeeId, setSavingAttendeeId] = useState<string | null>(null)
+  const [attendeeSaveErrors, setAttendeeSaveErrors] = useState<
+    Record<string, string | null>
+  >({})
+  const [attendeeLoadError, setAttendeeLoadError] = useState<string | null>(null)
   const unassignPayment = useUnassignPayment()
   const resendOrderConfirmation = useAction(
     api.emailActions.resendOrderConfirmation
@@ -185,6 +263,88 @@ export default function OrderDetailPage({ params }: PageProps) {
   )
 
   const orderPayload = (orderQuery ?? null) as OrderAttendeePayload | null
+
+  useEffect(() => {
+    if (!orderPayload) return
+
+    setOrderEditDraft({
+      bookerName: orderPayload.order.buyerName ?? "",
+      bookerEmail: orderPayload.order.bookerEmail ?? "",
+      bookingRef: orderPayload.order.bookingRef ?? "",
+      normalizedStatus: orderPayload.order.normalizedStatus ?? "pending",
+      totalAmountMinor:
+        orderPayload.order.totalAmountMinor === null
+          ? ""
+          : String(orderPayload.order.totalAmountMinor),
+      orderedAt: toDatetimeLocalValue(orderPayload.order.orderedAt),
+    })
+  }, [orderPayload])
+
+  useEffect(() => {
+    const attendees = orderPayload?.attendees ?? []
+
+    if (!attendees.length) {
+      setAttendeeDetailSnapshots({})
+      setAttendeeEditDrafts({})
+      return
+    }
+
+    const controller = new AbortController()
+    setAttendeeLoadError(null)
+
+    async function loadAttendeeDrafts() {
+      try {
+        const details = await Promise.all(
+          attendees.map(async (attendee) => {
+            const response = await fetch(
+              `/api/dashboard/attendees/${encodeURIComponent(attendee.id)}`,
+              { signal: controller.signal }
+            )
+            if (!response.ok) {
+              throw new Error(`Failed to load attendee ${attendee.id}`)
+            }
+
+            const body = (await response.json()) as {
+              attendee: AttendeeDetailSnapshot["attendee"]
+              signals: AttendeeDetailSnapshot["signals"]
+            }
+
+            return [attendee.id, body] as const
+          })
+        )
+
+        if (controller.signal.aborted) return
+
+        const snapshotMap: Record<string, AttendeeDetailSnapshot> = {}
+        const draftMap: Record<string, AttendeeEditDraft> = {}
+
+        for (const [attendeeId, detail] of details) {
+          snapshotMap[attendeeId] = detail
+          draftMap[attendeeId] = {
+            tikkieAmountOverrideMinor:
+              detail.attendee.tikkieAmountOverrideMinor === null
+                ? ""
+                : String(detail.attendee.tikkieAmountOverrideMinor),
+            genderType: detail.signals.genderType ?? "",
+          }
+        }
+
+        setAttendeeDetailSnapshots(snapshotMap)
+        setAttendeeEditDrafts(draftMap)
+      } catch (error) {
+        if (controller.signal.aborted) return
+        setAttendeeLoadError(
+          error instanceof Error
+            ? error.message
+            : "Failed to load attendee details."
+        )
+      }
+    }
+
+    loadAttendeeDrafts()
+
+    return () => controller.abort()
+  }, [orderPayload?.attendees])
 
   const canResendConfirmation = Boolean(
     orderPayload?.order.bookerEmail && orderPayload?.order.bookingRef
@@ -227,6 +387,95 @@ export default function OrderDetailPage({ params }: PageProps) {
       )
     } finally {
       setIsResendingEmail(false)
+    }
+  }
+
+  async function saveOrderDetails() {
+    if (!hasOrderId || !orderPayload || !orderEditDraft) return
+
+    setIsSavingOrder(true)
+    setOrderSaveError(null)
+
+    try {
+      const response = await fetch(
+        `/api/dashboard/orders/${encodeURIComponent(normalizedOrderId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            bookerName: orderEditDraft.bookerName || null,
+            bookerEmail: orderEditDraft.bookerEmail || null,
+            bookingRef: orderEditDraft.bookingRef || null,
+            normalizedStatus: orderEditDraft.normalizedStatus,
+            totalAmountMinor: parseMinorUnitInput(
+              orderEditDraft.totalAmountMinor,
+              "totalAmountMinor"
+            ),
+            orderedAt: parseDatetimeLocalValue(orderEditDraft.orderedAt),
+          }),
+        }
+      )
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string }
+        } | null
+        throw new Error(body?.error?.message ?? "Failed to save order details.")
+      }
+
+      window.location.reload()
+    } catch (error) {
+      setOrderSaveError(
+        error instanceof Error ? error.message : "Failed to save order details."
+      )
+    } finally {
+      setIsSavingOrder(false)
+    }
+  }
+
+  async function saveAttendeeDetails(attendeeId: string) {
+    const draft = attendeeEditDrafts[attendeeId]
+    if (!draft) return
+
+    setSavingAttendeeId(attendeeId)
+    setAttendeeSaveErrors((current) => ({ ...current, [attendeeId]: null }))
+
+    try {
+      const response = await fetch(
+        `/api/dashboard/attendees/${encodeURIComponent(attendeeId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tikkieAmountOverrideMinor: parseMinorUnitInput(
+              draft.tikkieAmountOverrideMinor,
+              "tikkieAmountOverrideMinor"
+            ),
+            genderType: draft.genderType || null,
+          }),
+        }
+      )
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string }
+        } | null
+        throw new Error(
+          body?.error?.message ?? "Failed to save attendee details."
+        )
+      }
+
+      window.location.reload()
+    } catch (error) {
+      setAttendeeSaveErrors((current) => ({
+        ...current,
+        [attendeeId]:
+          error instanceof Error
+            ? error.message
+            : "Failed to save attendee details.",
+      }))
+    } finally {
+      setSavingAttendeeId(null)
     }
   }
 
@@ -545,6 +794,156 @@ export default function OrderDetailPage({ params }: PageProps) {
             </CardContent>
           </Card>
 
+          <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+            <CardHeader>
+              <CardTitle className="text-lg font-bold">Edit Order</CardTitle>
+              <CardDescription>
+                Update operator-visible order fields in place.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {orderSaveError && (
+                <Alert variant="destructive" className="mb-4 rounded-xl">
+                  <AlertCircle className="size-4" />
+                  <AlertTitle className="text-destructive">Save failed</AlertTitle>
+                  <AlertDescription className="text-destructive/80">
+                    {orderSaveError}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {orderEditDraft && (
+                <form
+                  className="grid gap-4 lg:grid-cols-2"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void saveOrderDetails()
+                  }}
+                >
+                  <div className="space-y-2">
+                    <Label htmlFor="bookerName">Booker name</Label>
+                    <Input
+                      id="bookerName"
+                      value={orderEditDraft.bookerName}
+                      onChange={(event) =>
+                        setOrderEditDraft((current) =>
+                          current
+                            ? { ...current, bookerName: event.target.value }
+                            : current
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="bookerEmail">Booker email</Label>
+                    <Input
+                      id="bookerEmail"
+                      type="email"
+                      value={orderEditDraft.bookerEmail}
+                      onChange={(event) =>
+                        setOrderEditDraft((current) =>
+                          current
+                            ? { ...current, bookerEmail: event.target.value }
+                            : current
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="bookingRef">Booking reference</Label>
+                    <Input
+                      id="bookingRef"
+                      value={orderEditDraft.bookingRef}
+                      onChange={(event) =>
+                        setOrderEditDraft((current) =>
+                          current
+                            ? { ...current, bookingRef: event.target.value }
+                            : current
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="normalizedStatus">Order status</Label>
+                    <Select
+                      value={orderEditDraft.normalizedStatus}
+                      onValueChange={(value) =>
+                        setOrderEditDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                normalizedStatus: value as OrderEditDraft["normalizedStatus"],
+                              }
+                            : current
+                        )
+                      }
+                    >
+                      <SelectTrigger id="normalizedStatus">
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="paid">paid</SelectItem>
+                        <SelectItem value="refunded">refunded</SelectItem>
+                        <SelectItem value="cancelled">cancelled</SelectItem>
+                        <SelectItem value="pending">pending</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="totalAmountMinor">Total amount (minor units)</Label>
+                    <Input
+                      id="totalAmountMinor"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={orderEditDraft.totalAmountMinor}
+                      onChange={(event) =>
+                        setOrderEditDraft((current) =>
+                          current
+                            ? { ...current, totalAmountMinor: event.target.value }
+                            : current
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="orderedAt">Ordered at</Label>
+                    <Input
+                      id="orderedAt"
+                      type="datetime-local"
+                      value={orderEditDraft.orderedAt}
+                      onChange={(event) =>
+                        setOrderEditDraft((current) =>
+                          current
+                            ? { ...current, orderedAt: event.target.value }
+                            : current
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div className="lg:col-span-2 flex items-center justify-between gap-3 pt-2">
+                    <p className="text-xs text-muted-foreground">
+                      Blank fields clear nullable values.
+                    </p>
+                    <Button
+                      type="submit"
+                      disabled={isSavingOrder}
+                      className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
+                    >
+                      {isSavingOrder ? "Saving..." : "Save order changes"}
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="grid gap-8 lg:grid-cols-5">
             {/* Attendees Section */}
             <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur lg:col-span-3 dark:border-white/10 dark:bg-black/20">
@@ -553,6 +952,17 @@ export default function OrderDetailPage({ params }: PageProps) {
                 <CardDescription>
                   Consolidated ticket data for this order
                 </CardDescription>
+                {attendeeLoadError && (
+                  <Alert variant="destructive" className="mt-4 rounded-xl">
+                    <AlertCircle className="size-4" />
+                    <AlertTitle className="text-destructive">
+                      Attendee load failed
+                    </AlertTitle>
+                    <AlertDescription className="text-destructive/80">
+                      {attendeeLoadError}
+                    </AlertDescription>
+                  </Alert>
+                )}
               </CardHeader>
               <CardContent>
                 {orderPayload.attendees.length === 0 ? (
@@ -576,6 +986,15 @@ export default function OrderDetailPage({ params }: PageProps) {
                           <TableHead className="h-10 text-right text-[10px] font-black tracking-widest uppercase">
                             Due
                           </TableHead>
+                          <TableHead className="h-10 text-[10px] font-black tracking-widest uppercase">
+                            Gender
+                          </TableHead>
+                          <TableHead className="h-10 text-[10px] font-black tracking-widest uppercase">
+                            Tikkie Override
+                          </TableHead>
+                          <TableHead className="h-10 text-right text-[10px] font-black tracking-widest uppercase">
+                            Actions
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -584,7 +1003,7 @@ export default function OrderDetailPage({ params }: PageProps) {
                             key={attendee.id}
                             className="border-white/5"
                           >
-                            <TableCell className="py-4">
+                            <TableCell className="py-4 align-top">
                               <p className="text-sm font-bold">
                                 {attendee.name}
                               </p>
@@ -592,7 +1011,7 @@ export default function OrderDetailPage({ params }: PageProps) {
                                 {attendee.id}
                               </p>
                             </TableCell>
-                            <TableCell className="py-4">
+                            <TableCell className="py-4 align-top">
                               <Badge
                                 variant="outline"
                                 className="border-white/20 text-[10px] font-medium"
@@ -600,10 +1019,84 @@ export default function OrderDetailPage({ params }: PageProps) {
                                 {attendee.ticketTypeLabel}
                               </Badge>
                             </TableCell>
-                            <TableCell className="py-4 text-right">
+                            <TableCell className="py-4 align-top text-right">
                               <span className="text-sm font-black tabular-nums">
                                 {formatMoney(attendee.amountDueMinor)}
                               </span>
+                            </TableCell>
+                            <TableCell className="py-4 align-top">
+                              <Select
+                                value={attendeeEditDrafts[attendee.id]?.genderType ?? ""}
+                                onValueChange={(value) =>
+                                  setAttendeeEditDrafts((current) => ({
+                                    ...current,
+                                    [attendee.id]: {
+                                      tikkieAmountOverrideMinor:
+                                        current[attendee.id]
+                                          ?.tikkieAmountOverrideMinor ?? "",
+                                      genderType: value as AttendeeEditDraft["genderType"],
+                                    },
+                                  }))
+                                }
+                              >
+                                <SelectTrigger className="h-9 rounded-lg bg-white/60 text-xs">
+                                  <SelectValue placeholder="Select" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="MALE">MALE</SelectItem>
+                                  <SelectItem value="FEMALE">FEMALE</SelectItem>
+                                  <SelectItem value="MIXED">MIXED</SelectItem>
+                                  <SelectItem value="UNKNOWN">UNKNOWN</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <p className="mt-1 text-[10px] text-muted-foreground/60">
+                                Current: {attendeeDetailSnapshots[attendee.id]?.signals.genderType ?? "unset"}
+                              </p>
+                            </TableCell>
+                            <TableCell className="py-4 align-top">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={
+                                  attendeeEditDrafts[attendee.id]?.tikkieAmountOverrideMinor ?? ""
+                                }
+                                onChange={(event) =>
+                                  setAttendeeEditDrafts((current) => ({
+                                    ...current,
+                                    [attendee.id]: {
+                                      genderType:
+                                        current[attendee.id]?.genderType ?? "",
+                                      tikkieAmountOverrideMinor:
+                                        event.target.value,
+                                    },
+                                  }))
+                                }
+                                className="h-9 rounded-lg bg-white/60 text-xs"
+                              />
+                              <p className="mt-1 text-[10px] text-muted-foreground/60">
+                                Current: {attendeeDetailSnapshots[attendee.id]?.attendee.tikkieAmountOverrideMinor ?? "unset"}
+                              </p>
+                            </TableCell>
+                            <TableCell className="py-4 align-top text-right">
+                              <div className="space-y-2">
+                                {attendeeSaveErrors[attendee.id] && (
+                                  <p className="text-[10px] font-medium text-destructive">
+                                    {attendeeSaveErrors[attendee.id]}
+                                  </p>
+                                )}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 rounded-lg text-[10px] font-bold tracking-wider uppercase"
+                                  disabled={savingAttendeeId === attendee.id || !attendeeEditDrafts[attendee.id]}
+                                  onClick={() => void saveAttendeeDetails(attendee.id)}
+                                >
+                                  {savingAttendeeId === attendee.id
+                                    ? "Saving..."
+                                    : "Save"}
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}
