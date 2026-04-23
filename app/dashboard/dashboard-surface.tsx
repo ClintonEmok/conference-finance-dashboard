@@ -2,8 +2,6 @@
 
 import { usePathname } from "next/navigation"
 
-import { DashboardShell } from "@/app/dashboard/dashboard-shell"
-
 type DashboardSurfaceProps = {
   children: React.ReactNode
 }
@@ -17,9 +15,18 @@ function isSlugScopedEventRoute(pathname: string) {
 export function DashboardSurface({ children }: DashboardSurfaceProps) {
   const pathname = usePathname()
 
-  if (fullscreenRoutes.has(pathname) || !isSlugScopedEventRoute(pathname)) {
+  // Fullscreen routes render without any shell chrome
+  if (fullscreenRoutes.has(pathname)) {
     return <>{children}</>
   }
 
-  return <DashboardShell>{children}</DashboardShell>
+  // Slug-scoped event routes bypass DashboardShell — the event-local layout
+  // (events/[slug]/layout.tsx) provides the single sidebar with EventSwitcher.
+  // This avoids duplicate shell chrome (global shell + event-local aside).
+  if (isSlugScopedEventRoute(pathname)) {
+    return <>{children}</>
+  }
+
+  // All other routes get the minimal global shell (utilities only)
+  return <>{children}</>
 }
