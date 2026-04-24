@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Canonical Orders Foundation
 status: unknown
-stopped_at: Phase 28 scaffold added for sidebar consolidation follow-up
-last_updated: "2026-04-24T17:01:57.945Z"
+stopped_at: Phase 29 context gathered
+last_updated: "2026-04-24T17:27:35.313Z"
 progress:
   total_phases: 7
   completed_phases: 2
@@ -71,6 +71,6 @@ Plan: Not started
 
 ## Session Continuity
 
-Last session: 2026-04-21 21:18 UTC
-Stopped at: Phase 28 scaffold added for sidebar consolidation follow-up
-Resume file: None
+Last session: 2026-04-24T17:27:35.303Z
+Stopped at: Phase 29 context gathered
+Resume file: .planning/phases/29-deterministic-money-model/29-CONTEXT.md
