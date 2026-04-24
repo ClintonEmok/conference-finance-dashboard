@@ -123,13 +123,6 @@ export default function EventOverviewPage({
               Use this surface to jump into the parts that need attention.
             </p>
           </div>
-
-          <Badge
-            variant="outline"
-            className="w-fit rounded-full border-border/60 px-3 py-1 text-[10px] font-bold tracking-[0.2em] uppercase"
-          >
-            Scoped by event
-          </Badge>
         </div>
       </header>
 
