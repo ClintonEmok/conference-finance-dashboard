@@ -1,30 +1,17 @@
 "use client"
 
 import { use } from "react"
-import {
-  Calendar,
-  ChevronRight,
-  CreditCard,
-  ExternalLink,
-  Link as LinkIcon,
-  Settings,
-  Users,
-  Ticket,
-  BedDouble,
-} from "lucide-react"
+import { ExternalLink } from "lucide-react"
 import { LogoutButton } from "@/app/dashboard/logout-button"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
 
 import { EventSwitcher } from "@/components/dashboard/event-switcher"
 import { useEventBySlug } from "@/lib/convex/hooks/events"
-import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Sidebar,
-  SidebarContent,
   SidebarFooter,
   SidebarHeader,
   SidebarInset,
@@ -52,7 +39,6 @@ function getStatusBadge(isPublished: boolean, isSignupOpen: boolean) {
 export default function EventLayout({ children, params }: EventLayoutProps) {
   const { slug } = use(params)
   const event = useEventBySlug(slug)
-  const pathname = usePathname()
 
   if (event === undefined) {
     return (
@@ -80,52 +66,6 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
     )
   }
 
-  const menuItems = [
-    {
-      label: "Overview",
-      icon: Calendar,
-      href: `/dashboard/events/${slug}`,
-      description: "Snapshot and next steps",
-    },
-    {
-      label: "Contact people",
-      icon: Users,
-      href: `/dashboard/events/${slug}/attendees`,
-      description: "Registrations and follow-up",
-    },
-    {
-      label: "Tickets",
-      icon: Ticket,
-      href: `/dashboard/events/${slug}/tickets`,
-      description: "Products and pricing",
-    },
-    {
-      label: "Accommodation",
-      icon: BedDouble,
-      href: `/dashboard/events/${slug}/accommodation`,
-      show: event.accommodationEnabled,
-      description: "Rooms and placements",
-    },
-    {
-      label: "Finance",
-      icon: CreditCard,
-      href: `/dashboard/events/${slug}/payments`,
-      description: "Payments and matching",
-    },
-    {
-      label: "Sources",
-      icon: LinkIcon,
-      href: `/dashboard/events/${slug}/sources`,
-      description: "Imports and sync",
-    },
-    {
-      label: "Settings",
-      icon: Settings,
-      href: `/dashboard/events/${slug}/settings`,
-      description: "Event configuration",
-    },
-  ]
-
   return (
     <SidebarProvider>
       <Sidebar
@@ -135,42 +75,6 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
         <SidebarHeader className="h-[64px] justify-center group-data-[collapsible=icon]:px-2">
           <EventSwitcher currentSlug={slug} />
         </SidebarHeader>
-
-        <SidebarContent className="gap-0 px-3 pt-3">
-          <nav className="space-y-2">
-            {menuItems.map((item) => {
-              if (item.show === false) return null
-              const isActive =
-                item.href === pathname || pathname.startsWith(`${item.href}/`)
-              const Icon = item.icon
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "group flex items-start justify-between gap-3 rounded-2xl border px-4 py-3 transition-all duration-200",
-                    isActive
-                      ? "border-primary/25 bg-primary/10 text-foreground shadow-sm"
-                      : "border-border/50 bg-background/60 text-muted-foreground hover:border-primary/20 hover:bg-muted/50 hover:text-foreground"
-                  )}
-                >
-                  <span className="flex min-w-0 items-start gap-3">
-                    <Icon className="mt-0.5 size-4 shrink-0" />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold leading-none">
-                        {item.label}
-                      </span>
-                    </span>
-                  </span>
-                  {isActive && (
-                    <ChevronRight className="mt-0.5 size-4 shrink-0 text-primary" />
-                  )}
-                </Link>
-              )
-            })}
-          </nav>
-        </SidebarContent>
 
         <SidebarFooter className="p-3">
           <LogoutButton
