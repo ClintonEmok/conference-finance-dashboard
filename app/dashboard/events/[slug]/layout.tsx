@@ -1,7 +1,6 @@
 "use client"
 
 import { use } from "react"
-import { format } from "date-fns"
 import {
   Calendar,
   ChevronRight,
@@ -127,19 +126,6 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
     },
   ]
 
-  function FactRow({ label, value }: { label: string; value: string }) {
-    return (
-      <div className="flex items-start justify-between gap-4 rounded-2xl border border-border/50 bg-background/60 px-4 py-3">
-        <dt className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
-          {label}
-        </dt>
-        <dd className="max-w-[60%] text-right text-sm font-medium text-foreground">
-          {value}
-        </dd>
-      </div>
-    )
-  }
-
   return (
     <SidebarProvider>
       <Sidebar
@@ -187,16 +173,8 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
         </SidebarContent>
 
         <SidebarFooter className="p-3">
-          <dl className="space-y-2">
-            <FactRow
-              label="Starts"
-              value={format(new Date(event.startsAt), "MMM d, yyyy p")}
-            />
-            <FactRow label="Timezone" value={event.timezone} />
-            <FactRow label="Currency" value={event.currency} />
-          </dl>
           <LogoutButton
-            className="mt-4 h-8 w-full rounded-md border border-border/50 bg-background/60 px-3 text-[10px] font-black tracking-widest uppercase transition-colors hover:bg-background"
+            className="h-8 w-full rounded-md border border-border/50 bg-background/60 px-3 text-[10px] font-black tracking-widest uppercase transition-colors hover:bg-background"
             showIconOnly={false}
           />
         </SidebarFooter>
