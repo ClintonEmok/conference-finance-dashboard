@@ -194,7 +194,7 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
                   </Link>
                 </Button>
                 <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
-                  <Link href="/dashboard">Back to picker</Link>
+                  <Link href="/dashboard">Go to home</Link>
                 </Button>
               </div>
             </div>
