@@ -178,8 +178,7 @@ export async function getOrderLedger(
       return {
         ...typedRow,
         orderId: typedRow.orderId ?? "",
-        amountDueMinor:
-          typedRow.amountDueMinor ?? typedRow.totalAmountMinor ?? null,
+        amountDueMinor: typedRow.amountDueMinor ?? null,
       }
     }),
   }

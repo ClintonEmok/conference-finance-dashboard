@@ -2,6 +2,7 @@ import type { CanonicalOrderStatus } from "@/lib/domain/finance/order-ledger"
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
+import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
 
 export type ReconciliationFilters = {
   eventId?: string | null
@@ -95,8 +96,7 @@ function deriveReconciliation(order: {
   refundedAt: Date | null
   matchedAmountMinor: number
 }) {
-  const amount = order.amountDueMinor ?? 0
-  const remainingAmount = Math.max(0, amount - order.matchedAmountMinor)
+  const balance = deriveBalanceAmounts(order.amountDueMinor, order.matchedAmountMinor)
   const reasons: ReconciliationReason[] = []
   let outstandingMinor = 0
 
@@ -106,12 +106,12 @@ function deriveReconciliation(order: {
 
   if (order.normalizedStatus === "pending") {
     reasons.push("pending-payment")
-    outstandingMinor = remainingAmount
+    outstandingMinor = balance.outstandingAmountMinor
   }
 
-  if (order.normalizedStatus === "cancelled" && amount > 0) {
+  if (order.normalizedStatus === "cancelled" && balance.amountDueMinor > 0) {
     reasons.push("cancelled-with-amount")
-    outstandingMinor = Math.max(outstandingMinor, remainingAmount)
+    outstandingMinor = Math.max(outstandingMinor, balance.outstandingAmountMinor)
   }
 
   if (order.normalizedStatus === "refunded" && !order.refundedAt) {
@@ -163,15 +163,14 @@ export async function getReconciliationRows(
       ? new Date(typedOrder.refundedAt)
       : null
 
-    const reconciliation = deriveReconciliation({
-      normalizedStatus: typedOrder.normalizedStatus,
-      amountDueMinor:
-        typedOrder.amountDueMinor ?? typedOrder.totalAmountMinor ?? null,
-      totalAmountMinor: typedOrder.totalAmountMinor,
-      refundedAt: refundedAtDate,
-      matchedAmountMinor:
-        (orderLookupKey
-          ? matchedTotalsByOrderId.get(orderLookupKey)
+      const reconciliation = deriveReconciliation({
+        normalizedStatus: typedOrder.normalizedStatus,
+        amountDueMinor: typedOrder.amountDueMinor ?? null,
+        totalAmountMinor: typedOrder.totalAmountMinor,
+        refundedAt: refundedAtDate,
+        matchedAmountMinor:
+          (orderLookupKey
+            ? matchedTotalsByOrderId.get(orderLookupKey)
           : undefined) ?? 0,
     })
 
@@ -181,18 +180,17 @@ export async function getReconciliationRows(
 
     outstandingMinor += reconciliation.outstandingMinor
 
-    rows.push({
-      orderId: typedOrder.orderId ?? null,
-      providerOrderId: typedOrder.providerOrderId ?? null,
-      eventId: typedOrder.eventId,
-      eventSlug: typedOrder.eventSlug,
-      eventTitle: typedOrder.eventTitle,
-      normalizedStatus: typedOrder.normalizedStatus,
-      amountDueMinor:
-        typedOrder.amountDueMinor ?? typedOrder.totalAmountMinor ?? null,
-      totalAmountMinor: typedOrder.totalAmountMinor,
-      currency: typedOrder.currency,
-      orderedAt: typedOrder.orderedAt,
+      rows.push({
+        orderId: typedOrder.orderId ?? null,
+        providerOrderId: typedOrder.providerOrderId ?? null,
+        eventId: typedOrder.eventId,
+        eventSlug: typedOrder.eventSlug,
+        eventTitle: typedOrder.eventTitle,
+        normalizedStatus: typedOrder.normalizedStatus,
+        amountDueMinor: typedOrder.amountDueMinor ?? null,
+        totalAmountMinor: typedOrder.totalAmountMinor,
+        currency: typedOrder.currency,
+        orderedAt: typedOrder.orderedAt,
       refundedAt: typedOrder.refundedAt,
       outstandingMinor: reconciliation.outstandingMinor,
       reasons: reconciliation.reasons,

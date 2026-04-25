@@ -23,6 +23,10 @@ export function deriveSelectionAmountMinor(
   return safePriceMinor * safeQuantity
 }
 
+function normalizeMinorAmount(value: number | null | undefined) {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value ?? 0)) : 0
+}
+
 export function deriveOrderAmountBreakdown(params: {
   selections: OrderSelectionAmountInput[]
   ticketTypePriceById: Map<string, number | null | undefined>
@@ -36,13 +40,13 @@ export function deriveOrderAmountBreakdown(params: {
       selection.quantity
     )
 
+    const attendeeId = String(selection.attendeeId)
     if (lineAmountMinor <= 0) {
+      amountDueByAttendeeId.set(attendeeId, amountDueByAttendeeId.get(attendeeId) ?? 0)
       continue
     }
 
     amountDueMinor += lineAmountMinor
-
-    const attendeeId = String(selection.attendeeId)
     amountDueByAttendeeId.set(
       attendeeId,
       (amountDueByAttendeeId.get(attendeeId) ?? 0) + lineAmountMinor
@@ -122,11 +126,11 @@ export function allocateMinorAmountByWeight(
 }
 
 export function deriveBalanceAmounts(
-  amountDueMinor: number,
-  paidAmountMinor: number
+  amountDueMinor: number | null | undefined,
+  paidAmountMinor: number | null | undefined
 ) {
-  const safeAmountDueMinor = Math.max(0, Math.floor(amountDueMinor))
-  const safePaidAmountMinor = Math.max(0, Math.floor(paidAmountMinor))
+  const safeAmountDueMinor = normalizeMinorAmount(amountDueMinor)
+  const safePaidAmountMinor = normalizeMinorAmount(paidAmountMinor)
 
   return {
     amountDueMinor: safeAmountDueMinor,
