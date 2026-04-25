@@ -102,7 +102,7 @@ export function AssignPaymentSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-md overflow-y-auto p-4">
+      <SheetContent className="w-full !max-w-none data-[side=right]:!w-full data-[side=right]:sm:!max-w-none overflow-y-auto p-4">
         <SheetHeader className="mb-6">
           <SheetTitle className="text-xl font-bold">Assign Payment</SheetTitle>
           <SheetDescription>
