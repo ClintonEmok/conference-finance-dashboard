@@ -124,7 +124,13 @@ Plans:
 3. Partial, split, and overpayments can be recorded as explicit allocations to orders and, when needed, attendees.
 4. Payment allocation records are auditable enough to explain how collected money was applied.
 
-**Plans:** TBD
+**Plans:** 0/4 plans complete
+
+Plans:
+- [ ] 29-01-PLAN.md — Lock in deterministic minor-unit math and canonical amount readers
+- [ ] 29-02-PLAN.md — Move orders behind slug-scoped event URLs
+- [ ] 29-03-PLAN.md — Build the slug-scoped reconciliation workspace
+- [ ] 29-04-PLAN.md — Human-verify the canonical finance surfaces
 
 ---
 
