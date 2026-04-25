@@ -34,7 +34,7 @@ v3.0 focuses on making canonical internal order, attendee, payable, and payment 
 - [ ] **Phase 26: Canonical Runtime Contract** - Normalize runtime identity and isolate provider data behind ingest/mapping boundaries.
 - [ ] **Phase 27: Event-Scoped Dashboard** - Make the admin entry point event-first with a chooser for existing or new events.
 - [x] **Phase 28: Single-Sidebar Event Shell** - Collapse event-scoped dashboard chrome into one sidebar and move duplicate context/navigation into the main content header. (completed 2026-04-24)
-- [ ] **Phase 29: Deterministic Money Model** - Define canonical totals, attendee payables, and payment allocation truth.
+- [x] **Phase 29: Deterministic Money Model** - Define canonical totals, attendee payables, and payment allocation truth. (completed 2026-04-25)
 - [ ] **Phase 30: Safe Migration and Parity** - Backfill and dual-write canonical finance data with production-safe parity checks.
 - [ ] **Phase 31: Canonical Runtime Read Cutover** - Move finance and operational reads onto canonical internal tables with reconciliation reason codes.
 - [ ] **Phase 32: Legacy Path Removal** - Remove validated fallbacks and leave Ticket Tailor as ingest/mapping only.
@@ -124,7 +124,7 @@ Plans:
 3. Partial, split, and overpayments can be recorded as explicit allocations to orders and, when needed, attendees.
 4. Payment allocation records are auditable enough to explain how collected money was applied.
 
-**Plans:** 0/4 plans complete
+**Plans:** 4/4 plans complete
 
 Plans:
 - [ ] 29-01-PLAN.md — Lock in deterministic minor-unit math and canonical amount readers
@@ -195,7 +195,7 @@ Plans:
 | 26 - Canonical Runtime Contract     | Normalize runtime identity and provider boundary | RTM-02                 | 3/3   | Complete           |
 | 27 - Event-Scoped Dashboard         | Event-first dashboard entry and scoping          | TBD                    | 2/2   | Checkpoint pending |
 | 28 - Single-Sidebar Event Shell     | Single sidebar for event-scoped chrome           | TBD                    | Complete    | 2026-04-24 |
-| 29 - Deterministic Money Model      | Deterministic totals, payables, and allocations  | FIN-01, FIN-02, FIN-03 | TBD   | Not started        |
+| 29 - Deterministic Money Model      | Deterministic totals, payables, and allocations  | FIN-01, FIN-02, FIN-03 | Complete    | 2026-04-25 |
 | 30 - Safe Migration and Parity      | Brownfield-safe backfill, dual-write, and parity | MIG-01, MIG-02         | TBD   | Not started        |
 | 31 - Canonical Runtime Read Cutover | Canonical finance and ops runtime reads          | RTM-01, FIN-04         | TBD   | Not started        |
 | 32 - Legacy Path Removal            | Remove fallbacks after canonical validation      | RTM-03, MIG-03         | TBD   | Not started        |
