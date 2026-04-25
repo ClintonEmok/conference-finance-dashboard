@@ -11,6 +11,8 @@ import {
   Users,
   Ticket,
   BedDouble,
+  ShoppingBag,
+  HandCoins,
 } from "lucide-react"
 import { LogoutButton } from "@/app/dashboard/logout-button"
 import Link from "next/link"
@@ -106,6 +108,16 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
       label: "Finance",
       icon: CreditCard,
       href: `/dashboard/events/${slug}/payments`,
+    },
+    {
+      label: "Orders",
+      icon: ShoppingBag,
+      href: `/dashboard/events/${slug}/orders`,
+    },
+    {
+      label: "Reconciliation",
+      icon: HandCoins,
+      href: `/dashboard/events/${slug}/reconciliation`,
     },
     {
       label: "Sources",
