@@ -220,6 +220,7 @@ export type DataModel = {
     document: {
       accommodationEnabled: boolean;
       currency: string;
+      defaultRoomTypeId?: Id<"accommodationRoomTypes">;
       endsAt?: number;
       isPublished: boolean;
       isSignupOpen: boolean;
@@ -238,6 +239,7 @@ export type DataModel = {
       | "_id"
       | "accommodationEnabled"
       | "currency"
+      | "defaultRoomTypeId"
       | "endsAt"
       | "isPublished"
       | "isSignupOpen"
@@ -331,6 +333,7 @@ export type DataModel = {
   };
   orderAttendees: {
     document: {
+      allocatedRoomTypeId?: Id<"accommodationRoomTypes">;
       allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
       assignedRoomId?: string;
       attendeeKey: string;
@@ -351,6 +354,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "allocatedRoomTypeId"
       | "allocationPriority"
       | "assignedRoomId"
       | "attendeeKey"
@@ -532,6 +536,33 @@ export type DataModel = {
       paidAt: ["paidAt", "_creationTime"];
       source_sourceId: ["source", "sourceId", "_creationTime"];
       status: ["status", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  reportShares: {
+    document: {
+      createdAt: number;
+      createdByUserId?: string;
+      eventId: Id<"events">;
+      revokedAt?: number;
+      token: string;
+      _id: Id<"reportShares">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "createdByUserId"
+      | "eventId"
+      | "revokedAt"
+      | "token";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+      token: ["token", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -861,7 +892,9 @@ export type DataModel = {
       label: string;
       maxQuantity?: number;
       priceMinor: number;
+      roomTypeId?: Id<"accommodationRoomTypes">;
       soldCount?: number;
+      sortOrder?: number;
       unavailableReason?: string;
       updatedAt: number;
       visibility: "public" | "hidden";
@@ -877,7 +910,9 @@ export type DataModel = {
       | "label"
       | "maxQuantity"
       | "priceMinor"
+      | "roomTypeId"
       | "soldCount"
+      | "sortOrder"
       | "unavailableReason"
       | "updatedAt"
       | "visibility";

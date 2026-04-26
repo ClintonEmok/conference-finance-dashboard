@@ -2,6 +2,16 @@ import { getPaymentRequestPayments } from "@/lib/integrations/tikkie/client"
 import { api } from "@/lib/convex/api"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
 import type { Id } from "@/convex/_generated/dataModel"
+import {
+  formatPaymentReference,
+  PAYMENT_REFERENCE_PREFIX,
+} from "./payment-reference"
+import {
+  selectBestBookerMatch,
+  type BookerOnlyMatchCandidate,
+} from "./payment-matching"
+
+export { formatPaymentReference, PAYMENT_REFERENCE_PREFIX }
 
 export type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 
@@ -109,7 +119,7 @@ function mapPaymentDto(payment: ConvexPayment): PaymentDto {
     status: payment.status ?? null,
     matchedAt: payment.matchedAt ?? null,
     matchedBy: payment.matchedBy ?? null,
-    reference: payment.reference ?? null,
+    reference: formatPaymentReference(payment.reference ?? null),
     notes: payment.notes ?? null,
     providerPayload: payment.providerPayload ?? null,
   }
@@ -128,20 +138,20 @@ function normalizeRequiredOrderId(value: string): string {
 async function resolveCanonicalOrderId(orderId: string): Promise<Id<"orders">> {
   const normalized = normalizeRequiredOrderId(orderId)
 
-  const byProviderOrder = await convexQuery(api.orders.getOrderByProviderId, {
-    providerOrderId: normalized,
-  })
-
-  if (byProviderOrder?._id) {
-    return byProviderOrder._id as Id<"orders">
-  }
-
   const byOrderId = await convexQuery(api.orders.getOrderById, {
     orderId: normalized,
   })
 
   if (byOrderId?._id) {
     return byOrderId._id as Id<"orders">
+  }
+
+  const byProviderOrder = await convexQuery(api.orders.getOrderByProviderId, {
+    providerOrderId: normalized,
+  })
+
+  if (byProviderOrder?._id) {
+    return byProviderOrder._id as Id<"orders">
   }
 
   throw new Error("Order not found for payment assignment")
@@ -406,28 +416,38 @@ export async function autoMatchPayments(): Promise<AutoMatchResult> {
     {}
   )
 
+  const matchingOrders = (await convexQuery(api.orders.getOrders, {
+    status: "paid",
+  })) as Array<{ _id: string; buyerName: string | null }>
+
+  const bookerCandidates: BookerOnlyMatchCandidate[] = matchingOrders.map(
+    (order) => ({
+      orderId: order._id,
+      bookerName: order.buyerName,
+    })
+  )
+
   for (const payment of unassignedPayments) {
-    const matchingOrders = (await convexQuery(api.orders.getOrders, {
-      status: "paid",
-    })) as Array<{ _id: string; buyerName: string | null }>
+    const match = selectBestBookerMatch(payment.payerName, bookerCandidates)
 
-    const matches = matchingOrders.filter(
-      (o) => o.buyerName?.toLowerCase() === payment.payerName.toLowerCase()
-    )
-
-    if (matches.length === 0) {
+    if (!match) {
       result.unchanged++
-    } else if (matches.length === 1) {
+      continue
+    }
+
+    if (match.status === "auto_matched") {
       await convexMutation(api.payments.assignPaymentToOrder, {
         paymentId: payment._id as Id<"payments">,
-        orderId: matches[0]._id as Id<"orders">,
+        orderId: match.orderId as Id<"orders">,
         status: "auto_matched",
         matchedBy: "auto",
       })
+
       result.autoMatched++
-    } else {
-      result.ambiguous++
+      continue
     }
+
+    result.ambiguous++
   }
 
   return result

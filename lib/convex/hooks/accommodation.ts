@@ -28,7 +28,8 @@ export function useRoomById(roomId: string) {
 }
 
 export function useRoomTypes() {
-  return useQuery(api.accommodation.getRoomTypes)
+  const roomTypes = useQuery(api.accommodation.getRoomTypes)
+  return roomTypes ?? []
 }
 
 export function useCreateHotel() {

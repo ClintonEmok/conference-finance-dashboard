@@ -142,9 +142,11 @@ export function canDropAttendeeIntoSlot(
     return false
   }
 
-  // Allow drop even if target slot is occupied (swap will be handled)
-  // Only block if the attendee is already in this exact slot
   if (targetSlot.attendeeId === attendeeId) {
+    return false
+  }
+
+  if (targetSlot.attendeeId !== null) {
     return false
   }
 
@@ -417,4 +419,28 @@ export function buildDraggableRooms(
 
   const maxRooms = Math.min(currentAttendeeIds.size, filteredRooms.length)
   return filteredRooms.slice(0, maxRooms > 0 ? maxRooms : 0)
+}
+
+export function summarizeUnfilledBedsInAllocatedRooms(
+  board: AssignmentBoard,
+  currentAttendeeIds: Set<string>
+) {
+  const allocatedRooms = buildDraggableRooms(board, currentAttendeeIds).filter(
+    (room) => room.isAllocatedByCurrentProcess
+  )
+
+  const totalBeds = allocatedRooms.reduce(
+    (sum, room) => sum + room.totalBeds,
+    0
+  )
+  const filledBeds = allocatedRooms.reduce(
+    (sum, room) => sum + room.filledBeds,
+    0
+  )
+
+  return {
+    totalBeds,
+    filledBeds,
+    unfilledBeds: Math.max(0, totalBeds - filledBeds),
+  }
 }

@@ -48,5 +48,5 @@ export const orderSearchRowValidator = v.object({
   id: v.id("orders"),
   providerOrderId: nullableStringValidator,
   buyerName: nullableStringValidator,
-  totalAmountMinor: v.union(v.number(), v.null()),
+  amountDueMinor: v.union(v.number(), v.null()),
 })

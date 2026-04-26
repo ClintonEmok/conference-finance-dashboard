@@ -393,6 +393,7 @@ export const getAttendeesWithTickets = query({
         orderAmountDueMinor: amountBreakdown?.amountDueMinor ?? null,
         orderSubmittedAt: order?.submittedAt ?? null,
         orderOrderedAt: order?.orderedAt ?? null,
+        allocatedRoomTypeId: a.allocatedRoomTypeId ?? null,
       }
     })
   },

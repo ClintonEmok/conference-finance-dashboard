@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { usePublicSignupCatalog } from "@/lib/convex/hooks/signup"
+import { Skeleton } from "@/components/ui/skeleton"
+import { normalizePublicSignupCatalog } from "@/lib/domain/signup/catalog"
+import { usePublicSignupCatalogRaw } from "@/lib/convex/hooks/signup"
 import {
   createInitialSignupDraft,
   deriveAttendeeDraftsFromTicketSelections,
@@ -17,15 +19,12 @@ import {
 } from "@/components/signup/state"
 import {
   buildAssignmentBoard,
-  summarizeUnfilledBeds,
+  summarizeUnfilledBedsInAllocatedRooms,
 } from "@/components/signup/assignment"
 import { TicketStep } from "@/components/signup/steps/TicketStep"
 import { RoomAssignmentStep } from "@/components/signup/steps/RoomAssignmentStep"
 import { BuyerDetailsStep } from "@/components/signup/steps/BuyerDetailsStep"
-import {
-  AttendeeDetailsStep,
-  type AttendeeValidationSummary,
-} from "@/components/signup/steps/AttendeeDetailsStep"
+import { AttendeeDetailsStep } from "@/components/signup/steps/AttendeeDetailsStep"
 import { ReviewSubmitStep } from "@/components/signup/steps/ReviewSubmitStep"
 import {
   submitSignupDraft,
@@ -33,6 +32,16 @@ import {
 } from "@/components/signup/submission-client"
 import { SignupProgress } from "@/components/signup/SignupProgress"
 import { SignupNavigation } from "@/components/signup/SignupNavigation"
+import { SignupSummary } from "@/components/signup/SignupSummary"
+import { SignupHeader } from "@/components/signup/SignupHeader"
+import { shouldSkipRoomsStep } from "@/components/signup/flow-rules"
+import {
+  validateSignupAttendees,
+  validateSignupBooker,
+  type SignupAttendeeValidationSummary,
+  type SignupBookerValidationSummary,
+} from "@/components/signup/validation"
+import { Separator } from "@/components/ui/separator"
 import type { SignupSubmissionResult } from "@/lib/types/signup"
 
 type SignupFlowShellProps = {
@@ -41,11 +50,17 @@ type SignupFlowShellProps = {
 
 export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   const router = useRouter()
-  const catalog = usePublicSignupCatalog()
+  const catalogRaw = usePublicSignupCatalogRaw()
+  const catalog = useMemo(
+    () => normalizePublicSignupCatalog(catalogRaw),
+    [catalogRaw]
+  )
   const event = catalog.find((entry) => entry.slug === slug)
   const [draft, setDraft] = useState<SignupDraft | null>(null)
+  const [buyerValidation, setBuyerValidation] =
+    useState<SignupBookerValidationSummary | null>(null)
   const [attendeeValidation, setAttendeeValidation] =
-    useState<AttendeeValidationSummary | null>(null)
+    useState<SignupAttendeeValidationSummary | null>(null)
   const [submitResult, setSubmitResult] =
     useState<SignupSubmissionResult | null>(null)
   const [submitError, setSubmitError] = useState<{
@@ -53,6 +68,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     message: string
   } | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const [idempotencyKey] = useState(() => `signup-${Date.now()}`)
 
   // Use primitive values for stable effect dependencies
@@ -101,14 +117,39 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   }, [event?.accommodation?.slots, draft?.attendees, draft?.assignments])
 
   const roomSummary = useMemo(() => {
-    if (!roomBoard) return { unfilledBeds: 0 }
-    return summarizeUnfilledBeds(roomBoard)
-  }, [roomBoard])
+    if (!roomBoard || !draft) return { unfilledBeds: 0 }
+    return summarizeUnfilledBedsInAllocatedRooms(
+      roomBoard,
+      new Set(draft.attendees.map((attendee) => attendee.attendeeKey))
+    )
+  }, [roomBoard, draft?.attendees])
 
-  const attendeeValidationSnapshot = useMemo(() => {
-    if (!draft) return { isValid: false, byAttendee: {} }
-    return validateAttendeeDetails(draft.attendees)
-  }, [draft?.attendees])
+  const buyerValidationSnapshot = useMemo(
+    () =>
+      draft
+        ? validateSignupBooker(draft.booker)
+        : { isValid: false, errors: {} },
+    [draft?.booker]
+  )
+
+  const attendeeValidationSnapshot = useMemo(
+    () =>
+      draft
+        ? validateSignupAttendees(draft.attendees)
+        : { isValid: false, byAttendee: {} },
+    [draft?.attendees]
+  )
+
+  const skipRooms = useMemo(() => {
+    if (!event || !draft) return false
+    return shouldSkipRoomsStep(event, draft.attendees)
+  }, [event, draft?.attendees])
+
+  useEffect(() => {
+    if (draft?.step !== "review") {
+      setCaptchaToken(null)
+    }
+  }, [draft?.step])
 
   const completedByStep: Record<SignupStep, boolean> = useMemo(() => {
     if (!event || !draft) {
@@ -120,14 +161,11 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
         review: false,
       }
     }
-    const buyerComplete =
-      draft.booker.name.trim().length > 0 &&
-      draft.booker.email.trim().length > 0 &&
-      draft.booker.phone.trim().length > 0
     return {
       tickets: totalSelectedTickets > 0,
-      buyer: buyerComplete,
+      buyer: buyerValidationSnapshot.isValid,
       rooms:
+        skipRooms ||
         !event.accommodation.eligible ||
         roomSummary.unfilledBeds === 0 ||
         draft.acknowledgeRandomFill,
@@ -138,16 +176,38 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   }, [
     draft?.acknowledgeRandomFill,
     draft?.attendees?.length,
-    draft?.booker?.name,
-    draft?.booker?.email,
-    draft?.booker?.phone,
     event?.accommodation?.eligible,
+    buyerValidationSnapshot.isValid,
     attendeeValidationSnapshot.isValid,
     roomSummary.unfilledBeds,
     totalSelectedTickets,
+    skipRooms,
   ])
 
   // Early returns after all hooks are called
+  if (catalogRaw === undefined) {
+    return (
+      <main className="mx-auto flex min-h-svh w-full max-w-3xl items-center justify-center p-6">
+        <div className="w-full max-w-lg space-y-4 rounded-2xl border bg-card/70 p-6 shadow-sm backdrop-blur">
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-10 rounded-full" />
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-3 w-44" />
+            </div>
+          </div>
+          <Skeleton className="h-10 w-full rounded-xl" />
+          <Skeleton className="h-28 w-full rounded-2xl" />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Skeleton className="h-10 rounded-full" />
+            <Skeleton className="h-10 rounded-full" />
+            <Skeleton className="h-10 rounded-full" />
+          </div>
+        </div>
+      </main>
+    )
+  }
+
   if (!event) {
     return (
       <main className="mx-auto flex min-h-svh w-full max-w-4xl items-center justify-center p-6">
@@ -156,8 +216,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
             <CardTitle>Signup event not found</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            This signup link is unavailable. Return to the event page and try
-            again.
+            We couldn&apos;t find a published signup event for this link.
           </CardContent>
         </Card>
       </main>
@@ -178,26 +237,6 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
   const activeEvent = event
   const activeDraft = draft
-
-  function validateAttendeeDetails(attendees: SignupDraft["attendees"]) {
-    const byAttendee: Record<string, string[]> = {}
-
-    for (const attendee of attendees) {
-      const missingFields: string[] = []
-
-      if (!attendee.name.trim()) missingFields.push("name")
-      if (!attendee.gender) missingFields.push("gender")
-
-      byAttendee[attendee.attendeeKey] = missingFields
-    }
-
-    return {
-      isValid: Object.values(byAttendee).every(
-        (missing) => missing.length === 0
-      ),
-      byAttendee,
-    }
-  }
 
   function canAccessStep(step: SignupStep) {
     const targetIndex = SIGNUP_STEP_ORDER.indexOf(step)
@@ -222,7 +261,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
     const targetIndex = SIGNUP_STEP_ORDER.indexOf(step)
     if (activeDraft.step === "attendees" && targetIndex > currentStepIndex) {
-      const validation = validateAttendeeDetails(activeDraft.attendees)
+      const validation = validateSignupAttendees(activeDraft.attendees)
       setAttendeeValidation(validation)
       if (!validation.isValid) {
         return
@@ -234,17 +273,15 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
   function moveNext() {
     if (activeDraft.step === "buyer") {
-      const buyerComplete =
-        activeDraft.booker.name.trim().length > 0 &&
-        activeDraft.booker.email.trim().length > 0 &&
-        activeDraft.booker.phone.trim().length > 0
-      if (!buyerComplete) {
+      const validation = validateSignupBooker(activeDraft.booker)
+      setBuyerValidation(validation)
+      if (!validation.isValid) {
         return
       }
     }
 
     if (activeDraft.step === "attendees") {
-      const validation = validateAttendeeDetails(activeDraft.attendees)
+      const validation = validateSignupAttendees(activeDraft.attendees)
       setAttendeeValidation(validation)
       if (!validation.isValid) {
         return
@@ -255,15 +292,24 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       return
     }
 
-    const nextIndex = Math.min(
-      currentStepIndex + 1,
-      SIGNUP_STEP_ORDER.length - 1
-    )
+    let nextIndex = Math.min(currentStepIndex + 1, SIGNUP_STEP_ORDER.length - 1)
+
+    // Skip rooms step when all attendees have an effective room type
+    if (skipRooms && SIGNUP_STEP_ORDER[currentStepIndex] === "attendees") {
+      nextIndex = SIGNUP_STEP_ORDER.indexOf("review")
+    }
+
     moveToStep(SIGNUP_STEP_ORDER[nextIndex])
   }
 
   function moveBack() {
-    const previousIndex = Math.max(currentStepIndex - 1, 0)
+    let previousIndex = Math.max(currentStepIndex - 1, 0)
+
+    // Skip rooms step when all attendees have an effective room type
+    if (skipRooms && SIGNUP_STEP_ORDER[currentStepIndex] === "review") {
+      previousIndex = SIGNUP_STEP_ORDER.indexOf("attendees")
+    }
+
     moveToStep(SIGNUP_STEP_ORDER[previousIndex])
   }
 
@@ -277,6 +323,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
           quantity: 0,
           selectable: ticket.selectable,
           reason: ticket.reason,
+          roomTypeId: ticket.roomTypeId,
         }))
 
   function handleTicketSelectionsChange(
@@ -285,6 +332,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
+    setCaptchaToken(null)
     setDraft((current) => {
       if (!current) {
         return current
@@ -311,6 +359,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
+    setCaptchaToken(null)
     setDraft((current) =>
       current
         ? invalidateDownstreamForRoomChange(current, nextAssignments)
@@ -319,6 +368,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   }
 
   function handleAcknowledgeRandomFill(checked: boolean) {
+    setCaptchaToken(null)
     setDraft((current) =>
       current
         ? {
@@ -337,6 +387,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
+    setCaptchaToken(null)
     setDraft((current) => {
       if (!current) {
         return current
@@ -360,9 +411,11 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     field: keyof SignupDraft["booker"],
     value: string
   ) {
+    setBuyerValidation(null)
     setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
+    setCaptchaToken(null)
     setDraft((current) => {
       if (!current) {
         return current
@@ -377,8 +430,25 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     })
   }
 
+  function handleBookerFieldBlur() {
+    setBuyerValidation(validateSignupBooker(activeDraft.booker))
+  }
+
+  function handleCaptchaTokenChange(token: string | null) {
+    setCaptchaToken(token)
+    setSubmitError(null)
+  }
+
   async function handleSubmitFromReview() {
-    const validation = validateAttendeeDetails(activeDraft.attendees)
+    const buyerValidationResult = validateSignupBooker(activeDraft.booker)
+    setBuyerValidation(buyerValidationResult)
+
+    if (!buyerValidationResult.isValid) {
+      setDraft((current) => (current ? { ...current, step: "buyer" } : current))
+      return
+    }
+
+    const validation = validateSignupAttendees(activeDraft.attendees)
     setAttendeeValidation(validation)
 
     if (!validation.isValid) {
@@ -388,15 +458,32 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       return
     }
 
+    if (!captchaToken) {
+      setSubmitError({
+        code: "CAPTCHA_REQUIRED",
+        message: "Complete the verification challenge before submitting.",
+      })
+      return
+    }
+
     setIsSubmitting(true)
     setSubmitError(null)
 
-    const result = await submitSignupDraft(activeDraft, { idempotencyKey })
+    const result = await submitSignupDraft(activeDraft, {
+      idempotencyKey,
+      captchaToken,
+    })
 
     if (!result.ok) {
       setSubmitResult(null)
       setSubmitError(result.error)
       setIsSubmitting(false)
+      if (
+        result.error.code === "CAPTCHA_REQUIRED" ||
+        result.error.code === "CAPTCHA_FAILED"
+      ) {
+        setCaptchaToken(null)
+      }
       return
     }
 
@@ -414,104 +501,176 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       : activeDraft.step === "buyer"
         ? "Your Details"
         : activeDraft.step === "rooms"
-          ? "Rooms"
+          ? "Room Preferences"
           : activeDraft.step === "attendees"
             ? "Attendee details"
             : "Review & submit"
 
   return (
-    <main className="mx-auto w-full max-w-5xl p-4 md:p-6">
-      <Card className="mb-4 md:mb-6">
-        <CardHeader className="space-y-3 md:space-y-4">
-          <CardTitle>{activeEvent.title} signup</CardTitle>
-          <SignupProgress
-            currentStep={activeDraft.step}
-            completedByStep={completedByStep}
-            onStepClick={moveToStep}
-            canAccessStep={canAccessStep}
-          />
-        </CardHeader>
-      </Card>
+    <div className="min-h-svh bg-muted/30">
+      <SignupHeader
+        eventName={activeEvent.title}
+        stepTitle={`Step ${currentStepIndex + 1}: ${stepTitle}`}
+      />
+      <main className="mx-auto flex h-full max-w-[1400px] flex-col gap-6 p-4 md:p-8 lg:flex-row lg:items-start lg:gap-10">
+        {/* Sidebar: Progress & Summary */}
+        <div className="flex flex-col gap-6 lg:sticky lg:top-28 lg:w-[340px] lg:shrink-0">
+          <Card className="shadow-sm">
+            <CardHeader className="space-y-6 pb-8">
+              <div className="space-y-1">
+                <p className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/60 uppercase">
+                  Event Registration
+                </p>
+                <div className="mb-4 h-2 w-12 rounded-full bg-primary/20" />
+              </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{stepTitle}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 text-sm text-muted-foreground">
-          {activeDraft.step === "tickets" ? (
-            <>
-              <TicketStep
-                ticketSelections={effectiveTicketSelections}
-                onChange={handleTicketSelectionsChange}
+              <SignupProgress
+                currentStep={activeDraft.step}
+                completedByStep={completedByStep}
+                onStepClick={moveToStep}
+                canAccessStep={canAccessStep}
+                skipRooms={skipRooms}
               />
-              {totalSelectedTickets <= 0 ? (
-                <p className="font-medium text-destructive">
-                  Select at least one ticket to continue.
-                </p>
-              ) : null}
-            </>
-          ) : null}
-          {activeDraft.step === "buyer" ? (
-            <>
-              <BuyerDetailsStep
-                booker={activeDraft.booker}
-                onBookerChange={handleBookerChange}
-              />
-              {!completedByStep.buyer ? (
-                <p className="font-medium text-destructive">
-                  Fill in all your details to continue.
-                </p>
-              ) : null}
-            </>
-          ) : null}
-          {activeDraft.step === "rooms" ? (
-            <>
-              <RoomAssignmentStep
-                event={activeEvent}
-                attendees={activeDraft.attendees}
-                assignments={activeDraft.assignments}
-                acknowledgeRandomFill={activeDraft.acknowledgeRandomFill}
-                onAssignmentChange={handleRoomAssignmentsChange}
-                onAcknowledgeRandomFillChange={handleAcknowledgeRandomFill}
-              />
-              {activeEvent.accommodation.eligible &&
-              roomSummary.unfilledBeds > 0 &&
-              !activeDraft.acknowledgeRandomFill ? (
-                <p className="font-medium text-destructive">
-                  Acknowledge random-fill risk or assign all beds before
-                  continuing.
-                </p>
-              ) : null}
-            </>
-          ) : null}
-          {activeDraft.step === "attendees" ? (
-            <AttendeeDetailsStep
-              attendees={activeDraft.attendees}
-              validationSummary={attendeeValidation}
-              onAttendeeChange={handleAttendeeChange}
-            />
-          ) : null}
-          {activeDraft.step === "review" ? (
-            <ReviewSubmitStep
-              draft={activeDraft}
-              event={activeEvent}
-              submitResult={submitResult}
-              submitError={submitError}
-              isSubmitting={isSubmitting}
-              onSubmit={handleSubmitFromReview}
-            />
-          ) : null}
+            </CardHeader>
+          </Card>
 
-          <SignupNavigation
-            currentStepIndex={currentStepIndex}
-            totalSteps={SIGNUP_STEP_ORDER.length}
-            canProceed={completedByStep[activeDraft.step]}
-            onBack={moveBack}
-            onNext={moveNext}
-            isSubmitting={isSubmitting}
-          />
-        </CardContent>
-      </Card>
-    </main>
+          <Card className="hidden shadow-sm lg:block">
+            <CardHeader>
+              <CardTitle className="text-sm font-bold tracking-wider text-muted-foreground uppercase">
+                Registration Summary
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SignupSummary event={activeEvent} draft={activeDraft} />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Main Content: Active Step */}
+        <div className="flex flex-1 flex-col gap-6">
+          <Card className="flex-1 shadow-sm">
+            <CardHeader className="border-b bg-muted/5 pb-6">
+              <div className="flex flex-col gap-1">
+                <CardTitle className="text-2xl font-bold tracking-tight">
+                  {stepTitle}
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Complete this section to proceed to the next step.
+                </p>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-8">
+              <div className="space-y-8">
+                {activeDraft.step === "tickets" && (
+                  <div className="space-y-6">
+                    <TicketStep
+                      ticketSelections={effectiveTicketSelections}
+                      onChange={handleTicketSelectionsChange}
+                    />
+                    {totalSelectedTickets <= 0 && (
+                      <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
+                        Please select at least one ticket to continue with your
+                        registration.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeDraft.step === "buyer" && (
+                  <div className="space-y-6">
+                    <BuyerDetailsStep
+                      booker={activeDraft.booker}
+                      onBookerChange={handleBookerChange}
+                      errors={buyerValidation?.errors}
+                      onFieldBlur={handleBookerFieldBlur}
+                    />
+                    {!completedByStep.buyer && (
+                      <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
+                        Please provide your contact information to continue.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeDraft.step === "rooms" && (
+                  <div className="space-y-6">
+                    <RoomAssignmentStep
+                      event={activeEvent}
+                      attendees={activeDraft.attendees}
+                      assignments={activeDraft.assignments}
+                      acknowledgeRandomFill={activeDraft.acknowledgeRandomFill}
+                      onAssignmentChange={handleRoomAssignmentsChange}
+                      onAcknowledgeRandomFillChange={
+                        handleAcknowledgeRandomFill
+                      }
+                    />
+                    {activeEvent.accommodation.eligible &&
+                      roomSummary.unfilledBeds > 0 &&
+                      !activeDraft.acknowledgeRandomFill && (
+                        <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
+                          Acknowledge random-fill risk or assign all beds before
+                          continuing.
+                        </div>
+                      )}
+                  </div>
+                )}
+
+                {activeDraft.step === "attendees" && (
+                  <AttendeeDetailsStep
+                    attendees={activeDraft.attendees}
+                    validationSummary={attendeeValidation}
+                    onAttendeeChange={handleAttendeeChange}
+                  />
+                )}
+
+                {activeDraft.step === "review" && (
+                  <ReviewSubmitStep
+                    draft={activeDraft}
+                    submitResult={submitResult}
+                    submitError={submitError}
+                    isSubmitting={isSubmitting}
+                    captchaToken={captchaToken}
+                    onCaptchaTokenChange={handleCaptchaTokenChange}
+                    skipRooms={skipRooms}
+                  />
+                )}
+
+                <Separator className="my-8" />
+
+                <SignupNavigation
+                  currentStepIndex={currentStepIndex}
+                  totalSteps={SIGNUP_STEP_ORDER.length}
+                  canProceed={
+                    completedByStep[activeDraft.step] ||
+                    (activeDraft.step === "review" && Boolean(captchaToken))
+                  }
+                  onBack={moveBack}
+                  onNext={
+                    activeDraft.step === "review"
+                      ? handleSubmitFromReview
+                      : moveNext
+                  }
+                  isSubmitting={isSubmitting}
+                  showSubmit={activeDraft.step === "review"}
+                  submitLabel="Complete Registration"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Mobile Summary (only visible on small screens) */}
+          <Card className="bg-muted/10 lg:hidden">
+            <CardHeader>
+              <CardTitle className="text-sm font-bold tracking-wider text-muted-foreground uppercase">
+                Registration Summary
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SignupSummary event={activeEvent} draft={activeDraft} />
+            </CardContent>
+          </Card>
+        </div>
+      </main>
+    </div>
   )
 }

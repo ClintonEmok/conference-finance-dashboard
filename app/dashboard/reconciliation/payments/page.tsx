@@ -256,7 +256,7 @@ export default function ReconciliationPaymentsPage() {
                         <SourceIcon source={payment.source} />
                       </TableCell>
                       <TableCell className="text-sm">
-                        {maskPaymentPayer(payment.payerName)}
+                        {(payment.payerName)}
                       </TableCell>
                       <TableCell className="text-right text-sm font-medium">
                         {formatMoney(payment.amountMinor)}

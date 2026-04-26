@@ -57,6 +57,7 @@ export default defineSchema({
       isPublished: v.boolean(),
       isSignupOpen: v.boolean(),
       accommodationEnabled: v.boolean(),
+      defaultRoomTypeId: v.optional(v.id("accommodationRoomTypes")),
       primarySourceKind: v.union(
         v.literal("integration"),
         v.literal("internal")
@@ -94,6 +95,7 @@ export default defineSchema({
       label: v.string(),
       priceMinor: v.number(),
       maxQuantity: v.optional(v.number()),
+      sortOrder: v.optional(v.number()),
       soldCount: v.optional(v.number()),
       isActive: v.boolean(),
       visibility: v.union(v.literal("public"), v.literal("hidden")),
@@ -102,6 +104,7 @@ export default defineSchema({
         v.literal("unavailable")
       ),
       unavailableReason: v.optional(v.string()),
+      roomTypeId: v.optional(v.id("accommodationRoomTypes")),
       updatedAt: v.number(),
     })
   )
@@ -193,6 +196,7 @@ export default defineSchema({
           v.literal("LOW")
         )
       ),
+      allocatedRoomTypeId: v.optional(v.id("accommodationRoomTypes")),
       priorityReason: v.optional(v.string()),
     })
   )
@@ -503,12 +507,24 @@ export default defineSchema({
       matchedAt: v.optional(v.number()),
       providerPayload: v.optional(v.any()),
     })
-  )
+    )
     .index("paymentLinkId", ["paymentLinkId"])
     .index("paymentRequestToken", ["paymentRequestToken"])
     .index("matchStatus", ["matchStatus"])
     .index("paymentToken", ["paymentToken"])
     .index("orderId", ["orderId"]),
+
+  reportShares: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      token: v.string(),
+      createdAt: v.number(),
+      revokedAt: v.optional(v.number()),
+      createdByUserId: v.optional(v.string()),
+    })
+  )
+    .index("token", ["token"])
+    .index("by_eventId", ["eventId"]),
 
   ticketTailorSyncRuns: defineTable(
     v.object({

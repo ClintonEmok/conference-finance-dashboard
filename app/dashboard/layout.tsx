@@ -1,4 +1,4 @@
-import { DashboardShell } from "@/app/dashboard/dashboard-shell"
+import { DashboardSurface } from "@/app/dashboard/dashboard-surface"
 import { requirePageUser } from "@/lib/auth/server"
 
 type DashboardLayoutProps = {
@@ -8,7 +8,7 @@ type DashboardLayoutProps = {
 export default async function DashboardLayout({
   children,
 }: DashboardLayoutProps) {
-  const user = await requirePageUser("/dashboard")
+  await requirePageUser("/dashboard")
 
-  return <DashboardShell userEmail={user.email}>{children}</DashboardShell>
+  return <DashboardSurface>{children}</DashboardSurface>
 }

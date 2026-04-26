@@ -345,6 +345,7 @@ describe("/api/dashboard/accommodation/assignments route", () => {
             providerEventId: "event-integration",
             eventName: "Integration Camp",
             ticketTypeLabel: "Weekend",
+            allocatedRoomTypeId: null,
             genderType: "FEMALE" as const,
             allocationPriority: "NORMAL" as const,
             location: "Rotterdam",

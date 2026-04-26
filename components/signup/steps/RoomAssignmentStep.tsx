@@ -9,7 +9,7 @@ import {
   buildAssignmentBoard,
   canDropAttendeeIntoSlot,
   swapAttendeesInSlots,
-  summarizeUnfilledBeds,
+  summarizeUnfilledBedsInAllocatedRooms,
   type DraggableRoom,
 } from "@/components/signup/assignment"
 import type { AttendeeDraft } from "@/components/signup/state"
@@ -47,8 +47,11 @@ export function RoomAssignmentStep({
     assignments
   )
 
-  const summary = summarizeUnfilledBeds(board)
   const draggableRooms = buildDraggableRooms(board, currentAttendeeIds)
+  const summary = summarizeUnfilledBedsInAllocatedRooms(
+    board,
+    currentAttendeeIds
+  )
 
   const assignedAttendees = new Set(Object.keys(assignments))
   const unassignedAttendees = attendees.filter(
@@ -102,6 +105,8 @@ export function RoomAssignmentStep({
     onAssignmentChange(nextAssignments)
   }
 
+  const allAssigned = attendees.length > 0 && unassignedAttendees.length === 0
+
   const attendeeMap = new Map(attendees.map((a) => [a.attendeeKey, a]))
 
   return (
@@ -128,7 +133,7 @@ export function RoomAssignmentStep({
       {attendees.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Your Attendees</CardTitle>
+            <CardTitle className="text-base">Room Preferences</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
@@ -142,12 +147,13 @@ export function RoomAssignmentStep({
                       handleDragStart(e, attendee.attendeeKey)
                     }
                     onDragEnd={handleDragEnd}
-                    className={`rounded-full border px-3 py-1.5 text-sm transition-all ${isAssigned
+                    className={`rounded-full border px-3 py-1.5 text-sm transition-all ${
+                      isAssigned
                         ? "cursor-default border-muted-foreground/20 bg-muted text-muted-foreground"
                         : draggingAttendeeId === attendee.attendeeKey
                           ? "cursor-move border-primary/50 bg-primary/10"
                           : "cursor-move border-border/70 bg-background hover:border-primary/50"
-                      }`}
+                    }`}
                   >
                     <span className="font-medium">
                       {attendee.name || "Unnamed"}
@@ -159,7 +165,7 @@ export function RoomAssignmentStep({
                     )}
                     {isAssigned && (
                       <span className="ml-1.5 text-xs text-muted-foreground">
-                        ✓ assigned
+                        ✓ selected
                       </span>
                     )}
                   </div>
@@ -167,7 +173,8 @@ export function RoomAssignmentStep({
               })}
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              Drag unassigned attendees to a room below.
+              Drag attendees to a preferred room. Final placement is confirmed
+              by the organizer.
             </p>
           </CardContent>
         </Card>
@@ -184,16 +191,18 @@ export function RoomAssignmentStep({
           {draggableRooms.map((room) => (
             <div
               key={room.roomId}
-              className={`rounded-lg border-2 border-dashed p-4 transition-colors ${room.isEmpty
+              className={`rounded-lg border-2 border-dashed p-4 transition-colors ${
+                room.isEmpty
                   ? "border-muted-foreground/30 bg-muted/20"
                   : "border-primary/30 bg-primary/5"
-                }`}
+              }`}
             >
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div
-                    className={`h-3 w-3 rounded-full ${room.isEmpty ? "bg-muted-foreground/40" : "bg-primary"
-                      }`}
+                    className={`h-3 w-3 rounded-full ${
+                      room.isEmpty ? "bg-muted-foreground/40" : "bg-primary"
+                    }`}
                   />
                   <span className="text-sm font-medium">
                     {room.roomTypeLabel}
@@ -208,26 +217,30 @@ export function RoomAssignmentStep({
                 {room.slots.map((slot) => {
                   const occupantName = slot.occupant
                     ? attendeeMap.get(slot.occupant.attendeeId)?.name ||
-                    slot.occupant.name
+                      slot.occupant.name
                     : null
 
                   return (
                     <div
                       key={slot.slotId}
-                      className={`flex items-center justify-between rounded-md border p-2 text-sm transition-all ${slot.isEmpty
+                      className={`flex items-center justify-between rounded-md border p-2 text-sm transition-all ${
+                        slot.isEmpty
                           ? "border-dashed border-muted-foreground/30"
                           : "border-solid border-primary/20 bg-background"
-                        } ${draggingAttendeeId && slot.isEmpty
+                      } ${
+                        draggingAttendeeId && slot.isEmpty
                           ? "border-primary bg-primary/10"
                           : ""
-                        }`}
+                      }`}
                       onDragOver={handleDragOver}
                       onDrop={(e) => handleDrop(e, slot.slotId)}
                     >
                       <div className="flex items-center gap-2">
                         {slot.isEmpty ? (
                           <span className="text-xs text-muted-foreground">
-                            Empty bed
+                            {allAssigned
+                              ? "Will be finalized by organizer"
+                              : "Empty bed"}
                           </span>
                         ) : (
                           <>
@@ -236,7 +249,7 @@ export function RoomAssignmentStep({
                             </span>
                             {slot.isAllocatedByCurrentProcess && (
                               <span className="rounded bg-primary/20 px-1 py-0.5 text-xs text-primary">
-                                yours
+                                selected
                               </span>
                             )}
                           </>

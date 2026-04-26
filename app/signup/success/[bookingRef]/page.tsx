@@ -3,6 +3,9 @@ import { api } from "@/convex/_generated/api"
 import { fetchQuery } from "convex/nextjs"
 import { SuccessView } from "@/components/signup/SuccessPage/SuccessView"
 
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
 interface SuccessPageProps {
   params: Promise<{ bookingRef: string }>
 }
@@ -42,28 +45,26 @@ export default async function SignupSuccessPage({ params }: SuccessPageProps) {
     )
 
     return (
-      <main className="min-h-screen bg-background py-8">
-        <SuccessView
-          submission={{
-            bookingRef: submission.bookingRef,
-            bookerName: submission.bookerName,
-            bookerEmail: submission.bookerEmail,
-            bookerPhone: submission.bookerPhone,
-            submittedAt: submission.submittedAt,
-            attendees: submission.attendees,
-            roomAssignments: submission.roomAssignments,
-            totalAmountMinor: submission.totalAmountMinor,
-            ticketSelections: submission.ticketSelections,
-          }}
-          event={{
-            name: eventData.title,
-            startsAt: eventData.startsAt,
-            location: undefined, // Events don't have location yet
-            description: undefined,
-          }}
-          tikkieUrl={tikkieLink?.paymentUrl ?? null}
-        />
-      </main>
+      <SuccessView
+        submission={{
+          bookingRef: submission.bookingRef,
+          bookerName: submission.bookerName,
+          bookerEmail: submission.bookerEmail,
+          bookerPhone: submission.bookerPhone,
+          submittedAt: submission.submittedAt,
+          attendees: submission.attendees,
+          roomAssignments: submission.roomAssignments,
+          totalAmountMinor: submission.totalAmountMinor,
+          ticketSelections: submission.ticketSelections,
+        }}
+        event={{
+          name: eventData.title,
+          startsAt: eventData.startsAt,
+          location: undefined, // Events don't have location yet
+          description: undefined,
+        }}
+        tikkieUrl={tikkieLink?.paymentUrl ?? null}
+      />
     )
   } catch (error) {
     console.error("Error loading success page:", error)

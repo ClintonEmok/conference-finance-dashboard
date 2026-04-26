@@ -512,6 +512,7 @@ export const getRoomAllocationBoard = query({
         eventId: canonicalEvent?._id ?? null,
         eventName: canonicalEvent?.title ?? null,
         ticketTypeLabel: null,
+        allocatedRoomTypeId: (a.allocatedRoomTypeId as string) ?? null,
         genderType:
           a.gender === "male"
             ? "MALE"
@@ -523,6 +524,8 @@ export const getRoomAllocationBoard = query({
         allocationPriority: a.allocationPriority ?? null,
         location: a.location ?? null,
         remarks: null,
+        roommatePreference: a.roommatePreference ?? null,
+        roommateAvoid: a.roommateAvoid ?? null,
         hasFamily: hasFamilySignal({
           attendeeId: a._id,
           orderId: order?._id ?? null,
@@ -1992,7 +1995,8 @@ export const confirmBuyerAssignment = mutation({
       throw new Error("Assignment not found")
     }
 
-    if (assignment.status !== "pending") {
+    const assignmentStatus = assignment.status ?? "pending"
+    if (assignmentStatus !== "pending") {
       throw new Error("Assignment is not pending")
     }
 
@@ -2135,7 +2139,8 @@ export const removeBuyerAssignment = mutation({
       throw new Error("Assignment not found")
     }
 
-    if (assignment.status !== "pending") {
+    const assignmentStatus = assignment.status ?? "pending"
+    if (assignmentStatus !== "pending") {
       throw new Error("Assignment is not pending")
     }
 

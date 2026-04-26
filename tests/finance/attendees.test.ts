@@ -5,17 +5,17 @@ vi.mock("@/lib/convex/server", () => ({
 }))
 
 vi.mock("@/lib/domain/finance/matched-payments", () => ({
-  buildMatchedTotalsByProviderOrderId: vi.fn(),
+  buildMatchedTotalsByOrderId: vi.fn(),
 }))
 
 import { convexQuery } from "@/lib/convex/server"
-import { buildMatchedTotalsByProviderOrderId } from "@/lib/domain/finance/matched-payments"
+import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
 import { getAttendeeLedger } from "@/lib/domain/finance/attendees"
 
 describe("attendee-ledger domain", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(buildMatchedTotalsByProviderOrderId).mockResolvedValue(
+    vi.mocked(buildMatchedTotalsByOrderId).mockResolvedValue(
       new Map<string, number>()
     )
   })

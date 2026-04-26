@@ -9,7 +9,7 @@ import { getReconciliationRows } from "@/lib/domain/finance/reconciliation"
 
 const baseOrder = {
   providerOrderId: "ORD-1",
-  orderId: "jt7order1",
+  orderId: "order-1",
   eventId: "event-1",
   eventSlug: "conference",
   eventTitle: "Conference",
@@ -35,17 +35,17 @@ describe("getReconciliationRows outstanding totals", () => {
       .mockResolvedValueOnce([
         {
           amountMinor: 400,
-          orderId: "ORD-1",
+          orderId: "order-1",
           status: "manual_assignment",
         },
         {
           amountMinor: 600,
-          orderId: "ORD-1",
+          orderId: "order-1",
           status: "auto_matched",
         },
         {
           amountMinor: 100,
-          orderId: "ORD-1",
+          orderId: "order-1",
           status: "unassigned",
         },
       ])
@@ -78,12 +78,13 @@ describe("getReconciliationRows outstanding totals", () => {
       .mockResolvedValueOnce([
         {
           amountMinor: 700,
-          orderId: "jt7vzc9k9xyzlegacyid",
+          orderId: "ORD-LEGACY",
           status: "manual_assignment",
         },
       ])
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
-        _id: "jt7vzc9k9xyzlegacyid",
+        _id: "order-1",
         providerOrderId: "ORD-LEGACY",
       })
 

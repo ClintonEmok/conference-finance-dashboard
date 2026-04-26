@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { mutation, query, type MutationCtx } from "./_generated/server"
 import type { Id } from "./_generated/dataModel"
+import { api, internal } from "./_generated/api"
 import {
   signupGenderValidator,
   signupSourceValidator,
@@ -58,6 +59,41 @@ const restorePayloadValidator = v.object({
     })
   ),
 })
+
+function buildSignupConfirmationRoomAssignments(
+  assignments: Array<{
+    attendeeKey: string
+    slotId: Id<"accommodationSlots">
+    assignmentIntent: "assign" | "skip"
+  }>
+) {
+  const uniqueSlotIds = new Set<string>()
+  const roomAssignments: Array<{
+    roomType: string
+    hotelName: string
+    bedCount: number
+  }> = []
+
+  for (const assignment of assignments) {
+    if (assignment.assignmentIntent !== "assign") {
+      continue
+    }
+
+    const slotId = String(assignment.slotId)
+    if (uniqueSlotIds.has(slotId)) {
+      continue
+    }
+
+    uniqueSlotIds.add(slotId)
+    roomAssignments.push({
+      roomType: "Room",
+      hotelName: "Assigned",
+      bedCount: 1,
+    })
+  }
+
+  return roomAssignments
+}
 
 function throwSubmissionError(
   code: SignupSubmissionErrorCode,
@@ -372,6 +408,8 @@ export const submitSignupEnvelope = mutation({
     const ticketTypeById = new Map(
       eventTicketTypes.map((ticketType) => [ticketType._id, ticketType])
     )
+    const soldCountIncrements = new Map<Id<"ticketTypes">, number>()
+    const attendeeKeyToTicketTypeId = new Map<string, Id<"ticketTypes">>()
 
     for (const selection of args.ticketSelections) {
       if (!attendeeKeySet.has(selection.attendeeKey)) {
@@ -562,6 +600,41 @@ export const submitSignupEnvelope = mutation({
         quantity: 1,
         sortOrder,
       })
+
+      soldCountIncrements.set(
+        selection.ticketTypeId,
+        (soldCountIncrements.get(selection.ticketTypeId) ?? 0) + 1
+      )
+      attendeeKeyToTicketTypeId.set(
+        selection.attendeeKey,
+        selection.ticketTypeId
+      )
+    }
+
+    for (const [attendeeKey, attendeeId] of attendeeIdsByKey.entries()) {
+      const ticketTypeId = attendeeKeyToTicketTypeId.get(attendeeKey)
+      if (!ticketTypeId) continue
+
+      const ticketType = ticketTypeById.get(ticketTypeId)
+      const effectiveRoomTypeId =
+        ticketType?.roomTypeId ?? (event as any).defaultRoomTypeId
+      if (effectiveRoomTypeId) {
+        await ctx.db.patch(attendeeId, {
+          allocatedRoomTypeId: effectiveRoomTypeId,
+        })
+      }
+    }
+
+    for (const [ticketTypeId, increment] of soldCountIncrements) {
+      const ticketType = ticketTypeById.get(ticketTypeId)
+      if (!ticketType) {
+        continue
+      }
+
+      await ctx.db.patch(ticketTypeId, {
+        soldCount: (ticketType.soldCount ?? 0) + increment,
+        updatedAt: now,
+      })
     }
 
     for (const [sortOrder, assignment] of args.assignments.entries()) {
@@ -600,6 +673,49 @@ export const submitSignupEnvelope = mutation({
         orderId: submissionId,
         expiresAt: now + IDEMPOTENCY_WINDOW_MS,
       })
+    }
+
+    try {
+      const event = await ctx
+        .runQuery(api.events.getEventById, {
+          eventId: String(args.eventId),
+        })
+        .catch(() => null)
+
+      const tikkieLink = await ctx
+        .runQuery(api.tikkie.getEventPaymentLinkForSuccess, {
+          eventId: args.eventId,
+        })
+        .catch(() => null)
+
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+      const roomAssignments = buildSignupConfirmationRoomAssignments(
+        args.assignments
+      )
+
+      await ctx.scheduler.runAfter(
+        0,
+        internal.emailActions.sendSignupConfirmation,
+        {
+          to: bookerEmail,
+          bookerName,
+          bookingRef,
+          eventName: event?.title ?? "Conference",
+          eventDate: event?.startsAt
+            ? new Date(event.startsAt).toLocaleDateString("en-GB")
+            : new Date().toLocaleDateString("en-GB"),
+          eventLocation: "",
+          tikkieUrl: tikkieLink?.paymentUrl,
+          tikkieAmountMinor: tikkieLink?.amountMinor,
+          tikkieCurrency: event?.currency,
+          attendeeCount: args.attendees.length,
+          roomAssignments,
+          trackPaymentUrl: `${appUrl}/track-payment`,
+          successPageUrl: `${appUrl}/signup/success/${bookingRef}`,
+        }
+      )
+    } catch (error) {
+      console.error("Failed to queue signup confirmation email:", error)
     }
 
     return {
@@ -674,6 +790,7 @@ export const getByBookingRef = query({
       totalAmountMinor: v.optional(v.number()),
       ticketSelections: v.array(
         v.object({
+          id: v.string(),
           ticketTypeId: v.string(),
           ticketTypeName: v.string(),
           quantity: v.number(),
@@ -722,6 +839,7 @@ export const getByBookingRef = query({
     const ticketSelections = ticketSelectionRows.map((ts) => {
       const ticketType = ticketTypeById.get(String(ts.ticketTypeId))
       return {
+        id: String(ts._id),
         ticketTypeId: String(ts.ticketTypeId),
         ticketTypeName: ticketType?.label ?? "Unknown Ticket",
         quantity: ts.quantity,

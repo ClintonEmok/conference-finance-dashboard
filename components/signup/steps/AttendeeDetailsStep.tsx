@@ -1,18 +1,15 @@
 "use client"
 
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import type { AttendeeDraft } from "@/components/signup/state"
-
-export type AttendeeValidationSummary = {
-  isValid: boolean
-  byAttendee: Record<string, string[]>
-}
+import type { SignupAttendeeValidationSummary } from "@/components/signup/validation"
 
 type AttendeeDetailsStepProps = {
   attendees: AttendeeDraft[]
-  validationSummary: AttendeeValidationSummary | null
+  validationSummary: SignupAttendeeValidationSummary | null
   onAttendeeChange: (
     attendeeKey: string,
     field: keyof AttendeeDraft,
@@ -24,11 +21,12 @@ type AttendeeDetailsStepProps = {
 function fieldLabel(field: string) {
   if (field === "name") return "name"
   if (field === "gender") return "gender"
+  if (field === "location") return "location"
   return field
 }
 
 function hasFieldError(
-  validationSummary: AttendeeValidationSummary | null,
+  validationSummary: SignupAttendeeValidationSummary | null,
   attendeeKey: string,
   field: string
 ) {
@@ -54,7 +52,7 @@ export function AttendeeDetailsStep({
           <p className="font-medium">
             Complete required attendee fields before review.
           </p>
-          <ul className="mt-2 list-disc space-y-1 pl-5">
+          <ul className="mt-5 list-disc space-y-1 pl-5">
             {attendees.map((attendee, index) => {
               const missingFields =
                 validationSummary?.byAttendee[attendee.attendeeKey] ?? []
@@ -74,9 +72,17 @@ export function AttendeeDetailsStep({
       ) : null}
 
       {attendees.map((attendee, index) => (
-        <Card key={attendee.attendeeKey}>
-          <CardHeader>
+        <Card key={attendee.attendeeKey} className="mt-5">
+          <CardHeader className="space-y-2">
             <CardTitle className="text-base">Attendee {index + 1}</CardTitle>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                Selected ticket
+              </span>
+              <Badge variant="secondary" className="h-6 rounded-full px-2.5">
+                {attendee.ticketLabel || "Unassigned"}
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2 md:gap-3">
             <div className="space-y-1">
@@ -157,8 +163,6 @@ export function AttendeeDetailsStep({
                 <option value="">Select gender</option>
                 <option value="female">Female</option>
                 <option value="male">Male</option>
-                <option value="mixed">Mixed</option>
-                <option value="unknown">Unknown</option>
               </select>
               {hasFieldError(
                 validationSummary,
@@ -170,8 +174,13 @@ export function AttendeeDetailsStep({
             </div>
 
             <div className="space-y-1">
-              <Label>Location</Label>
+              <Label>Location *</Label>
               <select
+                aria-invalid={hasFieldError(
+                  validationSummary,
+                  attendee.attendeeKey,
+                  "location"
+                )}
                 value={attendee.location}
                 className="touch:text-base h-11 w-full rounded-lg border border-input bg-transparent px-3 text-sm"
                 onChange={(event) =>
@@ -192,6 +201,15 @@ export function AttendeeDetailsStep({
                 <option value="Hungary">Hungary</option>
                 <option value="Other">Other</option>
               </select>
+              {hasFieldError(
+                validationSummary,
+                attendee.attendeeKey,
+                "location"
+              ) ? (
+                <p className="text-xs text-destructive">
+                  Location is required.
+                </p>
+              ) : null}
             </div>
 
             <div className="space-y-1">
@@ -224,23 +242,6 @@ export function AttendeeDetailsStep({
                 }
                 onBlur={() =>
                   onFieldBlur?.(attendee.attendeeKey, "roommatePreference")
-                }
-              />
-            </div>
-
-            <div className="space-y-1 md:col-span-2">
-              <Label>Roommate avoid</Label>
-              <Input
-                value={attendee.roommateAvoid}
-                onChange={(event) =>
-                  onAttendeeChange(
-                    attendee.attendeeKey,
-                    "roommateAvoid",
-                    event.currentTarget.value
-                  )
-                }
-                onBlur={() =>
-                  onFieldBlur?.(attendee.attendeeKey, "roommateAvoid")
                 }
               />
             </div>

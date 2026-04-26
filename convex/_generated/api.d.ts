@@ -368,6 +368,38 @@ export declare const api: {
       any
     >;
   };
+  emailActions: {
+    resendOrderConfirmation: FunctionReference<
+      "action",
+      "public",
+      { orderId: Id<"orders"> },
+      { emailId?: string; error?: string; success: boolean }
+    >;
+    sendSignupConfirmationTest: FunctionReference<
+      "action",
+      "public",
+      {
+        attendeeCount: number;
+        bookerName: string;
+        bookingRef: string;
+        eventDate: string;
+        eventLocation: string;
+        eventName: string;
+        roomAssignments: Array<{
+          bedCount: number;
+          hotelName: string;
+          roomType: string;
+        }>;
+        successPageUrl: string;
+        tikkieAmountMinor?: number;
+        tikkieCurrency?: string;
+        tikkieUrl?: string;
+        to: string;
+        trackPaymentUrl: string;
+      },
+      { emailId?: string; error?: string; success: boolean }
+    >;
+  };
   emailMutations: {
     triggerSignupConfirmationEmail: FunctionReference<
       "mutation",
@@ -389,6 +421,7 @@ export declare const api: {
         tikkieCurrency?: string;
         tikkieUrl?: string;
         to: string;
+        trackPaymentUrl: string;
       },
       null
     >;
@@ -408,6 +441,7 @@ export declare const api: {
       {
         accommodationEnabled?: boolean;
         currency: string;
+        defaultRoomTypeId?: Id<"accommodationRoomTypes">;
         endsAt?: number;
         isPublished?: boolean;
         isSignupOpen?: boolean;
@@ -446,6 +480,7 @@ export declare const api: {
         label: string;
         maxQuantity?: number;
         priceMinor: number;
+        roomTypeId?: Id<"accommodationRoomTypes">;
         visibility?: "public" | "hidden";
       },
       any
@@ -484,6 +519,7 @@ export declare const api: {
         _id: Id<"events">;
         accommodationEnabled: boolean;
         currency: string;
+        defaultRoomTypeId?: Id<"accommodationRoomTypes">;
         endsAt?: number;
         isPublished: boolean;
         isSignupOpen: boolean;
@@ -529,6 +565,7 @@ export declare const api: {
         _id: Id<"events">;
         accommodationEnabled: boolean;
         currency: string;
+        defaultRoomTypeId?: Id<"accommodationRoomTypes">;
         endsAt?: number;
         isPublished: boolean;
         isSignupOpen: boolean;
@@ -553,12 +590,19 @@ export declare const api: {
       { eventId: Id<"events"> },
       any
     >;
+    reorderTicketTypes: FunctionReference<
+      "mutation",
+      "public",
+      { eventId: Id<"events">; orderedTicketTypeIds: Array<Id<"ticketTypes">> },
+      any
+    >;
     updateEvent: FunctionReference<
       "mutation",
       "public",
       {
         accommodationEnabled?: boolean;
         currency?: string;
+        defaultRoomTypeId?: Id<"accommodationRoomTypes">;
         endsAt?: number;
         eventId: Id<"events">;
         isPublished?: boolean;
@@ -581,6 +625,8 @@ export declare const api: {
         label?: string;
         maxQuantity?: number;
         priceMinor?: number;
+        roomTypeId?: Id<"accommodationRoomTypes">;
+        sortOrder?: number;
         ticketTypeId: Id<"ticketTypes">;
         visibility?: "public" | "hidden";
       },
@@ -749,15 +795,22 @@ export declare const api: {
       {
         attendees: Array<{
           amountDueMinor: number;
+          email: string | null;
           id: Id<"orderAttendees">;
           name: string;
           normalizedStatus: string;
+          roommateAvoid: string | null;
+          roommatePreference: string | null;
           ticketTypeLabel: string;
         }>;
         order: {
           amountDueMinor: number | null;
           archiveReason: string | null;
           archivedAt: string | null;
+          bookerEmail: string | null;
+          bookerName: string | null;
+          bookingRef: string | null;
+          eventId: Id<"events"> | null;
           id: Id<"orders">;
           isArchived?: boolean;
           normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
@@ -778,11 +831,25 @@ export declare const api: {
       "public",
       { eventId?: Id<"events"> | string; limit?: number; search: string },
       Array<{
+        amountDueMinor: number | null;
         buyerName: string | null;
         id: Id<"orders">;
         providerOrderId: string | null;
-        totalAmountMinor: number | null;
       }>
+    >;
+    updateOrderDetails: FunctionReference<
+      "mutation",
+      "public",
+      {
+        bookerEmail?: string | null;
+        bookerName?: string | null;
+        bookingRef?: string | null;
+        normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
+        orderId: Id<"orders">;
+        orderedAt?: number | null;
+        totalAmountMinor?: number | null;
+      },
+      Id<"orders">
     >;
     updateOrderStatus: FunctionReference<
       "mutation",
@@ -955,6 +1022,60 @@ export declare const api: {
       any
     >;
   };
+  publicTracking: {
+    getByBookingRef: FunctionReference<
+      "query",
+      "public",
+      { bookingRef: string },
+      null | {
+        bookingRef: string;
+        event: { slug: string; startsAt: number; title: string };
+        order: {
+          amountDueMinor: number | null;
+          buyerEmail: string | null;
+          buyerName: string | null;
+          buyerPhone: string | null;
+          orderedAt: number | null;
+          status: string | null;
+          submittedAt: number | null;
+          totalAmountMinor: number | null;
+        };
+        payment: {
+          paymentCount: number;
+          paymentStatus: "unpaid" | "partial" | "paid" | "overpaid";
+          progressPercent: number;
+          remainingMinor: number;
+          totalDueMinor: number;
+          totalPaidMinor: number;
+        };
+        tikkieAmountMinor: number | null;
+        tikkieDescription: string | null;
+        tikkieUrl: string | null;
+      }
+    >;
+  };
+  reports: {
+    getReportByToken: FunctionReference<
+      "query",
+      "public",
+      { token: string },
+      any
+    >;
+  };
+  reportShares: {
+    createEventShare: FunctionReference<
+      "mutation",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
+    revokeEventShare: FunctionReference<
+      "mutation",
+      "public",
+      { token: string },
+      any
+    >;
+  };
   signupCatalog: {
     getPublicSignupCatalog: FunctionReference<
       "query",
@@ -976,6 +1097,7 @@ export declare const api: {
           }>;
         };
         currency: string;
+        defaultRoomTypeId?: Id<"accommodationRoomTypes">;
         endsAt?: number;
         eventId: Id<"events">;
         slug: string;
@@ -989,6 +1111,7 @@ export declare const api: {
           label: string;
           priceMinor: number;
           reason: "sold_out" | "disabled" | "hidden" | "not_on_sale" | null;
+          roomTypeId?: Id<"accommodationRoomTypes">;
           selectable: boolean;
           ticketTypeId: Id<"ticketTypes">;
         }>;
@@ -1023,6 +1146,7 @@ export declare const api: {
         submissionId: Id<"orders">;
         submittedAt?: number;
         ticketSelections: Array<{
+          id: string;
           pricePerTicketMinor: number;
           quantity: number;
           ticketTypeId: string;
@@ -1781,6 +1905,7 @@ export declare const internal: {
         tikkieCurrency?: string;
         tikkieUrl?: string;
         to: string;
+        trackPaymentUrl: string;
       },
       { emailId?: string; error?: string; success: boolean }
     >;
@@ -1796,6 +1921,14 @@ export declare const internal: {
         recipient: string;
       },
       any
+    >;
+  };
+  orders: {
+    syncFullyPaidOrders: FunctionReference<
+      "mutation",
+      "internal",
+      {},
+      { scanned: number; updated: number }
     >;
   };
   payments: {

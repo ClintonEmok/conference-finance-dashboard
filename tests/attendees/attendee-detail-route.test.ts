@@ -137,6 +137,7 @@ describe("/api/dashboard/attendees/[attendeeId] route", () => {
         roomLabel: null,
         hotelName: null,
         roomTypeLabel: null,
+        expectedRoomTypeLabel: null,
       },
     }
 

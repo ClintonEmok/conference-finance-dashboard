@@ -2,6 +2,10 @@ import { internalAction } from "./_generated/server"
 import { internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import {
+  evaluateOrderPaymentMatch,
+  type OrderPaymentMatchCandidate,
+} from "../lib/domain/finance/payment-matching"
+import {
   ticketTailorFetch,
   ticketTailorFetchPaginated,
   extractAttendeeItems,
@@ -459,19 +463,32 @@ async function autoMatchUnassignedPayments(ctx: {
     {}
   )
 
+  const orderMatchCandidates: OrderPaymentMatchCandidate[] = paidOrders.map(
+    (order: {
+      _id: string
+      bookerName: string | null
+      amountDueMinor?: number | null
+      totalAmountMinor?: number | null
+    }) => ({
+      orderId: order._id,
+      bookerName: order.bookerName,
+      attendeeNames: attendeesByOrder[order._id] ?? [],
+      amountDueMinor: order.amountDueMinor ?? order.totalAmountMinor ?? 0,
+    })
+  )
+
   let matched = 0
   for (const payment of unassignedPayments) {
-    const normalizedPayer = payment.payerName.toLowerCase().trim()
-
-    // First: try exact booker name match
-    const matches = paidOrders.filter(
-      (o: { bookerName: string | null }) =>
-        o.bookerName?.toLowerCase().trim() === normalizedPayer
+    const match = evaluateOrderPaymentMatch(
+      payment.payerName,
+      payment.amountMinor,
+      orderMatchCandidates
     )
-    if (matches.length === 1) {
+
+    if (match?.status === "auto_matched") {
       await ctx.runMutation(internal.payments.internalAssignPaymentToOrder, {
         paymentId: payment._id,
-        orderId: matches[0]._id,
+        orderId: match.orderId,
         status: "auto_matched",
         matchedBy: "auto",
       })
@@ -479,26 +496,8 @@ async function autoMatchUnassignedPayments(ctx: {
       continue
     }
 
-    // Fallback: try attendee name match with exact amount
-    for (const order of paidOrders) {
-      const orderAttendees = attendeesByOrder[order._id] ?? []
-      const attendeeMatch = orderAttendees.some(
-        (name: string) => name === normalizedPayer
-      )
-      if (
-        attendeeMatch &&
-        order.totalAmountMinor != null &&
-        order.totalAmountMinor === payment.amountMinor
-      ) {
-        await ctx.runMutation(internal.payments.internalAssignPaymentToOrder, {
-          paymentId: payment._id,
-          orderId: order._id,
-          status: "auto_matched",
-          matchedBy: "auto",
-        })
-        matched++
-        break
-      }
+    if (match?.status === "ambiguous") {
+      continue
     }
   }
   return matched

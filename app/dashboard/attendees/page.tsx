@@ -79,6 +79,7 @@ type AttendeesPayload = {
           roomLabel: null
           hotelName: null
           roomTypeLabel: null
+          expectedRoomTypeLabel: string | null
         }
     orderedAt: string | null
   }>
@@ -405,9 +406,16 @@ export default function AttendeesPage() {
                             </p>
                           </div>
                         ) : (
-                          <p className="text-[10px] font-bold tracking-tighter text-muted-foreground/30 uppercase">
-                            Not assigned
-                          </p>
+                          <div className="space-y-0.5">
+                            <p className="text-[10px] font-bold tracking-tighter text-muted-foreground/30 uppercase">
+                              Not assigned
+                            </p>
+                            {row.roomStatus.expectedRoomTypeLabel && (
+                              <p className="text-[10px] font-medium text-amber-600/70">
+                                Expected: {row.roomStatus.expectedRoomTypeLabel}
+                              </p>
+                            )}
+                          </div>
                         )}
                       </td>
                       <td className="px-8 py-6">

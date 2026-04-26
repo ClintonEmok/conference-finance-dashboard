@@ -2,7 +2,7 @@
 
 ## Overview
 
-v3.0 focuses on making canonical internal order, attendee, payable, and payment data trustworthy enough to drive finance and operations without runtime dependence on `ticketTailor*` tables. The milestone stays brownfield and internal-first: stabilize runtime truth, define deterministic money rules, migrate safely, then remove legacy fallbacks without attempting a full Ticket Tailor redesign.
+v3.0 focuses on making canonical internal order, attendee, payable, and payment data trustworthy enough to drive finance and operations without runtime dependence on `ticketTailor*` tables. The milestone stays brownfield and internal-first: stabilize runtime truth, make the dashboard event-scoped, define deterministic money rules, migrate safely, then remove legacy fallbacks without attempting a full Ticket Tailor redesign.
 
 ## Milestones
 
@@ -12,11 +12,12 @@ v3.0 focuses on making canonical internal order, attendee, payable, and payment 
 
 ## Active Milestone: v3.0 Canonical Orders Foundation
 
-**Objective:** Make internal order, attendee, payable, and payment-reconciliation tables the sole runtime source for finance and operational queries before any provider-model redesign.
+**Objective:** Make internal order, attendee, payable, and payment-reconciliation tables the sole runtime source for finance and operational queries, while making the admin dashboard event-scoped before any provider-model redesign.
 
 ### Scope
 
 - Canonical internal runtime truth for finance and ops reads
+- Event-scoped admin dashboard entry and shell
 - Deterministic order totals, attendee payables, and payment allocations
 - Brownfield-safe widen/backfill/dual-write/parity/cutover workflow
 - Runtime deprecation of `ticketTailor*` query dependencies
@@ -31,10 +32,13 @@ v3.0 focuses on making canonical internal order, attendee, payable, and payment 
 ## Phases
 
 - [ ] **Phase 26: Canonical Runtime Contract** - Normalize runtime identity and isolate provider data behind ingest/mapping boundaries.
-- [ ] **Phase 27: Deterministic Money Model** - Define canonical totals, attendee payables, and payment allocation truth.
-- [ ] **Phase 28: Safe Migration and Parity** - Backfill and dual-write canonical finance data with production-safe parity checks.
-- [ ] **Phase 29: Canonical Runtime Read Cutover** - Move finance and operational reads onto canonical internal tables with reconciliation reason codes.
-- [ ] **Phase 30: Legacy Path Removal** - Remove validated fallbacks and leave Ticket Tailor as ingest/mapping only.
+- [ ] **Phase 27: Event-Scoped Dashboard** - Make the admin entry point event-first with a chooser for existing or new events.
+- [x] **Phase 28: Single-Sidebar Event Shell** - Collapse event-scoped dashboard chrome into one sidebar and move duplicate context/navigation into the main content header. (completed 2026-04-24)
+- [x] **Phase 29: Deterministic Money Model** - Define canonical totals, attendee payables, and payment allocation truth. (completed 2026-04-25)
+- [ ] **Phase 30: Shareable Reporting Link** - Publish a read-only stakeholder report link with aggregated slices only.
+- [ ] **Phase 31: Safe Migration and Parity** - Backfill and dual-write canonical finance data with production-safe parity checks.
+- [ ] **Phase 32: Canonical Runtime Read Cutover** - Move finance and operational reads onto canonical internal tables with reconciliation reason codes.
+- [ ] **Phase 33: Legacy Path Removal** - Remove validated fallbacks and leave Ticket Tailor as ingest/mapping only.
 
 ---
 
@@ -52,15 +56,65 @@ v3.0 focuses on making canonical internal order, attendee, payable, and payment 
 2. Runtime write paths no longer need mixed internal/provider order identifiers to link payments, orders, and attendees.
 3. Verifiable runtime contracts exist for where provider data is allowed, so later cutover work can remove direct `ticketTailor*` dependencies safely.
 
-**Plans:** TBD
+**Plans:** 3/3
 
 ---
 
-### Phase 27: Deterministic Money Model
+### Phase 27: Event-Scoped Dashboard
+
+**Goal:** After login, admins land on an event chooser and the rest of the dashboard is scoped to the selected event.
+
+**Depends on:** Phase 26
+
+**Requirements:** TBD
+
+**Success Criteria:**
+
+1. Authenticated admins see a focused event chooser instead of a broad global dashboard landing page.
+2. Existing events are easy to open and creating a new event is a first-class action.
+3. The selected event is reflected in the URL so dashboard navigation and reloads stay scoped.
+4. The global shell is limited to event switching and top-level navigation, not day-to-day event work.
+
+**Plans:** 2/2
+
+Plans:
+- [ ] 27-01-PLAN.md — Make /dashboard land on the event chooser
+- [ ] 27-02-PLAN.md — Add the event-first shell and switcher
+
+**Checkpoint:** Human verification is still pending for the sidebar cleanup follow-up.
+
+---
+
+### Phase 28: Single-Sidebar Event Shell
+
+**Goal:** Event-scoped dashboard pages use one sidebar only, with `EventSwitcher` and short section navigation in that sidebar while event context moves into a compact header strip and facts footer.
+
+**Depends on:** Phase 27
+
+**Requirements:** TBD
+
+**Success Criteria:**
+
+1. Event-scoped dashboard pages show a single authoritative sidebar that starts with `EventSwitcher` and a short flat section list.
+2. Event title, slug, status, public-page/back links remain visible in a compact header strip above content.
+3. Event facts stay visible in a sidebar footer card with `startsAt`, timezone, and currency.
+4. The selected event stays obvious at every depth of the dashboard without repeating the same chrome in two places.
+5. The fullscreen picker and create-flow routes remain fullscreen and separate from the shell.
+
+**Plans:** 0/1 plans complete
+
+Plans:
+- [ ] 28-01-PLAN.md — Collapse duplicate sidebar chrome into the event-local shell
+
+**Checkpoint:** Human verification is required for the single-sidebar event shell and preserved fullscreen picker.
+
+---
+
+### Phase 29: Deterministic Money Model
 
 **Goal:** Canonical internal facts produce one deterministic answer for order totals, attendee payables, and payment allocation state.
 
-**Depends on:** Phase 26
+**Depends on:** Phase 28
 
 **Requirements:** FIN-01, FIN-02, FIN-03
 
@@ -71,15 +125,45 @@ v3.0 focuses on making canonical internal order, attendee, payable, and payment 
 3. Partial, split, and overpayments can be recorded as explicit allocations to orders and, when needed, attendees.
 4. Payment allocation records are auditable enough to explain how collected money was applied.
 
-**Plans:** TBD
+**Plans:** 4/4 plans complete
+
+Plans:
+- [ ] 29-01-PLAN.md — Lock in deterministic minor-unit math and canonical amount readers
+- [ ] 29-02-PLAN.md — Move orders behind slug-scoped event URLs
+- [ ] 29-03-PLAN.md — Build the slug-scoped reconciliation workspace
+- [ ] 29-04-PLAN.md — Human-verify the canonical finance surfaces
 
 ---
 
-### Phase 28: Safe Migration and Parity
+### Phase 30: Shareable Reporting Link
+
+**Goal:** Stakeholders can open a tokenized, read-only reporting link that shows aggregated finance slices without exposing raw attendee or order rows.
+
+**Depends on:** Phase 29
+
+**Requirements:** RPT-03
+
+**Success Criteria:**
+
+1. A shareable `/reports/[token]` link renders a read-only reporting surface for a single event or report scope.
+2. The report can group canonical data by location, gender, and balance state, including overpayment visibility.
+3. The public report never exposes row-level attendee/order records or editing actions.
+4. Event-scoped dashboard pages expose a simple share action that produces the link.
+
+**Plans:** 0/3 plans complete
+
+Plans:
+- [ ] 30-01-PLAN.md — Define the reporting token model and aggregated data contract
+- [ ] 30-02-PLAN.md — Build the public read-only report surface
+- [ ] 30-03-PLAN.md — Add share controls and privacy verification
+
+---
+
+### Phase 31: Safe Migration and Parity
 
 **Goal:** Canonical finance data can be introduced safely into existing production-shaped records and proven against legacy outputs before cutover.
 
-**Depends on:** Phase 27
+**Depends on:** Phase 30
 
 **Requirements:** MIG-01, MIG-02
 
@@ -93,11 +177,11 @@ v3.0 focuses on making canonical internal order, attendee, payable, and payment 
 
 ---
 
-### Phase 29: Canonical Runtime Read Cutover
+### Phase 32: Canonical Runtime Read Cutover
 
 **Goal:** Finance and operations reads use canonical internal tables as runtime truth, with reconciliation logic derived from canonical totals, payables, and allocations.
 
-**Depends on:** Phase 28
+**Depends on:** Phase 31
 
 **Requirements:** RTM-01, FIN-04
 
@@ -111,11 +195,11 @@ v3.0 focuses on making canonical internal order, attendee, payable, and payment 
 
 ---
 
-### Phase 30: Legacy Path Removal
+### Phase 33: Legacy Path Removal
 
 **Goal:** Remove validated legacy compatibility paths and leave Ticket Tailor as a secondary ingest/mapping boundary rather than runtime finance truth.
 
-**Depends on:** Phase 29
+**Depends on:** Phase 32
 
 **Requirements:** RTM-03, MIG-03
 
@@ -131,12 +215,15 @@ v3.0 focuses on making canonical internal order, attendee, payable, and payment 
 
 ## Progress
 
-| Phase                               | Goal                                             | Requirements           | Plans | Status      |
-| ----------------------------------- | ------------------------------------------------ | ---------------------- | ----- | ----------- |
-| 26 - Canonical Runtime Contract     | Normalize runtime identity and provider boundary | RTM-02                 | TBD   | Not started |
-| 27 - Deterministic Money Model      | Deterministic totals, payables, and allocations  | FIN-01, FIN-02, FIN-03 | TBD   | Not started |
-| 28 - Safe Migration and Parity      | Brownfield-safe backfill, dual-write, and parity | MIG-01, MIG-02         | TBD   | Not started |
-| 29 - Canonical Runtime Read Cutover | Canonical finance and ops runtime reads          | RTM-01, FIN-04         | TBD   | Not started |
-| 30 - Legacy Path Removal            | Remove fallbacks after canonical validation      | RTM-03, MIG-03         | TBD   | Not started |
+| Phase                               | Goal                                             | Requirements           | Plans | Status             |
+| ----------------------------------- | ------------------------------------------------ | ---------------------- | ----- | ------------------ |
+| 26 - Canonical Runtime Contract     | Normalize runtime identity and provider boundary | RTM-02                 | 3/3   | Complete           |
+| 27 - Event-Scoped Dashboard         | Event-first dashboard entry and scoping          | TBD                    | 2/2   | Checkpoint pending |
+| 28 - Single-Sidebar Event Shell     | Single sidebar for event-scoped chrome           | TBD                    | Complete    | 2026-04-24 |
+| 29 - Deterministic Money Model      | Deterministic totals, payables, and allocations  | FIN-01, FIN-02, FIN-03 | Complete    | 2026-04-25 |
+| 30 - Shareable Reporting Link       | Read-only stakeholder report link                | RPT-03                 | 0/3   | Not started        |
+| 31 - Safe Migration and Parity      | Brownfield-safe backfill, dual-write, and parity | MIG-01, MIG-02         | TBD   | Not started        |
+| 32 - Canonical Runtime Read Cutover | Canonical finance and ops runtime reads          | RTM-01, FIN-04         | TBD   | Not started        |
+| 33 - Legacy Path Removal            | Remove fallbacks after canonical validation      | RTM-03, MIG-03         | TBD   | Not started        |
 
-**Totals:** 5 phases, 10 requirements mapped, phase numbering continues from Phase 25.
+**Totals:** 8 phases, 11 requirements mapped, phase numbering continues from Phase 25.
