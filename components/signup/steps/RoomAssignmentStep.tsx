@@ -9,7 +9,7 @@ import {
   buildAssignmentBoard,
   canDropAttendeeIntoSlot,
   swapAttendeesInSlots,
-  summarizeUnfilledBeds,
+  summarizeUnfilledBedsInAllocatedRooms,
   type DraggableRoom,
 } from "@/components/signup/assignment"
 import type { AttendeeDraft } from "@/components/signup/state"
@@ -47,8 +47,11 @@ export function RoomAssignmentStep({
     assignments
   )
 
-  const summary = summarizeUnfilledBeds(board)
   const draggableRooms = buildDraggableRooms(board, currentAttendeeIds)
+  const summary = summarizeUnfilledBedsInAllocatedRooms(
+    board,
+    currentAttendeeIds
+  )
 
   const assignedAttendees = new Set(Object.keys(assignments))
   const unassignedAttendees = attendees.filter(

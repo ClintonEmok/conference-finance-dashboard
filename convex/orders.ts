@@ -1,4 +1,4 @@
-import { query, mutation, type QueryCtx } from "./_generated/server"
+import { query, mutation, internalMutation, type QueryCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
@@ -8,12 +8,12 @@ import {
   orderLedgerRowValidator,
   orderSearchRowValidator,
 } from "../lib/types/order"
-import { loadOrderAmountDueBreakdowns } from "./finance"
+import { loadMatchedPaymentTotalsByOrderId, loadOrderAmountDueBreakdowns } from "./finance"
 import {
   loadOrderAttendeesWithExtensions,
   loadOrderWithExtension,
   loadOrdersWithExtensions,
-} from "./finance/provider-boundary"
+} from "./provider_boundary"
 
 function isOrderRemoved(ttOrder: any) {
   return typeof ttOrder?.removedAt === "number"
@@ -470,6 +470,70 @@ export const updateOrderDetails = mutation({
     }
 
     return args.orderId
+  },
+})
+
+export const syncFullyPaidOrders = internalMutation({
+  args: {},
+  returns: v.object({
+    scanned: v.number(),
+    updated: v.number(),
+  }),
+  handler: async (ctx) => {
+    const orders = await ctx.db.query("orders").order("desc").take(1000)
+    const activeOrders = orders.filter(
+      (order) => order.status !== "refunded" && order.status !== "cancelled"
+    )
+
+    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      activeOrders
+    )
+    const matchedTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
+      ctx,
+      activeOrders
+    )
+
+    let updated = 0
+
+    for (const order of activeOrders) {
+      const amountDueMinor =
+        amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
+        order.totalAmountMinor ??
+        0
+      const paidAmountMinor = matchedTotalsByOrderId.get(String(order._id)) ?? 0
+
+      if (paidAmountMinor < amountDueMinor || order.status === "paid") {
+        continue
+      }
+
+      const extension = await ctx.db
+        .query("ticketTailorOrders")
+        .withIndex("orderId", (q) => q.eq("orderId", order._id))
+        .first()
+
+      if (extension?.isArchived || extension?.removedAt) {
+        continue
+      }
+
+      const statusPatch = buildCanonicalOrderStatusPatch({
+        normalizedStatus: "paid",
+        existingExtension: extension,
+      })
+
+      await ctx.db.patch("orders", order._id, statusPatch.orderPatch)
+
+      if (extension) {
+        await ctx.db.patch("ticketTailorOrders", extension._id, statusPatch.extensionPatch)
+      }
+
+      updated += 1
+    }
+
+    return {
+      scanned: activeOrders.length,
+      updated,
+    }
   },
 })
 

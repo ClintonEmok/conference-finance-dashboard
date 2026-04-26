@@ -12,7 +12,7 @@ provides:
   - deterministic minor-unit helpers for finance math
   - canonical order/attendee amount regression coverage
   - normalized ledger/reconciliation balance handling
-affects: [29-02, 29-03, 30-safe-migration-and-parity]
+affects: [29-02, 29-03, 31-safe-migration-and-parity]
 
 # Tech tracking
 tech-stack:

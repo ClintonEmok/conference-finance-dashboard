@@ -131,6 +131,7 @@ export function deriveBalanceAmounts(
 ) {
   const safeAmountDueMinor = normalizeMinorAmount(amountDueMinor)
   const safePaidAmountMinor = normalizeMinorAmount(paidAmountMinor)
+  const donationAmountMinor = Math.max(0, safePaidAmountMinor - safeAmountDueMinor)
 
   return {
     amountDueMinor: safeAmountDueMinor,
@@ -139,6 +140,21 @@ export function deriveBalanceAmounts(
       0,
       safeAmountDueMinor - safePaidAmountMinor
     ),
-    overpaidAmountMinor: Math.max(0, safePaidAmountMinor - safeAmountDueMinor),
+    overpaidAmountMinor: donationAmountMinor,
+    donationAmountMinor,
   }
+}
+
+export function deriveDonationAmountMinor(
+  amountDueMinor: number | null | undefined,
+  paidAmountMinor: number | null | undefined
+) {
+  return deriveBalanceAmounts(amountDueMinor, paidAmountMinor).donationAmountMinor
+}
+
+export function isOrderFullyPaid(
+  amountDueMinor: number | null | undefined,
+  paidAmountMinor: number | null | undefined
+) {
+  return deriveBalanceAmounts(amountDueMinor, paidAmountMinor).outstandingAmountMinor === 0
 }

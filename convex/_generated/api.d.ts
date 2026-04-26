@@ -1054,6 +1054,28 @@ export declare const api: {
       }
     >;
   };
+  reports: {
+    getReportByToken: FunctionReference<
+      "query",
+      "public",
+      { token: string },
+      any
+    >;
+  };
+  reportShares: {
+    createEventShare: FunctionReference<
+      "mutation",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
+    revokeEventShare: FunctionReference<
+      "mutation",
+      "public",
+      { token: string },
+      any
+    >;
+  };
   signupCatalog: {
     getPublicSignupCatalog: FunctionReference<
       "query",
@@ -1899,6 +1921,14 @@ export declare const internal: {
         recipient: string;
       },
       any
+    >;
+  };
+  orders: {
+    syncFullyPaidOrders: FunctionReference<
+      "mutation",
+      "internal",
+      {},
+      { scanned: number; updated: number }
     >;
   };
   payments: {

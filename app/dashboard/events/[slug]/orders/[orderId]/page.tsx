@@ -50,6 +50,7 @@ import {
 import { api } from "@/lib/convex/api"
 import { useEventBySlug } from "@/lib/convex/hooks/events"
 import { useUnassignPayment } from "@/lib/convex/hooks/payments"
+import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { Id } from "@/convex/_generated/dataModel"
@@ -365,8 +366,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
       0
     )
 
-    const outstandingAmountMinor = Math.max(0, amountDueMinor - paidAmountMinor)
-    const overpaidAmountMinor = Math.max(0, paidAmountMinor - amountDueMinor)
+    const balance = deriveBalanceAmounts(amountDueMinor, paidAmountMinor)
     const coverage =
       hasKnownDue && amountDueMinor > 0
         ? Math.min(100, Math.round((paidAmountMinor / amountDueMinor) * 100))
@@ -376,13 +376,13 @@ export default function EventOrderDetailPage({ params }: PageProps) {
 
     const attendeeCount = orderPayload?.attendees.length ?? 0
     const sharedOutstandingPerAttendeeMinor =
-      attendeeCount > 0 ? Math.ceil(outstandingAmountMinor / attendeeCount) : 0
+      attendeeCount > 0 ? Math.ceil(balance.outstandingAmountMinor / attendeeCount) : 0
 
     return {
-      amountDueMinor,
-      paidAmountMinor,
-      outstandingAmountMinor,
-      overpaidAmountMinor,
+      amountDueMinor: balance.amountDueMinor,
+      paidAmountMinor: balance.paidAmountMinor,
+      outstandingAmountMinor: balance.outstandingAmountMinor,
+      donationAmountMinor: balance.donationAmountMinor,
       coverage,
       hasKnownDue,
       attendeeCount,
@@ -561,7 +561,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
     )
   }
 
-  if (payload === null || eventOrderMismatch) {
+  if (orderPayload === null || eventOrderMismatch) {
     return (
       <div className="rounded-2xl border border-border/50 bg-card/40 p-10 text-center">
         <h1 className="text-2xl font-bold">Order not found</h1>
@@ -686,7 +686,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             {[
               {
-                label: "Order Due",
+                label: "Amount Due",
                 value: metrics.hasKnownDue ? formatMoney(metrics.amountDueMinor) : "Missing",
                 icon: Receipt,
                 color: "text-foreground",
@@ -706,8 +706,8 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                 color: "text-rose-600 dark:text-rose-400",
               },
               {
-                label: "Overpaid",
-                value: formatMoney(metrics.overpaidAmountMinor),
+                label: "Donation",
+                value: formatMoney(metrics.donationAmountMinor),
                 icon: AlertCircle,
                 color: "text-amber-600 dark:text-amber-300",
               },
@@ -1087,6 +1087,20 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                         >
                           {paymentStatusLabel(payment.status)}
                         </Badge>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-2 text-[10px] text-muted-foreground sm:grid-cols-3">
+                      <div className="rounded-xl bg-black/5 px-2.5 py-2 dark:bg-white/5">
+                        <p className="font-black tracking-[0.2em] uppercase opacity-60">Source</p>
+                        <p className="mt-1 font-medium text-foreground">{paymentSourceLabel(payment.source)}</p>
+                      </div>
+                      <div className="rounded-xl bg-black/5 px-2.5 py-2 dark:bg-white/5">
+                        <p className="font-black tracking-[0.2em] uppercase opacity-60">Paid at</p>
+                        <p className="mt-1 font-medium text-foreground">{formatDateTime(payment.paidAt)}</p>
+                      </div>
+                      <div className="rounded-xl bg-black/5 px-2.5 py-2 dark:bg-white/5">
+                        <p className="font-black tracking-[0.2em] uppercase opacity-60">Status</p>
+                        <p className="mt-1 font-medium text-foreground">{paymentStatusLabel(payment.status)}</p>
                       </div>
                     </div>
                     <div className="absolute -top-2 -right-2 opacity-0 transition-opacity group-hover:opacity-100">

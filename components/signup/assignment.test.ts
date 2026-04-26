@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest"
 
 import {
   buildAssignmentBoard,
+  buildDraggableRooms,
   canDropAttendeeIntoSlot,
   getAssignableSlotTargets,
   summarizeUnfilledBeds,
+  summarizeUnfilledBedsInAllocatedRooms,
 } from "@/components/signup/assignment"
 import type { PublicSignupCatalogEvent } from "@/lib/domain/signup/catalog"
 
@@ -113,6 +115,46 @@ describe("signup-flow assignment helpers", () => {
       totalBeds: 2,
       filledBeds: 0,
       unfilledBeds: 2,
+    })
+  })
+
+  it("ignores completely empty rooms when warning about random fill", () => {
+    const attendees = [
+      { attendeeId: "att-1", name: "Ada" },
+      { attendeeId: "att-2", name: "Bo" },
+      { attendeeId: "att-3", name: "Cy" },
+      { attendeeId: "att-4", name: "Di" },
+    ]
+
+    const board = buildAssignmentBoard(
+      attendees,
+      [
+        { slotId: "slot-a1", roomLabel: "Room A", roomTypeLabel: "Twin", assignable: true },
+        { slotId: "slot-a2", roomLabel: "Room A", roomTypeLabel: "Twin", assignable: true },
+        { slotId: "slot-b1", roomLabel: "Room B", roomTypeLabel: "Twin", assignable: true },
+        { slotId: "slot-b2", roomLabel: "Room B", roomTypeLabel: "Twin", assignable: true },
+        { slotId: "slot-c1", roomLabel: "Room C", roomTypeLabel: "Twin", assignable: true },
+        { slotId: "slot-c2", roomLabel: "Room C", roomTypeLabel: "Twin", assignable: true },
+        { slotId: "slot-d1", roomLabel: "Room D", roomTypeLabel: "Twin", assignable: true },
+        { slotId: "slot-d2", roomLabel: "Room D", roomTypeLabel: "Twin", assignable: true },
+      ],
+      {
+        "att-1": "slot-a1",
+        "att-2": "slot-a2",
+        "att-3": "slot-b1",
+        "att-4": "slot-b2",
+      }
+    )
+
+    const currentAttendeeIds = new Set(attendees.map((attendee) => attendee.attendeeId))
+
+    expect(buildDraggableRooms(board, currentAttendeeIds)).toHaveLength(4)
+    expect(
+      summarizeUnfilledBedsInAllocatedRooms(board, currentAttendeeIds)
+    ).toEqual({
+      totalBeds: 4,
+      filledBeds: 4,
+      unfilledBeds: 0,
     })
   })
 })

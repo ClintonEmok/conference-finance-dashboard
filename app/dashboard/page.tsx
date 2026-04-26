@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation"
+import { EventPicker } from "@/components/dashboard/event-picker"
 
 export default function DashboardPage() {
-  redirect("/dashboard/events")
+  return <EventPicker />
 }

@@ -35,9 +35,10 @@ v3.0 focuses on making canonical internal order, attendee, payable, and payment 
 - [ ] **Phase 27: Event-Scoped Dashboard** - Make the admin entry point event-first with a chooser for existing or new events.
 - [x] **Phase 28: Single-Sidebar Event Shell** - Collapse event-scoped dashboard chrome into one sidebar and move duplicate context/navigation into the main content header. (completed 2026-04-24)
 - [x] **Phase 29: Deterministic Money Model** - Define canonical totals, attendee payables, and payment allocation truth. (completed 2026-04-25)
-- [ ] **Phase 30: Safe Migration and Parity** - Backfill and dual-write canonical finance data with production-safe parity checks.
-- [ ] **Phase 31: Canonical Runtime Read Cutover** - Move finance and operational reads onto canonical internal tables with reconciliation reason codes.
-- [ ] **Phase 32: Legacy Path Removal** - Remove validated fallbacks and leave Ticket Tailor as ingest/mapping only.
+- [ ] **Phase 30: Shareable Reporting Link** - Publish a read-only stakeholder report link with aggregated slices only.
+- [ ] **Phase 31: Safe Migration and Parity** - Backfill and dual-write canonical finance data with production-safe parity checks.
+- [ ] **Phase 32: Canonical Runtime Read Cutover** - Move finance and operational reads onto canonical internal tables with reconciliation reason codes.
+- [ ] **Phase 33: Legacy Path Removal** - Remove validated fallbacks and leave Ticket Tailor as ingest/mapping only.
 
 ---
 
@@ -134,11 +135,35 @@ Plans:
 
 ---
 
-### Phase 30: Safe Migration and Parity
+### Phase 30: Shareable Reporting Link
+
+**Goal:** Stakeholders can open a tokenized, read-only reporting link that shows aggregated finance slices without exposing raw attendee or order rows.
+
+**Depends on:** Phase 29
+
+**Requirements:** RPT-03
+
+**Success Criteria:**
+
+1. A shareable `/reports/[token]` link renders a read-only reporting surface for a single event or report scope.
+2. The report can group canonical data by location, gender, and balance state, including overpayment visibility.
+3. The public report never exposes row-level attendee/order records or editing actions.
+4. Event-scoped dashboard pages expose a simple share action that produces the link.
+
+**Plans:** 0/3 plans complete
+
+Plans:
+- [ ] 30-01-PLAN.md — Define the reporting token model and aggregated data contract
+- [ ] 30-02-PLAN.md — Build the public read-only report surface
+- [ ] 30-03-PLAN.md — Add share controls and privacy verification
+
+---
+
+### Phase 31: Safe Migration and Parity
 
 **Goal:** Canonical finance data can be introduced safely into existing production-shaped records and proven against legacy outputs before cutover.
 
-**Depends on:** Phase 29
+**Depends on:** Phase 30
 
 **Requirements:** MIG-01, MIG-02
 
@@ -152,11 +177,11 @@ Plans:
 
 ---
 
-### Phase 31: Canonical Runtime Read Cutover
+### Phase 32: Canonical Runtime Read Cutover
 
 **Goal:** Finance and operations reads use canonical internal tables as runtime truth, with reconciliation logic derived from canonical totals, payables, and allocations.
 
-**Depends on:** Phase 30
+**Depends on:** Phase 31
 
 **Requirements:** RTM-01, FIN-04
 
@@ -170,11 +195,11 @@ Plans:
 
 ---
 
-### Phase 32: Legacy Path Removal
+### Phase 33: Legacy Path Removal
 
 **Goal:** Remove validated legacy compatibility paths and leave Ticket Tailor as a secondary ingest/mapping boundary rather than runtime finance truth.
 
-**Depends on:** Phase 31
+**Depends on:** Phase 32
 
 **Requirements:** RTM-03, MIG-03
 
@@ -196,8 +221,9 @@ Plans:
 | 27 - Event-Scoped Dashboard         | Event-first dashboard entry and scoping          | TBD                    | 2/2   | Checkpoint pending |
 | 28 - Single-Sidebar Event Shell     | Single sidebar for event-scoped chrome           | TBD                    | Complete    | 2026-04-24 |
 | 29 - Deterministic Money Model      | Deterministic totals, payables, and allocations  | FIN-01, FIN-02, FIN-03 | Complete    | 2026-04-25 |
-| 30 - Safe Migration and Parity      | Brownfield-safe backfill, dual-write, and parity | MIG-01, MIG-02         | TBD   | Not started        |
-| 31 - Canonical Runtime Read Cutover | Canonical finance and ops runtime reads          | RTM-01, FIN-04         | TBD   | Not started        |
-| 32 - Legacy Path Removal            | Remove fallbacks after canonical validation      | RTM-03, MIG-03         | TBD   | Not started        |
+| 30 - Shareable Reporting Link       | Read-only stakeholder report link                | RPT-03                 | 0/3   | Not started        |
+| 31 - Safe Migration and Parity      | Brownfield-safe backfill, dual-write, and parity | MIG-01, MIG-02         | TBD   | Not started        |
+| 32 - Canonical Runtime Read Cutover | Canonical finance and ops runtime reads          | RTM-01, FIN-04         | TBD   | Not started        |
+| 33 - Legacy Path Removal            | Remove fallbacks after canonical validation      | RTM-03, MIG-03         | TBD   | Not started        |
 
-**Totals:** 7 phases, 10 requirements mapped, phase numbering continues from Phase 25.
+**Totals:** 8 phases, 11 requirements mapped, phase numbering continues from Phase 25.

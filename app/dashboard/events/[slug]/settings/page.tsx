@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils"
 import { useUpdateEvent, useEventBySlug } from "@/lib/convex/hooks/events"
 import { useRoomTypes } from "@/lib/convex/hooks/accommodation"
 import { Id } from "@/convex/_generated/dataModel"
+import { EventTikkieSection } from "@/components/dashboard/event-tikkie-section"
 
 const COMMON_TIMEZONES = [
   "Europe/London",
@@ -114,6 +115,11 @@ export default function EventSettingsPage({
 
   return (
     <div className="space-y-6">
+      <EventTikkieSection
+        events={[{ eventId: event._id, title: event.title }]}
+        selectedEventId={event._id}
+      />
+
       <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-7">
           <div>

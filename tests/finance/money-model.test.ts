@@ -8,7 +8,9 @@ import { convexQuery } from "@/lib/convex/server"
 import {
   allocateMinorAmountByWeight,
   deriveBalanceAmounts,
+  deriveDonationAmountMinor,
   deriveOrderAmountBreakdown,
+  isOrderFullyPaid,
 } from "@/lib/domain/finance/amounts"
 import { getReconciliationRows } from "@/lib/domain/finance/reconciliation"
 
@@ -49,6 +51,17 @@ describe("money model", () => {
     expect(balance.paidAmountMinor).toBe(2000)
     expect(balance.outstandingAmountMinor).toBe(0)
     expect(balance.overpaidAmountMinor).toBe(2000)
+    expect(balance.donationAmountMinor).toBe(2000)
+  })
+
+  it("derives donation amount from a single order balance", () => {
+    expect(deriveDonationAmountMinor(1500, 2200)).toBe(700)
+  })
+
+  it("treats fully covered orders as paid", () => {
+    expect(isOrderFullyPaid(1500, 1500)).toBe(true)
+    expect(isOrderFullyPaid(1500, 2000)).toBe(true)
+    expect(isOrderFullyPaid(1500, 1499)).toBe(false)
   })
 
   it("derives reconciliation outstanding amounts from canonical money math only", async () => {

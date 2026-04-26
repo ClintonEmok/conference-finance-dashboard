@@ -142,6 +142,11 @@ export default function EventPaymentsPage({
   }, [event?._id])
 
   const metrics = useMemo<MetricCard[]>(() => {
+    const paidMinor =
+      revenue && reconciliation
+        ? Math.max(revenue.totals.orderValueMinor - reconciliation.totals.outstandingMinor, 0)
+        : null
+
     return [
       {
         label: "Order value",
@@ -151,8 +156,8 @@ export default function EventPaymentsPage({
       },
       {
         label: "Paid",
-        value: revenue ? formatMoney(revenue.totals.paidMinor) : "--",
-        desc: "Cash collected so far",
+        value: paidMinor === null ? "--" : formatMoney(paidMinor),
+        desc: "Gross value minus amount left",
         icon: CreditCard,
       },
       {
@@ -162,9 +167,9 @@ export default function EventPaymentsPage({
         icon: CalendarRange,
       },
       {
-        label: "Net position",
+        label: "Donations",
         value: revenue ? formatMoney(revenue.totals.netMinor) : "--",
-        desc: "After refunds in scope",
+        desc: "Net donations in scope",
         icon: ShieldCheck,
       },
     ]

@@ -52,22 +52,28 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status  |
 | ----------- | ----- | ------- |
-| RTM-01      | 29    | Pending |
+| RTM-01      | 32    | Pending |
 | RTM-02      | 26    | Pending |
-| RTM-03      | 30    | Pending |
+| RTM-03      | 33    | Pending |
 | FIN-01      | 27    | Complete |
 | FIN-02      | 27    | Complete |
 | FIN-03      | 27    | Complete |
-| FIN-04      | 29    | Pending |
-| MIG-01      | 28    | Pending |
-| MIG-02      | 28    | Pending |
-| MIG-03      | 30    | Pending |
+| FIN-04      | 32    | Pending |
+| MIG-01      | 31    | Pending |
+| MIG-02      | 31    | Pending |
+| MIG-03      | 33    | Pending |
 
 **Coverage:**
 
 - v3.0 requirements: 10 total
 - Mapped to phases: 10
 - Unmapped: 0 ✓
+
+## Future Requirement Traceability
+
+| Requirement | Phase | Status  |
+| ----------- | ----- | ------- |
+| RPT-03      | 30    | Pending |
 
 ---
 

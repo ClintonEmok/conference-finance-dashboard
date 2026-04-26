@@ -12,7 +12,7 @@ provides:
   - slug-scoped orders ledger pages
   - legacy redirect bridges for manage-orders routes
   - sidebar navigation targets for Orders and Reconciliation
-affects: [29-04, 30-safe-migration-and-parity]
+affects: [29-04, 31-safe-migration-and-parity]
 
 # Tech tracking
 tech-stack:

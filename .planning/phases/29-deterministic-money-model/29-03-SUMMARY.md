@@ -12,7 +12,7 @@ provides:
   - slug-scoped reconciliation workspace
   - manual match action wired to existing payment assignment API
   - legacy reconciliation redirect bridge
-affects: [29-04, 30-safe-migration-and-parity]
+affects: [29-04, 31-safe-migration-and-parity]
 
 # Tech tracking
 tech-stack:

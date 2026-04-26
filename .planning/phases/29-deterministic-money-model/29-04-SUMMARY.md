@@ -11,7 +11,7 @@ requires:
 provides:
   - human verification of the event-scoped orders and reconciliation surfaces
   - confirmed bridge behavior for legacy finance entrypoints
-affects: [30-safe-migration-and-parity]
+affects: [31-safe-migration-and-parity]
 
 # Tech tracking
 tech-stack:

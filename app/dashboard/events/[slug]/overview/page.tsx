@@ -8,12 +8,16 @@ import {
   CalendarRange,
   CreditCard,
   HandCoins,
+  Link2,
   Users,
 } from "lucide-react"
+import { useMutation } from "convex/react"
 
+import { api } from "@/convex/_generated/api"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { formatMoney } from "@/lib/format"
@@ -116,7 +120,7 @@ type ReconciliationResponse = {
   }>
 }
 
-type Grouping = "order" | "family" | "contact-person"
+type Grouping = "order" | "family" | "attendee"
 
 function formatDateTime(value: string | null) {
   if (!value) return "—"
@@ -132,7 +136,7 @@ function statusLabel(status: string) {
 
 function groupingLabel(grouping: Grouping) {
   if (grouping === "family") return "Family"
-  if (grouping === "contact-person") return "Contact person"
+  if (grouping === "attendee") return "Attendees"
   return "Order"
 }
 
@@ -149,7 +153,12 @@ export default function EventOverviewSurface({
   const [attendees, setAttendees] = useState<AttendeesResponse | null>(null)
   const [reconciliation, setReconciliation] = useState<ReconciliationResponse | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [shareStatus, setShareStatus] = useState<string | null>(null)
+  const [shareError, setShareError] = useState<string | null>(null)
+  const [shareUrl, setShareUrl] = useState<string | null>(null)
+  const [isSharing, setIsSharing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const createReportShare = useMutation(api.reportShares.createEventShare)
 
   useEffect(() => {
     if (!event?._id) return
@@ -216,6 +225,38 @@ export default function EventOverviewSurface({
     return () => controller.abort()
   }, [event?._id])
 
+  async function handleShareReport() {
+    if (!event?._id) return
+
+    setIsSharing(true)
+    setShareStatus(null)
+    setShareError(null)
+
+    try {
+      const result = await createReportShare({ eventId: event._id })
+      const reportUrl = new URL(result.path, window.location.origin).toString()
+      setShareUrl(reportUrl)
+
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(reportUrl)
+      }
+
+      setShareStatus(
+        result.reused
+          ? "Copied the existing report link."
+          : "Created and copied a new report link."
+      )
+    } catch (error) {
+      setShareError(
+        error instanceof Error
+          ? error.message
+          : "Unable to create the report link right now."
+      )
+    } finally {
+      setIsSharing(false)
+    }
+  }
+
   const familyGroups = useMemo(() => {
     const rows = orders?.rows ?? []
     const groups = new Map<
@@ -233,7 +274,7 @@ export default function EventOverviewSurface({
     >()
 
     for (const row of rows) {
-      const label = row.buyerName?.trim() || row.buyerEmail?.trim() || "Unassigned contact person"
+      const label = row.buyerName?.trim() || row.buyerEmail?.trim() || "Unassigned attendee"
       const key = label.toLowerCase()
       const totalMinor = row.totalAmountMinor ?? row.amountDueMinor ?? 0
       const dueMinor = row.amountDueMinor ?? row.totalAmountMinor ?? 0
@@ -272,6 +313,9 @@ export default function EventOverviewSurface({
 
   const totalContactPeople = attendees?.page.totalRows ?? 0
   const totalOrders = orders?.page.totalRows ?? 0
+  const shareHint = shareUrl
+    ? "Send this read-only link to stakeholders."
+    : "Generate a token-backed public report link for this event."
 
   if (!event) return null
 
@@ -300,7 +344,7 @@ export default function EventOverviewSurface({
               </Button>
               <Button asChild variant="outline" className="rounded-xl">
                 <Link href={`/dashboard/events/${slug}/attendees`}>
-                  Contact people
+                  Attendees
                 </Link>
               </Button>
               <Button asChild variant="outline" className="rounded-xl">
@@ -311,6 +355,43 @@ export default function EventOverviewSurface({
             </div>
           </div>
         </CardHeader>
+      </Card>
+
+      <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+        <CardHeader>
+          <CardTitle>Share report link</CardTitle>
+          <CardDescription>{shareHint}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <Input
+              readOnly
+              value={shareUrl ?? "No report token created yet."}
+              className="h-11 rounded-xl bg-background/60 font-mono text-xs"
+            />
+            <Button
+              type="button"
+              className="h-11 rounded-xl shadow-lg shadow-primary/20"
+              onClick={() => {
+                void handleShareReport()
+              }}
+              disabled={isSharing}
+            >
+              <Link2 className="mr-2 size-4" />
+              {isSharing ? "Preparing link…" : shareUrl ? "Copy link" : "Generate link"}
+            </Button>
+          </div>
+
+          {(shareStatus || shareError) && (
+            <div className="flex items-start gap-3 rounded-2xl border border-border/50 bg-background/50 p-4 text-sm">
+              <div className="mt-1 size-2 rounded-full bg-primary" />
+              <div className="space-y-1">
+                {shareStatus ? <p className="font-medium text-foreground">{shareStatus}</p> : null}
+                {shareError ? <p className="text-muted-foreground">{shareError}</p> : null}
+              </div>
+            </div>
+          )}
+        </CardContent>
       </Card>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -334,7 +415,7 @@ export default function EventOverviewSurface({
             icon: CalendarRange,
           },
           {
-            label: "Contact people",
+            label: "Attendees",
             value: totalContactPeople.toLocaleString(),
             desc: `${totalOrders.toLocaleString()} orders in scope`,
             icon: Users,
@@ -418,7 +499,7 @@ export default function EventOverviewSurface({
               },
               {
                 href: `/dashboard/events/${slug}/attendees`,
-                title: "Contact people",
+                title: "Attendees",
                 desc: "Review names, emails, and follow-up.",
               },
               {
@@ -454,7 +535,7 @@ export default function EventOverviewSurface({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <CardTitle>Active grouping</CardTitle>
-                <CardDescription>Default is order, with family and contact-person views available.</CardDescription>
+                <CardDescription>Default is order, with family and attendee views available.</CardDescription>
               </div>
               <Badge variant="outline">{groupingLabel(grouping)}</Badge>
             </div>
@@ -464,7 +545,7 @@ export default function EventOverviewSurface({
               {([
                 ["order", "Order"],
                 ["family", "Family"],
-                ["contact-person", "Contact person"],
+                ["attendee", "Attendees"],
               ] as const).map(([value, label]) => (
                 <button
                   key={value}
@@ -513,7 +594,7 @@ export default function EventOverviewSurface({
                           <tr key={row.orderId} className="transition-colors hover:bg-black/5 dark:hover:bg-white/5">
                             <td className="px-4 py-3">
                               <div className="font-medium text-foreground">
-                                {row.buyerName ?? row.buyerEmail ?? "Unassigned contact person"}
+                                {row.buyerName ?? row.buyerEmail ?? "Unassigned attendee"}
                               </div>
                               <div className="text-xs text-muted-foreground">
                                 {row.buyerEmail ?? "No email"}
@@ -570,7 +651,7 @@ export default function EventOverviewSurface({
                 <table className="min-w-full text-sm">
                   <thead className="border-b border-border/40 bg-muted/30 text-left text-[10px] font-black tracking-[0.2em] text-muted-foreground uppercase">
                     <tr>
-                      <th className="px-4 py-3">Contact person</th>
+                      <th className="px-4 py-3">Attendee</th>
                       <th className="px-4 py-3">Room</th>
                       <th className="px-4 py-3">Event</th>
                     </tr>
@@ -579,7 +660,7 @@ export default function EventOverviewSurface({
                     {attendeeRows.length === 0 ? (
                       <tr>
                         <td className="px-4 py-6 text-sm text-muted-foreground" colSpan={3}>
-                          No contact people found for this event window.
+                          No attendees found for this event window.
                         </td>
                       </tr>
                     ) : (
@@ -587,7 +668,7 @@ export default function EventOverviewSurface({
                         <tr key={row.attendeeId} className="transition-colors hover:bg-black/5 dark:hover:bg-white/5">
                           <td className="px-4 py-3">
                             <div className="font-medium text-foreground">
-                              {row.attendeeName ?? "Unnamed contact person"}
+                                {row.attendeeName ?? "Unnamed attendee"}
                             </div>
                             <div className="text-xs text-muted-foreground">{row.attendeeEmail ?? "No email"}</div>
                           </td>

@@ -319,15 +319,15 @@ export default function EventReconciliationPage({ params }: PageProps) {
 
         <section className="overflow-hidden rounded-xl border border-border/50 bg-card/40">
           <div className="sticky top-0 z-10 border-b border-border/30 bg-muted/80 px-5 py-4 backdrop-blur">
-            <h2 className="text-sm font-bold tracking-widest uppercase">Outstanding orders</h2>
+            <h2 className="text-sm font-bold tracking-widest uppercase">Amount left orders</h2>
           </div>
           <div className="max-h-[640px] overflow-auto">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Order</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Outstanding</TableHead>
+                  <TableHead>Amount left</TableHead>
+                  <TableHead>Amount left</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
