@@ -6,7 +6,6 @@ import {
   ChevronRight,
   CreditCard,
   ExternalLink,
-  Link2,
   Link as LinkIcon,
   Settings,
   Users,
@@ -109,11 +108,6 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
       label: "Finance",
       icon: CreditCard,
       href: `/dashboard/events/${slug}/payments`,
-    },
-    {
-      label: "Share link",
-      icon: Link2,
-      href: `/dashboard/events/${slug}/share`,
     },
     {
       label: "Orders",
