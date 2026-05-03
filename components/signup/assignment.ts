@@ -420,3 +420,27 @@ export function buildDraggableRooms(
   const maxRooms = Math.min(currentAttendeeIds.size, filteredRooms.length)
   return filteredRooms.slice(0, maxRooms > 0 ? maxRooms : 0)
 }
+
+export function summarizeUnfilledBedsInAllocatedRooms(
+  board: AssignmentBoard,
+  currentAttendeeIds: Set<string>
+) {
+  const allocatedRooms = buildDraggableRooms(board, currentAttendeeIds).filter(
+    (room) => room.isAllocatedByCurrentProcess
+  )
+
+  const totalBeds = allocatedRooms.reduce(
+    (sum, room) => sum + room.totalBeds,
+    0
+  )
+  const filledBeds = allocatedRooms.reduce(
+    (sum, room) => sum + room.filledBeds,
+    0
+  )
+
+  return {
+    totalBeds,
+    filledBeds,
+    unfilledBeds: Math.max(0, totalBeds - filledBeds),
+  }
+}

@@ -2,11 +2,9 @@
 
 import Link from "next/link"
 import {
-  ArrowRight,
   FileOutput,
   HandCoins,
   ReceiptText,
-  Sparkles,
   WalletCards,
 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
@@ -204,10 +202,17 @@ export default function FinancialPage() {
 
         <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-3xl space-y-4">
+            <p className="text-[10px] font-bold tracking-[0.22em] text-muted-foreground uppercase">
+              Secondary drilldown
+            </p>
             <h2 className="text-4xl font-bold tracking-tight text-foreground lg:text-5xl">
-              Ledger, Revenue & <br className="hidden lg:block" />
-              <span className="text-primary">Balance follow-up.</span>
+              Financial overview <br className="hidden lg:block" />
+              <span className="text-primary">for collections and balance follow-up.</span>
             </h2>
+            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+              Use this surface when you need deeper revenue context, then jump
+              back to manage orders or into a specific event overview.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -215,14 +220,14 @@ export default function FinancialPage() {
               asChild
               className="h-11 rounded-xl px-6 shadow-lg shadow-primary/20"
             >
-              <Link href="/dashboard/orders">Open ledger</Link>
+              <Link href="/dashboard/manage-orders">Open manage orders</Link>
             </Button>
             <Button
               asChild
               variant="outline"
               className="h-11 rounded-xl bg-background/50 px-6 backdrop-blur"
             >
-              <Link href="/dashboard/reconciliation">Review outstanding</Link>
+              <Link href="/dashboard/events">Browse event overviews</Link>
             </Button>
           </div>
         </div>
@@ -308,10 +313,10 @@ export default function FinancialPage() {
         <article className="animate-in slide-in-from-bottom-4 duration-700 delay-100 fill-mode-both rounded-3xl border border-border/50 bg-card/40 p-8 shadow-sm backdrop-blur-xl">
           <div className="mb-6">
             <p className="text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase">
-              Event Portfolio
+              Event overviews
             </p>
             <h3 className="mt-2 text-2xl font-bold text-foreground">
-              Cross-event revenue breakdown
+              Cross-event revenue and balance breakdown
             </h3>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -324,7 +329,7 @@ export default function FinancialPage() {
               return (
                 <Link
                   key={row.eventName}
-                  href={`/dashboard/events/${row.eventSlug}`}
+                  href={`/dashboard/events/${row.eventSlug}/overview`}
                   className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-border/40 bg-background/50 p-6 transition-all hover:border-primary/40 hover:bg-muted/30"
                 >
                   <div>
@@ -394,29 +399,29 @@ export default function FinancialPage() {
             Quick Actions
           </p>
           <h3 className="mt-2 text-2xl font-bold text-foreground">
-            Execute financial workflows
+            Execute order and event workflows
           </h3>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-3">
           {[
             {
-              href: "/dashboard/orders",
+              href: "/dashboard/manage-orders",
               icon: ReceiptText,
-              title: "Ledger",
-              desc: "Review logs & exports.",
+              title: "Manage orders",
+              desc: "Review the canonical order ledger.",
+            },
+            {
+              href: "/dashboard/events",
+              icon: HandCoins,
+              title: "Event overviews",
+              desc: "Open the per-event overview surfaces.",
             },
             {
               href: "/dashboard/reconciliation",
-              icon: HandCoins,
-              title: "Collections",
-              desc: "Reconcile balances.",
-            },
-            {
-              href: "/dashboard/orders",
               icon: FileOutput,
-              title: "Bank Export",
-              desc: "Generate exports.",
+              title: "Collections",
+              desc: "Reconcile balances and refunds.",
             },
           ].map((action) => (
             <Link

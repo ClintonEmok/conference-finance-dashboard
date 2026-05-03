@@ -627,6 +627,16 @@ export const getAttendeesForEvent = query({
               })
             )
 
+            const familyMember = await ctx.db
+              .query("attendeeFamilyMembers")
+              .withIndex("attendeeId", (q) => q.eq("attendeeId", attendee._id))
+              .first()
+
+            const familyGroupId = familyMember
+              ? ctx.db.normalizeId("attendeeFamilyGroups", familyMember.familyGroupId)
+              : null
+            const familyGroup = familyGroupId ? await ctx.db.get(familyGroupId) : null
+
             return {
               ...attendee,
               orderId,
@@ -634,6 +644,10 @@ export const getAttendeesForEvent = query({
               orderStatus: order?.status,
               submittedAt: order?.submittedAt,
               ticketSelections: ticketTypes,
+              familyGroupId: familyGroup?._id ?? null,
+              familyGroupLabel: familyGroup?.label ?? null,
+              familyPrimaryAttendeeId: familyGroup?.primaryAttendeeId ?? null,
+              familyRelationship: familyMember?.relationship ?? null,
             }
           })
         )

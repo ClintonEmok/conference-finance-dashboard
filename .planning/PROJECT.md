@@ -85,4 +85,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-_Last updated: 2026-04-01 after starting milestone v3.0 Canonical Orders Foundation_
+_Last updated: 2026-04-24 — Phase 28 complete: single-sidebar shell_

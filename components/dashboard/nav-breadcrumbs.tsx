@@ -10,6 +10,7 @@ const routeMap: Record<string, string> = {
   reconciliation: "Reconciliation",
   payments: "Payments",
   orders: "Orders",
+  "manage-orders": "Manage Orders",
   attendees: "Attendees",
   accommodation: "Accommodation",
   inventory: "Inventory",

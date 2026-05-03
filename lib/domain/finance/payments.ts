@@ -3,9 +3,15 @@ import { api } from "@/lib/convex/api"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
 import type { Id } from "@/convex/_generated/dataModel"
 import {
+  formatPaymentReference,
+  PAYMENT_REFERENCE_PREFIX,
+} from "./payment-reference"
+import {
   selectBestBookerMatch,
   type BookerOnlyMatchCandidate,
 } from "./payment-matching"
+
+export { formatPaymentReference, PAYMENT_REFERENCE_PREFIX }
 
 export type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 
@@ -113,7 +119,7 @@ function mapPaymentDto(payment: ConvexPayment): PaymentDto {
     status: payment.status ?? null,
     matchedAt: payment.matchedAt ?? null,
     matchedBy: payment.matchedBy ?? null,
-    reference: payment.reference ?? null,
+    reference: formatPaymentReference(payment.reference ?? null),
     notes: payment.notes ?? null,
     providerPayload: payment.providerPayload ?? null,
   }
@@ -132,20 +138,20 @@ function normalizeRequiredOrderId(value: string): string {
 async function resolveCanonicalOrderId(orderId: string): Promise<Id<"orders">> {
   const normalized = normalizeRequiredOrderId(orderId)
 
-  const byProviderOrder = await convexQuery(api.orders.getOrderByProviderId, {
-    providerOrderId: normalized,
-  })
-
-  if (byProviderOrder?._id) {
-    return byProviderOrder._id as Id<"orders">
-  }
-
   const byOrderId = await convexQuery(api.orders.getOrderById, {
     orderId: normalized,
   })
 
   if (byOrderId?._id) {
     return byOrderId._id as Id<"orders">
+  }
+
+  const byProviderOrder = await convexQuery(api.orders.getOrderByProviderId, {
+    providerOrderId: normalized,
+  })
+
+  if (byProviderOrder?._id) {
+    return byProviderOrder._id as Id<"orders">
   }
 
   throw new Error("Order not found for payment assignment")

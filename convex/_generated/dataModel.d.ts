@@ -540,6 +540,33 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  reportShares: {
+    document: {
+      createdAt: number;
+      createdByUserId?: string;
+      eventId: Id<"events">;
+      revokedAt?: number;
+      token: string;
+      _id: Id<"reportShares">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "createdByUserId"
+      | "eventId"
+      | "revokedAt"
+      | "token";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+      token: ["token", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   roomAllocations: {
     document: {
       eventId: string;

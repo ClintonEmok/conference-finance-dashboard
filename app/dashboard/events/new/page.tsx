@@ -209,11 +209,11 @@ export default function CreateEventPage() {
       {/* Header */}
       <header className="flex flex-col gap-4 px-1">
         <Link
-          href="/dashboard/events"
+          href="/dashboard"
           className="flex w-fit items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ChevronLeft className="size-4" />
-          Back to Events
+          Back to picker
         </Link>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -532,7 +532,7 @@ export default function CreateEventPage() {
 
         {/* Actions */}
         <div className="flex items-center justify-end gap-4 pt-4">
-          <Link href="/dashboard/events">
+          <Link href="/dashboard">
             <Button type="button" variant="outline" className="h-11 px-6">
               Cancel
             </Button>

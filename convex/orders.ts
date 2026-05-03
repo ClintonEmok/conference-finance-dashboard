@@ -1,4 +1,4 @@
-import { query, mutation, type QueryCtx } from "./_generated/server"
+import { query, mutation, internalMutation, type QueryCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
@@ -8,55 +8,19 @@ import {
   orderLedgerRowValidator,
   orderSearchRowValidator,
 } from "../lib/types/order"
-import { loadOrderAmountDueBreakdowns } from "./finance"
+import { loadMatchedPaymentTotalsByOrderId, loadOrderAmountDueBreakdowns } from "./finance"
+import {
+  loadOrderAttendeesWithExtensions,
+  loadOrderWithExtension,
+  loadOrdersWithExtensions,
+} from "./provider_boundary"
 
-// Helper functions work on extension data
 function isOrderRemoved(ttOrder: any) {
   return typeof ttOrder?.removedAt === "number"
 }
 
 function isOrderVisible(ttOrder: any) {
   return !isOrderRemoved(ttOrder)
-}
-
-// Helper to join orders with ticketTailorOrders extension data
-async function getOrderWithExtension(
-  ctx: QueryCtx,
-  orderId: Id<"orders">
-): Promise<{ order: any; extension: any } | null> {
-  const order = await ctx.db.get("orders", orderId)
-  if (!order) return null
-
-  const extension = await ctx.db
-    .query("ticketTailorOrders")
-    .withIndex("orderId", (q) => q.eq("orderId", orderId))
-    .first()
-
-  return { order, extension }
-}
-
-// Helper to get visible orders with extensions
-async function getVisibleOrdersWithExtensions(
-  ctx: QueryCtx,
-  orderIds: Id<"orders">[]
-): Promise<Array<{ order: any; extension: any }>> {
-  const results: Array<{ order: any; extension: any }> = []
-
-  for (const orderId of orderIds) {
-    const order = await ctx.db.get("orders", orderId)
-    if (!order) continue
-
-    const extension = await ctx.db
-      .query("ticketTailorOrders")
-      .withIndex("orderId", (q) => q.eq("orderId", orderId))
-      .first()
-
-    if (extension && isOrderVisible(extension)) {
-      results.push({ order, extension })
-    }
-  }
-
-  return results
 }
 
 // Helper to get order core data by providerOrderId
@@ -87,25 +51,24 @@ export const getOrders = query({
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     // Query core orders table with index
-    let orderIds: Id<"orders">[] = []
+    let orders: Doc<"orders">[] = []
 
     if (args.eventId) {
       // Bounded: indexed by event, capped at 500
-      const orders = await ctx.db
+      orders = await ctx.db
         .query("orders")
         .withIndex("by_eventId", (q) =>
           q.eq("eventId", args.eventId! as Id<"events">)
         )
         .take(500)
-      orderIds = orders.map((o) => o._id)
     } else {
       // Bounded: capped read for non-paginated query
-      const orders = await ctx.db.query("orders").order("desc").take(500)
-      orderIds = orders.map((o) => o._id)
+      orders = await ctx.db.query("orders").order("desc").take(500)
     }
 
     // Join with extension data for visibility/status filtering
-    const visibleOrders = await getVisibleOrdersWithExtensions(ctx, orderIds)
+    const visibleOrders = (await loadOrdersWithExtensions(ctx, orders))
+      .filter(({ extension }) => extension && isOrderVisible(extension))
     const eventSourceKindsById = await loadEventSourceKindsById(ctx)
 
     // Map back to order objects with merged extension data
@@ -137,7 +100,7 @@ export const getOrderById = query({
         return null
       }
 
-      const combined = await getOrderWithExtension(ctx, orderId)
+      const combined = await loadOrderWithExtension(ctx, orderId)
       if (!combined || !isOrderVisible(combined.extension)) {
         return null
       }
@@ -165,10 +128,7 @@ export const getOrderByProviderId = query({
     const order = await getOrderByProviderOrderId(ctx, args.providerOrderId)
     if (!order) return null
 
-    const extension = await ctx.db
-      .query("ticketTailorOrders")
-      .withIndex("orderId", (q) => q.eq("orderId", order._id))
-      .first()
+    const extension = (await loadOrderWithExtension(ctx, order._id))?.extension ?? null
 
     if (!extension || !isOrderVisible(extension)) {
       return null
@@ -201,15 +161,7 @@ export const getOrderLedger = query({
       .take(500)
 
     // Join with extension data and filter visible
-    const withExtensions = await Promise.all(
-      orders.map(async (order) => {
-        const extension = await ctx.db
-          .query("ticketTailorOrders")
-          .withIndex("orderId", (q) => q.eq("orderId", order._id))
-          .first()
-        return { order, extension }
-      })
-    )
+    const withExtensions = await loadOrdersWithExtensions(ctx, orders)
 
     const visibleOrders = withExtensions
       .filter(({ extension }) => extension && isOrderVisible(extension))
@@ -221,31 +173,10 @@ export const getOrderLedger = query({
       }))
 
     const ordersWithAttendees = await Promise.all(
-      visibleOrders.map(async (order) => {
-        // Bounded: one order has limited attendees - query orderAttendees core table
-        const attendees = await ctx.db
-          .query("orderAttendees")
-          .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
-          .take(100)
-
-        // Join with TT extension for ticket-specific data
-        const attendeesWithExtensions = await Promise.all(
-          attendees.map(async (attendee) => {
-            const ttExtension = await ctx.db
-              .query("ticketTailorAttendees")
-              .withIndex("attendeeId", (q) => q.eq("attendeeId", attendee._id))
-              .first()
-            return {
-              ...attendee,
-              ...ttExtension,
-              _id: attendee._id,
-              _creationTime: attendee._creationTime,
-            }
-          })
-        )
-
-        return { ...order, attendees: attendeesWithExtensions }
-      })
+      visibleOrders.map(async (order) => ({
+        ...order,
+        attendees: await loadOrderAttendeesWithExtensions(ctx, order._id),
+      }))
     )
 
     return ordersWithAttendees
@@ -411,30 +342,237 @@ export const updateOrderStatus = mutation({
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
 
-    // Update core table status
-    await ctx.db.patch("orders", args.orderId, {
-      status: args.normalizedStatus,
-    })
-
-    // Update extension table timestamps
     const extension = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
       .first()
 
+    const statusPatch = buildCanonicalOrderStatusPatch({
+      normalizedStatus: args.normalizedStatus,
+      existingExtension: extension,
+    })
+
+    // Update core table status
+    await ctx.db.patch("orders", args.orderId, statusPatch.orderPatch)
+
+    // Update extension table timestamps
     if (extension) {
-      await ctx.db.patch("ticketTailorOrders", extension._id, {
-        normalizedStatus: args.normalizedStatus,
-        refundedAt:
-          args.normalizedStatus === "refunded" ? Date.now() : undefined,
-        cancelledAt:
-          args.normalizedStatus === "cancelled" ? Date.now() : undefined,
-      })
+      await ctx.db.patch("ticketTailorOrders", extension._id, statusPatch.extensionPatch)
     }
 
     return args.orderId
   },
 })
+
+function normalizeNullableTextInput(
+  value: string | null | undefined
+): string | undefined {
+  if (value === null || value === undefined) {
+    return undefined
+  }
+
+  const normalized = value.trim()
+  return normalized || undefined
+}
+
+export const updateOrderDetails = mutation({
+  args: {
+    orderId: v.id("orders"),
+    bookerName: v.optional(nullableStringValidator),
+    bookerEmail: v.optional(nullableStringValidator),
+    bookingRef: v.optional(nullableStringValidator),
+    normalizedStatus: v.optional(canonicalOrderStatusValidator),
+    totalAmountMinor: v.optional(v.union(v.number(), v.null())),
+    orderedAt: v.optional(v.union(v.number(), v.null())),
+  },
+  returns: v.id("orders"),
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const order = await ctx.db.get("orders", args.orderId)
+    if (!order) {
+      throw new Error("Order not found")
+    }
+
+    const extension = await ctx.db
+      .query("ticketTailorOrders")
+      .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
+      .first()
+
+    const orderPatch: {
+      bookerName?: string
+      bookerEmail?: string
+      bookingRef?: string
+      status?: "paid" | "refunded" | "cancelled" | "pending"
+      totalAmountMinor?: number
+      orderedAt?: number
+    } = {}
+
+    if (args.bookerName !== undefined) {
+      orderPatch.bookerName = normalizeNullableTextInput(args.bookerName)
+    }
+
+    if (args.bookerEmail !== undefined) {
+      orderPatch.bookerEmail = normalizeNullableTextInput(args.bookerEmail)
+    }
+
+    if (args.bookingRef !== undefined) {
+      orderPatch.bookingRef = normalizeNullableTextInput(args.bookingRef)
+    }
+
+    if (args.totalAmountMinor !== undefined) {
+      if (
+        args.totalAmountMinor !== null &&
+        (!Number.isInteger(args.totalAmountMinor) || args.totalAmountMinor < 0)
+      ) {
+        throw new Error(
+          "Invalid 'totalAmountMinor'. Expected a non-negative integer or null to clear."
+        )
+      }
+
+      if (args.totalAmountMinor !== null) {
+        orderPatch.totalAmountMinor = args.totalAmountMinor
+      }
+    }
+
+    if (args.orderedAt !== undefined) {
+      if (
+        args.orderedAt !== null &&
+        (!Number.isFinite(args.orderedAt) || args.orderedAt < 0)
+      ) {
+        throw new Error(
+          "Invalid 'orderedAt'. Expected a Unix timestamp in milliseconds or null to clear."
+        )
+      }
+
+      if (args.orderedAt !== null) {
+        orderPatch.orderedAt = args.orderedAt
+      }
+    }
+
+    if (args.normalizedStatus !== undefined) {
+      const statusPatch = buildCanonicalOrderStatusPatch({
+        normalizedStatus: args.normalizedStatus,
+        existingExtension: extension,
+      })
+
+      orderPatch.status = statusPatch.orderPatch.status
+
+      if (extension) {
+        await ctx.db.patch("ticketTailorOrders", extension._id, {
+          ...statusPatch.extensionPatch,
+        })
+      }
+    }
+
+    if (Object.keys(orderPatch).length > 0) {
+      await ctx.db.patch("orders", args.orderId, orderPatch)
+    }
+
+    return args.orderId
+  },
+})
+
+export const syncFullyPaidOrders = internalMutation({
+  args: {},
+  returns: v.object({
+    scanned: v.number(),
+    updated: v.number(),
+  }),
+  handler: async (ctx) => {
+    const orders = await ctx.db.query("orders").order("desc").take(1000)
+    const activeOrders = orders.filter(
+      (order) => order.status !== "refunded" && order.status !== "cancelled"
+    )
+
+    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      activeOrders
+    )
+    const matchedTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
+      ctx,
+      activeOrders
+    )
+
+    let updated = 0
+
+    for (const order of activeOrders) {
+      const amountDueMinor =
+        amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
+        order.totalAmountMinor ??
+        0
+      const paidAmountMinor = matchedTotalsByOrderId.get(String(order._id)) ?? 0
+
+      if (paidAmountMinor < amountDueMinor || order.status === "paid") {
+        continue
+      }
+
+      const extension = await ctx.db
+        .query("ticketTailorOrders")
+        .withIndex("orderId", (q) => q.eq("orderId", order._id))
+        .first()
+
+      if (extension?.isArchived || extension?.removedAt) {
+        continue
+      }
+
+      const statusPatch = buildCanonicalOrderStatusPatch({
+        normalizedStatus: "paid",
+        existingExtension: extension,
+      })
+
+      await ctx.db.patch("orders", order._id, statusPatch.orderPatch)
+
+      if (extension) {
+        await ctx.db.patch("ticketTailorOrders", extension._id, statusPatch.extensionPatch)
+      }
+
+      updated += 1
+    }
+
+    return {
+      scanned: activeOrders.length,
+      updated,
+    }
+  },
+})
+
+export function buildCanonicalOrderStatusPatch(params: {
+  normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
+  existingExtension?: {
+    refundedAt?: number | null
+    cancelledAt?: number | null
+  } | null
+  refundedAt?: number | null
+  cancelledAt?: number | null
+}) {
+  const orderPatch = {
+    status: params.normalizedStatus,
+  }
+
+  const extensionPatch: {
+    normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
+    refundedAt?: number
+    cancelledAt?: number
+  } = {
+    normalizedStatus: params.normalizedStatus,
+  }
+
+  if (params.normalizedStatus === "refunded") {
+    extensionPatch.refundedAt =
+      params.refundedAt ?? params.existingExtension?.refundedAt ?? Date.now()
+  }
+
+  if (params.normalizedStatus === "cancelled") {
+    extensionPatch.cancelledAt =
+      params.cancelledAt ?? params.existingExtension?.cancelledAt ?? Date.now()
+  }
+
+  return {
+    orderPatch,
+    extensionPatch,
+  }
+}
 
 type CandidateOrder = {
   _id: Id<"orders">
@@ -544,17 +682,14 @@ async function listCandidateOrders(
   }
 
   // Join with extension data
-  const withExtensions = await Promise.all(
-    orders.map(async (order) => {
-      const extension = await ctx.db
-        .query("ticketTailorOrders")
-        .withIndex("orderId", (q) => q.eq("orderId", order._id))
-        .first()
-      return { ...order, ...extension }
-    })
-  )
+  const withExtensions = await loadOrdersWithExtensions(ctx, orders)
 
-  return withExtensions
+  return withExtensions.map(({ order, extension }) => ({
+    ...order,
+    ...extension,
+    _id: order._id,
+    _creationTime: order._creationTime,
+  }))
 }
 
 async function loadEventNamesById(
@@ -742,19 +877,17 @@ export const getOrderCount = query({
     const orders = await ctx.db.query("orders").order("desc").take(500)
 
     // Join with extension data for visibility filtering
-    const withExtensions = await Promise.all(
-      orders.map(async (order) => {
-        const extension = await ctx.db
-          .query("ticketTailorOrders")
-          .withIndex("orderId", (q) => q.eq("orderId", order._id))
-          .first()
-        return { ...order, ...extension }
-      })
-    )
+    const withExtensions = await loadOrdersWithExtensions(ctx, orders)
+    const mergedOrders = withExtensions.map(({ order, extension }) => ({
+      ...order,
+      ...extension,
+      _id: order._id,
+      _creationTime: order._creationTime,
+    }))
 
     const eventSourceKindsById = await loadEventSourceKindsById(ctx)
 
-    let filtered = withExtensions
+    let filtered = mergedOrders
       .filter((o) => !isOrderRemoved(o))
       .filter((o) => isInternalEvent(eventSourceKindsById, o.eventId))
 
@@ -837,15 +970,7 @@ export const getOrdersForReconciliation = query({
     )
 
     // Join with extension data for additional fields, preserving canonical order._id
-    const withExtensions = await Promise.all(
-      visibleOrders.map(async (order) => {
-        const extension = await ctx.db
-          .query("ticketTailorOrders")
-          .withIndex("orderId", (q) => q.eq("orderId", order._id))
-          .first()
-        return { order, extension }
-      })
-    )
+    const withExtensions = await loadOrdersWithExtensions(ctx, visibleOrders)
 
     const eventNamesById = await loadEventNamesById(ctx)
     const eventSlugsById = await loadEventSlugsById(ctx)
@@ -911,24 +1036,17 @@ export const searchOrders = query({
       : await ctx.db.query("orders").order("desc").take(500)
 
     // Join with extension data for visibility filtering
-    const withExtensions = await Promise.all(
-      candidates.map(async (order) => {
-        const extension = await ctx.db
-          .query("ticketTailorOrders")
-          .withIndex("orderId", (q) => q.eq("orderId", order._id))
-          .first()
-        return {
-          ...order,
-          ...extension,
-          _id: order._id,
-          _creationTime: order._creationTime,
-        }
-      })
-    )
+    const withExtensions = await loadOrdersWithExtensions(ctx, candidates)
+    const normalizedCandidates = withExtensions.map(({ order, extension }) => ({
+      ...order,
+      ...extension,
+      _id: order._id,
+      _creationTime: order._creationTime,
+    }))
 
     const eventSourceKindsById = await loadEventSourceKindsById(ctx)
 
-    const filtered = withExtensions.filter(
+    const filtered = normalizedCandidates.filter(
       (o) =>
         !isOrderRemoved(o) &&
         isInternalEvent(eventSourceKindsById, o.eventId) &&
@@ -1006,10 +1124,7 @@ export const getOrderWithAttendees = query({
       String(order._id)
     )
 
-    const extension = await ctx.db
-      .query("ticketTailorOrders")
-      .withIndex("orderId", (q) => q.eq("orderId", order._id))
-      .first()
+    const extension = (await loadOrderWithExtension(ctx, order._id))?.extension ?? null
 
     if (extension && isOrderRemoved(extension)) return null
 
@@ -1018,10 +1133,7 @@ export const getOrderWithAttendees = query({
       return null
     }
 
-    const attendees = await ctx.db
-      .query("orderAttendees")
-      .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
-      .take(100)
+    const attendees = await loadOrderAttendeesWithExtensions(ctx, order._id)
 
     return {
       order: {
@@ -1090,21 +1202,20 @@ export const getOrderPaymentStatus = query({
     const orders = await ctx.db.query("orders").order("desc").take(500)
 
     // Join with extensions for visibility filtering
-    const withExtensions = await Promise.all(
-      orders.map(async (order) => {
-        const extension = await ctx.db
-          .query("ticketTailorOrders")
-          .withIndex("orderId", (q) => q.eq("orderId", order._id))
-          .first()
-        return { ...order, ...extension }
-      })
-    )
+    const withExtensions = await loadOrdersWithExtensions(ctx, orders)
+    const visibleOrders = withExtensions
+      .filter(({ extension }) => extension && !isOrderRemoved(extension))
+      .map(({ order, extension }) => ({
+        ...order,
+        ...extension,
+        _id: order._id,
+        _creationTime: order._creationTime,
+      }))
 
     const eventSourceKindsById = await loadEventSourceKindsById(ctx)
 
-    const visibleOrders = withExtensions.filter(
-      (o) =>
-        !isOrderRemoved(o) && isInternalEvent(eventSourceKindsById, o.eventId)
+    const canonicalVisibleOrders = visibleOrders.filter((o) =>
+      isInternalEvent(eventSourceKindsById, o.eventId)
     )
 
     const payments = await ctx.db.query("payments").order("desc").take(1000)
@@ -1126,7 +1237,7 @@ export const getOrderPaymentStatus = query({
 
     let totalPaidAmount = 0
 
-    for (const order of visibleOrders) {
+    for (const order of canonicalVisibleOrders) {
       const orderTotal = order.totalAmountMinor ?? 0
       if (orderTotal <= 0) continue
 
@@ -1168,8 +1279,9 @@ export const getOrderPaymentStatus = query({
     return {
       summary: {
         ...statusCounts,
-        totalOrders: visibleOrders.filter((o) => (o.totalAmountMinor ?? 0) > 0)
-          .length,
+        totalOrders: canonicalVisibleOrders.filter(
+          (o) => (o.totalAmountMinor ?? 0) > 0
+        ).length,
       },
       totalAmountMinor: totalPaidAmount,
       bySource: {

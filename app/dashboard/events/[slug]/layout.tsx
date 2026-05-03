@@ -3,22 +3,37 @@
 import { use } from "react"
 import {
   Calendar,
+  ChevronRight,
+  CreditCard,
+  ExternalLink,
+  Link as LinkIcon,
+  Settings,
   Users,
   Ticket,
-  CreditCard,
-  Settings,
-  Link as LinkIcon,
   BedDouble,
-  ChevronRight,
-  ExternalLink,
+  ShoppingBag,
+  HandCoins,
 } from "lucide-react"
+import { LogoutButton } from "@/app/dashboard/logout-button"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
+import { EventSwitcher } from "@/components/dashboard/event-switcher"
 import { useEventBySlug } from "@/lib/convex/hooks/events"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarInset,
+  SidebarProvider,
+  SidebarSeparator,
+  SidebarTrigger,
+} from "@/components/ui/sidebar"
 
 interface EventLayoutProps {
   children: React.ReactNode
@@ -44,11 +59,8 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
   if (event === undefined) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-24 w-full rounded-2xl" />
-        <div className="grid grid-cols-[240px_1fr] gap-6">
-          <Skeleton className="h-[400px] rounded-xl" />
-          <Skeleton className="h-[600px] rounded-xl" />
-        </div>
+        <Skeleton className="h-44 w-full rounded-2xl" />
+        <Skeleton className="h-[600px] w-full rounded-2xl" />
       </div>
     )
   }
@@ -61,17 +73,21 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
           The event with slug "{slug}" does not exist.
         </p>
         <Link
-          href="/dashboard/events"
+          href="/dashboard"
           className="mt-6 text-primary hover:underline"
         >
-          Back to events
+          Back to picker
         </Link>
       </div>
     )
   }
 
   const menuItems = [
-    { label: "Overview", icon: Calendar, href: `/dashboard/events/${slug}` },
+    {
+      label: "Overview",
+      icon: Calendar,
+      href: `/dashboard/events/${slug}`,
+    },
     {
       label: "Attendees",
       icon: Users,
@@ -94,6 +110,16 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
       href: `/dashboard/events/${slug}/payments`,
     },
     {
+      label: "Orders",
+      icon: ShoppingBag,
+      href: `/dashboard/events/${slug}/orders`,
+    },
+    {
+      label: "Reconciliation",
+      icon: HandCoins,
+      href: `/dashboard/events/${slug}/reconciliation`,
+    },
+    {
       label: "Sources",
       icon: LinkIcon,
       href: `/dashboard/events/${slug}/sources`,
@@ -106,82 +132,95 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
   ]
 
   return (
-    <div className="flex flex-col gap-6 lg:flex-row">
-      {/* Secondary Sidebar (Sub-nav) */}
-      <aside className="w-full shrink-0 lg:w-64">
-        <div className="sticky top-20 space-y-4">
-          <div className="flex flex-col gap-4 rounded-2xl border border-white/60 bg-white/40 p-5 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
-            <div className="space-y-1">
-              <h2 className="text-xs font-black tracking-[0.2em] text-muted-foreground/50 uppercase">
-                Active Event
-              </h2>
-              <div className="flex flex-col gap-2">
-                <h3 className="text-lg leading-tight font-bold tracking-tight">
+    <SidebarProvider>
+      <Sidebar
+        collapsible="icon"
+        className="border-r border-white/60 dark:border-white/10"
+      >
+        <SidebarHeader className="h-[64px] justify-center group-data-[collapsible=icon]:px-2">
+          <EventSwitcher currentSlug={slug} />
+        </SidebarHeader>
+
+        <SidebarContent className="gap-0 px-3 pt-3">
+          <nav className="space-y-2">
+            {menuItems.map((item) => {
+              if (item.show === false) return null
+              const isActive =
+                item.href === pathname || pathname.startsWith(`${item.href}/`)
+              const Icon = item.icon
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "group flex items-start justify-between gap-3 rounded-2xl border px-4 py-3 transition-all duration-200",
+                    isActive
+                      ? "border-primary/25 bg-primary/10 text-foreground shadow-sm"
+                      : "border-border/50 bg-background/60 text-muted-foreground hover:border-primary/20 hover:bg-muted/50 hover:text-foreground"
+                  )}
+                >
+                  <span className="flex min-w-0 items-start gap-3">
+                    <Icon className="mt-0.5 size-4 shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold leading-none">
+                        {item.label}
+                      </span>
+                    </span>
+                  </span>
+                  {isActive && (
+                    <ChevronRight className="mt-0.5 size-4 shrink-0 text-primary" />
+                  )}
+                </Link>
+              )
+            })}
+          </nav>
+        </SidebarContent>
+
+        <SidebarFooter className="p-3">
+          <LogoutButton
+            className="h-8 w-full rounded-md border border-border/50 bg-background/60 px-3 text-[10px] font-black tracking-widest uppercase transition-colors hover:bg-background"
+            showIconOnly={false}
+          />
+        </SidebarFooter>
+      </Sidebar>
+
+      <SidebarInset className="bg-black/5 dark:bg-white/2">
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-white/60 bg-white/80 px-4 backdrop-blur-xl dark:border-white/10 dark:bg-black/40">
+          <div className="flex items-center gap-4">
+            <SidebarTrigger className="-ml-1" />
+            <SidebarSeparator orientation="vertical" className="mr-2 h-4" />
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-semibold text-foreground">
                   {event.title}
-                </h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {getStatusBadge(event.isPublished, event.isSignupOpen)}
-                  <Badge variant="outline" className="h-4 text-[9px]">
-                    ID: {event.slug}
-                  </Badge>
-                </div>
+                </h1>
+                {getStatusBadge(event.isPublished, event.isSignupOpen)}
+              </div>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span className="font-mono">/{event.slug}</span>
+                <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
+                  <Link href={`/events/${event.slug}`} target="_blank">
+                    <ExternalLink className="size-3" />
+                    Public page
+                  </Link>
+                </Button>
+                <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
+                  <Link href="/dashboard">Go to home</Link>
+                </Button>
               </div>
             </div>
+          </div>
+        </header>
 
-            <div className="flex flex-col gap-2 border-t border-border/40 pt-4">
-              <Link
-                href={`/events/${event.slug}`}
-                target="_blank"
-                className="group flex items-center justify-between rounded-lg px-2 py-1.5 transition-colors hover:bg-primary/10"
-              >
-                <span className="text-[10px] font-bold text-muted-foreground group-hover:text-primary">
-                  View public page
-                </span>
-                <ExternalLink className="size-3 text-muted-foreground/50 group-hover:text-primary" />
-              </Link>
+        <div className="flex-1 overflow-x-hidden p-4 lg:p-6">
+          <div className="mx-auto max-w-7xl">
+            <div className="animate-in duration-700 fade-in slide-in-from-bottom-2">
+              {children}
             </div>
           </div>
-
-          <nav className="rounded-2xl border border-white/60 bg-white/40 p-2 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
-            <div className="flex flex-col gap-1">
-              {menuItems.map((item) => {
-                if (item.show === false) return null
-                const isActive = item.href === pathname
-                const Icon = item.icon
-
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-bold transition-all duration-200",
-                      isActive
-                        ? "bg-primary text-white shadow-lg shadow-primary/20"
-                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                    )}
-                  >
-                    <Icon
-                      className={cn(
-                        "size-4",
-                        isActive ? "text-white" : "text-primary"
-                      )}
-                    />
-                    <span className="flex-1">{item.label}</span>
-                    {isActive && <ChevronRight className="size-3 opacity-50" />}
-                  </Link>
-                )
-              })}
-            </div>
-          </nav>
         </div>
-      </aside>
-
-      {/* Main Context Area */}
-      <div className="min-w-0 flex-1">
-        <div className="animate-in duration-700 fade-in slide-in-from-bottom-2">
-          {children}
-        </div>
-      </div>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }

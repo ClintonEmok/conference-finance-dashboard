@@ -76,7 +76,6 @@ function mapResolvedOrder(order: {
 
 async function resolvePaymentOrder(
   rawOrderId: string | null,
-  byProviderOrderIdCache: Map<string, ResolvedOrder | null>,
   byOrderIdCache: Map<string, ResolvedOrder | null>
 ): Promise<ResolvedOrder | null> {
   const orderId = rawOrderId?.trim()
@@ -84,22 +83,6 @@ async function resolvePaymentOrder(
   if (!orderId) {
     return null
   }
-
-  if (byProviderOrderIdCache.has(orderId)) {
-    return byProviderOrderIdCache.get(orderId) ?? null
-  }
-
-  const byProviderOrder = await convexQuery(api.orders.getOrderByProviderId, {
-    providerOrderId: orderId,
-  })
-
-  if (byProviderOrder) {
-    const mappedOrder = mapResolvedOrder(byProviderOrder)
-    byProviderOrderIdCache.set(orderId, mappedOrder)
-    return mappedOrder
-  }
-
-  byProviderOrderIdCache.set(orderId, null)
 
   if (byOrderIdCache.has(orderId)) {
     return byOrderIdCache.get(orderId) ?? null
@@ -149,14 +132,12 @@ export async function GET(request: Request) {
       page * limit
     )
 
-    const byProviderOrderIdCache = new Map<string, ResolvedOrder | null>()
     const byOrderIdCache = new Map<string, ResolvedOrder | null>()
 
     const payments = await Promise.all(
       paginatedPayments.map(async (p) => {
         const order = await resolvePaymentOrder(
           p.orderId,
-          byProviderOrderIdCache,
           byOrderIdCache
         )
 

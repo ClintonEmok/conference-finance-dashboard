@@ -26,6 +26,12 @@ export type OrderAmountDueBreakdown = {
   amountDueByAttendeeId: Map<string, number>
 }
 
+type MatchedPaymentRecord = {
+  amountMinor: number
+  orderId?: string | null
+  status?: "auto_matched" | "manual_assignment" | "ambiguous" | "unassigned" | null
+}
+
 export async function loadOrderAmountDueBreakdowns(
   ctx: FinanceDbCtx,
   orders: OrderRef[]
@@ -78,4 +84,51 @@ export async function loadOrderAmountDueBreakdowns(
   }
 
   return breakdownByOrderId
+}
+
+export async function loadMatchedPaymentTotalsByOrderId(
+  ctx: FinanceDbCtx,
+  orders: OrderRef[]
+): Promise<Map<string, number>> {
+  const payments = (await ctx.db.query("payments").take(2000)) as MatchedPaymentRecord[]
+  const canonicalOrderIdsByAlias = new Map<string, string>()
+
+  for (const order of orders) {
+    canonicalOrderIdsByAlias.set(String(order._id), String(order._id))
+  }
+
+  const orderByProviderId = new Map<string, string>()
+  for (const order of orders as Array<OrderRef & { providerOrderId?: string | null }>) {
+    const providerOrderId = order.providerOrderId?.trim()
+    if (providerOrderId) {
+      orderByProviderId.set(providerOrderId, String(order._id))
+    }
+  }
+
+  const totalsByOrderId = new Map<string, number>()
+
+  for (const payment of payments) {
+    if (
+      !payment ||
+      (payment.status !== "auto_matched" && payment.status !== "manual_assignment") ||
+      !Number.isFinite(payment.amountMinor) ||
+      payment.amountMinor <= 0
+    ) {
+      continue
+    }
+
+    const rawOrderId = typeof payment.orderId === "string" ? payment.orderId.trim() : ""
+    if (!rawOrderId) continue
+
+    const canonicalOrderId =
+      canonicalOrderIdsByAlias.get(rawOrderId) ?? orderByProviderId.get(rawOrderId)
+    if (!canonicalOrderId) continue
+
+    totalsByOrderId.set(
+      canonicalOrderId,
+      (totalsByOrderId.get(canonicalOrderId) ?? 0) + payment.amountMinor
+    )
+  }
+
+  return totalsByOrderId
 }

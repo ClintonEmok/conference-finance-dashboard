@@ -140,6 +140,21 @@ export default function TrackPaymentPage() {
                     eventName={result.tracking.event.title}
                   />
                 </div>
+              ) : result.tracking.payment.paymentStatus === "overpaid" ? (
+                <div className="flex flex-col items-center gap-4 rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-6 text-center shadow-lg backdrop-blur-xl sm:flex-row sm:items-start sm:p-8 sm:text-left">
+                  <div className="rounded-full bg-emerald-500/20 p-3 text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="size-6" />
+                  </div>
+                  <div>
+                    <h3 className="mb-1 text-xl font-bold text-emerald-800 dark:text-emerald-200">
+                      Payment settled with donation
+                    </h3>
+                    <p className="text-sm text-emerald-700/80 dark:text-emerald-200/80">
+                      You have paid {formatMoney(result.tracking.payment.totalPaidMinor)} against a due amount of {formatMoney(result.tracking.payment.totalDueMinor)}.
+                      Your donation is {formatMoney(result.tracking.payment.totalPaidMinor - result.tracking.payment.totalDueMinor)}.
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <div className="flex flex-col items-center gap-4 rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-6 text-center shadow-lg backdrop-blur-xl sm:flex-row sm:items-start sm:p-8 sm:text-left">
                   <div className="rounded-full bg-emerald-500/20 p-3 text-emerald-600 dark:text-emerald-400">
@@ -242,6 +257,15 @@ export default function TrackPaymentPage() {
                         value={String(result.tracking.payment.paymentCount)}
                         icon={ArrowRight}
                       />
+                      {result.tracking.payment.paymentStatus === "overpaid" ? (
+                        <MetricCard
+                          label="Donation"
+                          value={formatMoney(
+                            result.tracking.payment.totalPaidMinor - result.tracking.payment.totalDueMinor
+                          )}
+                          icon={Wallet}
+                        />
+                      ) : null}
                     </div>
                   </article>
 

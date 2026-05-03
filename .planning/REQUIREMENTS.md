@@ -13,9 +13,9 @@
 
 ### Canonical Money Model
 
-- [ ] **FIN-01**: Each order has one deterministic canonical total in minor units that stays consistent across ledger, detail, reconciliation, and exports.
-- [ ] **FIN-02**: Each attendee has a canonical payable amount derived from internal order facts instead of equal-split heuristics.
-- [ ] **FIN-03**: Payments can be explicitly allocated to orders and, where needed, attendees so partial, split, and overpayments are auditable.
+- [x] **FIN-01**: Each order has one deterministic canonical total in minor units that stays consistent across ledger, detail, reconciliation, and exports.
+- [x] **FIN-02**: Each attendee has a canonical payable amount derived from internal order facts instead of equal-split heuristics.
+- [x] **FIN-03**: Payments can be explicitly allocated to orders and, where needed, attendees so partial, split, and overpayments are auditable.
 - [ ] **FIN-04**: Reconciliation surfaces show reason codes derived from canonical totals, payables, and payment allocations.
 
 ### Migration and Cutover
@@ -52,22 +52,28 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status  |
 | ----------- | ----- | ------- |
-| RTM-01      | 29    | Pending |
+| RTM-01      | 32    | Pending |
 | RTM-02      | 26    | Pending |
-| RTM-03      | 30    | Pending |
-| FIN-01      | 27    | Pending |
-| FIN-02      | 27    | Pending |
-| FIN-03      | 27    | Pending |
-| FIN-04      | 29    | Pending |
-| MIG-01      | 28    | Pending |
-| MIG-02      | 28    | Pending |
-| MIG-03      | 30    | Pending |
+| RTM-03      | 33    | Pending |
+| FIN-01      | 27    | Complete |
+| FIN-02      | 27    | Complete |
+| FIN-03      | 27    | Complete |
+| FIN-04      | 32    | Pending |
+| MIG-01      | 31    | Pending |
+| MIG-02      | 31    | Pending |
+| MIG-03      | 33    | Pending |
 
 **Coverage:**
 
 - v3.0 requirements: 10 total
 - Mapped to phases: 10
 - Unmapped: 0 ✓
+
+## Future Requirement Traceability
+
+| Requirement | Phase | Status  |
+| ----------- | ----- | ------- |
+| RPT-03      | 30    | Pending |
 
 ---
 

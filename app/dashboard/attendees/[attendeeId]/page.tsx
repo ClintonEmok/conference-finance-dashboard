@@ -2,6 +2,7 @@
 
 import { use, useCallback, useEffect, useState } from "react"
 import Link from "next/link"
+import { usePathname } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -111,6 +112,7 @@ export default function AttendeeDetailPage({
   params: Promise<{ attendeeId: string }>
 }) {
   const { attendeeId: rawAttendeeId } = use(params)
+  const pathname = usePathname()
   const [payload, setPayload] = useState<AttendeeDetailPayload | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -118,7 +120,13 @@ export default function AttendeeDetailPage({
   const [isSavingGender, setIsSavingGender] = useState(false)
   
   const attendeeId = rawAttendeeId?.trim() ?? ""
-  const orderLinkHref = payload ? `/dashboard/orders/${payload.order.id}` : "#"
+  const eventSlug = pathname.match(/^\/dashboard\/events\/([^/]+)\/attendees\//)?.[1] ?? null
+  const backHref = eventSlug ? `/dashboard/events/${eventSlug}/attendees` : "/dashboard/attendees"
+  const orderLinkHref = payload
+    ? eventSlug
+      ? `/dashboard/events/${eventSlug}/orders/${payload.order.id}`
+      : `/dashboard/manage-orders/${payload.order.id}`
+    : "#"
 
   const loadAttendeeDetail = useCallback(
     async (targetId: string, silent = false) => {
@@ -181,7 +189,7 @@ export default function AttendeeDetailPage({
           {errorMessage || "The attendee you're looking for doesn't exist or has been removed."}
         </p>
         <Button variant="outline" className="mt-8 rounded-xl border-destructive/20 text-destructive hover:bg-destructive/10" asChild>
-          <Link href="/dashboard/attendees">Back to Attendees</Link>
+          <Link href={backHref}>Back to Attendees</Link>
         </Button>
       </div>
     )

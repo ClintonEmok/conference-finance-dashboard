@@ -173,7 +173,7 @@ export default function PaymentsPage() {
           { label: "Unpaid", value: summary?.summary.unassigned ?? 0, icon: AlertCircle, color: "text-yellow-500", bg: "bg-yellow-500/10", detail: "Missing link" },
           { label: "Partial", value: summary?.summary.partial ?? 0, icon: HelpCircle, color: "text-orange-500", bg: "bg-orange-500/10", detail: "Incomplete" },
           { label: "Fully Paid", value: summary?.summary.paid ?? 0, icon: CheckCircle2, color: "text-emerald-500", bg: "bg-emerald-500/10", detail: "Settled" },
-          { label: "Overpaid", value: summary?.summary.overpaid ?? 0, icon: CircleAlert, color: "text-purple-500", bg: "bg-purple-500/10", detail: "Excess" },
+          { label: "Donation", value: summary?.summary.overpaid ?? 0, icon: CircleAlert, color: "text-purple-500", bg: "bg-purple-500/10", detail: "Excess" },
         ].map((stat) => (
           <article key={stat.label} className="group rounded-xl border border-border/50 bg-card/40 backdrop-blur-xl p-6 transition-all hover:border-primary/20">
             <div className="flex items-start justify-between">

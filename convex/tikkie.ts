@@ -2,6 +2,7 @@ import { query, mutation, internalMutation } from "./_generated/server"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
 import type { Id } from "./_generated/dataModel"
+import { formatPaymentReference } from "../lib/domain/finance/payment-reference"
 
 // Constants for quota enforcement
 const DEFAULT_MONTHLY_TIKKIE_CREATION_LIMIT = 5
@@ -117,6 +118,7 @@ export const createPaymentLink = mutation({
 
     const id = await ctx.db.insert("tikkiePaymentLinks", {
       ...args,
+      referenceId: formatPaymentReference(args.referenceId) ?? undefined,
       status: "created",
       statusSource: "create",
       statusUpdatedAt: Date.now(),
@@ -425,7 +427,7 @@ export const createEventPaymentLink = mutation({
       amountMinor: args.amountMinor,
       description: args.description,
       expiryDate: args.expiryDate,
-      referenceId: args.referenceId,
+      referenceId: formatPaymentReference(args.referenceId) ?? undefined,
       providerPayload: args.providerPayload,
       statusUpdatedAt: Date.now(),
     })

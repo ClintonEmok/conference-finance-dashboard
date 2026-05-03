@@ -507,12 +507,24 @@ export default defineSchema({
       matchedAt: v.optional(v.number()),
       providerPayload: v.optional(v.any()),
     })
-  )
+    )
     .index("paymentLinkId", ["paymentLinkId"])
     .index("paymentRequestToken", ["paymentRequestToken"])
     .index("matchStatus", ["matchStatus"])
     .index("paymentToken", ["paymentToken"])
     .index("orderId", ["orderId"]),
+
+  reportShares: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      token: v.string(),
+      createdAt: v.number(),
+      revokedAt: v.optional(v.number()),
+      createdByUserId: v.optional(v.string()),
+    })
+  )
+    .index("token", ["token"])
+    .index("by_eventId", ["eventId"]),
 
   ticketTailorSyncRuns: defineTable(
     v.object({

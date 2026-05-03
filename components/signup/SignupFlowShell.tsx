@@ -19,7 +19,7 @@ import {
 } from "@/components/signup/state"
 import {
   buildAssignmentBoard,
-  summarizeUnfilledBeds,
+  summarizeUnfilledBedsInAllocatedRooms,
 } from "@/components/signup/assignment"
 import { TicketStep } from "@/components/signup/steps/TicketStep"
 import { RoomAssignmentStep } from "@/components/signup/steps/RoomAssignmentStep"
@@ -117,9 +117,12 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   }, [event?.accommodation?.slots, draft?.attendees, draft?.assignments])
 
   const roomSummary = useMemo(() => {
-    if (!roomBoard) return { unfilledBeds: 0 }
-    return summarizeUnfilledBeds(roomBoard)
-  }, [roomBoard])
+    if (!roomBoard || !draft) return { unfilledBeds: 0 }
+    return summarizeUnfilledBedsInAllocatedRooms(
+      roomBoard,
+      new Set(draft.attendees.map((attendee) => attendee.attendeeKey))
+    )
+  }, [roomBoard, draft?.attendees])
 
   const buyerValidationSnapshot = useMemo(
     () =>

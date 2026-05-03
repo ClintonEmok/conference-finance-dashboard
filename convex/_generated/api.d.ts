@@ -837,6 +837,20 @@ export declare const api: {
         providerOrderId: string | null;
       }>
     >;
+    updateOrderDetails: FunctionReference<
+      "mutation",
+      "public",
+      {
+        bookerEmail?: string | null;
+        bookerName?: string | null;
+        bookingRef?: string | null;
+        normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
+        orderId: Id<"orders">;
+        orderedAt?: number | null;
+        totalAmountMinor?: number | null;
+      },
+      Id<"orders">
+    >;
     updateOrderStatus: FunctionReference<
       "mutation",
       "public",
@@ -1038,6 +1052,28 @@ export declare const api: {
         tikkieDescription: string | null;
         tikkieUrl: string | null;
       }
+    >;
+  };
+  reports: {
+    getReportByToken: FunctionReference<
+      "query",
+      "public",
+      { token: string },
+      any
+    >;
+  };
+  reportShares: {
+    createEventShare: FunctionReference<
+      "mutation",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
+    revokeEventShare: FunctionReference<
+      "mutation",
+      "public",
+      { token: string },
+      any
     >;
   };
   signupCatalog: {
@@ -1885,6 +1921,14 @@ export declare const internal: {
         recipient: string;
       },
       any
+    >;
+  };
+  orders: {
+    syncFullyPaidOrders: FunctionReference<
+      "mutation",
+      "internal",
+      {},
+      { scanned: number; updated: number }
     >;
   };
   payments: {
