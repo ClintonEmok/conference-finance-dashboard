@@ -746,9 +746,11 @@ export declare const api: {
         eventSlug: string;
         eventTitle: string | null;
         isArchived: boolean;
+        matchedAmountMinor?: number;
         normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
         orderId?: string;
         orderedAt: string | null;
+        outstandingAmountMinor?: number;
         providerOrderId: string | null;
         refundedAt: string | null;
         totalAmountMinor: number | null;
@@ -777,9 +779,11 @@ export declare const api: {
           eventSlug: string;
           eventTitle: string | null;
           isArchived: boolean;
+          matchedAmountMinor?: number;
           normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
           orderId?: string;
           orderedAt: string | null;
+          outstandingAmountMinor?: number;
           providerOrderId: string | null;
           refundedAt: string | null;
           totalAmountMinor: number | null;
@@ -1053,8 +1057,50 @@ export declare const api: {
         tikkieUrl: string | null;
       }
     >;
+    getByEmailOrBookingRef: FunctionReference<
+      "query",
+      "public",
+      { emailOrBookingRef: string },
+      null | {
+        bookingRef: string;
+        event: { slug: string; startsAt: number; title: string };
+        order: {
+          amountDueMinor: number | null;
+          buyerEmail: string | null;
+          buyerName: string | null;
+          buyerPhone: string | null;
+          orderedAt: number | null;
+          status: string | null;
+          submittedAt: number | null;
+          totalAmountMinor: number | null;
+        };
+        payment: {
+          paymentCount: number;
+          paymentStatus: "unpaid" | "partial" | "paid" | "overpaid";
+          progressPercent: number;
+          remainingMinor: number;
+          totalDueMinor: number;
+          totalPaidMinor: number;
+        };
+        tikkieAmountMinor: number | null;
+        tikkieDescription: string | null;
+        tikkieUrl: string | null;
+      }
+    >;
   };
   reports: {
+    getEventLocations: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
+    getFullReportByToken: FunctionReference<
+      "query",
+      "public",
+      { token: string },
+      any
+    >;
     getReportByToken: FunctionReference<
       "query",
       "public",
@@ -1065,6 +1111,12 @@ export declare const api: {
   reportShares: {
     createEventShare: FunctionReference<
       "mutation",
+      "public",
+      { eventId: Id<"events">; region?: string },
+      any
+    >;
+    listEventShares: FunctionReference<
+      "query",
       "public",
       { eventId: Id<"events"> },
       any
@@ -1787,6 +1839,18 @@ export declare const api: {
       "public",
       { eventId?: string },
       any
+    >;
+    getPublicPaymentLinkByEventSlug: FunctionReference<
+      "query",
+      "public",
+      { eventSlug: string },
+      null | {
+        amountMinor?: number;
+        description?: string;
+        eventStartsAt: number;
+        eventTitle: string;
+        paymentUrl: string;
+      }
     >;
     getTemplateByEventAndTicketType: FunctionReference<
       "query",

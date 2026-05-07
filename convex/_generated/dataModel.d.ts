@@ -455,6 +455,7 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_bookingRef: ["bookingRef", "_creationTime"];
+      by_email: ["bookerEmail", "_creationTime"];
       by_eventId: ["eventId", "_creationTime"];
       by_providerEventId: ["providerEventId", "_creationTime"];
       by_providerOrderId: ["providerOrderId", "_creationTime"];
@@ -545,6 +546,7 @@ export type DataModel = {
       createdAt: number;
       createdByUserId?: string;
       eventId: Id<"events">;
+      region?: string;
       revokedAt?: number;
       token: string;
       _id: Id<"reportShares">;
@@ -556,6 +558,7 @@ export type DataModel = {
       | "createdAt"
       | "createdByUserId"
       | "eventId"
+      | "region"
       | "revokedAt"
       | "token";
     indexes: {

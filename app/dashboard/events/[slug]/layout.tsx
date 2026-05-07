@@ -7,6 +7,7 @@ import {
   CreditCard,
   ExternalLink,
   Link as LinkIcon,
+  Link2,
   Settings,
   Users,
   Ticket,
@@ -123,6 +124,11 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
       label: "Sources",
       icon: LinkIcon,
       href: `/dashboard/events/${slug}/sources`,
+    },
+    {
+      label: "Share",
+      icon: Link2,
+      href: `/dashboard/events/${slug}/share`,
     },
     {
       label: "Settings",

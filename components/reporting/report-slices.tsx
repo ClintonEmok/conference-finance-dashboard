@@ -87,14 +87,16 @@ function SliceTable({
   )
 }
 
-export function ReportSlices({ report }: { report: StakeholderReport }) {
+export function ReportSlices({ report, hideLocation }: { report: StakeholderReport; hideLocation?: boolean }) {
   return (
     <section className="grid gap-6">
-      <SliceTable
-        title="Location"
-        description="Where the aggregate participants in this scope come from."
-        rows={report.slices.byLocation}
-      />
+      {!hideLocation && (
+        <SliceTable
+          title="Location"
+          description="Where the aggregate participants in this scope come from."
+          rows={report.slices.byLocation}
+        />
+      )}
       <SliceTable
         title="Gender"
         description="A stakeholder-friendly split without exposing individual records."

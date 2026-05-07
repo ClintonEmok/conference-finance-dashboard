@@ -167,7 +167,8 @@ export default defineSchema({
     .index("by_submittedAt", ["submittedAt"])
     .index("by_providerOrderId", ["providerOrderId"])
     .index("by_providerEventId", ["providerEventId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_email", ["bookerEmail"]),
 
   orderAttendees: defineTable(
     v.object({
@@ -518,6 +519,7 @@ export default defineSchema({
     v.object({
       eventId: v.id("events"),
       token: v.string(),
+      region: v.optional(v.string()),
       createdAt: v.number(),
       revokedAt: v.optional(v.number()),
       createdByUserId: v.optional(v.string()),

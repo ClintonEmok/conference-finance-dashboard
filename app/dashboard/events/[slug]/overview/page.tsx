@@ -155,10 +155,7 @@ export default function EventOverviewSurface({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [shareStatus, setShareStatus] = useState<string | null>(null)
   const [shareError, setShareError] = useState<string | null>(null)
-  const [shareUrl, setShareUrl] = useState<string | null>(null)
-  const [isSharing, setIsSharing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const createReportShare = useMutation(api.reportShares.createEventShare)
 
   useEffect(() => {
     if (!event?._id) return
@@ -225,38 +222,6 @@ export default function EventOverviewSurface({
     return () => controller.abort()
   }, [event?._id])
 
-  async function handleShareReport() {
-    if (!event?._id) return
-
-    setIsSharing(true)
-    setShareStatus(null)
-    setShareError(null)
-
-    try {
-      const result = await createReportShare({ eventId: event._id })
-      const reportUrl = new URL(result.path, window.location.origin).toString()
-      setShareUrl(reportUrl)
-
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(reportUrl)
-      }
-
-      setShareStatus(
-        result.reused
-          ? "Copied the existing report link."
-          : "Created and copied a new report link."
-      )
-    } catch (error) {
-      setShareError(
-        error instanceof Error
-          ? error.message
-          : "Unable to create the report link right now."
-      )
-    } finally {
-      setIsSharing(false)
-    }
-  }
-
   const familyGroups = useMemo(() => {
     const rows = orders?.rows ?? []
     const groups = new Map<
@@ -313,9 +278,6 @@ export default function EventOverviewSurface({
 
   const totalContactPeople = attendees?.page.totalRows ?? 0
   const totalOrders = orders?.page.totalRows ?? 0
-  const shareHint = shareUrl
-    ? "Send this read-only link to stakeholders."
-    : "Generate a token-backed public report link for this event."
 
   if (!event) return null
 
@@ -355,43 +317,6 @@ export default function EventOverviewSurface({
             </div>
           </div>
         </CardHeader>
-      </Card>
-
-      <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
-        <CardHeader>
-          <CardTitle>Share report link</CardTitle>
-          <CardDescription>{shareHint}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <Input
-              readOnly
-              value={shareUrl ?? "No report token created yet."}
-              className="h-11 rounded-xl bg-background/60 font-mono text-xs"
-            />
-            <Button
-              type="button"
-              className="h-11 rounded-xl shadow-lg shadow-primary/20"
-              onClick={() => {
-                void handleShareReport()
-              }}
-              disabled={isSharing}
-            >
-              <Link2 className="mr-2 size-4" />
-              {isSharing ? "Preparing link…" : shareUrl ? "Copy link" : "Generate link"}
-            </Button>
-          </div>
-
-          {(shareStatus || shareError) && (
-            <div className="flex items-start gap-3 rounded-2xl border border-border/50 bg-background/50 p-4 text-sm">
-              <div className="mt-1 size-2 rounded-full bg-primary" />
-              <div className="space-y-1">
-                {shareStatus ? <p className="font-medium text-foreground">{shareStatus}</p> : null}
-                {shareError ? <p className="text-muted-foreground">{shareError}</p> : null}
-              </div>
-            </div>
-          )}
-        </CardContent>
       </Card>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
