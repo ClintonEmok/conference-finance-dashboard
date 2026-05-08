@@ -1,3 +1,4 @@
+import { api } from "@/lib/convex/api"
 import { convexQuery, convexMutation } from "@/lib/convex/server"
 
 export type AccommodationInventory = {
@@ -117,17 +118,20 @@ function normalizeCapacity(
 }
 
 export async function listAccommodationInventory(): Promise<AccommodationInventory> {
-  return await convexQuery("accommodation:listAccommodationInventory", {})
+  return await convexQuery(api.accommodation.listAccommodationInventory, {})
 }
 
 export async function attachHotelToEvent(input: EventHotelScopeInput) {
   const eventId = normalizeRequiredString(input.eventId, "eventId")
   const hotelId = normalizeRequiredString(input.hotelId, "hotelId")
 
-  return await convexMutation("accommodation:attachHotelToEventByProviderId", {
-    eventProviderEventId: eventId,
-    hotelId,
-  })
+  return await convexMutation(
+    api.accommodation.attachHotelToEventByProviderId,
+    {
+      eventProviderEventId: eventId,
+      hotelId,
+    }
+  )
 }
 
 export async function detachHotelFromEvent(input: EventHotelScopeInput) {
@@ -135,7 +139,7 @@ export async function detachHotelFromEvent(input: EventHotelScopeInput) {
   const hotelId = normalizeRequiredString(input.hotelId, "hotelId")
 
   return await convexMutation(
-    "accommodation:detachHotelFromEventByProviderId",
+    api.accommodation.detachHotelFromEventByProviderId,
     {
       eventProviderEventId: eventId,
       hotelId,
@@ -148,10 +152,10 @@ export async function createHotel(input: CreateHotelInput) {
   const city = normalizeOptionalString(input.city)
   const notes = normalizeOptionalString(input.notes)
 
-  return await convexMutation("accommodation:createHotel", {
+  return await convexMutation(api.accommodation.createHotel, {
     name,
-    city,
-    notes,
+    city: city ?? undefined,
+    notes: notes ?? undefined,
   })
 }
 
@@ -163,10 +167,10 @@ export async function createRoomType(input: CreateRoomTypeInput) {
   )
   const notes = normalizeOptionalString(input.notes)
 
-  return await convexMutation("accommodation:createRoomType", {
+  return await convexMutation(api.accommodation.createRoomType, {
     label,
     defaultCapacity,
-    notes,
+    notes: notes ?? undefined,
   })
 }
 
@@ -180,12 +184,12 @@ export async function createRoom(input: CreateRoomInput) {
   )
   const notes = normalizeOptionalString(input.notes)
 
-  const createdIds = await convexMutation("accommodation:createRooms", {
+  const createdIds = await convexMutation(api.accommodation.createRooms, {
     hotelId,
     roomTypeId,
     quantity,
     labels: labels.length > 0 ? labels : undefined,
-    notes,
+    notes: notes ?? undefined,
   })
 
   return createdIds
@@ -198,7 +202,7 @@ export async function updateRoomLabel(input: {
   const roomId = normalizeRequiredString(input.roomId, "roomId")
   const label = normalizeRequiredString(input.label, "label")
 
-  return await convexMutation("accommodation:updateRoomLabel", {
+  return await convexMutation(api.accommodation.updateRoomLabel, {
     roomId,
     label,
   })
@@ -212,16 +216,16 @@ export async function updateHotel(input: {
 }) {
   const hotelId = normalizeRequiredString(input.hotelId, "hotelId")
 
-  return await convexMutation("accommodation:updateHotel", {
+  return await convexMutation(api.accommodation.updateHotel, {
     hotelId,
     name: input.name,
     city:
       input.city !== undefined
-        ? normalizeOptionalString(input.city)
+        ? (normalizeOptionalString(input.city) ?? undefined)
         : undefined,
     notes:
       input.notes !== undefined
-        ? normalizeOptionalString(input.notes)
+        ? (normalizeOptionalString(input.notes) ?? undefined)
         : undefined,
   })
 }
@@ -229,7 +233,7 @@ export async function updateHotel(input: {
 export async function deleteHotel(input: { hotelId: string }) {
   const hotelId = normalizeRequiredString(input.hotelId, "hotelId")
 
-  return await convexMutation("accommodation:deleteHotel", {
+  return await convexMutation(api.accommodation.deleteHotel, {
     hotelId,
   })
 }
@@ -242,13 +246,13 @@ export async function updateRoomType(input: {
 }) {
   const roomTypeId = normalizeRequiredString(input.roomTypeId, "roomTypeId")
 
-  return await convexMutation("accommodation:updateRoomType", {
+  return await convexMutation(api.accommodation.updateRoomType, {
     roomTypeId,
     label: input.label,
     defaultCapacity: input.defaultCapacity,
     notes:
       input.notes !== undefined
-        ? normalizeOptionalString(input.notes)
+        ? (normalizeOptionalString(input.notes) ?? undefined)
         : undefined,
   })
 }
@@ -256,7 +260,7 @@ export async function updateRoomType(input: {
 export async function deleteRoomType(input: { roomTypeId: string }) {
   const roomTypeId = normalizeRequiredString(input.roomTypeId, "roomTypeId")
 
-  return await convexMutation("accommodation:deleteRoomType", {
+  return await convexMutation(api.accommodation.deleteRoomType, {
     roomTypeId,
   })
 }
@@ -264,25 +268,25 @@ export async function deleteRoomType(input: { roomTypeId: string }) {
 export async function deleteRoom(input: { roomId: string }) {
   const roomId = normalizeRequiredString(input.roomId, "roomId")
 
-  return await convexMutation("accommodation:deleteRoom", {
+  return await convexMutation(api.accommodation.deleteRoom, {
     roomId,
   })
 }
 
 export async function getHotelById(hotelId: string) {
-  return await convexQuery("accommodation:getHotelById", { hotelId })
+  return await convexQuery(api.accommodation.getHotelById, { hotelId })
 }
 
 export async function getRoomTypeById(roomTypeId: string) {
-  return await convexQuery("accommodation:getRoomTypeById", { roomTypeId })
+  return await convexQuery(api.accommodation.getRoomTypeById, { roomTypeId })
 }
 
 export async function getRoomById(roomId: string) {
-  return await convexQuery("accommodation:getRoomById", { roomId })
+  return await convexQuery(api.accommodation.getRoomById, { roomId })
 }
 
 export async function getEventByProviderId(providerEventId: string) {
-  return await convexQuery("accommodation:getEventByProviderId", {
+  return await convexQuery(api.accommodation.getEventByProviderId, {
     providerEventId,
   })
 }

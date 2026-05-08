@@ -1,26 +1,27 @@
 "use client"
 
-import { useRouter } from "next/navigation"
+import { SignOutButton } from "@clerk/nextjs"
+import { LogOut } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { authClient } from "@/lib/auth-client"
+import { cn } from "@/lib/utils"
 
 type LogoutButtonProps = {
   className?: string
+  showIconOnly?: boolean
 }
 
-export function LogoutButton({ className }: LogoutButtonProps) {
-  const router = useRouter()
-
-  async function handleClick() {
-    await authClient.signOut()
-    router.push("/login")
-    router.refresh()
-  }
-
+export function LogoutButton({ className, showIconOnly }: LogoutButtonProps) {
   return (
-    <Button type="button" variant="outline" size="sm" className={className} onClick={handleClick}>
-      Log out
-    </Button>
+    <SignOutButton redirectUrl="/">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className={cn(className, showIconOnly && "p-0")}
+      >
+        {showIconOnly ? <LogOut className="size-4" /> : "Log out"}
+      </Button>
+    </SignOutButton>
   )
 }

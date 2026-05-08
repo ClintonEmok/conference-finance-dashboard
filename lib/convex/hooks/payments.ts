@@ -1,7 +1,8 @@
 "use client"
 
 import { useQuery, useMutation } from "convex/react"
-import { api } from "convex/functions/_generated/api"
+import { api } from "@/lib/convex/api"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export function usePayments(args?: {
   orderId?: string
@@ -11,8 +12,8 @@ export function usePayments(args?: {
   return useQuery(api.payments.getPayments, args ?? {})
 }
 
-export function usePaymentById(paymentId: string) {
-  return useQuery(api.payments.getPaymentById, { paymentId: paymentId as any })
+export function usePaymentById(paymentId: Id<"payments">) {
+  return useQuery(api.payments.getPaymentById, { paymentId })
 }
 
 export function useUnassignedPayments() {

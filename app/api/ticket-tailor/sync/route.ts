@@ -1,8 +1,11 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
-import { runTicketTailorSync, type TicketTailorSyncScopeInput } from "@/lib/integrations/ticket-tailor/sync"
+import {
+  runTicketTailorSync,
+  type TicketTailorSyncScopeInput,
+} from "@/lib/integrations/ticket-tailor/sync"
+import { requireApiUser } from "@/lib/auth/server"
+import { enforceRateLimit } from "@/lib/rate-limit"
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0
@@ -26,7 +29,9 @@ function parseScopeDate(value: unknown, field: "from" | "to") {
   return parsed
 }
 
-async function parseManualSyncScope(request: Request): Promise<TicketTailorSyncScopeInput> {
+async function parseManualSyncScope(
+  request: Request
+): Promise<TicketTailorSyncScopeInput> {
   const contentLength = request.headers.get("content-length")
 
   if (contentLength === "0") {
@@ -47,7 +52,11 @@ async function parseManualSyncScope(request: Request): Promise<TicketTailorSyncS
     throw new Error("Invalid JSON payload")
   }
 
-  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    Array.isArray(payload)
+  ) {
     throw new Error("Request body must be a JSON object")
   }
 
@@ -57,7 +66,9 @@ async function parseManualSyncScope(request: Request): Promise<TicketTailorSyncS
   const to = parseScopeDate(body.to, "to")
 
   if (from && to && from.getTime() > to.getTime()) {
-    throw new Error("Invalid date range. 'from' must be less than or equal to 'to'.")
+    throw new Error(
+      "Invalid date range. 'from' must be less than or equal to 'to'."
+    )
   }
 
   return {
@@ -68,23 +79,19 @@ async function parseManualSyncScope(request: Request): Promise<TicketTailorSyncS
 }
 
 export async function POST(request: Request) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
+  const rateLimited = enforceRateLimit(request, "sync:ticket-tailor", {
+    maxRequests: 10,
+    windowMs: 60_000,
   })
-
-  if (!session) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        },
-      },
-      { status: 401 },
-    )
-  }
+  if (rateLimited) return rateLimited
 
   try {
+    const user = await requireApiUser()
+
+    if (user instanceof NextResponse) {
+      return user
+    }
+
     const scope = await parseManualSyncScope(request)
     const summary = await runTicketTailorSync(scope)
 
@@ -97,7 +104,8 @@ export async function POST(request: Request) {
       diagnostics: summary.diagnostics,
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Ticket Tailor sync failed"
+    const message =
+      error instanceof Error ? error.message : "Ticket Tailor sync failed"
 
     if (
       message.startsWith("Invalid") ||
@@ -111,7 +119,7 @@ export async function POST(request: Request) {
             message,
           },
         },
-        { status: 400 },
+        { status: 400 }
       )
     }
 
@@ -125,7 +133,7 @@ export async function POST(request: Request) {
           detail: message,
         },
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

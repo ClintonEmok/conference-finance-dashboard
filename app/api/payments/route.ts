@@ -1,7 +1,8 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
+import { requireApiUser } from "@/lib/auth/server"
+import { api } from "@/lib/convex/api"
+import { convexQuery } from "@/lib/convex/server"
 import { listPayments } from "@/lib/domain/finance/payments"
 import type {
   PaymentMatchStatus,
@@ -17,6 +18,13 @@ const allowedStatuses: PaymentMatchStatus[] = [
 
 const allowedSources: PaymentSource[] = ["tikkie", "bank_transfer", "cash"]
 
+type ResolvedOrder = {
+  id: string
+  providerOrderId: string | null
+  buyerName: string | null
+  totalAmountMinor: number | null
+}
+
 function parseFilters(request: Request) {
   const params = new URL(request.url).searchParams
 
@@ -25,6 +33,8 @@ function parseFilters(request: Request) {
   const orderIdParam = params.get("orderId")
   const pageParam = params.get("page")
   const limitParam = params.get("limit")
+  const fromParam = params.get("from")
+  const toParam = params.get("to")
 
   const status =
     statusParam && allowedStatuses.includes(statusParam as PaymentMatchStatus)
@@ -44,60 +54,121 @@ function parseFilters(request: Request) {
     ? Math.min(100, Math.max(1, parseInt(limitParam, 10) || 20))
     : 20
 
-  return { status, source, orderId, page, limit }
+  const from = fromParam ? new Date(fromParam) : null
+  const to = toParam ? new Date(toParam) : null
+
+  return { status, source, orderId, page, limit, from, to }
+}
+
+function mapResolvedOrder(order: {
+  _id: string
+  providerOrderId?: string | null
+  buyerName?: string | null
+  totalAmountMinor?: number | null
+}): ResolvedOrder {
+  return {
+    id: order._id,
+    providerOrderId: order.providerOrderId ?? null,
+    buyerName: order.buyerName ?? null,
+    totalAmountMinor: order.totalAmountMinor ?? null,
+  }
+}
+
+async function resolvePaymentOrder(
+  rawOrderId: string | null,
+  byOrderIdCache: Map<string, ResolvedOrder | null>
+): Promise<ResolvedOrder | null> {
+  const orderId = rawOrderId?.trim()
+
+  if (!orderId) {
+    return null
+  }
+
+  if (byOrderIdCache.has(orderId)) {
+    return byOrderIdCache.get(orderId) ?? null
+  }
+
+  const byOrderId = await convexQuery(api.orders.getOrderById, {
+    orderId,
+  })
+
+  const mappedByOrderId = byOrderId ? mapResolvedOrder(byOrderId) : null
+  byOrderIdCache.set(orderId, mappedByOrderId)
+
+  return mappedByOrderId
 }
 
 export async function GET(request: Request) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        },
-      },
-      { status: 401 }
-    )
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   try {
-    const { status, source, orderId, page, limit } = parseFilters(request)
+    const { status, source, orderId, page, limit, from, to } =
+      parseFilters(request)
 
     const result = await listPayments({ status, source, orderId })
 
-    const paginatedPayments = result.payments.slice(
+    let filteredPayments = result.payments
+    if (from) {
+      const fromMs = from.getTime()
+      filteredPayments = filteredPayments.filter(
+        (p) => new Date(p.paidAt).getTime() >= fromMs
+      )
+    }
+    if (to) {
+      const toMs = to.getTime() + 24 * 60 * 60 * 1000 // Include full day
+      filteredPayments = filteredPayments.filter(
+        (p) => new Date(p.paidAt).getTime() <= toMs
+      )
+    }
+
+    const total = filteredPayments.length
+
+    const paginatedPayments = filteredPayments.slice(
       (page - 1) * limit,
       page * limit
     )
 
+    const byOrderIdCache = new Map<string, ResolvedOrder | null>()
+
+    const payments = await Promise.all(
+      paginatedPayments.map(async (p) => {
+        const order = await resolvePaymentOrder(
+          p.orderId,
+          byOrderIdCache
+        )
+
+        return {
+          id: p._id,
+          source: p.source,
+          sourceId: p.sourceId,
+          payerName: p.payerName,
+          payerAccountNumber: p.payerAccountNumber,
+          amountMinor: p.amountMinor,
+          paidAt: new Date(p.paidAt).toISOString(),
+          orderId: p.orderId,
+          status: p.status,
+          matchedAt: p.matchedAt ? new Date(p.matchedAt).toISOString() : null,
+          matchedBy: p.matchedBy,
+          reference: p.reference,
+          notes: p.notes,
+          createdAt: p.paidAt
+            ? new Date(p.paidAt).toISOString()
+            : new Date().toISOString(),
+          updatedAt: p.paidAt
+            ? new Date(p.paidAt).toISOString()
+            : new Date().toISOString(),
+          order,
+        }
+      })
+    )
+
     return NextResponse.json({
-      payments: paginatedPayments.map((p) => ({
-        id: p._id,
-        source: p.source,
-        sourceId: p.sourceId,
-        payerName: p.payerName,
-        payerAccountNumber: p.payerAccountNumber,
-        amountMinor: p.amountMinor,
-        paidAt: new Date(p.paidAt).toISOString(),
-        orderId: p.orderId,
-        status: p.status,
-        matchedAt: p.matchedAt ? new Date(p.matchedAt).toISOString() : null,
-        matchedBy: p.matchedBy,
-        reference: p.reference,
-        notes: p.notes,
-        createdAt: p.paidAt
-          ? new Date(p.paidAt).toISOString()
-          : new Date().toISOString(),
-        updatedAt: p.paidAt
-          ? new Date(p.paidAt).toISOString()
-          : new Date().toISOString(),
-        order: null,
-      })),
-      total: result.total,
+      payments,
+      total,
       page,
       limit,
     })

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #000;
+        font-family: 'Inter', sans-serif;
+      }
+
+      /* Background Atmosphere */
+      .bg-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        filter: blur(120px);
+        z-index: 1;
+        opacity: 0.5;
+        pointer-events: none;
+      }
+      .blob {
+        position: absolute;
+        width: 800px;
+        height: 800px;
+        border-radius: 50%;
+      }
+
+      /* Transitions */
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        z-index: 2;
+      }
+
+      .scene-wrapper {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .glass-card {
+        padding: 60px 100px;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 40px;
+        backdrop-filter: blur(30px);
+        -webkit-backdrop-filter: blur(30px);
+        text-align: center;
+        box-shadow: 0 40px 100px rgba(0, 0, 0, 0.3);
+        opacity: 0;
+        transform: translateY(30px) scale(0.98);
+      }
+
+      .title {
+        color: white;
+        font-size: 130px;
+        font-weight: 800;
+        letter-spacing: -0.05em;
+        line-height: 1;
+        margin-bottom: 24px;
+      }
+
+      .feature-title {
+        color: white;
+        font-size: 100px;
+        font-weight: 700;
+        letter-spacing: -0.04em;
+        line-height: 1;
+        margin-bottom: 16px;
+      }
+
+      .tagline {
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 32px;
+        font-weight: 400;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+      }
+
+      .highlight {
+        color: #9c27b0;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="10"
+      data-width="1920"
+      data-height="1080"
+    >
+      <!-- Atmospheric Layer -->
+      <div class="bg-container">
+        <div id="blob1" class="blob" style="top: -10%; left: -5%; background: radial-gradient(circle, rgba(63, 81, 181, 0.5) 0%, transparent 70%);"></div>
+        <div id="blob2" class="blob" style="bottom: -10%; right: -5%; background: radial-gradient(circle, rgba(156, 39, 176, 0.4) 0%, transparent 70%);"></div>
+      </div>
+
+      <!-- Background Music -->
+      <audio
+        id="bg-music"
+        src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3"
+        data-start="0"
+        data-duration="10"
+        data-track-index="0"
+      ></audio>
+
+      <!-- Scene 1: Intro -->
+      <div class="clip scene-wrapper" data-start="0" data-duration="2.2" data-track-index="1">
+        <div id="scene1" class="glass-card">
+          <h1 class="title">Deeper Stack</h1>
+          <p class="tagline">Finance Operations Reimagined</p>
+        </div>
+      </div>
+
+      <!-- Scene 2: Dashboard -->
+      <div class="clip scene-wrapper" data-start="2.2" data-duration="2" data-track-index="1">
+        <div id="scene2" class="glass-card">
+          <h2 class="feature-title">Unified <span class="highlight">Command Center</span></h2>
+          <p class="tagline">Full Operational Visibility</p>
+        </div>
+      </div>
+
+      <!-- Scene 3: Reconciliation -->
+      <div class="clip scene-wrapper" data-start="4.2" data-duration="2" data-track-index="1">
+        <div id="scene3" class="glass-card">
+          <h2 class="feature-title">Real-time <span class="highlight">Reconciliation</span></h2>
+          <p class="tagline">Audit-ready Accuracy</p>
+        </div>
+      </div>
+
+      <!-- Scene 4: Onboarding -->
+      <div class="clip scene-wrapper" data-start="6.2" data-duration="2" data-track-index="1">
+        <div id="scene4" class="glass-card">
+          <h2 class="feature-title">Seamless <span class="highlight">Onboarding</span></h2>
+          <p class="tagline">Frictionless Attendee Signups</p>
+        </div>
+      </div>
+
+      <!-- Scene 5: Outro -->
+      <div class="clip scene-wrapper" data-start="8.2" data-duration="1.8" data-track-index="1">
+        <div id="scene5" class="glass-card">
+          <h1 class="title">Revolutionize</h1>
+          <p class="tagline">The Future of Church Finance</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      // Helper for scene transitions
+      const animateScene = (id, start, duration) => {
+        const exitTime = start + duration - 0.4;
+        
+        // Entrance
+        tl.to(`#${id}`, {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          duration: 0.8,
+          ease: "power3.out"
+        }, start);
+
+        // Ambient float
+        tl.to(`#${id}`, {
+          y: -15,
+          duration: duration,
+          ease: "none"
+        }, start);
+
+        // Exit
+        tl.to(`#${id}`, {
+          opacity: 0,
+          y: -40,
+          scale: 0.95,
+          filter: "blur(20px)",
+          duration: 0.6,
+          ease: "power3.in"
+        }, exitTime);
+      };
+
+      // Scene Sequencing
+      animateScene("scene1", 0.2, 2.0);
+      animateScene("scene2", 2.2, 2.0);
+      animateScene("scene3", 4.2, 2.0);
+      animateScene("scene4", 6.2, 2.0);
+      animateScene("scene5", 8.2, 1.8);
+
+      // Background Blob Orchestration
+      tl.to("#blob1", { x: 500, y: 200, duration: 10, ease: "none" }, 0);
+      tl.to("#blob2", { x: -400, y: -300, duration: 10, ease: "none" }, 0);
+
+      // Color highlights for features
+      tl.to("#blob2", { background: "radial-gradient(circle, rgba(124, 77, 255, 0.4) 0%, transparent 70%)", duration: 1 }, 2.2);
+      tl.to("#blob1", { background: "radial-gradient(circle, rgba(3, 169, 244, 0.4) 0%, transparent 70%)", duration: 1 }, 4.2);
+      tl.to("#blob2", { background: "radial-gradient(circle, rgba(156, 39, 176, 0.4) 0%, transparent 70%)", duration: 1 }, 6.2);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

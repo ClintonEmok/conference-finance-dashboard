@@ -1,7 +1,6 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
+import { requireApiUser } from "@/lib/auth/server"
 import { getOrderLedger, type CanonicalOrderStatus } from "@/lib/domain/finance/order-ledger"
 
 const allowedStatuses = new Set<CanonicalOrderStatus>(["paid", "refunded", "cancelled", "pending"])
@@ -66,20 +65,10 @@ function parseOrderFilters(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        },
-      },
-      { status: 401 },
-    )
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   try {

@@ -1,7 +1,6 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
+import { requireApiUser } from "@/lib/auth/server"
 import { unassignAttendeeFromRoom } from "@/lib/domain/accommodation/assignments"
 
 function unauthorized() {
@@ -32,12 +31,10 @@ export async function DELETE(
   _request: Request,
   context: { params: Promise<{ attendeeId: string }> },
 ) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return unauthorized()
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   try {

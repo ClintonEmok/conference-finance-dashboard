@@ -1,7 +1,6 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
+import { requireApiUser } from "@/lib/auth/server"
 import {
   assignAttendeeToRoom,
   getRoomAllocationBoard,
@@ -103,12 +102,10 @@ function badRequest(message: string) {
 }
 
 export async function GET(request: Request) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return unauthorized()
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   try {
@@ -131,6 +128,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(board)
   } catch (error) {
+    console.error("Error loading room allocation board:", error)
     const message = error instanceof Error ? error.message : "Invalid request"
 
     if (message.startsWith("Invalid")) {
@@ -150,12 +148,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return unauthorized()
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   let body: { attendeeId?: unknown; roomId?: unknown }

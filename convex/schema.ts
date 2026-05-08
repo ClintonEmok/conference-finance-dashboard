@@ -2,23 +2,19 @@ import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
 
 export default defineSchema({
-  user: defineTable(
+  users: defineTable(
     v.object({
       name: v.string(),
       email: v.string(),
       emailVerified: v.boolean(),
       image: v.optional(v.string()),
-      createdAt: v.number(),
-      updatedAt: v.number(),
     })
   ).index("email", ["email"]),
 
-  session: defineTable(
+  sessions: defineTable(
     v.object({
-      token: v.string(),
       expiresAt: v.number(),
-      createdAt: v.number(),
-      updatedAt: v.number(),
+      token: v.string(),
       ipAddress: v.optional(v.string()),
       userAgent: v.optional(v.string()),
       userId: v.string(),
@@ -27,7 +23,7 @@ export default defineSchema({
     .index("userId", ["userId"])
     .index("token", ["token"]),
 
-  account: defineTable(
+  accounts: defineTable(
     v.object({
       accountId: v.string(),
       providerId: v.string(),
@@ -39,22 +35,223 @@ export default defineSchema({
       refreshTokenExpiresAt: v.optional(v.number()),
       scope: v.optional(v.string()),
       password: v.optional(v.string()),
-      createdAt: v.number(),
-      updatedAt: v.number(),
     })
-  )
-    .index("accountId", ["accountId"])
-    .index("userId", ["userId"]),
+  ).index("userId", ["userId"]),
 
-  verification: defineTable(
+  verifications: defineTable(
     v.object({
       identifier: v.string(),
       value: v.string(),
       expiresAt: v.number(),
-      createdAt: v.optional(v.number()),
-      updatedAt: v.optional(v.number()),
     })
   ).index("identifier", ["identifier"]),
+
+  events: defineTable(
+    v.object({
+      slug: v.string(),
+      title: v.string(),
+      startsAt: v.number(),
+      endsAt: v.optional(v.number()),
+      timezone: v.string(),
+      currency: v.string(),
+      isPublished: v.boolean(),
+      isSignupOpen: v.boolean(),
+      accommodationEnabled: v.boolean(),
+      defaultRoomTypeId: v.optional(v.id("accommodationRoomTypes")),
+      primarySourceKind: v.union(
+        v.literal("integration"),
+        v.literal("internal")
+      ),
+      primarySourceProvider: v.optional(v.string()),
+      updatedAt: v.number(),
+    })
+  )
+    .index("by_slug", ["slug"])
+    .index("by_startsAt", ["startsAt"])
+    .index("by_signup_visibility", ["isPublished", "isSignupOpen"]),
+
+  eventSources: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      provider: v.string(),
+      externalEventId: v.string(),
+      syncStatus: v.union(
+        v.literal("active"),
+        v.literal("paused"),
+        v.literal("error")
+      ),
+      lastSyncedAt: v.optional(v.number()),
+      providerSnapshotRef: v.optional(v.string()),
+      updatedAt: v.number(),
+    })
+  )
+    .index("by_provider_and_externalEventId", ["provider", "externalEventId"])
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_provider", ["eventId", "provider"]),
+
+  ticketTypes: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      label: v.string(),
+      priceMinor: v.number(),
+      maxQuantity: v.optional(v.number()),
+      sortOrder: v.optional(v.number()),
+      soldCount: v.optional(v.number()),
+      isActive: v.boolean(),
+      visibility: v.union(v.literal("public"), v.literal("hidden")),
+      availabilityState: v.union(
+        v.literal("selectable"),
+        v.literal("unavailable")
+      ),
+      unavailableReason: v.optional(v.string()),
+      roomTypeId: v.optional(v.id("accommodationRoomTypes")),
+      updatedAt: v.number(),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_availabilityState", [
+      "eventId",
+      "availabilityState",
+    ]),
+
+  accommodationSlots: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      hotelId: v.id("accommodationHotels"),
+      roomId: v.id("accommodationRooms"),
+      slotLabel: v.string(),
+      genderPolicy: v.union(
+        v.literal("male"),
+        v.literal("female"),
+        v.literal("mixed")
+      ),
+      isAssignable: v.boolean(),
+      ineligibilityReason: v.optional(v.string()),
+      updatedAt: v.number(),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_isAssignable", ["eventId", "isAssignable"]),
+
+  orders: defineTable(
+    v.object({
+      eventId: v.optional(v.id("events")),
+      source: v.optional(
+        v.union(v.literal("integration"), v.literal("internal"))
+      ),
+      idempotencyKey: v.optional(v.string()),
+      bookingRef: v.optional(v.string()),
+      honeypotSeen: v.optional(v.boolean()),
+      notes: v.optional(v.string()),
+      bookerName: v.optional(v.string()),
+      bookerEmail: v.optional(v.string()),
+      bookerPhone: v.optional(v.string()),
+      submittedAt: v.optional(v.number()),
+      currency: v.optional(v.string()),
+      totalAmountMinor: v.optional(v.number()),
+      status: v.optional(
+        v.union(
+          v.literal("paid"),
+          v.literal("refunded"),
+          v.literal("cancelled"),
+          v.literal("pending")
+        )
+      ),
+      providerOrderId: v.optional(v.string()),
+      providerEventId: v.optional(v.string()),
+      orderedAt: v.optional(v.number()),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_bookingRef", ["bookingRef"])
+    .index("by_submittedAt", ["submittedAt"])
+    .index("by_providerOrderId", ["providerOrderId"])
+    .index("by_providerEventId", ["providerEventId"])
+    .index("by_status", ["status"])
+    .index("by_email", ["bookerEmail"]),
+
+  orderAttendees: defineTable(
+    v.object({
+      orderId: v.id("orders"),
+      attendeeKey: v.string(),
+      name: v.string(),
+      email: v.optional(v.string()),
+      phone: v.optional(v.string()),
+      gender: v.union(
+        v.literal("male"),
+        v.literal("female"),
+        v.literal("mixed"),
+        v.literal("unknown")
+      ),
+      location: v.optional(v.string()),
+      dietaryRestrictions: v.optional(v.string()),
+      roommatePreference: v.optional(v.string()),
+      roommateAvoid: v.optional(v.string()),
+      sortOrder: v.number(),
+      assignedRoomId: v.optional(v.string()),
+      allocationPriority: v.optional(
+        v.union(
+          v.literal("CRITICAL"),
+          v.literal("HIGH"),
+          v.literal("NORMAL"),
+          v.literal("LOW")
+        )
+      ),
+      allocatedRoomTypeId: v.optional(v.id("accommodationRoomTypes")),
+      priorityReason: v.optional(v.string()),
+    })
+  )
+    .index("by_orderId", ["orderId"])
+    .index("by_assignedRoomId", ["assignedRoomId"])
+    .index("by_allocationPriority", ["allocationPriority"]),
+
+  orderTicketSelections: defineTable(
+    v.object({
+      orderId: v.id("orders"),
+      attendeeId: v.id("orderAttendees"),
+      ticketTypeId: v.id("ticketTypes"),
+      quantity: v.number(),
+      sortOrder: v.number(),
+    })
+  )
+    .index("by_orderId", ["orderId"])
+    .index("by_ticketTypeId", ["ticketTypeId"]),
+
+  orderAssignments: defineTable(
+    v.object({
+      orderId: v.id("orders"),
+      attendeeId: v.id("orderAttendees"),
+      slotId: v.id("accommodationSlots"),
+      assignmentIntent: v.union(v.literal("assign"), v.literal("skip")),
+      sortOrder: v.number(),
+      status: v.optional(
+        v.union(
+          v.literal("pending"),
+          v.literal("confirmed"),
+          v.literal("declined")
+        )
+      ),
+      confirmedAt: v.optional(v.number()),
+      confirmedBy: v.optional(v.string()),
+    })
+  )
+    .index("by_orderId", ["orderId"])
+    .index("by_slotId", ["slotId"])
+    .index("by_attendeeId", ["attendeeId"])
+    .index("by_status", ["status"]),
+
+  orderIdempotency: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      idempotencyKey: v.string(),
+      fingerprint: v.string(),
+      orderId: v.id("orders"),
+      expiresAt: v.number(),
+    })
+  )
+    .index("by_eventId_and_idempotencyKey", ["eventId", "idempotencyKey"])
+    .index("by_eventId_and_fingerprint", ["eventId", "fingerprint"])
+    .index("by_expiresAt", ["expiresAt"]),
 
   ticketTailorWebhookEvents: defineTable(
     v.object({
@@ -101,7 +298,8 @@ export default defineSchema({
     v.object({
       providerOrderId: v.string(),
       providerEventId: v.string(),
-      eventId: v.string(),
+      orderId: v.id("orders"),
+      providerStatus: v.optional(v.string()),
       normalizedStatus: v.optional(
         v.union(
           v.literal("paid"),
@@ -110,21 +308,20 @@ export default defineSchema({
           v.literal("pending")
         )
       ),
-      providerStatus: v.optional(v.string()),
+      isArchived: v.optional(v.boolean()),
+      archivedAt: v.optional(v.number()),
+      archiveReason: v.optional(v.string()),
+      removedAt: v.optional(v.number()),
+      removedReason: v.optional(v.string()),
       normalizationNote: v.optional(v.string()),
-      buyerEmail: v.optional(v.string()),
-      buyerName: v.optional(v.string()),
-      currency: v.optional(v.string()),
-      totalAmountMinor: v.optional(v.number()),
-      orderedAt: v.optional(v.number()),
       refundedAt: v.optional(v.number()),
       cancelledAt: v.optional(v.number()),
       rawPayload: v.any(),
     })
   )
     .index("providerOrderId", ["providerOrderId"])
-    .index("eventId", ["eventId"])
-    .index("orderedAt", ["orderedAt"])
+    .index("providerEventId", ["providerEventId"])
+    .index("orderId", ["orderId"])
     .index("normalizedStatus", ["normalizedStatus"]),
 
   ticketTailorAttendees: defineTable(
@@ -134,11 +331,8 @@ export default defineSchema({
       providerTicketTypeId: v.optional(v.string()),
       providerEventId: v.string(),
       providerOrderId: v.string(),
-      eventId: v.string(),
-      orderId: v.string(),
-      assignedRoomId: v.optional(v.string()),
-      name: v.optional(v.string()),
-      email: v.optional(v.string()),
+      orderId: v.id("orders"),
+      attendeeId: v.optional(v.id("orderAttendees")),
       ticketTypeLabel: v.optional(v.string()),
       ticketStatus: v.optional(v.string()),
       checkedInAt: v.optional(v.number()),
@@ -154,6 +348,8 @@ export default defineSchema({
       ),
       ageGroup: v.optional(v.string()),
       ticketCategory: v.optional(v.string()),
+      tikkieAmountOverrideMinor: v.optional(v.number()),
+      assignedRoomId: v.optional(v.string()),
       allocationPriority: v.optional(
         v.union(
           v.literal("CRITICAL"),
@@ -163,18 +359,23 @@ export default defineSchema({
         )
       ),
       priorityReason: v.optional(v.string()),
-      tikkieAmountOverrideMinor: v.optional(v.number()),
+      name: v.optional(v.string()),
+      email: v.optional(v.string()),
+      phone: v.optional(v.string()),
+      location: v.optional(v.string()),
+      dietaryRestrictions: v.optional(v.string()),
+      roommatePreference: v.optional(v.string()),
+      roommateAvoid: v.optional(v.string()),
     })
   )
     .index("providerAttendeeId", ["providerAttendeeId"])
     .index("providerIssuedTicketId", ["providerIssuedTicketId"])
-    .index("eventId", ["eventId"])
-    .index("orderId", ["orderId"])
-    .index("assignedRoomId", ["assignedRoomId"])
     .index("providerEventOrder", ["providerEventId", "providerOrderId"])
-    .index("email", ["email"])
+    .index("orderId", ["orderId"])
+    .index("attendeeId", ["attendeeId"])
     .index("genderType", ["genderType"])
-    .index("allocationPriority", ["allocationPriority"]),
+    .index("by_assignedRoomId", ["assignedRoomId"])
+    .index("by_email", ["email"]),
 
   accommodationHotels: defineTable(
     v.object({
@@ -232,7 +433,9 @@ export default defineSchema({
     v.object({
       providerOrderId: v.string(),
       providerEventId: v.string(),
-      orderId: v.string(),
+      orderId: v.optional(v.string()),
+      eventId: v.optional(v.string()),
+      linkType: v.optional(v.union(v.literal("event"), v.literal("order"))),
       paymentRequestToken: v.string(),
       paymentRequestUrl: v.string(),
       status: v.optional(
@@ -254,7 +457,10 @@ export default defineSchema({
     .index("paymentRequestToken", ["paymentRequestToken"])
     .index("providerOrderEvent", ["providerOrderId", "providerEventId"])
     .index("status_updated", ["status", "statusUpdatedAt"])
-    .index("orderId", ["orderId"]),
+    .index("orderId", ["orderId"])
+    .index("eventId_linkType", ["eventId", "linkType"])
+    .index("eventId", ["eventId"])
+    .index("linkType", ["linkType"]),
 
   tikkiePaymentLinkTransitions: defineTable(
     v.object({
@@ -283,6 +489,45 @@ export default defineSchema({
     .index("paymentLinkId", ["paymentLinkId"])
     .index("providerNotificationKey", ["providerNotificationKey"]),
 
+  tikkiePayments: defineTable(
+    v.object({
+      paymentLinkId: v.string(),
+      paymentRequestToken: v.string(),
+      paymentToken: v.string(),
+      payerName: v.string(),
+      payerAccountNumber: v.optional(v.string()),
+      amountMinor: v.number(),
+      paidAt: v.number(),
+      description: v.optional(v.string()),
+      orderId: v.optional(v.string()),
+      matchStatus: v.union(
+        v.literal("unmatched"),
+        v.literal("auto_matched"),
+        v.literal("manual")
+      ),
+      matchedAt: v.optional(v.number()),
+      providerPayload: v.optional(v.any()),
+    })
+    )
+    .index("paymentLinkId", ["paymentLinkId"])
+    .index("paymentRequestToken", ["paymentRequestToken"])
+    .index("matchStatus", ["matchStatus"])
+    .index("paymentToken", ["paymentToken"])
+    .index("orderId", ["orderId"]),
+
+  reportShares: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      token: v.string(),
+      region: v.optional(v.string()),
+      createdAt: v.number(),
+      revokedAt: v.optional(v.number()),
+      createdByUserId: v.optional(v.string()),
+    })
+  )
+    .index("token", ["token"])
+    .index("by_eventId", ["eventId"]),
+
   ticketTailorSyncRuns: defineTable(
     v.object({
       status: v.optional(
@@ -298,6 +543,7 @@ export default defineSchema({
       eventsScanned: v.optional(v.number()),
       ordersFetched: v.optional(v.number()),
       ordersUpserted: v.optional(v.number()),
+      ordersArchived: v.optional(v.number()),
       normalizedFallbackCount: v.optional(v.number()),
       failedItems: v.optional(v.number()),
       errorSummary: v.optional(v.string()),
@@ -352,7 +598,8 @@ export default defineSchema({
   )
     .index("orderId", ["orderId"])
     .index("source_sourceId", ["source", "sourceId"])
-    .index("status", ["status"]),
+    .index("status", ["status"])
+    .index("paidAt", ["paidAt"]),
 
   roomAllocations: defineTable(
     v.object({
@@ -370,4 +617,14 @@ export default defineSchema({
   )
     .index("eventId_roomId", ["eventId", "roomId"])
     .index("eventId_status", ["eventId", "status"]),
+
+  sentEmails: defineTable(
+    v.object({
+      recipient: v.string(),
+      bookingRef: v.string(),
+      emailId: v.optional(v.string()),
+      emailType: v.string(),
+      sentAt: v.number(),
+    })
+  ).index("by_bookingRef", ["bookingRef"]),
 })

@@ -1,22 +1,14 @@
-import { headers } from "next/headers"
-import { redirect } from "next/navigation"
-
-import { DashboardShell } from "@/app/dashboard/dashboard-shell"
-import { auth } from "@/lib/auth"
+import { DashboardSurface } from "@/app/dashboard/dashboard-surface"
+import { requirePageUser } from "@/lib/auth/server"
 
 type DashboardLayoutProps = {
   children: React.ReactNode
 }
 
-export default async function DashboardLayout({ children }: DashboardLayoutProps) {
-  const requestHeaders = await headers()
-  const session = await auth.api.getSession({
-    headers: requestHeaders,
-  })
+export default async function DashboardLayout({
+  children,
+}: DashboardLayoutProps) {
+  await requirePageUser("/dashboard")
 
-  if (!session) {
-    redirect("/login?callbackUrl=%2Fdashboard")
-  }
-
-  return <DashboardShell userEmail={session.user.email}>{children}</DashboardShell>
+  return <DashboardSurface>{children}</DashboardSurface>
 }

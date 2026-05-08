@@ -1,16 +1,24 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useEffect } from "react"
 
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { maskPaymentPayer } from "@/lib/utils/privacy"
+import { useSearchOrders } from "@/lib/convex/hooks/orders"
+import { useAssignPaymentToOrder } from "@/lib/convex/hooks/payments"
+import { formatMoney } from "@/lib/format"
+import type { Id } from "@/convex/_generated/dataModel"
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
-type PaymentMatchStatus =
-  | "unassigned"
-  | "ambiguous"
-  | "manual_assignment"
-  | "auto_matched"
 
 type Payment = {
   id: string
@@ -23,9 +31,8 @@ type Payment = {
 
 type Order = {
   id: string
-  providerOrderId: string
-  buyerName: string
-  totalAmountMinor: number
+  buyerName: string | null
+  amountDueMinor: number | null
 }
 
 type AssignDialogProps = {
@@ -33,15 +40,6 @@ type AssignDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onAssigned: () => void
-}
-
-function formatMoney(minor: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(minor / 100)
 }
 
 function formatDate(isoString: string) {
@@ -52,6 +50,15 @@ function formatDate(isoString: string) {
   })
 }
 
+function getBuyerLabel(buyerName: string | null) {
+  const value = buyerName?.trim()
+  return value && value.length > 0 ? value : "Unknown buyer"
+}
+
+function isFiniteMinorValue(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value)
+}
+
 export function AssignDialog({
   payment,
   open,
@@ -59,51 +66,25 @@ export function AssignDialog({
   onAssigned,
 }: AssignDialogProps) {
   const [searchQuery, setSearchQuery] = useState("")
-  const [orders, setOrders] = useState<Order[]>([])
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isSearching, setIsSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Use Convex hooks
+  const ordersData = useSearchOrders(searchQuery, 11)
+  const assignPayment = useAssignPaymentToOrder()
+
+  const orders: Order[] = ordersData || []
+  const isSearching = ordersData === undefined && searchQuery.trim().length > 0
 
   // Reset state when dialog opens
   useEffect(() => {
     if (open) {
       setSearchQuery("")
-      setOrders([])
       setSelectedOrder(null)
       setError(null)
     }
   }, [open])
-
-  // Search orders when query changes
-  useEffect(() => {
-    async function searchOrders() {
-      if (!searchQuery.trim()) {
-        setOrders([])
-        return
-      }
-
-      setIsSearching(true)
-      try {
-        const params = new URLSearchParams()
-        params.set("q", searchQuery.trim())
-        params.set("limit", "10")
-
-        const response = await fetch(`/api/orders/search?${params.toString()}`)
-        if (response.ok) {
-          const data = await response.json()
-          setOrders(data.orders || [])
-        }
-      } catch (err) {
-        console.error("Failed to search orders:", err)
-      } finally {
-        setIsSearching(false)
-      }
-    }
-
-    const debounce = setTimeout(searchOrders, 300)
-    return () => clearTimeout(debounce)
-  }, [searchQuery])
 
   async function handleAssign() {
     if (!selectedOrder) {
@@ -115,20 +96,12 @@ export function AssignDialog({
     setError(null)
 
     try {
-      const response = await fetch(`/api/payments/${payment.id}/assign`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          orderId: selectedOrder.id,
-        }),
+      await assignPayment({
+        paymentId: payment.id as Id<"payments">,
+        orderId: selectedOrder.id as Id<"orders">,
+        status: "manual_assignment",
+        matchedBy: "dashboard",
       })
-
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error?.message || "Failed to assign payment")
-      }
 
       onAssigned()
       onOpenChange(false)
@@ -140,33 +113,29 @@ export function AssignDialog({
   }
 
   return (
-    <div
-      className={`fixed inset-0 z-50 flex items-center justify-center ${
-        open ? "visible" : "hidden"
-      }`}
-    >
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50"
-        onClick={() => onOpenChange(false)}
-      />
-
-      {/* Dialog */}
-      <div className="relative z-10 w-full max-w-lg rounded-lg bg-background p-6 shadow-lg">
-        <h2 className="mb-4 text-lg font-semibold">Assign Payment to Order</h2>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Assign Payment to Order</DialogTitle>
+          <DialogDescription>
+            Search for and select an order to assign this payment to.
+          </DialogDescription>
+        </DialogHeader>
 
         {/* Payment details */}
-        <div className="mb-6 rounded-md border bg-muted/50 p-4">
+        <div className="rounded-md border bg-muted/50 p-4">
           <h3 className="mb-2 text-sm font-medium">Payment Details</h3>
           <div className="grid gap-1 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Payer:</span>
-              <span>{payment.payerName}</span>
+              <span>{(payment.payerName)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Amount:</span>
               <span className="font-medium">
-                {formatMoney(payment.amountMinor)}
+                {isFiniteMinorValue(payment.amountMinor)
+                  ? formatMoney(payment.amountMinor)
+                  : "N/A"}
               </span>
             </div>
             <div className="flex justify-between">
@@ -183,7 +152,7 @@ export function AssignDialog({
         </div>
 
         {/* Order search */}
-        <div className="mb-6">
+        <div>
           <label className="mb-2 block text-sm font-medium">
             Search for Order
           </label>
@@ -211,25 +180,30 @@ export function AssignDialog({
               </div>
             ) : (
               orders.map((order) => (
+
                 <div
                   key={order.id}
-                  className={`cursor-pointer border-b p-3 last:border-b-0 ${
-                    selectedOrder?.id === order.id
-                      ? "bg-primary/10"
-                      : "hover:bg-muted/50"
-                  }`}
+                  className={`cursor-pointer border-b p-3 last:border-b-0 ${selectedOrder?.id === order.id
+                    ? "bg-primary/10"
+                    : "hover:bg-muted/50"
+                    }`}
                   onClick={() => setSelectedOrder(order)}
                 >
+
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="font-mono text-xs">
-                        {order.providerOrderId}
+                        {order.id} - {getBuyerLabel(order.buyerName)}
                       </div>
-                      <div className="text-sm">{order.buyerName}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {getBuyerLabel(order.buyerName)}
+                      </div>
                     </div>
                     <div className="text-right">
                       <div className="text-sm font-medium">
-                        {formatMoney(order.totalAmountMinor)}
+                        {isFiniteMinorValue(order.amountDueMinor)
+                          ? formatMoney(order.amountDueMinor)
+                          : "N/A"}
                       </div>
                     </div>
                   </div>
@@ -241,23 +215,23 @@ export function AssignDialog({
 
         {/* Selected order */}
         {selectedOrder && (
-          <div className="mb-6 rounded-md border border-primary bg-primary/5 p-4">
+          <div className="rounded-md border border-primary bg-primary/5 p-4">
             <h3 className="mb-2 text-sm font-medium">Selected Order</h3>
             <div className="grid gap-1 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Order ID:</span>
-                <span className="font-mono">
-                  {selectedOrder.providerOrderId}
-                </span>
+                <span className="font-mono">{selectedOrder.id}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Buyer:</span>
-                <span>{selectedOrder.buyerName}</span>
+                <span>{getBuyerLabel(selectedOrder.buyerName)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Total:</span>
+                <span className="text-muted-foreground">Amount due:</span>
                 <span className="font-medium">
-                  {formatMoney(selectedOrder.totalAmountMinor)}
+                  {isFiniteMinorValue(selectedOrder.amountDueMinor)
+                    ? formatMoney(selectedOrder.amountDueMinor)
+                    : "N/A"}
                 </span>
               </div>
             </div>
@@ -266,13 +240,12 @@ export function AssignDialog({
 
         {/* Error */}
         {error && (
-          <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
             {error}
           </div>
         )}
 
-        {/* Actions */}
-        <div className="flex justify-end gap-2">
+        <DialogFooter>
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
@@ -283,8 +256,8 @@ export function AssignDialog({
           <Button onClick={handleAssign} disabled={!selectedOrder || isLoading}>
             {isLoading ? "Assigning..." : "Assign Payment"}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

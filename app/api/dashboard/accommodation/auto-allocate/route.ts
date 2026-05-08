@@ -1,7 +1,6 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
+import { requireApiUser } from "@/lib/auth/server"
 import { generateAllocationProposal } from "@/lib/domain/accommodation/assignments"
 
 export const dynamic = "force-dynamic"
@@ -31,12 +30,10 @@ function badRequest(message: string) {
 }
 
 export async function POST(request: Request) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return unauthorized()
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   let body: { eventId?: unknown }
@@ -54,6 +51,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(proposal)
   } catch (error) {
+    console.error("Error generating allocation proposal:", error)
     const message =
       error instanceof Error ? error.message : "Failed to generate proposal"
 

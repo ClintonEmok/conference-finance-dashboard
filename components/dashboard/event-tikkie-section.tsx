@@ -1,0 +1,641 @@
+"use client"
+
+import { useCallback, useEffect, useState } from "react"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { formatMoney } from "@/lib/format"
+import { maskPaymentPayer } from "@/lib/utils/privacy"
+
+type Event = {
+  eventId: string
+  title: string | null
+}
+
+type TikkiePayment = {
+  _id: string
+  paymentLinkId: string
+  paymentToken: string
+  payerName: string
+  amountMinor: number
+  paidAt: number
+  matchStatus: "unmatched" | "auto_matched" | "manual"
+  orderId?: string
+}
+
+type TikkieLink = {
+  _id: string
+  paymentRequestUrl: string
+  paymentRequestToken: string
+  status?: string
+  providerStatus?: string
+  amountMinor: number
+  description: string
+  expiryDate?: number
+  _creationTime?: number
+}
+
+type EventData = {
+  link: TikkieLink | null
+  links: TikkieLink[]
+  payments: TikkiePayment[]
+  quota?: {
+    limit: number
+    used: number
+    remaining: number
+    monthStartIso: string
+    monthEndIso: string
+  }
+  stats: {
+    totalPayments: number
+    matchedPayments: number
+    unmatchedPayments: number
+    totalAmountMinor: number
+  }
+}
+
+function formatDate(epochMs: number) {
+  return new Date(epochMs).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
+}
+
+function isFiniteMinorValue(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value)
+}
+
+function formatMinorOrNA(value: unknown) {
+  return isFiniteMinorValue(value) ? formatMoney(value) : "N/A"
+}
+
+function toDateInputValue(date: Date) {
+  const year = date.getUTCFullYear()
+  const month = `${date.getUTCMonth() + 1}`.padStart(2, "0")
+  const day = `${date.getUTCDate()}`.padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function MatchBadge({ status }: { status: string }) {
+  if (status === "unmatched") {
+    return (
+      <Badge variant="outline" className="border-amber-400 text-amber-600">
+        Unmatched
+      </Badge>
+    )
+  }
+  return <Badge className="bg-emerald-500 text-white">Matched</Badge>
+}
+
+type EventTikkieSectionProps = {
+  events: Event[]
+  readOnly?: boolean
+  selectedEventId?: string
+}
+
+export function EventTikkieSection({
+  events,
+  readOnly = false,
+  selectedEventId: propSelectedEventId,
+}: EventTikkieSectionProps) {
+  const [internalSelectedEventId, setInternalSelectedEventId] =
+    useState<string>(events[0]?.eventId ?? "")
+  const selectedEventId = propSelectedEventId ?? internalSelectedEventId
+  const setSelectedEventId = propSelectedEventId
+    ? () => { }
+    : setInternalSelectedEventId
+  const [eventData, setEventData] = useState<EventData | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [createAmountEuro, setCreateAmountEuro] = useState("")
+  const [createDescription, setCreateDescription] = useState("")
+  const [createExpiryDate, setCreateExpiryDate] = useState("")
+  const [createAmountError, setCreateAmountError] = useState<string | null>(
+    null
+  )
+  const [isCreatingLink, setIsCreatingLink] = useState(false)
+  const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null)
+  const [failedCopyLinkId, setFailedCopyLinkId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (events.length === 0) {
+      setSelectedEventId("")
+      return
+    }
+
+    const selectedExists = events.some(
+      (event) => event.eventId === selectedEventId
+    )
+
+    if (!selectedEventId || !selectedExists) {
+      setSelectedEventId(events[0].eventId)
+    }
+  }, [events, selectedEventId])
+
+  const fetchData = useCallback(async (eventId: string) => {
+    if (!eventId) return
+    setIsLoading(true)
+    setActionError(null)
+    try {
+      const res = await fetch(
+        `/api/dashboard/tikkie-event-links?eventId=${encodeURIComponent(eventId)}`
+      )
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(
+          body?.error?.message ?? "Failed to load event Tikkie data"
+        )
+      }
+      const data = (await res.json()) as EventData
+      setEventData(data)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to load")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchData(selectedEventId)
+  }, [selectedEventId, fetchData])
+
+  function closeCreateModal() {
+    setIsCreateModalOpen(false)
+    setCreateAmountEuro("")
+    setCreateDescription("")
+    setCreateExpiryDate("")
+    setCreateAmountError(null)
+  }
+
+  function parseEuroAmountToMinor(
+    value: string
+  ): { amountMinor: number } | { error: string } {
+    const normalized = value.trim().replace(",", ".")
+
+    if (!normalized) {
+      return { error: "Enter an amount in euros." as const }
+    }
+
+    if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+      return {
+        error:
+          "Amount must be a non-negative number with up to 2 decimals." as const,
+      }
+    }
+
+    const euros = Number(normalized)
+    if (!Number.isFinite(euros) || euros < 0) {
+      return {
+        error:
+          "Amount must be a non-negative number with up to 2 decimals." as const,
+      }
+    }
+
+    return { amountMinor: Math.round(euros * 100) }
+  }
+
+  async function handleCreateLink(params: {
+    amountEuro: string
+    description: string
+    expiryDate: string
+  }) {
+    if (!selectedEventId) return
+    setActionError(null)
+    setIsCreatingLink(true)
+    try {
+      const res = await fetch("/api/dashboard/tikkie-event-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId: selectedEventId,
+          providerEventId: selectedEventId,
+          amountEuro: params.amountEuro,
+          description: params.description.trim() || undefined,
+          expiryDate: params.expiryDate,
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error?.message ?? "Failed to create Tikkie link")
+      }
+      await fetchData(selectedEventId)
+      closeCreateModal()
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "Failed to create link"
+      )
+    } finally {
+      setIsCreatingLink(false)
+    }
+  }
+
+  async function handleCreateModalSubmit() {
+    const parsedAmount = parseEuroAmountToMinor(createAmountEuro)
+    if ("error" in parsedAmount) {
+      setCreateAmountError(parsedAmount.error)
+      return
+    }
+
+    if (!createExpiryDate) {
+      setCreateAmountError("Pick an expiration date.")
+      return
+    }
+
+    setCreateAmountError(null)
+    await handleCreateLink({
+      amountEuro: createAmountEuro.trim(),
+      description: createDescription,
+      expiryDate: createExpiryDate,
+    })
+  }
+
+  async function handleCopyLink(link: TikkieLink) {
+    const url = link.paymentRequestUrl
+    if (!url) return
+
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopiedLinkId(link._id)
+      setFailedCopyLinkId(null)
+      setTimeout(() => {
+        setCopiedLinkId((current) => (current === link._id ? null : current))
+      }, 1800)
+    } catch {
+      setFailedCopyLinkId(link._id)
+      setCopiedLinkId(null)
+      setTimeout(() => {
+        setFailedCopyLinkId((current) =>
+          current === link._id ? null : current
+        )
+      }, 2500)
+    }
+  }
+
+  const links = eventData?.links ?? []
+  const hasLink = links.length > 0
+  const quota = eventData?.quota
+  const projectedUsage = quota
+    ? Math.min(quota.limit, quota.used + (quota.remaining > 0 ? 1 : 0))
+    : null
+  const isQuotaExceeded = quota ? quota.remaining <= 0 : false
+
+  return (
+    <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsCollapsed((c) => !c)}
+            className="text-muted-foreground transition hover:text-foreground"
+            aria-label={isCollapsed ? "Expand" : "Collapse"}
+          >
+            {isCollapsed ? "▶" : "▼"}
+          </button>
+          <div>
+            <p className="text-xs font-semibold tracking-[0.22em] text-muted-foreground uppercase">
+              Tikkie context
+            </p>
+            <h3 className="text-lg font-semibold text-foreground">
+              Track link status and payment totals
+            </h3>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {!propSelectedEventId && events.length > 0 && (
+            <select
+              value={selectedEventId}
+              onChange={(e) => setSelectedEventId(e.target.value)}
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+            >
+              {events.map((ev) => (
+                <option key={ev.eventId} value={ev.eventId}>
+                  {ev.title ?? ev.eventId}
+                </option>
+              ))}
+            </select>
+          )}
+          {!readOnly && (
+            <Button
+              size="sm"
+              onClick={() => {
+                setCreateAmountError(null)
+                setCreateAmountEuro("")
+                const selectedEvent = events.find(
+                  (e) => e.eventId === selectedEventId
+                )
+                setCreateDescription(selectedEvent?.title ?? "")
+                setCreateExpiryDate(
+                  toDateInputValue(
+                    new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
+                  )
+                )
+                setIsCreateModalOpen(true)
+              }}
+              disabled={!selectedEventId}
+            >
+              Create Tikkie link
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Collapsible body */}
+      {!isCollapsed && (
+        <div className="mt-5 space-y-4">
+          {isLoading && (
+            <div className="space-y-2">
+              <div className="h-8 w-48 animate-pulse rounded bg-muted" />
+              <div className="h-12 w-full animate-pulse rounded bg-muted" />
+            </div>
+          )}
+
+          {actionError && (
+            <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {actionError}
+            </div>
+          )}
+
+          {!isLoading && !hasLink && (
+            <p className="text-sm text-muted-foreground">
+              No Tikkie link for this event yet.
+            </p>
+          )}
+
+          {!isLoading && eventData && hasLink && (
+            <>
+              <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
+                <span>
+                  Total payments:{" "}
+                  <strong>{eventData.stats.totalPayments}</strong>
+                </span>
+                <span className="text-emerald-600">
+                  Matched: <strong>{eventData.stats.matchedPayments}</strong>
+                </span>
+                <span className="text-amber-600">
+                  Unmatched:{" "}
+                  <strong>{eventData.stats.unmatchedPayments}</strong>
+                </span>
+                <span>
+                  Total:{" "}
+                  <strong>
+                    {formatMinorOrNA(eventData.stats.totalAmountMinor)}
+                  </strong>
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                {links.map((link, index) => {
+                  const linkPayments = eventData.payments.filter(
+                    (payment) => payment.paymentLinkId === link._id
+                  )
+                  const matchedCount = linkPayments.filter(
+                    (payment) => payment.matchStatus !== "unmatched"
+                  ).length
+                  const unmatchedCount = linkPayments.length - matchedCount
+                  const paidTotalMinor = linkPayments.reduce(
+                    (sum, payment) =>
+                      sum +
+                      (isFiniteMinorValue(payment.amountMinor)
+                        ? payment.amountMinor
+                        : 0),
+                    0
+                  )
+
+                  return (
+                    <details
+                      key={link._id}
+                      open={index === 0}
+                      className="rounded-lg border border-border bg-background"
+                    >
+                      <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-4 py-3">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">
+                            Tikkie link #{links.length - index}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Created{" "}
+                            {formatDate(link._creationTime ?? Date.now())} ·{" "}
+                            {formatMinorOrNA(link.amountMinor)} requested
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{linkPayments.length} payments</span>
+                          <span>•</span>
+                          <span>{matchedCount} matched</span>
+                          <span>•</span>
+                          <span>{unmatchedCount} unmatched</span>
+                        </div>
+                      </summary>
+
+                      <div className="space-y-4 border-t border-border px-4 py-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold text-foreground">
+                              Payment request details
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Token:{" "}
+                              <span className="font-mono">
+                                {link.paymentRequestToken}
+                              </span>
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleCopyLink(link)}
+                          >
+                            {copiedLinkId === link._id
+                              ? "Copied"
+                              : failedCopyLinkId === link._id
+                                ? "Copy failed"
+                                : "Copy link"}
+                          </Button>
+                        </div>
+
+                        <div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
+                          <p>
+                            Status:{" "}
+                            <strong className="text-foreground">
+                              {link.providerStatus ?? link.status ?? "unknown"}
+                            </strong>
+                          </p>
+                          <p>
+                            Requested amount:{" "}
+                            <strong className="text-foreground">
+                              {formatMinorOrNA(link.amountMinor)}
+                            </strong>
+                          </p>
+                          <p>
+                            Expires:{" "}
+                            <strong className="text-foreground">
+                              {link.expiryDate
+                                ? formatDate(link.expiryDate)
+                                : "unknown"}
+                            </strong>
+                          </p>
+                          <p>
+                            Received total:{" "}
+                            <strong className="text-foreground">
+                              {formatMinorOrNA(paidTotalMinor)}
+                            </strong>
+                          </p>
+                          <p className="md:col-span-2">
+                            Description:{" "}
+                            <strong className="text-foreground">
+                              {link.description}
+                            </strong>
+                          </p>
+                        </div>
+                      </div>
+                    </details>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Create link modal */}
+      <Dialog
+        open={isCreateModalOpen}
+        onOpenChange={(open) => {
+          if (!open) closeCreateModal()
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Tikkie link</DialogTitle>
+            <DialogDescription>
+              Enter amount in euros. Use <strong>0</strong> for an open amount
+              link.
+            </DialogDescription>
+          </DialogHeader>
+
+          {quota && (
+            <div
+              className={`rounded-md border px-3 py-2 text-sm ${isQuotaExceeded
+                ? "border-amber-300 bg-amber-50 text-amber-900"
+                : "border-border bg-muted/40 text-muted-foreground"
+                }`}
+            >
+              <p>
+                Monthly Tikkie quota: <strong>{quota.used}</strong>/
+                {quota.limit} used.
+              </p>
+              {projectedUsage !== null && (
+                <p className="mt-1">
+                  Creating this link moves usage to{" "}
+                  <strong>{projectedUsage}</strong>/{quota.limit}.
+                </p>
+              )}
+              {isQuotaExceeded && (
+                <p className="mt-1 font-medium">
+                  Quota reached for this month. No new links can be created
+                  until next month.
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="mt-1">
+            <label
+              htmlFor="create-tikkie-amount"
+              className="mb-2 block text-sm font-medium"
+            >
+              Amount (EUR)
+            </label>
+            <Input
+              id="create-tikkie-amount"
+              type="text"
+              inputMode="decimal"
+              placeholder="e.g. 25.00 or 0"
+              value={createAmountEuro}
+              onChange={(e) => setCreateAmountEuro(e.target.value)}
+              disabled={isCreatingLink}
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="create-tikkie-description"
+              className="mb-2 block text-sm font-medium"
+            >
+              Description
+            </label>
+            <Input
+              id="create-tikkie-description"
+              type="text"
+              placeholder="e.g. Conference event contribution"
+              value={createDescription}
+              onChange={(e) => setCreateDescription(e.target.value)}
+              disabled={isCreatingLink}
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="create-tikkie-expiry"
+              className="mb-2 block text-sm font-medium"
+            >
+              Expiration date
+            </label>
+            <Input
+              id="create-tikkie-expiry"
+              type="date"
+              value={createExpiryDate}
+              onChange={(e) => setCreateExpiryDate(e.target.value)}
+              disabled={isCreatingLink}
+            />
+            {createAmountError && (
+              <p className="mt-2 text-sm text-destructive">
+                {createAmountError}
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={closeCreateModal}
+              disabled={isCreatingLink}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateModalSubmit}
+              disabled={isCreatingLink || isQuotaExceeded}
+            >
+              {isCreatingLink
+                ? "Creating..."
+                : isQuotaExceeded
+                  ? "Quota reached"
+                  : "Create link"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
+  )
+}

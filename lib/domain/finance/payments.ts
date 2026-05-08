@@ -1,4 +1,17 @@
 import { getPaymentRequestPayments } from "@/lib/integrations/tikkie/client"
+import { api } from "@/lib/convex/api"
+import { convexMutation, convexQuery } from "@/lib/convex/server"
+import type { Id } from "@/convex/_generated/dataModel"
+import {
+  formatPaymentReference,
+  PAYMENT_REFERENCE_PREFIX,
+} from "./payment-reference"
+import {
+  selectBestBookerMatch,
+  type BookerOnlyMatchCandidate,
+} from "./payment-matching"
+
+export { formatPaymentReference, PAYMENT_REFERENCE_PREFIX }
 
 export type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 
@@ -59,8 +72,11 @@ export type ListPaymentsResult = {
 }
 
 export type SyncTikkiePaymentsResult = {
+  paymentsFetched: number
   newPayments: number
   existingPayments: number
+  updatedPayments: number
+  skippedInvalid: number
   errors: string[]
 }
 
@@ -70,46 +86,75 @@ export type AutoMatchResult = {
   unchanged: number
 }
 
-const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
-
-async function convexQuery<Args extends Record<string, unknown>, Response>(
-  path: string,
-  args: Args
-): Promise<Response> {
-  const response = await fetch(`${CONVEX_URL}/${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ args }),
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Convex query failed: ${error}`)
-  }
-
-  return response.json()
+type ConvexPayment = {
+  _id: string
+  source: PaymentSource
+  sourceId?: string
+  payerName: string
+  payerAccountNumber?: string
+  amountMinor: number
+  paidAt: number
+  orderId?: string
+  status?: PaymentMatchStatus
+  matchedAt?: number
+  matchedBy?: string
+  reference?: string
+  notes?: string
+  providerPayload?: unknown
 }
 
-async function convexMutation<Args extends Record<string, unknown>, Response>(
-  path: string,
-  args: Args
-): Promise<Response> {
-  const response = await fetch(`${CONVEX_URL}/${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ args }),
-  })
+function mapPaymentDto(payment: ConvexPayment): PaymentDto {
+  const normalizedOrderId =
+    typeof payment.orderId === "string" ? payment.orderId.trim() : ""
 
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Convex mutation failed: ${error}`)
+  return {
+    _id: payment._id,
+    source: payment.source,
+    sourceId: payment.sourceId ?? null,
+    payerName: payment.payerName,
+    payerAccountNumber: payment.payerAccountNumber ?? null,
+    amountMinor: payment.amountMinor,
+    paidAt: payment.paidAt,
+    orderId: normalizedOrderId || null,
+    status: payment.status ?? null,
+    matchedAt: payment.matchedAt ?? null,
+    matchedBy: payment.matchedBy ?? null,
+    reference: formatPaymentReference(payment.reference ?? null),
+    notes: payment.notes ?? null,
+    providerPayload: payment.providerPayload ?? null,
+  }
+}
+
+function normalizeRequiredOrderId(value: string): string {
+  const normalized = value.trim()
+
+  if (!normalized) {
+    throw new Error("Invalid 'orderId'. Value is required.")
   }
 
-  return response.json()
+  return normalized
+}
+
+async function resolveCanonicalOrderId(orderId: string): Promise<Id<"orders">> {
+  const normalized = normalizeRequiredOrderId(orderId)
+
+  const byOrderId = await convexQuery(api.orders.getOrderById, {
+    orderId: normalized,
+  })
+
+  if (byOrderId?._id) {
+    return byOrderId._id as Id<"orders">
+  }
+
+  const byProviderOrder = await convexQuery(api.orders.getOrderByProviderId, {
+    providerOrderId: normalized,
+  })
+
+  if (byProviderOrder?._id) {
+    return byProviderOrder._id as Id<"orders">
+  }
+
+  throw new Error("Order not found for payment assignment")
 }
 
 function normalizeAmountMinor(value: number): number {
@@ -141,8 +186,9 @@ export async function createBankTransferPayment(
   input: CreateBankTransferPaymentInput,
   userId: string
 ): Promise<PaymentDto> {
+  const canonicalOrderId = await resolveCanonicalOrderId(input.orderId)
+
   const validated = {
-    orderId: input.orderId.trim(),
     amountMinor: normalizeAmountMinor(input.amountMinor),
     paidAt: normalizePaidAt(input.paidAt),
     payerName: normalizePayerName(input.payerName),
@@ -151,22 +197,9 @@ export async function createBankTransferPayment(
     notes: input.notes?.trim() ?? undefined,
   }
 
-  const id = await convexMutation<
-    {
-      source: "bank_transfer"
-      orderId: string
-      amountMinor: number
-      paidAt: number
-      payerName: string
-      payerAccountNumber?: string
-      reference?: string
-      notes?: string
-      matchedBy: string
-    },
-    string
-  >("payments/createPayment", {
+  const id = await convexMutation(api.payments.createPayment, {
     source: "bank_transfer",
-    orderId: validated.orderId,
+    orderId: canonicalOrderId,
     amountMinor: validated.amountMinor,
     paidAt: validated.paidAt,
     payerName: validated.payerName,
@@ -176,40 +209,33 @@ export async function createBankTransferPayment(
     matchedBy: userId,
   })
 
-  const payment = await convexQuery<{ paymentId: string }, PaymentDto>(
-    "payments/getPaymentById",
-    { paymentId: id as any }
-  )
+  const payment = await convexQuery(api.payments.getPaymentById, {
+    paymentId: id,
+  })
 
-  return payment
+  if (!payment) {
+    throw new Error("Payment not found")
+  }
+
+  return mapPaymentDto(payment as ConvexPayment)
 }
 
 export async function createCashPayment(
   input: CreateCashPaymentInput,
   userId: string
 ): Promise<PaymentDto> {
+  const canonicalOrderId = await resolveCanonicalOrderId(input.orderId)
+
   const validated = {
-    orderId: input.orderId.trim(),
     amountMinor: normalizeAmountMinor(input.amountMinor),
     paidAt: normalizePaidAt(input.paidAt),
     payerName: normalizePayerName(input.payerName),
     notes: input.notes?.trim() ?? undefined,
   }
 
-  const id = await convexMutation<
-    {
-      source: "cash"
-      orderId: string
-      amountMinor: number
-      paidAt: number
-      payerName: string
-      notes?: string
-      matchedBy: string
-    },
-    string
-  >("payments/createPayment", {
+  const id = await convexMutation(api.payments.createPayment, {
     source: "cash",
-    orderId: validated.orderId,
+    orderId: canonicalOrderId,
     amountMinor: validated.amountMinor,
     paidAt: validated.paidAt,
     payerName: validated.payerName,
@@ -217,12 +243,15 @@ export async function createCashPayment(
     matchedBy: userId,
   })
 
-  const payment = await convexQuery<{ paymentId: string }, PaymentDto>(
-    "payments/getPaymentById",
-    { paymentId: id as any }
-  )
+  const payment = await convexQuery(api.payments.getPaymentById, {
+    paymentId: id,
+  })
 
-  return payment
+  if (!payment) {
+    throw new Error("Payment not found")
+  }
+
+  return mapPaymentDto(payment as ConvexPayment)
 }
 
 export async function assignPaymentToOrder(
@@ -230,37 +259,33 @@ export async function assignPaymentToOrder(
   input: AssignPaymentInput,
   userId: string
 ): Promise<PaymentDto> {
-  const validatedOrderId = input.orderId.trim()
+  const canonicalOrderId = await resolveCanonicalOrderId(input.orderId)
 
-  await convexMutation<
-    {
-      paymentId: string
-      orderId: string
-      status: "manual_assignment"
-      matchedBy: string
-    },
-    string
-  >("payments/assignPaymentToOrder", {
-    paymentId: paymentId as any,
-    orderId: validatedOrderId,
+  await convexMutation(api.payments.assignPaymentToOrder, {
+    paymentId: paymentId as Id<"payments">,
+    orderId: canonicalOrderId,
     status: "manual_assignment",
     matchedBy: userId,
   })
 
-  const payment = await convexQuery<{ paymentId: string }, PaymentDto>(
-    "payments/getPaymentById",
-    { paymentId: paymentId as any }
-  )
+  const payment = await convexQuery(api.payments.getPaymentById, {
+    paymentId: paymentId as Id<"payments">,
+  })
 
-  return payment
+  if (!payment) {
+    throw new Error("Payment not found")
+  }
+
+  return mapPaymentDto(payment as ConvexPayment)
 }
 
 export async function getPaymentById(id: string): Promise<PaymentDto | null> {
   try {
-    return await convexQuery<{ paymentId: string }, PaymentDto>(
-      "payments/getPaymentById",
-      { paymentId: id as any }
-    )
+    const payment = await convexQuery(api.payments.getPaymentById, {
+      paymentId: id as Id<"payments">,
+    })
+
+    return payment ? mapPaymentDto(payment as ConvexPayment) : null
   } catch {
     return null
   }
@@ -269,87 +294,108 @@ export async function getPaymentById(id: string): Promise<PaymentDto | null> {
 export async function listPayments(
   input: ListPaymentsInput = {}
 ): Promise<ListPaymentsResult> {
-  const payments = await convexQuery<
-    {
-      orderId?: string
-      source?: PaymentSource
-      status?: PaymentMatchStatus
-    },
-    PaymentDto[]
-  >("payments/getPayments", {
+  const payments = await convexQuery(api.payments.getPayments, {
     orderId: input.orderId,
     source: input.source,
     status: input.status,
   })
 
   return {
-    payments,
+    payments: payments.map((payment) =>
+      mapPaymentDto(payment as ConvexPayment)
+    ),
     total: payments.length,
   }
 }
 
 export async function getUnassignedPayments(): Promise<PaymentDto[]> {
-  return convexQuery<{}, PaymentDto[]>("payments/getUnassignedPayments", {})
+  const payments = await convexQuery(api.payments.getUnassignedPayments, {})
+  return payments.map((payment: (typeof payments)[number]) =>
+    mapPaymentDto(payment as ConvexPayment)
+  )
 }
 
 export async function syncTikkiePayments(
   paymentRequestToken: string
 ): Promise<SyncTikkiePaymentsResult> {
   const result: SyncTikkiePaymentsResult = {
+    paymentsFetched: 0,
     newPayments: 0,
     existingPayments: 0,
+    updatedPayments: 0,
+    skippedInvalid: 0,
     errors: [],
   }
 
   try {
     const tikkieResponse = await getPaymentRequestPayments(paymentRequestToken)
 
-    const tikkiePayments = tikkieResponse.payments as Array<{
-      paymentId: string
-      payerName: string
-      payerAccountNumber?: string
-      amountPaidInCents: number
-      paidAt: string
-    }>
+    const tikkiePayments = tikkieResponse.payments as Array<
+      Record<string, unknown>
+    >
+    result.paymentsFetched = tikkiePayments.length
 
     for (const tPayment of tikkiePayments) {
-      const existing = await convexQuery<
-        {
-          source: "tikkie"
-          sourceId: string
-        },
-        PaymentDto[]
-      >("payments/getPayments", {
-        source: "tikkie",
-        sourceId: tPayment.paymentId,
-      })
+      const sourceId =
+        typeof tPayment.paymentToken === "string"
+          ? tPayment.paymentToken.trim()
+          : ""
+      const payerName =
+        typeof tPayment.counterPartyName === "string"
+          ? tPayment.counterPartyName.trim()
+          : ""
+      const payerAccountNumber =
+        typeof tPayment.counterPartyAccountNumber === "string"
+          ? tPayment.counterPartyAccountNumber
+          : undefined
+      const amountMinor =
+        typeof tPayment.amountInCents === "number" &&
+        Number.isInteger(tPayment.amountInCents) &&
+        tPayment.amountInCents >= 0
+          ? tPayment.amountInCents
+          : null
+      const paidAtSource =
+        typeof tPayment.createdDateTime === "string"
+          ? Date.parse(tPayment.createdDateTime)
+          : Number.NaN
 
-      if (existing.length > 0) {
-        result.existingPayments++
+      if (
+        !sourceId ||
+        !payerName ||
+        amountMinor === null ||
+        !Number.isFinite(paidAtSource)
+      ) {
+        result.skippedInvalid += 1
+        result.errors.push(
+          `Invalid payment payload for request ${paymentRequestToken}; token=${sourceId || "missing"}`
+        )
         continue
       }
 
-      await convexMutation<
+      const upsertResult = await convexMutation(
+        api.payments.upsertTikkiePayment,
         {
-          source: "tikkie"
-          sourceId: string
-          payerName: string
-          payerAccountNumber?: string
-          amountMinor: number
-          paidAt: number
-          providerPayload: unknown
-        },
-        string
-      >("payments/createPayment", {
-        source: "tikkie",
-        sourceId: tPayment.paymentId,
-        payerName: tPayment.payerName,
-        payerAccountNumber: tPayment.payerAccountNumber,
-        amountMinor: tPayment.amountPaidInCents,
-        paidAt: new Date(tPayment.paidAt).getTime(),
-        providerPayload: tPayment,
-      })
-      result.newPayments++
+          sourceId,
+          payerName,
+          payerAccountNumber,
+          amountMinor,
+          paidAt: paidAtSource,
+          providerPayload: {
+            ...tPayment,
+            paymentRequestToken,
+          },
+        }
+      )
+
+      if (upsertResult.inserted) {
+        result.newPayments += 1
+        continue
+      }
+
+      result.existingPayments += 1
+      if (upsertResult.updated) {
+        result.updatedPayments += 1
+      }
     }
   } catch (error) {
     result.errors.push(error instanceof Error ? error.message : "Unknown error")
@@ -365,42 +411,43 @@ export async function autoMatchPayments(): Promise<AutoMatchResult> {
     unchanged: 0,
   }
 
-  const unassignedPayments = await convexQuery<{}, PaymentDto[]>(
-    "payments/getUnassignedPayments",
+  const unassignedPayments = await convexQuery(
+    api.payments.getUnassignedPayments,
     {}
   )
 
+  const matchingOrders = (await convexQuery(api.orders.getOrders, {
+    status: "paid",
+  })) as Array<{ _id: string; buyerName: string | null }>
+
+  const bookerCandidates: BookerOnlyMatchCandidate[] = matchingOrders.map(
+    (order) => ({
+      orderId: order._id,
+      bookerName: order.buyerName,
+    })
+  )
+
   for (const payment of unassignedPayments) {
-    const matchingOrders = await convexQuery<
-      { status: "paid" },
-      Array<{ _id: string; buyerName: string | null }>
-    >("orders/getOrders", { status: "paid" })
+    const match = selectBestBookerMatch(payment.payerName, bookerCandidates)
 
-    const matches = matchingOrders.filter(
-      (o) => o.buyerName?.toLowerCase() === payment.payerName.toLowerCase()
-    )
-
-    if (matches.length === 0) {
+    if (!match) {
       result.unchanged++
-    } else if (matches.length === 1) {
-      await convexMutation<
-        {
-          paymentId: string
-          orderId: string
-          status: "auto_matched"
-          matchedBy: string
-        },
-        string
-      >("payments/assignPaymentToOrder", {
-        paymentId: payment._id as any,
-        orderId: matches[0]._id,
+      continue
+    }
+
+    if (match.status === "auto_matched") {
+      await convexMutation(api.payments.assignPaymentToOrder, {
+        paymentId: payment._id as Id<"payments">,
+        orderId: match.orderId as Id<"orders">,
         status: "auto_matched",
         matchedBy: "auto",
       })
+
       result.autoMatched++
-    } else {
-      result.ambiguous++
+      continue
     }
+
+    result.ambiguous++
   }
 
   return result

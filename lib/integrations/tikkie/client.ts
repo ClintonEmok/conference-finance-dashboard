@@ -11,7 +11,7 @@ type TikkieRequestOptions = {
 }
 
 export type TikkieCreatePaymentRequestInput = {
-  amountInCents: number
+  amountInCents?: number
   description: string
   expiryDate: string
   referenceId?: string
@@ -127,38 +127,122 @@ function firstErrorMessage(details: JsonObject) {
   return typeof message === "string" ? message : null
 }
 
+const TIKKIE_FETCH_TIMEOUT_MS = Number(
+  process.env.TIKKIE_FETCH_TIMEOUT_MS ?? 15_000
+)
+
+const TIKKIE_MAX_RETRIES = Number(process.env.TIKKIE_MAX_RETRIES ?? 2)
+
+/** Methods safe to retry without side effects */
+const RETRYABLE_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
+
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") return true
+  if (error instanceof TypeError) return true // network errors
+  return false
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status >= 500 || status === 429
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function fetchWithTimeout(
+  url: URL | string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal })
+    clearTimeout(timer)
+    return response
+  } catch (error) {
+    clearTimeout(timer)
+
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`Tikkie request timed out after ${timeoutMs}ms`)
+    }
+
+    throw error
+  }
+}
+
 async function tikkieFetch<T>(
   path: string,
   options: TikkieRequestOptions = {}
 ): Promise<T> {
   const { url, headers } = buildUrl(path, options.query)
 
-  const response = await fetch(url, {
-    method: options.method ?? "GET",
-    headers: {
-      ...headers,
-      Accept: "application/json",
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-    cache: "no-store",
-  })
+  const method = options.method ?? "GET"
+  const canRetry = RETRYABLE_METHODS.has(method)
+  const maxAttempts = canRetry ? TIKKIE_MAX_RETRIES + 1 : 1
 
-  const raw = await response.text()
-  const payload = tryJson(raw)
+  let lastError: unknown = null
 
-  if (!response.ok) {
-    const details = asObject(payload)
-    const message =
-      firstErrorMessage(details) ??
-      (typeof details.message === "string"
-        ? details.message
-        : `Tikkie request failed (${response.status})`)
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await fetchWithTimeout(
+        url,
+        {
+          method,
+          headers: {
+            ...headers,
+            Accept: "application/json",
+            ...(options.body ? { "Content-Type": "application/json" } : {}),
+          },
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          cache: "no-store",
+        },
+        TIKKIE_FETCH_TIMEOUT_MS
+      )
 
-    throw new TikkieApiError(response.status, String(message), payload)
+      if (
+        !response.ok &&
+        isRetryableStatus(response.status) &&
+        attempt < maxAttempts
+      ) {
+        await sleep(500 * attempt)
+        continue
+      }
+
+      const raw = await response.text()
+      const payload = tryJson(raw)
+
+      if (!response.ok) {
+        const details = asObject(payload)
+        const message =
+          firstErrorMessage(details) ??
+          (typeof details.message === "string"
+            ? details.message
+            : `Tikkie request failed (${response.status})`)
+
+        throw new TikkieApiError(response.status, String(message), payload)
+      }
+
+      return payload as T
+    } catch (error) {
+      lastError = error
+
+      if (error instanceof TikkieApiError) throw error
+
+      if (isRetryableError(error) && attempt < maxAttempts) {
+        await sleep(500 * attempt)
+        continue
+      }
+
+      throw error
+    }
   }
 
-  return payload as T
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Tikkie request failed after retries")
 }
 
 export async function createPaymentRequest(
@@ -167,7 +251,9 @@ export async function createPaymentRequest(
   return tikkieFetch<TikkiePaymentRequest>("/paymentrequests", {
     method: "POST",
     body: {
-      amountInCents: input.amountInCents,
+      ...(typeof input.amountInCents === "number"
+        ? { amountInCents: input.amountInCents }
+        : {}),
       description: input.description,
       expiryDate: input.expiryDate,
       ...(input.referenceId ? { referenceId: input.referenceId } : {}),

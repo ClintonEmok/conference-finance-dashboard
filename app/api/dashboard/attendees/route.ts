@@ -1,7 +1,6 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
+import { requireApiUser } from "@/lib/auth/server"
 import { getAttendeeLedger } from "@/lib/domain/finance/attendees"
 
 export const dynamic = "force-dynamic"
@@ -61,20 +60,10 @@ function parseAttendeeFilters(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        },
-      },
-      { status: 401 },
-    )
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   try {
@@ -89,9 +78,11 @@ export async function GET(request: Request) {
       rows: ledger.rows,
     })
   } catch (error) {
+    console.error("Error loading attendees:", error)
     const message = error instanceof Error ? error.message : "Invalid request"
 
     if (message.startsWith("Invalid") || message.includes("must be")) {
+
       return NextResponse.json(
         {
           error: {

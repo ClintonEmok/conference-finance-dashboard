@@ -1,4 +1,5 @@
 import { normalizeTicketTailorStatus } from "@/lib/domain/finance/ticket-tailor-status"
+import { api } from "@/lib/convex/api"
 import {
   extractCustomAnswers,
   parseGenderFromAnswer,
@@ -17,6 +18,7 @@ import {
   type TicketTailorOrderPayload,
 } from "@/lib/integrations/ticket-tailor/client"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
+import type { Id } from "@/convex/_generated/dataModel"
 
 type JsonRecord = Record<string, unknown>
 
@@ -38,6 +40,7 @@ export type TicketTailorSyncSummary = {
     eventsScanned: number
     ordersFetched: number
     ordersUpserted: number
+    ordersArchived: number
     ordersSkippedByScope: number
     attendeesFetched: number
     attendeesUpserted: number
@@ -222,22 +225,41 @@ function extractOrderStatusSignals(
 }
 
 function extractBuyerEmail(order: TicketTailorOrderPayload) {
+  const buyer = asRecord(order.buyer)
+  const buyerDetails = asRecord(order.buyer_details)
+
   return (
-    pickString(order.buyer_email) ?? pickString(asRecord(order.buyer).email)
+    pickString(order.buyer_email) ??
+    pickString(buyer.email) ??
+    pickString(buyerDetails.email)
   )
 }
 
 function extractBuyerName(order: TicketTailorOrderPayload) {
+  const buyer = asRecord(order.buyer)
+  const buyerDetails = asRecord(order.buyer_details)
+
   const first =
     pickString(order.buyer_first_name) ??
-    pickString(asRecord(order.buyer).first_name)
+    pickString(buyer.first_name) ??
+    pickString(buyerDetails.first_name)
   const last =
     pickString(order.buyer_last_name) ??
-    pickString(asRecord(order.buyer).last_name)
+    pickString(buyer.last_name) ??
+    pickString(buyerDetails.last_name)
+
   if (first && last) {
     return `${first} ${last}`
   }
-  return first ?? last ?? pickString(order.buyer_name) ?? null
+
+  return (
+    first ??
+    last ??
+    pickString(order.buyer_name) ??
+    pickString(buyer.name) ??
+    pickString(buyerDetails.name) ??
+    null
+  )
 }
 
 function extractOrderCurrency(order: TicketTailorOrderPayload) {
@@ -303,14 +325,15 @@ function isOrderInScope(orderDate: Date | null, scope: NormalizedScope) {
 }
 
 async function linkAttendeesAsFamily(
-  eventId: string,
-  orderId: string,
+  orderId: Id<"orders">,
   attendeeCount: number
 ): Promise<void> {
-  const attendees = await convexQuery<
-    { orderId: string },
-    Array<{ _id: string }>
-  >("sync:getTicketTailorAttendeesByOrderId", { orderId })
+  const attendees = await convexQuery(
+    api.sync.getTicketTailorAttendeesByOrderId,
+    {
+      orderId,
+    }
+  )
 
   if (attendees.length < 2) {
     return
@@ -318,46 +341,43 @@ async function linkAttendeesAsFamily(
 
   const firstAttendee = attendees[0]
 
-  const existingFamily = await convexQuery<
-    { primaryAttendeeId: string },
-    { _id: string } | null
-  >("sync:getAttendeeFamilyGroupByPrimaryId", {
-    primaryAttendeeId: firstAttendee._id,
-  })
+  const existingFamily = await convexQuery(
+    api.sync.getAttendeeFamilyGroupByPrimaryId,
+    {
+      primaryAttendeeId: firstAttendee._id,
+    }
+  )
 
   if (existingFamily) {
-    const members = await convexQuery<
-      { familyGroupId: string },
-      Array<{ attendeeId: string }>
-    >("sync:getFamilyMembersByGroupId", { familyGroupId: existingFamily._id })
+    const members = await convexQuery(api.sync.getFamilyMembersByGroupId, {
+      familyGroupId: existingFamily._id as Id<"attendeeFamilyGroups">,
+    })
 
-    const existingMemberIds = new Set(members.map((m) => m.attendeeId))
-    const newMembers = attendees.filter((a) => !existingMemberIds.has(a._id))
+    const existingMemberIds = new Set(
+      members.map((m: (typeof members)[number]) => m.attendeeId)
+    )
+    const newMembers = attendees.filter(
+      (a: (typeof attendees)[number]) => !existingMemberIds.has(a._id)
+    )
 
     for (const attendee of newMembers) {
-      await convexMutation<
-        { familyGroupId: string; attendeeId: string },
-        string
-      >("sync:addAttendeeToFamilyGroup", {
-        familyGroupId: existingFamily._id,
+      await convexMutation(api.sync.addAttendeeToFamilyGroup, {
+        familyGroupId: existingFamily._id as Id<"attendeeFamilyGroups">,
         attendeeId: attendee._id,
       })
     }
   } else {
-    const familyGroupId = await convexMutation<
-      { primaryAttendeeId: string; label: string },
-      string
-    >("sync:createAttendeeFamilyGroup", {
-      primaryAttendeeId: firstAttendee._id,
-      label: `Family (${attendeeCount} members)`,
-    })
+    const familyGroupId = await convexMutation(
+      api.sync.createAttendeeFamilyGroup,
+      {
+        primaryAttendeeId: firstAttendee._id,
+        label: `Family (${attendeeCount} members)`,
+      }
+    )
 
     for (const attendee of attendees) {
-      await convexMutation<
-        { familyGroupId: string; attendeeId: string },
-        string
-      >("sync:addAttendeeToFamilyGroup", {
-        familyGroupId,
+      await convexMutation(api.sync.addAttendeeToFamilyGroup, {
+        familyGroupId: familyGroupId as Id<"attendeeFamilyGroups">,
         attendeeId: attendee._id,
       })
     }
@@ -384,13 +404,14 @@ export async function runTicketTailorSync(
 ): Promise<TicketTailorSyncSummary> {
   const scope = normalizeTicketTailorSyncScope(scopeInput)
 
-  const run = await convexMutation<{}, { _id: string }>("sync:startSyncRun", {})
+  const runId = await convexMutation(api.sync.startSyncRun, {})
 
   const fallbackNotes: string[] = []
   const errors: string[] = []
   let eventsScanned = 0
   let ordersFetched = 0
   let ordersUpserted = 0
+  let ordersArchived = 0
   let ordersSkippedByScope = 0
   let attendeesFetched = 0
   let attendeesUpserted = 0
@@ -428,24 +449,13 @@ export async function runTicketTailorSync(
       const endDateTime =
         parseDate(eventPayload.end_date) ?? parseDate(eventPayload.ends_at)
 
-      const eventRecord = await convexMutation<
-        {
-          providerEventId: string
-          name: string | null
-          startsAt: number | undefined
-          endsAt: number | undefined
-          timezone: string | null
-          currency: string | null
-          rawPayload: TicketTailorEventPayload
-        },
-        { _id: string }
-      >("sync:upsertTicketTailorEvent", {
+      const eventId = await convexMutation(api.sync.upsertTicketTailorEvent, {
         providerEventId,
-        name: extractEventName(eventPayload),
+        name: extractEventName(eventPayload) ?? undefined,
         startsAt: startDateTime ? startDateTime.getTime() : undefined,
         endsAt: endDateTime ? endDateTime.getTime() : undefined,
-        timezone: extractEventTimezone(eventPayload),
-        currency: extractEventCurrency(eventPayload),
+        timezone: extractEventTimezone(eventPayload) ?? undefined,
+        currency: extractEventCurrency(eventPayload) ?? undefined,
         rawPayload: eventPayload,
       })
 
@@ -456,6 +466,7 @@ export async function runTicketTailorSync(
           maxPages: 200,
         }
       )
+      const seenProviderOrderIds = new Set<string>()
 
       for (const orderPayload of ordersResult.items) {
         const providerOrderId = extractProviderOrderId(orderPayload)
@@ -468,6 +479,7 @@ export async function runTicketTailorSync(
           continue
         }
 
+        seenProviderOrderIds.add(providerOrderId)
         ordersFetched += 1
         const orderedAt = extractOrderDate(orderPayload)
 
@@ -489,28 +501,10 @@ export async function runTicketTailorSync(
           }
         }
 
-        const orderRecord = await convexMutation<
-          {
-            providerOrderId: string
-            providerEventId: string
-            eventId: string
-            normalizedStatus: string | undefined
-            providerStatus: string | undefined
-            normalizationNote: string | undefined
-            buyerEmail: string | undefined
-            buyerName: string | undefined
-            currency: string | undefined
-            totalAmountMinor: number | null
-            orderedAt: number | undefined
-            refundedAt: number | undefined
-            cancelledAt: number | undefined
-            rawPayload: TicketTailorOrderPayload
-          },
-          { _id: string }
-        >("sync:upsertTicketTailorOrder", {
+        const orderId = await convexMutation(api.sync.upsertTicketTailorOrder, {
           providerOrderId,
           providerEventId: orderProviderEventId,
-          eventId: eventRecord._id,
+          eventId,
           normalizedStatus: normalization.normalizedStatus,
           providerStatus:
             statusSignals.find((signal) => Boolean(signal)) ?? undefined,
@@ -518,7 +512,7 @@ export async function runTicketTailorSync(
           buyerEmail: extractBuyerEmail(orderPayload) ?? undefined,
           buyerName: extractBuyerName(orderPayload) ?? undefined,
           currency: extractOrderCurrency(orderPayload) ?? undefined,
-          totalAmountMinor: extractOrderTotalMinor(orderPayload),
+          totalAmountMinor: extractOrderTotalMinor(orderPayload) ?? undefined,
           orderedAt: orderedAt ? orderedAt.getTime() : undefined,
           refundedAt: extractRefundedAt(orderPayload) ?? undefined,
           cancelledAt: extractCancelledAt(orderPayload) ?? undefined,
@@ -526,6 +520,15 @@ export async function runTicketTailorSync(
         })
 
         ordersUpserted += 1
+
+        // Fetch the ticketTailorOrder to get the canonical orderId
+        const ttOrder = await convexQuery(
+          api.sync.getTicketTailorOrderByProviderId,
+          {
+            providerOrderId: providerOrderId,
+          }
+        )
+        const canonicalOrderId = ttOrder?.orderId
 
         const attendeeResult =
           await fetchTicketTailorAttendeesForOrder(orderPayload)
@@ -578,37 +581,15 @@ export async function runTicketTailorSync(
             parseTicketCategory(ticketTypeLabel) ?? undefined
           const { priority, reason } = detectPriorityFromAnswers(customAnswers)
 
-          await convexMutation<
-            {
-              providerAttendeeId: string | undefined
-              providerIssuedTicketId: string | undefined
-              providerTicketTypeId: string | undefined
-              providerEventId: string
-              providerOrderId: string
-              eventId: string
-              orderId: string
-              name: string | undefined
-              email: string | undefined
-              ticketTypeLabel: string
-              ticketStatus: string | undefined
-              rawPayload: TicketTailorAttendeePayload
-              customAnswers: CustomAnswers
-              genderType: string | undefined
-              ageGroup: string | undefined
-              ticketCategory: string | undefined
-              allocationPriority: string | undefined
-              priorityReason: string | undefined
-            },
-            string
-          >("sync:upsertTicketTailorAttendee", {
+          await convexMutation(api.sync.upsertTicketTailorAttendee, {
             providerAttendeeId: providerAttendeeId ?? undefined,
             providerIssuedTicketId: providerIssuedTicketId ?? undefined,
             providerTicketTypeId:
               extractTicketTypeId(attendeePayload) ?? undefined,
             providerEventId: attendeeProviderEventId,
             providerOrderId: attendeeProviderOrderId,
-            eventId: eventRecord._id,
-            orderId: orderRecord._id,
+            eventId,
+            orderId: canonicalOrderId,
             name: extractAttendeeName(attendeePayload) ?? undefined,
             email: extractAttendeeEmail(attendeePayload) ?? undefined,
             ticketTypeLabel,
@@ -625,39 +606,29 @@ export async function runTicketTailorSync(
           attendeesUpserted += 1
         }
 
-        if (attendeeResult.items.length > 1) {
+        if (attendeeResult.items.length > 1 && canonicalOrderId) {
           await linkAttendeesAsFamily(
-            eventRecord._id,
-            orderRecord._id,
+            canonicalOrderId,
             attendeeResult.items.length
           )
         }
       }
+
+      const archiveResult = await convexMutation(
+        api.sync.archiveMissingOrdersForEvent,
+        {
+          providerEventId,
+          seenProviderOrderIds: Array.from(seenProviderOrderIds),
+          reason: "missing_from_provider_sync",
+        }
+      )
+      ordersArchived += archiveResult.archived
     }
 
     const status = finalizeRunStatus(failedItems, errors)
 
-    await convexMutation<
-      {
-        runId: string
-        status: "success" | "partial" | "failed"
-        errorSummary: string | undefined
-        diagnostics: {
-          attendeesFetched: number
-          attendeesSkipped: number
-          attendeesUpserted: number
-          fallbackNotes: string[]
-          errors: string[]
-        }
-        eventsScanned: number
-        ordersFetched: number
-        ordersUpserted: number
-        normalizedFallbackCount: number
-        failedItems: number
-      },
-      string
-    >("sync:completeSyncRun", {
-      runId: run._id,
+    await convexMutation(api.sync.completeSyncRun, {
+      runId: runId as Id<"ticketTailorSyncRuns">,
       status,
       errorSummary:
         errors.length > 0 ? errors.slice(0, 5).join("; ") : undefined,
@@ -671,12 +642,13 @@ export async function runTicketTailorSync(
       eventsScanned,
       ordersFetched,
       ordersUpserted,
+      ordersArchived,
       normalizedFallbackCount,
       failedItems,
     })
 
     return {
-      runId: run._id,
+      runId,
       status,
       scope: {
         eventId: scope.eventId,
@@ -687,6 +659,7 @@ export async function runTicketTailorSync(
         eventsScanned,
         ordersFetched,
         ordersUpserted,
+        ordersArchived,
         ordersSkippedByScope,
         attendeesFetched,
         attendeesUpserted,
@@ -704,27 +677,8 @@ export async function runTicketTailorSync(
       error instanceof Error ? error.message : "Unknown sync failure"
     errors.push(message)
 
-    await convexMutation<
-      {
-        runId: string
-        status: "failed"
-        errorSummary: string
-        diagnostics: {
-          attendeesFetched: number
-          attendeesSkipped: number
-          attendeesUpserted: number
-          fallbackNotes: string[]
-          errors: string[]
-        }
-        eventsScanned: number
-        ordersFetched: number
-        ordersUpserted: number
-        normalizedFallbackCount: number
-        failedItems: number
-      },
-      string
-    >("sync:completeSyncRun", {
-      runId: run._id,
+    await convexMutation(api.sync.completeSyncRun, {
+      runId: runId as Id<"ticketTailorSyncRuns">,
       status: "failed",
       errorSummary: message,
       diagnostics: {
@@ -737,6 +691,7 @@ export async function runTicketTailorSync(
       eventsScanned,
       ordersFetched,
       ordersUpserted,
+      ordersArchived,
       normalizedFallbackCount,
       failedItems: failedItems + 1,
     })

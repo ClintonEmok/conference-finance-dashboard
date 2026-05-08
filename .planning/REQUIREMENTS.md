@@ -1,100 +1,81 @@
 # Requirements: Conference Finance Dashboard
 
-## v1 Requirements
+**Defined:** 2026-04-01
+**Core Value:** Give church finance admins one reliable place to track conference revenue, reconcile ticket sales with payment collections, and act on outstanding balances quickly.
 
-### Foundation & Access
+## v3.0 Requirements
 
-- **FOUND-01**: Finance admin can sign in and access the dashboard in a protected session.
-- **FOUND-02**: Admin can configure integration credentials via environment settings without code changes.
-- **SEC-01**: Non-admin users cannot access finance dashboard routes or integration actions.
+### Runtime Truth
 
-### Ticket Tailor Integration
+- [ ] **RTM-01**: Finance and operations reads return order, attendee, and balance data from canonical internal tables without requiring runtime `ticketTailor*` queries.
+- [ ] **RTM-02**: New and updated order-payment joins use one canonical internal order identifier contract.
+- [ ] **RTM-03**: Ticket Tailor data is accessed through explicit ingest and mapping boundaries instead of acting as runtime finance truth.
 
-- **TT-01**: Admin can sync Ticket Tailor events and related orders into the dashboard data store.
-- **TT-02**: Admin can run manual re-sync for a selected event/date range to correct missing or stale data.
-- **TT-03**: Synced ticket/order statuses are normalized (paid/refunded/cancelled/pending) for consistent reporting.
-- **TT-04**: System syncs issued ticket / attendee records for each Ticket Tailor order so actual attendees are visible, not only the buyer.
-- **TT-05**: System extracts attendee accommodation signals from Ticket Tailor attendee custom questions and ticket metadata, including gender, location, remarks, and priority-related notes.
+### Canonical Money Model
 
-### Dashboard & Finance Views
+- [x] **FIN-01**: Each order has one deterministic canonical total in minor units that stays consistent across ledger, detail, reconciliation, and exports.
+- [x] **FIN-02**: Each attendee has a canonical payable amount derived from internal order facts instead of equal-split heuristics.
+- [x] **FIN-03**: Payments can be explicitly allocated to orders and, where needed, attendees so partial, split, and overpayments are auditable.
+- [ ] **FIN-04**: Reconciliation surfaces show reason codes derived from canonical totals, payables, and payment allocations.
 
-- **DASH-01**: Admin can view revenue totals and trends by event and date range.
-- **DASH-02**: Admin can drill into order-level records and export filtered results to CSV.
-- **DASH-03**: Admin can view an outstanding balances list showing unpaid, partial, or mismatched order states.
-- **DASH-04**: Admin can open an attendee detail view showing payment history, installment progress, outstanding balance, and room assignment status.
+### Migration and Cutover
 
-### Accommodation Management
+- [ ] **MIG-01**: Canonical finance data can be widened, backfilled, and dual-written safely against existing production-shaped records.
+- [ ] **MIG-02**: Canonical outputs can be compared against legacy outputs with parity checks before final cutover.
+- [ ] **MIG-03**: Runtime provider fallbacks and legacy compatibility paths can be removed after canonical parity is validated.
 
-- **ACC-01**: Admin can define hotels, room types, and room capacity.
-- **ACC-02**: Admin can assign and unassign attendees to rooms.
-- **ACC-03**: Admin can identify full rooms, empty rooms, and unassigned attendees through clear UI indicators and filters.
-- **ACC-04**: System auto-groups attendees from the same order as a family or linked party, while remaining compatible with future manual cross-order family linking.
-- **ACC-05**: Admin can filter attendee and accommodation views by allocation-relevant signals such as gender, family grouping, location, and priority accommodation indicators.
-- **ACC-06**: Room allocation can propose assignments that keep family groups together when possible, avoid incompatible roommate matching, and prioritize elderly attendees, attendees with disability/special needs, and families with young children.
+## Future Requirements
 
-### Workflow Clarity
+### Reporting and Explainability
 
-- **FLOW-01**: Admin can move quickly between dashboard, ledger, attendee detail, and room allocation without confusing labels or dead-end flows.
+- **RPT-01**: Operator can drill from order total to attendee payable to payment allocation with explainable amount provenance.
+- **RPT-02**: Operator can capture notes or provenance for manual allocations and finance overrides.
+- **RPT-03**: Operator can view canonical reporting slices by event, payable state, allocation state, and balance state.
 
-### Deferred After MVP
+### Provider Boundary Redesign
 
-- **TK-01**: Admin can generate a Tikkie payment link for an outstanding balance from the dashboard.
-- **TK-02**: System stores payment-link metadata and updates status (created/paid/expired) via webhook or polling.
-- **TK-03**: Admin can copy/share the generated payment link and see current payment status.
-- **OPS-01**: Admin can view integration health (last successful sync, last failure, and actionable error message).
-- **OPS-02**: Finance actions (manual sync, link generation, status update) are audit logged with actor and timestamp.
+- **INT-01**: Ticket Tailor raw ingest and mapping tables are redesigned after canonical internal runtime cutover is complete.
+- **INT-02**: Provider-specific visibility, refund, and archive semantics are modeled without leaking into core runtime reads.
 
-## Constraints (v1)
+## Out of Scope
 
-- Keep workflows optimized for one church operations team (single org scope)
-- Use Ticket Tailor as the initial system of record for attendee and order ingestion
-- Prioritize correctness and traceability over automation breadth
-- No dependency on back-office spreadsheets for core dashboard flow
-- Defer payment-link automation and production hardening until the operator flow is stable
-
-## Risks & Mitigations
-
-### Ticket Tailor
-- **Risk:** Partial sync due to API/pagination edge cases  
-  **Mitigation:** Incremental sync cursor + manual backfill controls (TT-02, OPS-01)
-- **Risk:** Status mismatches distort finance totals  
-  **Mitigation:** Central normalization rules with explicit mapping tests (TT-03)
-
-### Attendee & Accommodation
-- **Risk:** Buyer-level order data hides the actual attendees who need accommodation  
-  **Mitigation:** Import issued ticket records and model attendee-centric views (TT-04, DASH-04)
-- **Risk:** Room allocation flow becomes confusing before inventory structure is defined  
-  **Mitigation:** Create hotels/rooms first, then add assignment workflow and occupancy indicators (ACC-01, ACC-02, ACC-03)
-
-### Deferred Integrations
-- **Risk:** Payment-link automation distracts from validating the core operator workflow  
-  **Mitigation:** Defer TK-* requirements until post-MVP
+| Feature                                            | Reason                                                                                                        |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Full Ticket Tailor table redesign in v3.0          | Internal runtime truth must be stabilized first; provider redesign is a follow-up milestone                   |
+| New public signup UX features                      | This milestone is focused on finance correctness and canonical internal data, not new attendee-facing breadth |
+| Advanced discount/coupon/refund commerce expansion | Expands the money model before core totals, payables, and allocations are trustworthy                         |
+| Multi-tenant church/org support                    | Project remains single-org scoped                                                                             |
 
 ## Traceability
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| FOUND-01 | Phase 1 | Complete |
-| FOUND-02 | Phase 1 | Complete |
-| SEC-01 | Phase 1 | Complete |
-| TT-01 | Phase 2 | Complete |
-| TT-02 | Phase 2 | Complete |
-| TT-03 | Phase 2 | Complete |
-| TT-04 | Phase 4 | Complete |
-| TT-05 | Phase 7 | Planned |
-| DASH-01 | Phase 3 | Complete |
-| DASH-02 | Phase 3 | Complete |
-| DASH-03 | Phase 3 | Complete |
-| DASH-04 | Phase 4 | Complete |
-| ACC-01 | Phase 4 | Complete |
-| ACC-02 | Phase 5 | Complete |
-| ACC-03 | Phase 5 | Complete |
-| ACC-04 | Phase 7 | Planned |
-| ACC-05 | Phase 7 | Planned |
-| ACC-06 | Phase 7 | Planned |
-| FLOW-01 | Phase 5 | Complete |
-| TK-01 | Phase 6 | Complete |
-| TK-02 | Phase 6 | Complete |
-| TK-03 | Phase 6 | Complete |
-| OPS-01 | Deferred | Deferred |
-| OPS-02 | Deferred | Deferred |
+Which phases cover which requirements. Updated during roadmap creation.
+
+| Requirement | Phase | Status  |
+| ----------- | ----- | ------- |
+| RTM-01      | 32    | Pending |
+| RTM-02      | 26    | Pending |
+| RTM-03      | 33    | Pending |
+| FIN-01      | 27    | Complete |
+| FIN-02      | 27    | Complete |
+| FIN-03      | 27    | Complete |
+| FIN-04      | 32    | Pending |
+| MIG-01      | 31    | Pending |
+| MIG-02      | 31    | Pending |
+| MIG-03      | 33    | Pending |
+
+**Coverage:**
+
+- v3.0 requirements: 10 total
+- Mapped to phases: 10
+- Unmapped: 0 ✓
+
+## Future Requirement Traceability
+
+| Requirement | Phase | Status  |
+| ----------- | ----- | ------- |
+| RPT-03      | 30    | Pending |
+
+---
+
+_Requirements defined: 2026-04-01_
+_Last updated: 2026-04-01 after creating roadmap for milestone v3.0 canonical orders foundation_

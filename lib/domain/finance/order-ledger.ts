@@ -1,24 +1,5 @@
-const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
-
-async function convexQuery<Args extends Record<string, unknown>, Response>(
-  path: string,
-  args: Args
-): Promise<Response> {
-  const response = await fetch(`${CONVEX_URL}/${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ args }),
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Convex query failed: ${error}`)
-  }
-
-  return response.json()
-}
+import { api } from "@/lib/convex/api"
+import { convexQuery } from "@/lib/convex/server"
 
 export type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 
@@ -32,11 +13,17 @@ export type OrderLedgerFilters = {
 }
 
 export type OrderLedgerRow = {
-  providerOrderId: string
-  providerEventId: string
-  eventName: string | null
+  orderId: string
+  providerOrderId: string | null
+  eventId: string
+  eventSlug: string
+  eventTitle: string | null
   normalizedStatus: CanonicalOrderStatus
-  totalAmountMinor: number
+  isArchived: boolean
+  archivedAt: string | null
+  archiveReason: string | null
+  amountDueMinor: number | null
+  totalAmountMinor: number | null
   currency: string | null
   orderedAt: string | null
   buyerName: string | null
@@ -54,8 +41,11 @@ export type OrderLedgerResult = {
     pageSize: number
   }
   availableEvents: Array<{
-    providerEventId: string
-    name: string | null
+    eventId: string
+    slug: string
+    title: string | null
+    startsAt: string | null
+    currency: string | null
   }>
   page: {
     number: number
@@ -117,7 +107,7 @@ function normalizePagination(page?: number, pageSize?: number) {
   }
 }
 
-function escapeCsvCell(value: string | number | null) {
+function escapeCsvCell(value: string | number | boolean | null) {
   if (value === null || value === undefined) {
     return ""
   }
@@ -146,31 +136,7 @@ export async function getOrderLedger(
   const toMs = to.getTime()
 
   const [ordersResult, availableEvents] = await Promise.all([
-    convexQuery<
-      {
-        eventId?: string
-        from?: number
-        to?: number
-        status?: CanonicalOrderStatus
-        page?: number
-        pageSize?: number
-      },
-      {
-        totalRows: number
-        totalPages: number
-        orders: Array<{
-          providerOrderId: string
-          providerEventId: string
-          eventName: string | null
-          normalizedStatus: CanonicalOrderStatus
-          totalAmountMinor: number
-          currency: string | null
-          orderedAt: string | null
-          buyerName: string | null
-          buyerEmail: string | null
-        }>
-      }
-    >("orders/getOrdersWithFilters", {
+    convexQuery(api.orders.getOrdersWithFilters, {
       eventId: eventId ?? undefined,
       from: fromMs,
       to: toMs,
@@ -178,10 +144,7 @@ export async function getOrderLedger(
       page,
       pageSize,
     }),
-    convexQuery<{}, Array<{ providerEventId: string; name: string | null }>>(
-      "events/getEventsForLedger",
-      {}
-    ),
+    convexQuery(api.events.getEventsForLedger, {}),
   ])
 
   return {
@@ -194,23 +157,44 @@ export async function getOrderLedger(
       page,
       pageSize,
     },
-    availableEvents,
+    availableEvents: availableEvents.map((e) => ({
+      eventId: e.eventId,
+      slug: e.slug,
+      title: e.title ?? null,
+      startsAt: e.startsAt ? new Date(e.startsAt).toISOString() : null,
+      currency: e.currency ?? null,
+    })),
     page: {
       number: page,
       size: pageSize,
       totalRows: ordersResult.totalRows,
       totalPages: ordersResult.totalPages,
     },
-    rows: ordersResult.orders,
+    rows: ordersResult.orders.map((row) => {
+      const typedRow = row as typeof row & {
+        amountDueMinor?: number | null
+      }
+
+      return {
+        ...typedRow,
+        orderId: typedRow.orderId ?? "",
+        amountDueMinor: typedRow.amountDueMinor ?? null,
+      }
+    }),
   }
 }
 
 export function buildOrderLedgerCsv(rows: OrderLedgerRow[]) {
   const headers = [
-    "providerOrderId",
-    "providerEventId",
-    "eventName",
+    "orderId",
+    "eventId",
+    "eventSlug",
+    "eventTitle",
     "normalizedStatus",
+    "isArchived",
+    "archivedAt",
+    "archiveReason",
+    "amountDueMinor",
     "totalAmountMinor",
     "currency",
     "orderedAt",
@@ -223,10 +207,15 @@ export function buildOrderLedgerCsv(rows: OrderLedgerRow[]) {
   for (const row of rows) {
     lines.push(
       [
-        row.providerOrderId,
-        row.providerEventId,
-        row.eventName,
+        row.orderId,
+        row.eventId,
+        row.eventSlug,
+        row.eventTitle,
         row.normalizedStatus,
+        row.isArchived,
+        row.archivedAt,
+        row.archiveReason,
+        row.amountDueMinor,
         row.totalAmountMinor,
         row.currency,
         row.orderedAt,

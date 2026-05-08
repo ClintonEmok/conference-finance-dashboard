@@ -1,6 +1,8 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto"
 
+import { api } from "@/lib/convex/api"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
+import type { Id } from "@/convex/_generated/dataModel"
 import { fetchTicketTailorCanonicalPayload } from "@/lib/integrations/ticket-tailor/client"
 
 type IncomingHeaders = Headers
@@ -71,7 +73,7 @@ export function verifyTicketTailorWebhook(
   const expected = process.env.TICKET_TAILOR_WEBHOOK_SECRET?.trim()
 
   if (!expected) {
-    return true
+    return false
   }
 
   const provided =
@@ -103,22 +105,13 @@ export async function ingestTicketTailorWebhook(
   const providerEventId = inferProviderEventId(headers, payload)
   const eventType = inferEventType(payload)
 
-  const existing = await convexQuery<
-    { providerEventId: string },
-    { _id: string; deliveryCount?: number } | null
-  >("sync:getWebhookEventByProviderId", { providerEventId })
+  const existing = await convexQuery(api.sync.getWebhookEventByProviderId, {
+    providerEventId,
+  })
 
   if (existing) {
-    await convexMutation<
-      {
-        eventId: string
-        deliveryCount: number
-        lastReceivedAt: number
-        payload: unknown
-      },
-      string
-    >("sync:updateWebhookEvent", {
-      eventId: existing._id,
+    await convexMutation(api.sync.updateWebhookEvent, {
+      eventId: existing._id as Id<"ticketTailorWebhookEvents">,
       deliveryCount: (existing.deliveryCount ?? 0) + 1,
       lastReceivedAt: Date.now(),
       payload,
@@ -131,14 +124,7 @@ export async function ingestTicketTailorWebhook(
     }
   }
 
-  const eventId = await convexMutation<
-    {
-      providerEventId: string
-      eventType: string
-      payload: JsonRecord
-    },
-    string
-  >("sync:createWebhookEvent", {
+  const eventId = await convexMutation(api.sync.createWebhookEvent, {
     providerEventId,
     eventType,
     payload,
@@ -154,14 +140,9 @@ export async function ingestTicketTailorWebhook(
 export async function processTicketTailorWebhookEvent(
   eventId: string
 ): Promise<ProcessResult> {
-  const event = await convexQuery<
-    { eventId: string },
-    {
-      _id: string
-      payload: JsonRecord
-      attempts: number
-    } | null
-  >("sync:getWebhookEventById", { eventId })
+  const event = await convexQuery(api.sync.getWebhookEventById, {
+    eventId: eventId as Id<"ticketTailorWebhookEvents">,
+  })
 
   if (!event) {
     throw new Error(`Webhook event not found: ${eventId}`)
@@ -174,19 +155,7 @@ export async function processTicketTailorWebhookEvent(
       asRecord(event.payload)
     )
 
-    await convexMutation<
-      {
-        eventId: string
-        attempts: number
-        status: "processed"
-        lastError: undefined
-        nextRetryAt: undefined
-        canonicalPayload: JsonRecord
-        canonicalFetchedAt: number
-        processedAt: number
-      },
-      string
-    >("sync:updateWebhookEvent", {
+    await convexMutation(api.sync.updateWebhookEvent, {
       eventId: event._id,
       attempts,
       status: "processed",
@@ -209,16 +178,7 @@ export async function processTicketTailorWebhookEvent(
     const lastError =
       error instanceof Error ? error.message : "Unknown processing error"
 
-    await convexMutation<
-      {
-        eventId: string
-        attempts: number
-        status: "failed"
-        lastError: string
-        nextRetryAt: number
-      },
-      string
-    >("sync:updateWebhookEvent", {
+    await convexMutation(api.sync.updateWebhookEvent, {
       eventId: event._id,
       attempts,
       status: "failed",
@@ -236,13 +196,7 @@ export async function processTicketTailorWebhookEvent(
 }
 
 export async function processTicketTailorRetryBatch(limit = 20) {
-  const queued = await convexQuery<
-    { limit: number },
-    Array<{
-      id: string
-      status: "pending" | "failed"
-    }>
-  >("sync:getPendingWebhookEvents", { limit })
+  const queued = await convexQuery(api.sync.getPendingWebhookEvents, { limit })
 
   let processed = 0
   let failed = 0

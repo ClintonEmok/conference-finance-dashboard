@@ -1,115 +1,179 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
+import { requireApiUser } from "@/lib/auth/server"
+import { api } from "@/lib/convex/api"
 import { convexMutation } from "@/lib/convex/server"
+import { getAttendeeDetail } from "@/lib/domain/finance/attendee-detail"
 
 export const dynamic = "force-dynamic"
+
+function badRequest(message: string) {
+  return NextResponse.json(
+    {
+      error: {
+        code: "BAD_REQUEST",
+        message,
+      },
+    },
+    { status: 400 }
+  )
+}
+
+const GENDER_VALUES = new Set(["MALE", "FEMALE", "MIXED", "UNKNOWN"])
+
+async function getNormalizedAttendeeId(context: {
+  params: Promise<{ attendeeId: string }>
+}) {
+  const { attendeeId } = await context.params
+  const normalizedAttendeeId = attendeeId.trim()
+
+  if (!normalizedAttendeeId) {
+    throw new Error("Invalid attendeeId")
+  }
+
+  return normalizedAttendeeId
+}
+
+export async function GET(
+  _request: Request,
+  context: { params: Promise<{ attendeeId: string }> }
+) {
+  const authResult = await requireApiUser()
+
+  if (authResult instanceof NextResponse) {
+    return authResult
+  }
+
+  try {
+    const normalizedAttendeeId = await getNormalizedAttendeeId(context)
+    const detail = await getAttendeeDetail(normalizedAttendeeId)
+
+    return NextResponse.json(detail)
+  } catch (error) {
+    console.error("Error loading attendee detail:", error)
+    const message = error instanceof Error ? error.message : "Invalid request"
+
+    if (
+      message === "Invalid attendeeId" ||
+      message.startsWith("Invalid 'attendeeId'")
+    ) {
+      return badRequest("Invalid attendeeId")
+    }
+
+    if (message.includes("not found")) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "NOT_FOUND",
+            message: "Attendee not found",
+          },
+        },
+        { status: 404 }
+      )
+    }
+
+    return NextResponse.json(
+      {
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to load attendee detail",
+        },
+      },
+      { status: 500 }
+    )
+  }
+}
 
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ attendeeId: string }> }
 ) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        },
-      },
-      { status: 401 }
-    )
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   try {
-    const { attendeeId } = await context.params
-
-    const normalizedAttendeeId = attendeeId.trim()
-    if (!normalizedAttendeeId) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "BAD_REQUEST",
-            message: "Invalid attendeeId",
-          },
-        },
-        { status: 400 }
-      )
-    }
+    const normalizedAttendeeId = await getNormalizedAttendeeId(context)
 
     const body = (await request.json()) as unknown
 
     if (!body || typeof body !== "object") {
-      return NextResponse.json(
-        {
-          error: {
-            code: "BAD_REQUEST",
-            message: "Request body must be a JSON object",
-          },
-        },
-        { status: 400 }
-      )
+      return badRequest("Request body must be a JSON object")
     }
 
     const input = body as Record<string, unknown>
 
-    // Only allow updating specific fields
-    const allowedFields: string[] = ["tikkieAmountOverrideMinor"]
+    const updateData: {
+      tikkieAmountOverrideMinor?: number
+      genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+    } = {}
 
-    const updateData: Record<string, unknown> = {}
-    for (const field of allowedFields) {
-      if (field in input) {
-        const value = input[field]
-        if (value === null || value === undefined) {
-          updateData[field] = undefined
-        } else if (
-          typeof value === "number" &&
-          Number.isInteger(value) &&
-          value >= 0
-        ) {
-          updateData[field] = value
-        } else if (typeof value === "number" && value === 0) {
-          // Allow 0 to clear the override
-          updateData[field] = undefined
-        }
+    if ("tikkieAmountOverrideMinor" in input) {
+      const value = input.tikkieAmountOverrideMinor
+
+      if (value === null || value === undefined || value === 0) {
+        updateData.tikkieAmountOverrideMinor = undefined
+      } else if (
+        typeof value === "number" &&
+        Number.isInteger(value) &&
+        value > 0
+      ) {
+        updateData.tikkieAmountOverrideMinor = value
+      } else {
+        return badRequest(
+          "Invalid tikkieAmountOverrideMinor. Expected a positive integer or null to clear."
+        )
+      }
+    }
+
+    if ("genderType" in input) {
+      const value = input.genderType
+
+      if (value === null || value === undefined || value === "") {
+        updateData.genderType = undefined
+      } else if (typeof value === "string" && GENDER_VALUES.has(value)) {
+        updateData.genderType = value as "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+      } else {
+        return badRequest(
+          "Invalid genderType. Expected one of: MALE, FEMALE, MIXED, UNKNOWN."
+        )
       }
     }
 
     if (Object.keys(updateData).length === 0) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "BAD_REQUEST",
-            message:
-              "No valid fields to update. Allowed fields: tikkieAmountOverrideMinor",
-          },
-        },
-        { status: 400 }
+      return badRequest(
+        "No valid fields to update. Allowed fields: tikkieAmountOverrideMinor, genderType"
       )
     }
 
-    const attendee = await convexMutation<
-      { attendeeId: string; tikkieAmountOverrideMinor?: number },
-      { id: string; tikkieAmountOverrideMinor: number | null }
-    >("attendees:updateAttendee", {
-      attendeeId: normalizedAttendeeId,
-      tikkieAmountOverrideMinor: updateData.tikkieAmountOverrideMinor as
-        | number
-        | undefined,
-    })
+    const mutationArgs: {
+      attendeeId: string
+      tikkieAmountOverrideMinor?: number
+      genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+    } = { attendeeId: normalizedAttendeeId }
+
+    if (updateData.tikkieAmountOverrideMinor !== undefined) {
+      mutationArgs.tikkieAmountOverrideMinor =
+        updateData.tikkieAmountOverrideMinor
+    }
+
+    if (updateData.genderType !== undefined) {
+      mutationArgs.genderType = updateData.genderType
+    }
+
+    await convexMutation(api.attendees.updateAttendee as any, mutationArgs)
 
     return NextResponse.json({
       attendee: {
-        id: attendee.id,
-        tikkieAmountOverrideMinor: attendee.tikkieAmountOverrideMinor,
+        id: normalizedAttendeeId,
+        tikkieAmountOverrideMinor: updateData.tikkieAmountOverrideMinor ?? null,
+        genderType: updateData.genderType ?? null,
       },
     })
   } catch (error) {
+    console.error("Error updating attendee detail:", error)
     const message = error instanceof Error ? error.message : "Invalid request"
 
     if (message.includes("not found")) {
@@ -125,15 +189,7 @@ export async function PATCH(
     }
 
     if (message.startsWith("Invalid")) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "BAD_REQUEST",
-            message,
-          },
-        },
-        { status: 400 }
-      )
+      return badRequest(message)
     }
 
     return NextResponse.json(

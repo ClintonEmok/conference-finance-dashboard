@@ -1,21 +1,36 @@
 "use client"
 
+import { use, useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
-import { useEffect, useMemo, useState } from "react"
-import { BedDouble, CalendarDays, ChevronRight, CreditCard, Mail, ReceiptText, UserRound } from "lucide-react"
-
-import {
-  TikkieLinkDialog,
-  type TikkieLinkDialogDefaults,
-  type TikkieLinkDialogValues,
-} from "@/components/dashboard/tikkie-link-dialog"
-import {
-  TikkieLinkSummary,
-  type TikkieLinkSummaryRecord,
-} from "@/components/dashboard/tikkie-link-summary"
+import { usePathname } from "next/navigation"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
+import { formatMoney } from "@/lib/format"
+import {
+  BedDouble,
+  ChevronRight,
+  CreditCard,
+  FileText,
+  Flag,
+  Mail,
+  MapPin,
+  ReceiptText,
+  Tag,
+  UserRound,
+  Utensils,
+  Users,
+  Calendar,
+  Clock,
+  ArrowLeft,
+  ExternalLink,
+  ShieldCheck,
+  Zap,
+  CheckCircle2,
+  XCircle,
+  Layers,
+} from "lucide-react"
 
 type AttendeeDetailPayload = {
   attendee: {
@@ -23,12 +38,10 @@ type AttendeeDetailPayload = {
     name: string | null
     email: string | null
     ticketTypeLabel: string | null
+    amountDueMinor: number
     ticketStatus: string | null
     checkedInAt: string | null
     providerIssuedTicketId: string | null
-    providerOrderId: string
-    providerEventId: string
-    tikkieAmountOverrideMinor: number | null
   }
   event: {
     id: string
@@ -36,17 +49,17 @@ type AttendeeDetailPayload = {
   }
   order: {
     id: string
-    providerOrderId: string
-    providerEventId: string
     buyerName: string | null
     buyerEmail: string | null
     normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
     orderedAt: string | null
+    amountDueMinor: number
     totalAmountMinor: number
   }
   finance: {
     outstandingAmountMinor: number
     paidAmountMinor: number
+    overpaidAmountMinor: number
     installmentProgress: {
       totalLinks: number
       paidLinks: number
@@ -54,33 +67,9 @@ type AttendeeDetailPayload = {
       expiredLinks: number
     }
   }
-  tikkie: {
-    latestLink: TikkieLinkSummaryRecord | null
-    history: TikkieLinkSummaryRecord[]
-    providerLastCheckedAt: string | null
-    latestLinkCheckState: "fresh" | "stale" | null
-    generationDefaults: {
-      amountMinor: number
-      expiryDate: string
-      description: string
-      referenceId: string
-    }
-    templateFallback: {
-      hasTemplate: boolean
-      source: "override" | "template" | "default"
-      amountMinor: number | null
-      description: string | null
-    } | null
-    actions: {
-      createEndpoint: string
-      listEndpoint: string
-      refreshEndpoint: string
-      updateOverrideEndpoint: string
-    }
-  }
   paymentHistory: Array<{
     id: string
-    type: "payment-link" | "status-transition"
+    type: "payment-link" | "status-transition" | "assigned-payment"
     title: string
     status: string
     amountMinor: number | null
@@ -100,744 +89,466 @@ type AttendeeDetailPayload = {
         roomLabel: null
         hotelName: null
         roomTypeLabel: null
+        expectedRoomTypeLabel: string | null
       }
-}
-
-function formatMoney(minor: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(minor / 100)
-}
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return "-"
+  signals: {
+    genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+    location: string | null
+    remarks: string | null
+    dietary: string | null
+    roommatePreference: string | null
+    allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+    priorityReason: string | null
+    ageGroup: string | null
+    ticketCategory: string | null
   }
-
-  const parsed = new Date(value)
-
-  if (Number.isNaN(parsed.getTime())) {
-    return value
-  }
-
-  return parsed.toLocaleString()
 }
 
-function formatStatusLabel(value: string | null) {
-  if (!value) {
-    return "-"
-  }
+type GenderType = "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
 
-  return value.replace(/[-_]/g, " ")
-}
-
-function paymentMethodLabel(entry: AttendeeDetailPayload["paymentHistory"][number]) {
-  return entry.type === "payment-link" ? "Tikkie" : "Status update"
-}
-
-function paymentMethodClasses(entry: AttendeeDetailPayload["paymentHistory"][number]) {
-  if (entry.type === "payment-link") {
-    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
-  }
-
-  return "bg-slate-100 text-slate-700 dark:bg-slate-900/60 dark:text-slate-300"
-}
-
-type PageProps = {
-  params: Promise<{
-    attendeeId: string
-  }>
-}
-
-export default function AttendeeDetailPage({ params }: PageProps) {
-  const searchParams = useSearchParams()
-  const [attendeeId, setAttendeeId] = useState<string | null>(null)
+export default function AttendeeDetailPage({
+  params,
+}: {
+  params: Promise<{ attendeeId: string }>
+}) {
+  const { attendeeId: rawAttendeeId } = use(params)
+  const pathname = usePathname()
   const [payload, setPayload] = useState<AttendeeDetailPayload | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [isTikkieDialogOpen, setIsTikkieDialogOpen] = useState(false)
-  const [isSubmittingTikkie, setIsSubmittingTikkie] = useState(false)
-  const [isRefreshingTikkie, setIsRefreshingTikkie] = useState(false)
-  const [isCopyingLatestLink, setIsCopyingLatestLink] = useState(false)
-  const [tikkieError, setTikkieError] = useState<string | null>(null)
-  const [isEditingOverride, setIsEditingOverride] = useState(false)
-  const [overrideValue, setOverrideValue] = useState<string>("")
-  const [isSavingOverride, setIsSavingOverride] = useState(false)
-  const [overrideError, setOverrideError] = useState<string | null>(null)
+  const [selectedGender, setSelectedGender] = useState<"" | GenderType>("")
+  const [isSavingGender, setIsSavingGender] = useState(false)
+  
+  const attendeeId = rawAttendeeId?.trim() ?? ""
+  const eventSlug = pathname.match(/^\/dashboard\/events\/([^/]+)\/attendees\//)?.[1] ?? null
+  const backHref = eventSlug ? `/dashboard/events/${eventSlug}/attendees` : "/dashboard/attendees"
+  const orderLinkHref = payload
+    ? eventSlug
+      ? `/dashboard/events/${eventSlug}/orders/${payload.order.id}`
+      : `/dashboard/manage-orders/${payload.order.id}`
+    : "#"
 
-  const attendeeSearch = searchParams.get("search")
-  const eventId = searchParams.get("eventId")
-  const source = searchParams.get("source")
-
-  const backToAttendeesHref = (() => {
-    const params = new URLSearchParams()
-
-    if (attendeeSearch) {
-      params.set("search", attendeeSearch)
-    }
-
-    if (eventId) {
-      params.set("eventId", eventId)
-    }
-
-    if (source) {
-      params.set("source", source)
-    }
-
-    const query = params.toString()
-    return query ? `/dashboard/attendees?${query}` : "/dashboard/attendees"
-  })()
-
-  const manageRoomAssignmentHref = (() => {
-    if (!attendeeId) {
-      return "/dashboard/accommodation"
-    }
-
-    const params = new URLSearchParams({
-      attendeeId,
-      source: "attendee-detail",
-    })
-
-    if (payload?.attendee.name) {
-      params.set("search", payload.attendee.name)
-    } else if (attendeeSearch) {
-      params.set("search", attendeeSearch)
-    }
-
-    if (eventId ?? payload?.attendee.providerEventId) {
-      params.set("eventId", eventId ?? payload?.attendee.providerEventId ?? "")
-    }
-
-    return `/dashboard/accommodation?${params.toString()}`
-  })()
-
-  async function loadAttendeeDetail(targetAttendeeId: string, options?: { silent?: boolean }) {
-    if (!options?.silent) {
-      setIsLoading(true)
-    }
-
-    setErrorMessage(null)
-
-    try {
-      const response = await fetch(`/api/dashboard/attendees/${targetAttendeeId}`)
-      const body = (await response.json().catch(() => null)) as
-        | AttendeeDetailPayload
-        | { error?: { message?: string } }
-        | null
-
-      if (!response.ok) {
-        setPayload(null)
-        setErrorMessage(
-          body && "error" in body ? body.error?.message ?? "Failed to load attendee detail." : "Failed to load attendee detail.",
-        )
-        return false
-      }
-
-      setPayload(body as AttendeeDetailPayload)
-      return true
-    } catch {
-      setPayload(null)
-      setErrorMessage("Network error while loading attendee detail.")
-      return false
-    } finally {
-      if (!options?.silent) {
+  const loadAttendeeDetail = useCallback(
+    async (targetId: string, silent = false) => {
+      if (!silent) setIsLoading(true)
+      try {
+        const res = await fetch(`/api/dashboard/attendees/${targetId}`)
+        if (!res.ok) throw new Error("Failed to load")
+        const data = await res.json()
+        setPayload(data)
+        setSelectedGender(data.signals.genderType ?? "")
+      } catch {
+        setErrorMessage("Failed to load attendee information.")
+      } finally {
         setIsLoading(false)
       }
-    }
-  }
+    },
+    []
+  )
 
   useEffect(() => {
-    let cancelled = false
-
-    async function resolveParamsAndLoad() {
-      const resolved = await params
-
-      if (cancelled) {
-        return
-      }
-
-      setAttendeeId(resolved.attendeeId)
-      if (!cancelled) {
-        await loadAttendeeDetail(resolved.attendeeId)
-      }
+    if (attendeeId) {
+      loadAttendeeDetail(attendeeId)
     }
+  }, [attendeeId, loadAttendeeDetail])
 
-    void resolveParamsAndLoad()
-
-    return () => {
-      cancelled = true
+  const handleSaveGender = async () => {
+    if (!attendeeId) return
+    setIsSavingGender(true)
+    try {
+      const res = await fetch(`/api/dashboard/attendees/${attendeeId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ genderType: selectedGender || null }),
+      })
+      if (!res.ok) throw new Error()
+      loadAttendeeDetail(attendeeId, true)
+    } finally {
+      setIsSavingGender(false)
     }
-  }, [params])
+  }
 
-  const paymentProgress = useMemo(() => {
-    if (!payload || payload.order.totalAmountMinor <= 0) {
-      return 0
-    }
+  if (isLoading) {
+    return (
+      <div className="space-y-8 animate-pulse">
+        <Skeleton className="h-48 w-full rounded-2xl" />
+        <div className="grid gap-8 lg:grid-cols-3">
+          <Skeleton className="h-[600px] rounded-2xl lg:col-span-2" />
+          <Skeleton className="h-[600px] rounded-2xl" />
+        </div>
+      </div>
+    )
+  }
 
-    return Math.max(0, Math.min(100, Math.round((payload.finance.paidAmountMinor / payload.order.totalAmountMinor) * 100)))
-  }, [payload])
+  if (!payload) {
+    return (
+      <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-12 text-center">
+        <XCircle className="mx-auto mb-4 size-16 text-destructive opacity-20" />
+        <h3 className="text-xl font-bold text-destructive">Not Found</h3>
+        <p className="text-sm text-destructive/70 max-w-md mx-auto mt-2">
+          {errorMessage || "The attendee you're looking for doesn't exist or has been removed."}
+        </p>
+        <Button variant="outline" className="mt-8 rounded-xl border-destructive/20 text-destructive hover:bg-destructive/10" asChild>
+          <Link href={backHref}>Back to Attendees</Link>
+        </Button>
+      </div>
+    )
+  }
 
-  const attendeeName = payload?.attendee.name ?? "Unnamed attendee"
-  const attendeeInitials = attendeeName
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
+  const initials = payload.attendee.name
+    ?.split(" ")
+    .map((n) => n[0])
     .join("")
-
-  const tikkieDialogDefaults: TikkieLinkDialogDefaults | null = payload
-    ? {
-        providerOrderId: payload.attendee.providerOrderId,
-        providerEventId: payload.attendee.providerEventId,
-        ...payload.tikkie.generationDefaults,
-      }
-    : null
-
-  async function handleCreateTikkieLink(values: TikkieLinkDialogValues) {
-    if (!payload) {
-      return
-    }
-
-    setIsSubmittingTikkie(true)
-    setTikkieError(null)
-
-    try {
-      const response = await fetch(payload.tikkie.actions.createEndpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          providerOrderId: payload.attendee.providerOrderId,
-          providerEventId: payload.attendee.providerEventId,
-          amountMinor: values.amountMinor,
-          description: values.description,
-          expiryDate: values.expiryDate,
-          referenceId: values.referenceId,
-        }),
-      })
-      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
-
-      if (!response.ok) {
-        setTikkieError(body?.error?.message ?? `Failed to create link (${response.status}).`)
-        return
-      }
-
-      setIsTikkieDialogOpen(false)
-      await loadAttendeeDetail(payload.attendee.id, { silent: true })
-    } catch {
-      setTikkieError("Network error while creating link.")
-    } finally {
-      setIsSubmittingTikkie(false)
-    }
-  }
-
-  async function handleRefreshTikkie() {
-    if (!payload) {
-      return
-    }
-
-    setIsRefreshingTikkie(true)
-    setTikkieError(null)
-
-    try {
-      const response = await fetch(payload.tikkie.actions.refreshEndpoint)
-      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
-
-      if (!response.ok) {
-        setTikkieError(body?.error?.message ?? `Failed to refresh link status (${response.status}).`)
-        return
-      }
-
-      await loadAttendeeDetail(payload.attendee.id, { silent: true })
-    } catch {
-      setTikkieError("Network error while refreshing Tikkie status.")
-    } finally {
-      setIsRefreshingTikkie(false)
-    }
-  }
-
-  async function handleCopyLatestLink(url: string) {
-    setIsCopyingLatestLink(true)
-    setTikkieError(null)
-
-    try {
-      await navigator.clipboard.writeText(url)
-    } catch {
-      setTikkieError("Clipboard permission denied. Copy the URL manually.")
-    } finally {
-      setIsCopyingLatestLink(false)
-    }
-  }
-
-  async function handleSaveOverride() {
-    if (!payload) {
-      return
-    }
-
-    const euros = Number.parseFloat(overrideValue.trim())
-    if (isNaN(euros) || euros <= 0) {
-      setOverrideError("Please enter a valid positive amount in euros.")
-      return
-    }
-
-    setIsSavingOverride(true)
-    setOverrideError(null)
-
-    try {
-      const response = await fetch(payload.tikkie.actions.updateOverrideEndpoint, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tikkieAmountOverrideMinor: Math.round(euros * 100) }),
-      })
-
-      if (!response.ok) {
-        const body = (await response.json()) as { error?: { message?: string } } | null
-        throw new Error(body?.error?.message ?? "Failed to save override")
-      }
-
-      setIsEditingOverride(false)
-      await loadAttendeeDetail(payload.attendee.id, { silent: true })
-    } catch (err) {
-      setOverrideError(err instanceof Error ? err.message : "Failed to save override")
-    } finally {
-      setIsSavingOverride(false)
-    }
-  }
-
-  async function handleClearOverride() {
-    if (!payload) {
-      return
-    }
-
-    setIsSavingOverride(true)
-    setOverrideError(null)
-
-    try {
-      const response = await fetch(payload.tikkie.actions.updateOverrideEndpoint, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tikkieAmountOverrideMinor: null }),
-      })
-
-      if (!response.ok) {
-        const body = (await response.json()) as { error?: { message?: string } } | null
-        throw new Error(body?.error?.message ?? "Failed to clear override")
-      }
-
-      setIsEditingOverride(false)
-      await loadAttendeeDetail(payload.attendee.id, { silent: true })
-    } catch (err) {
-      setOverrideError(err instanceof Error ? err.message : "Failed to clear override")
-    } finally {
-      setIsSavingOverride(false)
-    }
-  }
+    .toUpperCase()
+    .slice(0, 2)
+  const paid = payload.finance.paidAmountMinor
+  const due = payload.attendee.amountDueMinor
+  const paymentProgress = due === 0 ? 100 : Math.min(100, Math.round((paid / due) * 100))
 
   return (
-    <section className="space-y-6">
-      {errorMessage && (
-        <article className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
-          {errorMessage}
-        </article>
-      )}
+    <div className="animate-in space-y-8 pb-12 duration-700 fade-in slide-in-from-bottom-4">
+      {/* Hero Section */}
+      <header className="relative overflow-hidden rounded-2xl border border-white/40 bg-white/40 p-8 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+        <div className="absolute -top-20 -right-20 size-64 rounded-full bg-primary/5 blur-3xl" />
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-center">
+          <div className="relative group">
+            <div className="flex size-32 items-center justify-center rounded-2xl border border-white/60 bg-white/50 text-4xl font-black text-primary shadow-sm dark:border-white/10 dark:bg-white/5 transition-transform group-hover:scale-105 duration-500">
+              {initials}
+            </div>
+            <div
+              className={cn(
+                "absolute -right-2 -bottom-2 flex size-10 items-center justify-center rounded-full border-4 border-white/80 dark:border-zinc-900 shadow-md",
+                payload.attendee.ticketStatus === "checked_in" ? "bg-emerald-500" : "bg-orange-500"
+              )}
+            >
+              {payload.attendee.ticketStatus === "checked_in" ? (
+                <ShieldCheck className="size-5 text-white" />
+              ) : (
+                <Clock className="size-5 text-white animate-pulse" />
+              )}
+            </div>
+          </div>
 
-      {!errorMessage && isLoading && (
-        <article className="rounded-xl border border-border bg-background/80 p-5 text-sm text-muted-foreground shadow-sm backdrop-blur">
-          Loading attendee detail...
-        </article>
-      )}
-
-      {!errorMessage && !isLoading && payload && (
-        <>
-          <section className="rounded-xl border border-border/70 bg-background/88 p-5 shadow-sm backdrop-blur">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-              <div className="flex gap-4">
-                <div className="flex size-28 shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(145deg,rgba(113,84,255,0.18),rgba(83,56,171,0.12))] text-3xl font-semibold text-primary shadow-inner">
-                  {attendeeInitials || "A"}
+          <div className="flex-1 space-y-4">
+            <div>
+              <h1 className="text-4xl font-black tracking-tight text-foreground lg:text-5xl">
+                {payload.attendee.name}
+              </h1>
+              <div className="mt-4 flex flex-wrap items-center gap-4">
+                <Badge
+                  variant="outline"
+                  className="rounded-xl border-primary/20 bg-primary/5 px-3 py-1 text-[10px] font-black tracking-widest text-primary uppercase"
+                >
+                  {payload.attendee.ticketTypeLabel}
+                </Badge>
+                <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground/80">
+                  <Mail className="size-4 text-primary/40" />
+                  {payload.attendee.email}
                 </div>
-
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-                    <span>Directory</span>
-                    <ChevronRight className="size-3" />
-                    <span>Attendee details</span>
-                  </div>
-
-                  <div>
-                    <h2 className="text-4xl font-semibold tracking-tight text-primary md:text-5xl">{attendeeName}</h2>
-                    <p className="mt-2 text-lg text-muted-foreground">
-                      {payload.attendee.ticketTypeLabel ?? payload.event.name ?? payload.attendee.providerEventId}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <span className="rounded-full border border-border/70 bg-background px-3 py-1.5">
-                      Event: {payload.event.name ?? payload.attendee.providerEventId}
-                    </span>
-                    <span className="rounded-full border border-border/70 bg-background px-3 py-1.5">
-                      Order: {payload.order.providerOrderId}
-                    </span>
-                    <span className="rounded-full border border-border/70 bg-background px-3 py-1.5 capitalize">
-                      Status: {payload.order.normalizedStatus}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex min-w-[250px] flex-col gap-2">
-                <Button asChild variant="outline" className="justify-start">
-                  <Link href={backToAttendeesHref}>Back to attendees</Link>
-                </Button>
-                <Button asChild className="justify-start">
-                  <Link href={manageRoomAssignmentHref}>Manage room assignment</Link>
-                </Button>
               </div>
             </div>
-          </section>
+          </div>
 
-          <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_340px]">
-            <Card className="bg-background/88 backdrop-blur">
-              <CardHeader className="flex flex-wrap items-center justify-between gap-3 sm:flex-row">
-                <div>
-                  <CardTitle className="text-2xl text-primary">Financial status</CardTitle>
-                  <CardDescription>Live payment health across Ticket Tailor and Tikkie activity.</CardDescription>
-                </div>
-                <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.18em] text-primary">
-                  {payload.finance.installmentProgress.totalLinks > 0 ? "Installments active" : "No installments"}
-                </span>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Total amount due</p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight">{formatMoney(payload.order.totalAmountMinor)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Amount paid</p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-700 dark:text-emerald-300">
-                      {formatMoney(payload.finance.paidAmountMinor)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Remaining balance</p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight text-rose-600 dark:text-rose-300">
-                      {formatMoney(payload.finance.outstandingAmountMinor)}
-                    </p>
-                  </div>
-                </div>
+          <div className="flex flex-wrap gap-4">
+            <Button
+              asChild
+              variant="outline"
+              className="h-12 rounded-2xl border-white/40 bg-white/40 px-6 font-bold shadow-sm backdrop-blur transition-all hover:bg-white/60 active:scale-95 dark:border-white/10 dark:bg-white/5"
+            >
+              <Link href={orderLinkHref}>
+                <CreditCard className="mr-3 size-4 text-primary" /> Order Detail
+              </Link>
+            </Button>
+            <Button
+              asChild
+              className="h-12 rounded-2xl bg-primary px-8 font-black text-white shadow-lg shadow-primary/20 transition-all hover:shadow-primary/40 active:scale-95"
+            >
+              <Link
+                href={`/dashboard/accommodation?attendeeId=${payload.attendee.id}&search=${encodeURIComponent(payload.attendee.name || "")}`}
+              >
+                <BedDouble className="mr-3 size-4" /> Room Placement
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </header>
 
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-lg font-medium">Payment progress</p>
-                    <p className="text-2xl font-semibold text-primary">{paymentProgress}%</p>
-                  </div>
-                  <div className="h-3 rounded-full bg-muted">
-                    <div
-                      className="h-3 rounded-full bg-[linear-gradient(90deg,#0f6b21,#6bcc74)]"
-                      style={{ width: `${paymentProgress}%` }}
-                    />
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    {payload.finance.installmentProgress.openLinks} open links, {payload.finance.installmentProgress.expiredLinks} expired,
-                    {" "}{payload.finance.installmentProgress.paidLinks} paid.
+      <div className="grid gap-8 lg:grid-cols-3">
+        {/* Left Column: Ledger & Activity */}
+        <div className="space-y-8 lg:col-span-2">
+          {/* Order Ledger */}
+          <article className="rounded-2xl border border-white/40 bg-white/40 p-8 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+            <div className="mb-8 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-black tracking-tight text-foreground">
+                  Order Ledger
+                </h3>
+                <p className="text-xs font-medium text-muted-foreground/60">Financial settlement status</p>
+              </div>
+              <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <Zap className="size-6" />
+              </div>
+            </div>
+
+            <div className="mb-8 grid gap-4 grid-cols-1 sm:grid-cols-3">
+              {[
+                { label: "Total Due", value: formatMoney(payload.attendee.amountDueMinor), color: "text-foreground", bg: "bg-white/50 dark:bg-white/5" },
+                { label: "Amount Paid", value: formatMoney(payload.finance.paidAmountMinor), color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/5" },
+                { label: "Outstanding", value: formatMoney(payload.finance.outstandingAmountMinor), color: "text-rose-600 dark:text-rose-400", bg: "bg-rose-500/5" }
+              ].map((stat, i) => (
+                <div key={i} className={cn("rounded-2xl border border-white/60 p-5 shadow-sm dark:border-white/5", stat.bg)}>
+                  <p className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/60 uppercase mb-2 px-1">
+                    {stat.label}
+                  </p>
+                  <p className={cn("text-2xl font-black tabular-nums tracking-tighter", stat.color)}>
+                    {stat.value}
                   </p>
                 </div>
+              ))}
+            </div>
 
-                <div className="space-y-4 rounded-2xl border border-border/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,0.88))] p-4 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.68),rgba(17,24,39,0.76))]">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-700 dark:text-cyan-300">
-                        Tikkie follow-up
-                      </p>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Keep the latest link visible here so payment follow-up stays in the same attendee context.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={isSubmittingTikkie || payload.finance.outstandingAmountMinor <= 0}
-                      onClick={() => {
-                        setTikkieError(null)
-                        setIsTikkieDialogOpen(true)
-                      }}
-                    >
-                      {isSubmittingTikkie ? "Generating..." : "Generate Tikkie link"}
-                    </Button>
-                  </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[10px] font-black tracking-widest text-foreground uppercase">
+                  Settlement Progress
+                </span>
+                <span className="text-xs font-black text-primary tabular-nums">
+                  {paymentProgress}%
+                </span>
+              </div>
+              <div className="h-4 overflow-hidden rounded-full bg-black/5 p-1 dark:bg-white/5">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-primary via-primary to-emerald-500 transition-all duration-1000 shadow-[0_0_12px_rgba(var(--primary-rgb),0.3)]"
+                  style={{ width: `${paymentProgress}%` }}
+                />
+              </div>
+            </div>
+          </article>
 
-                  {/* Amount Override Section */}
-                  <div className="rounded-lg border border-slate-200/80 bg-white/60 p-3 dark:border-slate-800 dark:bg-slate-900/40">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex-1">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                          Amount override
-                        </p>
-                        {payload.attendee.tikkieAmountOverrideMinor !== null ? (
-                          <div className="mt-1">
-                            <p className="text-lg font-semibold text-foreground">
-                              {formatMoney(payload.attendee.tikkieAmountOverrideMinor)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Custom amount for this attendee (overrides template/default)
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="mt-1">
-                            <p className="text-sm text-muted-foreground">No override set</p>
-                            {payload.tikkie.templateFallback && (
-                              <p className="text-xs text-muted-foreground">
-                                Template fallback: {formatMoney(payload.tikkie.templateFallback.amountMinor ?? 0)}
-                                {payload.tikkie.templateFallback.source === "template" && " from ticket type template"}
-                              </p>
+          {/* Activity Ledger */}
+          <article className="overflow-hidden rounded-2xl border border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+            <div className="p-8 pb-6 text-center sm:text-left">
+              <h3 className="text-xl font-black tracking-tight text-foreground">
+                Activity Ledger
+              </h3>
+              <p className="mt-1 text-xs font-medium text-muted-foreground/60 px-1">
+                Historical timeline of transactions and status events.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="border-y border-white/20 bg-white/10 dark:border-white/5">
+                  <tr>
+                    <th className="px-8 py-4 text-[10px] font-black tracking-widest text-muted-foreground uppercase">
+                      Event Detail
+                    </th>
+                    <th className="px-8 py-4 text-[10px] font-black tracking-widest text-muted-foreground uppercase">
+                      Timestamp
+                    </th>
+                    <th className="px-8 py-4 text-right text-[10px] font-black tracking-widest text-muted-foreground uppercase">
+                      Amount
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/10 dark:divide-white/5">
+                  {payload.paymentHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="px-8 py-12 text-center text-muted-foreground/40 text-xs font-bold uppercase tracking-widest">
+                        No activity recorded
+                      </td>
+                    </tr>
+                  ) : (
+                    payload.paymentHistory.map((item) => (
+                      <tr
+                        key={item.id}
+                        className="transition-colors hover:bg-white/40 dark:hover:bg-white/5 group"
+                      >
+                        <td className="px-8 py-5">
+                          <p className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">
+                            {item.title}
+                          </p>
+                          <div className="mt-2 flex items-center gap-3">
+                            <Badge
+                              variant="secondary"
+                              className="rounded-lg h-5 px-2 text-[9px] font-black text-muted-foreground uppercase tracking-widest"
+                            >
+                              {item.type.replace("-", " ")}
+                            </Badge>
+                            {item.url && (
+                              <a
+                                href={item.url}
+                                target="_blank"
+                                className="flex items-center gap-1.5 text-[9px] font-black tracking-widest text-primary uppercase hover:underline"
+                              >
+                                <ExternalLink className="size-3" /> Tikkie Link
+                              </a>
                             )}
                           </div>
-                        )}
-                      </div>
-                      {!isEditingOverride ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setOverrideValue(payload.attendee.tikkieAmountOverrideMinor !== null ? (payload.attendee.tikkieAmountOverrideMinor / 100).toFixed(2) : "")
-                            setOverrideError(null)
-                            setIsEditingOverride(true)
-                          }}
-                        >
-                          {payload.attendee.tikkieAmountOverrideMinor !== null ? "Edit override" : "Set override"}
-                        </Button>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setIsEditingOverride(false)
-                              setOverrideError(null)
-                            }}
-                            disabled={isSavingOverride}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              void handleClearOverride()
-                            }}
-                            disabled={isSavingOverride}
-                          >
-                            Clear
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    {isEditingOverride && (
-                      <form
-                        className="mt-3 flex items-end gap-2"
-                        onSubmit={(e) => {
-                          e.preventDefault()
-                          void handleSaveOverride()
-                        }}
-                      >
-                        <div className="flex-1">
-                          <label htmlFor="overrideAmount" className="sr-only">
-                            Amount in cents
-                          </label>
-                          <input
-                            id="overrideAmount"
-                            type="number"
-                            min={1}
-                            step={1}
-                            value={overrideValue}
-                            onChange={(e) => setOverrideValue(e.target.value)}
-                            placeholder="Amount in cents (e.g. 2500 for €25.00)"
-                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                            disabled={isSavingOverride}
-                          />
-                        </div>
-                        <Button type="submit" size="sm" disabled={isSavingOverride || !overrideValue.trim()}>
-                          {isSavingOverride ? "Saving..." : "Save"}
-                        </Button>
-                      </form>
-                    )}
-
-                    {overrideError && (
-                      <div className="mt-2 text-xs text-rose-600 dark:text-rose-300">{overrideError}</div>
-                    )}
-                  </div>
-
-                  {payload.finance.outstandingAmountMinor <= 0 && (
-                    <p className="text-sm text-muted-foreground">No remaining balance to generate a new payment link.</p>
+                        </td>
+                        <td className="px-8 py-5 text-xs font-bold text-muted-foreground/70 tabular-nums">
+                          {new Date(item.happenedAt).toLocaleDateString("en-GB", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </td>
+                        <td className="px-8 py-5 text-right font-black text-foreground tabular-nums tracking-tighter">
+                          {item.amountMinor ? formatMoney(item.amountMinor) : "—"}
+                        </td>
+                      </tr>
+                    ))
                   )}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
 
-                  <TikkieLinkSummary
-                    latestLink={payload.tikkie.latestLink}
-                    history={payload.tikkie.history}
-                    isLoading={isRefreshingTikkie}
-                    isCopying={isCopyingLatestLink}
-                    emptyState="No Tikkie link has been generated for this order yet."
-                    onCopy={(url) => void handleCopyLatestLink(url)}
-                    onRefresh={() => void handleRefreshTikkie()}
-                  />
-
-                  {tikkieError && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200">
-                      {tikkieError}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            <article className="overflow-hidden rounded-xl bg-[linear-gradient(145deg,rgba(15,54,138,0.96),rgba(20,64,156,0.92))] text-primary-foreground shadow-[0_20px_56px_rgba(16,43,113,0.24)]">
-              <div className="border-b border-white/10 px-6 py-5">
-                <div className="flex items-center gap-3">
-                  <span className="flex size-10 items-center justify-center rounded-lg bg-white/10">
-                    <BedDouble className="size-5" />
+        {/* Right Column: Information & Signals */}
+        <div className="space-y-8">
+          {/* Live Accommodation */}
+          <article className="relative min-h-[220px] flex flex-col justify-between rounded-2xl bg-indigo-600 p-8 text-white shadow-xl shadow-indigo-500/10 dark:shadow-indigo-900/40 group overflow-hidden">
+             <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform duration-700">
+               <BedDouble className="size-40" />
+             </div>
+            <div className="flex items-start justify-between relative z-10">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur-md shadow-inner">
+                <BedDouble className="size-6" />
+              </div>
+              <Badge className="border-none bg-white/20 text-[9px] font-black tracking-widest text-white uppercase hover:bg-white/30 px-2 py-0.5">
+                {payload.roomStatus.status}
+              </Badge>
+            </div>
+            <div className="relative z-10">
+              <p className="text-[10px] font-black tracking-[0.2em] text-indigo-200/60 uppercase mb-1 px-1">
+                Accommodation Status
+              </p>
+              <h3 className="truncate text-3xl font-black text-white tracking-tight">
+                {payload.roomStatus.status === "assigned"
+                  ? payload.roomStatus.hotelName
+                  : "Unassigned"}
+              </h3>
+              {payload.roomStatus.status === "assigned" && (
+                <div className="mt-4 flex flex-wrap items-center gap-4 text-xs font-black text-indigo-100 uppercase tracking-widest">
+                  <span className="flex items-center gap-2 bg-white/10 px-2.5 py-1 rounded-lg">
+                    <Layers className="size-3.5" /> {payload.roomStatus.roomLabel}
                   </span>
-                  <h3 className="text-2xl font-semibold tracking-tight">Accommodation</h3>
+                  <span className="flex items-center gap-2 bg-white/10 px-2.5 py-1 rounded-lg">
+                    <Users className="size-3.5" /> {payload.roomStatus.roomTypeLabel}
+                  </span>
+                </div>
+              )}
+              {payload.roomStatus.status === "unassigned" &&
+                payload.roomStatus.expectedRoomTypeLabel && (
+                  <p className="mt-4 text-[10px] font-black text-indigo-200 bg-white/10 px-3 py-1.5 rounded-xl inline-block uppercase tracking-widest">
+                    Preferred: {payload.roomStatus.expectedRoomTypeLabel}
+                  </p>
+                )}
+            </div>
+          </article>
+
+          {/* Signals & Metadata */}
+          <article className="rounded-2xl border border-white/40 bg-white/40 p-8 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+            <h3 className="mb-6 flex items-center gap-2 text-[11px] font-black tracking-[0.2em] text-foreground uppercase">
+              <UserRound className="size-4 text-primary" /> Profile Signals
+            </h3>
+
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <label className="ml-1 text-[10px] font-black tracking-widest text-muted-foreground/60 uppercase">
+                  Gender Identification
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={selectedGender}
+                    onChange={(e) => setSelectedGender(e.target.value as any)}
+                    className="h-10 flex-1 rounded-xl border border-white/40 bg-white/50 px-3 text-xs font-bold transition-all focus:ring-2 focus:ring-primary/20 dark:bg-black/20"
+                  >
+                    <option value="">Not set</option>
+                    <option value="MALE">Male</option>
+                    <option value="FEMALE">Female</option>
+                    <option value="MIXED">Mixed</option>
+                    <option value="UNKNOWN">Unknown</option>
+                  </select>
+                  <Button
+                    size="sm"
+                    onClick={handleSaveGender}
+                    disabled={
+                      isSavingGender ||
+                      payload.signals.genderType === selectedGender
+                    }
+                    className="h-10 rounded-xl px-5 font-bold transition-all active:scale-95"
+                  >
+                    {isSavingGender ? "..." : "Save"}
+                  </Button>
                 </div>
               </div>
 
-              <div className="space-y-5 px-6 py-6 text-sm">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-primary-foreground/70">Assigned hotel</p>
-                  <p className="mt-2 text-2xl font-semibold leading-tight">
-                    {payload.roomStatus.status === "assigned" ? payload.roomStatus.hotelName : "Not assigned yet"}
-                  </p>
-                </div>
+              <div className="grid gap-3">
+                {[
+                  { label: "Category", value: payload.signals.ticketCategory, icon: Tag },
+                  { label: "Age Group", value: payload.signals.ageGroup, icon: Calendar },
+                  { label: "Location", value: payload.signals.location, icon: MapPin },
+                  { label: "Dietary", value: payload.signals.dietary, icon: Utensils },
+                  { label: "Roommate", value: payload.signals.roommatePreference, icon: Users },
+                  { 
+                    label: "Priority", 
+                    value: payload.signals.allocationPriority, 
+                    icon: Flag, 
+                    urgent: payload.signals.allocationPriority === "CRITICAL" || payload.signals.allocationPriority === "HIGH" 
+                  },
+                ]
+                  .filter((i) => i.value)
+                  .map((item) => (
+                    <div
+                      key={item.label}
+                      className={cn(
+                        "flex items-center gap-4 rounded-2xl border p-4 transition-all hover:border-white/60 dark:hover:border-white/20",
+                        item.urgent ? "border-rose-500/20 bg-rose-500/5" : "border-white/20 bg-white/30 dark:bg-white/5"
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "flex size-10 items-center justify-center rounded-xl shadow-sm",
+                          item.urgent ? "bg-rose-500 text-white" : "bg-primary/10 text-primary"
+                        )}
+                      >
+                        <item.icon className="size-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[9px] font-black tracking-widest text-muted-foreground/60 uppercase">
+                          {item.label}
+                        </p>
+                        <p
+                          className={cn(
+                            "mt-0.5 truncate text-sm font-black tracking-tight",
+                            item.urgent ? "text-rose-600 dark:text-rose-400" : "text-foreground"
+                          )}
+                        >
+                          {item.value}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </article>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-primary-foreground/70">Room</p>
-                    <p className="mt-2 text-xl font-semibold">{payload.roomStatus.roomLabel ?? "-"}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-primary-foreground/70">Type</p>
-                    <p className="mt-2 text-xl font-semibold">{payload.roomStatus.roomTypeLabel ?? "-"}</p>
-                  </div>
-                </div>
-
-                <Button asChild variant="secondary" className="w-full justify-center bg-white/10 text-primary-foreground hover:bg-white/16">
-                  <Link href={manageRoomAssignmentHref}>Manage room assignment</Link>
-                </Button>
+          {/* Remarks Card */}
+          {payload.signals.remarks && (
+            <article className="rounded-2xl border border-white/40 bg-white/40 p-8 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20 group">
+              <h3 className="mb-4 flex items-center gap-2 text-[11px] font-black tracking-widest text-foreground uppercase">
+                <FileText className="size-4 text-primary" /> Observations
+              </h3>
+              <div className="relative rounded-2xl border border-primary/10 bg-primary/5 p-5 text-sm leading-relaxed text-foreground/80 font-medium italic shadow-inner dark:border-primary/20">
+                <span className="absolute -top-3 -left-1 text-5xl text-primary/10 font-serif">&ldquo;</span>
+                {payload.signals.remarks}
+                <span className="absolute -bottom-6 -right-1 text-5xl text-primary/10 font-serif">&rdquo;</span>
               </div>
             </article>
-          </section>
-
-          <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_340px]">
-            <Card className="bg-background/88 backdrop-blur">
-              <CardHeader className="flex flex-wrap items-center justify-between gap-3 sm:flex-row">
-                <div>
-                  <CardTitle className="text-2xl text-primary">Payment history ledger</CardTitle>
-                  <CardDescription>Payment links, transitions, and reminder-ready history for this attendee&apos;s order.</CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {payload.paymentHistory.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No Tikkie payment activity recorded yet for this attendee&apos;s order.</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full border-separate border-spacing-y-2 text-sm">
-                      <thead>
-                        <tr className="text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                          <th className="px-4 py-2">Transaction</th>
-                          <th className="px-4 py-2">Date</th>
-                          <th className="px-4 py-2">Method</th>
-                          <th className="px-4 py-2">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {payload.paymentHistory.map((entry) => (
-                          <tr key={entry.id} className="bg-background shadow-sm">
-                            <td className="rounded-l-lg px-4 py-4">
-                              <p className="font-medium text-primary">{entry.title}</p>
-                              {entry.note && <p className="mt-1 text-xs text-muted-foreground">{entry.note}</p>}
-                              {entry.url && (
-                                <a className="mt-2 inline-flex text-xs text-primary underline" href={entry.url} target="_blank" rel="noreferrer">
-                                  Open payment link
-                                </a>
-                              )}
-                            </td>
-                            <td className="px-4 py-4 text-muted-foreground">{formatDateTime(entry.happenedAt)}</td>
-                            <td className="px-4 py-4">
-                              <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${paymentMethodClasses(entry)}`}>
-                                {paymentMethodLabel(entry)}
-                              </span>
-                            </td>
-                            <td className="rounded-r-lg px-4 py-4 text-right font-semibold text-foreground">
-                              {entry.amountMinor === null ? "-" : formatMoney(entry.amountMinor)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="bg-background/88 backdrop-blur">
-              <CardHeader>
-                <CardTitle className="text-lg">Attendee snapshot</CardTitle>
-                <CardDescription>Quick reference for attendee, ticket, and order context.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4 text-sm">
-                {[
-                  { label: "Email", value: payload.attendee.email ?? "-", icon: Mail },
-                  { label: "Buyer", value: payload.order.buyerName ?? payload.order.buyerEmail ?? "-", icon: UserRound },
-                  { label: "Ordered at", value: formatDateTime(payload.order.orderedAt), icon: CalendarDays },
-                  { label: "Ticket status", value: formatStatusLabel(payload.attendee.ticketStatus), icon: ReceiptText },
-                  { label: "Checked in", value: formatDateTime(payload.attendee.checkedInAt), icon: CreditCard },
-                ].map((item) => {
-                  const Icon = item.icon
-                  return (
-                    <div key={item.label} className="flex gap-3 rounded-lg border border-border/70 bg-background px-3 py-3">
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                        <Icon className="size-4" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{item.label}</p>
-                        <p className="mt-1 break-words font-medium text-foreground">{item.value}</p>
-                      </div>
-                    </div>
-                  )
-                })}
-              </CardContent>
-            </Card>
-          </section>
-        </>
-      )}
-
-      {!attendeeId && !isLoading && !payload && !errorMessage && (
-        <article className="rounded-xl border border-border bg-background/80 p-5 text-sm text-muted-foreground shadow-sm backdrop-blur">
-          No attendee selected.
-        </article>
-      )}
-
-      <TikkieLinkDialog
-        key={payload ? payload.attendee.id : "attendee-tikkie-closed"}
-        open={isTikkieDialogOpen}
-        defaults={tikkieDialogDefaults}
-        submitting={isSubmittingTikkie}
-        error={tikkieError}
-        onOpenChange={(open) => {
-          setIsTikkieDialogOpen(open)
-          if (!open) {
-            setTikkieError(null)
-          }
-        }}
-        onSubmit={handleCreateTikkieLink}
-      />
-    </section>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }

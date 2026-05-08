@@ -1,7 +1,8 @@
 "use client"
 
 import { useQuery, useMutation } from "convex/react"
-import { api } from "convex/functions/_generated/api"
+import { api } from "@/lib/convex/api"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export function useOrders(args?: {
   eventId?: string
@@ -11,11 +12,17 @@ export function useOrders(args?: {
 }
 
 export function useOrderById(orderId: string) {
-  return useQuery(api.orders.getOrderById, { orderId: orderId as any })
+  return useQuery(api.orders.getOrderById, { orderId })
 }
 
 export function useOrderByProviderId(providerOrderId: string) {
   return useQuery(api.orders.getOrderByProviderId, { providerOrderId })
+}
+
+export function useOrderWithAttendees(orderId: string) {
+  return useQuery(api.orders.getOrderWithAttendees, {
+    orderId: orderId as Id<"orders">,
+  })
 }
 
 export function useOrderLedger(eventId: string) {
@@ -32,4 +39,18 @@ export function useUpsertOrder() {
 
 export function useUpdateOrderStatus() {
   return useMutation(api.orders.updateOrderStatus)
+}
+
+export function useRemoveOrderLocally() {
+  return useMutation(api.orders.removeOrderLocally)
+}
+
+export function useSearchOrders(search: string, limit?: number) {
+  const trimmedSearch = search.trim()
+  return useQuery(
+    api.orders.searchOrders,
+    trimmedSearch.length > 0
+      ? { search: trimmedSearch, limit: limit ?? 10 }
+      : "skip"
+  )
 }

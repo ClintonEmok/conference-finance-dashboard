@@ -1,24 +1,10 @@
-const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
-
-async function convexQuery<Args extends Record<string, unknown>, Response>(
-  path: string,
-  args: Args
-): Promise<Response> {
-  const response = await fetch(`${CONVEX_URL}/${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ args }),
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Convex query failed: ${error}`)
-  }
-
-  return response.json()
-}
+import { api } from "@/lib/convex/api"
+import { convexQuery } from "@/lib/convex/server"
+import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
+import {
+  allocateMinorAmountByWeight,
+  deriveBalanceAmounts,
+} from "@/lib/domain/finance/amounts"
 
 export type AttendeeLedgerFilters = {
   eventId?: string | null
@@ -33,17 +19,22 @@ export type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 
 export type AttendeeLedgerRow = {
   attendeeId: string
+  orderId: string
   providerAttendeeId: string | null
   providerIssuedTicketId: string | null
-  providerOrderId: string
-  providerEventId: string
-  eventName: string | null
+  providerOrderId: string | null
+  eventId: string
+  eventSlug: string
+  eventTitle: string
   attendeeName: string | null
   attendeeEmail: string | null
   ticketTypeLabel: string | null
   normalizedStatus: CanonicalOrderStatus
+  amountDueMinor: number
   totalAmountMinor: number
+  paidAmountMinor: number
   outstandingAmountMinor: number
+  overpaidAmountMinor: number
   genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
   location: string | null
   remarks: string | null
@@ -63,6 +54,7 @@ export type AttendeeLedgerRow = {
         roomLabel: null
         hotelName: null
         roomTypeLabel: null
+        expectedRoomTypeLabel: string | null
       }
   orderedAt: string | null
 }
@@ -78,8 +70,11 @@ export type AttendeeLedgerResult = {
     pageSize: number
   }
   availableEvents: Array<{
-    providerEventId: string
-    name: string | null
+    eventId: string
+    slug: string
+    title: string
+    startsAt: string
+    currency: string
   }>
   page: {
     number: number
@@ -141,52 +136,83 @@ function normalizePagination(page?: number, pageSize?: number) {
   }
 }
 
-function deriveOutstandingAmount(
+function deriveOrderOutstandingAmount(
   status: CanonicalOrderStatus,
   totalAmountMinor: number,
-  attendeeCount: number
+  matchedAmountMinor: number
 ) {
   if (status !== "pending" && status !== "cancelled") {
     return 0
   }
 
-  return Math.max(0, Math.round(totalAmountMinor / Math.max(attendeeCount, 1)))
+  return Math.max(0, totalAmountMinor - matchedAmountMinor)
+}
+
+function deriveAttendeeOutstandingAmount(
+  orderOutstandingAmountMinor: number,
+  attendeeCount: number,
+  attendeePosition: number
+) {
+  if (orderOutstandingAmountMinor <= 0) {
+    return 0
+  }
+
+  const safeAttendeeCount = Math.max(attendeeCount, 1)
+  const safeAttendeePosition = Math.max(attendeePosition, 0)
+  const baseAmount = Math.floor(orderOutstandingAmountMinor / safeAttendeeCount)
+  const remainder = orderOutstandingAmountMinor % safeAttendeeCount
+
+  return baseAmount + (safeAttendeePosition < remainder ? 1 : 0)
 }
 
 type ConvexAttendee = {
   _id: string
-  providerAttendeeId: string | null
-  providerIssuedTicketId: string | null
-  providerOrderId: string
-  providerEventId: string
-  eventId: string
   orderId: string
-  name: string | null
+  name: string
   email: string | null
-  ticketTypeLabel: string | null
-  genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+  gender: "male" | "female" | "mixed" | "unknown"
+  location: string | null
+  assignedRoomId: string | null
   allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
   priorityReason: string | null
-  ageGroup: string | null
-  ticketCategory: string | null
-  assignedRoomId: string | null
-  customAnswers: unknown | null
+  ticketTypeLabel: string | null
+  amountDueMinor: number
+  allocatedRoomTypeId: string | null
+  orderProviderOrderId: string | null
+  orderEventId: string | null
+  orderStatus: string | null
+  orderTotalAmountMinor: number | null
+  orderAmountDueMinor: number | null
+  orderSubmittedAt: number | null
+  orderOrderedAt: number | null
+  customAnswers?: unknown
 }
 
 type ConvexOrder = {
   _id: string
   providerOrderId: string
-  providerEventId: string
   eventId: string
   normalizedStatus: CanonicalOrderStatus | null
   totalAmountMinor: number | null
   orderedAt: number | null
+  submittedAt: number | null
 }
 
 type ConvexEvent = {
-  _id: string
-  providerEventId: string
-  name: string | null
+  eventId: string
+  slug: string
+  title: string | null
+  startsAt: number | null
+  currency: string | null
+}
+
+function readCustomAnswerText(
+  customAnswers: unknown,
+  key: "location" | "remarks"
+) {
+  if (!customAnswers || typeof customAnswers !== "object") return null
+  const value = (customAnswers as Record<string, unknown>)[key]
+  return typeof value === "string" && value.trim() ? value.trim() : null
 }
 
 type ConvexRoom = {
@@ -220,40 +246,75 @@ export async function getAttendeeLedger(
   const { from, to } = normalizeRange(filters)
   const { page, pageSize } = normalizePagination(filters.page, filters.pageSize)
 
-  const [
-    allAttendees,
-    availableEvents,
-    allOrders,
-    allRooms,
-    allHotels,
-    allRoomTypes,
-  ] = await Promise.all([
-    convexQuery<{ eventId?: string }, ConvexAttendee[]>(
-      "attendees/getAttendees",
-      {
+  const [allAttendees, availableEvents, allOrders, allRooms, allHotels, allRoomTypes] =
+    (await Promise.all([
+      convexQuery(api.attendees.getAttendeesWithTickets, {}),
+      convexQuery(api.events.getEventsForLedger, {}),
+      convexQuery(api.orders.getOrders, {
         eventId: eventId ?? undefined,
-      }
-    ),
-    convexQuery<{}, ConvexEvent[]>("events/getEvents", {}),
-    convexQuery<{}, ConvexOrder[]>("orders/getOrders", {}),
-    convexQuery<{}, ConvexRoom[]>("accommodation/getRooms", {}),
-    convexQuery<{}, ConvexHotel[]>("accommodation/getHotels", {}),
-    convexQuery<{}, ConvexRoomType[]>("accommodation/getRoomTypes", {}),
-  ])
+      }),
+      convexQuery(api.accommodation.getRooms, {}),
+      convexQuery(api.accommodation.getHotels, {}),
+      convexQuery(api.accommodation.getRoomTypes, {}),
+    ])) as [
+      ConvexAttendee[],
+      ConvexEvent[],
+      Array<{
+        _id: string
+        eventId: string
+        orderedAt: number | null
+        submittedAt: number | null
+        providerOrderId: string | null
+        normalizedStatus: CanonicalOrderStatus | null
+        totalAmountMinor: number | null
+      }>,
+      ConvexRoom[],
+      ConvexHotel[],
+      ConvexRoomType[],
+    ]
 
-  const orderMap = new Map(allOrders.map((o) => [o._id, o]))
-  const eventMap = new Map(availableEvents.map((e) => [e.providerEventId, e]))
+  const eventMap = new Map(
+    availableEvents.map((e) => [e.eventId ?? (e as { _id?: string })._id ?? "", e])
+  )
+  const orderMap = new Map(allOrders.map((order) => [order._id, order]))
   const roomMap = new Map(allRooms.map((r) => [r._id, r]))
   const hotelMap = new Map(allHotels.map((h) => [h._id, h]))
   const roomTypeMap = new Map(allRoomTypes.map((rt) => [rt._id, rt]))
 
+  const eligibleAttendees = eventId
+    ? allAttendees.filter((attendee) => {
+        const order = orderMap.get(attendee.orderId)
+        return attendee.orderEventId === eventId || order?.eventId === eventId
+      })
+    : allAttendees
+
+  const attendeeIdsByOrderId = new Map<string, string[]>()
+  for (const attendee of allAttendees) {
+    const existingIds = attendeeIdsByOrderId.get(attendee.orderId) ?? []
+    existingIds.push(attendee._id)
+    attendeeIdsByOrderId.set(attendee.orderId, existingIds)
+  }
+
+  const attendeePositionByOrderId = new Map<string, Map<string, number>>()
+  for (const [orderId, attendeeIds] of attendeeIdsByOrderId.entries()) {
+    const sortedIds = [...attendeeIds].sort((left, right) =>
+      left.localeCompare(right)
+    )
+    attendeeIdsByOrderId.set(orderId, sortedIds)
+    attendeePositionByOrderId.set(
+      orderId,
+      new Map(sortedIds.map((attendeeId, index) => [attendeeId, index]))
+    )
+  }
+
   const fromTime = from.getTime()
   const toTime = to.getTime()
 
-  let filteredAttendees = allAttendees.filter((a) => {
+  let filteredAttendees = eligibleAttendees.filter((a) => {
     const order = orderMap.get(a.orderId)
-    if (!order?.orderedAt) return false
-    const orderTime = order.orderedAt
+    const orderTime =
+      a.orderOrderedAt ?? a.orderSubmittedAt ?? order?.orderedAt ?? order?.submittedAt ?? null
+    if (!orderTime) return true
     return orderTime >= fromTime && orderTime <= toTime
   })
 
@@ -263,10 +324,16 @@ export async function getAttendeeLedger(
       (a) =>
         a.name?.toLowerCase().includes(searchLower) ||
         a.email?.toLowerCase().includes(searchLower) ||
-        a.ticketTypeLabel?.toLowerCase().includes(searchLower) ||
-        a.providerOrderId.toLowerCase().includes(searchLower)
+        a.ticketTypeLabel?.toLowerCase().includes(searchLower)
     )
   }
+
+  const matchedTotalsByOrderId = await buildMatchedTotalsByOrderId(
+    filteredAttendees.map((attendee) => ({
+      orderId: attendee.orderId,
+      providerOrderId: attendee.orderProviderOrderId ?? null,
+    }))
+  )
 
   const totalRows = filteredAttendees.length
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
@@ -275,50 +342,89 @@ export async function getAttendeeLedger(
     page * pageSize
   )
 
+  const balancesByAttendeeId = new Map<
+    string,
+    {
+      paidAmountMinor: number
+      outstandingAmountMinor: number
+      overpaidAmountMinor: number
+    }
+  >()
+
+  const attendeesByOrderId = new Map<string, typeof filteredAttendees>()
+  for (const attendee of filteredAttendees) {
+    const existing = attendeesByOrderId.get(attendee.orderId) ?? []
+    existing.push(attendee)
+    attendeesByOrderId.set(attendee.orderId, existing)
+  }
+
+  for (const [orderId, attendeesForOrder] of attendeesByOrderId.entries()) {
+    const orderPaidAmountMinor = matchedTotalsByOrderId.get(orderId) ?? 0
+    const paidAmountByAttendeeId = allocateMinorAmountByWeight(
+      orderPaidAmountMinor,
+      attendeesForOrder.map((attendee) => ({
+        id: attendee._id,
+        weightMinor: attendee.amountDueMinor,
+      }))
+    )
+
+    for (const attendee of attendeesForOrder) {
+      balancesByAttendeeId.set(
+        attendee._id,
+        deriveBalanceAmounts(
+          attendee.amountDueMinor,
+          paidAmountByAttendeeId.get(attendee._id) ?? 0
+        )
+      )
+    }
+  }
+
   const rows: AttendeeLedgerRow[] = paginatedAttendees.map((attendee) => {
     const order = orderMap.get(attendee.orderId)
-    const event = eventMap.get(attendee.providerEventId)
+    const eventId = attendee.orderEventId ?? order?.eventId ?? null
+    const event = eventId ? eventMap.get(eventId) : undefined
     const room = attendee.assignedRoomId
       ? roomMap.get(attendee.assignedRoomId)
       : null
     const hotel = room ? hotelMap.get(room.hotelId) : null
     const roomType = room ? roomTypeMap.get(room.roomTypeId) : null
 
-    const totalAmountMinor = order?.totalAmountMinor ?? 0
-    const normalizedStatus = (order?.normalizedStatus ??
+    const totalAmountMinor = attendee.orderTotalAmountMinor ?? 0
+    const amountDueMinor = attendee.amountDueMinor
+    const normalizedStatus = (attendee.orderStatus ??
       "pending") as CanonicalOrderStatus
-    const attendeeCount = allAttendees.filter(
-      (a) => a.orderId === attendee.orderId
-    ).length
+    const balance =
+      balancesByAttendeeId.get(attendee._id) ??
+      deriveBalanceAmounts(amountDueMinor, 0)
 
     return {
       attendeeId: attendee._id,
-      providerAttendeeId: attendee.providerAttendeeId,
-      providerIssuedTicketId: attendee.providerIssuedTicketId,
-      providerOrderId: attendee.providerOrderId,
-      providerEventId: attendee.providerEventId,
-      eventName: event?.name ?? null,
-      attendeeName: attendee.name ?? null,
+      orderId: attendee.orderId,
+      providerAttendeeId: null,
+      providerIssuedTicketId: null,
+      providerOrderId: attendee.orderProviderOrderId ?? null,
+      eventId: eventId ?? "",
+      eventSlug: event?.slug ?? "",
+      eventTitle: event?.title ?? "",
+      attendeeName: attendee.name,
       attendeeEmail: attendee.email ?? null,
       ticketTypeLabel: attendee.ticketTypeLabel ?? null,
       normalizedStatus,
+      amountDueMinor,
       totalAmountMinor,
-      outstandingAmountMinor: deriveOutstandingAmount(
-        normalizedStatus,
-        totalAmountMinor,
-        attendeeCount
-      ),
-      genderType: attendee.genderType,
+      paidAmountMinor: balance.paidAmountMinor,
+      outstandingAmountMinor: balance.outstandingAmountMinor,
+      overpaidAmountMinor: balance.overpaidAmountMinor,
+      genderType: attendee.gender
+        ? (attendee.gender.toUpperCase() as AttendeeLedgerRow["genderType"])
+        : null,
       location:
-        (attendee.customAnswers as { location?: string } | null)?.location ??
-        null,
-      remarks:
-        (attendee.customAnswers as { remarks?: string } | null)?.remarks ??
-        null,
+        attendee.location ?? readCustomAnswerText(attendee.customAnswers, "location"),
+      remarks: readCustomAnswerText(attendee.customAnswers, "remarks"),
       allocationPriority: attendee.allocationPriority ?? "NORMAL",
       priorityReason: attendee.priorityReason,
-      ageGroup: attendee.ageGroup,
-      ticketCategory: attendee.ticketCategory,
+      ageGroup: null,
+      ticketCategory: null,
       roomStatus:
         room && hotel && roomType
           ? {
@@ -332,10 +438,15 @@ export async function getAttendeeLedger(
               roomLabel: null,
               hotelName: null,
               roomTypeLabel: null,
+              expectedRoomTypeLabel: attendee.allocatedRoomTypeId
+                ? (roomTypeMap.get(attendee.allocatedRoomTypeId)?.label ?? null)
+                : null,
             },
-      orderedAt: order?.orderedAt
-        ? new Date(order.orderedAt).toISOString()
-        : null,
+      orderedAt: attendee.orderOrderedAt
+        ? new Date(attendee.orderOrderedAt).toISOString()
+        : order?.orderedAt
+          ? new Date(order.orderedAt).toISOString()
+          : null,
     }
   })
 
@@ -350,8 +461,11 @@ export async function getAttendeeLedger(
       pageSize,
     },
     availableEvents: availableEvents.map((e) => ({
-      providerEventId: e.providerEventId,
-      name: e.name,
+      eventId: e.eventId ?? (e as { _id?: string })._id ?? "",
+      slug: e.slug,
+      title: e.title ?? "",
+      startsAt: e.startsAt ? new Date(e.startsAt).toISOString() : "",
+      currency: e.currency ?? "",
     })),
     page: {
       number: page,

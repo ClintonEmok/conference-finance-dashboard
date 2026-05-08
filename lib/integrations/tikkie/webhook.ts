@@ -93,7 +93,7 @@ export function verifyTikkieWebhook(headers: Headers, rawBody: string) {
   const secret = process.env.TIKKIE_WEBHOOK_SECRET?.trim()
 
   if (!secret) {
-    return true
+    return false
   }
 
   const provided =

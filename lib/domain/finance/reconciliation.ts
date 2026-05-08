@@ -1,26 +1,8 @@
-const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
-
-async function convexQuery<Args extends Record<string, unknown>, Response>(
-  path: string,
-  args: Args
-): Promise<Response> {
-  const response = await fetch(`${CONVEX_URL}/${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ args }),
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Convex query failed: ${error}`)
-  }
-
-  return response.json()
-}
-
 import type { CanonicalOrderStatus } from "@/lib/domain/finance/order-ledger"
+import { api } from "@/lib/convex/api"
+import { convexQuery } from "@/lib/convex/server"
+import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
+import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
 
 export type ReconciliationFilters = {
   eventId?: string | null
@@ -36,11 +18,14 @@ export type ReconciliationReason =
   | "refund-without-refunded-at"
 
 export type ReconciliationRow = {
-  providerOrderId: string
-  providerEventId: string
-  eventName: string | null
+  orderId: string | null
+  providerOrderId: string | null
+  eventId: string
+  eventSlug: string
+  eventTitle: string | null
   normalizedStatus: CanonicalOrderStatus
-  totalAmountMinor: number
+  amountDueMinor: number | null
+  totalAmountMinor: number | null
   currency: string | null
   orderedAt: string | null
   refundedAt: string | null
@@ -57,8 +42,11 @@ export type ReconciliationResult = {
     status: CanonicalOrderStatus | null
   }
   availableEvents: Array<{
-    providerEventId: string
-    name: string | null
+    eventId: string
+    slug: string
+    title: string | null
+    startsAt: number | null
+    currency: string | null
   }>
   totals: {
     rows: number
@@ -103,25 +91,27 @@ function normalizeRange(filters: ReconciliationFilters) {
 
 function deriveReconciliation(order: {
   normalizedStatus: CanonicalOrderStatus
+  amountDueMinor: number | null
   totalAmountMinor: number | null
   refundedAt: Date | null
+  matchedAmountMinor: number
 }) {
-  const amount = order.totalAmountMinor ?? 0
+  const balance = deriveBalanceAmounts(order.amountDueMinor, order.matchedAmountMinor)
   const reasons: ReconciliationReason[] = []
   let outstandingMinor = 0
 
-  if (order.totalAmountMinor === null) {
+  if (order.amountDueMinor === null) {
     reasons.push("missing-amount")
   }
 
   if (order.normalizedStatus === "pending") {
     reasons.push("pending-payment")
-    outstandingMinor = Math.max(0, amount)
+    outstandingMinor = balance.outstandingAmountMinor
   }
 
-  if (order.normalizedStatus === "cancelled" && amount > 0) {
+  if (order.normalizedStatus === "cancelled" && balance.amountDueMinor > 0) {
     reasons.push("cancelled-with-amount")
-    outstandingMinor = Math.max(outstandingMinor, amount)
+    outstandingMinor = Math.max(outstandingMinor, balance.outstandingAmountMinor)
   }
 
   if (order.normalizedStatus === "refunded" && !order.refundedAt) {
@@ -148,47 +138,40 @@ export async function getReconciliationRows(
   const toMs = to.getTime()
 
   const [orders, availableEvents] = await Promise.all([
-    convexQuery<
-      {
-        eventId?: string
-        from?: number
-        to?: number
-        status?: CanonicalOrderStatus
-      },
-      Array<{
-        providerOrderId: string
-        providerEventId: string
-        eventName: string | null
-        normalizedStatus: CanonicalOrderStatus
-        totalAmountMinor: number
-        currency: string | null
-        orderedAt: string | null
-        refundedAt: string | null
-        buyerName: string | null
-        buyerEmail: string | null
-      }>
-    >("orders/getOrdersForReconciliation", {
+    convexQuery(api.orders.getOrdersForReconciliation, {
       eventId: eventId ?? undefined,
       from: fromMs,
       to: toMs,
       status: status ?? undefined,
     }),
-    convexQuery<{}, Array<{ providerEventId: string; name: string | null }>>(
-      "events/getEventsForLedger",
-      {}
-    ),
+    convexQuery(api.events.getEventsForLedger, {}),
   ])
+
+  const matchedTotalsByOrderId = await buildMatchedTotalsByOrderId(orders)
 
   const rows: ReconciliationRow[] = []
   let outstandingMinor = 0
 
   for (const order of orders) {
-    const refundedAtDate = order.refundedAt ? new Date(order.refundedAt) : null
+    const typedOrder = order as typeof order & {
+      amountDueMinor?: number | null
+    }
 
-    const reconciliation = deriveReconciliation({
-      normalizedStatus: order.normalizedStatus,
-      totalAmountMinor: order.totalAmountMinor,
-      refundedAt: refundedAtDate,
+    const orderLookupKey = typedOrder.orderId ?? null
+
+    const refundedAtDate = typedOrder.refundedAt
+      ? new Date(typedOrder.refundedAt)
+      : null
+
+      const reconciliation = deriveReconciliation({
+        normalizedStatus: typedOrder.normalizedStatus,
+        amountDueMinor: typedOrder.amountDueMinor ?? null,
+        totalAmountMinor: typedOrder.totalAmountMinor,
+        refundedAt: refundedAtDate,
+        matchedAmountMinor:
+          (orderLookupKey
+            ? matchedTotalsByOrderId.get(orderLookupKey)
+          : undefined) ?? 0,
     })
 
     if (reconciliation.reasons.length === 0) {
@@ -197,15 +180,18 @@ export async function getReconciliationRows(
 
     outstandingMinor += reconciliation.outstandingMinor
 
-    rows.push({
-      providerOrderId: order.providerOrderId,
-      providerEventId: order.providerEventId,
-      eventName: order.eventName,
-      normalizedStatus: order.normalizedStatus,
-      totalAmountMinor: order.totalAmountMinor,
-      currency: order.currency,
-      orderedAt: order.orderedAt,
-      refundedAt: order.refundedAt,
+      rows.push({
+        orderId: typedOrder.orderId ?? null,
+        providerOrderId: typedOrder.providerOrderId ?? null,
+        eventId: typedOrder.eventId,
+        eventSlug: typedOrder.eventSlug,
+        eventTitle: typedOrder.eventTitle,
+        normalizedStatus: typedOrder.normalizedStatus,
+        amountDueMinor: typedOrder.amountDueMinor ?? null,
+        totalAmountMinor: typedOrder.totalAmountMinor,
+        currency: typedOrder.currency,
+        orderedAt: typedOrder.orderedAt,
+      refundedAt: typedOrder.refundedAt,
       outstandingMinor: reconciliation.outstandingMinor,
       reasons: reconciliation.reasons,
     })

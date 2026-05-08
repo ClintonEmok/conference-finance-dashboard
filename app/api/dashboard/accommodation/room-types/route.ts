@@ -1,7 +1,6 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server"
 
-import { auth } from "@/lib/auth"
+import { requireApiUser } from "@/lib/auth/server"
 import { createRoomType, listAccommodationInventory } from "@/lib/domain/accommodation/inventory"
 
 function unauthorized() {
@@ -29,12 +28,10 @@ function badRequest(message: string) {
 }
 
 export async function GET() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return unauthorized()
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   const inventory = await listAccommodationInventory()
@@ -45,12 +42,10 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
+  const authResult = await requireApiUser()
 
-  if (!session) {
-    return unauthorized()
+  if (authResult instanceof NextResponse) {
+    return authResult
   }
 
   let body: { label?: unknown; defaultCapacity?: unknown; notes?: unknown }

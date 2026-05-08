@@ -1,14 +1,15 @@
 "use client"
 
 import { useQuery, useMutation } from "convex/react"
-import { api } from "convex/functions/_generated/api"
+import { api } from "@/lib/convex/api"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export function useSyncRuns() {
   return useQuery(api.sync.getSyncRuns)
 }
 
-export function useSyncRunById(runId: string) {
-  return useQuery(api.sync.getSyncRunById, { runId: runId as any })
+export function useSyncRunById(runId: Id<"ticketTailorSyncRuns">) {
+  return useQuery(api.sync.getSyncRunById, { runId })
 }
 
 export function useLatestSyncRun() {

@@ -2,20 +2,56 @@
 
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
+import { format } from "date-fns"
+import {
+  SyntheticEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import {
   ArrowRight,
   BedDouble,
   Building2,
+  Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
+  ExternalLink,
+  FileText,
+  LayoutGrid,
+  MapPin,
   RefreshCcw,
   Search,
   Sparkles,
   Users,
+  X,
+  Calendar,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { cn } from "@/lib/utils"
+import { useEventsWithAccommodation } from "@/lib/convex/hooks/events"
+import {
+  appendSignalFiltersToQuery,
+  normalizeSignalFilters,
+  readSignalFiltersFromSearchParams,
+  shouldRenderFamilyBadge,
+  syncSignalFiltersToSearchParams,
+  type AccommodationSignalFilters,
+} from "./filter-state"
 
 type AvailabilityFilter = "all" | "empty" | "available" | "full"
 
@@ -70,27 +106,74 @@ type AccommodationWorkspacePayload = {
       attendeeId: string
       attendeeName: string | null
       attendeeEmail: string | null
-      providerOrderId: string
       providerEventId: string
       eventName: string | null
       ticketTypeLabel: string | null
+      orderId: string | null
     }>
+    pendingAssignments: Array<{
+      assignmentId: string
+      attendeeId: string
+      attendeeName: string | null
+      attendeeEmail: string | null
+      assignmentIntent: "assign" | "skip"
+      sortOrder: number
+    }>
+  }>
+  buyerSuggestions?: Array<{
+    assignmentId: string
+    attendeeId: string
+    attendeeName: string | null
+    attendeeEmail: string | null
+    roomId: string | null
+    roomLabel: string | null
+    hotelName: string | null
+    assignmentIntent: "assign" | "skip"
+    sortOrder: number
   }>
   unassignedAttendees: Array<{
     attendeeId: string
     attendeeName: string | null
     attendeeEmail: string | null
-    providerOrderId: string
+    orderId: string | null
     providerEventId: string
     eventName: string | null
     ticketTypeLabel: string | null
-    matchingRoomCount: number
+    allocatedRoomTypeId: string | null
     // Signal fields
     genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
     location: string | null
     remarks: string | null
     allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
-    familyGroupId: string | null
+    hasFamily: boolean
+  }>
+  // Submission queue rows from canonical signup submissions
+  submissionQueueRows?: Array<{
+    attendeeId: string
+    attendeeName: string | null
+    attendeeEmail: string | null
+    source: "internal" | "integration"
+    submissionId: string
+    bookingRef: string | null
+    eventName: string | null
+    ticketTypeLabel: string | null
+    genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+    location: string | null
+    allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
+    hasFamily: boolean
+    // Assignment intent and notes
+    assignmentIntent: "auto_assign" | "manual_select" | "defer" | null
+    roommatePreference: string | null
+    dietaryRestrictions: string | null
+    bookerName: string | null
+    submittedAt: string
+    // Unresolved state
+    isUnresolved: boolean
+    unresolvedReason:
+      | "no_assignment_record"
+      | "skipped_intent"
+      | "slot_not_assignable"
+      | null
   }>
   summary: {
     totalRooms: number
@@ -98,12 +181,20 @@ type AccommodationWorkspacePayload = {
     availableRooms: number
     fullRooms: number
     unassignedAttendees: number
+    submissionQueueCount?: number
+    unresolvedCount?: number
   }
 }
 
 type InventoryErrorState = {
   global: string | null
   assignments: string | null
+}
+
+type AssignmentToastState = {
+  id: number
+  title: string
+  lines: string[]
 }
 
 const emptyPayload: AccommodationWorkspacePayload = {
@@ -169,6 +260,19 @@ export default function AccommodationPage() {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const [selectedAttendeeIds, setSelectedAttendeeIds] = useState<string[]>([])
+
+  const selectedAttendeeId = selectedAttendeeIds[0] || null
+
+  const toggleAttendeeSelection = (id: string) => {
+    setSelectedAttendeeIds((prev) => {
+      if (prev.includes(id)) {
+        return prev.filter((item) => item !== id)
+      }
+      return [...prev, id]
+    })
+  }
+
   const [payload, setPayload] =
     useState<AccommodationWorkspacePayload>(emptyPayload)
   const [errors, setErrors] = useState<InventoryErrorState>(emptyErrors)
@@ -177,6 +281,9 @@ export default function AccommodationPage() {
   const [assignmentMessage, setAssignmentMessage] = useState<string | null>(
     null
   )
+  const [assignmentToast, setAssignmentToast] =
+    useState<AssignmentToastState | null>(null)
+  const toastIdRef = useRef(0)
 
   const [eventIdInput, setEventIdInput] = useState("")
   const [searchInput, setSearchInput] = useState("")
@@ -217,19 +324,55 @@ export default function AccommodationPage() {
   const [isLoadingProposal, setIsLoadingProposal] = useState(false)
   const [showProposal, setShowProposal] = useState(false)
 
+  // Submission queue state
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState<
+    string | null
+  >(null)
+  const [showSubmissionDetail, setShowSubmissionDetail] = useState(false)
+
+  // Pending assignment confirmation dialog state
+  const [selectedPendingAssignment, setSelectedPendingAssignment] = useState<{
+    assignmentId: string
+    attendeeId: string
+    attendeeName: string | null
+    attendeeEmail: string | null
+    roomId: string
+    roomLabel: string
+  } | null>(null)
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  const [alternativeRooms, setAlternativeRooms] = useState<
+    Array<{
+      slotId: string
+      roomId: string
+      roomLabel: string
+      roomType: string
+      capacity: number | null
+      occupantCount: number
+      availableSpots: number | null
+    }>
+  >([])
+
   const [appliedEventId, setAppliedEventId] = useState("")
   const [appliedSearch, setAppliedSearch] = useState("")
   const [appliedHotelFilter, setAppliedHotelFilter] = useState("")
   const [appliedRoomTypeFilter, setAppliedRoomTypeFilter] = useState("")
   const [appliedAvailability, setAppliedAvailability] =
     useState<AvailabilityFilter>("all")
+  const [appliedSignalFilters, setAppliedSignalFilters] =
+    useState<AccommodationSignalFilters>(
+      normalizeSignalFilters({
+        genderType: null,
+        allocationPriority: null,
+        hasPriority: null,
+        location: null,
+        familyGroupId: null,
+      })
+    )
   const [roomsPage, setRoomsPage] = useState(1)
 
   const [selectedRoomByAttendee, setSelectedRoomByAttendee] = useState<
     Record<string, string>
   >({})
-
-  const selectedAttendeeId = searchParams.get("attendeeId")
 
   const syncUrlState = useCallback(
     (next: {
@@ -243,9 +386,11 @@ export default function AccommodationPage() {
       allocationPriority?: string | null
       hasPriority?: boolean | null
       location?: string | null
+      familyGroupId?: string | null
       source?: string | null
     }) => {
       const params = new URLSearchParams(searchParams.toString())
+      const currentSignals = readSignalFiltersFromSearchParams(searchParams)
 
       const assign = (key: string, value: string | null | undefined) => {
         if (value && value.trim()) {
@@ -262,20 +407,34 @@ export default function AccommodationPage() {
       assign("hotelId", next.hotelId)
       assign("roomTypeId", next.roomTypeId)
       assign("source", next.source)
-      assign("genderType", next.genderType)
-      assign("allocationPriority", next.allocationPriority)
-      assign("location", next.location)
+
+      const nextSignals = normalizeSignalFilters({
+        genderType:
+          next.genderType !== undefined
+            ? next.genderType
+            : currentSignals.genderType,
+        allocationPriority:
+          next.allocationPriority !== undefined
+            ? next.allocationPriority
+            : currentSignals.allocationPriority,
+        hasPriority:
+          next.hasPriority !== undefined
+            ? next.hasPriority
+            : currentSignals.hasPriority,
+        location:
+          next.location !== undefined ? next.location : currentSignals.location,
+        familyGroupId:
+          next.familyGroupId !== undefined
+            ? next.familyGroupId
+            : currentSignals.familyGroupId,
+      })
+
+      syncSignalFiltersToSearchParams(params, nextSignals)
 
       if (next.availability && next.availability !== "all") {
         params.set("availability", next.availability)
       } else {
         params.delete("availability")
-      }
-
-      if (next.hasPriority) {
-        params.set("hasPriority", "true")
-      } else {
-        params.delete("hasPriority")
       }
 
       const query = params.toString()
@@ -291,26 +450,24 @@ export default function AccommodationPage() {
     const nextRoomTypeId = searchParams.get("roomTypeId") ?? ""
     const nextAvailability =
       (searchParams.get("availability") as AvailabilityFilter | null) ?? "all"
-    const nextGender = searchParams.get("genderType") ?? ""
-    const nextPriority = searchParams.get("allocationPriority") ?? ""
-    const nextHasPriority = searchParams.get("hasPriority") === "true"
-    const nextLocation = searchParams.get("location") ?? ""
+    const nextSignals = readSignalFiltersFromSearchParams(searchParams)
 
     setEventIdInput(nextEventId)
     setSearchInput(nextSearch)
     setHotelFilter(nextHotelId)
     setRoomTypeFilter(nextRoomTypeId)
     setAvailabilityFilter(nextAvailability)
-    setGenderFilter(nextGender)
-    setPriorityFilter(nextPriority)
-    setHasPriorityFilter(nextHasPriority)
-    setLocationFilter(nextLocation)
+    setGenderFilter(nextSignals.genderType ?? "")
+    setPriorityFilter(nextSignals.allocationPriority ?? "")
+    setHasPriorityFilter(nextSignals.hasPriority === true)
+    setLocationFilter(nextSignals.location ?? "")
 
     setAppliedEventId(nextEventId)
     setAppliedSearch(nextSearch)
     setAppliedHotelFilter(nextHotelId)
     setAppliedRoomTypeFilter(nextRoomTypeId)
     setAppliedAvailability(nextAvailability)
+    setAppliedSignalFilters(nextSignals)
   }, [searchParams])
 
   const loadWorkspace = useCallback(async () => {
@@ -335,19 +492,7 @@ export default function AccommodationPage() {
       if (appliedAvailability !== "all") {
         query.set("availability", appliedAvailability)
       }
-      // Signal-aware filters
-      if (genderFilter) {
-        query.set("genderType", genderFilter)
-      }
-      if (priorityFilter) {
-        query.set("allocationPriority", priorityFilter)
-      }
-      if (hasPriorityFilter) {
-        query.set("hasPriority", "true")
-      }
-      if (locationFilter.trim()) {
-        query.set("location", locationFilter.trim())
-      }
+      appendSignalFiltersToQuery(query, appliedSignalFilters)
 
       const response = await fetch(
         `/api/dashboard/accommodation/assignments?${query.toString()}`
@@ -385,6 +530,7 @@ export default function AccommodationPage() {
     appliedHotelFilter,
     appliedRoomTypeFilter,
     appliedSearch,
+    appliedSignalFilters,
   ])
 
   useEffect(() => {
@@ -396,60 +542,82 @@ export default function AccommodationPage() {
     [payload.rooms]
   )
 
-  const selectedAttendeeContext = useMemo(() => {
-    if (!selectedAttendeeId) {
-      return null
-    }
+  const roomLabelById = useMemo(() => {
+    return new Map(payload.rooms.map((room) => [room.id, room.label]))
+  }, [payload.rooms])
 
-    const unassignedAttendee = payload.unassignedAttendees.find(
-      (attendee) => attendee.attendeeId === selectedAttendeeId
-    )
+  const attendeeNameById = useMemo(() => {
+    const names = new Map<string, string>()
 
-    if (unassignedAttendee) {
-      return {
-        status: "unassigned" as const,
-        attendeeName: unassignedAttendee.attendeeName,
-        attendeeEmail: unassignedAttendee.attendeeEmail,
-        detailHref: `/dashboard/attendees/${unassignedAttendee.attendeeId}?search=${encodeURIComponent(
-          appliedSearch ||
-            unassignedAttendee.attendeeName ||
-            unassignedAttendee.providerOrderId
-        )}&eventId=${encodeURIComponent(appliedEventId || unassignedAttendee.providerEventId)}`,
-      }
+    for (const attendee of payload.unassignedAttendees) {
+      names.set(
+        attendee.attendeeId,
+        attendee.attendeeName ?? "Unnamed attendee"
+      )
     }
 
     for (const room of payload.rooms) {
-      const occupant = room.occupants.find(
-        (attendee) => attendee.attendeeId === selectedAttendeeId
-      )
-
-      if (occupant) {
-        return {
-          status: "assigned" as const,
-          attendeeName: occupant.attendeeName,
-          attendeeEmail: occupant.attendeeEmail,
-          roomLabel: room.label,
-          hotelName: room.hotel.name,
-          detailHref: `/dashboard/attendees/${occupant.attendeeId}?search=${encodeURIComponent(
-            appliedSearch || occupant.attendeeName || occupant.providerOrderId
-          )}&eventId=${encodeURIComponent(appliedEventId || occupant.providerEventId)}`,
-        }
+      for (const occupant of room.occupants) {
+        names.set(
+          occupant.attendeeId,
+          occupant.attendeeName ?? "Unnamed attendee"
+        )
       }
     }
 
-    return {
-      status: "hidden" as const,
-      attendeeName: null,
-      attendeeEmail: null,
-      detailHref: "/dashboard/attendees",
+    for (const suggestion of payload.buyerSuggestions ?? []) {
+      names.set(
+        suggestion.attendeeId,
+        suggestion.attendeeName ?? "Unnamed attendee"
+      )
     }
-  }, [
-    appliedEventId,
-    appliedSearch,
-    payload.rooms,
-    payload.unassignedAttendees,
-    selectedAttendeeId,
-  ])
+
+    return names
+  }, [payload.buyerSuggestions, payload.rooms, payload.unassignedAttendees])
+
+  const showAssignmentToast = useCallback((title: string, lines: string[]) => {
+    const sanitizedLines = lines
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .slice(0, 4)
+
+    toastIdRef.current += 1
+    setAssignmentToast({
+      id: toastIdRef.current,
+      title,
+      lines: sanitizedLines,
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!assignmentToast) {
+      return
+    }
+
+    const timeout = window.setTimeout(() => {
+      setAssignmentToast((current) =>
+        current?.id === assignmentToast.id ? null : current
+      )
+    }, 4500)
+
+    return () => {
+      window.clearTimeout(timeout)
+    }
+  }, [assignmentToast])
+
+  const buyerSuggestions = useMemo(() => {
+    return [...(payload.buyerSuggestions ?? [])].sort((a, b) => {
+      if ((a.roomLabel ?? "") !== (b.roomLabel ?? "")) {
+        return (a.roomLabel ?? "").localeCompare(b.roomLabel ?? "")
+      }
+
+      if (a.sortOrder !== b.sortOrder) {
+        return a.sortOrder - b.sortOrder
+      }
+
+      return (a.attendeeName ?? "").localeCompare(b.attendeeName ?? "")
+    })
+  }, [payload.buyerSuggestions])
 
   const totalCapacity = useMemo(
     () => payload.rooms.reduce((sum, room) => sum + room.capacity, 0),
@@ -465,38 +633,6 @@ export default function AccommodationPage() {
     totalCapacity === 0
       ? 0
       : Math.round((occupiedCapacity / totalCapacity) * 100)
-
-  const highlightedSuggestion = useMemo(() => {
-    if (
-      payload.unassignedAttendees.length === 0 ||
-      assignableRooms.length === 0
-    ) {
-      return null
-    }
-
-    const attendee = payload.unassignedAttendees[0]
-    const room = assignableRooms[0]
-    const attendeeDisplayName =
-      attendee.attendeeName?.trim() ||
-      attendee.attendeeEmail ||
-      attendee.providerOrderId
-
-    return {
-      attendeeName: attendeeDisplayName,
-      roomLabel: room.label,
-      hotelName: room.hotel.name,
-    }
-  }, [assignableRooms, payload.unassignedAttendees])
-
-  const selectedEventHotelCount = useMemo(() => {
-    if (!eventIdInput) {
-      return 0
-    }
-
-    return payload.hotels.filter((hotel) =>
-      hotel.assignedEventIds.includes(eventIdInput)
-    ).length
-  }, [eventIdInput, payload.hotels])
 
   const roomsPerPage = 8
 
@@ -518,6 +654,7 @@ export default function AccommodationPage() {
     appliedHotelFilter,
     appliedRoomTypeFilter,
     appliedSearch,
+    appliedSignalFilters,
   ])
 
   useEffect(() => {
@@ -526,7 +663,7 @@ export default function AccommodationPage() {
     }
   }, [roomsPage, totalRoomPages])
 
-  function applyFilters(event: FormEvent<HTMLFormElement>) {
+  function applyFilters(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     setAssignmentMessage(null)
     syncUrlState({
@@ -536,6 +673,10 @@ export default function AccommodationPage() {
       hotelId: hotelFilter,
       roomTypeId: roomTypeFilter,
       availability: availabilityFilter,
+      genderType: genderFilter,
+      allocationPriority: priorityFilter,
+      hasPriority: hasPriorityFilter,
+      location: locationFilter,
       source: searchParams.get("source"),
     })
   }
@@ -552,6 +693,132 @@ export default function AccommodationPage() {
     }
 
     await assignAttendeeToSpecificRoom(attendeeId, roomId)
+  }
+
+  function pickFulfillRoom(
+    attendee: {
+      allocatedRoomTypeId: string | null
+      orderId: string | null
+    },
+    rooms: AccommodationWorkspacePayload["rooms"]
+  ) {
+    if (!attendee.allocatedRoomTypeId) return null
+
+    const candidates = rooms.filter(
+      (room) =>
+        room.roomType.id === attendee.allocatedRoomTypeId &&
+        room.availableBeds > 0
+    )
+
+    const sameOrderRoom = attendee.orderId
+      ? candidates.find((room) =>
+          room.occupants.some(
+            (occupant) => occupant.orderId === attendee.orderId
+          )
+        )
+      : null
+
+    return sameOrderRoom ?? candidates[0] ?? null
+  }
+
+  function getFulfillGroupAttendees(
+    attendee: AccommodationWorkspacePayload["unassignedAttendees"][number],
+    allUnassignedAttendees: AccommodationWorkspacePayload["unassignedAttendees"]
+  ) {
+    if (!attendee.orderId || !attendee.allocatedRoomTypeId) {
+      return [attendee]
+    }
+
+    const sameOrderPendingAssignments = allUnassignedAttendees
+      .filter((candidate) => candidate.orderId === attendee.orderId)
+      .map((candidate) => ({
+        attendeeId: candidate.attendeeId,
+        roomId: getPendingBuyerAssignment(candidate.attendeeId)?.roomId ?? null,
+      }))
+      .filter((candidate) => candidate.roomId !== null)
+
+    if (sameOrderPendingAssignments.length > 0) {
+      const clickedRequestedRoomId =
+        getPendingBuyerAssignment(attendee.attendeeId)?.roomId ?? null
+
+      if (!clickedRequestedRoomId) {
+        return [attendee]
+      }
+
+      const sameRequestedRoomGroup = allUnassignedAttendees.filter(
+        (candidate) => {
+          if (candidate.orderId !== attendee.orderId) {
+            return false
+          }
+
+          const candidateRequestedRoomId =
+            getPendingBuyerAssignment(candidate.attendeeId)?.roomId ?? null
+          return candidateRequestedRoomId === clickedRequestedRoomId
+        }
+      )
+
+      return sameRequestedRoomGroup.length > 0
+        ? sameRequestedRoomGroup
+        : [attendee]
+    }
+
+    const sameOrderAndRoomType = allUnassignedAttendees.filter(
+      (candidate) =>
+        candidate.orderId === attendee.orderId &&
+        candidate.allocatedRoomTypeId === attendee.allocatedRoomTypeId
+    )
+
+    return sameOrderAndRoomType.length > 0 ? sameOrderAndRoomType : [attendee]
+  }
+
+  function pickGroupFulfillRoom(
+    attendees: AccommodationWorkspacePayload["unassignedAttendees"],
+    rooms: AccommodationWorkspacePayload["rooms"]
+  ) {
+    if (attendees.length === 0) return null
+
+    const roomTypeId = attendees[0]?.allocatedRoomTypeId
+    const orderId = attendees[0]?.orderId
+
+    if (!roomTypeId) return null
+
+    const candidates = rooms
+      .filter(
+        (room) => room.roomType.id === roomTypeId && room.availableBeds > 0
+      )
+      .filter((room) => room.availableBeds >= attendees.length)
+      .sort((a, b) => {
+        const aHasSameOrderOccupant = orderId
+          ? a.occupants.some((occupant) => occupant.orderId === orderId)
+          : false
+        const bHasSameOrderOccupant = orderId
+          ? b.occupants.some((occupant) => occupant.orderId === orderId)
+          : false
+
+        if (aHasSameOrderOccupant !== bHasSameOrderOccupant) {
+          return aHasSameOrderOccupant ? -1 : 1
+        }
+
+        const aBedsAfterPlacement = a.availableBeds - attendees.length
+        const bBedsAfterPlacement = b.availableBeds - attendees.length
+        if (aBedsAfterPlacement !== bBedsAfterPlacement) {
+          return aBedsAfterPlacement - bBedsAfterPlacement
+        }
+
+        return a.label.localeCompare(b.label)
+      })
+
+    return candidates[0] ?? null
+  }
+
+  function getPendingBuyerAssignment(attendeeId: string) {
+    return (
+      payload.buyerSuggestions?.find(
+        (assignment) =>
+          assignment.attendeeId === attendeeId &&
+          assignment.assignmentIntent === "assign"
+      ) ?? null
+    )
   }
 
   async function assignAttendeeToSpecificRoom(
@@ -588,16 +855,98 @@ export default function AccommodationPage() {
         return
       }
 
+      const attendeeName =
+        attendeeNameById.get(attendeeId) ?? "Unnamed attendee"
+      const roomLabel = roomLabelById.get(roomId) ?? "selected room"
+
       setErrors((current) => ({ ...current, assignments: null }))
       setAssignmentMessage(
         "Attendee assigned. Occupancy has been refreshed from live server data."
       )
+      showAssignmentToast("Room assignment saved", [
+        `${attendeeName} -> ${roomLabel}`,
+      ])
       setSelectedRoomByAttendee((current) => {
         const next = { ...current }
         delete next[attendeeId]
         return next
       })
       await loadWorkspace()
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to assign attendee to room."
+      setErrors((current) => ({
+        ...current,
+        assignments: message,
+      }))
+    } finally {
+      setIsMutating(false)
+    }
+  }
+
+  async function assignMultipleAttendeesToRoom(
+    attendeeIds: string[],
+    roomId: string
+  ) {
+    if (!roomId || attendeeIds.length === 0) return
+
+    setIsMutating(true)
+    setAssignmentMessage(null)
+
+    try {
+      // Loop or use a bulk endpoint if available. For now, sequential per current API pattern
+      for (const id of attendeeIds) {
+        const response = await fetch(
+          "/api/dashboard/accommodation/assignments",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ attendeeId: id, roomId }),
+          }
+        )
+
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string }
+        } | null
+
+        if (!response.ok) {
+          setErrors((prev) => ({
+            ...prev,
+            assignments:
+              body?.error?.message ??
+              `Failed while assigning attendee ${id} in group action.`,
+          }))
+          return
+        }
+      }
+
+      const roomLabel = roomLabelById.get(roomId) ?? "selected room"
+      const assignmentLines = attendeeIds
+        .slice(0, 3)
+        .map(
+          (id) =>
+            `${attendeeNameById.get(id) ?? "Unnamed attendee"} -> ${roomLabel}`
+        )
+
+      if (attendeeIds.length > 3) {
+        const remainder = attendeeIds.length - 3
+        assignmentLines.push(
+          `+${remainder} more attendee${remainder === 1 ? "" : "s"}`
+        )
+      }
+
+      setErrors((prev) => ({ ...prev, assignments: null }))
+      setAssignmentMessage(`Assigned ${attendeeIds.length} attendees.`)
+      showAssignmentToast(
+        `Assigned ${attendeeIds.length} attendee${attendeeIds.length === 1 ? "" : "s"}`,
+        assignmentLines
+      )
+      setSelectedAttendeeIds([])
+      await loadWorkspace()
+    } catch (e) {
+      setErrors((prev) => ({ ...prev, assignments: "Bulk assignment failed." }))
     } finally {
       setIsMutating(false)
     }
@@ -637,101 +986,299 @@ export default function AccommodationPage() {
     }
   }
 
-  function jumpToAssignmentQueue() {
-    const target = document.getElementById("assignment-queue")
-    target?.scrollIntoView({ behavior: "smooth", block: "start" })
+  async function confirmPendingAssignment(
+    assignmentId: string,
+    slotId?: string
+  ) {
+    setIsMutating(true)
+    setAssignmentMessage(null)
+    setAlternativeRooms([])
+
+    try {
+      const response = await fetch(
+        "/api/dashboard/accommodation/assignments/confirm",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assignmentId, slotId }),
+        }
+      )
+
+      const body = (await response.json().catch(() => null)) as {
+        success?: boolean
+        error?: string
+        message?: string
+        alternatives?: Array<{
+          slotId: string
+          roomId: string
+          roomLabel: string
+          roomType: string
+          capacity: number | null
+          occupantCount: number
+          availableSpots: number | null
+        }>
+      } | null
+
+      if (!response.ok) {
+        setErrors((current) => ({
+          ...current,
+          assignments: body?.message ?? "Failed to confirm assignment.",
+        }))
+        return
+      }
+
+      if (body?.error === "SLOT_FULL") {
+        // Room is full, show alternatives
+        setAlternativeRooms(body.alternatives ?? [])
+        setAssignmentMessage(
+          "The requested room is full. Please select an alternative."
+        )
+        return
+      }
+
+      if (body?.success) {
+        const suggestion = payload.buyerSuggestions?.find(
+          (item) => item.assignmentId === assignmentId
+        )
+        const selectedAlternativeRoomLabel =
+          slotId != null
+            ? alternativeRooms.find((room) => room.slotId === slotId)?.roomLabel
+            : null
+        const resolvedRoomLabel =
+          selectedAlternativeRoomLabel ??
+          suggestion?.roomLabel ??
+          "requested room"
+        const attendeeName =
+          suggestion?.attendeeName ??
+          attendeeNameById.get(suggestion?.attendeeId ?? "") ??
+          "Unnamed attendee"
+
+        setErrors((current) => ({ ...current, assignments: null }))
+        setAssignmentMessage("Buyer assignment confirmed successfully.")
+        showAssignmentToast("Buyer request fulfilled", [
+          `${attendeeName} -> ${resolvedRoomLabel}`,
+        ])
+        setShowConfirmDialog(false)
+        setSelectedPendingAssignment(null)
+        await loadWorkspace()
+      }
+    } finally {
+      setIsMutating(false)
+    }
+  }
+
+  async function removePendingAssignment(
+    assignmentId: string,
+    reason?: string
+  ) {
+    setIsMutating(true)
+    setAssignmentMessage(null)
+
+    try {
+      const response = await fetch(
+        `/api/dashboard/accommodation/assignments/remove`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assignmentId, reason }),
+        }
+      )
+
+      const body = (await response.json().catch(() => null)) as {
+        error?: { message?: string }
+      } | null
+
+      if (!response.ok) {
+        setErrors((current) => ({
+          ...current,
+          assignments: body?.error?.message ?? "Failed to remove assignment.",
+        }))
+        return
+      }
+
+      setErrors((current) => ({ ...current, assignments: null }))
+      setAssignmentMessage("Buyer assignment removed.")
+      setShowConfirmDialog(false)
+      setSelectedPendingAssignment(null)
+      await loadWorkspace()
+    } finally {
+      setIsMutating(false)
+    }
+  }
+
+  // Event selector when no event is selected
+  const eventsWithAccommodation = useEventsWithAccommodation()
+  const currentEventId = searchParams.get("eventId")
+
+  if (!currentEventId) {
+    return (
+      <section className="space-y-6">
+        <header className="mb-4">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight text-foreground">
+              Accommodation
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Select an event to manage room assignments and accommodation
+            </p>
+          </div>
+        </header>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {eventsWithAccommodation === undefined ? (
+            <>
+              <Skeleton className="h-32" />
+              <Skeleton className="h-32" />
+              <Skeleton className="h-32" />
+            </>
+          ) : eventsWithAccommodation.length === 0 ? (
+            <Card className="col-span-full">
+              <CardContent className="flex flex-col items-center justify-center py-12">
+                <BedDouble className="mb-4 size-12 text-muted-foreground/50" />
+                <p className="text-lg font-medium">
+                  No events with accommodation
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Enable accommodation in event settings to get started
+                </p>
+                <Button className="mt-4" asChild>
+                  <Link href="/dashboard/events">View Events</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            eventsWithAccommodation.map((event) => (
+              <Card
+                key={event._id}
+                className="cursor-pointer transition-all hover:shadow-md"
+                onClick={() => {
+                  const params = new URLSearchParams(searchParams.toString())
+                  params.set("eventId", event._id)
+                  router.push(`${pathname}?${params.toString()}`)
+                }}
+              >
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Calendar className="size-4 text-muted-foreground" />
+                    {event.title}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {format(new Date(event.startsAt), "MMM d, yyyy")}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {event.isPublished ? "Published" : "Draft"} •{" "}
+                    {event.isSignupOpen ? "Signups Open" : "Signups Closed"}
+                  </p>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+      </section>
+    )
   }
 
   return (
     <section className="space-y-6">
-      <section className="rounded-3xl border border-primary/12 bg-[radial-gradient(circle_at_top_left,rgba(145,118,255,0.3),transparent_38%),linear-gradient(180deg,rgba(57,47,92,0.96)_0%,rgba(72,60,112,0.92)_36%,rgba(92,79,136,0.9)_100%)] p-6 shadow-[0_24px_70px_rgba(40,24,82,0.16)]">
-        <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-          <div className="max-w-3xl">
-            <p className="text-xs font-semibold tracking-[0.24em] text-primary-foreground/55 uppercase">
-              Rooms
-            </p>
-            <h2 className="mt-2 text-4xl font-semibold tracking-tight text-primary-foreground">
-              Room allocation manager
+      <header className="mb-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight text-foreground">
+              Room allocation
             </h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-primary-foreground/72">
+            <p className="mt-1 text-sm text-muted-foreground">
               Track hotel capacity, assign attendees, and keep accommodation
-              decisions visible in one operator workflow.
+              decisions visible.
             </p>
           </div>
-
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2">
             <Button
               asChild
               variant="outline"
-              className="rounded-full border-white/20 bg-white/8 text-primary-foreground hover:bg-white/14 hover:text-primary-foreground"
+              size="sm"
+              className="h-10 rounded-lg border-border/50 bg-card/40 text-xs font-bold shadow-sm backdrop-blur"
             >
               <Link href="/dashboard/accommodation/inventory">
-                Open room stock
+                <LayoutGrid className="mr-2 size-3.5" /> Open stock
               </Link>
             </Button>
-            <Button
+            {/* <Button
               type="button"
-              className="rounded-full border border-white/10 bg-white/92 text-primary shadow-sm hover:bg-white"
-              onClick={jumpToAssignmentQueue}
+              size="sm"
+              className="h-10 rounded-lg bg-primary text-xs font-bold text-white shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] active:scale-95"
+              disabled={
+                isLoadingProposal || payload.unassignedAttendees.length === 0
+              }
+              onClick={async () => {
+                setIsLoadingProposal(true)
+                try {
+                  const response = await fetch(
+                    "/api/dashboard/accommodation/auto-allocate",
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        eventId: appliedEventId || null,
+                      }),
+                    }
+                  )
+                  if (response.ok) {
+                    const data = await response.json()
+                    setProposal(data)
+                    setShowProposal(true)
+                  }
+                } finally {
+                  setIsLoadingProposal(false)
+                }
+              }}
             >
-              Bulk assign
-            </Button>
+              {isLoadingProposal ? "Generating..." : "Auto-allocate"}
+            </Button> */}
           </div>
         </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <article className="rounded-2xl border border-white/10 bg-black/18 p-5 shadow-[0_18px_40px_rgba(12,8,24,0.24)] backdrop-blur-sm">
-            <p className="text-xs font-semibold tracking-[0.2em] text-primary-foreground/58 uppercase">
-              Total capacity
-            </p>
-            <p className="mt-3 text-3xl font-semibold text-primary-foreground">
-              {totalCapacity.toLocaleString()}
-            </p>
-            <p className="mt-2 text-sm text-primary-foreground/68">
-              {payload.summary.totalRooms} rooms in active scope
-            </p>
-          </article>
-          <article className="rounded-2xl border border-white/10 bg-black/18 p-5 shadow-[0_18px_40px_rgba(12,8,24,0.24)] backdrop-blur-sm">
-            <p className="text-xs font-semibold tracking-[0.2em] text-primary-foreground/58 uppercase">
-              Occupied beds
-            </p>
-            <p className="mt-3 text-3xl font-semibold text-primary-foreground">
-              {occupiedCapacity.toLocaleString()}
-            </p>
-            <div className="mt-3 h-2 rounded-full bg-white/10">
-              <div
-                className="h-2 rounded-full bg-[linear-gradient(90deg,rgba(255,255,255,0.82),rgba(190,168,255,0.98))]"
-                style={{ width: `${occupancyPercent}%` }}
-              />
-            </div>
-            <p className="mt-2 text-sm text-primary-foreground/68">
-              {occupancyPercent}% of current room capacity in use
-            </p>
-          </article>
-          <article className="rounded-2xl border border-white/10 bg-black/18 p-5 shadow-[0_18px_40px_rgba(12,8,24,0.24)] backdrop-blur-sm">
-            <p className="text-xs font-semibold tracking-[0.2em] text-primary-foreground/58 uppercase">
-              Unassigned attendees
-            </p>
-            <p className="mt-3 text-3xl font-semibold text-primary-foreground">
-              {payload.summary.unassignedAttendees}
-            </p>
-            <p className="mt-2 text-sm text-primary-foreground/68">
-              People still waiting for a room
-            </p>
-          </article>
-          <article className="rounded-2xl border border-white/10 bg-black/18 p-5 shadow-[0_18px_40px_rgba(12,8,24,0.24)] backdrop-blur-sm">
-            <p className="text-xs font-semibold tracking-[0.2em] text-primary-foreground/58 uppercase">
-              Room mix
-            </p>
-            <p className="mt-3 text-3xl font-semibold text-primary-foreground">
-              {payload.roomTypes.length}
-            </p>
-            <p className="mt-2 text-sm text-primary-foreground/68">
-              Across {payload.hotels.length} hotels
-            </p>
-          </article>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            {
+              label: "Total capacity",
+              value: totalCapacity.toLocaleString(),
+              sub: `${payload.summary.totalRooms} rooms`,
+            },
+            {
+              label: "Occupancy",
+              value: `${occupancyPercent}%`,
+              sub: `${occupiedCapacity} beds used`,
+            },
+            {
+              label: "Unassigned",
+              value: payload.unassignedAttendees.length,
+              sub: "Waiting list",
+            },
+            {
+              label: "Inventory",
+              value: payload.roomTypes.length,
+              sub: `${payload.hotels.length} Hoteliers`,
+            },
+          ].map((metric) => (
+            <article
+              key={metric.label}
+              className="relative flex flex-col justify-center overflow-hidden rounded-2xl border border-[rgba(113,84,255,0.4)] bg-[linear-gradient(145deg,rgba(113,84,255,0.92),rgba(83,56,171,0.88))] p-5 shadow-[0_8px_30px_rgb(113,84,255,0.2)] transition-transform hover:scale-[1.02]"
+            >
+              <p className="relative z-10 text-[10px] font-bold tracking-[0.2em] text-white/60 uppercase">
+                {metric.label}
+              </p>
+              <p className="relative z-10 mt-2 text-2xl font-bold text-white">
+                {metric.value}
+              </p>
+              <p className="relative z-10 mt-1 text-[11px] font-medium text-white/50">
+                {metric.sub}
+              </p>
+            </article>
+          ))}
         </div>
-      </section>
+      </header>
 
       {(errors.global || errors.assignments || assignmentMessage) && (
         <div className="space-y-3">
@@ -753,316 +1300,92 @@ export default function AccommodationPage() {
         </div>
       )}
 
-      <section className="grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="space-y-6">
-          <article className="rounded-3xl border border-border/70 bg-card/95 p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-2xl bg-primary/8 text-primary">
-                <Search className="size-4" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase">
-                  Refine view
-                </p>
-                <h3 className="text-lg font-semibold text-foreground">
-                  Filter the allocation board
-                </h3>
-              </div>
-            </div>
-
-            <form className="mt-5 space-y-4" onSubmit={applyFilters}>
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">
-                  Search rooms or attendees
-                </span>
-                <input
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder="Room, hotel, attendee, order"
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                />
-              </label>
-
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Event</span>
-                <select
-                  value={eventIdInput}
-                  onChange={(event) => setEventIdInput(event.target.value)}
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                >
-                  <option value="">All events</option>
-                  {payload.availableEvents.map((event) => (
-                    <option
-                      key={event.providerEventId}
-                      value={event.providerEventId}
-                    >
-                      {event.name?.trim() || event.providerEventId}
-                    </option>
-                  ))}
-                </select>
-                {eventIdInput && (
-                  <p className="text-xs text-muted-foreground">
-                    {selectedEventHotelCount > 0
-                      ? `This event is currently scoped to ${selectedEventHotelCount} hotel${selectedEventHotelCount === 1 ? "" : "s"}.`
-                      : "No hotel scope is configured for this event yet, so all hotels remain visible."}
-                  </p>
-                )}
-              </label>
-
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Hotel</span>
-                <select
-                  value={hotelFilter}
-                  onChange={(event) => setHotelFilter(event.target.value)}
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                >
-                  <option value="">All hotels</option>
-                  {payload.hotels.map((hotel) => (
-                    <option key={hotel.id} value={hotel.id}>
-                      {hotel.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Room type</span>
-                <select
-                  value={roomTypeFilter}
-                  onChange={(event) => setRoomTypeFilter(event.target.value)}
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                >
-                  <option value="">All room types</option>
-                  {payload.roomTypes.map((type) => (
-                    <option key={type.id} value={type.id}>
-                      {type.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Gender</span>
-                <select
-                  value={genderFilter}
-                  onChange={(event) => setGenderFilter(event.target.value)}
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                >
-                  <option value="">All genders</option>
-                  <option value="MALE">Male</option>
-                  <option value="FEMALE">Female</option>
-                  <option value="MIXED">Mixed (Family)</option>
-                  <option value="UNKNOWN">Unknown</option>
-                </select>
-              </label>
-
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Priority</span>
-                <select
-                  value={priorityFilter}
-                  onChange={(event) => setPriorityFilter(event.target.value)}
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                >
-                  <option value="">All priorities</option>
-                  <option value="CRITICAL">Critical</option>
-                  <option value="HIGH">High</option>
-                  <option value="NORMAL">Normal</option>
-                  <option value="LOW">Low</option>
-                </select>
-              </label>
-
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Location</span>
-                <input
-                  value={locationFilter}
-                  onChange={(event) => setLocationFilter(event.target.value)}
-                  placeholder="Filter by location"
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                />
-              </label>
-
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={hasPriorityFilter}
-                  onChange={(event) =>
-                    setHasPriorityFilter(event.target.checked)
-                  }
-                  className="size-4 rounded border-input"
-                />
-                <span className="font-medium text-foreground">
-                  Priority only
-                </span>
-              </label>
-
-              <label className="block space-y-2 text-sm">
-                <span className="font-medium text-foreground">Status</span>
-                <select
-                  value={availabilityFilter}
-                  onChange={(event) =>
-                    setAvailabilityFilter(
-                      event.target.value as AvailabilityFilter
-                    )
-                  }
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                >
-                  <option value="all">All rooms</option>
-                  <option value="empty">Empty</option>
-                  <option value="available">Available</option>
-                  <option value="full">Occupied</option>
-                </select>
-              </label>
-
-              <div className="flex gap-2 pt-2">
-                <Button
-                  type="submit"
-                  disabled={isLoading || isMutating}
-                  className="flex-1 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
-                >
-                  Apply
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-xl"
-                  disabled={isLoading || isMutating}
-                  onClick={() => {
-                    setEventIdInput("")
-                    setSearchInput("")
-                    setHotelFilter("")
-                    setRoomTypeFilter("")
-                    setAvailabilityFilter("all")
-                    setGenderFilter("")
-                    setPriorityFilter("")
-                    setHasPriorityFilter(false)
-                    setLocationFilter("")
-                    setAssignmentMessage(null)
-                    syncUrlState({
-                      attendeeId: selectedAttendeeId,
-                      eventId: null,
-                      search: null,
-                      hotelId: null,
-                      roomTypeId: null,
-                      availability: "all",
-                      genderType: null,
-                      allocationPriority: null,
-                      hasPriority: null,
-                      location: null,
-                      source: searchParams.get("source"),
-                    })
-                  }}
-                >
-                  Reset
-                </Button>
-              </div>
-            </form>
-          </article>
-
-          {selectedAttendeeId && selectedAttendeeContext && (
-            <article className="rounded-3xl border border-primary/12 bg-primary/6 p-5 shadow-sm">
-              <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase">
-                Selected attendee
+      {buyerSuggestions.length > 0 && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Sparkles className="size-4 text-primary" />
+                Buyer suggestions
+              </CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Pending buyer requests captured during signup.
               </p>
-              <h3 className="mt-2 text-lg font-semibold text-foreground">
-                {selectedAttendeeContext.attendeeName ?? "Focused attendee"}
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                {selectedAttendeeContext.status === "assigned"
-                  ? `${selectedAttendeeContext.attendeeName ?? "This attendee"} is already assigned to ${selectedAttendeeContext.roomLabel} at ${selectedAttendeeContext.hotelName}.`
-                  : selectedAttendeeContext.status === "unassigned"
-                    ? `${selectedAttendeeContext.attendeeName ?? "This attendee"} is unassigned and ready for room placement.`
-                    : "This attendee is outside the current filters. Clear the filters or reopen from attendee detail."}
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Button
-                  asChild
-                  variant="outline"
-                  className="rounded-xl bg-background text-primary"
-                >
-                  <Link href={selectedAttendeeContext.detailHref}>
-                    Open attendee detail
-                  </Link>
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="rounded-xl text-primary"
-                  onClick={() =>
-                    syncUrlState({
-                      attendeeId: null,
-                      eventId: appliedEventId,
-                      search: appliedSearch,
-                      hotelId: appliedHotelFilter,
-                      roomTypeId: appliedRoomTypeFilter,
-                      availability: appliedAvailability,
-                      source: searchParams.get("source"),
-                    })
-                  }
-                >
-                  Clear focus
-                </Button>
-              </div>
-            </article>
-          )}
-
-          <article className="rounded-3xl border border-primary/20 bg-primary p-5 text-primary-foreground shadow-[0_24px_54px_rgba(83,56,171,0.28)]">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="flex size-10 items-center justify-center rounded-2xl bg-white/12">
-                  <Sparkles className="size-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold tracking-[0.2em] text-primary-foreground/70 uppercase">
-                    Suggestion
-                  </p>
-                  <h3 className="text-lg font-semibold">Smart allocation</h3>
-                </div>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="border-white/20 bg-white/10 text-primary-foreground hover:bg-white/20"
-                disabled={
-                  isLoadingProposal || payload.unassignedAttendees.length === 0
-                }
-                onClick={async () => {
-                  setIsLoadingProposal(true)
-                  try {
-                    const response = await fetch(
-                      "/api/dashboard/accommodation/auto-allocate",
-                      {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          eventId: appliedEventId || null,
-                        }),
-                      }
-                    )
-                    if (response.ok) {
-                      const data = await response.json()
-                      setProposal(data)
-                      setShowProposal(true)
-                    }
-                  } finally {
-                    setIsLoadingProposal(false)
-                  }
-                }}
-              >
-                {isLoadingProposal ? "Generating..." : "Generate proposal"}
-              </Button>
             </div>
-            <p className="mt-4 text-sm leading-6 text-primary-foreground/85">
-              {highlightedSuggestion
-                ? `${highlightedSuggestion.attendeeName} can likely be placed in ${highlightedSuggestion.roomLabel} at ${highlightedSuggestion.hotelName} based on the active scope.`
-                : "No suggestion yet. Add more inventory or widen the current filters to reveal available room matches."}
-            </p>
-            <div className="mt-5 flex items-center justify-between text-sm text-primary-foreground/75">
-              <span>{payload.summary.unassignedAttendees} waiting</span>
-              <span>{assignableRooms.length} rooms open</span>
-            </div>
-          </article>
+            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+              {buyerSuggestions.length} pending
+            </span>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+              {buyerSuggestions.map((suggestion) => {
+                const roomId = suggestion.roomId
+                const roomLabel = suggestion.roomLabel
+                const canReview =
+                  suggestion.assignmentIntent === "assign" &&
+                  !!roomId &&
+                  !!roomLabel
 
+                return (
+                  <div
+                    key={suggestion.assignmentId}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/80 p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {suggestion.attendeeName ?? "Unnamed"}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {suggestion.hotelName ?? "Unknown hotel"} •{" "}
+                        {roomLabel ?? "Unknown room"}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                          suggestion.assignmentIntent === "skip"
+                            ? "bg-amber-500/10 text-amber-700"
+                            : "bg-emerald-500/10 text-emerald-600"
+                        )}
+                      >
+                        {suggestion.assignmentIntent === "skip"
+                          ? "Skip request"
+                          : "Suggested"}
+                      </span>
+                      {canReview && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-lg text-xs"
+                          onClick={() => {
+                            setSelectedPendingAssignment({
+                              assignmentId: suggestion.assignmentId,
+                              attendeeId: suggestion.attendeeId,
+                              attendeeName: suggestion.attendeeName,
+                              attendeeEmail: suggestion.attendeeEmail,
+                              roomId: roomId!,
+                              roomLabel: roomLabel!,
+                            })
+                            setAlternativeRooms([])
+                            setShowConfirmDialog(true)
+                          }}
+                        >
+                          Review
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <section className="flex flex-col gap-8">
+        <div className="space-y-6">
           {/* Smart Allocation Proposal Display */}
           {showProposal && proposal && (
             <article className="rounded-3xl border border-primary/20 bg-primary/6 p-5 shadow-sm">
@@ -1087,6 +1410,364 @@ export default function AccommodationPage() {
                   Close
                 </Button>
               </div>
+
+              {/* Submission Queue Display */}
+              {payload.submissionQueueRows &&
+                payload.submissionQueueRows.length > 0 && (
+                  <>
+                    <section className="mb-6 rounded-3xl border border-border/60 bg-card/60 p-5 shadow-sm">
+                      <div className="mb-4 flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase">
+                            Signup Queue
+                          </p>
+                          <h3 className="mt-1 text-lg font-semibold text-foreground">
+                            Internal Submissions
+                          </h3>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-full bg-orange-500/10 px-2 py-1 text-xs font-medium text-orange-600">
+                            {
+                              payload.submissionQueueRows.filter(
+                                (r) => r.isUnresolved
+                              ).length
+                            }{" "}
+                            unresolved
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            of {payload.submissionQueueRows.length} total
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Queue rows - sorted by unresolved first */}
+                      <div className="max-h-64 space-y-2 overflow-y-auto">
+                        {payload.submissionQueueRows
+                          .sort((a, b) => {
+                            // Unresolved first, then by submittedAt, then by attendeeId
+                            if (a.isUnresolved !== b.isUnresolved)
+                              return a.isUnresolved ? -1 : 1
+                            const aTime = a.submittedAt
+                              ? new Date(a.submittedAt).getTime()
+                              : 0
+                            const bTime = b.submittedAt
+                              ? new Date(b.submittedAt).getTime()
+                              : 0
+                            if (aTime !== bTime) return aTime - bTime
+                            return a.attendeeId.localeCompare(b.attendeeId)
+                          })
+                          .map((row) => (
+                            <div
+                              key={row.submissionId + row.attendeeId}
+                              className={cn(
+                                "flex cursor-pointer items-center justify-between rounded-xl border p-3 transition-all hover:bg-muted/30",
+                                row.isUnresolved
+                                  ? "border-orange-200 bg-orange-50/30 dark:border-orange-900/30 dark:bg-orange-950/10"
+                                  : "border-border/40 bg-background/50"
+                              )}
+                              onClick={() => {
+                                setSelectedSubmissionId(row.submissionId)
+                                setShowSubmissionDetail(true)
+                              }}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className={cn(
+                                    "flex size-8 items-center justify-center rounded-lg",
+                                    row.isUnresolved
+                                      ? "bg-orange-500/10 text-orange-600"
+                                      : "bg-emerald-500/10 text-emerald-600"
+                                  )}
+                                >
+                                  {row.isUnresolved ? (
+                                    <Clock className="size-4" />
+                                  ) : (
+                                    <Check className="size-4" />
+                                  )}
+                                </div>
+                                <div>
+                                  <p className="text-sm font-medium text-foreground">
+                                    {row.attendeeName ?? "Unnamed"}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {row.bookingRef && `Ref: ${row.bookingRef}`}{" "}
+                                    {row.bookerName && `• ${row.bookerName}`}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {row.isUnresolved && row.unresolvedReason && (
+                                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
+                                    {row.unresolvedReason ===
+                                    "no_assignment_record"
+                                      ? "No record"
+                                      : row.unresolvedReason ===
+                                          "skipped_intent"
+                                        ? "Skipped"
+                                        : "Not assignable"}
+                                  </span>
+                                )}
+                                {row.genderType &&
+                                  row.genderType !== "UNKNOWN" && (
+                                    <span
+                                      className={cn(
+                                        "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                                        row.genderType === "MALE"
+                                          ? "border-blue-500/20 bg-blue-500/10 text-blue-500"
+                                          : row.genderType === "FEMALE"
+                                            ? "border-pink-500/20 bg-pink-500/10 text-pink-500"
+                                            : "border-border/40 bg-muted/30 text-muted-foreground/80"
+                                      )}
+                                    >
+                                      {row.genderType.toLowerCase()}
+                                    </span>
+                                  )}
+                                {row.location && (
+                                  <span className="inline-flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
+                                    <MapPin className="size-2.5" />
+                                    {row.location}
+                                  </span>
+                                )}
+                                {row.hasFamily && (
+                                  <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600">
+                                    Group
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </section>
+
+                    {/* Submission Detail Side Panel */}
+                    {showSubmissionDetail && selectedSubmissionId && (
+                      <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-md border-l border-border bg-card/95 shadow-2xl backdrop-blur-xl">
+                        <div className="flex h-full flex-col">
+                          {(() => {
+                            const submission =
+                              payload.submissionQueueRows?.find(
+                                (r) => r.submissionId === selectedSubmissionId
+                              )
+                            if (!submission) return null
+                            return (
+                              <>
+                                <header className="flex items-center justify-between border-b border-border/60 px-6 py-4">
+                                  <div>
+                                    <h3 className="text-lg font-semibold text-foreground">
+                                      Submission Details
+                                    </h3>
+                                    <p className="text-xs text-muted-foreground">
+                                      {submission.bookingRef ??
+                                        "No booking ref"}
+                                    </p>
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() =>
+                                      setShowSubmissionDetail(false)
+                                    }
+                                  >
+                                    <X className="size-4" />
+                                  </Button>
+                                </header>
+
+                                <div className="flex-1 space-y-6 overflow-y-auto p-6">
+                                  {/* Attendee Info */}
+                                  <Card>
+                                    <CardHeader className="pb-3">
+                                      <CardTitle className="text-sm font-medium">
+                                        Attendee
+                                      </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-3">
+                                      <div>
+                                        <p className="text-sm font-medium text-foreground">
+                                          {submission.attendeeName ?? "Unnamed"}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                          {submission.attendeeEmail}
+                                        </p>
+                                      </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        {submission.genderType &&
+                                          submission.genderType !==
+                                            "UNKNOWN" && (
+                                            <span
+                                              className={cn(
+                                                "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                                                submission.genderType === "MALE"
+                                                  ? "border-blue-500/20 bg-blue-500/10 text-blue-500"
+                                                  : submission.genderType ===
+                                                      "FEMALE"
+                                                    ? "border-pink-500/20 bg-pink-500/10 text-pink-500"
+                                                    : "border-border/40 bg-muted/30 text-muted-foreground/80"
+                                              )}
+                                            >
+                                              {submission.genderType.toLowerCase()}
+                                            </span>
+                                          )}
+                                        {submission.location && (
+                                          <span className="inline-flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
+                                            <MapPin className="size-2.5" />
+                                            {submission.location}
+                                          </span>
+                                        )}
+                                        {submission.hasFamily && (
+                                          <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600">
+                                            Group
+                                          </span>
+                                        )}
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+
+                                  {/* Assignment Status */}
+                                  <Card>
+                                    <CardHeader className="pb-3">
+                                      <CardTitle className="text-sm font-medium">
+                                        Assignment Status
+                                      </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-2">
+                                      {submission.isUnresolved ? (
+                                        <div className="rounded-lg bg-orange-50 p-3 dark:bg-orange-950/20">
+                                          <p className="text-sm font-medium text-orange-700 dark:text-orange-300">
+                                            Unresolved
+                                          </p>
+                                          <p className="text-xs text-orange-600/80 dark:text-orange-400/80">
+                                            {submission.unresolvedReason ===
+                                            "no_assignment_record"
+                                              ? "No assignment record found"
+                                              : submission.unresolvedReason ===
+                                                  "skipped_intent"
+                                                ? "Assignment was skipped"
+                                                : submission.unresolvedReason ===
+                                                    "slot_not_assignable"
+                                                  ? "Selected slot is not assignable"
+                                                  : "Unknown reason"}
+                                          </p>
+                                        </div>
+                                      ) : (
+                                        <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-950/20">
+                                          <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                                            Resolved
+                                          </p>
+                                          <p className="text-xs text-emerald-600/80 dark:text-emerald-400/80">
+                                            Assignment intent:{" "}
+                                            {submission.assignmentIntent ??
+                                              "N/A"}
+                                          </p>
+                                        </div>
+                                      )}
+                                    </CardContent>
+                                  </Card>
+
+                                  {/* Preferences */}
+                                  {(submission.roommatePreference ||
+                                    submission.dietaryRestrictions) && (
+                                    <Card>
+                                      <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm font-medium">
+                                          Preferences
+                                        </CardTitle>
+                                      </CardHeader>
+                                      <CardContent className="space-y-3">
+                                        {submission.roommatePreference && (
+                                          <div>
+                                            <p className="text-xs text-muted-foreground">
+                                              Roommate preference
+                                            </p>
+                                            <p className="text-sm text-foreground">
+                                              {submission.roommatePreference}
+                                            </p>
+                                          </div>
+                                        )}
+                                        {submission.dietaryRestrictions && (
+                                          <div>
+                                            <p className="text-xs text-muted-foreground">
+                                              Dietary restrictions
+                                            </p>
+                                            <p className="text-sm text-foreground">
+                                              {submission.dietaryRestrictions}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </CardContent>
+                                    </Card>
+                                  )}
+
+                                  {/* Booking Info */}
+                                  <Card>
+                                    <CardHeader className="pb-3">
+                                      <CardTitle className="text-sm font-medium">
+                                        Booking Info
+                                      </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-2">
+                                      {submission.bookingRef && (
+                                        <div className="flex justify-between">
+                                          <span className="text-xs text-muted-foreground">
+                                            Booking Ref
+                                          </span>
+                                          <span className="text-sm text-foreground">
+                                            {submission.bookingRef}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {submission.bookerName && (
+                                        <div className="flex justify-between">
+                                          <span className="text-xs text-muted-foreground">
+                                            Booker
+                                          </span>
+                                          <span className="text-sm text-foreground">
+                                            {submission.bookerName}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {submission.submittedAt && (
+                                        <div className="flex justify-between">
+                                          <span className="text-xs text-muted-foreground">
+                                            Submitted
+                                          </span>
+                                          <span className="text-sm text-foreground">
+                                            {new Date(
+                                              submission.submittedAt
+                                            ).toLocaleDateString()}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {submission.eventName && (
+                                        <div className="flex justify-between">
+                                          <span className="text-xs text-muted-foreground">
+                                            Event
+                                          </span>
+                                          <span className="text-sm text-foreground">
+                                            {submission.eventName}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {submission.ticketTypeLabel && (
+                                        <div className="flex justify-between">
+                                          <span className="text-xs text-muted-foreground">
+                                            Ticket Type
+                                          </span>
+                                          <span className="text-sm text-foreground">
+                                            {submission.ticketTypeLabel}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </CardContent>
+                                  </Card>
+                                </div>
+                              </>
+                            )
+                          })()}
+                        </div>
+                      </aside>
+                    )}
+                  </>
+                )}
 
               {/* Summary stats */}
               <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -1200,364 +1881,604 @@ export default function AccommodationPage() {
               )}
             </article>
           )}
-        </aside>
+        </div>
 
-        <div className="space-y-6">
-          <article
-            id="assignment-queue"
-            className="rounded-3xl border border-border/70 bg-card/95 p-6 shadow-sm"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[380px_1fr] xl:gap-8">
+          {/* PANE 1: Inbox of unassigned attendees */}
+          <div className="flex h-[800px] flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/40 shadow-sm backdrop-blur-xl">
+            <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-5 py-4">
               <div>
-                <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase">
-                  Allocation board
-                </p>
-                <h3 className="mt-2 text-2xl font-semibold text-foreground">
-                  Room overview and occupancy
+                <h3 className="text-sm font-bold tracking-tight text-foreground">
+                  Inbox
                 </h3>
+                <p className="mt-0.5 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+                  {payload.unassignedAttendees.length} Waiting
+                </p>
+              </div>
+              <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Users className="size-4" />
+              </div>
+            </div>
+            <div
+              className={`flex-1 space-y-2 overflow-y-auto p-3 transition-opacity duration-200 ${isLoading || isMutating ? "pointer-events-none opacity-50" : ""}`}
+            >
+              {isLoading && payload.unassignedAttendees.length === 0 ? (
+                <div className="space-y-2 p-1">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="flex flex-col gap-3 rounded-xl border border-border/20 bg-background/30 p-4"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="size-5 rounded-md" />
+                        <Skeleton className="h-4 w-32 rounded-md" />
+                      </div>
+                      <Skeleton className="ml-7 h-3 w-48 rounded-md" />
+                      <div className="ml-7 flex gap-1.5">
+                        <Skeleton className="h-4 w-12 rounded-md" />
+                        <Skeleton className="h-4 w-16 rounded-md" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : payload.unassignedAttendees.length === 0 ? (
+                <div className="m-2 rounded-xl border border-dashed border-border/60 bg-background/50 p-8 text-center text-sm text-muted-foreground">
+                  Inbox empty! All attendees have been placed.
+                </div>
+              ) : (
+                payload.unassignedAttendees.map((attendee) => {
+                  const isSelected = selectedAttendeeIds.includes(
+                    attendee.attendeeId
+                  )
+                  const fulfillGroupAttendees = getFulfillGroupAttendees(
+                    attendee,
+                    payload.unassignedAttendees
+                  )
+                  const isGroupFulfill = fulfillGroupAttendees.length > 1
+                  return (
+                    <div
+                      key={attendee.attendeeId}
+                      className={`group relative flex w-full cursor-pointer flex-col items-start rounded-xl border p-4 transition-all select-none ${
+                        isSelected
+                          ? "selected-attendee border-[rgba(113,84,255,0.6)] bg-[rgba(113,84,255,0.08)] shadow-[0_0_20px_rgba(113,84,255,0.1)]"
+                          : "border-border/40 bg-background/50 hover:bg-muted/30"
+                      }`}
+                      onClick={() =>
+                        toggleAttendeeSelection(attendee.attendeeId)
+                      }
+                    >
+                      <div className="flex w-full items-start justify-between">
+                        <div className="flex items-center gap-2 truncate">
+                          <div
+                            className={`flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
+                              isSelected
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-border bg-background"
+                            }`}
+                          >
+                            {isSelected && <Check className="size-3" />}
+                          </div>
+                          <p className="truncate text-sm font-semibold text-foreground">
+                            {attendee.attendeeName ?? "Unnamed"}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <Link
+                            href={`/dashboard/attendees/${attendee.attendeeId}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="p-1 text-muted-foreground transition-colors hover:text-primary"
+                          >
+                            <ExternalLink className="size-3.5" />
+                          </Link>
+                          {attendee.allocationPriority === "CRITICAL" && (
+                            <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-medium text-red-500">
+                              Crit
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <p className="mt-1 ml-7 truncate text-xs text-muted-foreground opacity-70">
+                        {attendee.ticketTypeLabel ?? attendee.eventName}
+                      </p>
+
+                      <div className="mt-3 ml-7 flex flex-wrap gap-1.5">
+                        {attendee.allocatedRoomTypeId && (
+                          <span className="rounded-md bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-600">
+                            {payload.roomTypes.find(
+                              (rt) => rt.id === attendee.allocatedRoomTypeId
+                            )?.label ?? "Room type"}
+                          </span>
+                        )}
+                        {attendee.genderType &&
+                          attendee.genderType !== "UNKNOWN" && (
+                            <span
+                              className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize ${
+                                attendee.genderType === "MALE"
+                                  ? "border-blue-500/20 bg-blue-500/10 text-blue-500"
+                                  : attendee.genderType === "FEMALE"
+                                    ? "border-pink-500/20 bg-pink-500/10 text-pink-500"
+                                    : "border-border/40 bg-muted/30 text-muted-foreground/80"
+                              }`}
+                            >
+                              {attendee.genderType.toLowerCase()}
+                            </span>
+                          )}
+                        {attendee.location && (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
+                            <MapPin className="size-2.5" />
+                            {attendee.location}
+                          </span>
+                        )}
+                        {shouldRenderFamilyBadge(attendee) && (
+                          <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600">
+                            Group
+                          </span>
+                        )}
+                        {attendee.allocatedRoomTypeId && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-6 rounded-md bg-violet-500/10 px-2 text-[10px] font-medium text-violet-600 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-violet-600 hover:text-white"
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              const attendeesWithPendingAssignments =
+                                fulfillGroupAttendees
+                                  .map((groupMember) => ({
+                                    attendeeId: groupMember.attendeeId,
+                                    assignment: getPendingBuyerAssignment(
+                                      groupMember.attendeeId
+                                    ),
+                                  }))
+                                  .filter((entry) => entry.assignment !== null)
+                                  .map((entry) => ({
+                                    attendeeId: entry.attendeeId,
+                                    assignmentId:
+                                      entry.assignment!.assignmentId,
+                                  }))
+
+                              for (const entry of attendeesWithPendingAssignments) {
+                                await confirmPendingAssignment(
+                                  entry.assignmentId
+                                )
+                              }
+
+                              const remainingAttendees =
+                                fulfillGroupAttendees.filter(
+                                  (groupMember) =>
+                                    !attendeesWithPendingAssignments.some(
+                                      (entry) =>
+                                        entry.attendeeId ===
+                                        groupMember.attendeeId
+                                    )
+                                )
+
+                              if (remainingAttendees.length === 0) {
+                                return
+                              }
+
+                              const matchingRoom = isGroupFulfill
+                                ? pickGroupFulfillRoom(
+                                    remainingAttendees,
+                                    payload.rooms
+                                  )
+                                : pickFulfillRoom(attendee, payload.rooms)
+                              if (matchingRoom) {
+                                if (isGroupFulfill) {
+                                  await assignMultipleAttendeesToRoom(
+                                    remainingAttendees.map(
+                                      (groupMember) => groupMember.attendeeId
+                                    ),
+                                    matchingRoom.id
+                                  )
+                                } else {
+                                  await assignAttendeeToSpecificRoom(
+                                    attendee.attendeeId,
+                                    matchingRoom.id
+                                  )
+                                }
+                              } else {
+                                setErrors((current) => ({
+                                  ...current,
+                                  assignments: isGroupFulfill
+                                    ? `No room has enough available beds to fulfill this group (${fulfillGroupAttendees.length}).`
+                                    : "No available rooms of the matching room type.",
+                                }))
+                              }
+                            }}
+                          >
+                            {isGroupFulfill
+                              ? `Fulfill ${fulfillGroupAttendees.length}`
+                              : "Fulfill"}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
+          {/* PANE 2: Visual Room Board */}
+          <div id="assignment-queue" className="flex flex-col gap-4">
+            <div className="mb-4 flex items-center justify-between px-1">
+              <div>
+                <h3 className="text-xl font-bold tracking-tight text-foreground">
+                  Room availability
+                </h3>
+                <p className="text-xs font-medium text-muted-foreground">
+                  {payload.rooms.length} filtered rooms
+                </p>
               </div>
               <Button
                 type="button"
                 variant="outline"
-                className="rounded-xl text-primary"
+                size="sm"
+                className="h-10 rounded-lg border-border/50 bg-card/40 text-xs font-bold shadow-sm backdrop-blur"
                 disabled={isLoading || isMutating}
                 onClick={() => void loadWorkspace()}
               >
-                <RefreshCcw className="mr-2 size-4" />
+                <RefreshCcw
+                  className={cn("mr-2 size-3.5", isLoading && "animate-spin")}
+                />
                 Refresh
               </Button>
             </div>
 
-            {isLoading ? (
-              <p className="mt-5 text-sm text-muted-foreground">
-                Loading room overview...
-              </p>
+            {isLoading && payload.rooms.length === 0 ? (
+              <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="flex h-[240px] flex-col overflow-hidden rounded-2xl border border-border/40 bg-card/60"
+                  >
+                    <div className="flex items-center gap-3 border-b border-border/10 bg-muted/10 p-4">
+                      <Skeleton className="size-8 rounded-lg" />
+                      <div className="space-y-1.5">
+                        <Skeleton className="h-4 w-24 rounded-md" />
+                        <Skeleton className="h-3 w-32 rounded-md" />
+                      </div>
+                    </div>
+                    <div className="space-y-3 p-4">
+                      <Skeleton className="h-10 w-full rounded-xl" />
+                      <Skeleton className="h-10 w-full rounded-xl" />
+                      <Skeleton className="h-10 w-full rounded-xl" />
+                    </div>
+                  </div>
+                ))}
+              </div>
             ) : payload.rooms.length === 0 ? (
               <p className="mt-5 rounded-xl border border-dashed border-border/80 px-4 py-5 text-sm text-muted-foreground">
                 No room stock matches the current filters.
               </p>
             ) : (
-              <div className="mt-5 overflow-hidden rounded-2xl border border-border/70">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-border/70 text-sm">
-                    <thead className="bg-muted/35">
-                      <tr className="text-left">
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Room
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Hotel
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Type
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Occupancy
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Guests
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Status
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60 bg-background/80">
-                      {paginatedRooms.map((room) => (
-                        <tr
-                          key={room.id}
-                          className="cursor-pointer align-top transition-colors hover:bg-primary/5"
-                          onClick={() =>
-                            router.push(
-                              `/dashboard/accommodation/rooms/${room.id}`
-                            )
-                          }
-                        >
-                          <td className="px-4 py-4">
-                            <div className="flex items-start gap-3">
-                              <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/8 text-primary">
-                                <Building2 className="size-4" />
-                              </div>
-                              <div>
-                                <p className="font-semibold text-foreground">
-                                  {room.label}
-                                </p>
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  {room.availableBeds} bed
-                                  {room.availableBeds === 1 ? "" : "s"} free
-                                </p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-4 py-4 text-muted-foreground">
-                            <p>{room.hotel.name}</p>
-                            <p className="mt-1 text-xs">
-                              {room.hotel.city ?? "City not set"}
+              <div
+                className={`grid gap-4 transition-opacity duration-200 sm:grid-cols-2 2xl:grid-cols-3 ${isLoading || isMutating ? "pointer-events-none opacity-50" : ""}`}
+              >
+                {paginatedRooms.map((room) => (
+                  <article
+                    key={room.id}
+                    className="flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/95 shadow-sm transition-all hover:border-[rgba(113,84,255,0.3)] hover:shadow-md"
+                  >
+                    <div className="flex items-center justify-between border-b border-border/50 bg-muted/20 px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                          <Building2 className="size-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm leading-none font-semibold text-foreground">
+                              {room.label}
                             </p>
-                          </td>
-                          <td className="px-4 py-4">
-                            <span className="inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                              {room.roomType.label}
-                            </span>
-                          </td>
-                          <td className="px-4 py-4 text-muted-foreground">
-                            <p className="font-medium text-foreground">
-                              {room.occupiedBeds}/{room.capacity}
-                            </p>
-                            <p className="mt-1 text-xs">occupied beds</p>
-                          </td>
-                          <td className="px-4 py-4">
-                            {room.occupants.length === 0 ? (
-                              <span className="text-muted-foreground">
-                                No attendees
-                              </span>
-                            ) : (
-                              <div className="flex flex-wrap gap-2">
-                                {room.occupants.slice(0, 2).map((occupant) => (
-                                  <span
-                                    key={occupant.attendeeId}
-                                    className="rounded-full border border-border/80 bg-muted/20 px-2.5 py-1 text-xs text-muted-foreground"
-                                  >
-                                    {occupant.attendeeName ??
-                                      occupant.attendeeEmail ??
-                                      occupant.providerOrderId}
-                                  </span>
-                                ))}
-                                {room.occupants.length > 2 && (
-                                  <span className="rounded-full border border-border/80 bg-muted/20 px-2.5 py-1 text-xs text-muted-foreground">
-                                    +{room.occupants.length - 2} more
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-4">
                             <span
-                              className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${availabilityClasses(room.availability)}`}
+                              className={`inline-flex min-w-5 justify-center rounded px-1.5 py-0.5 text-[10px] font-medium ${room.availableBeds === 0 ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-600"}`}
                             >
-                              {availabilityLabel(room.availability)}
+                              {room.availableBeds} free
                             </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                          </div>
+                          <p className="mt-1 max-w-[160px] truncate text-[11px] leading-none text-muted-foreground">
+                            {room.hotel.name}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
 
-                <div className="flex flex-col gap-3 border-t border-border/70 bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-muted-foreground">
-                    Showing {(roomsPage - 1) * roomsPerPage + 1}-
-                    {Math.min(roomsPage * roomsPerPage, payload.rooms.length)}{" "}
-                    of {payload.rooms.length} rooms
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="rounded-xl"
-                      disabled={roomsPage === 1}
-                      onClick={() =>
-                        setRoomsPage((current) => Math.max(1, current - 1))
-                      }
-                    >
-                      <ChevronLeft className="size-4" />
-                    </Button>
-                    <span className="text-sm text-muted-foreground">
-                      Page {roomsPage} of {totalRoomPages}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="rounded-xl"
-                      disabled={roomsPage === totalRoomPages}
-                      onClick={() =>
-                        setRoomsPage((current) =>
-                          Math.min(totalRoomPages, current + 1)
-                        )
-                      }
-                    >
-                      <ChevronRight className="size-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </article>
-
-          <article className="rounded-3xl border border-border/70 bg-card/95 p-6 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                  Assignment queue
-                </p>
-                <h3 className="mt-2 text-2xl font-semibold text-foreground">
-                  Unassigned attendees
-                </h3>
-              </div>
-              <div className="flex items-center gap-2 rounded-full bg-primary/8 px-4 py-2 text-sm text-primary">
-                <Users className="size-4" />
-                {payload.unassignedAttendees.length} waiting
-              </div>
-            </div>
-
-            {payload.unassignedAttendees.length === 0 ? (
-              <p className="mt-5 rounded-xl border border-dashed border-border/80 px-4 py-5 text-sm text-muted-foreground">
-                No unassigned attendees match the current filters.
-              </p>
-            ) : (
-              <div className="mt-5 overflow-hidden rounded-2xl border border-border/70">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-border/70 text-sm">
-                    <thead className="bg-muted/35">
-                      <tr className="text-left">
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Attendee
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Event
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Suggested scope
-                        </th>
-                        <th className="px-4 py-3 font-semibold text-muted-foreground">
-                          Assign to room
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60 bg-background/80">
-                      {payload.unassignedAttendees.map((attendee) => (
-                        <tr
-                          key={attendee.attendeeId}
-                          className={
-                            attendee.attendeeId === selectedAttendeeId
-                              ? "bg-primary/5 align-top"
-                              : "align-top"
-                          }
+                    <div className="flex min-h-0 flex-1 flex-col gap-2 bg-background/50 p-3">
+                      {/* Render Occupied Slots */}
+                      {room.occupants.map((occupant) => (
+                        <div
+                          key={occupant.attendeeId}
+                          className="group flex items-center justify-between rounded-xl border border-border/40 bg-card p-2 shadow-sm transition-colors hover:border-border/80"
                         >
-                          <td className="px-4 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="flex size-10 items-center justify-center rounded-xl bg-primary/8 text-primary">
-                                <BedDouble className="size-4" />
-                              </div>
-                              <div>
-                                <p className="font-semibold text-foreground">
-                                  {attendee.attendeeName ?? "Unnamed attendee"}
-                                </p>
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  {attendee.attendeeEmail ??
-                                    attendee.providerOrderId}
-                                </p>
-                                {/* Signal badges */}
-                                <div className="mt-2 flex flex-wrap gap-1">
-                                  {attendee.allocationPriority ===
-                                    "CRITICAL" && (
-                                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300">
-                                      Critical
-                                    </span>
-                                  )}
-                                  {attendee.allocationPriority === "HIGH" && (
-                                    <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
-                                      High
-                                    </span>
-                                  )}
-                                  {attendee.genderType === "MALE" && (
-                                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-                                      Male
-                                    </span>
-                                  )}
-                                  {attendee.genderType === "FEMALE" && (
-                                    <span className="rounded-full bg-pink-100 px-2 py-0.5 text-xs font-medium text-pink-700 dark:bg-pink-900/30 dark:text-pink-300">
-                                      Female
-                                    </span>
-                                  )}
-                                  {attendee.genderType === "MIXED" && (
-                                    <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
-                                      Family
-                                    </span>
-                                  )}
-                                  {attendee.familyGroupId && (
-                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                                      Group
-                                    </span>
-                                  )}
-                                  {attendee.location && (
-                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                                      {attendee.location}
-                                    </span>
-                                  )}
-                                </div>
-                                <Link
-                                  className="mt-2 inline-flex items-center text-xs font-medium text-primary"
-                                  href={`/dashboard/attendees/${attendee.attendeeId}?search=${encodeURIComponent(attendee.attendeeName ?? attendee.providerOrderId)}&eventId=${encodeURIComponent(attendee.providerEventId)}&source=room-allocation`}
-                                >
-                                  Open attendee detail
-                                  <ArrowRight className="ml-1 size-3" />
-                                </Link>
-                              </div>
+                          <div className="flex items-center gap-2 truncate">
+                            <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                              <Users className="size-3.5 text-muted-foreground" />
                             </div>
-                          </td>
-                          <td className="px-4 py-4 text-muted-foreground">
-                            <p>
-                              {attendee.eventName ?? attendee.providerEventId}
+                            <p className="truncate text-xs font-medium text-foreground">
+                              {occupant.attendeeName ??
+                                occupant.attendeeEmail ??
+                                "Unnamed"}
                             </p>
-                            <p className="mt-1 text-xs">
-                              {attendee.ticketTypeLabel ?? "No ticket type"}
-                            </p>
-                          </td>
-                          <td className="px-4 py-4 text-muted-foreground">
-                            {attendee.matchingRoomCount} room
-                            {attendee.matchingRoomCount === 1 ? "" : "s"} fit
-                            the active filters.
-                          </td>
-                          <td className="px-4 py-4">
-                            <div className="flex min-w-[260px] flex-col gap-2">
-                              <select
-                                value={
-                                  selectedRoomByAttendee[attendee.attendeeId] ??
-                                  ""
-                                }
-                                onChange={(event) =>
-                                  setSelectedRoomByAttendee((current) => ({
-                                    ...current,
-                                    [attendee.attendeeId]: event.target.value,
-                                  }))
-                                }
-                                className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-sm"
-                              >
-                                <option value="">Select room unit</option>
-                                {assignableRooms.map((room) => (
-                                  <option key={room.id} value={room.id}>
-                                    {room.label} · {room.hotel.name} ·{" "}
-                                    {room.availableBeds} free
-                                  </option>
-                                ))}
-                              </select>
-                              <Button
-                                type="button"
-                                className="w-full rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
-                                disabled={
-                                  isMutating || assignableRooms.length === 0
-                                }
-                                onClick={() =>
-                                  void assignAttendee(attendee.attendeeId)
-                                }
-                              >
-                                Assign attendee
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="size-7 shrink-0 p-0 text-destructive opacity-0 transition-opacity group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() =>
+                              void unassignAttendee(occupant.attendeeId)
+                            }
+                          >
+                            <span className="sr-only">Remove</span>
+                            <span aria-hidden="true">&times;</span>
+                          </Button>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
+
+                      {/* Render Pending Assignments (Buyer Intent) */}
+                      {room.pendingAssignments?.map((pending) => (
+                        <div
+                          key={pending.assignmentId}
+                          className="group flex items-center justify-between rounded-xl border border-dashed border-gray-300 bg-gray-100/50 p-2 shadow-sm transition-colors hover:border-gray-400 hover:bg-gray-100"
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gray-200">
+                              <Clock className="size-3.5 text-gray-500" />
+                            </div>
+                            <div className="flex flex-col">
+                              <p className="truncate text-xs font-medium text-gray-700">
+                                {pending.attendeeName ??
+                                  pending.attendeeEmail ??
+                                  "Unnamed"}
+                              </p>
+                              <p className="text-[9px] text-gray-400">
+                                Buyer request
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 shrink-0 px-2 text-xs font-medium text-emerald-600 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-emerald-50 hover:text-emerald-700"
+                            onClick={() => {
+                              setSelectedPendingAssignment({
+                                assignmentId: pending.assignmentId,
+                                attendeeId: pending.attendeeId,
+                                attendeeName: pending.attendeeName,
+                                attendeeEmail: pending.attendeeEmail,
+                                roomId: room.id,
+                                roomLabel: room.label,
+                              })
+                              setAlternativeRooms([])
+                              setShowConfirmDialog(true)
+                            }}
+                          >
+                            Confirm
+                          </Button>
+                        </div>
+                      ))}
+
+                      {/* Render Empty Slots */}
+                      {Array.from({ length: room.availableBeds }).map(
+                        (_, i) => (
+                          <button
+                            key={`empty-${room.id}-${i}`}
+                            type="button"
+                            disabled={!selectedAttendeeId || isMutating}
+                            onClick={() => {
+                              if (selectedAttendeeIds.length > 0) {
+                                assignMultipleAttendeesToRoom(
+                                  selectedAttendeeIds,
+                                  room.id
+                                )
+                              }
+                            }}
+                            className={`flex h-[46px] items-center justify-center rounded-xl border border-dashed transition-all ${
+                              selectedAttendeeIds.length > 0
+                                ? "cursor-pointer border-[rgba(113,84,255,0.4)] bg-[rgba(113,84,255,0.05)] text-[rgba(113,84,255,0.8)] hover:border-[rgba(113,84,255,0.6)] hover:bg-[rgba(113,84,255,0.1)]"
+                                : "cursor-not-allowed border-border/40 bg-background/50 text-muted-foreground/50"
+                            }`}
+                          >
+                            <span className="text-xs font-medium">
+                              {selectedAttendeeIds.length > 0
+                                ? `+ Assign ${selectedAttendeeIds.length > 1 ? `${selectedAttendeeIds.length} items` : "selected"}`
+                                : "+ Empty bed"}
+                            </span>
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+
+            {/* Pagination */}
+            {totalRoomPages > 1 && (
+              <div className="mt-2 flex items-center justify-between border-t border-border/70 pt-4">
+                <p className="text-sm text-muted-foreground">
+                  Showing {(roomsPage - 1) * roomsPerPage + 1}-
+                  {Math.min(roomsPage * roomsPerPage, payload.rooms.length)} of{" "}
+                  {payload.rooms.length} rooms
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl shadow-sm"
+                    disabled={roomsPage === 1}
+                    onClick={() =>
+                      setRoomsPage((current) => Math.max(1, current - 1))
+                    }
+                  >
+                    <ChevronLeft className="mr-1 size-4" /> Prev
+                  </Button>
+                  <span className="px-2 text-sm font-medium text-muted-foreground">
+                    Page {roomsPage} of {totalRoomPages}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl shadow-sm"
+                    disabled={roomsPage === totalRoomPages}
+                    onClick={() =>
+                      setRoomsPage((current) =>
+                        Math.min(totalRoomPages, current + 1)
+                      )
+                    }
+                  >
+                    Next <ChevronRight className="ml-1 size-4" />
+                  </Button>
                 </div>
               </div>
             )}
-          </article>
+          </div>
         </div>
       </section>
+
+      {/* Confirmation Dialog for Buyer Assignments */}
+      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Confirm Buyer Assignment</DialogTitle>
+            <DialogDescription>
+              Review the buyer's room request before confirming.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedPendingAssignment && (
+            <div className="space-y-4 py-4">
+              <div className="rounded-lg border bg-muted/50 p-4">
+                <p className="text-sm font-medium text-foreground">
+                  {selectedPendingAssignment.attendeeName ??
+                    selectedPendingAssignment.attendeeEmail ??
+                    "Unnamed Attendee"}
+                </p>
+                {selectedPendingAssignment.attendeeEmail &&
+                  selectedPendingAssignment.attendeeName && (
+                    <p className="text-xs text-muted-foreground">
+                      {selectedPendingAssignment.attendeeEmail}
+                    </p>
+                  )}
+              </div>
+
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <ArrowRight className="size-4" />
+                <span>Assign to:</span>
+                <span className="font-medium text-foreground">
+                  {selectedPendingAssignment.roomLabel}
+                </span>
+              </div>
+
+              {alternativeRooms.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-amber-600">
+                    Alternative rooms available:
+                  </p>
+                  <div className="max-h-40 space-y-2 overflow-y-auto">
+                    {alternativeRooms.map((alt) => (
+                      <button
+                        key={alt.slotId}
+                        type="button"
+                        onClick={() =>
+                          confirmPendingAssignment(
+                            selectedPendingAssignment.assignmentId,
+                            alt.slotId
+                          )
+                        }
+                        className="w-full rounded-lg border p-3 text-left transition-colors hover:bg-muted"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">
+                            {alt.roomLabel}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {alt.availableSpots} spots available
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {alt.roomType} • {alt.occupantCount}/{alt.capacity}{" "}
+                          occupied
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                if (selectedPendingAssignment) {
+                  removePendingAssignment(
+                    selectedPendingAssignment.assignmentId
+                  )
+                }
+              }}
+              disabled={isMutating}
+            >
+              Decline
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                if (selectedPendingAssignment) {
+                  confirmPendingAssignment(
+                    selectedPendingAssignment.assignmentId
+                  )
+                }
+              }}
+              disabled={isMutating || alternativeRooms.length > 0}
+            >
+              {isMutating ? "Confirming..." : "Confirm Assignment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {assignmentToast && (
+        <div className="pointer-events-none fixed right-4 bottom-4 z-50 w-[min(26rem,calc(100vw-2rem))]">
+          <article
+            className="pointer-events-auto rounded-xl border border-emerald-300/60 bg-emerald-50/95 p-3 shadow-lg backdrop-blur dark:border-emerald-800 dark:bg-emerald-950/85"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+                  {assignmentToast.title}
+                </p>
+                <div className="mt-1 space-y-1">
+                  {assignmentToast.lines.map((line) => (
+                    <p
+                      key={line}
+                      className="truncate text-xs text-emerald-700 dark:text-emerald-300"
+                    >
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="rounded-md p-1 text-emerald-700 transition-colors hover:bg-emerald-100 hover:text-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900"
+                onClick={() => setAssignmentToast(null)}
+                aria-label="Dismiss assignment notification"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          </article>
+        </div>
+      )}
     </section>
   )
 }

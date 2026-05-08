@@ -1,44 +1,6 @@
-const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
-
-async function convexQuery<Args extends Record<string, unknown>, Response>(
-  path: string,
-  args: Args
-): Promise<Response> {
-  const response = await fetch(`${CONVEX_URL}/${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ args }),
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Convex query failed: ${error}`)
-  }
-
-  return response.json()
-}
-
-async function convexMutation<Args extends Record<string, unknown>, Response>(
-  path: string,
-  args: Args
-): Promise<Response> {
-  const response = await fetch(`${CONVEX_URL}/${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ args }),
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Convex mutation failed: ${error}`)
-  }
-
-  return response.json()
-}
+import { api } from "@/lib/convex/api"
+import { convexMutation, convexQuery } from "@/lib/convex/server"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export type TikkiePaymentTemplateDto = {
   id: string
@@ -174,16 +136,15 @@ export async function createTemplate(
 ): Promise<TikkiePaymentTemplateDto> {
   const validated = validateCreateTemplateInput(input)
 
-  const eventResult = await convexQuery<{ eventId: string }, unknown | null>(
-    "tickettailor:getEventById",
-    { eventId: validated.eventId }
-  )
+  const eventResult = await convexQuery(api.events.getEventById, {
+    eventId: validated.eventId,
+  })
 
   if (!eventResult) {
     throw new Error("Event not found for given 'eventId'.")
   }
 
-  await convexMutation("tikkie:createPaymentTemplate", {
+  await convexMutation(api.tikkie.createPaymentTemplate, {
     eventId: validated.eventId,
     ticketTypeLabel: validated.ticketTypeLabel,
     amountMinor: validated.amountMinor,
@@ -192,10 +153,9 @@ export async function createTemplate(
     isActive: true,
   })
 
-  const templates = await convexQuery<{ eventId: string }, ConvexTemplate[]>(
-    "tikkie:getPaymentTemplates",
-    { eventId: validated.eventId }
-  )
+  const templates = (await convexQuery(api.tikkie.getPaymentTemplates, {
+    eventId: validated.eventId,
+  })) as ConvexTemplate[]
 
   const created = templates.find(
     (t) => t.ticketTypeLabel === validated.ticketTypeLabel
@@ -212,18 +172,18 @@ export async function updateTemplate(
 ): Promise<TikkiePaymentTemplateDto> {
   const validated = validateUpdateTemplateInput(input)
 
-  await convexMutation("tikkie:updatePaymentTemplate", {
-    templateId: validated.id,
+  await convexMutation(api.tikkie.updatePaymentTemplate, {
+    templateId: validated.id as Id<"tikkiePaymentTemplates">,
     amountMinor: validated.amountMinor,
     descriptionTemplate: validated.descriptionTemplate,
     expiryDays: validated.expiryDays,
     isActive: validated.isActive,
   })
 
-  const templates = await convexQuery<{ eventId?: string }, ConvexTemplate[]>(
-    "tikkie:getPaymentTemplates",
+  const templates = (await convexQuery(
+    api.tikkie.getPaymentTemplates,
     {}
-  )
+  )) as ConvexTemplate[]
   const updated = templates.find((t) => t._id === validated.id)
 
   if (!updated) {
@@ -241,18 +201,18 @@ export async function deleteTemplate(
     throw new Error("Invalid 'id'. Value is required.")
   }
 
-  const templates = await convexQuery<{ eventId?: string }, ConvexTemplate[]>(
-    "tikkie:getPaymentTemplates",
+  const templates = (await convexQuery(
+    api.tikkie.getPaymentTemplates,
     {}
-  )
+  )) as ConvexTemplate[]
   const existing = templates.find((t) => t._id === normalizedId)
 
   if (!existing) {
     throw new Error("Template not found for given 'id'.")
   }
 
-  await convexMutation("tikkie:deletePaymentTemplate", {
-    templateId: normalizedId,
+  await convexMutation(api.tikkie.deletePaymentTemplate, {
+    templateId: normalizedId as Id<"tikkiePaymentTemplates">,
   })
 
   return mapTemplate({ ...existing, isActive: false })
@@ -263,10 +223,9 @@ export async function getTemplatesByEvent(
 ): Promise<TikkiePaymentTemplateDto[]> {
   const normalizedEventId = normalizeEventId(eventId)
 
-  const templates = await convexQuery<{ eventId: string }, ConvexTemplate[]>(
-    "tikkie:getPaymentTemplates",
-    { eventId: normalizedEventId }
-  )
+  const templates = (await convexQuery(api.tikkie.getPaymentTemplates, {
+    eventId: normalizedEventId,
+  })) as ConvexTemplate[]
 
   return templates
     .filter((t) => t.isActive ?? true)
@@ -289,8 +248,8 @@ type AttendeeForMatch = {
   id: string
   eventId: string
   orderId: string
-  providerOrderId: string
-  providerEventId: string
+  providerOrderId: string | null
+  providerEventId: string | null
   ticketTypeLabel: string | null
   tikkieAmountOverrideMinor: number | null
 }
@@ -298,16 +257,19 @@ type AttendeeForMatch = {
 export async function matchTemplateForAttendee(
   attendee: AttendeeForMatch
 ): Promise<TemplateMatchResult> {
-  const providerOrderId = attendee.providerOrderId.trim()
-  if (!providerOrderId) {
-    throw new Error("Invalid attendee. 'providerOrderId' is required.")
+  const providerOrderId = attendee.providerOrderId?.trim() ?? ""
+  const orderId = attendee.orderId.trim()
+  const referenceOrderId = providerOrderId || orderId
+
+  if (!referenceOrderId) {
+    throw new Error("Invalid attendee. 'orderId' is required.")
   }
 
   if (
     attendee.tikkieAmountOverrideMinor !== null &&
     attendee.tikkieAmountOverrideMinor > 0
   ) {
-    const description = `Order ${providerOrderId}`.slice(0, 35)
+    const description = `Order ${referenceOrderId}`.slice(0, 35)
     const expiryDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
       .toISOString()
       .slice(0, 10)
@@ -317,20 +279,20 @@ export async function matchTemplateForAttendee(
       amountMinor: attendee.tikkieAmountOverrideMinor,
       description,
       expiryDate,
-      referenceId: providerOrderId.slice(0, 35),
+      referenceId: referenceOrderId.slice(0, 35),
       source: "override",
       templateId: null,
     }
   }
 
   if (attendee.ticketTypeLabel && attendee.ticketTypeLabel.trim()) {
-    const template = await convexQuery<
-      { eventId: string; ticketTypeLabel: string },
-      ConvexTemplate | null
-    >("tikkie:getTemplateByEventAndTicketType", {
-      eventId: attendee.eventId,
-      ticketTypeLabel: attendee.ticketTypeLabel.trim(),
-    })
+    const template = (await convexQuery(
+      api.tikkie.getTemplateByEventAndTicketType,
+      {
+        eventId: attendee.eventId,
+        ticketTypeLabel: attendee.ticketTypeLabel.trim(),
+      }
+    )) as ConvexTemplate | null
 
     if (template && (template.isActive ?? true)) {
       const description = template.descriptionTemplate
@@ -351,14 +313,14 @@ export async function matchTemplateForAttendee(
         amountMinor: template.amountMinor,
         description,
         expiryDate,
-        referenceId: providerOrderId.slice(0, 35),
+        referenceId: referenceOrderId.slice(0, 35),
         source: "template",
         templateId: template._id,
       }
     }
   }
 
-  const description = `Order ${providerOrderId}`.slice(0, 35)
+  const description = `Order ${referenceOrderId}`.slice(0, 35)
   const expiryDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10)
@@ -368,7 +330,7 @@ export async function matchTemplateForAttendee(
     amountMinor: 0,
     description,
     expiryDate,
-    referenceId: providerOrderId.slice(0, 35),
+    referenceId: referenceOrderId.slice(0, 35),
     source: "default",
     templateId: null,
   }
@@ -386,10 +348,9 @@ export async function getTemplatesWithAttendeeCounts(
 ): Promise<TemplateSummary[]> {
   const normalizedEventId = normalizeEventId(eventId)
 
-  const attendees = await convexQuery<
-    { eventId: string },
-    { ticketTypeLabel?: string }[]
-  >("attendees:getAttendeesByEvent", { eventId: normalizedEventId })
+  const attendees = (await convexQuery(api.attendees.getAttendees, {
+    eventId: normalizedEventId,
+  })) as Array<{ ticketTypeLabel?: string }>
 
   const ticketTypeMap = new Map<string, number>()
   for (const attendee of attendees) {
@@ -401,10 +362,9 @@ export async function getTemplatesWithAttendeeCounts(
     }
   }
 
-  const templates = await convexQuery<{ eventId: string }, ConvexTemplate[]>(
-    "tikkie:getPaymentTemplates",
-    { eventId: normalizedEventId }
-  )
+  const templates = (await convexQuery(api.tikkie.getPaymentTemplates, {
+    eventId: normalizedEventId,
+  })) as ConvexTemplate[]
 
   const templateByLabel = new Map(
     templates

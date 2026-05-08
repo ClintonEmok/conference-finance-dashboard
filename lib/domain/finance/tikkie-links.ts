@@ -3,48 +3,9 @@ import {
   getPaymentRequest,
   getPaymentRequestPayments,
 } from "@/lib/integrations/tikkie/client"
-
-const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL!
-
-async function convexQuery<Args extends Record<string, unknown>, Response>(
-  path: string,
-  args: Args
-): Promise<Response> {
-  const response = await fetch(`${CONVEX_URL}/${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ args }),
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Convex query failed: ${error}`)
-  }
-
-  return response.json()
-}
-
-async function convexMutation<Args extends Record<string, unknown>, Response>(
-  path: string,
-  args: Args
-): Promise<Response> {
-  const response = await fetch(`${CONVEX_URL}/${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ args }),
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Convex mutation failed: ${error}`)
-  }
-
-  return response.json()
-}
+import { api } from "@/lib/convex/api"
+import { convexMutation, convexQuery } from "@/lib/convex/server"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export type AppTikkieLinkStatus = "created" | "paid" | "expired"
 
@@ -78,7 +39,8 @@ export type TikkiePaymentLinkView = TikkiePaymentLinkDto & {
 }
 
 export type TikkiePaymentLinksByOrderSummary = {
-  providerOrderId: string
+  providerOrderId: string | null
+  orderId: string | null
   count: number
   links: TikkiePaymentLinkView[]
   latestLink: TikkiePaymentLinkView | null
@@ -88,6 +50,7 @@ export type TikkiePaymentLinksByOrderSummary = {
 }
 
 export type CreateTikkiePaymentLinkInput = {
+  orderId?: string | null
   providerOrderId: string
   providerEventId: string
   amountMinor: number
@@ -102,7 +65,8 @@ export type CreateTikkiePaymentLinkResult = {
 }
 
 export type ListTikkiePaymentLinksByOrderInput = {
-  providerOrderId: string
+  providerOrderId?: string | null
+  orderId?: string | null
 }
 
 export type RefreshTikkiePaymentLinkStatusInput = {
@@ -148,7 +112,10 @@ type DbTikkiePaymentLink = {
   expiryDate: number
   referenceId: string | null
   providerPayload: unknown
+  providerLastCheckedAt?: number | null
   statusUpdatedAt: number
+  createdAt?: number
+  updatedAt?: number
 }
 
 type PrismaTikkiePaymentLink = {
@@ -229,10 +196,24 @@ export function mapTikkiePaymentLink(
     expiryDate: new Date(expiry).toISOString(),
     referenceId: link.referenceId,
     providerPayload: link.providerPayload,
-    providerLastCheckedAt,
+    providerLastCheckedAt:
+      "providerLastCheckedAt" in link
+        ? typeof link.providerLastCheckedAt === "number"
+          ? new Date(link.providerLastCheckedAt).toISOString()
+          : link.providerLastCheckedAt instanceof Date
+            ? link.providerLastCheckedAt.toISOString()
+            : null
+        : null,
     statusUpdatedAt: new Date(statusUpdated).toISOString(),
     createdAt: new Date(createdAt).toISOString(),
-    updatedAt: new Date(statusUpdated).toISOString(),
+    updatedAt:
+      "updatedAt" in link
+        ? typeof link.updatedAt === "number"
+          ? new Date(link.updatedAt).toISOString()
+          : link.updatedAt instanceof Date
+            ? link.updatedAt.toISOString()
+            : new Date(statusUpdated).toISOString()
+        : new Date(statusUpdated).toISOString(),
   }
 }
 
@@ -371,6 +352,10 @@ export function validateCreateTikkiePaymentLinkInput(
   input: CreateTikkiePaymentLinkInput
 ) {
   return {
+    orderId:
+      typeof input.orderId === "string" && input.orderId.trim()
+        ? input.orderId.trim()
+        : null,
     providerOrderId: normalizeProviderIdentifier(
       input.providerOrderId,
       "providerOrderId"
@@ -394,11 +379,42 @@ function mapProviderStatus(providerStatus: string) {
   return "expired" as const
 }
 
-async function resolveOrder(providerOrderId: string, providerEventId: string) {
-  const orders = await convexQuery<
-    { providerOrderId: string },
-    { _id: string; providerEventId: string }[]
-  >("orders/getOrderByProviderId", { providerOrderId })
+async function resolveOrder(params: {
+  orderId?: string | null
+  providerOrderId: string
+  providerEventId: string
+}): Promise<{
+  _id: string
+  providerEventId: string | null
+  providerOrderId?: string | null
+}> {
+  if (params.orderId) {
+    const order = (await convexQuery(api.orders.getOrderById, {
+      orderId: params.orderId,
+    })) as {
+      _id: string
+      providerEventId: string | null
+      providerOrderId?: string | null
+    } | null
+
+    if (order) {
+      if (order.providerEventId !== params.providerEventId) {
+        throw new Error(
+          "Invalid provider identifiers. 'providerEventId' does not match the order."
+        )
+      }
+
+      return order
+    }
+  }
+
+  const orders = (await convexQuery(api.orders.getOrderByProviderId, {
+    providerOrderId: params.providerOrderId,
+  })) as {
+    _id: string
+    providerEventId: string
+    providerOrderId?: string | null
+  }[]
 
   const order = orders[0]
 
@@ -406,7 +422,7 @@ async function resolveOrder(providerOrderId: string, providerEventId: string) {
     throw new Error("Order not found for given 'providerOrderId'.")
   }
 
-  if (order.providerEventId !== providerEventId) {
+  if (order.providerEventId !== params.providerEventId) {
     throw new Error(
       "Invalid provider identifiers. 'providerEventId' does not match the order."
     )
@@ -419,6 +435,7 @@ export async function createTikkiePaymentLink(
   input: CreateTikkiePaymentLinkInput
 ): Promise<CreateTikkiePaymentLinkResult> {
   const {
+    orderId,
     providerOrderId,
     providerEventId,
     amountMinor,
@@ -427,7 +444,15 @@ export async function createTikkiePaymentLink(
     referenceId,
   } = validateCreateTikkiePaymentLinkInput(input)
 
-  const order = await resolveOrder(providerOrderId, providerEventId)
+  const order = await resolveOrder({
+    orderId,
+    providerOrderId,
+    providerEventId,
+  })
+  const resolvedProviderOrderId =
+    typeof order.providerOrderId === "string"
+      ? normalizeProviderIdentifier(order.providerOrderId, "providerOrderId")
+      : providerOrderId
 
   const providerResponse = await createPaymentRequest({
     amountInCents: amountMinor,
@@ -439,10 +464,9 @@ export async function createTikkiePaymentLink(
   const appStatus = mapProviderStatus(providerResponse.status)
   const now = Date.now()
 
-  const existingLinks = await convexQuery<
-    { orderId: string },
-    DbTikkiePaymentLink[]
-  >("tikkie/getPaymentLinks", { orderId: order._id })
+  const existingLinks = (await convexQuery(api.tikkie.getPaymentLinks, {
+    orderId: order._id,
+  })) as DbTikkiePaymentLink[]
 
   const existingToken = existingLinks.find(
     (l) => l.paymentRequestToken === providerResponse.paymentRequestToken
@@ -455,23 +479,8 @@ export async function createTikkiePaymentLink(
     }
   }
 
-  const linkId = await convexMutation<
-    {
-      providerOrderId: string
-      providerEventId: string
-      orderId: string
-      paymentRequestToken: string
-      paymentRequestUrl: string
-      providerStatus: string
-      amountMinor: number
-      description: string
-      expiryDate: number
-      referenceId?: string
-      providerPayload?: unknown
-    },
-    string
-  >("tikkie/createPaymentLink", {
-    providerOrderId,
+  const linkId = await convexMutation(api.tikkie.createPaymentLink, {
+    providerOrderId: resolvedProviderOrderId,
     providerEventId,
     orderId: order._id,
     paymentRequestToken: providerResponse.paymentRequestToken,
@@ -486,7 +495,7 @@ export async function createTikkiePaymentLink(
 
   const newLink: DbTikkiePaymentLink = {
     _id: linkId,
-    providerOrderId,
+    providerOrderId: resolvedProviderOrderId,
     providerEventId,
     orderId: order._id,
     paymentRequestToken: providerResponse.paymentRequestToken,
@@ -511,23 +520,61 @@ export async function createTikkiePaymentLink(
 export async function listTikkiePaymentLinksByOrder(
   input: ListTikkiePaymentLinksByOrderInput
 ): Promise<TikkiePaymentLinksByOrderSummary> {
-  const providerOrderId = normalizeProviderIdentifier(
-    input.providerOrderId,
-    "providerOrderId"
-  )
+  const providerOrderId =
+    typeof input.providerOrderId === "string" && input.providerOrderId.trim()
+      ? normalizeProviderIdentifier(input.providerOrderId, "providerOrderId")
+      : null
+  const orderId =
+    typeof input.orderId === "string" && input.orderId.trim()
+      ? input.orderId.trim()
+      : null
 
-  const orders = await convexQuery<
-    { providerOrderId: string },
-    { _id: string }[]
-  >("orders/getOrderByProviderId", { providerOrderId })
+  let resolvedOrderId: string | null = null
+  let resolvedProviderOrderId: string | null = null
 
-  const orderId = orders[0]?._id
+  if (orderId) {
+    const order = (await convexQuery(api.orders.getOrderById, {
+      orderId,
+    })) as { _id: string; providerOrderId?: string | null } | null
 
-  const links = orderId
-    ? await convexQuery<{ orderId: string }, DbTikkiePaymentLink[]>(
-        "tikkie/getPaymentLinks",
-        { orderId }
-      )
+    if (order) {
+      resolvedOrderId = order._id
+      resolvedProviderOrderId =
+        typeof order.providerOrderId === "string"
+          ? normalizeProviderIdentifier(order.providerOrderId, "providerOrderId")
+          : null
+    } else if (providerOrderId) {
+      const orders = (await convexQuery(api.orders.getOrderByProviderId, {
+        providerOrderId,
+      })) as { _id: string; providerOrderId?: string | null }[]
+
+      const legacyOrder = orders[0]
+      resolvedOrderId = legacyOrder?._id ?? null
+      resolvedProviderOrderId =
+        legacyOrder && typeof legacyOrder.providerOrderId === "string"
+          ? normalizeProviderIdentifier(
+              legacyOrder.providerOrderId,
+              "providerOrderId"
+            )
+          : providerOrderId
+    }
+  } else if (providerOrderId) {
+    const orders = (await convexQuery(api.orders.getOrderByProviderId, {
+      providerOrderId,
+    })) as { _id: string; providerOrderId?: string | null }[]
+
+    const order = orders[0]
+    resolvedOrderId = order?._id ?? null
+    resolvedProviderOrderId =
+      order && typeof order.providerOrderId === "string"
+        ? normalizeProviderIdentifier(order.providerOrderId, "providerOrderId")
+        : providerOrderId
+  }
+
+  const links = resolvedOrderId
+    ? ((await convexQuery(api.tikkie.getPaymentLinks, {
+        orderId: resolvedOrderId,
+      })) as DbTikkiePaymentLink[])
     : []
 
   const mappedLinks = links
@@ -539,7 +586,8 @@ export async function listTikkiePaymentLinksByOrder(
   const latestLink = mappedLinks[0] ?? null
 
   return {
-    providerOrderId,
+    providerOrderId: resolvedProviderOrderId,
+    orderId: resolvedOrderId,
     count: mappedLinks.length,
     links: mappedLinks,
     latestLink,
@@ -597,10 +645,9 @@ export async function refreshTikkiePaymentLinkStatus(
     "paymentRequestToken"
   )
 
-  const existing = await convexQuery<
-    { paymentRequestToken: string },
-    DbTikkiePaymentLink | null
-  >("tikkie/getPaymentLinkByToken", { paymentRequestToken })
+  const existing = (await convexQuery(api.tikkie.getPaymentLinkByToken, {
+    paymentRequestToken,
+  })) as DbTikkiePaymentLink | null
 
   if (!existing) {
     throw new Error("Payment link not found for given 'paymentRequestToken'.")
@@ -630,22 +677,13 @@ export async function refreshTikkiePaymentLinkStatus(
     : currentStatus
 
   if (nextStatus !== currentStatus) {
-    await convexMutation<
-      {
-        linkId: string
-        status: "created" | "paid" | "expired"
-        providerStatus: string
-        source: "create" | "webhook" | "poll"
-        reason?: string
-        providerPayload?: unknown
-      },
-      { linkId: string }
-    >("tikkie/updatePaymentLinkStatus", {
-      linkId: existing._id,
+    await convexMutation(api.tikkie.updatePaymentLinkStatus, {
+      linkId: existing._id as Id<"tikkiePaymentLinks">,
       status: nextStatus,
       providerStatus: request.status,
       source: input.source as "create" | "webhook" | "poll",
       reason: input.reason,
+      providerNotificationKey: input.providerNotificationKey,
       providerPayload: {
         paymentRequest: request,
         payments,
@@ -654,10 +692,9 @@ export async function refreshTikkiePaymentLinkStatus(
     })
   }
 
-  const updatedLink = await convexQuery<
-    { linkId: string },
-    DbTikkiePaymentLink | null
-  >("tikkie/getPaymentLinkById", { linkId: existing._id })
+  const updatedLink = (await convexQuery(api.tikkie.getPaymentLinkById, {
+    linkId: existing._id as Id<"tikkiePaymentLinks">,
+  })) as DbTikkiePaymentLink | null
 
   if (!updatedLink) {
     throw new Error("Failed to retrieve updated payment link")
@@ -678,10 +715,9 @@ export async function syncPendingTikkiePaymentLinks({
   const safeLimit =
     Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 100) : 25
 
-  const pending = await convexQuery<{ status: string }, DbTikkiePaymentLink[]>(
-    "tikkie/getPaymentLinks",
-    { status: "created" }
-  )
+  const pending = (await convexQuery(api.tikkie.getPaymentLinks, {
+    status: "created",
+  })) as DbTikkiePaymentLink[]
 
   const limitedPending = pending
     .sort((a, b) => a.statusUpdatedAt - b.statusUpdatedAt)

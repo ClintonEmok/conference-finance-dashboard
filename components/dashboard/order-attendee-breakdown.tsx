@@ -1,33 +1,35 @@
 "use client"
 
+import { useQuery } from "convex/react"
 import { useEffect, useState } from "react"
 
 import { ChevronDown, ChevronRight, Users } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-
-type AttendeeBreakdownAttendee = {
-  id: string
-  name: string
-  ticketTypeLabel: string
-  normalizedStatus: string
-}
-
-type OrderAttendeeBreakdownData = {
-  order: {
-    id: string
-    providerOrderId: string
-    normalizedStatus: string
-    totalAmountMinor: number | null
-    orderedAt: string | null
-  }
-  attendees: AttendeeBreakdownAttendee[]
-}
+import { api } from "@/lib/convex/api"
+import type { Id } from "@/convex/_generated/dataModel"
 
 type OrderAttendeeBreakdownProps = {
   orderId: string
-  eventId: string
+  onResolvedAttendeeId?: (resolution: {
+    orderId: string
+    attendeeId: string | null
+  }) => void
+}
+
+function resolveAttendeeIdCandidate(
+  attendees: Array<{ id: string }>
+): string | null {
+  if (attendees.length === 0) {
+    return null
+  }
+
+  const firstStableId = attendees
+    .map((attendee) => attendee.id.trim())
+    .find((id) => id.length > 0)
+
+  return firstStableId ?? null
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -46,54 +48,29 @@ function StatusBadge({ status }: { status: string }) {
 
 export function OrderAttendeeBreakdown({
   orderId,
-  eventId,
+  onResolvedAttendeeId,
 }: OrderAttendeeBreakdownProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [data, setData] = useState<OrderAttendeeBreakdownData | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const trimmedOrderId = orderId.trim()
+  const hasOrderId = trimmedOrderId.length > 0
+  const data = useQuery(
+    api.orders.getOrderWithAttendees,
+    hasOrderId ? { orderId: trimmedOrderId as Id<"orders"> } : "skip"
+  )
+  const isLoading = hasOrderId && data === undefined
 
   useEffect(() => {
-    let cancelled = false
-
-    async function load() {
-      setIsLoading(true)
-      setError(null)
-
-      try {
-        const response = await fetch(
-          `/api/dashboard/orders/${encodeURIComponent(orderId)}?eventId=${encodeURIComponent(eventId)}`
-        )
-
-        if (!response.ok) {
-          throw new Error(`Failed to load (${response.status})`)
-        }
-
-        const body = (await response.json()) as OrderAttendeeBreakdownData
-        if (!cancelled) {
-          setData(body)
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "Failed to load attendees"
-          )
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false)
-        }
-      }
+    if (!onResolvedAttendeeId || isLoading) {
+      return
     }
 
-    void load()
+    onResolvedAttendeeId({
+      orderId,
+      attendeeId: data ? resolveAttendeeIdCandidate(data.attendees) : null,
+    })
+  }, [data, isLoading, onResolvedAttendeeId, orderId])
 
-    return () => {
-      cancelled = true
-    }
-  }, [orderId, eventId])
-
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <div className="flex items-center gap-2 border-t border-border/50 pt-1">
         <Skeleton className="h-5 w-[80px]" />
@@ -101,7 +78,7 @@ export function OrderAttendeeBreakdown({
     )
   }
 
-  if (error || !data.attendees.length) {
+  if (!data || !data.attendees.length) {
     return null
   }
 

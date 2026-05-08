@@ -12,6 +12,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
+import { maskPaymentPayer } from "@/lib/utils/privacy"
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 type PaymentMatchStatus =
@@ -37,7 +40,6 @@ type Payment = {
   createdAt: string
   order: {
     id: string
-    providerOrderId: string
     buyerName: string
     totalAmountMinor: number
   } | null
@@ -49,16 +51,10 @@ type PaymentListProps = {
     source?: PaymentSource
   }
   onAssign?: (payment: Payment) => void
+  refreshKey?: number
 }
 
-function formatMoney(minor: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(minor / 100)
-}
+import { formatMoney } from "@/lib/format"
 
 function formatDate(isoString: string) {
   return new Date(isoString).toLocaleDateString("en-US", {
@@ -69,26 +65,24 @@ function formatDate(isoString: string) {
 }
 
 function SourceIcon({ source }: { source: PaymentSource }) {
-  switch (source) {
-    case "tikkie":
-      return (
-        <span className="text-xs font-medium text-purple-600 dark:text-purple-400">
-          Tikkie
-        </span>
-      )
-    case "bank_transfer":
-      return (
-        <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
-          Bank
-        </span>
-      )
-    case "cash":
-      return (
-        <span className="text-xs font-medium text-green-600 dark:text-green-400">
-          Cash
-        </span>
-      )
+  const styles = {
+    tikkie: "bg-purple-500/10 text-purple-600 border-purple-500/20",
+    bank_transfer: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+    cash: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
   }
+  const label =
+    source === "bank_transfer" ? "Bank" : source.charAt(0) + source.slice(1)
+
+  return (
+    <span
+      className={cn(
+        "rounded-md border px-2 py-0.5 text-[10px] font-bold tracking-wider uppercase",
+        styles[source]
+      )}
+    >
+      {label}
+    </span>
+  )
 }
 
 function StatusBadge({ status }: { status: PaymentMatchStatus }) {
@@ -96,8 +90,8 @@ function StatusBadge({ status }: { status: PaymentMatchStatus }) {
     case "unassigned":
       return (
         <Badge
-          variant="secondary"
-          className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200"
+          variant="outline"
+          className="h-6 rounded-lg border-slate-500/20 bg-slate-500/5 text-[10px] font-bold tracking-widest text-slate-500 uppercase"
         >
           Unassigned
         </Badge>
@@ -105,8 +99,8 @@ function StatusBadge({ status }: { status: PaymentMatchStatus }) {
     case "ambiguous":
       return (
         <Badge
-          variant="secondary"
-          className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-200"
+          variant="outline"
+          className="h-6 rounded-lg border-indigo-500/20 bg-indigo-500/5 text-[10px] font-bold tracking-widest text-indigo-500 uppercase"
         >
           Ambiguous
         </Badge>
@@ -114,8 +108,8 @@ function StatusBadge({ status }: { status: PaymentMatchStatus }) {
     case "manual_assignment":
       return (
         <Badge
-          variant="secondary"
-          className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200"
+          variant="outline"
+          className="h-6 rounded-lg border-blue-500/20 bg-blue-500/5 text-[10px] font-bold tracking-widest text-blue-600 uppercase"
         >
           Manual
         </Badge>
@@ -123,16 +117,20 @@ function StatusBadge({ status }: { status: PaymentMatchStatus }) {
     case "auto_matched":
       return (
         <Badge
-          variant="secondary"
-          className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
+          variant="outline"
+          className="h-6 rounded-lg border-emerald-500/20 bg-emerald-500/5 text-[10px] font-bold tracking-widest text-emerald-600 uppercase"
         >
-          Auto-matched
+          Auto
         </Badge>
       )
   }
 }
 
-export function PaymentList({ filters, onAssign }: PaymentListProps) {
+export function PaymentList({
+  filters,
+  onAssign,
+  refreshKey,
+}: PaymentListProps) {
   const [payments, setPayments] = useState<Payment[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -174,17 +172,17 @@ export function PaymentList({ filters, onAssign }: PaymentListProps) {
     }
 
     loadPayments()
-  }, [page, statusFilter, sourceFilter])
+  }, [page, statusFilter, sourceFilter, refreshKey])
 
   const totalPages = Math.ceil(total / limit)
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-4">
+      <div className="flex flex-wrap gap-3">
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-10 w-[180px] rounded-md border border-input bg-background px-3 text-sm"
+          className="h-10 w-[180px] rounded-lg border border-border/50 bg-background/50 px-3 text-xs font-bold tracking-wider text-muted-foreground uppercase transition-all hover:bg-muted/50 focus:ring-1 focus:ring-primary/20"
         >
           <option value="all">All statuses</option>
           <option value="unassigned">Unassigned</option>
@@ -196,7 +194,7 @@ export function PaymentList({ filters, onAssign }: PaymentListProps) {
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value)}
-          className="h-10 w-[180px] rounded-md border border-input bg-background px-3 text-sm"
+          className="h-10 w-[180px] rounded-lg border border-border/50 bg-background/50 px-3 text-xs font-bold tracking-wider text-muted-foreground uppercase transition-all hover:bg-muted/50 focus:ring-1 focus:ring-primary/20"
         >
           <option value="all">All sources</option>
           <option value="tikkie">Tikkie</option>
@@ -205,74 +203,150 @@ export function PaymentList({ filters, onAssign }: PaymentListProps) {
         </select>
       </div>
 
-      <div className="rounded-md border">
+      <div className="overflow-hidden rounded-xl border border-border/50 bg-background/50 shadow-sm backdrop-blur-sm">
         <Table>
           <TableHeader>
-            <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>Payer</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Order</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+            <TableRow className="border-border/50 px-2 hover:bg-transparent">
+              <TableHead className="h-10 px-6 text-[10px] font-black tracking-[0.2em] text-muted-foreground/40 uppercase">
+                Date
+              </TableHead>
+              <TableHead className="h-10 text-[10px] font-black tracking-[0.2em] text-muted-foreground/40 uppercase">
+                Source
+              </TableHead>
+              <TableHead className="h-10 text-[10px] font-black tracking-[0.2em] text-muted-foreground/40 uppercase">
+                Payer Relation
+              </TableHead>
+              <TableHead className="h-10 text-right text-[10px] font-black tracking-[0.2em] text-muted-foreground/40 uppercase">
+                Settlement
+              </TableHead>
+              <TableHead className="h-10 text-[10px] font-black tracking-[0.2em] text-muted-foreground/40 uppercase">
+                Status
+              </TableHead>
+              <TableHead className="h-10 text-[10px] font-black tracking-[0.2em] text-muted-foreground/40 uppercase">
+                Order ID
+              </TableHead>
+              <TableHead className="h-10 px-6 text-right text-[10px] font-black tracking-[0.2em] text-muted-foreground/40 uppercase">
+                Action
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">
-                  Loading...
-                </TableCell>
-              </TableRow>
+              Array.from({ length: 8 }).map((_, i) => (
+                <TableRow key={i} className="border-border/30 px-2">
+                  <TableCell className="px-6 py-4">
+                    <Skeleton className="h-4 w-16" />
+                  </TableCell>
+                  <TableCell className="py-4">
+                    <Skeleton className="h-5 w-12 rounded-md" />
+                  </TableCell>
+                  <TableCell className="py-4">
+                    <div className="space-y-1.5">
+                      <Skeleton className="h-3.5 w-24" />
+                      <Skeleton className="h-2.5 w-32" />
+                    </div>
+                  </TableCell>
+                  <TableCell className="py-4">
+                    <div className="flex justify-end">
+                      <Skeleton className="h-4 w-14" />
+                    </div>
+                  </TableCell>
+                  <TableCell className="py-4">
+                    <Skeleton className="h-6 w-20 rounded-lg" />
+                  </TableCell>
+                  <TableCell className="py-4">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="size-1.5 rounded-full" />
+                      <div className="space-y-1">
+                        <Skeleton className="h-2.5 w-20" />
+                        <Skeleton className="h-2 w-16" />
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="px-6 py-4">
+                    <div className="flex justify-end">
+                      <Skeleton className="h-8 w-16 rounded-lg" />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
             ) : payments.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">
-                  No payments found
+                <TableCell colSpan={7} className="h-48 px-6 text-center">
+                  <p className="text-[10px] font-bold tracking-widest text-muted-foreground/50 uppercase">
+                    No transaction data recorded
+                  </p>
                 </TableCell>
               </TableRow>
             ) : (
               payments.map((payment) => (
-                <TableRow key={payment.id}>
-                  <TableCell className="text-sm">
+                <TableRow
+                  key={payment.id}
+                  className="group border-border/30 px-2 transition-colors hover:bg-muted/30"
+                >
+                  <TableCell className="px-6 py-4 text-[11px] font-bold text-muted-foreground">
                     {formatDate(payment.paidAt)}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="py-4">
                     <SourceIcon source={payment.source} />
                   </TableCell>
-                  <TableCell className="text-sm">{payment.payerName}</TableCell>
-                  <TableCell className="text-right text-sm font-medium">
-                    {formatMoney(payment.amountMinor)}
+                  <TableCell className="py-4">
+                    <div>
+                      <p className="text-xs leading-none font-bold text-foreground">
+                        {(payment.payerName)}
+                      </p>
+                      <p className="mt-1 max-w-[120px] truncate text-[10px] leading-none text-muted-foreground/60">
+                        {payment.payerAccountNumber || "Account hidden"}
+                      </p>
+                    </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="py-4 text-right">
+                    <span className="text-sm font-black tracking-tight text-foreground">
+                      {formatMoney(payment.amountMinor)}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-4">
                     <StatusBadge status={payment.status} />
                   </TableCell>
-                  <TableCell className="text-sm">
+                  <TableCell className="py-4">
                     {payment.order ? (
-                      <div>
-                        <div className="font-mono text-xs">
-                          {payment.order.providerOrderId}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {payment.order.buyerName}
+                      <div className="flex items-center gap-2">
+                        <div className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
+                        <div>
+                          <p className="text-[10px] leading-none font-black tracking-widest text-foreground uppercase">
+                            {payment.order.id}
+                          </p>
+                          <p className="mt-1 max-w-[100px] truncate text-[10px] leading-none text-muted-foreground/60">
+                            {payment.order.buyerName}
+                          </p>
                         </div>
                       </div>
                     ) : (
-                      <span className="text-muted-foreground">-</span>
+                      <div className="flex items-center gap-2 opacity-30">
+                        <div className="size-1.5 rounded-full bg-muted-foreground" />
+                        <span className="text-[10px] font-black tracking-widest uppercase">
+                          Unlinked
+                        </span>
+                      </div>
                     )}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="px-6 py-4 text-right">
                     {(payment.status === "unassigned" ||
                       payment.status === "ambiguous") &&
-                      onAssign && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => onAssign(payment)}
-                        >
-                          Assign
-                        </Button>
-                      )}
+                      onAssign ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onAssign(payment)}
+                        className="h-8 rounded-lg border-primary/20 text-[10px] font-black tracking-widest uppercase opacity-0 transition-all group-hover:opacity-100 hover:bg-primary/5 hover:text-primary"
+                      >
+                        Assign
+                      </Button>
+                    ) : (
+                      <div className="flex items-center justify-end gap-1.5 text-[10px] font-black tracking-widest text-emerald-600/60 uppercase opacity-0 transition-opacity group-hover:opacity-100">
+                        Verified
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))
@@ -282,26 +356,37 @@ export function PaymentList({ filters, onAssign }: PaymentListProps) {
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-end space-x-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-          >
-            Previous
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            Page {page} of {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-          >
-            Next
-          </Button>
+        <div className="mt-4 flex items-center justify-between">
+          <p className="text-[10px] font-bold tracking-widest text-muted-foreground/50 uppercase">
+            Entry {(page - 1) * limit + 1} - {Math.min(page * limit, total)} of{" "}
+            {total} transactions
+          </p>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="h-9 rounded-lg border-border/50 px-4 text-[10px] font-black tracking-widest text-muted-foreground uppercase"
+            >
+              Previous
+            </Button>
+            <div className="flex h-9 items-center justify-center rounded-lg border border-border/50 bg-muted/30 px-3">
+              <span className="text-[10px] font-black tracking-widest text-primary/70 uppercase">
+                {page} <span className="mx-1 text-muted-foreground/30">/</span>{" "}
+                {totalPages}
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="h-9 rounded-lg border-border/50 px-4 text-[10px] font-black tracking-widest text-muted-foreground uppercase"
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
     </div>

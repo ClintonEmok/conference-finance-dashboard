@@ -1,6 +1,35 @@
+import { api } from "@/lib/convex/api"
 import { convexQuery, convexMutation } from "@/lib/convex/server"
+import { Id } from "@/convex/_generated/dataModel"
 
 type RoomAvailability = "all" | "empty" | "available" | "full"
+
+export type SubmissionQueueRow = {
+  attendeeId: string
+  attendeeName: string
+  attendeeEmail: string | null
+  source: "internal"
+  submissionId: string | null
+  bookingRef: string | null
+  submissionNotes: string | null
+  assignmentIntent: "assign" | "skip" | null
+  slotId: string | null
+  roommatePreference: string | null
+  roommateAvoid: string | null
+  dietaryRestrictions: string | null
+  bookerName: string | null
+  genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+  location: string | null
+  unresolved: boolean
+  unresolvedReason: string | null
+  submittedAt: number | null
+  sortOrder: number
+}
+
+type RoommateSignals = {
+  roommatePreference?: string | null
+  roommateAvoid?: string | null
+}
 
 export type RoomAllocationBoardFilters = {
   eventId?: string | null
@@ -65,26 +94,51 @@ export type RoomAllocationBoard = {
       attendeeId: string
       attendeeName: string | null
       attendeeEmail: string | null
+      orderId: string | null
       providerOrderId: string
       providerEventId: string
       eventName: string | null
       ticketTypeLabel: string | null
     }>
+    pendingAssignments: Array<{
+      assignmentId: string
+      attendeeId: string
+      attendeeName: string | null
+      attendeeEmail: string | null
+      assignmentIntent: "assign" | "skip"
+      sortOrder: number
+    }>
+  }>
+  buyerSuggestions?: Array<{
+    assignmentId: string
+    attendeeId: string
+    attendeeName: string | null
+    attendeeEmail: string | null
+    roomId: string | null
+    roomLabel: string | null
+    hotelName: string | null
+    assignmentIntent: "assign" | "skip"
+    sortOrder: number
   }>
   unassignedAttendees: Array<{
     attendeeId: string
     attendeeName: string | null
     attendeeEmail: string | null
+    orderId: string | null
     providerOrderId: string
     providerEventId: string
     eventName: string | null
     ticketTypeLabel: string | null
+    allocatedRoomTypeId: string | null
     genderType: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
     allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
     location: string | null
     remarks: string | null
     hasFamily: boolean
+    roommatePreference?: string | null
+    roommateAvoid?: string | null
   }>
+  submissionQueueRows: SubmissionQueueRow[]
   summary: {
     totalRooms: number
     emptyRooms: number
@@ -122,11 +176,66 @@ export type AllocationProposal = {
   }
 }
 
+type AllocationPriority = "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+type AttendeeGender = "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" | null
+
+type ProposalAttendee = RoomAllocationBoard["unassignedAttendees"][number]
+type ProposalRoom = RoomAllocationBoard["rooms"][number]
+type BuyerSuggestion = NonNullable<
+  RoomAllocationBoard["buyerSuggestions"]
+>[number]
+
+type RoomState = {
+  room: ProposalRoom
+  remainingBeds: number
+  projectedGenders: Set<Exclude<AttendeeGender, null>>
+  projectedOrderIds: Set<string>
+  projectedOccupantSignatures: Set<string>
+}
+
+function normalizeRoommateTokens(value: string | null | undefined): string[] {
+  if (!value) return []
+  return value
+    .split(/[;,\n]/)
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean)
+}
+
+function buildPersonSignatures(
+  attendeeName: string | null | undefined,
+  attendeeEmail: string | null | undefined
+): string[] {
+  const signatures = [attendeeName, attendeeEmail]
+    .map((value) => value?.trim().toLowerCase() ?? "")
+    .filter(Boolean)
+  return [...new Set(signatures)]
+}
+
+function roommatePreferenceRank(
+  attendee: ProposalAttendee & RoommateSignals,
+  roomState: RoomState
+): number {
+  const preferredTokens = normalizeRoommateTokens(attendee.roommatePreference)
+  if (preferredTokens.length === 0) return 0
+  return preferredTokens.some((token) =>
+    roomState.projectedOccupantSignatures.has(token)
+  )
+    ? 1
+    : 0
+}
+
 function normalizeOptionalString(
   value: string | null | undefined
 ): string | null {
   const normalized = value?.trim()
   return normalized ? normalized : null
+}
+
+function canonicalOrderKey(
+  orderId: string | null | undefined,
+  fallbackAttendeeId: string
+): string {
+  return orderId ?? fallbackAttendeeId
 }
 
 function normalizeAvailability(
@@ -175,7 +284,7 @@ function attendeeMatchesSearch(
   attendee: {
     attendeeName: string | null
     attendeeEmail: string | null
-    providerOrderId: string
+    orderId: string | null
     providerEventId: string
     eventName: string | null
     ticketTypeLabel: string | null
@@ -186,11 +295,133 @@ function attendeeMatchesSearch(
   return [
     attendee.attendeeName,
     attendee.attendeeEmail,
-    attendee.providerOrderId,
+    attendee.orderId,
     attendee.providerEventId,
     attendee.eventName,
     attendee.ticketTypeLabel,
   ].some((value) => matchesSearch(value, searchLower))
+}
+
+function priorityRank(priority: AllocationPriority | null | undefined): number {
+  const priorityOrder: Record<AllocationPriority, number> = {
+    CRITICAL: 0,
+    HIGH: 1,
+    NORMAL: 2,
+    LOW: 3,
+  }
+
+  return priorityOrder[priority ?? "NORMAL"]
+}
+
+function normalizeAttendeeGender(
+  gender: AttendeeGender
+): Exclude<AttendeeGender, null> {
+  return gender ?? "UNKNOWN"
+}
+
+function isGenderCompatible(
+  attendeeGender: Exclude<AttendeeGender, null>,
+  roomGenders: Set<Exclude<AttendeeGender, null>>
+): boolean {
+  if (roomGenders.size === 0) {
+    return true
+  }
+
+  const roomAllowsMixed =
+    attendeeGender === "MIXED" ||
+    attendeeGender === "UNKNOWN" ||
+    roomGenders.has("MIXED") ||
+    roomGenders.has("UNKNOWN")
+
+  if (roomAllowsMixed) {
+    return true
+  }
+
+  if (attendeeGender === "MALE" && roomGenders.has("FEMALE")) {
+    return false
+  }
+
+  if (attendeeGender === "FEMALE" && roomGenders.has("MALE")) {
+    return false
+  }
+
+  return true
+}
+
+function rankGenderFit(
+  attendeeGender: Exclude<AttendeeGender, null>,
+  roomGenders: Set<Exclude<AttendeeGender, null>>
+): number {
+  if (roomGenders.size === 0) {
+    return 3
+  }
+
+  if (attendeeGender === "MIXED" || attendeeGender === "UNKNOWN") {
+    return 2
+  }
+
+  if (roomGenders.has(attendeeGender)) {
+    return 3
+  }
+
+  if (roomGenders.has("MIXED") || roomGenders.has("UNKNOWN")) {
+    return 2
+  }
+
+  return 1
+}
+
+function getFamilyCohesionRank(
+  attendee: ProposalAttendee,
+  roomState: RoomState
+): number {
+  const attendeeOrderKey = canonicalOrderKey(
+    attendee.orderId,
+    attendee.attendeeId
+  )
+  const hasGroupInRoom = roomState.projectedOrderIds.has(attendeeOrderKey)
+  if (hasGroupInRoom) {
+    return 3
+  }
+
+  if (attendee.hasFamily && roomState.room.occupiedBeds === 0) {
+    return 2
+  }
+
+  return 1
+}
+
+function buildPlacementReason(input: {
+  attendee: ProposalAttendee
+  roomState: RoomState
+  priority: AllocationPriority
+  familyMatch: boolean
+  genderFitRank: number
+  buyerSuggestionHonored?: boolean
+}): string {
+  const gender = normalizeAttendeeGender(input.attendee.genderType)
+  const rationale: string[] = []
+
+  if (input.buyerSuggestionHonored) {
+    rationale.push("honors buyer room suggestion")
+  }
+
+  if (input.familyMatch) {
+    rationale.push("keeps family/order group together")
+  }
+
+  if (input.genderFitRank >= 3) {
+    rationale.push(`matches ${gender.toLowerCase()} room profile`)
+  } else {
+    rationale.push("passes mixed/unknown gender guardrail")
+  }
+
+  rationale.push(`priority ${input.priority}`)
+  rationale.push(
+    `${input.roomState.remainingBeds} bed(s) remain after placement`
+  )
+
+  return `Compatibility placement: ${rationale.join("; ")}`
 }
 
 export async function getRoomAllocationBoard(
@@ -202,19 +433,20 @@ export async function getRoomAllocationBoard(
   const roomTypeId = normalizeOptionalString(filters.roomTypeId)
   const availability = normalizeAvailability(filters.availability)
   const genderType = normalizeGenderType(filters.genderType ?? undefined)
+  const familyGroupId = normalizeOptionalString(filters.familyGroupId)
+  const location = normalizeOptionalString(filters.location)
   const allocationPriority = normalizeAllocationPriority(
     filters.allocationPriority ?? undefined
   )
   const hasPriority = normalizeBoolean(filters.hasPriority ?? undefined)
 
-  const result = await convexQuery<
-    Record<string, unknown>,
-    RoomAllocationBoard
-  >("accommodation:getRoomAllocationBoard", {
+  const result = await convexQuery(api.accommodation.getRoomAllocationBoard, {
     eventId: eventId ?? undefined,
     hotelId: hotelId ?? undefined,
     roomTypeId: roomTypeId ?? undefined,
     genderType: genderType ?? undefined,
+    familyGroupId: familyGroupId ?? undefined,
+    location: location ?? undefined,
     allocationPriority: allocationPriority ?? undefined,
     hasPriority: hasPriority ?? undefined,
   })
@@ -222,7 +454,7 @@ export async function getRoomAllocationBoard(
   let mappedRooms = result.rooms
   if (search) {
     mappedRooms = result.rooms
-      .map((room) => {
+      .map((room: RoomAllocationBoard["rooms"][number]) => {
         const occupants = search
           ? room.occupants.filter((occupant: (typeof room.occupants)[number]) =>
               attendeeMatchesSearch(occupant, search)
@@ -270,7 +502,7 @@ export async function assignAttendeeToRoom(input: {
   attendeeId: string
   roomId: string
 }) {
-  return await convexMutation("accommodation:assignAttendeeToRoom", {
+  return await convexMutation(api.accommodation.assignAttendeeToRoom, {
     attendeeId: input.attendeeId,
     roomId: input.roomId,
   })
@@ -279,7 +511,7 @@ export async function assignAttendeeToRoom(input: {
 export async function unassignAttendeeFromRoom(attendeeIdValue: string) {
   const attendeeId = normalizeOptionalString(attendeeIdValue) ?? ""
 
-  return await convexMutation("accommodation:unassignAttendeeFromRoom", {
+  return await convexMutation(api.accommodation.unassignAttendeeFromRoom, {
     attendeeId,
   })
 }
@@ -294,6 +526,12 @@ export async function generateAllocationProposal(input: {
   const suggestions: AllocationProposal["suggestions"] = []
   const unplacedAttendees: AllocationProposal["unplacedAttendees"] = []
 
+  const buyerSuggestionsByAttendeeId = new Map<string, BuyerSuggestion>()
+  for (const suggestion of board.buyerSuggestions ?? []) {
+    if (suggestion.assignmentIntent !== "assign") continue
+    buyerSuggestionsByAttendeeId.set(suggestion.attendeeId, suggestion)
+  }
+
   const availableRooms = board.rooms
     .filter((r) => r.availableBeds > 0)
     .sort((a, b) => {
@@ -302,43 +540,222 @@ export async function generateAllocationProposal(input: {
       if (a.availability === "empty" && b.availability === "available") return 1
       return a.label.localeCompare(b.label)
     })
+    .map<RoomState>((room) => ({
+      room,
+      remainingBeds: room.availableBeds,
+      projectedGenders: new Set<Exclude<AttendeeGender, null>>(),
+      projectedOrderIds: new Set(
+        room.occupants.map((occupant) =>
+          canonicalOrderKey(occupant.orderId, occupant.attendeeId)
+        )
+      ),
+      projectedOccupantSignatures: new Set(
+        room.occupants.flatMap((occupant) =>
+          buildPersonSignatures(occupant.attendeeName, occupant.attendeeEmail)
+        )
+      ),
+    }))
+
+  const attendeeCountByOrderId = new Map<string, number>()
+  for (const attendee of board.unassignedAttendees) {
+    const attendeeOrderKey = canonicalOrderKey(
+      attendee.orderId,
+      attendee.attendeeId
+    )
+    attendeeCountByOrderId.set(
+      attendeeOrderKey,
+      (attendeeCountByOrderId.get(attendeeOrderKey) ?? 0) + 1
+    )
+  }
 
   const sortedAttendees = [...board.unassignedAttendees].sort((a, b) => {
-    const priorityOrder = { CRITICAL: 0, HIGH: 1, NORMAL: 2, LOW: 3 }
-    const aOrder = priorityOrder[a.allocationPriority ?? "NORMAL"]
-    const bOrder = priorityOrder[b.allocationPriority ?? "NORMAL"]
-    if (aOrder !== bOrder) return aOrder - bOrder
-    return (a.attendeeName ?? "").localeCompare(b.attendeeName ?? "")
+    const aPriority = priorityRank(a.allocationPriority)
+    const bPriority = priorityRank(b.allocationPriority)
+    if (aPriority !== bPriority) return aPriority - bPriority
+
+    const aOrderKey = canonicalOrderKey(a.orderId, a.attendeeId)
+    const bOrderKey = canonicalOrderKey(b.orderId, b.attendeeId)
+    const aGroupSize = attendeeCountByOrderId.get(aOrderKey) ?? 0
+    const bGroupSize = attendeeCountByOrderId.get(bOrderKey) ?? 0
+    if (aGroupSize !== bGroupSize) {
+      return bGroupSize - aGroupSize
+    }
+
+    const orderComparison = aOrderKey.localeCompare(bOrderKey)
+    if (orderComparison !== 0) return orderComparison
+
+    const nameComparison = (a.attendeeName ?? "").localeCompare(
+      b.attendeeName ?? ""
+    )
+    if (nameComparison !== 0) return nameComparison
+
+    return a.attendeeId.localeCompare(b.attendeeId)
   })
 
-  for (const attendee of sortedAttendees) {
+  const placeAttendee = (
+    attendee: ProposalAttendee,
+    preferredRoomId: string | null,
+    buyerSuggestionRequested = false
+  ) => {
     const priority = attendee.allocationPriority ?? "NORMAL"
+    const attendeeGender = normalizeAttendeeGender(attendee.genderType)
 
-    const compatibleRooms = availableRooms.filter((room) => {
-      if (room.availableBeds <= 0) return false
-      return true
-    })
+    const rankedRooms = availableRooms
+      .filter((roomState) => roomState.remainingBeds > 0)
+      .filter((roomState) =>
+        isGenderCompatible(attendeeGender, roomState.projectedGenders)
+      )
+      .map((roomState) => {
+        const familyRank = getFamilyCohesionRank(attendee, roomState)
+        const genderRank = rankGenderFit(
+          attendeeGender,
+          roomState.projectedGenders
+        )
+        const preferredRoommateRank = roommatePreferenceRank(
+          attendee,
+          roomState
+        )
+        const availabilityRank =
+          roomState.room.availability === "available" ? 1 : 0
+        const remainingBedsAfterPlacement = roomState.remainingBeds - 1
 
-    if (compatibleRooms.length > 0) {
-      const bestRoom = compatibleRooms[0]
+        return {
+          roomState,
+          familyRank,
+          genderRank,
+          preferredRoommateRank,
+          availabilityRank,
+          remainingBedsAfterPlacement,
+        }
+      })
+      .sort((a, b) => {
+        if (a.familyRank !== b.familyRank) return b.familyRank - a.familyRank
+        if (a.genderRank !== b.genderRank) return b.genderRank - a.genderRank
+        if (a.preferredRoommateRank !== b.preferredRoommateRank) {
+          return b.preferredRoommateRank - a.preferredRoommateRank
+        }
+        if (a.availabilityRank !== b.availabilityRank) {
+          return b.availabilityRank - a.availabilityRank
+        }
+        if (a.remainingBedsAfterPlacement !== b.remainingBedsAfterPlacement) {
+          return a.remainingBedsAfterPlacement - b.remainingBedsAfterPlacement
+        }
+        return a.roomState.room.label.localeCompare(b.roomState.room.label)
+      })
+
+    const preferredCandidate = preferredRoomId
+      ? rankedRooms.find(
+          (candidate) => candidate.roomState.room.id === preferredRoomId
+        )
+      : null
+    const bestCandidate = preferredCandidate ?? rankedRooms[0] ?? null
+    const buyerSuggestionHonored =
+      buyerSuggestionRequested && Boolean(preferredCandidate)
+
+    if (bestCandidate) {
+      const bestRoom = bestCandidate.roomState
+      const attendeeOrderKey = canonicalOrderKey(
+        attendee.orderId,
+        attendee.attendeeId
+      )
+
+      bestRoom.remainingBeds -= 1
+      bestRoom.projectedGenders.add(attendeeGender)
+      bestRoom.projectedOrderIds.add(attendeeOrderKey)
+      for (const signature of buildPersonSignatures(
+        attendee.attendeeName,
+        attendee.attendeeEmail
+      )) {
+        bestRoom.projectedOccupantSignatures.add(signature)
+      }
+
       suggestions.push({
         attendeeId: attendee.attendeeId,
         attendeeName: attendee.attendeeName,
-        roomId: bestRoom.id,
-        roomLabel: bestRoom.label,
-        hotelName: bestRoom.hotel.name,
-        reason: `Available room with ${bestRoom.availableBeds} beds`,
+        roomId: bestRoom.room.id,
+        roomLabel: bestRoom.room.label,
+        hotelName: bestRoom.room.hotel.name,
+        reason: buildPlacementReason({
+          attendee,
+          roomState: bestRoom,
+          priority,
+          familyMatch: bestCandidate.familyRank >= 3,
+          genderFitRank: bestCandidate.genderRank,
+          buyerSuggestionHonored,
+        }),
         priority,
       })
-    } else {
-      unplacedAttendees.push({
-        attendeeId: attendee.attendeeId,
-        attendeeName: attendee.attendeeName,
-        reason: "No compatible rooms available",
-        priority,
-      })
+      return
     }
+
+    const hasAnyBeds = availableRooms.some(
+      (roomState) => roomState.remainingBeds > 0
+    )
+    unplacedAttendees.push({
+      attendeeId: attendee.attendeeId,
+      attendeeName: attendee.attendeeName,
+      reason: hasAnyBeds
+        ? "No compatible rooms available after gender guardrails"
+        : "No rooms with available beds",
+      priority,
+    })
   }
+
+  const suggestedAttendees = sortedAttendees.filter((attendee) =>
+    buyerSuggestionsByAttendeeId.has(attendee.attendeeId)
+  )
+  const remainingAttendees = sortedAttendees.filter(
+    (attendee) => !buyerSuggestionsByAttendeeId.has(attendee.attendeeId)
+  )
+
+  for (const attendee of suggestedAttendees) {
+    const suggestion = buyerSuggestionsByAttendeeId.get(attendee.attendeeId)
+    placeAttendee(attendee, suggestion?.roomId ?? null, true)
+  }
+
+  for (const attendee of remainingAttendees) {
+    placeAttendee(attendee, null)
+  }
+
+  const suggestionsByAttendeeId = new Map(
+    suggestions.map((suggestion) => [suggestion.attendeeId, suggestion])
+  )
+  const familyGroups = new Map<string, string[]>()
+
+  for (const attendee of sortedAttendees) {
+    if (!attendee.hasFamily) continue
+    const attendeeOrderKey = canonicalOrderKey(
+      attendee.orderId,
+      attendee.attendeeId
+    )
+    const existing = familyGroups.get(attendeeOrderKey) ?? []
+    existing.push(attendee.attendeeId)
+    familyGroups.set(attendeeOrderKey, existing)
+  }
+
+  const familyGroupsKeptTogether = [...familyGroups.values()].reduce(
+    (sum, attendeeIds) => {
+      if (attendeeIds.length < 2) {
+        return sum
+      }
+
+      const placements = attendeeIds
+        .map((attendeeId) => suggestionsByAttendeeId.get(attendeeId))
+        .filter((placement): placement is NonNullable<typeof placement> =>
+          Boolean(placement)
+        )
+
+      if (placements.length !== attendeeIds.length) {
+        return sum
+      }
+
+      const distinctRoomIds = new Set(
+        placements.map((placement) => placement.roomId)
+      )
+      return distinctRoomIds.size === 1 ? sum + 1 : sum
+    },
+    0
+  )
 
   return {
     generatedAt: new Date().toISOString(),
@@ -348,7 +765,56 @@ export async function generateAllocationProposal(input: {
     summary: {
       totalSuggested: suggestions.length,
       totalUnplaced: unplacedAttendees.length,
-      familyGroupsKeptTogether: 0,
+      familyGroupsKeptTogether,
     },
   }
+}
+
+export type ConfirmBuyerAssignmentResult =
+  | {
+      success: true
+      assignmentId: string
+      attendeeId: string
+      slotId: string
+      roomId: string
+    }
+  | {
+      success: false
+      error: "ROOM_FULL"
+      message: string
+      alternatives: Array<{
+        slotId: string
+        roomId: string
+        roomLabel: string
+        roomType: string
+        capacity: number
+        occupantCount: number
+        availableSpots: number
+      }>
+    }
+
+export async function confirmBuyerAssignment(input: {
+  assignmentId: string
+  slotId?: string | null
+}): Promise<ConfirmBuyerAssignmentResult> {
+  return await convexMutation(api.accommodation.confirmBuyerAssignment, {
+    assignmentId: input.assignmentId as Id<"orderAssignments">,
+    slotId: input.slotId
+      ? (input.slotId as Id<"accommodationSlots">)
+      : undefined,
+  })
+}
+
+export async function removeBuyerAssignment(input: {
+  assignmentId: string
+  reason?: string | null
+}): Promise<{
+  success: boolean
+  assignmentId: string
+  attendeeId: string
+}> {
+  return await convexMutation(api.accommodation.removeBuyerAssignment, {
+    assignmentId: input.assignmentId as Id<"orderAssignments">,
+    reason: input.reason ?? undefined,
+  })
 }

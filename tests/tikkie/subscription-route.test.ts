@@ -1,26 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { NextResponse } from "next/server"
 
 const mocks = vi.hoisted(() => ({
-  headers: vi.fn<() => Promise<Headers>>(),
-  getSession:
-    vi.fn<
-      () => Promise<{ user: { id: string }; session: { id: string } } | null>
-    >(),
+  requireApiUser: vi.fn<() => Promise<Response | { userId: string }>>(),
   subscribePaymentRequestNotifications:
     vi.fn<() => Promise<{ subscriptionId: string }>>(),
   getTikkieConfig: vi.fn(),
 }))
 
-vi.mock("next/headers", () => ({
-  headers: mocks.headers,
-}))
-
-vi.mock("@/lib/auth", () => ({
-  auth: {
-    api: {
-      getSession: mocks.getSession,
-    },
-  },
+vi.mock("@/lib/auth/server", () => ({
+  requireApiUser: mocks.requireApiUser,
 }))
 
 vi.mock("@/lib/integrations/tikkie/client", () => ({
@@ -32,18 +21,27 @@ vi.mock("@/lib/integrations/tikkie/config", () => ({
   getTikkieConfig: mocks.getTikkieConfig,
 }))
 
-const session = () => ({ user: { id: "user-1" }, session: { id: "sess-1" } })
+const user = () => ({ userId: "user-1" })
 
 import { POST } from "@/app/api/admin/tikkie/subscription/route"
 
 describe("POST /api/admin/tikkie/subscription", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.headers.mockResolvedValue(new Headers())
   })
 
   it("returns 401 when no session is present", async () => {
-    mocks.getSession.mockResolvedValue(null)
+    mocks.requireApiUser.mockResolvedValue(
+      NextResponse.json(
+        {
+          error: {
+            code: "UNAUTHORIZED",
+            message: "Authentication required",
+          },
+        },
+        { status: 401 }
+      )
+    )
 
     const response = await POST(
       new Request("http://localhost/api/admin/tikkie/subscription", {
@@ -64,7 +62,7 @@ describe("POST /api/admin/tikkie/subscription", () => {
   })
 
   it("returns 403 when subscription setup is disabled", async () => {
-    mocks.getSession.mockResolvedValue(session())
+    mocks.requireApiUser.mockResolvedValue(user())
     mocks.getTikkieConfig.mockReturnValue({
       configured: true,
       errors: [],
@@ -106,7 +104,7 @@ describe("POST /api/admin/tikkie/subscription", () => {
   })
 
   it("returns 400 when callback URL is missing but setup is enabled", async () => {
-    mocks.getSession.mockResolvedValue(session())
+    mocks.requireApiUser.mockResolvedValue(user())
     mocks.getTikkieConfig.mockReturnValue({
       configured: true,
       errors: [],
@@ -148,7 +146,7 @@ describe("POST /api/admin/tikkie/subscription", () => {
   })
 
   it("returns 201 and subscription details when enabled and valid", async () => {
-    mocks.getSession.mockResolvedValue(session())
+    mocks.requireApiUser.mockResolvedValue(user())
     mocks.getTikkieConfig.mockReturnValue({
       configured: true,
       errors: [],
@@ -194,7 +192,7 @@ describe("POST /api/admin/tikkie/subscription", () => {
   })
 
   it("returns 500 when Tikkie configuration is invalid", async () => {
-    mocks.getSession.mockResolvedValue(session())
+    mocks.requireApiUser.mockResolvedValue(user())
     mocks.getTikkieConfig.mockReturnValue({
       configured: false,
       errors: ["TIKKIE_API_KEY is missing", "TIKKIE_APP_TOKEN is missing"],
@@ -231,7 +229,7 @@ describe("POST /api/admin/tikkie/subscription", () => {
   })
 
   it("returns 502 when Tikkie API returns authorization error", async () => {
-    mocks.getSession.mockResolvedValue(session())
+    mocks.requireApiUser.mockResolvedValue(user())
     mocks.getTikkieConfig.mockReturnValue({
       configured: true,
       errors: [],
@@ -270,7 +268,7 @@ describe("POST /api/admin/tikkie/subscription", () => {
   })
 
   it("returns 502 when Tikkie API returns forbidden error", async () => {
-    mocks.getSession.mockResolvedValue(session())
+    mocks.requireApiUser.mockResolvedValue(user())
     mocks.getTikkieConfig.mockReturnValue({
       configured: true,
       errors: [],

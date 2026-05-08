@@ -44,8 +44,61 @@ function buildUrl(path: string, query?: TicketTailorFetchOptions["query"]) {
 }
 
 function buildAuthorizationHeader(apiKey: string) {
-  const encoded = Buffer.from(`${apiKey}:`).toString("base64")
+  const encoded = Buffer.from(apiKey).toString("base64")
   return `Basic ${encoded}`
+}
+
+function buildRequestHeaders(apiKey: string) {
+  return {
+    Authorization: buildAuthorizationHeader(apiKey),
+    Accept: "application/json",
+    "User-Agent": "conference-finance-dashboard/1.0",
+  }
+}
+
+const TICKET_TAILOR_FETCH_TIMEOUT_MS = Number(
+  process.env.TICKET_TAILOR_FETCH_TIMEOUT_MS ?? 15_000
+)
+
+const TICKET_TAILOR_MAX_RETRIES = Number(
+  process.env.TICKET_TAILOR_MAX_RETRIES ?? 2
+)
+
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") return true
+  if (error instanceof TypeError) return true // network errors
+  return false
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status >= 500 || status === 429
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function fetchWithTimeout(
+  url: URL | string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal })
+    clearTimeout(timer)
+    return response
+  } catch (error) {
+    clearTimeout(timer)
+
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`Ticket Tailor request timed out after ${timeoutMs}ms`)
+    }
+
+    throw error
+  }
 }
 
 export async function ticketTailorFetch<T>(
@@ -58,23 +111,57 @@ export async function ticketTailorFetch<T>(
     throw new Error("Ticket Tailor is not configured: missing API key")
   }
 
-  const response = await fetch(url, {
-    method: options.method ?? "GET",
-    headers: {
-      Authorization: buildAuthorizationHeader(config.values.apiKey),
-      Accept: "application/json",
-    },
-    cache: "no-store",
-  })
+  const method = options.method ?? "GET"
+  const maxAttempts = TICKET_TAILOR_MAX_RETRIES + 1
+  let lastError: unknown = null
 
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(
-      `Ticket Tailor request failed (${response.status}): ${text}`
-    )
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await fetchWithTimeout(
+        url,
+        {
+          method,
+          headers: buildRequestHeaders(config.values.apiKey),
+          cache: "no-store",
+        },
+        TICKET_TAILOR_FETCH_TIMEOUT_MS
+      )
+
+      if (!response.ok) {
+        if (isRetryableStatus(response.status) && attempt < maxAttempts) {
+          await sleep(500 * attempt)
+          continue
+        }
+
+        const text = await response.text()
+        throw new Error(
+          `Ticket Tailor request failed (${response.status}): ${text}`
+        )
+      }
+
+      return (await response.json()) as T
+    } catch (error) {
+      lastError = error
+
+      if (
+        error instanceof Error &&
+        error.message.startsWith("Ticket Tailor request failed")
+      ) {
+        throw error
+      }
+
+      if (isRetryableError(error) && attempt < maxAttempts) {
+        await sleep(500 * attempt)
+        continue
+      }
+
+      throw error
+    }
   }
 
-  return (await response.json()) as T
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Ticket Tailor request failed after retries")
 }
 
 function asRecord(value: unknown): JsonRecord {
@@ -98,7 +185,7 @@ function asArrayOfRecords(value: unknown): JsonRecord[] {
     .map((item) => item as JsonRecord)
 }
 
-function extractItems(payload: unknown): JsonRecord[] {
+export function extractItems(payload: unknown): JsonRecord[] {
   if (Array.isArray(payload)) {
     return asArrayOfRecords(payload)
   }
@@ -122,7 +209,9 @@ function extractItems(payload: unknown): JsonRecord[] {
   return []
 }
 
-function extractAttendeeItems(payload: unknown): TicketTailorAttendeePayload[] {
+export function extractAttendeeItems(
+  payload: unknown
+): TicketTailorAttendeePayload[] {
   const root = asRecord(payload)
   const nestedData = asRecord(root.data)
   const candidates = [
@@ -192,7 +281,32 @@ function inferHasNextPage(
   return itemCount >= pageSize
 }
 
-async function fetchPaginatedCollection<T extends JsonRecord>(
+function extractNextPageQuery(payload: unknown) {
+  const root = asRecord(payload)
+  const links = asRecord(root.links)
+  const next = typeof links.next === "string" ? links.next : null
+
+  if (!next) {
+    return null
+  }
+
+  try {
+    const url = new URL(next, "https://api.tickettailor.com")
+    const startingAfter = url.searchParams.get("starting_after")
+    const endingBefore = url.searchParams.get("ending_before")
+    const limit = url.searchParams.get("limit")
+
+    return {
+      starting_after: startingAfter ?? undefined,
+      ending_before: endingBefore ?? undefined,
+      limit: limit ?? undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function ticketTailorFetchPaginated<T extends JsonRecord>(
   path: string,
   options: PaginationOptions = {}
 ): Promise<PaginatedCollectionResult<T>> {
@@ -202,13 +316,13 @@ async function fetchPaginatedCollection<T extends JsonRecord>(
   const allItems: T[] = []
   let page = 1
   let pagesFetched = 0
+  let cursorQuery: Record<string, string | number | undefined> = {
+    limit: pageSize,
+  }
 
   while (page <= maxPages) {
     const payload = await ticketTailorFetch<unknown>(path, {
-      query: {
-        page,
-        per_page: pageSize,
-      },
+      query: cursorQuery,
     })
 
     pagesFetched += 1
@@ -220,10 +334,18 @@ async function fetchPaginatedCollection<T extends JsonRecord>(
 
     allItems.push(...items)
 
-    const hasNext = inferHasNextPage(payload, page, pageSize, items.length)
+    const nextPageQuery = extractNextPageQuery(payload)
+    const hasNext = nextPageQuery
+      ? true
+      : inferHasNextPage(payload, page, pageSize, items.length)
 
     if (!hasNext) {
       break
+    }
+
+    cursorQuery = nextPageQuery ?? {
+      page: page + 1,
+      per_page: pageSize,
     }
 
     page += 1
@@ -262,7 +384,7 @@ function orderSortKey(order: JsonRecord) {
 export async function fetchTicketTailorEventsPaginated(
   options: PaginationOptions = {}
 ): Promise<PaginatedCollectionResult<TicketTailorEventPayload>> {
-  const result = await fetchPaginatedCollection<TicketTailorEventPayload>(
+  const result = await ticketTailorFetchPaginated<TicketTailorEventPayload>(
     "/events",
     options
   )
@@ -285,7 +407,7 @@ export async function fetchTicketTailorOrdersByEventPaginated(
   let result: PaginatedCollectionResult<TicketTailorOrderPayload>
 
   try {
-    result = await fetchPaginatedCollection<TicketTailorOrderPayload>(
+    result = await ticketTailorFetchPaginated<TicketTailorOrderPayload>(
       `/events/${encodeURIComponent(cleanEventId)}/orders`,
       options
     )
@@ -299,7 +421,7 @@ export async function fetchTicketTailorOrdersByEventPaginated(
       throw error
     }
 
-    result = await fetchPaginatedCollection<TicketTailorOrderPayload>(
+    result = await ticketTailorFetchPaginated<TicketTailorOrderPayload>(
       "/orders",
       {
         ...options,

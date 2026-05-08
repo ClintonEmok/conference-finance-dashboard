@@ -1,7 +1,8 @@
 "use client"
 
 import { useQuery, useMutation } from "convex/react"
-import { api } from "convex/functions/_generated/api"
+import { api } from "@/lib/convex/api"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export function usePaymentLinks(args?: {
   orderId?: string
@@ -10,8 +11,8 @@ export function usePaymentLinks(args?: {
   return useQuery(api.tikkie.getPaymentLinks, args ?? {})
 }
 
-export function usePaymentLinkById(linkId: string) {
-  return useQuery(api.tikkie.getPaymentLinkById, { linkId: linkId as any })
+export function usePaymentLinkById(linkId: Id<"tikkiePaymentLinks">) {
+  return useQuery(api.tikkie.getPaymentLinkById, { linkId })
 }
 
 export function usePaymentLinkByToken(paymentRequestToken: string) {
@@ -30,6 +31,42 @@ export function useCreatePaymentTemplate() {
   return useMutation(api.tikkie.createPaymentTemplate)
 }
 
+export function useUpdatePaymentTemplate() {
+  return useMutation(api.tikkie.updatePaymentTemplate)
+}
+
+export function useDeletePaymentTemplate() {
+  return useMutation(api.tikkie.deletePaymentTemplate)
+}
+
 export function useUpdatePaymentLinkStatus() {
   return useMutation(api.tikkie.updatePaymentLinkStatus)
+}
+
+export function useTemplateByEventAndTicketType(
+  eventId: string,
+  ticketTypeLabel: string
+) {
+  return useQuery(api.tikkie.getTemplateByEventAndTicketType, {
+    eventId,
+    ticketTypeLabel,
+  })
+}
+
+// --- Event-level Tikkie ---
+
+export function useEventPaymentLink(eventId: string) {
+  return useQuery(api.tikkie.getEventPaymentLink, { eventId })
+}
+
+export function useTikkiePaymentsByLink(paymentLinkId: string) {
+  return useQuery(api.tikkie.getTikkiePaymentsByLink, { paymentLinkId })
+}
+
+export function useAutoMatchTikkiePayments() {
+  return useMutation(api.tikkie.autoMatchTikkiePayments)
+}
+
+export function useMatchTikkiePayment() {
+  return useMutation(api.tikkie.matchTikkiePayment)
 }

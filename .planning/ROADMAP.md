@@ -2,231 +2,228 @@
 
 ## Overview
 
-This roadmap now prioritizes getting the operator-facing screens, navigation, attendee data, and accommodation workflow correct before investing further in payment-link automation and production hardening. The current MVP path focuses on trusted Ticket Tailor data, clear finance views, actual attendee visibility, and room allocation flow. Tikkie automation and operational hardening remain valuable, but are explicitly deferred until the core UX and workflow are settled.
+v3.0 focuses on making canonical internal order, attendee, payable, and payment data trustworthy enough to drive finance and operations without runtime dependence on `ticketTailor*` tables. The milestone stays brownfield and internal-first: stabilize runtime truth, make the dashboard event-scoped, define deterministic money rules, migrate safely, then remove legacy fallbacks without attempting a full Ticket Tailor redesign.
 
-All MVP-path phases are now complete. Future work should route through the deferred post-MVP tracks rather than reopening the finished command-center flow.
+## Milestones
+
+- ✅ **v1.0 MVP** — shipped 2026-03-27 (archive: `.planning/milestones/v1.0-ROADMAP.md`, requirements: `.planning/milestones/v1.0-REQUIREMENTS.md`, audit: `.planning/milestones/v1.0-MILESTONE-AUDIT.md`)
+- ✅ **v2.0 Attendee Signup + Accommodation Self-Assignment** — groundwork delivered in phases 18-25
+- 🚧 **v3.0 Canonical Orders Foundation** — planned 2026-04-01
+
+## Active Milestone: v3.0 Canonical Orders Foundation
+
+**Objective:** Make internal order, attendee, payable, and payment-reconciliation tables the sole runtime source for finance and operational queries, while making the admin dashboard event-scoped before any provider-model redesign.
+
+### Scope
+
+- Canonical internal runtime truth for finance and ops reads
+- Event-scoped admin dashboard entry and shell
+- Deterministic order totals, attendee payables, and payment allocations
+- Brownfield-safe widen/backfill/dual-write/parity/cutover workflow
+- Runtime deprecation of `ticketTailor*` query dependencies
+- Explicit provider ingest and mapping boundary for Ticket Tailor
+
+### Out of Scope
+
+- Full Ticket Tailor table redesign
+- New public signup UX features unrelated to order/finance correctness
+- Multi-tenant support
 
 ## Phases
 
-- [x] **Phase 1: Foundation & Secure Access** - Establish protected admin access and integration configuration baseline.
-- [x] **Phase 2: Ticket Data Reliability** - Make Ticket Tailor data ingestion dependable and correct.
-- [x] **Phase 3: Finance Visibility & Outstanding Balances** - Deliver dashboard reporting, ledger visibility, and balance follow-up surfaces.
-- [x] **Phase 4: Attendee Data & Accommodation Foundations** - Sync issued ticket attendees and define hotel/room inventory foundations.
-- [x] **Phase 5: Room Allocation & Operator Flow Polish** - Finalize attendee detail, room assignment, and cross-screen workflow clarity.
+- [ ] **Phase 26: Canonical Runtime Contract** - Normalize runtime identity and isolate provider data behind ingest/mapping boundaries.
+- [ ] **Phase 27: Event-Scoped Dashboard** - Make the admin entry point event-first with a chooser for existing or new events.
+- [x] **Phase 28: Single-Sidebar Event Shell** - Collapse event-scoped dashboard chrome into one sidebar and move duplicate context/navigation into the main content header. (completed 2026-04-24)
+- [x] **Phase 29: Deterministic Money Model** - Define canonical totals, attendee payables, and payment allocation truth. (completed 2026-04-25)
+- [ ] **Phase 30: Shareable Reporting Link** - Publish a read-only stakeholder report link with aggregated slices only.
+- [ ] **Phase 31: Safe Migration and Parity** - Backfill and dual-write canonical finance data with production-safe parity checks.
+- [ ] **Phase 32: Canonical Runtime Read Cutover** - Move finance and operational reads onto canonical internal tables with reconciliation reason codes.
+- [ ] **Phase 33: Legacy Path Removal** - Remove validated fallbacks and leave Ticket Tailor as ingest/mapping only.
 
-## Phase Details
+---
 
-### Phase 1: Foundation & Secure Access
+### Phase 26: Canonical Runtime Contract
 
-**Goal**: Finance admins can securely enter the dashboard and configure external integrations safely.
-**Depends on**: Nothing (first phase)
-**Requirements**: FOUND-01, FOUND-02, SEC-01
-**Success Criteria** (what must be TRUE):
+**Goal:** New and updated runtime joins use one internal order identity contract, while provider data is accessed through explicit ingest/mapping boundaries instead of direct runtime truth.
 
-1. Finance admin can sign in and reach protected dashboard routes.
-2. Non-admin access attempts are blocked from dashboard pages and integration actions.
-3. Ticket Tailor and Tikkie credentials can be configured via environment settings and validated at runtime.
-   **Plans**: 2 plans
+**Depends on:** Phase 25
 
-Plans:
+**Requirements:** RTM-02
 
-- [x] 01-01-PLAN.md — Implement magic-link auth, protected dashboard routes, and 401 API guardrails
-- [x] 01-02-PLAN.md — Add environment-based integration validation and `/dashboard/integrations` runtime status panel
+**Success Criteria:**
 
-### Phase 2: Ticket Data Reliability
+1. New and updated order-payment joins resolve through one canonical internal `orders` identifier contract.
+2. Runtime write paths no longer need mixed internal/provider order identifiers to link payments, orders, and attendees.
+3. Verifiable runtime contracts exist for where provider data is allowed, so later cutover work can remove direct `ticketTailor*` dependencies safely.
 
-**Goal**: Ticket Tailor event and order data is synced accurately enough to trust as reporting input.
-**Depends on**: Phase 1
-**Requirements**: TT-01, TT-02, TT-03
-**Success Criteria** (what must be TRUE):
+**Plans:** 3/3
 
-1. Admin can run sync and see Ticket Tailor events/orders imported successfully.
-2. Admin can trigger manual re-sync for selected event/date range to correct stale data.
-3. Synced records show consistent normalized statuses (paid/refunded/cancelled/pending) used by downstream views.
-   **Plans**: 2 plans
+---
 
-Plans:
+### Phase 27: Event-Scoped Dashboard
 
-- [x] 02-01-PLAN.md — Add durable Ticket Tailor storage, idempotent sync pipeline, and protected sync endpoint
-- [x] 02-02-PLAN.md — Add scoped manual re-sync API/UI flow with operator verification checkpoint
+**Goal:** After login, admins land on an event chooser and the rest of the dashboard is scoped to the selected event.
 
-### Phase 3: Finance Visibility & Outstanding Balances
+**Depends on:** Phase 26
 
-**Goal**: Finance admins can understand revenue performance and identify unpaid or mismatched balances requiring follow-up.
-**Depends on**: Phase 2
-**Requirements**: DASH-01, DASH-02, DASH-03
-**Success Criteria** (what must be TRUE):
+**Requirements:** TBD
 
-1. Admin can view revenue totals and trends by event/date range from synced data.
-2. Admin can inspect order-level details and export filtered records to CSV.
-3. Admin can see an outstanding balances list of unpaid/partial/mismatched order states.
-   **Plans**: 2 plans
+**Success Criteria:**
+
+1. Authenticated admins see a focused event chooser instead of a broad global dashboard landing page.
+2. Existing events are easy to open and creating a new event is a first-class action.
+3. The selected event is reflected in the URL so dashboard navigation and reloads stay scoped.
+4. The global shell is limited to event switching and top-level navigation, not day-to-day event work.
+
+**Plans:** 2/2
 
 Plans:
+- [ ] 27-01-PLAN.md — Make /dashboard land on the event chooser
+- [ ] 27-02-PLAN.md — Add the event-first shell and switcher
 
-- [x] 03-01-PLAN.md — Build protected revenue metrics API/domain aggregation and dashboard filter/trend surface
-- [x] 03-02-PLAN.md — Build protected order drilldown + CSV export + outstanding balance APIs and dashboard pages
+**Checkpoint:** Human verification is still pending for the sidebar cleanup follow-up.
 
-### Phase 4: Attendee Data & Accommodation Foundations
+---
 
-**Goal**: Finance admins can see the real attendees behind each order and set up the hotel/room inventory needed for accommodation operations.
-**Depends on**: Phase 3
-**Requirements**: TT-04, DASH-04, ACC-01
-**Success Criteria** (what must be TRUE):
+### Phase 28: Single-Sidebar Event Shell
 
-1. Ticket Tailor sync stores issued ticket / attendee-level records per order, not only buyer-level data.
-2. Admin can open an attendee detail view with payment summary, installment progress, outstanding balance, and assigned room placeholder/state.
-3. Admin can define hotels, room types, and room capacity in the dashboard.
-   **Plans**: 2 plans
+**Goal:** Event-scoped dashboard pages use one sidebar only, with `EventSwitcher` and short section navigation in that sidebar while event context moves into a compact header strip and facts footer.
 
-Plans:
+**Depends on:** Phase 27
 
-- [x] 04-01-PLAN.md — Persist attendee-level Ticket Tailor sync and add attendee ledger dashboard surface
-- [x] 04-02-PLAN.md — Add attendee detail plus accommodation inventory management flows
+**Requirements:** TBD
 
-### Phase 5: Room Allocation & Operator Flow Polish
+**Success Criteria:**
 
-**Goal**: Finance admins can move cleanly between dashboard, ledger, attendee detail, and room assignment while resolving capacity and payment follow-up issues.
-**Depends on**: Phase 4
-**Requirements**: ACC-02, ACC-03, FLOW-01
-**Success Criteria** (what must be TRUE):
+1. Event-scoped dashboard pages show a single authoritative sidebar that starts with `EventSwitcher` and a short flat section list.
+2. Event title, slug, status, public-page/back links remain visible in a compact header strip above content.
+3. Event facts stay visible in a sidebar footer card with `startsAt`, timezone, and currency.
+4. The selected event stays obvious at every depth of the dashboard without repeating the same chrome in two places.
+5. The fullscreen picker and create-flow routes remain fullscreen and separate from the shell.
 
-1. Admin can assign and unassign attendees to rooms with clear capacity feedback.
-2. Admin can filter for room type, availability, full rooms, empty rooms, and unassigned attendees.
-3. Navigation between dashboard, ledger, attendee detail, and room allocation feels coherent and MVP-ready.
-   **Plans**: 2 plans
+**Plans:** 0/1 plans complete
 
 Plans:
+- [ ] 28-01-PLAN.md — Collapse duplicate sidebar chrome into the event-local shell
 
-- [x] 05-01-PLAN.md — Build room allocation manager with protected assign/unassign flows and live attendee room state
-- [x] 05-02-PLAN.md — Polish navigation, outstanding-balance naming, and cross-screen handoffs across overview, attendee, and room workflows
+**Checkpoint:** Human verification is required for the single-sidebar event shell and preserved fullscreen picker.
 
-## Deferred After MVP
+---
 
-- **Deferred A: Tikkie Collection Workflow** - Park payment-link generation and status automation until the core screen flow is settled.
-- **Deferred B: Operational Hardening** - Park health surfaces, audit logging, and on-call diagnostics until post-MVP stabilization.
+### Phase 29: Deterministic Money Model
 
-Deferred work already started in `.planning/deferred-phases/04-tikkie-collection-workflow/` remains useful reference material, but it is no longer on the critical MVP path.
+**Goal:** Canonical internal facts produce one deterministic answer for order totals, attendee payables, and payment allocation state.
+
+**Depends on:** Phase 28
+
+**Requirements:** FIN-01, FIN-02, FIN-03
+
+**Success Criteria:**
+
+1. The same order returns one canonical total in minor units across ledger, detail, reconciliation, and export contexts.
+2. Each attendee shows a canonical payable amount derived from internal order facts rather than equal-split heuristics.
+3. Partial, split, and overpayments can be recorded as explicit allocations to orders and, when needed, attendees.
+4. Payment allocation records are auditable enough to explain how collected money was applied.
+
+**Plans:** 4/4 plans complete
+
+Plans:
+- [ ] 29-01-PLAN.md — Lock in deterministic minor-unit math and canonical amount readers
+- [ ] 29-02-PLAN.md — Move orders behind slug-scoped event URLs
+- [ ] 29-03-PLAN.md — Build the slug-scoped reconciliation workspace
+- [ ] 29-04-PLAN.md — Human-verify the canonical finance surfaces
+
+---
+
+### Phase 30: Shareable Reporting Link
+
+**Goal:** Stakeholders can open a tokenized, read-only reporting link that shows aggregated finance slices without exposing raw attendee or order rows.
+
+**Depends on:** Phase 29
+
+**Requirements:** RPT-03
+
+**Success Criteria:**
+
+1. A shareable `/reports/[token]` link renders a read-only reporting surface for a single event or report scope.
+2. The report can group canonical data by location, gender, and balance state, including overpayment visibility.
+3. The public report never exposes row-level attendee/order records or editing actions.
+4. Event-scoped dashboard pages expose a simple share action that produces the link.
+
+**Plans:** 0/3 plans complete
+
+Plans:
+- [ ] 30-01-PLAN.md — Define the reporting token model and aggregated data contract
+- [ ] 30-02-PLAN.md — Build the public read-only report surface
+- [ ] 30-03-PLAN.md — Add share controls and privacy verification
+
+---
+
+### Phase 31: Safe Migration and Parity
+
+**Goal:** Canonical finance data can be introduced safely into existing production-shaped records and proven against legacy outputs before cutover.
+
+**Depends on:** Phase 30
+
+**Requirements:** MIG-01, MIG-02
+
+**Success Criteria:**
+
+1. Canonical finance fields can be widened and backfilled against existing data without destructive resets.
+2. Live write paths can dual-write legacy and canonical facts while current dashboard and sync behavior stays operational.
+3. Operators or developers can compare canonical outputs against legacy outputs with explicit parity checks before final cutover.
+
+**Plans:** TBD
+
+---
+
+### Phase 32: Canonical Runtime Read Cutover
+
+**Goal:** Finance and operations reads use canonical internal tables as runtime truth, with reconciliation logic derived from canonical totals, payables, and allocations.
+
+**Depends on:** Phase 31
+
+**Requirements:** RTM-01, FIN-04
+
+**Success Criteria:**
+
+1. Finance and operations reads return order, attendee, and balance data from canonical internal tables without requiring runtime `ticketTailor*` queries.
+2. Reconciliation surfaces show reason codes derived from canonical totals, attendee payables, and payment allocations.
+3. Operators can trace an order's balance from canonical total through payable and allocation facts without relying on provider runtime truth.
+
+**Plans:** TBD
+
+---
+
+### Phase 33: Legacy Path Removal
+
+**Goal:** Remove validated legacy compatibility paths and leave Ticket Tailor as a secondary ingest/mapping boundary rather than runtime finance truth.
+
+**Depends on:** Phase 32
+
+**Requirements:** RTM-03, MIG-03
+
+**Success Criteria:**
+
+1. Runtime provider fallbacks and other legacy compatibility paths can be removed after canonical parity is validated.
+2. Ticket Tailor data remains available for ingest, raw diagnostics, and mapping, but no longer acts as runtime finance truth.
+3. Canonical runtime behavior remains stable after legacy path removal, without requiring a full Ticket Tailor redesign in this milestone.
+
+**Plans:** TBD
+
+---
 
 ## Progress
 
-| Phase                                        | Plans Complete | Status   | Completed  |
-| -------------------------------------------- | -------------- | -------- | ---------- |
-| 1. Foundation & Secure Access                | 2/2            | Complete | 2026-03-18 |
-| 2. Ticket Data Reliability                   | 2/2            | Complete | 2026-03-19 |
-| 3. Finance Visibility & Outstanding Balances | 2/2            | Complete | 2026-03-19 |
-| 4. Attendee Data & Accommodation Foundations | 2/2            | Complete | 2026-03-19 |
-| 5. Room Allocation & Operator Flow Polish    | 2/2            | Complete | 2026-03-19 |
-| 6. Tikkie Integration                        | 3/3            | Complete | 2026-03-21 |
-| 7. Complete Tikkie Integration               | 2/2            | Complete | 2026-03-21 |
-| 8. Attendee Follow-up & Reconciliation UX    | 0/1            | Planned  | -          |
-| 9. Smart Allocation & Attendee Signals       | 0/2            | Planned  | -          |
-| 10. Payment Reconciliation                   | 0/1            | Complete | 2026-03-25 |
-| 11. Use Supabase                             | 0/1            | Complete | 2026-03-25 |
+| Phase                               | Goal                                             | Requirements           | Plans | Status             |
+| ----------------------------------- | ------------------------------------------------ | ---------------------- | ----- | ------------------ |
+| 26 - Canonical Runtime Contract     | Normalize runtime identity and provider boundary | RTM-02                 | 3/3   | Complete           |
+| 27 - Event-Scoped Dashboard         | Event-first dashboard entry and scoping          | TBD                    | 2/2   | Checkpoint pending |
+| 28 - Single-Sidebar Event Shell     | Single sidebar for event-scoped chrome           | TBD                    | Complete    | 2026-04-24 |
+| 29 - Deterministic Money Model      | Deterministic totals, payables, and allocations  | FIN-01, FIN-02, FIN-03 | Complete    | 2026-04-25 |
+| 30 - Shareable Reporting Link       | Read-only stakeholder report link                | RPT-03                 | 0/3   | Not started        |
+| 31 - Safe Migration and Parity      | Brownfield-safe backfill, dual-write, and parity | MIG-01, MIG-02         | TBD   | Not started        |
+| 32 - Canonical Runtime Read Cutover | Canonical finance and ops runtime reads          | RTM-01, FIN-04         | TBD   | Not started        |
+| 33 - Legacy Path Removal            | Remove fallbacks after canonical validation      | RTM-03, MIG-03         | TBD   | Not started        |
 
-### Phase 6: Tikkie Integration
-
-**Goal:** Finance admins can generate, share, and trust Tikkie payment links from outstanding balances and attendee detail without leaving the existing operator workflow.
-**Depends on:** Phase 5
-**Requirements**: TK-01, TK-02, TK-03, TK-04
-**Success Criteria** (what must be TRUE):
-
-1. Admin can open a lightweight confirmation modal from outstanding balances or attendee detail, adjust amount/expiry/reference details, and create a Tikkie link.
-2. Latest Tikkie link status is shown first with last-checked recency and a subtle stale indicator in the existing finance follow-up surfaces.
-3. Admin can copy/open the latest link, inspect prior history, and recover status freshness through webhook or manual refresh/job fallback.
-   **Plans:** 3 plans
-   **Status:** 3/3 plans complete
-
-Plans:
-
-- [x] 06-01-PLAN.md — Harden Tikkie backend contracts, status trust, and attendee-detail link projection
-- [x] 06-02-PLAN.md — Add latest-first Tikkie modal and follow-up actions to outstanding balances and attendee detail
-- [x] 06-03-PLAN.md — Add reusable ticket-type Tikkie payment templates
-
-### Phase 7: Complete Tikkie Integration (Payment Retrieval + Subscription Setup)
-
-**Goal:** Finance admins can refresh provider-trusted payment status directly from `GET /paymentrequests/{paymentRequestToken}` and the system is ready for subscription-driven updates via `/paymentrequestssubscription` (not enabled in production yet).
-**Requirements**: TBD
-**Depends on:** Phase 6
-**Plans:** 2/2 plans complete
-**Status:** 2/2 plans complete
-
-Plans:
-
-- [x] 07-01-PLAN.md — Make Tikkie refresh provider-authoritative via GET payment request
-- [x] 07-02-PLAN.md — Add guarded subscription setup path for payment request notifications
-
-### Phase 8: Attendee Follow-up & Reconciliation UX
-
-**Goal:** Improve reconciliation and attendees UX with five targeted fixes: simplify reconciliation page layout, fix attendee follow-up flow to navigate directly to attendee detail, add attendee breakdown per order, fix attendees route amount display, and add background auto-sync.
-**Requirements**: UX-01, UX-02, UX-03, UX-04, UX-05
-**Depends on:** Phase 7
-**Plans:** 2 plans
-
-Plans:
-
-- [ ] 08-01-PLAN.md — Fix attendee follow-up navigation, attendee amount display, and order attendee breakdown
-- [ ] 08-02-PLAN.md — Add TanStack Query background refetch and sync status indicator
-
-### Phase 9: Smart Allocation & Attendee Signals
-
-**Goal:** Finance admins can use attendee-derived accommodation signals to filter, prioritize, and auto-allocate rooms with family and gender-aware guardrails.
-**Requirements**: TT-05, ACC-04, ACC-05, ACC-06
-**Depends on:** Phase 6
-**Plans:** 2 plans
-
-Plans:
-
-### Phase 10: Payment Reconciliation (Tikkie Open, Bank Transfers, Cash)
-
-**Goal:** Add unified payment reconciliation for Tikkie open payments, bank transfers, and cash entries with automatic matching by payer name to buyer name and manual assignment for unresolved payments.
-**Requirements**: TBD
-**Depends on:** Phase 7
-**Plans:** 5/5 plans complete
-**Status:** 3/5 planned (gap closure: 10-04, 10-05)
-
-Plans:
-
-- [x] 10-01-PLAN.md — Payment model + Tikkie Open sync + auto-match logic
-- [x] 10-02-PLAN.md — Manual bank/cash entry + assignment API + UI
-- [x] 10-03-PLAN.md — Reconciliation dashboard with summary and payment list
-- [ ] 10-04-PLAN.md — Gap closure: Tikkie payment storage + auto-matching logic
-- [ ] 10-05-PLAN.md — Gap closure: Order-level payment status (partial/paid/overpaid)
-
-### Phase 11: Use Better Convex
-
-**Goal:** Migrate backend from SQLite/Prisma to Better Convex (Better Auth + Convex ORM) - keeping Better Auth and swapping only the DB layer.
-**Depends on:** Phase 10
-**Plans:** 5/5 plans complete
-
-Plans:
-
-- [ ] 11-01-PLAN.md — Setup: install packages, configure folder structure, initialize dev server
-- [ ] 11-02-PLAN.md — Schema: convert Prisma schema to Better Convex schema
-- [ ] 11-03-PLAN.md — Functions: create Convex functions for data operations
-- [ ] 11-04-PLAN.md — Domain: update domain layer to use Convex
-- [ ] 11-05-PLAN.md — API + Verify: update API routes, verify end-to-end, deploy
-
-## Backlog
-
-### Phase 999.1: Complete UI/UX Redesign (BACKLOG)
-
-**Goal:** Complete redesign of all pages from the ground up.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Plans:
-
-- [ ] TBD (promote with /gsd-review-backlog when ready)
-
-### Phase 12: migrate auth to convex
-
-**Goal:** Finance admins can sign in, keep protected dashboard sessions, and sign out using Convex-backed Better Auth with Prisma removed entirely.
-**Requirements**: TBD
-**Depends on:** Phase 11
-**Plans:** 2 plans
-
-Plans:
-
-- [ ] 12-01-PLAN.md — Activate Better Auth on Convex and preserve the app auth entrypoints
-- [ ] 12-02-PLAN.md — Prove the Convex auth cutover works and remove Prisma completely
+**Totals:** 8 phases, 11 requirements mapped, phase numbering continues from Phase 25.

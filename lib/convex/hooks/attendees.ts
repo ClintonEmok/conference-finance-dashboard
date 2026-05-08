@@ -1,24 +1,25 @@
 "use client"
 
 import { useQuery, useMutation } from "convex/react"
-import { api } from "convex/functions/_generated/api"
+import { api } from "@/lib/convex/api"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export function useAttendees(args?: {
   eventId?: string
-  orderId?: string
+  orderId?: Id<"orders">
   genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
   allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
   assignedRoomId?: string
 }) {
   return useQuery(api.attendees.getAttendees, {
     ...args,
-    orderId: args?.orderId as any,
+    orderId: args?.orderId,
   })
 }
 
 export function useAttendeeById(attendeeId: string) {
-  return useQuery(api.attendees.getAttendeeById, {
-    attendeeId: attendeeId as any,
+  return useQuery(api.attendees.getAttendeeByStringId, {
+    attendeeId,
   })
 }
 

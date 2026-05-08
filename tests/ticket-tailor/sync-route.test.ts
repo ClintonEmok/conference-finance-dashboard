@@ -1,38 +1,41 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-
-vi.mock("next/headers", () => ({
-  headers: vi.fn(),
-}))
-
-vi.mock("@/lib/auth", () => ({
-  auth: {
-    api: {
-      getSession: vi.fn(),
-    },
-  },
-}))
+import { NextResponse } from "next/server"
 
 vi.mock("@/lib/integrations/ticket-tailor/sync", () => ({
   runTicketTailorSync: vi.fn(),
 }))
 
-import { headers } from "next/headers"
+vi.mock("@/lib/auth/server", () => ({
+  requireApiUser: vi.fn(),
+}))
 
-import { auth } from "@/lib/auth"
 import { runTicketTailorSync } from "@/lib/integrations/ticket-tailor/sync"
+import { requireApiUser } from "@/lib/auth/server"
 
 import { POST } from "@/app/api/ticket-tailor/sync/route"
 
 describe("POST /api/ticket-tailor/sync", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(headers).mockResolvedValue(new Headers())
+    vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_123" })
   })
 
-  it("returns 401 when unauthenticated", async () => {
-    vi.mocked(auth.api.getSession).mockResolvedValue(null)
+  it("returns 401 unauthorized when no authenticated operator", async () => {
+    vi.mocked(requireApiUser).mockResolvedValueOnce(
+      NextResponse.json(
+        {
+          error: {
+            code: "UNAUTHORIZED",
+            message: "Authentication required",
+          },
+        },
+        { status: 401 }
+      )
+    )
 
-    const response = await POST(new Request("http://localhost/api/ticket-tailor/sync", { method: "POST" }))
+    const response = await POST(
+      new Request("http://localhost/api/ticket-tailor/sync", { method: "POST" })
+    )
     const body = await response.json()
 
     expect(response.status).toBe(401)
@@ -45,26 +48,7 @@ describe("POST /api/ticket-tailor/sync", () => {
     expect(runTicketTailorSync).not.toHaveBeenCalled()
   })
 
-  it("returns sync summary when authenticated", async () => {
-    vi.mocked(auth.api.getSession).mockResolvedValue({
-      session: {
-        id: "session_1",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        userId: "user_1",
-        expiresAt: new Date(Date.now() + 60_000),
-        token: "token_1",
-      },
-      user: {
-        id: "user_1",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        email: "test@example.com",
-        emailVerified: true,
-        name: "Test User",
-      },
-    })
-
+  it("returns sync summary on success", async () => {
     vi.mocked(runTicketTailorSync).mockResolvedValue({
       runId: "run_123",
       status: "success",
@@ -77,6 +61,7 @@ describe("POST /api/ticket-tailor/sync", () => {
         eventsScanned: 2,
         ordersFetched: 8,
         ordersUpserted: 8,
+        ordersArchived: 2,
         ordersSkippedByScope: 1,
         attendeesFetched: 12,
         attendeesUpserted: 12,
@@ -99,7 +84,7 @@ describe("POST /api/ticket-tailor/sync", () => {
           from: "2026-01-01T00:00:00.000Z",
           to: "2026-01-31T23:59:59.000Z",
         }),
-      }),
+      })
     )
     const body = await response.json()
 
@@ -117,6 +102,7 @@ describe("POST /api/ticket-tailor/sync", () => {
         eventsScanned: 2,
         ordersFetched: 8,
         ordersUpserted: 8,
+        ordersArchived: 2,
         ordersSkippedByScope: 1,
         attendeesFetched: 12,
         attendeesUpserted: 12,
@@ -129,31 +115,22 @@ describe("POST /api/ticket-tailor/sync", () => {
         errors: [],
       },
     })
+    expect(runTicketTailorSync).toHaveBeenCalledWith({
+      eventId: "ev_1",
+      from: new Date("2026-01-01T00:00:00.000Z"),
+      to: new Date("2026-01-31T23:59:59.000Z"),
+    })
+    expect(requireApiUser).toHaveBeenCalledTimes(1)
   })
 
   it("returns 500 diagnostics when sync fails", async () => {
-    vi.mocked(auth.api.getSession).mockResolvedValue({
-      session: {
-        id: "session_1",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        userId: "user_1",
-        expiresAt: new Date(Date.now() + 60_000),
-        token: "token_1",
-      },
-      user: {
-        id: "user_1",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        email: "test@example.com",
-        emailVerified: true,
-        name: "Test User",
-      },
-    })
+    vi.mocked(runTicketTailorSync).mockRejectedValue(
+      new Error("Provider timeout")
+    )
 
-    vi.mocked(runTicketTailorSync).mockRejectedValue(new Error("Provider timeout"))
-
-    const response = await POST(new Request("http://localhost/api/ticket-tailor/sync", { method: "POST" }))
+    const response = await POST(
+      new Request("http://localhost/api/ticket-tailor/sync", { method: "POST" })
+    )
     const body = await response.json()
 
     expect(response.status).toBe(500)
@@ -169,25 +146,6 @@ describe("POST /api/ticket-tailor/sync", () => {
   })
 
   it("returns 400 when from is after to", async () => {
-    vi.mocked(auth.api.getSession).mockResolvedValue({
-      session: {
-        id: "session_1",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        userId: "user_1",
-        expiresAt: new Date(Date.now() + 60_000),
-        token: "token_1",
-      },
-      user: {
-        id: "user_1",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        email: "test@example.com",
-        emailVerified: true,
-        name: "Test User",
-      },
-    })
-
     const response = await POST(
       new Request("http://localhost/api/ticket-tailor/sync", {
         method: "POST",
@@ -196,7 +154,7 @@ describe("POST /api/ticket-tailor/sync", () => {
           from: "2026-02-01T00:00:00.000Z",
           to: "2026-01-01T00:00:00.000Z",
         }),
-      }),
+      })
     )
     const body = await response.json()
 
@@ -204,7 +162,28 @@ describe("POST /api/ticket-tailor/sync", () => {
     expect(body).toEqual({
       error: {
         code: "BAD_REQUEST",
-        message: "Invalid date range. 'from' must be less than or equal to 'to'.",
+        message:
+          "Invalid date range. 'from' must be less than or equal to 'to'.",
+      },
+    })
+    expect(runTicketTailorSync).not.toHaveBeenCalled()
+  })
+
+  it("returns 400 when the request body is invalid json", async () => {
+    const response = await POST(
+      new Request("http://localhost/api/ticket-tailor/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{invalid-json",
+      })
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(body).toEqual({
+      error: {
+        code: "BAD_REQUEST",
+        message: "Invalid JSON payload",
       },
     })
     expect(runTicketTailorSync).not.toHaveBeenCalled()
