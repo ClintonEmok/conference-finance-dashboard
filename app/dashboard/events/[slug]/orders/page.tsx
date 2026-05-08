@@ -52,6 +52,8 @@ type OrdersPayload = {
     archivedAt: string | null
     archiveReason: string | null
     amountDueMinor: number | null
+    matchedAmountMinor: number | null
+    outstandingAmountMinor: number | null
     totalAmountMinor: number | null
     currency: string | null
     orderedAt: string | null
@@ -83,7 +85,7 @@ function OrderAttendeeRows({ orderId }: { orderId: string }) {
   if (data === undefined) {
     return (
       <TableRow className="border-border/10 bg-muted/10">
-        <TableCell colSpan={6} className="px-6 py-4">
+        <TableCell colSpan={7} className="px-6 py-4">
           <div className="space-y-2">
             <Skeleton className="h-4 w-1/3" />
             <Skeleton className="h-4 w-2/3" />
@@ -99,7 +101,7 @@ function OrderAttendeeRows({ orderId }: { orderId: string }) {
 
   return (
     <TableRow className="border-border/10 bg-muted/20">
-      <TableCell colSpan={6} className="px-6 py-4">
+      <TableCell colSpan={7} className="px-6 py-4">
         <div className="space-y-2 rounded-xl border border-border/30 bg-background/70 p-3">
           <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
             Attendees
@@ -322,17 +324,28 @@ export default function EventOrdersPage({ params }: PageProps) {
               </div>
               <div>
                 <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-                  Active Rows
+                  Amount Paid
                 </p>
-                <p className="mt-0.5 text-xl font-bold">{visibleRows.length}</p>
+                <p className="mt-0.5 text-xl font-bold text-emerald-600">
+                  {formatMoney(payload.rows.reduce((sum, row) => sum + (row.matchedAmountMinor ?? 0), 0))}
+                </p>
               </div>
             </div>
           </article>
           <article className="rounded-xl border border-border/50 bg-card/40 p-5">
-            <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-              Route
-            </p>
-            <p className="mt-0.5 font-mono text-sm">/dashboard/events/{slug}/orders</p>
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600">
+                <ShoppingBag className="size-5" />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
+                  Amount Left
+                </p>
+                <p className="mt-0.5 text-xl font-bold text-rose-600">
+                  {formatMoney(payload.rows.reduce((sum, row) => sum + (row.outstandingAmountMinor ?? 0), 0))}
+                </p>
+              </div>
+            </div>
           </article>
         </div>
       )}
@@ -344,6 +357,7 @@ export default function EventOrdersPage({ params }: PageProps) {
               <Search className="size-3" /> Search
             </label>
             <input
+              aria-label="Search orders"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               className="h-11 w-full rounded-lg border border-border/40 bg-background/50 px-4 text-sm"
@@ -356,6 +370,7 @@ export default function EventOrdersPage({ params }: PageProps) {
               <Filter className="size-3" /> Status
             </label>
             <select
+              aria-label="Filter by status"
               value={statusInput}
               onChange={(e) => setStatusInput(e.target.value as any)}
               className="h-11 w-full rounded-lg border border-border/40 bg-background/50 px-4 text-sm"
@@ -374,12 +389,14 @@ export default function EventOrdersPage({ params }: PageProps) {
             </label>
             <div className="grid grid-cols-2 gap-2">
               <input
+                aria-label="From date"
                 type="date"
                 value={fromInput}
                 onChange={(e) => setFromInput(e.target.value)}
                 className="h-11 w-full rounded-lg border border-border/40 bg-background/50 px-4 text-sm"
               />
               <input
+                aria-label="To date"
                 type="date"
                 value={toInput}
                 onChange={(e) => setToInput(e.target.value)}
@@ -400,8 +417,22 @@ export default function EventOrdersPage({ params }: PageProps) {
       </article>
 
       {errorMessage && (
-        <article className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-bold text-destructive">
-          {errorMessage}
+        <article className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-destructive">{errorMessage}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setPage(1)
+                setIsLoading(true)
+                setErrorMessage(null)
+              }}
+              className="rounded-xl h-8 px-3 text-xs"
+            >
+              Retry
+            </Button>
+          </div>
         </article>
       )}
 
@@ -412,9 +443,10 @@ export default function EventOrdersPage({ params }: PageProps) {
               <TableRow>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Order</TableHead>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Buyer</TableHead>
-                <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Amount</TableHead>
+                <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Amount Due</TableHead>
+                <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Amount Paid</TableHead>
+                <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Amount Left</TableHead>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Status</TableHead>
-                <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Event</TableHead>
                 <TableHead className="px-6 py-4" />
               </TableRow>
             </TableHeader>
@@ -422,14 +454,14 @@ export default function EventOrdersPage({ params }: PageProps) {
               {isLoading ? (
                 Array.from({ length: 6 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell className="px-6 py-5" colSpan={6}>
+                    <TableCell className="px-6 py-5" colSpan={7}>
                       <Skeleton className="h-8 w-full rounded-xl" />
                     </TableCell>
                   </TableRow>
                 ))
               ) : visibleRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="px-6 py-12 text-center text-muted-foreground">
                     No records match these filters
                   </TableCell>
                 </TableRow>
@@ -456,7 +488,9 @@ export default function EventOrdersPage({ params }: PageProps) {
                         <div className="font-bold text-foreground">{row.buyerName || "Anonymous"}</div>
                         <div className="text-[11px] text-muted-foreground/60">{row.buyerEmail}</div>
                       </TableCell>
-                      <TableCell className="px-6 py-5 font-bold tabular-nums">{typeof row.amountDueMinor === "number" ? formatMoney(row.amountDueMinor) : "Missing amount"}</TableCell>
+<TableCell className="px-6 py-5 font-bold tabular-nums text-foreground">{typeof row.amountDueMinor === "number" ? formatMoney(row.amountDueMinor) : formatMoney(0)}</TableCell>
+<TableCell className="px-6 py-5 font-bold tabular-nums text-emerald-600">{typeof row.matchedAmountMinor === "number" ? formatMoney(row.matchedAmountMinor) : formatMoney(0)}</TableCell>
+<TableCell className="px-6 py-5 font-bold tabular-nums text-rose-600">{typeof row.outstandingAmountMinor === "number" ? formatMoney(row.outstandingAmountMinor) : formatMoney(0)}</TableCell>
                       <TableCell className="px-6 py-5">
                         <Badge
                           variant={row.normalizedStatus === "paid" ? "secondary" : row.normalizedStatus === "cancelled" ? "destructive" : "outline"}
@@ -474,7 +508,6 @@ export default function EventOrdersPage({ params }: PageProps) {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell className="px-6 py-5">{row.eventTitle ?? event.title}</TableCell>
                       <TableCell className="px-6 py-5 text-right">
                         <ChevronRight className="ml-auto size-4 text-muted-foreground" />
                       </TableCell>

@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { use, useEffect, useMemo, useState } from "react"
+import { use, useCallback, useEffect, useMemo, useState } from "react"
 import { format } from "date-fns"
 import {
   ArrowRight,
@@ -157,7 +157,7 @@ export default function EventOverviewSurface({
   const [shareError, setShareError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
+  const load = useCallback(async (abortSignal: AbortSignal) => {
     if (!event?._id) return
 
     const to = new Date().toISOString()
@@ -165,62 +165,61 @@ export default function EventOverviewSurface({
     fromDate.setDate(fromDate.getDate() - 30)
     const from = fromDate.toISOString()
 
-    const controller = new AbortController()
+    setIsLoading(true)
+    setErrorMessage(null)
 
-    async function load() {
-      setIsLoading(true)
-      setErrorMessage(null)
+    try {
+      const query = new URLSearchParams({
+        eventId: event._id,
+        from,
+        to,
+      })
 
-      try {
-        const query = new URLSearchParams({
-          eventId: event._id,
-          from,
-          to,
-        })
+      const ordersQuery = new URLSearchParams(query)
+      ordersQuery.set("page", "1")
+      ordersQuery.set("pageSize", "8")
 
-        const ordersQuery = new URLSearchParams(query)
-        ordersQuery.set("page", "1")
-        ordersQuery.set("pageSize", "8")
+      const attendeesQuery = new URLSearchParams(query)
+      attendeesQuery.set("page", "1")
+      attendeesQuery.set("pageSize", "8")
 
-        const attendeesQuery = new URLSearchParams(query)
-        attendeesQuery.set("page", "1")
-        attendeesQuery.set("pageSize", "8")
+      const [revenueResponse, ordersResponse, attendeesResponse, reconciliationResponse] =
+        await Promise.all([
+          fetch(`/api/dashboard/revenue?${query.toString()}`, {
+            signal: abortSignal,
+          }),
+          fetch(`/api/dashboard/orders?${ordersQuery.toString()}`, {
+            signal: abortSignal,
+          }),
+          fetch(`/api/dashboard/attendees?${attendeesQuery.toString()}`, {
+            signal: abortSignal,
+          }),
+          fetch(`/api/dashboard/reconciliation?${query.toString()}`, {
+            signal: abortSignal,
+          }),
+        ])
 
-        const [revenueResponse, ordersResponse, attendeesResponse, reconciliationResponse] =
-          await Promise.all([
-            fetch(`/api/dashboard/revenue?${query.toString()}`, {
-              signal: controller.signal,
-            }),
-            fetch(`/api/dashboard/orders?${ordersQuery.toString()}`, {
-              signal: controller.signal,
-            }),
-            fetch(`/api/dashboard/attendees?${attendeesQuery.toString()}`, {
-              signal: controller.signal,
-            }),
-            fetch(`/api/dashboard/reconciliation?${query.toString()}`, {
-              signal: controller.signal,
-            }),
-          ])
-
-        if (!revenueResponse.ok || !ordersResponse.ok || !attendeesResponse.ok || !reconciliationResponse.ok) {
-          throw new Error("Failed to load event overview data")
-        }
-
-        setRevenue((await revenueResponse.json()) as RevenueResponse)
-        setOrders((await ordersResponse.json()) as OrdersResponse)
-        setAttendees((await attendeesResponse.json()) as AttendeesResponse)
-        setReconciliation((await reconciliationResponse.json()) as ReconciliationResponse)
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") return
-        setErrorMessage("Network error while loading the event overview.")
-      } finally {
-        setIsLoading(false)
+      if (!revenueResponse.ok || !ordersResponse.ok || !attendeesResponse.ok || !reconciliationResponse.ok) {
+        throw new Error("Failed to load event overview data")
       }
-    }
 
-    void load()
-    return () => controller.abort()
+      setRevenue((await revenueResponse.json()) as RevenueResponse)
+      setOrders((await ordersResponse.json()) as OrdersResponse)
+      setAttendees((await attendeesResponse.json()) as AttendeesResponse)
+      setReconciliation((await reconciliationResponse.json()) as ReconciliationResponse)
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return
+      setErrorMessage("Network error while loading the event overview.")
+    } finally {
+      setIsLoading(false)
+    }
   }, [event?._id])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void load(controller.signal)
+    return () => controller.abort()
+  }, [load])
 
   const familyGroups = useMemo(() => {
     const rows = orders?.rows ?? []

@@ -135,6 +135,26 @@ async function loadOrderTicketTypeResolution(
   }
 }
 
+async function batchLoadPaymentsByOrderId(
+  ctx: Pick<QueryCtx, "db">,
+  orders: Doc<"orders">[]
+): Promise<Map<string, Doc<"payments">[]>> {
+  const paymentsByOrderId = new Map<string, Doc<"payments">[]>()
+  const paymentArrays = await Promise.all(
+    orders.map((order) =>
+      ctx.db
+        .query("payments")
+        .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))
+        .take(100)
+    )
+  )
+  for (let i = 0; i < orders.length; i++) {
+    const orderId = String(orders[i]._id)
+    paymentsByOrderId.set(orderId, paymentArrays[i])
+  }
+  return paymentsByOrderId
+}
+
 async function loadRegionOrderGroups(
   ctx: Pick<QueryCtx, "db">,
   orders: Doc<"orders">[],
@@ -142,6 +162,8 @@ async function loadRegionOrderGroups(
 ): Promise<RegionDetailOrderGroup[]> {
   const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(ctx, orders)
   const groups: RegionDetailOrderGroup[] = []
+
+  const paymentsByOrderId = await batchLoadPaymentsByOrderId(ctx, orders)
 
   for (const order of orders) {
     const amountDueBreakdown = amountDueBreakdownsByOrderId.get(String(order._id))
@@ -160,12 +182,7 @@ async function loadRegionOrderGroups(
       continue
     }
 
-    const payments: Doc<"payments">[] = []
-    for await (const payment of ctx.db
-      .query("payments")
-      .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))) {
-      payments.push(payment)
-    }
+    const payments = paymentsByOrderId.get(String(order._id)) ?? []
 
     const ticketTypeResolution = await loadOrderTicketTypeResolution(ctx, order._id)
 
@@ -315,6 +332,8 @@ async function buildReportRows(
     createdAt: string
   }> = []
 
+  const paymentsByOrderId = await batchLoadPaymentsByOrderId(ctx, orders)
+
   for (const order of orders) {
     const amountDueBreakdown = amountDueBreakdownsByOrderId.get(String(order._id))
     if (!amountDueBreakdown) {
@@ -324,12 +343,7 @@ async function buildReportRows(
     const attendeesWithExtensions = await loadOrderAttendeesWithExtensions(ctx as QueryCtx, order._id)
     const ticketTypeResolution = await loadOrderTicketTypeResolution(ctx, order._id)
 
-    const payments: Doc<"payments">[] = []
-    for await (const payment of ctx.db
-      .query("payments")
-      .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))) {
-      payments.push(payment)
-    }
+    const payments = paymentsByOrderId.get(String(order._id)) ?? []
 
     const totalPaidMinor = payments
       .filter((payment) => MATCHED_PAYMENT_STATUSES.has(payment.status ?? "unassigned"))

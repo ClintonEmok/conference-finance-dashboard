@@ -8,6 +8,7 @@ import {
   orderLedgerRowValidator,
   orderSearchRowValidator,
 } from "../lib/types/order"
+import { deriveBalanceAmounts } from "../lib/domain/finance/amounts"
 import { loadMatchedPaymentTotalsByOrderId, loadOrderAmountDueBreakdowns } from "./finance"
 import {
   loadOrderAttendeesWithExtensions,
@@ -497,22 +498,23 @@ export const syncFullyPaidOrders = internalMutation({
     let updated = 0
 
     for (const order of activeOrders) {
-      const amountDueMinor =
-        amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-        order.totalAmountMinor ??
-        0
-      const paidAmountMinor = matchedTotalsByOrderId.get(String(order._id)) ?? 0
-
-      if (paidAmountMinor < amountDueMinor || order.status === "paid") {
-        continue
-      }
-
       const extension = await ctx.db
         .query("ticketTailorOrders")
         .withIndex("orderId", (q) => q.eq("orderId", order._id))
         .first()
 
       if (extension?.isArchived || extension?.removedAt) {
+        continue
+      }
+
+      // Re-verify matched amounts against current state to avoid race condition
+      const currentAmountDueMinor =
+        amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
+        order.totalAmountMinor ??
+        0
+      const currentPaidAmountMinor = matchedTotalsByOrderId.get(String(order._id)) ?? 0
+
+      if (currentPaidAmountMinor < currentAmountDueMinor || order.status === "paid") {
         continue
       }
 
@@ -816,39 +818,51 @@ export const getOrdersWithFilters = query({
       ctx,
       paginatedOrders
     )
+    const matchedPaymentTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
+      ctx,
+      paginatedOrders
+    )
 
     const eventNamesById = await loadEventNamesById(ctx)
     const eventSlugsById = await loadEventSlugsById(ctx)
-    const ordersWithEvent = paginatedOrders.map((order) => ({
-      orderId: order._id,
-      providerOrderId: order.providerOrderId ?? null,
-      eventId: order.eventId ? String(order.eventId) : "",
-      eventSlug: resolveEventSlug(eventSlugsById, order.eventId),
-      eventTitle:
-        eventNamesById.get(order.eventId ? String(order.eventId) : "") ?? null,
-      normalizedStatus: order.status ?? "pending",
-      isArchived: order.isArchived === true,
-      archivedAt: order.archivedAt
-        ? new Date(order.archivedAt).toISOString()
-        : null,
-      archiveReason: order.archiveReason ?? null,
-      amountDueMinor:
+    const ordersWithEvent = paginatedOrders.map((order) => {
+      const amountDueMinor =
         amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
         order.totalAmountMinor ??
-        null,
-      totalAmountMinor: order.totalAmountMinor ?? null,
-      currency: order.currency ?? null,
-      orderedAt: order.orderedAt
-        ? new Date(order.orderedAt).toISOString()
-        : order.submittedAt
-          ? new Date(order.submittedAt).toISOString()
+        null
+      const matchedAmountMinor = matchedPaymentTotalsByOrderId.get(String(order._id))
+      const balance = deriveBalanceAmounts(amountDueMinor, matchedAmountMinor)
+
+      return {
+        orderId: order._id,
+        providerOrderId: order.providerOrderId ?? null,
+        eventId: order.eventId ? String(order.eventId) : "",
+        eventSlug: resolveEventSlug(eventSlugsById, order.eventId),
+        eventTitle:
+          eventNamesById.get(order.eventId ? String(order.eventId) : "") ?? null,
+        normalizedStatus: order.status ?? "pending",
+        isArchived: order.isArchived === true,
+        archivedAt: order.archivedAt
+          ? new Date(order.archivedAt).toISOString()
           : null,
-      refundedAt: order.refundedAt
-        ? new Date(order.refundedAt).toISOString()
-        : null,
-      buyerName: order.bookerName ?? null,
-      buyerEmail: order.bookerEmail ?? null,
-    }))
+        archiveReason: order.archiveReason ?? null,
+        amountDueMinor,
+        matchedAmountMinor,
+        outstandingAmountMinor: balance.outstandingAmountMinor,
+        totalAmountMinor: order.totalAmountMinor ?? null,
+        currency: order.currency ?? null,
+        orderedAt: order.orderedAt
+          ? new Date(order.orderedAt).toISOString()
+          : order.submittedAt
+            ? new Date(order.submittedAt).toISOString()
+            : null,
+        refundedAt: order.refundedAt
+          ? new Date(order.refundedAt).toISOString()
+          : null,
+        buyerName: order.bookerName ?? null,
+        buyerEmail: order.bookerEmail ?? null,
+      }
+    })
 
     return {
       totalRows,
@@ -945,7 +959,7 @@ export const getOrdersForReconciliation = query({
         .order("desc")
         .collect()
     } else {
-      orders = await ctx.db.query("orders").order("desc").collect()
+      orders = await ctx.db.query("orders").order("desc").take(2000)
     }
 
     // Filter by date range in memory (orderedAt is not indexed)
@@ -968,6 +982,10 @@ export const getOrdersForReconciliation = query({
       ctx,
       visibleOrders
     )
+    const matchedTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
+      ctx,
+      visibleOrders
+    )
 
     // Join with extension data for additional fields, preserving canonical order._id
     const withExtensions = await loadOrdersWithExtensions(ctx, visibleOrders)
@@ -977,38 +995,50 @@ export const getOrdersForReconciliation = query({
 
     return withExtensions
       .sort((a, b) => sortOrdersByNewest(a.order, b.order))
-      .map(({ order, extension }) => ({
-        orderId: order._id,
-        providerOrderId:
-          order.providerOrderId ?? extension?.providerOrderId ?? null,
-        eventId: order.eventId ? String(order.eventId) : "",
-        eventSlug: resolveEventSlug(eventSlugsById, order.eventId),
-        eventTitle:
-          eventNamesById.get(order.eventId ? String(order.eventId) : "") ??
-          null,
-        normalizedStatus: order.status ?? "pending",
-        isArchived: extension?.isArchived === true,
-        archivedAt: extension?.archivedAt
-          ? new Date(extension.archivedAt).toISOString()
-          : null,
-        archiveReason: extension?.archiveReason ?? null,
-        amountDueMinor:
+      .map(({ order, extension }) => {
+        const amountDueMinor =
           amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
           order.totalAmountMinor ??
-          null,
-        totalAmountMinor: order.totalAmountMinor ?? null,
-        currency: order.currency ?? null,
-        orderedAt: order.orderedAt
-          ? new Date(order.orderedAt).toISOString()
-          : order.submittedAt
-            ? new Date(order.submittedAt).toISOString()
+          null
+        const matchedAmountMinor =
+          matchedTotalsByOrderId.get(String(order._id)) ?? 0
+        const outstandingAmountMinor = deriveBalanceAmounts(
+          amountDueMinor,
+          matchedAmountMinor
+        ).outstandingAmountMinor
+
+        return {
+          orderId: order._id,
+          providerOrderId:
+            order.providerOrderId ?? extension?.providerOrderId ?? null,
+          eventId: order.eventId ? String(order.eventId) : "",
+          eventSlug: resolveEventSlug(eventSlugsById, order.eventId),
+          eventTitle:
+            eventNamesById.get(order.eventId ? String(order.eventId) : "") ??
+            null,
+          normalizedStatus: order.status ?? "pending",
+          isArchived: extension?.isArchived === true,
+          archivedAt: extension?.archivedAt
+            ? new Date(extension.archivedAt).toISOString()
             : null,
-        refundedAt: extension?.refundedAt
-          ? new Date(extension.refundedAt).toISOString()
-          : null,
-        buyerName: order.bookerName ?? null,
-        buyerEmail: order.bookerEmail ?? null,
-      }))
+          archiveReason: extension?.archiveReason ?? null,
+          amountDueMinor,
+          totalAmountMinor: order.totalAmountMinor ?? null,
+          matchedAmountMinor,
+          outstandingAmountMinor,
+          currency: order.currency ?? null,
+          orderedAt: order.orderedAt
+            ? new Date(order.orderedAt).toISOString()
+            : order.submittedAt
+              ? new Date(order.submittedAt).toISOString()
+              : null,
+          refundedAt: extension?.refundedAt
+            ? new Date(extension.refundedAt).toISOString()
+            : null,
+          buyerName: order.bookerName ?? null,
+          buyerEmail: order.bookerEmail ?? null,
+        }
+      })
   },
 })
 
