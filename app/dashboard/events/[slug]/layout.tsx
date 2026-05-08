@@ -11,6 +11,7 @@ import {
   Users,
   Ticket,
   BedDouble,
+  Hotel,
   ShoppingBag,
   HandCoins,
 } from "lucide-react"
@@ -105,6 +106,12 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
       show: event.accommodationEnabled,
     },
     {
+      label: "Allocation",
+      icon: Hotel,
+      href: `/dashboard/events/${slug}/accommodation/allocation`,
+      show: event.accommodationEnabled,
+    },
+    {
       label: "Finance",
       icon: CreditCard,
       href: `/dashboard/events/${slug}/payments`,
@@ -145,16 +152,22 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
           <nav className="space-y-2">
             {menuItems.map((item) => {
               if (item.show === false) return null
+              const isOverview = menuItems[0] === item
               const isActive =
-                item.href === pathname || pathname.startsWith(`${item.href}/`)
+                item.href === pathname ||
+                (!isOverview && pathname.startsWith(`${item.href}/`))
               const Icon = item.icon
+
+              const subpage = pathname.startsWith(`${item.href}/`)
+                ? pathname.slice(item.href.length + 1).split("/")[0]
+                : null
 
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "group flex items-start justify-between gap-3 rounded-2xl border px-4 py-3 transition-all duration-200",
+                    "group flex items-start justify-between gap-3 rounded-lg border px-4 py-3 transition-all duration-200",
                     isActive
                       ? "border-primary/25 bg-primary/10 text-foreground shadow-sm"
                       : "border-border/50 bg-background/60 text-muted-foreground hover:border-primary/20 hover:bg-muted/50 hover:text-foreground"
@@ -166,6 +179,11 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
                       <span className="block text-sm font-semibold leading-none">
                         {item.label}
                       </span>
+                      {subpage && (
+                        <span className="mt-1 block text-[10px] font-black tracking-[0.2em] text-muted-foreground/50 uppercase">
+                          {subpage}
+                        </span>
+                      )}
                     </span>
                   </span>
                   {isActive && (

@@ -117,16 +117,10 @@ export default function EventAccommodationPage({
           </div>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 py-4">
-            <Link href={`/dashboard/accommodation/${slug}`} className="w-full sm:w-auto">
-              <Button size="lg" variant="outline" className="w-full rounded-2xl border-white/40 bg-white/40 backdrop-blur-sm hover:bg-white/60">
-                <BedDouble className="mr-3 size-5 text-primary" />
-                Event Room Matrix
-              </Button>
-            </Link>
-            <Link href={`/dashboard/accommodation?eventId=${event._id}`} className="w-full sm:w-auto">
+            <Link href={`/dashboard/events/${slug}/accommodation/workspace`} className="w-full sm:w-auto">
               <Button size="lg" className="w-full rounded-2xl shadow-lg shadow-primary/20">
                 <Building2 className="mr-3 size-5" />
-                Full Workspace
+                Room Workspace
               </Button>
             </Link>
           </div>

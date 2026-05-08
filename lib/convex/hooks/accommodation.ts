@@ -129,6 +129,19 @@ export function useGenerateSlotsForRoom() {
   return useMutation(api.accommodation.generateSlotsForRoom)
 }
 
+export function useRoomAllocationBoard(args?: {
+  eventId?: string
+  hotelId?: string
+  roomTypeId?: string
+  genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+  familyGroupId?: string
+  location?: string
+  allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+  hasPriority?: boolean
+}) {
+  return useQuery(api.accommodation.getRoomAllocationBoard, args ?? {})
+}
+
 export function useSlotsForEvent(eventId: Id<"events"> | undefined) {
   return useQuery(
     api.accommodation.getSlotsForEvent,
