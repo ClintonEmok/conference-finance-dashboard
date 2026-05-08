@@ -746,11 +746,11 @@ export declare const api: {
         eventSlug: string;
         eventTitle: string | null;
         isArchived: boolean;
-        matchedAmountMinor?: number;
+        matchedAmountMinor: number | null;
         normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
         orderId?: string;
         orderedAt: string | null;
-        outstandingAmountMinor?: number;
+        outstandingAmountMinor: number;
         providerOrderId: string | null;
         refundedAt: string | null;
         totalAmountMinor: number | null;
@@ -779,11 +779,11 @@ export declare const api: {
           eventSlug: string;
           eventTitle: string | null;
           isArchived: boolean;
-          matchedAmountMinor?: number;
+          matchedAmountMinor: number | null;
           normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
           orderId?: string;
           orderedAt: string | null;
-          outstandingAmountMinor?: number;
+          outstandingAmountMinor: number;
           providerOrderId: string | null;
           refundedAt: string | null;
           totalAmountMinor: number | null;
@@ -1839,18 +1839,6 @@ export declare const api: {
       "public",
       { eventId?: string },
       any
-    >;
-    getPublicPaymentLinkByEventSlug: FunctionReference<
-      "query",
-      "public",
-      { eventSlug: string },
-      null | {
-        amountMinor?: number;
-        description?: string;
-        eventStartsAt: number;
-        eventTitle: string;
-        paymentUrl: string;
-      }
     >;
     getTemplateByEventAndTicketType: FunctionReference<
       "query",

@@ -847,7 +847,7 @@ export const getOrdersWithFilters = query({
           : null,
         archiveReason: order.archiveReason ?? null,
         amountDueMinor,
-        matchedAmountMinor,
+        matchedAmountMinor: matchedAmountMinor ?? null,
         outstandingAmountMinor: balance.outstandingAmountMinor,
         totalAmountMinor: order.totalAmountMinor ?? null,
         currency: order.currency ?? null,
