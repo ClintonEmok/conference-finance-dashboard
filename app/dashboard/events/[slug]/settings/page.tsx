@@ -1,7 +1,7 @@
 "use client"
 
 import { use, useState, useEffect } from "react"
-import { Settings, Globe, Clock, CreditCard, AlertCircle, Trash2, Check, X } from "lucide-react"
+import { Settings, Globe, Clock, CreditCard, AlertCircle, Trash2, Check, X, Link as LinkIcon, ArrowRight } from "lucide-react"
 
 import {
   Card,
@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -290,6 +291,31 @@ export default function EventSettingsPage({
           )}
         </CardContent>
       </Card>
+
+      <Link
+        href={`/dashboard/events/${slug}/settings/sources`}
+        className="group block rounded-[1.75rem] border border-border/50 bg-background/80 p-5 shadow-sm backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/20 hover:bg-muted/35"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-4">
+            <div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+              <LinkIcon className="size-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
+                Integrations
+              </p>
+              <h3 className="mt-2 text-lg font-semibold tracking-tight text-foreground">
+                Event Sources
+              </h3>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                External integrations linked to this event
+              </p>
+            </div>
+          </div>
+          <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+        </div>
+      </Link>
     </div>
   )
 }

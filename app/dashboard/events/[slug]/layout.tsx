@@ -6,7 +6,6 @@ import {
   ChevronRight,
   CreditCard,
   ExternalLink,
-  Link as LinkIcon,
   Link2,
   Settings,
   Users,
@@ -119,11 +118,6 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
       label: "Reconciliation",
       icon: HandCoins,
       href: `/dashboard/events/${slug}/reconciliation`,
-    },
-    {
-      label: "Sources",
-      icon: LinkIcon,
-      href: `/dashboard/events/${slug}/sources`,
     },
     {
       label: "Share",
