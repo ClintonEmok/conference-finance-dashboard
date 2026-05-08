@@ -1,6 +1,6 @@
 "use client"
 
-import { use } from "react"
+import { use, type ReactNode } from "react"
 import {
   Calendar,
   ChevronRight,
@@ -19,7 +19,6 @@ import { LogoutButton } from "@/app/dashboard/logout-button"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
-import { EventSwitcher } from "@/components/dashboard/event-switcher"
 import { useEventBySlug } from "@/lib/convex/hooks/events"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -34,7 +33,14 @@ import {
   SidebarProvider,
   SidebarSeparator,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 interface EventLayoutProps {
   children: React.ReactNode
@@ -82,6 +88,66 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
       </div>
     )
   }
+
+  return (
+    <SidebarProvider>
+      <Sidebar
+        collapsible="icon"
+        className="border-r border-white/60 dark:border-white/10 group-data-[collapsible=icon]:border-none"
+      >
+        <SidebarContentInner slug={slug} pathname={pathname} event={event} />
+      </Sidebar>
+
+      <SidebarInset className="bg-black/5 dark:bg-white/2">
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-white/60 bg-white/80 px-4 backdrop-blur-xl dark:border-white/10 dark:bg-black/40">
+          <div className="flex items-center gap-4">
+            <SidebarTrigger className="-ml-1" />
+            <SidebarSeparator orientation="vertical" className="mr-2 h-4" />
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-semibold text-foreground">
+                  {event.title}
+                </h1>
+                {getStatusBadge(event.isPublished, event.isSignupOpen)}
+              </div>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span className="font-mono">/{event.slug}</span>
+                <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
+                  <Link href={`/events/${event.slug}`} target="_blank">
+                    <ExternalLink className="size-3" />
+                    Public page
+                  </Link>
+                </Button>
+                <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
+                  <Link href="/dashboard">Go to home</Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-x-hidden p-4 lg:p-6">
+          <div className="mx-auto max-w-7xl">
+            <div className="animate-in duration-700 fade-in slide-in-from-bottom-2">
+              {children}
+            </div>
+          </div>
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
+  )
+}
+
+function SidebarContentInner({
+  slug,
+  pathname,
+  event,
+}: {
+  slug: string
+  pathname: string
+  event: NonNullable<ReturnType<typeof useEventBySlug>>
+}) {
+  const { state: sidebarState } = useSidebar()
 
   const menuItems = [
     {
@@ -139,16 +205,21 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
   ]
 
   return (
-    <SidebarProvider>
-      <Sidebar
-        collapsible="icon"
-        className="border-r border-white/60 dark:border-white/10"
-      >
-        <SidebarHeader className="h-[64px] justify-center group-data-[collapsible=icon]:px-2">
-          <EventSwitcher currentSlug={slug} />
-        </SidebarHeader>
+    <>
+      <SidebarHeader className="h-[64px] justify-center pt-6 group-data-[collapsible=icon]:h-auto group-data-[collapsible=icon]:p-1 group-data-[collapsible=icon]:pt-4">
+        <div className="rounded-2xl border border-border/50 bg-background/70 p-3 shadow-sm backdrop-blur group-data-[collapsible=icon]:rounded-none group-data-[collapsible=icon]:border-none group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:shadow-none">
+          <p className="text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase group-data-[collapsible=icon]:hidden">
+            Event
+          </p>
+          <p className="truncate text-sm font-semibold text-foreground group-data-[collapsible=icon]:hidden">
+            {event ? event.title ?? event.slug : "—"}
+          </p>
+          <img src="/dlbc-logo.png" alt="Logo" className="mx-auto hidden size-6 group-data-[collapsible=icon]:block" />
+        </div>
+      </SidebarHeader>
 
-        <SidebarContent className="gap-0 px-3 pt-3">
+      <SidebarContent className="gap-0 px-3 pt-3 group-data-[collapsible=icon]:px-1 group-data-[collapsible=icon]:pt-1">
+        <TooltipProvider>
           <nav className="space-y-2">
             {menuItems.map((item) => {
               if (item.show === false) return null
@@ -163,82 +234,58 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
                 : null
 
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "group flex items-start justify-between gap-3 rounded-lg border px-4 py-3 transition-all duration-200",
-                    isActive
-                      ? "border-primary/25 bg-primary/10 text-foreground shadow-sm"
-                      : "border-border/50 bg-background/60 text-muted-foreground hover:border-primary/20 hover:bg-muted/50 hover:text-foreground"
-                  )}
-                >
-                  <span className="flex min-w-0 items-start gap-3">
-                    <Icon className="mt-0.5 size-4 shrink-0" />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold leading-none">
-                        {item.label}
-                      </span>
-                      {subpage && (
-                        <span className="mt-1 block text-[10px] font-black tracking-[0.2em] text-muted-foreground/50 uppercase">
-                          {subpage}
-                        </span>
+                <Tooltip key={item.href}>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href={item.href}
+                      className={cn(
+                        "flex items-start justify-between gap-3 rounded-lg border px-4 py-3 transition-all duration-200",
+                        "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-none group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-1.5 group-data-[collapsible=icon]:shadow-none",
+                        isActive
+                          ? "border-primary/25 bg-primary/10 text-foreground shadow-sm"
+                          : "border-border/50 bg-background/60 text-muted-foreground hover:border-primary/20 hover:bg-muted/50 hover:text-foreground"
                       )}
-                    </span>
-                  </span>
-                  {isActive && (
-                    <ChevronRight className="mt-0.5 size-4 shrink-0 text-primary" />
-                  )}
-                </Link>
+                    >
+                      <span className="flex min-w-0 items-start gap-3 group-data-[collapsible=icon]:gap-0">
+                        <Icon className="mt-0.5 size-4 shrink-0" />
+                        <span className="min-w-0 group-data-[collapsible=icon]:hidden">
+                          <span className="block text-sm font-semibold leading-none">
+                            {item.label}
+                          </span>
+                          {subpage && (
+                            <span className="mt-1 block text-[10px] font-black tracking-[0.2em] text-muted-foreground/50 uppercase">
+                              {subpage}
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                      {isActive && (
+                        <ChevronRight className="mt-0.5 size-4 shrink-0 text-primary group-data-[collapsible=icon]:hidden" />
+                      )}
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="flex items-center gap-2">
+                    <Icon className="size-4 shrink-0" />
+                    {item.label}
+                    {subpage && (
+                      <span className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/70 uppercase">
+                        /{subpage}
+                      </span>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
               )
             })}
           </nav>
-        </SidebarContent>
+        </TooltipProvider>
+      </SidebarContent>
 
-        <SidebarFooter className="p-3">
-          <LogoutButton
-            className="h-8 w-full rounded-md border border-border/50 bg-background/60 px-3 text-[10px] font-black tracking-widest uppercase transition-colors hover:bg-background"
-            showIconOnly={false}
-          />
-        </SidebarFooter>
-      </Sidebar>
-
-      <SidebarInset className="bg-black/5 dark:bg-white/2">
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-white/60 bg-white/80 px-4 backdrop-blur-xl dark:border-white/10 dark:bg-black/40">
-          <div className="flex items-center gap-4">
-            <SidebarTrigger className="-ml-1" />
-            <SidebarSeparator orientation="vertical" className="mr-2 h-4" />
-            <div className="flex flex-col gap-0.5">
-              <div className="flex items-center gap-2">
-                <h1 className="text-base font-semibold text-foreground">
-                  {event.title}
-                </h1>
-                {getStatusBadge(event.isPublished, event.isSignupOpen)}
-              </div>
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                <span className="font-mono">/{event.slug}</span>
-                <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
-                  <Link href={`/events/${event.slug}`} target="_blank">
-                    <ExternalLink className="size-3" />
-                    Public page
-                  </Link>
-                </Button>
-                <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
-                  <Link href="/dashboard">Go to home</Link>
-                </Button>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <div className="flex-1 overflow-x-hidden p-4 lg:p-6">
-          <div className="mx-auto max-w-7xl">
-            <div className="animate-in duration-700 fade-in slide-in-from-bottom-2">
-              {children}
-            </div>
-          </div>
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+      <SidebarFooter className="p-3 group-data-[collapsible=icon]:p-1">
+        <LogoutButton
+          className="h-8 w-full rounded-md border border-border/50 bg-background/60 text-[10px] font-black tracking-widest uppercase transition-colors hover:bg-background"
+          showIconOnly={sidebarState === "collapsed"}
+        />
+      </SidebarFooter>
+    </>
   )
 }

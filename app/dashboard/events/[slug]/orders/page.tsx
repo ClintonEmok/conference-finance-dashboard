@@ -361,7 +361,7 @@ export default function EventOrdersPage({ params }: PageProps) {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               className="h-11 w-full rounded-lg border border-border/40 bg-background/50 px-4 text-sm"
-              placeholder="Order id, buyer, email, event"
+              placeholder="Order id, contact person, email, event"
             />
           </div>
 
@@ -442,7 +442,7 @@ export default function EventOrdersPage({ params }: PageProps) {
             <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Order</TableHead>
-                <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Buyer</TableHead>
+                <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Contact person</TableHead>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Amount Due</TableHead>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Amount Paid</TableHead>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Amount Left</TableHead>

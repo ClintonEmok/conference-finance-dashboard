@@ -1054,8 +1054,8 @@ export default function AccommodationPage() {
           "Unnamed attendee"
 
         setErrors((current) => ({ ...current, assignments: null }))
-        setAssignmentMessage("Buyer assignment confirmed successfully.")
-        showAssignmentToast("Buyer request fulfilled", [
+        setAssignmentMessage("Assignment confirmed successfully.")
+        showAssignmentToast("Request fulfilled", [
           `${attendeeName} -> ${resolvedRoomLabel}`,
         ])
         setShowConfirmDialog(false)
@@ -1097,7 +1097,7 @@ export default function AccommodationPage() {
       }
 
       setErrors((current) => ({ ...current, assignments: null }))
-      setAssignmentMessage("Buyer assignment removed.")
+      setAssignmentMessage("Assignment removed.")
       setShowConfirmDialog(false)
       setSelectedPendingAssignment(null)
       await loadWorkspace()
@@ -1306,10 +1306,10 @@ export default function AccommodationPage() {
             <div>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Sparkles className="size-4 text-primary" />
-                Buyer suggestions
+                Contact person suggestions
               </CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                Pending buyer requests captured during signup.
+                Pending requests captured during signup.
               </p>
             </div>
             <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
@@ -2233,7 +2233,7 @@ export default function AccommodationPage() {
                                   "Unnamed"}
                               </p>
                               <p className="text-[9px] text-gray-400">
-                                Buyer request
+                                Request
                               </p>
                             </div>
                           </div>
@@ -2344,9 +2344,9 @@ export default function AccommodationPage() {
       <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>Confirm Buyer Assignment</DialogTitle>
+            <DialogTitle>Confirm Assignment</DialogTitle>
             <DialogDescription>
-              Review the buyer's room request before confirming.
+              Review the room request before confirming.
             </DialogDescription>
           </DialogHeader>
 

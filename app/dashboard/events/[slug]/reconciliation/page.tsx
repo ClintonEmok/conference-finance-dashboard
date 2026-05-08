@@ -306,7 +306,7 @@ export default function EventReconciliationPage({ params }: PageProps) {
             <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Order</TableHead>
-                <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Buyer</TableHead>
+                <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Contact person</TableHead>
                 <TableHead className="px-6 py-4 text-right text-[10px] font-bold tracking-wider uppercase">Amount Due</TableHead>
                 <TableHead className="px-6 py-4 text-right text-[10px] font-bold tracking-wider uppercase">Amount Paid</TableHead>
                 <TableHead className="px-6 py-4 text-right text-[10px] font-bold tracking-wider uppercase">Amount Left</TableHead>
@@ -442,7 +442,7 @@ export default function EventReconciliationPage({ params }: PageProps) {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-                    Buyer
+                    Contact person
                   </span>
                   <span className="text-sm font-bold">
                     {selectedOrder.buyerName || "Anonymous"}
