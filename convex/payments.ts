@@ -140,6 +140,7 @@ async function resolveCanonicalOrderId(
 
 export const getPayments = query({
   args: {
+    eventId: v.optional(v.id("events")),
     orderId: v.optional(v.string()),
     source: v.optional(paymentSourceValidator),
     sourceId: v.optional(v.string()),
@@ -159,6 +160,41 @@ export const getPayments = query({
         )
         .first()
       return payment ? [payment] : []
+    }
+
+    if (args.eventId) {
+      const paymentsById = new Map<string, any>()
+
+      const directPayments = await ctx.db
+        .query("payments")
+        .withIndex("eventId", (q) => q.eq("eventId", args.eventId!))
+        .take(500)
+      for (const payment of directPayments) {
+        paymentsById.set(String(payment._id), payment)
+      }
+
+      const eventOrders = await ctx.db
+        .query("orders")
+        .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId!))
+        .take(500)
+
+      for (const order of eventOrders) {
+        const orderPayments = await ctx.db
+          .query("payments")
+          .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))
+          .take(100)
+
+        for (const payment of orderPayments) {
+          paymentsById.set(String(payment._id), payment)
+        }
+      }
+
+      return Array.from(paymentsById.values()).filter((payment) => {
+        if (args.status && payment.status !== args.status) return false
+        if (args.source && payment.source !== args.source) return false
+        if (args.orderId && payment.orderId !== args.orderId) return false
+        return true
+      })
     }
 
     if (args.orderId) {
@@ -214,6 +250,7 @@ export const createPayment = mutation({
   args: {
     source: paymentSourceValidator,
     sourceId: v.optional(v.string()),
+    eventId: v.optional(v.id("events")),
     orderId: v.optional(v.string()),
     payerName: v.string(),
     payerAccountNumber: v.optional(v.string()),
@@ -228,8 +265,14 @@ export const createPayment = mutation({
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     const canonicalOrderId = await resolveCanonicalOrderId(ctx, args.orderId)
+    const canonicalEventId =
+      args.eventId ??
+      (canonicalOrderId
+        ? (await ctx.db.get("orders", canonicalOrderId))?.eventId
+        : undefined)
     const id = await ctx.db.insert("payments", {
       ...args,
+      eventId: canonicalEventId,
       orderId: canonicalOrderId,
       status:
         args.status ?? (canonicalOrderId ? "manual_assignment" : "unassigned"),
@@ -307,8 +350,10 @@ export const assignPaymentToOrder = mutation({
     if (!canonicalOrderId) {
       throw new Error("Order not found")
     }
+    const order = await ctx.db.get("orders", canonicalOrderId)
     await ctx.db.patch("payments", args.paymentId, {
       orderId: canonicalOrderId,
+      eventId: order?.eventId,
       status: args.status ?? "manual_assignment",
       matchedAt: Date.now(),
       matchedBy: args.matchedBy,
@@ -325,10 +370,50 @@ export const unassignPayment = mutation({
     await requireIdentity(ctx)
     await ctx.db.patch("payments", args.paymentId, {
       orderId: undefined,
+      eventId: undefined,
       status: "unassigned",
       matchedAt: undefined,
       matchedBy: undefined,
     })
+    return args.paymentId
+  },
+})
+
+export const markPaymentAsDonation = mutation({
+  args: {
+    paymentId: v.id("payments"),
+    eventId: v.optional(v.id("events")),
+    matchedBy: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const payment = await ctx.db.get("payments", args.paymentId)
+    if (!payment) {
+      throw new Error("Payment not found")
+    }
+
+    if (payment.status === "donation") {
+      return args.paymentId
+    }
+
+    const order = payment.orderId
+      ? await ctx.db.get("orders", payment.orderId as Id<"orders">)
+      : null
+
+    const eventId = args.eventId ?? order?.eventId ?? payment.eventId
+    if (!eventId) {
+      throw new Error("Event not found for donation classification")
+    }
+
+    await ctx.db.patch("payments", args.paymentId, {
+      orderId: undefined,
+      eventId,
+      status: "donation",
+      matchedAt: Date.now(),
+      matchedBy: args.matchedBy,
+    })
+
     return args.paymentId
   },
 })
@@ -396,6 +481,7 @@ export const autoMatchPayments = mutation({
         await ctx.db.patch("payments", payment._id, {
           orderId: match.orderId as Id<"orders">,
           status: "auto_matched",
+          eventId: (await ctx.db.get("orders", match.orderId as Id<"orders">))?.eventId,
           matchedAt: Date.now(),
           matchedBy: "auto",
         })
@@ -530,8 +616,10 @@ export const internalAssignPaymentToOrder = internalMutation({
       return args.paymentId
     }
 
+    const order = await ctx.db.get("orders", canonicalOrderId)
     await ctx.db.patch("payments", args.paymentId, {
       orderId: canonicalOrderId,
+      eventId: order?.eventId,
       status: args.status ?? "manual_assignment",
       matchedAt: Date.now(),
       matchedBy: args.matchedBy,

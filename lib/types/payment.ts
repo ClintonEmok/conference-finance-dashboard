@@ -19,7 +19,8 @@ export const paymentStatusValidator = v.union(
   v.literal("auto_matched"),
   v.literal("manual_assignment"),
   v.literal("ambiguous"),
-  v.literal("unassigned")
+  v.literal("unassigned"),
+  v.literal("donation")
 )
 
 export type PaymentStatus =
@@ -27,6 +28,7 @@ export type PaymentStatus =
   | "manual_assignment"
   | "ambiguous"
   | "unassigned"
+  | "donation"
 
 /**
  * Full payment document validator — mirrors the `payments` table schema.
@@ -40,6 +42,7 @@ export const paymentDocValidator = v.object({
   payerAccountNumber: v.optional(v.string()),
   amountMinor: v.number(),
   paidAt: v.number(),
+  eventId: v.optional(v.id("events")),
   orderId: v.optional(v.string()),
   status: v.optional(paymentStatusValidator),
   matchedAt: v.optional(v.number()),

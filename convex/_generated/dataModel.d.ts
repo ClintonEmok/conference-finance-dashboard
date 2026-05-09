@@ -495,6 +495,7 @@ export type DataModel = {
   payments: {
     document: {
       amountMinor: number;
+      eventId?: Id<"events">;
       matchedAt?: number;
       matchedBy?: string;
       notes?: string;
@@ -510,7 +511,8 @@ export type DataModel = {
         | "auto_matched"
         | "manual_assignment"
         | "ambiguous"
-        | "unassigned";
+        | "unassigned"
+        | "donation";
       _id: Id<"payments">;
       _creationTime: number;
     };
@@ -518,6 +520,7 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "amountMinor"
+      | "eventId"
       | "matchedAt"
       | "matchedBy"
       | "notes"
@@ -533,6 +536,7 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      eventId: ["eventId", "_creationTime"];
       orderId: ["orderId", "_creationTime"];
       paidAt: ["paidAt", "_creationTime"];
       source_sourceId: ["source", "sourceId", "_creationTime"];

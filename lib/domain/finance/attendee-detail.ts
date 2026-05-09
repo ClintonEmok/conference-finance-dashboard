@@ -34,6 +34,7 @@ type PaymentMatchStatus =
   | "manual_assignment"
   | "ambiguous"
   | "unassigned"
+  | "donation"
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 

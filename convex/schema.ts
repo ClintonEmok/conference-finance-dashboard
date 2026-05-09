@@ -580,13 +580,15 @@ export default defineSchema({
       payerAccountNumber: v.optional(v.string()),
       amountMinor: v.number(),
       paidAt: v.number(),
+      eventId: v.optional(v.id("events")),
       orderId: v.optional(v.string()),
       status: v.optional(
         v.union(
           v.literal("auto_matched"),
           v.literal("manual_assignment"),
           v.literal("ambiguous"),
-          v.literal("unassigned")
+          v.literal("unassigned"),
+          v.literal("donation")
         )
       ),
       matchedAt: v.optional(v.number()),
@@ -597,6 +599,7 @@ export default defineSchema({
     })
   )
     .index("orderId", ["orderId"])
+    .index("eventId", ["eventId"])
     .index("source_sourceId", ["source", "sourceId"])
     .index("status", ["status"])
     .index("paidAt", ["paidAt"]),

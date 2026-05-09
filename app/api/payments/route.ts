@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireApiUser } from "@/lib/auth/server"
+import type { Id } from "@/convex/_generated/dataModel"
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 import { listPayments } from "@/lib/domain/finance/payments"
@@ -14,6 +15,7 @@ const allowedStatuses: PaymentMatchStatus[] = [
   "ambiguous",
   "manual_assignment",
   "auto_matched",
+  "donation",
 ]
 
 const allowedSources: PaymentSource[] = ["tikkie", "bank_transfer", "cash"]
@@ -30,6 +32,7 @@ function parseFilters(request: Request) {
 
   const statusParam = params.get("status")
   const sourceParam = params.get("source")
+  const eventIdParam = params.get("eventId")
   const orderIdParam = params.get("orderId")
   const pageParam = params.get("page")
   const limitParam = params.get("limit")
@@ -46,6 +49,11 @@ function parseFilters(request: Request) {
       ? (sourceParam as PaymentSource)
       : undefined
 
+  const eventId =
+    eventIdParam && eventIdParam.trim()
+      ? (eventIdParam.trim() as Id<"events">)
+      : undefined
+
   const orderId =
     orderIdParam && orderIdParam.trim() ? orderIdParam.trim() : undefined
 
@@ -57,7 +65,7 @@ function parseFilters(request: Request) {
   const from = fromParam ? new Date(fromParam) : null
   const to = toParam ? new Date(toParam) : null
 
-  return { status, source, orderId, page, limit, from, to }
+  return { status, source, eventId, orderId, page, limit, from, to }
 }
 
 function mapResolvedOrder(order: {
@@ -106,10 +114,15 @@ export async function GET(request: Request) {
   }
 
   try {
-    const { status, source, orderId, page, limit, from, to } =
+    const { status, source, eventId, orderId, page, limit, from, to } =
       parseFilters(request)
 
-    const result = await listPayments({ status, source, orderId })
+    const result = await listPayments({
+      eventId: eventId as Id<"events"> | undefined,
+      status,
+      source,
+      orderId,
+    })
 
     let filteredPayments = result.payments
     if (from) {
@@ -149,6 +162,7 @@ export async function GET(request: Request) {
           payerAccountNumber: p.payerAccountNumber,
           amountMinor: p.amountMinor,
           paidAt: new Date(p.paidAt).toISOString(),
+          eventId: p.eventId,
           orderId: p.orderId,
           status: p.status,
           matchedAt: p.matchedAt ? new Date(p.matchedAt).toISOString() : null,

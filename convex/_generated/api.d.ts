@@ -912,6 +912,7 @@ export declare const api: {
       "public",
       {
         amountMinor: number;
+        eventId?: Id<"events">;
         matchedBy?: string;
         notes?: string;
         orderId?: string;
@@ -926,7 +927,8 @@ export declare const api: {
           | "auto_matched"
           | "manual_assignment"
           | "ambiguous"
-          | "unassigned";
+          | "unassigned"
+          | "donation";
       },
       any
     >;
@@ -938,6 +940,7 @@ export declare const api: {
         _creationTime: number;
         _id: Id<"payments">;
         amountMinor: number;
+        eventId?: Id<"events">;
         matchedAt?: number;
         matchedBy?: string;
         notes?: string;
@@ -953,13 +956,15 @@ export declare const api: {
           | "auto_matched"
           | "manual_assignment"
           | "ambiguous"
-          | "unassigned";
+          | "unassigned"
+          | "donation";
       } | null
     >;
     getPayments: FunctionReference<
       "query",
       "public",
       {
+        eventId?: Id<"events">;
         orderId?: string;
         paginationOpts?: {
           cursor: string | null;
@@ -975,12 +980,14 @@ export declare const api: {
           | "auto_matched"
           | "manual_assignment"
           | "ambiguous"
-          | "unassigned";
+          | "unassigned"
+          | "donation";
       },
       Array<{
         _creationTime: number;
         _id: Id<"payments">;
         amountMinor: number;
+        eventId?: Id<"events">;
         matchedAt?: number;
         matchedBy?: string;
         notes?: string;
@@ -996,7 +1003,8 @@ export declare const api: {
           | "auto_matched"
           | "manual_assignment"
           | "ambiguous"
-          | "unassigned";
+          | "unassigned"
+          | "donation";
       }>
     >;
     getPaymentSummary: FunctionReference<
@@ -1006,6 +1014,12 @@ export declare const api: {
       any
     >;
     getUnassignedPayments: FunctionReference<"query", "public", {}, any>;
+    markPaymentAsDonation: FunctionReference<
+      "mutation",
+      "public",
+      { eventId?: Id<"events">; matchedBy?: string; paymentId: Id<"payments"> },
+      any
+    >;
     unassignPayment: FunctionReference<
       "mutation",
       "public",

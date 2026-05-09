@@ -8,6 +8,7 @@ type PaymentMatchStatus =
   | "manual_assignment"
   | "ambiguous"
   | "unassigned"
+  | "donation"
 
 type PaymentForReconciliation = {
   amountMinor: number

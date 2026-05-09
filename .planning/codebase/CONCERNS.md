@@ -1,158 +1,236 @@
-# Codebase Concerns
+# Code Quality Review: Convex Payments Layer
 
-**Analysis Date:** 2026-04-21
-
-## Tech Debt
-
-**[N1] Naming Inconsistency: `bookerName` vs `buyerName`**
-
-- **Issue:** Database schema uses `bookerName`/`bookerEmail` (in `convex/schema.ts` lines 143-144, `convex/orders.ts` lines 284-285, 343-344), but API responses and UI components use `buyerName`/`buyerEmail`.
-- **Files:**
-  - `convex/schema.ts` - defines `bookerName`/`bookerEmail` in orders table
-  - `convex/orders.ts` - mutations accept `buyerName`/`buyerEmail` args but store as `bookerName`/`bookerEmail` (lines 269-270, 321-322, 284-285, 343-344)
-  - `lib/domain/finance/order-ledger.ts` - uses `buyerName`/`buyerEmail` in `OrderLedgerRow` type (lines 29-30)
-  - `lib/domain/finance/attendee-detail.ts` - uses `buyerName`/`buyerEmail` (lines 43-44, 109-110)
-  - `app/dashboard/attendees/[attendeeId]/page.tsx` - uses `buyerName`/`buyerEmail` in type (lines 51-52)
-  - `app/dashboard/orders/page.tsx` - uses `buyerName` in row display (line 451)
-- **Impact:** Confusion about which field name to use. Risk of bugs if someone reads from the wrong field. The mapping layer (buyerName = bookerName) works but obscures intent.
-- **Fix approach:** Standardize on one naming convention. Recommended: keep `buyerName`/`buyerEmail` as the canonical API/UI names and migrate the database schema to match.
-
-**[N2] Incomplete Field Synchronization in `updateAttendee` Mutation**
-
-- **Issue:** The `updateAttendee` mutation (`convex/attendees.ts` lines 515-638) updates both core `orderAttendees` table and `ticketTailorAttendees` extension, but certain fields only update one side.
-- **Files:**
-  - `convex/attendees.ts` - `updateAttendee` mutation (lines 515-638)
-  - `app/api/dashboard/attendees/[attendeeId]/route.ts` - PATCH handler (lines 87-204)
-- **Edge case:** If `name` or `email` is updated via the mutation, it updates both tables, but the PATCH API endpoint only exposes `genderType` and `tikkieAmountOverrideMinor` for editing (lines 108-111, 131-143). This means backend capabilities exceed frontend exposure.
-- **Impact:** Future frontend edits to `name`/`email` would require adding to the PATCH endpoint; currently impossible via REST API.
-- **Fix approach:** Either expand PATCH endpoint to allow `name`/`email` editing, or explicitly document that these fields are read-only from the dashboard.
-
-**[N3] Payment-to-Order Status Synchronization Gap**
-
-- **Issue:** Order `normalizedStatus` (paid/pending/refunded/cancelled) is set independently from payment matching. When payments are auto-matched or manually assigned, the order's `normalizedStatus` does not automatically update.
-- **Files:**
-  - `convex/orders.ts` - `updateOrderStatus` mutation (lines 401-437)
-  - `lib/domain/finance/attendee-detail.ts` - payment calculation using `buildMatchedTotalsByProviderOrderId` (lines 282-293)
-  - `lib/domain/finance/payments.ts` - payment listing
-- **Edge case:** An order with `normalizedStatus: "pending"` could have all payments matched (paid in full). The order status does not auto-transition to "paid". Conversely, an order marked "paid" could have payments un-matched, but status remains "paid".
-- **Risk:** Dashboard displays "pending" orders that are actually paid via Tikkie, causing confusion in reconciliation.
-- **Fix approach:** Add automatic status transition logic when payment matching state changes, or document that `normalizedStatus` is authoritative only when manually set.
-
-**[N4] `amountDueMinor` Calculation Relies on `orderTicketSelections` Existence**
-
-- **Issue:** `loadOrderAmountDueBreakdowns` (`convex/finance.ts` lines 29-81) calculates `amountDueMinor` from `orderTicketSelections` joined with `ticketTypes`. If these records are missing or orphaned, the calculation falls back to `order.totalAmountMinor`.
-- **Files:**
-  - `convex/finance.ts` - `loadOrderAmountDueBreakdowns` (lines 29-81)
-  - `lib/domain/finance/amounts.ts` - `deriveOrderAmountBreakdown`
-  - `convex/orders.ts` - fallback usage (lines 700-703, 1016)
-- **Edge case:** Manual orders created without `orderTicketSelections` will show `amountDueMinor` as `totalAmountMinor`. Integration orders that have selections deleted will revert to `totalAmountMinor`.
-- **Risk:** Inconsistent `amountDueMinor` between integration and manual orders.
-- **Fix approach:** Ensure all order creation paths populate `orderTicketSelections`, or validate data consistency.
-
-## Known Bugs
-
-**[B1] Debug `console.log` Left in Production Code**
-
-- **Symptoms:** `console.log("Payment progress:", paymentProgress, { paid, due })` at line 198 in `app/dashboard/attendees/[attendeeId]/page.tsx`
-- **Files:** `app/dashboard/attendees/[attendeeId]/page.tsx` (line 198)
-- **Trigger:** Any visit to the attendee detail page
-- **Workaround:** Remove before production deployment
-
-**[B2] Attendee `name` Can Be "Unnamed attendee" Fallback**
-
-- **Symptoms:** In `getOrderWithAttendees` query (`convex/orders.ts` line 1032), if attendee name is null, it defaults to "Unnamed attendee". This same fallback doesn't exist in other queries.
-- **Files:** `convex/orders.ts` (line 1032)
-- **Edge case:** Creates inconsistency: some places show "Unnamed attendee", others show empty string or null
-- **Fix approach:** Standardize null handling for attendee names across all queries
-
-## Security Considerations
-
-**[S1] `as any` Cast in Attendee Update Path**
-
-- **Risk:** In `app/api/dashboard/attendees/[attendeeId]/route.ts` line 166, the mutation call uses `as any` to bypass TypeScript checking: `await convexMutation(api.attendees.updateAttendee as any, mutationArgs)`
-- **Files:** `app/api/dashboard/attendees/[attendeeId]/route.ts` (line 166)
-- **Current mitigation:** Input validation is performed before calling the mutation (lines 108-164)
-- **Recommendations:** Define proper TypeScript types for `mutationArgs` to avoid `as any`
-
-## Performance Bottlenecks
-
-**[P1] N+1 Query Pattern in `getAttendeeDetail`**
-
-- **Problem:** `getAttendeeDetail` (`lib/domain/finance/attendee-detail.ts`) makes many sequential `convexQuery` calls even when data could be parallelized.
-- **Files:** `lib/domain/finance/attendee-detail.ts` (lines 196-250)
-- **Cause:** Sequential awaits instead of `Promise.all` for independent queries
-- **Improvement path:** Restructure to parallelize all `convexQuery` calls that don't depend on each other
-
-**[P2] Unbounded Payment Queries**
-
-- **Problem:** `getOrderPaymentStatus` query (`convex/orders.ts` line 1088) does `payments.take(1000)` without pagination. As payments grow, this will degrade.
-- **Files:** `convex/orders.ts` (line 1088)
-- **Cause:** Need all payments to calculate totals
-- **Improvement path:** Add indexed aggregation or maintain running totals on orders table
-
-## Fragile Areas
-
-**[F1] Order Visibility Filtering Duplication**
-
-- **Files:**
-  - `convex/orders.ts` - `isOrderRemoved()` (lines 14-16), `isOrderVisible()` (lines 18-20), `isInternalEvent()` (lines 585-594)
-  - `convex/attendees.ts` - `resolveAttendeeRecordByStringId()` pattern
-- **Why fragile:** Visibility logic is scattered across multiple files. `isOrderRemoved` checks `removedAt` on extension, but visibility also depends on `isInternalEvent` which checks event `primarySourceKind`. Missing any condition causes ghost orders to appear or real orders to disappear.
-- **Safe modification:** Add tests for visibility edge cases before modifying filtering logic.
-- **Test coverage:** No explicit unit tests for `isOrderRemoved` or `isInternalEvent`
-
-**[F2] Provider ID Lookup Chain in Payment Matching**
-
-- **Files:**
-  - `lib/domain/finance/attendee-detail.ts` - `legacyLookupCache` pattern (lines 338-379)
-  - `lib/domain/finance/matched-payments.ts` - `buildMatchedTotalsByProviderOrderId`
-- **Why fragile:** When a payment has an `orderId` that doesn't match by direct comparison, the code falls back to `getOrderById` to find `providerOrderId`. This creates a cache but the cache is per-call, not persistent.
-- **Safe modification:** Ensure tests cover the fallback path with mock data.
-
-## Scaling Limits
-
-**[L1] Order Query Cap at 500**
-
-- **Current capacity:** Most order queries use `.take(500)` as a safety limit
-- **Limit:** Events with >500 orders cannot be fully displayed in ledger/reconciliation
-- **Files:** `convex/orders.ts` - lines 99, 103, 201, 542, 743, 815, 911
-- **Scaling path:** Add proper pagination with cursor-based navigation instead of offset
-
-**[L2] In-Memory Date Filtering**
-
-- **Current capacity:** Date range filtering on `orderedAt` happens in-memory after fetching up to 500 records
-- **Limit:** Cannot filter by date range across all events efficiently
-- **Files:** `convex/orders.ts` - lines 541-543, 818-823
-- **Scaling path:** Index `orderedAt` field or use pre-aggregated tables
-
-## Test Coverage Gaps
-
-**[T1] No Tests for Attendee PATCH Endpoint**
-
-- **What's not tested:** `PATCH /api/dashboard/attendees/[attendeeId]` endpoint
-- **Files:** `app/api/dashboard/attendees/[attendeeId]/route.ts` (lines 87-204)
-- **Risk:** Changes to the PATCH logic (input validation, mutation call) could break silently
-- **Priority:** Medium
-
-**[T2] No Tests for Payment-to-Order Status Synchronization**
-
-- **What's not tested:** Integration between payment assignment and order `normalizedStatus` updates
-- **Edge case gap:** What happens when payments are un-matched from an order?
-- **Priority:** High (affects reconciliation accuracy)
-
-**[T3] No Tests for `loadOrderAmountDueBreakdowns` Edge Cases**
-
-- **What's not tested:** Behavior when `orderTicketSelections` is empty, or when `ticketType` is missing
-- **Files:** `convex/finance.ts` (lines 29-81)
-- **Risk:** Fallback behavior may not be consistent across all call sites
-- **Priority:** Medium
-
-**[T4] Minimal Convex Function Tests**
-
-- **Observation:** Tests in `tests/convex/` and `tests/finance/` are heavily mocked and don't exercise actual Convex runtime behavior
-- **Risk:** Mock-based tests may not catch runtime differences between convex and local execution
-- **Priority:** Low (integration tests would require Convex test runner)
+**Analysis Date:** 2026-05-09
 
 ---
 
-*Concerns audit: 2026-04-21*
+## CRITICAL ISSUES
+
+### 1. `internalAssignPaymentToOrder` Missing `eventId` Propagation
+
+**File:** `convex/payments.ts`
+**Lines:** 618-623 (internal mutation) vs 354-360 (public mutation)
+
+**Problem:** The internal mutation does NOT propagate `eventId` from the order to the payment, while the public `assignPaymentToOrder` does.
+
+```typescript
+// Public mutation (lines 354-360) - CORRECT
+const order = await ctx.db.get("orders", canonicalOrderId)
+await ctx.db.patch("payments", args.paymentId, {
+  orderId: canonicalOrderId,
+  eventId: order?.eventId,  // ✅ Sets eventId
+  ...
+})
+
+// Internal mutation (lines 618-623) - BUG: Missing eventId
+await ctx.db.patch("payments", args.paymentId, {
+  orderId: canonicalOrderId,
+  // ❌ eventId is NOT set!
+  ...
+})
+```
+
+**Impact:** If `internalAssignPaymentToOrder` is used (e.g., by cron jobs), payments will be assigned to orders but their `eventId` will remain stale/undefined. This breaks event-based payment queries.
+
+**Fix:** Add `eventId: (await ctx.db.get("orders", canonicalOrderId))?.eventId` to the patch in `internalAssignPaymentToOrder`.
+
+---
+
+### 2. `unassignPayment` Does Not Clear `eventId`
+
+**File:** `convex/payments.ts`
+**Lines:** 371-376
+
+**Problem:** When a payment is unassigned, `eventId` is NOT cleared. If a payment was assigned to Order A (which had `eventId: X`), then unassigned, and later assigned to Order B (which has `eventId: Y`), the payment would incorrectly retain `eventId: X`.
+
+```typescript
+// Current (lines 371-376)
+await ctx.db.patch("payments", args.paymentId, {
+  orderId: undefined,
+  // ❌ eventId: undefined is MISSING
+  status: "unassigned",
+  matchedAt: undefined,
+  matchedBy: undefined,
+})
+```
+
+**Impact:** Event-linked payments could "fall through cracks" — appearing under the wrong event after reassignment.
+
+**Fix:** Add `eventId: undefined` to the patch call.
+
+---
+
+## MODERATE ISSUES
+
+### 3. `internalUpsertTikkiePayment` Missing `eventId` in Insert
+
+**File:** `convex/payments.ts`
+**Lines:** 573-582
+
+**Problem:** When `internalUpsertTikkiePayment` creates a new payment, it does not set `eventId`. The public `upsertTikkiePayment` also doesn't set `eventId` (which is expected for Tikkie since they're created before being linked), but this is more problematic for the internal version if it's used in automation.
+
+```typescript
+// Lines 573-582 - Missing eventId in insert
+const id = await ctx.db.insert("payments", {
+  source: "tikkie",
+  sourceId: args.sourceId,
+  // eventId not set
+  status: "unassigned",
+  ...
+})
+```
+
+**Impact:** New Tikkie payments created via internal automation won't be queryable by `eventId` index until they're manually assigned.
+
+**Note:** This may be intentional for the Tikkie flow where payments are created first and linked later. However, if there's any automation that creates Tikkie payments without subsequent assignment, they will have no `eventId`.
+
+---
+
+### 4. Duplicate Order Lookup in App-Layer Wrappers
+
+**File:** `lib/domain/finance/payments.ts`
+**Lines:** 194-197, 236-239
+
+**Problem:** `createBankTransferPayment` and `createCashPayment` call `resolveCanonicalOrderId` to get the order ID, then immediately query the order again to get `eventId`:
+
+```typescript
+// Lines 194-197
+const canonicalOrderId = await resolveCanonicalOrderId(input.orderId)
+const order = await convexQuery(api.orders.getOrderById, {  // Redundant query
+  orderId: String(canonicalOrderId),
+})
+// Then uses order?.eventId when calling createPayment
+```
+
+**Impact:** Extra round-trip to Convex for every payment creation. The Convex layer already handles `eventId` inference (lines 268-272 in `convex/payments.ts`).
+
+**Fix:** Remove the redundant order lookup. The Convex `createPayment` already derives `eventId` from the order when not provided.
+
+---
+
+### 5. No Internal Mutation for `markPaymentAsDonation`
+
+**File:** `convex/payments.ts`
+
+**Problem:** `markPaymentAsDonation` is public (requires auth) but there's no `internalMarkPaymentAsDonation`. If automated processes need to convert payments to donations, they must use the authenticated mutation.
+
+**Impact:** Limitations in automation workflows that need to convert payments to donations without user context.
+
+---
+
+### 6. `loadMatchedPaymentTotalsByOrderId` Uses Full Table Scan
+
+**File:** `convex/finance.ts`
+**Line:** 93
+
+**Problem:**
+```typescript
+const payments = (await ctx.db.query("payments").take(2000))  // Full table scan
+```
+
+This function takes up to 2000 payments without using indexes, then filters in-memory.
+
+**Impact:** Performance degrades as the payments table grows. Should use indexed queries like `orderId` or `status` indexes.
+
+**Current filtering logic (lines 110-118):**
+```typescript
+for (const payment of payments) {
+  if (
+    !payment ||
+    (payment.status !== "auto_matched" && payment.status !== "manual_assignment") ||
+    !Number.isFinite(payment.amountMinor) ||
+    payment.amountMinor <= 0
+  ) {
+    continue
+  }
+  ...
+}
+```
+
+**Fix:** Use indexed queries per order instead of a global scan:
+```typescript
+for (const order of orders) {
+  const payments = await ctx.db
+    .query("payments")
+    .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))
+    .take(100)
+  // filter and sum...
+}
+```
+
+---
+
+## MINOR ISSUES / OBSERVATIONS
+
+### 7. Type Redefinition in App Layer
+
+**File:** `lib/domain/finance/payments.ts`
+**Lines:** 16-23
+
+```typescript
+// Redefines types already in lib/types/payment.ts
+export type PaymentSource = "tikkie" | "bank_transfer" | "cash"
+export type PaymentMatchStatus = ...
+```
+
+**Recommendation:** Import from `lib/types/payment.ts` instead of redefining.
+
+---
+
+### 8. Incomplete Status Enum in `loadMatchedPaymentTotalsByOrderId`
+
+**File:** `convex/finance.ts`
+**Lines:** 31-33
+
+```typescript
+type MatchedPaymentRecord = {
+  status?: "auto_matched" | "manual_assignment" | "ambiguous" | "unassigned" | null
+  // ❌ Missing "donation" - though donations shouldn't reach this function
+}
+```
+
+**Note:** The `donation` status is intentionally excluded because donations have `orderId: undefined` per the `markPaymentAsDonation` handler. However, the type should probably include it for completeness.
+
+---
+
+## VALIDATION: `donation` Status Handling
+
+The new `donation` status is:
+- ✅ Defined in schema (`convex/schema.ts` line 591)
+- ✅ Defined in validators (`lib/types/payment.ts` line 23)
+- ✅ Handled in `markPaymentAsDonation` with early return for idempotency (`convex/payments.ts` lines 395-397)
+- ✅ Excluded from `totalPaid` calculation in `getPaymentSummary` (lines 516-518) — correct behavior
+- ✅ `eventId` is properly set when marking as donation (line 410)
+- ⚠️ `eventId` not cleared when unassigning (line 372) — see Issue #2
+
+---
+
+## VALIDATION: `eventId` Propagation
+
+| Mutation | Sets `eventId`? | Clears `eventId`? |
+|----------|----------------|-------------------|
+| `createPayment` | ✅ Derived from order (line 275) | N/A |
+| `upsertTikkiePayment` | ❌ Not set (may be intentional) | N/A |
+| `assignPaymentToOrder` | ✅ From order (line 356) | N/A |
+| `internalAssignPaymentToOrder` | ❌ **MISSING** | N/A |
+| `unassignPayment` | N/A | ❌ **MISSING** |
+| `markPaymentAsDonation` | ✅ From args/order/payment (line 410) | Clears `orderId` instead |
+| `autoMatchPayments` | ✅ From order (line 483) | N/A |
+
+---
+
+## SUMMARY
+
+| Severity | Issue | File | Lines |
+|----------|-------|------|-------|
+| **CRITICAL** | Internal mutation missing `eventId` | `convex/payments.ts` | 618-623 |
+| **CRITICAL** | `unassignPayment` doesn't clear `eventId` | `convex/payments.ts` | 371-376 |
+| **MODERATE** | `internalUpsertTikkiePayment` missing `eventId` on insert | `convex/payments.ts` | 573-582 |
+| **MODERATE** | Redundant order lookup in app wrappers | `lib/domain/finance/payments.ts` | 194-197, 236-239 |
+| **MODERATE** | No `internalMarkPaymentAsDonation` | `convex/payments.ts` | N/A |
+| **MODERATE** | Full table scan in `loadMatchedPaymentTotalsByOrderId` | `convex/finance.ts` | 93 |
+| **MINOR** | Type redefinition | `lib/domain/finance/payments.ts` | 16-23 |
+
+---
+
+*Review completed: 2026-05-09*

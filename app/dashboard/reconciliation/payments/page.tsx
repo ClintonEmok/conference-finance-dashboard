@@ -23,6 +23,7 @@ type PaymentMatchStatus =
   | "ambiguous"
   | "manual_assignment"
   | "auto_matched"
+  | "donation"
 
 type Payment = {
   id: string

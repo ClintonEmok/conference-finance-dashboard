@@ -1,86 +1,22 @@
 "use client"
 
-import { use, useEffect, useMemo, useState } from "react"
-import { CalendarRange, CreditCard, HandCoins, MapPin, ShieldCheck } from "lucide-react"
+import Link from "next/link"
+import { use, useMemo, useState } from "react"
+import { ArrowRight, CalendarRange, CheckCircle2, CreditCard, HandCoins, Loader2, ShieldCheck } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useQuery } from "convex/react"
-import { api } from "@/lib/convex/api"
+import { PaymentCard } from "@/components/payments/payment-card"
+import type { Doc } from "@/convex/_generated/dataModel"
 import { useEventBySlug } from "@/lib/convex/hooks/events"
-import { formatMoney } from "@/lib/format"
+import {
+  useMarkPaymentAsDonation,
+  usePayments,
+  useUnassignedPayments,
+} from "@/lib/convex/hooks/payments"
 
-type RevenueResponse = {
-  totals: {
-    orderValueMinor: number
-    paidMinor: number
-    refundedMinor: number
-    netMinor: number
-  }
-  statusCounts: {
-    paid: number
-    refunded: number
-    cancelled: number
-    pending: number
-  }
-}
-
-type ReconciliationResponse = {
-  totals: {
-    rows: number
-    outstandingMinor: number
-  }
-  rows: Array<{
-    orderId: string | null
-    providerOrderId: string | null
-    eventId: string
-    eventSlug: string
-    eventTitle: string | null
-    normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
-    amountDueMinor: number | null
-    totalAmountMinor: number | null
-    currency: string | null
-    orderedAt: string | null
-    refundedAt: string | null
-    outstandingMinor: number
-    reasons: Array<string>
-  }>
-}
-
-type MetricCard = {
-  label: string
-  value: string
-  desc: string
-  icon: typeof HandCoins
-}
-
-type AttendeeLedgerRow = {
-  _id: string
-  orderId: string
-  location: string | null
-  amountDueMinor: number
-  orderTotalAmountMinor: number | null
-  orderAmountDueMinor: number | null
-  orderStatus: "paid" | "refunded" | "cancelled" | "pending" | null
-}
-
-type LocationSummary = {
-  location: string
-  orderCount: number
-  attendeeCount: number
-  totalMinor: number
-  paidMinor: number
-  outstandingMinor: number
-}
-
-function normalizeLocation(value: string | null | undefined) {
-  const trimmed = value?.trim()
-  return trimmed ? trimmed : "Unspecified"
-}
-
-function formatPercent(value: number) {
-  return `${Math.round(value)}%`
-}
+type PaymentRow = Doc<"payments">
 
 export default function EventPaymentsPage({
   params,
@@ -89,159 +25,84 @@ export default function EventPaymentsPage({
 }) {
   const { slug } = use(params)
   const event = useEventBySlug(slug)
-  const attendeeRows = useQuery(
-    api.attendees.getAttendeesWithTickets,
-    event?._id ? { eventId: event._id } : "skip"
-  )
-  const [revenue, setRevenue] = useState<RevenueResponse | null>(null)
-  const [reconciliation, setReconciliation] = useState<ReconciliationResponse | null>(null)
+  const eventPayments = usePayments(event?._id ? { eventId: event._id } : undefined) as
+    | PaymentRow[]
+    | undefined
+  const unassignedPayments = useUnassignedPayments() as PaymentRow[] | undefined
+  const markAsDonation = useMarkPaymentAsDonation()
+  const [busyPaymentId, setBusyPaymentId] = useState<PaymentRow["_id"] | null>(null)
+  const [successPaymentId, setSuccessPaymentId] = useState<PaymentRow["_id"] | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
+  const summary = useMemo(() => {
+    const linked = eventPayments ?? []
+    const unassigned = unassignedPayments ?? []
+
+    return {
+      linkedCount: linked.length,
+      donationCount: linked.filter((payment) => payment.status === "donation").length,
+      matchedCount: linked.filter(
+        (payment) => payment.status === "auto_matched" || payment.status === "manual_assignment"
+      ).length,
+      unassignedCount: unassigned.length,
+    }
+  }, [eventPayments, unassignedPayments])
+
+  async function handleMarkDonation(paymentId: PaymentRow["_id"]) {
     if (!event?._id) return
 
-    const controller = new AbortController()
-    const to = new Date().toISOString()
-    const fromDate = new Date()
-    fromDate.setDate(fromDate.getDate() - 30)
-    const from = fromDate.toISOString()
+    setBusyPaymentId(paymentId)
+    setErrorMessage(null)
+    setSuccessPaymentId(null)
 
-    async function load() {
-      setIsLoading(true)
-      setErrorMessage(null)
-
-      try {
-        const query = new URLSearchParams({
-          eventId: event._id,
-          from,
-          to,
-        })
-
-        const [revenueResponse, reconciliationResponse] = await Promise.all([
-          fetch(`/api/dashboard/revenue?${query.toString()}`, { signal: controller.signal }),
-          fetch(`/api/dashboard/reconciliation?${query.toString()}`, { signal: controller.signal }),
-        ])
-
-        if (!revenueResponse.ok || !reconciliationResponse.ok) {
-          throw new Error("Failed to load finance overview data")
-        }
-
-        setRevenue((await revenueResponse.json()) as RevenueResponse)
-        setReconciliation((await reconciliationResponse.json()) as ReconciliationResponse)
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") return
-        setErrorMessage("Network error while loading the finance overview.")
-      } finally {
-        setIsLoading(false)
-      }
+    try {
+      await markAsDonation({
+        paymentId,
+        eventId: event._id,
+      })
+      setSuccessPaymentId(paymentId)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to mark donation")
+    } finally {
+      setBusyPaymentId(null)
     }
+  }
 
-    void load()
-    return () => controller.abort()
-  }, [event?._id])
+  if (event === null) {
+    return (
+      <div className="rounded-2xl border border-border/50 bg-card/40 p-10 text-center">
+        <h1 className="text-2xl font-bold">Event not found</h1>
+        <p className="mt-2 text-muted-foreground">The slug &ldquo;{slug}&rdquo; does not exist.</p>
+      </div>
+    )
+  }
 
-  const metrics = useMemo<MetricCard[]>(() => {
-    const paidMinor =
-      revenue && reconciliation
-        ? Math.max(revenue.totals.orderValueMinor - reconciliation.totals.outstandingMinor, 0)
-        : null
+  if (event === undefined || eventPayments === undefined || unassignedPayments === undefined) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-24 w-full rounded-2xl" />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Skeleton className="h-32 w-full rounded-2xl" />
+          <Skeleton className="h-32 w-full rounded-2xl" />
+          <Skeleton className="h-32 w-full rounded-2xl" />
+          <Skeleton className="h-32 w-full rounded-2xl" />
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Skeleton className="h-64 w-full rounded-2xl" />
+          <Skeleton className="h-64 w-full rounded-2xl" />
+        </div>
+      </div>
+    )
+  }
 
-    return [
-      {
-        label: "Order value",
-        value: revenue ? formatMoney(revenue.totals.orderValueMinor) : "--",
-        desc: "Gross order value in scope",
-        icon: HandCoins,
-      },
-      {
-        label: "Paid",
-        value: paidMinor === null ? "--" : formatMoney(paidMinor),
-        desc: "Gross value minus amount left",
-        icon: CreditCard,
-      },
-      {
-        label: "Outstanding",
-        value: reconciliation ? formatMoney(reconciliation.totals.outstandingMinor) : "--",
-        desc: `${reconciliation?.totals.rows ?? 0} rows still need attention`,
-        icon: CalendarRange,
-      },
-      {
-        label: "Donations",
-        value: revenue ? formatMoney(revenue.totals.netMinor) : "--",
-        desc: "Net donations in scope",
-        icon: ShieldCheck,
-      },
-    ]
-  }, [reconciliation, revenue])
-
-  const locationSummaries = useMemo<LocationSummary[]>(() => {
-    if (!attendeeRows?.length) return []
-
-    const orders = new Map<
-      string,
-      {
-        location: string
-        attendeeCount: number
-        totalMinor: number
-        paidMinor: number
-        outstandingMinor: number
-      }
-    >()
-
-    for (const row of attendeeRows as AttendeeLedgerRow[]) {
-      const existing = orders.get(row.orderId)
-      const rowLocation = normalizeLocation(row.location)
-      if (!existing) {
-        const totalMinor = row.orderTotalAmountMinor ?? 0
-        const outstandingMinor = row.orderAmountDueMinor ?? 0
-        orders.set(row.orderId, {
-          location: rowLocation,
-          attendeeCount: 1,
-          totalMinor,
-          paidMinor: Math.max(totalMinor - outstandingMinor, 0),
-          outstandingMinor,
-        })
-      } else {
-        existing.attendeeCount += 1
-        if (existing.location === "Unspecified" && rowLocation !== "Unspecified") {
-          existing.location = rowLocation
-        }
-      }
-    }
-
-    const byLocation = new Map<string, LocationSummary>()
-
-    for (const order of orders.values()) {
-      const current = byLocation.get(order.location) ?? {
-        location: order.location,
-        orderCount: 0,
-        attendeeCount: 0,
-        totalMinor: 0,
-        paidMinor: 0,
-        outstandingMinor: 0,
-      }
-
-      current.orderCount += 1
-      current.attendeeCount += order.attendeeCount
-      current.totalMinor += order.totalMinor
-      current.paidMinor += order.paidMinor
-      current.outstandingMinor += order.outstandingMinor
-      byLocation.set(order.location, current)
-    }
-
-    return Array.from(byLocation.values()).sort((a, b) => b.totalMinor - a.totalMinor)
-  }, [attendeeRows])
-
-  const maxLocationMinor = locationSummaries.reduce((max, item) => Math.max(max, item.totalMinor), 0)
-  if (!event) return null
+  const linkedPayments = eventPayments ?? []
+  const pendingDonations = unassignedPayments ?? []
 
   return (
     <div className="space-y-6">
       {errorMessage && (
         <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
-          Could not load finance data.
-          <div className="mt-1 text-xs opacity-80">{errorMessage}</div>
+          {errorMessage}
         </div>
       )}
 
@@ -249,18 +110,23 @@ export default function EventPaymentsPage({
         <CardHeader>
           <div className="space-y-3">
             <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
-              Finance overview
+              Payments inbox
             </p>
             <CardTitle className="text-3xl font-bold tracking-tight">{event.title}</CardTitle>
             <CardDescription className="max-w-2xl text-muted-foreground/80">
-              Live tracker for money in, money out, and where the remaining balance sits across locations.
+              Review incoming payments, classify orphan donations, and jump to reconciliation when an order needs matching.
             </CardDescription>
           </div>
         </CardHeader>
       </Card>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {metrics.map((metric) => {
+        {[
+          { label: "Linked payments", value: linkedPayments.length, desc: "Payments tied to this event", icon: CreditCard },
+          { label: "Matched", value: summary.matchedCount, desc: "Auto or manual matches", icon: HandCoins },
+          { label: "Donations", value: summary.donationCount, desc: "Persisted donation payments", icon: ShieldCheck },
+          { label: "Unassigned", value: summary.unassignedCount, desc: "Waiting in the global inbox", icon: CalendarRange },
+        ].map((metric) => {
           const Icon = metric.icon
 
           return (
@@ -280,58 +146,78 @@ export default function EventPaymentsPage({
         })}
       </div>
 
-      <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <MapPin className="size-4 text-primary" />
-            Grouped by location
-          </CardTitle>
-          <CardDescription>Order-level payment load grouped by attendee location.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {attendeeRows === undefined ? (
-            Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-2xl" />)
-          ) : locationSummaries.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border/50 bg-background/40 p-6 text-sm text-muted-foreground">
-              No attendee location data yet.
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+          <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
+            <div className="space-y-1">
+              <CardTitle className="text-lg font-bold">Unassigned payments</CardTitle>
+              <CardDescription>Mark orphan payments as donations for this event.</CardDescription>
             </div>
-          ) : (
-            locationSummaries.map((item) => {
-              const width = maxLocationMinor === 0 ? 0 : Math.max(8, Math.round((item.totalMinor / maxLocationMinor) * 100))
-              const paidRate = item.totalMinor === 0 ? 0 : (item.paidMinor / item.totalMinor) * 100
+            <Button asChild variant="outline" size="sm" className="h-8 rounded-lg text-[11px] font-bold uppercase">
+              <Link href={`/dashboard/events/${slug}/reconciliation`}>
+                Reconciliation
+                <ArrowRight className="ml-2 size-3" />
+              </Link>
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {pendingDonations.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border/50 bg-background/40 p-6 text-sm text-muted-foreground">
+                No unassigned payments right now.
+              </div>
+            ) : (
+              pendingDonations.map((payment) => (
+                <PaymentCard
+                  key={payment._id}
+                  payment={payment}
+                  actions={
+                    <>
+                      <Button
+                        size="sm"
+                        className="h-8 rounded-lg text-[10px] font-bold uppercase tracking-wider"
+                        onClick={() => void handleMarkDonation(payment._id)}
+                        disabled={busyPaymentId === payment._id}
+                      >
+                        {busyPaymentId === payment._id ? (
+                          <Loader2 className="mr-2 size-3.5 animate-spin" />
+                        ) : successPaymentId === payment._id ? (
+                          <CheckCircle2 className="mr-2 size-3.5" />
+                        ) : null}
+                        {successPaymentId === payment._id ? "Done" : "Mark donation"}
+                      </Button>
+                      <Button asChild variant="outline" size="sm" className="h-8 rounded-lg text-[10px] font-bold uppercase tracking-wider">
+                        <Link href={`/dashboard/events/${slug}/reconciliation`}>Match order</Link>
+                      </Button>
+                    </>
+                  }
+                />
+              ))
+            )}
+          </CardContent>
+        </Card>
 
-              return (
-                <div key={item.location} className="space-y-2 rounded-2xl border border-border/50 bg-background/50 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="font-semibold text-foreground">{item.location}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {item.orderCount} orders · {item.attendeeCount} attendees
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
-                        {formatMoney(item.totalMinor)}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {formatPercent(paidRate)} collected
-                      </p>
-                    </div>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-black/5 dark:bg-white/5">
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${width}%` }} />
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                    <span>{formatMoney(item.paidMinor)} paid</span>
-                    <span>{formatMoney(item.outstandingMinor)} outstanding</span>
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </CardContent>
-      </Card>
-
+        <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+          <CardHeader>
+            <CardTitle className="text-lg font-bold">Event payments</CardTitle>
+            <CardDescription>All payments already linked to this event, including donations.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {linkedPayments.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border/50 bg-background/40 p-6 text-sm text-muted-foreground">
+                No linked payments yet.
+              </div>
+            ) : (
+              linkedPayments.map((payment) => (
+                <PaymentCard
+                  key={payment._id}
+                  payment={payment}
+                  orderLink={payment.orderId ?? undefined}
+                />
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

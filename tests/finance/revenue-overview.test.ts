@@ -16,12 +16,14 @@ describe("getRevenueOverview", () => {
     vi.mocked(convexQuery)
       .mockResolvedValueOnce([
         {
+          orderId: "order_1",
           providerOrderId: "ORD-1",
           eventId: "event-1",
           eventSlug: "conference",
           eventTitle: "Conference",
           normalizedStatus: "paid" as const,
           amountDueMinor: 7000,
+          matchedAmountMinor: 7300,
           totalAmountMinor: 1000,
           currency: "EUR",
           orderedAt: "2026-03-20T10:00:00.000Z",
@@ -30,12 +32,14 @@ describe("getRevenueOverview", () => {
           buyerEmail: "alice@example.com",
         },
         {
+          orderId: "order_2",
           providerOrderId: "ORD-2",
           eventId: "event-1",
           eventSlug: "conference",
           eventTitle: "Conference",
           normalizedStatus: "refunded" as const,
           amountDueMinor: 2000,
+          matchedAmountMinor: 2000,
           totalAmountMinor: 9999,
           currency: "EUR",
           orderedAt: "2026-03-20T12:00:00.000Z",
@@ -64,7 +68,16 @@ describe("getRevenueOverview", () => {
       paidMinor: 7000,
       refundedMinor: 2000,
       netMinor: 5000,
+      overpaidMinor: 300,
     })
+
+    expect(result.donations).toEqual([
+      expect.objectContaining({
+        orderId: "order_1",
+        providerOrderId: "ORD-1",
+        donationMinor: 300,
+      }),
+    ])
 
     expect(result.trend).toHaveLength(1)
     expect(result.trend[0]).toMatchObject({
@@ -74,6 +87,7 @@ describe("getRevenueOverview", () => {
       paidMinor: 7000,
       refundedMinor: 2000,
       netMinor: 5000,
+      overpaidMinor: 300,
       orderCount: 2,
     })
   })

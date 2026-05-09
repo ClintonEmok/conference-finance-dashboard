@@ -11,7 +11,7 @@ vi.mock("@/lib/convex/server", () => ({
 
 import { NextResponse } from "next/server"
 
-import { GET, PATCH } from "@/app/api/dashboard/orders/[orderId]/route"
+import { DELETE, GET, PATCH } from "@/app/api/dashboard/orders/[orderId]/route"
 import { requireApiUser } from "@/lib/auth/server"
 import { api } from "@/lib/convex/api"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
@@ -158,5 +158,64 @@ describe("/api/dashboard/orders/[orderId] route", () => {
       normalizedStatus: "paid",
       totalAmountMinor: 5000,
     })
+  })
+
+  it("rejects DELETE requests when the order has assigned payments", async () => {
+    vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
+
+    vi.mocked(convexQuery)
+      .mockResolvedValueOnce({
+        order: {
+          id: "order_1",
+          providerOrderId: "ORD-123",
+          bookerName: "Ada Lovelace",
+          bookerEmail: "ada@example.com",
+          bookingRef: "BK-20260330-ABC123",
+          eventId: "event_1",
+          normalizedStatus: "cancelled" as const,
+          isArchived: true,
+          archivedAt: null,
+          archiveReason: null,
+          amountDueMinor: 2500,
+          totalAmountMinor: 5000,
+          orderedAt: "2026-03-01T10:00:00.000Z",
+        },
+        attendees: [],
+      })
+      .mockResolvedValueOnce([
+        {
+          _id: "payment_1",
+          source: "cash",
+          sourceId: null,
+          payerName: "Ada",
+          payerAccountNumber: null,
+          amountMinor: 2500,
+          paidAt: Date.parse("2026-03-01T10:00:00.000Z"),
+          eventId: null,
+          orderId: "order_1",
+          status: "manual_assignment",
+          matchedAt: Date.parse("2026-03-01T10:05:00.000Z"),
+          matchedBy: "user_1",
+          reference: null,
+          notes: null,
+          providerPayload: null,
+        },
+      ])
+
+    const response = await DELETE(
+      new Request("http://localhost/api/dashboard/orders/order_1", {
+        method: "DELETE",
+      }),
+      { params: Promise.resolve({ orderId: "order_1" }) }
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(body).toEqual({
+      error: {
+        message: "Orders with assigned payments cannot be removed from local records.",
+      },
+    })
+    expect(convexMutation).not.toHaveBeenCalled()
   })
 })

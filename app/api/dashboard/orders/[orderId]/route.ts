@@ -332,6 +332,22 @@ export async function DELETE(
     )
   }
 
+  const assignedPayments = await convexQuery(api.payments.getPayments, {
+    orderId: order.order.id,
+  })
+
+  if (assignedPayments.length > 0) {
+    return NextResponse.json(
+      {
+        error: {
+          message:
+            "Orders with assigned payments cannot be removed from local records.",
+        },
+      },
+      { status: 400 }
+    )
+  }
+
   await convexMutation(api.orders.removeOrderLocally, {
     orderId: order.order.id,
     reason: "removed_by_user",

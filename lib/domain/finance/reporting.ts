@@ -31,11 +31,25 @@ export type RevenueOverview = {
     startsAt: number | null
     currency: string | null
   }>
+  donations: Array<{
+    orderId: string
+    providerOrderId: string | null
+    eventSlug: string
+    eventTitle: string | null
+    buyerName: string | null
+    buyerEmail: string | null
+    orderedAt: string | null
+    amountDueMinor: number
+    matchedAmountMinor: number
+    donationMinor: number
+    currency: string | null
+  }>
   totals: {
     orderValueMinor: number
     paidMinor: number
     refundedMinor: number
     netMinor: number
+    overpaidMinor: number
   }
   statusCounts: Record<CanonicalStatus, number>
   trend: Array<{
@@ -45,6 +59,7 @@ export type RevenueOverview = {
     paidMinor: number
     refundedMinor: number
     netMinor: number
+    overpaidMinor: number
     orderCount: number
   }>
 }
@@ -97,11 +112,13 @@ export async function getRevenueOverview(
 ): Promise<RevenueOverview> {
   type RevenueOrderProjection = {
     providerOrderId: string
+    orderId: string
     eventId: string
     eventSlug: string
     eventTitle: string | null
     normalizedStatus: CanonicalStatus
     amountDueMinor: number | null
+    matchedAmountMinor: number | null
     totalAmountMinor: number | null
     currency: string | null
     orderedAt: string | null
@@ -157,6 +174,7 @@ export async function getRevenueOverview(
       paidMinor: number
       refundedMinor: number
       netMinor: number
+      overpaidMinor: number
       orderCount: number
       eventLabel: string
     }
@@ -165,6 +183,8 @@ export async function getRevenueOverview(
   let orderValueMinor = 0
   let paidMinor = 0
   let refundedMinor = 0
+  let overpaidMinor = 0
+  const donations: RevenueOverview["donations"] = []
 
   for (const order of orders) {
     if (!order.orderedAt) {
@@ -183,6 +203,7 @@ export async function getRevenueOverview(
       paidMinor: 0,
       refundedMinor: 0,
       netMinor: 0,
+      overpaidMinor: 0,
       orderCount: 0,
     }
 
@@ -204,6 +225,26 @@ export async function getRevenueOverview(
       refundedMinor += amountMinor
     }
 
+    const balance = deriveBalanceAmounts(amountMinor, order.matchedAmountMinor ?? 0)
+    current.overpaidMinor += balance.donationAmountMinor
+    overpaidMinor += balance.donationAmountMinor
+
+    if (balance.donationAmountMinor > 0) {
+      donations.push({
+        orderId: order.orderId,
+        providerOrderId: order.providerOrderId,
+        eventSlug: order.eventSlug,
+        eventTitle: order.eventTitle,
+        buyerName: order.buyerName,
+        buyerEmail: order.buyerEmail,
+        orderedAt: order.orderedAt,
+        amountDueMinor: balance.amountDueMinor,
+        matchedAmountMinor: balance.paidAmountMinor,
+        donationMinor: balance.donationAmountMinor,
+        currency: order.currency,
+      })
+    }
+
     current.netMinor = current.paidMinor - current.refundedMinor
 
     orderValueMinor += amountMinor
@@ -217,6 +258,14 @@ export async function getRevenueOverview(
       ...values,
     }))
 
+  donations.sort((left, right) => {
+    if (right.donationMinor !== left.donationMinor) {
+      return right.donationMinor - left.donationMinor
+    }
+
+    return (right.orderedAt ?? "").localeCompare(left.orderedAt ?? "")
+  })
+
   const netMinor = paidMinor - refundedMinor
 
   return {
@@ -228,11 +277,13 @@ export async function getRevenueOverview(
       trendGranularity,
     },
     availableEvents,
+    donations,
     totals: {
       orderValueMinor,
       paidMinor,
       refundedMinor,
       netMinor,
+      overpaidMinor,
     },
     statusCounts,
     trend,

@@ -65,6 +65,7 @@ type PaymentStatus =
   | "manual_assignment"
   | "ambiguous"
   | "unassigned"
+  | "donation"
   | null
 
 type GenderType = "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
@@ -243,6 +244,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
   const [attendeeLoadError, setAttendeeLoadError] = useState<string | null>(
     null
   )
+  const hasAssignedPayments = (paymentDocs?.length ?? 0) > 0
 
   const orderPayload = (payload ?? null) as OrderAttendeePayload | null
 
@@ -510,10 +512,11 @@ export default function EventOrderDetailPage({ params }: PageProps) {
   const canRemoveLocally = useMemo(() => {
     if (!orderPayload) return false
     return (
-      orderPayload.order.isArchived === true ||
-      orderPayload.order.normalizedStatus === "cancelled"
+      (orderPayload.order.isArchived === true ||
+        orderPayload.order.normalizedStatus === "cancelled") &&
+      !hasAssignedPayments
     )
-  }, [orderPayload])
+  }, [hasAssignedPayments, orderPayload])
 
   async function removeOrderLocally() {
     if (!orderId || !canRemoveLocally) return
@@ -628,25 +631,31 @@ export default function EventOrderDetailPage({ params }: PageProps) {
               </CardDescription>
             </div>
 
-            {canRemoveLocally && (
+            {orderPayload.order.normalizedStatus === "cancelled" || orderPayload.order.isArchived ? (
               <div className="flex items-center gap-4 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
                 <div className="space-y-1">
                   <p className="text-xs font-bold tracking-widest text-amber-700 uppercase dark:text-amber-400">
-                    Order Archived
+                    {hasAssignedPayments ? "Removal blocked" : "Order archived"}
                   </p>
-                  <p className="text-[10px] text-amber-600/70">Missing upstream in provider.</p>
+                  <p className="text-[10px] text-amber-600/70">
+                    {hasAssignedPayments
+                      ? "Assigned payments must be removed before this order can be deleted."
+                      : "Missing upstream in provider."}
+                  </p>
                 </div>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={removeOrderLocally}
-                  disabled={isRemoving}
-                  className="h-8 rounded-lg px-3 text-[10px] font-bold tracking-wider uppercase"
-                >
-                  {isRemoving ? "Removing..." : "Remove Locally"}
-                </Button>
+                {canRemoveLocally && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={removeOrderLocally}
+                    disabled={isRemoving}
+                    className="h-8 rounded-lg px-3 text-[10px] font-bold tracking-wider uppercase"
+                  >
+                    {isRemoving ? "Removing..." : "Remove Locally"}
+                  </Button>
+                )}
               </div>
-            )}
+            ) : null}
           </div>
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
