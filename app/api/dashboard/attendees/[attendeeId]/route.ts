@@ -108,6 +108,7 @@ export async function PATCH(
     const updateData: {
       tikkieAmountOverrideMinor?: number
       genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+      ticketTypeId?: string
     } = {}
 
     if ("tikkieAmountOverrideMinor" in input) {
@@ -142,9 +143,23 @@ export async function PATCH(
       }
     }
 
+    if ("ticketTypeId" in input) {
+      const value = input.ticketTypeId
+
+      if (value === null || value === undefined || value === "") {
+        return badRequest("ticketTypeId cannot be cleared.")
+      }
+
+      if (typeof value === "string") {
+        updateData.ticketTypeId = value
+      } else {
+        return badRequest("Invalid ticketTypeId. Expected a string.")
+      }
+    }
+
     if (Object.keys(updateData).length === 0) {
       return badRequest(
-        "No valid fields to update. Allowed fields: tikkieAmountOverrideMinor, genderType"
+        "No valid fields to update. Allowed fields: tikkieAmountOverrideMinor, genderType, ticketTypeId"
       )
     }
 
@@ -152,6 +167,7 @@ export async function PATCH(
       attendeeId: string
       tikkieAmountOverrideMinor?: number
       genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+      ticketTypeId?: string
     } = { attendeeId: normalizedAttendeeId }
 
     if (updateData.tikkieAmountOverrideMinor !== undefined) {
@@ -163,6 +179,10 @@ export async function PATCH(
       mutationArgs.genderType = updateData.genderType
     }
 
+    if (updateData.ticketTypeId !== undefined) {
+      mutationArgs.ticketTypeId = updateData.ticketTypeId
+    }
+
     await convexMutation(api.attendees.updateAttendee as any, mutationArgs)
 
     return NextResponse.json({
@@ -170,6 +190,7 @@ export async function PATCH(
         id: normalizedAttendeeId,
         tikkieAmountOverrideMinor: updateData.tikkieAmountOverrideMinor ?? null,
         genderType: updateData.genderType ?? null,
+        ticketTypeId: updateData.ticketTypeId ?? null,
       },
     })
   } catch (error) {

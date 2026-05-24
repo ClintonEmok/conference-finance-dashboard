@@ -48,6 +48,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { api } from "@/lib/convex/api"
+import { useTicketTypesForEvent } from "@/lib/convex/hooks/events"
 import { useEventBySlug } from "@/lib/convex/hooks/events"
 import { useUnassignPayment } from "@/lib/convex/hooks/payments"
 import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
@@ -81,11 +82,13 @@ type OrderEditDraft = {
 
 type AttendeeEditDraft = {
   genderType: "" | GenderType
+  ticketTypeId: string
 }
 
 type AttendeeDetailSnapshot = {
   attendee: {
     id: string
+    ticketTypeId: string | null
   }
   signals: {
     genderType: GenderType | null
@@ -201,6 +204,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
   const { slug, orderId: rawOrderId } = use(params)
   const orderId = rawOrderId.trim()
   const event = useEventBySlug(slug)
+  const { ticketTypes } = useTicketTypesForEvent(event?._id?.toString())
   const payload = useQuery(
     api.orders.getOrderWithAttendees,
     orderId ? { orderId: orderId as Id<"orders"> } : "skip"
@@ -306,6 +310,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
           snapshotMap[attendeeId] = detail
           draftMap[attendeeId] = {
             genderType: detail.signals.genderType ?? "",
+            ticketTypeId: detail.attendee.ticketTypeId ?? "",
           }
         }
 
@@ -351,6 +356,12 @@ export default function EventOrderDetailPage({ params }: PageProps) {
     payload !== undefined &&
     payload !== null &&
     String(payload.order.eventId) !== String(event?._id)
+  const areAttendeeDetailsHydrated = Boolean(
+    orderPayload &&
+      orderPayload.attendees.every(
+        (attendee) => attendeeDetailSnapshots[attendee.id] && attendeeEditDrafts[attendee.id]
+      )
+  )
 
   const canResendConfirmation = Boolean(
     orderPayload?.order.bookerEmail && orderPayload?.order.bookingRef
@@ -484,8 +495,11 @@ export default function EventOrderDetailPage({ params }: PageProps) {
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+          body: JSON.stringify({
             genderType: draft.genderType || null,
+            ...(draft.ticketTypeId
+              ? { ticketTypeId: draft.ticketTypeId }
+              : {}),
           }),
         }
       )
@@ -966,82 +980,133 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                       <TableHead className="h-10 text-[10px] font-black tracking-widest uppercase">
                         Ticket
                       </TableHead>
+                      <TableHead className="h-10 text-[10px] font-black tracking-widest uppercase">
+                        Ticket Type
+                      </TableHead>
                       <TableHead className="h-10 text-right text-[10px] font-black tracking-widest uppercase">
                         Due
                       </TableHead>
                       <TableHead className="h-10 text-[10px] font-black tracking-widest uppercase">
                         Gender
                       </TableHead>
-                      <TableHead className="h-10 text-right text-[10px] font-black tracking-widest uppercase">
-                        Actions
-                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {orderPayload.attendees.map((attendee) => (
-                      <TableRow key={attendee.id} className="border-white/5">
-                        <TableCell className="py-4 align-top">
-                          <p className="text-sm font-bold">{attendee.name}</p>
-                          <p className="font-mono text-[10px] text-muted-foreground/60">{attendee.id}</p>
-                        </TableCell>
-                        <TableCell className="py-4 align-top">
-                          <Badge variant="outline" className="border-white/20 text-[10px] font-medium">
-                            {attendee.ticketTypeLabel}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="py-4 align-top text-right">
-                          <span className="text-sm font-black tabular-nums">
-                            {formatMoney(attendee.amountDueMinor)}
-                          </span>
-                        </TableCell>
-                        <TableCell className="py-4 align-top">
-                          <Select
-                            value={attendeeEditDrafts[attendee.id]?.genderType ?? ""}
-                            onValueChange={(value) =>
-                              setAttendeeEditDrafts((current) => ({
-                                ...current,
-                                [attendee.id]: {
-                                  genderType: value as AttendeeEditDraft["genderType"],
-                                },
-                              }))
-                            }
-                          >
-                            <SelectTrigger className="h-9 rounded-lg bg-white/60 text-xs">
-                              <SelectValue placeholder="Select" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="MALE">MALE</SelectItem>
-                              <SelectItem value="FEMALE">FEMALE</SelectItem>
-                              <SelectItem value="MIXED">MIXED</SelectItem>
-                              <SelectItem value="UNKNOWN">UNKNOWN</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <p className="mt-1 text-[10px] text-muted-foreground/60">
-                            Current: {attendeeDetailSnapshots[attendee.id]?.signals.genderType ?? "unset"}
-                          </p>
-                        </TableCell>
-                        <TableCell className="py-4 align-top text-right">
-                          <div className="space-y-2">
-                            {attendeeSaveErrors[attendee.id] && (
-                              <p className="text-[10px] font-medium text-destructive">
-                                {attendeeSaveErrors[attendee.id]}
-                              </p>
-                            )}
-                            <Button
-                              size="sm"
+                    {orderPayload.attendees.map((attendee) => {
+                      return (
+                        <TableRow key={attendee.id} className="border-white/5">
+                          <TableCell className="py-4 align-top">
+                            <p className="text-sm font-bold">{attendee.name}</p>
+                            <p className="font-mono text-[10px] text-muted-foreground/60">
+                              {attendee.id}
+                            </p>
+                          </TableCell>
+                          <TableCell className="py-4 align-top">
+                            <Badge
                               variant="outline"
-                              className="h-8 rounded-lg text-[10px] font-bold tracking-wider uppercase"
-                              disabled={savingAttendeeId === attendee.id || !attendeeEditDrafts[attendee.id]}
-                              onClick={() => void saveAttendeeDetails(attendee.id)}
+                              className="border-white/20 text-[10px] font-medium"
                             >
-                              {savingAttendeeId === attendee.id ? "Saving..." : "Save"}
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                              {attendee.ticketTypeLabel}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="py-4 align-top">
+                            <Select
+                              value={attendeeEditDrafts[attendee.id]?.ticketTypeId ?? ""}
+                              disabled={!areAttendeeDetailsHydrated}
+                              onValueChange={(value) =>
+                                setAttendeeEditDrafts((current) => ({
+                                  ...current,
+                                  [attendee.id]: {
+                                    ...(current[attendee.id] ?? {
+                                      genderType: "",
+                                      ticketTypeId: "",
+                                    }),
+                                    ticketTypeId: value,
+                                  },
+                                }))
+                              }
+                            >
+                              <SelectTrigger className="h-9 rounded-lg bg-white/60 text-xs">
+                                <SelectValue placeholder="Select" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {ticketTypes.map((ticketType: { _id: string; label: string }) => (
+                                  <SelectItem key={ticketType._id} value={ticketType._id}>
+                                    {ticketType.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell className="py-4 align-top text-right">
+                            <span className="text-sm font-black tabular-nums">
+                              {formatMoney(attendee.amountDueMinor)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="py-4 align-top">
+                            <Select
+                              value={attendeeEditDrafts[attendee.id]?.genderType ?? ""}
+                              disabled={!areAttendeeDetailsHydrated}
+                              onValueChange={(value) =>
+                                setAttendeeEditDrafts((current) => ({
+                                  ...current,
+                                  [attendee.id]: {
+                                    genderType: value as AttendeeEditDraft["genderType"],
+                                    ticketTypeId: current[attendee.id]?.ticketTypeId ?? "",
+                                  },
+                                }))
+                              }
+                            >
+                              <SelectTrigger className="h-9 rounded-lg bg-white/60 text-xs">
+                                <SelectValue placeholder="Select" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="MALE">MALE</SelectItem>
+                                <SelectItem value="FEMALE">FEMALE</SelectItem>
+                                <SelectItem value="MIXED">MIXED</SelectItem>
+                                <SelectItem value="UNKNOWN">UNKNOWN</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
                   </TableBody>
                 </Table>
+                <div className="border-t border-white/10 px-4 py-4">
+                  <div className="flex flex-wrap items-start justify-end gap-3">
+                    {!areAttendeeDetailsHydrated ? (
+                      <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground/60">
+                        Loading attendee details...
+                      </p>
+                    ) : (
+                      orderPayload.attendees
+                        .filter((attendee) => {
+                          const draft = attendeeEditDrafts[attendee.id]
+                          const snapshot = attendeeDetailSnapshots[attendee.id]
+
+                          return (
+                            !!draft &&
+                            !!snapshot &&
+                            (draft.genderType !== (snapshot.signals.genderType ?? "") ||
+                              draft.ticketTypeId !== (snapshot.attendee.ticketTypeId ?? ""))
+                          )
+                        })
+                        .map((attendee) => (
+                          <Button
+                            key={attendee.id}
+                            size="sm"
+                            variant="outline"
+                            className="h-8 rounded-lg text-[10px] font-bold tracking-wider uppercase"
+                            disabled={savingAttendeeId === attendee.id}
+                            onClick={() => void saveAttendeeDetails(attendee.id)}
+                          >
+                            Save
+                          </Button>
+                        ))
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </CardContent>

@@ -339,6 +339,7 @@ export declare const api: {
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
         name?: string;
         priorityReason?: string;
+        ticketTypeId?: Id<"ticketTypes">;
         tikkieAmountOverrideMinor?: number;
       },
       any

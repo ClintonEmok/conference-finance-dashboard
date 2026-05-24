@@ -22,6 +22,7 @@ describe("getAttendeeDetail", () => {
           _id: "attendee_1",
           name: "Ada Lovelace",
           email: "ada@example.com",
+          ticketTypeId: "ticket_type_1",
           ticketTypeLabel: "Weekend",
           ticketStatus: "issued",
           checkedInAt: null,
