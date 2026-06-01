@@ -825,6 +825,16 @@ export declare const api: {
         };
       } | null
     >;
+    mergeOrders: FunctionReference<
+      "mutation",
+      "public",
+      { sourceOrderId: Id<"orders">; targetOrderId: Id<"orders"> },
+      {
+        movedAttendees: number;
+        movedPayments: number;
+        targetOrderId: Id<"orders">;
+      }
+    >;
     removeOrderLocally: FunctionReference<
       "mutation",
       "public",
@@ -840,6 +850,19 @@ export declare const api: {
         buyerName: string | null;
         id: Id<"orders">;
         providerOrderId: string | null;
+      }>
+    >;
+    searchOrdersForMerge: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> | string; search: string },
+      Array<{
+        bookerEmail: string | null;
+        bookerName: string | null;
+        bookingRef: string | null;
+        orderId: Id<"orders">;
+        orderedAt: string | null;
+        totalAmountMinor: number | null;
       }>
     >;
     updateOrderDetails: FunctionReference<

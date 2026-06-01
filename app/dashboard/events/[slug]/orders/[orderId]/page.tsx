@@ -9,12 +9,14 @@ import {
   CheckCircle2,
   Clock,
   CreditCard,
+  GitMerge,
   Loader2,
   Link2Off,
   Mail,
   Plus,
   Receipt,
   ShieldCheck,
+  Trash2,
   Users,
   Zap,
 } from "lucide-react"
@@ -29,6 +31,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -249,6 +259,72 @@ export default function EventOrderDetailPage({ params }: PageProps) {
     null
   )
   const hasAssignedPayments = (paymentDocs?.length ?? 0) > 0
+
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const [isMergeDialogOpen, setIsMergeDialogOpen] = useState(false)
+  const [mergeSearch, setMergeSearch] = useState("")
+  const [debouncedMergeSearch, setDebouncedMergeSearch] = useState("")
+  const [selectedMergeTargetId, setSelectedMergeTargetId] = useState<
+    string | null
+  >(null)
+  const [isMerging, setIsMerging] = useState(false)
+  const [mergeError, setMergeError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setDebouncedMergeSearch(mergeSearch),
+      300
+    )
+    return () => clearTimeout(timer)
+  }, [mergeSearch])
+
+  const mergeSearchResults = useQuery(
+    api.orders.searchOrdersForMerge,
+    debouncedMergeSearch && event?._id
+      ? {
+          search: debouncedMergeSearch,
+          eventId: event._id as Id<"events">,
+        }
+      : "skip"
+  )
+
+  async function mergeInto(targetOrderId: string) {
+    if (!orderId) return
+
+    setIsMerging(true)
+    setMergeError(null)
+
+    try {
+      const response = await fetch(
+        `/api/dashboard/orders/${encodeURIComponent(orderId)}/merge`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targetOrderId }),
+        }
+      )
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string }
+        } | null
+        throw new Error(body?.error?.message ?? "Failed to merge orders")
+      }
+
+      window.location.assign(
+        `/dashboard/events/${slug}/orders/${encodeURIComponent(targetOrderId)}`
+      )
+    } catch (error) {
+      setMergeError(
+        error instanceof Error ? error.message : "Failed to merge orders."
+      )
+    } finally {
+      setIsMerging(false)
+    }
+  }
 
   const orderPayload = (payload ?? null) as OrderAttendeePayload | null
 
@@ -565,6 +641,34 @@ export default function EventOrderDetailPage({ params }: PageProps) {
     }
   }
 
+  async function deleteOrder() {
+    if (!orderId) return
+
+    setIsDeleting(true)
+    setDeleteError(null)
+
+    try {
+      const response = await fetch(
+        `/api/dashboard/orders/${encodeURIComponent(orderId)}`,
+        { method: "DELETE" }
+      )
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string }
+        } | null
+        setDeleteError(body?.error?.message ?? "Failed to delete order.")
+        return
+      }
+
+      window.location.assign(`/dashboard/events/${slug}/orders`)
+    } catch {
+      setDeleteError("Network error while deleting order.")
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   if (isLoading) {
     return <Skeleton className="h-96 w-full rounded-2xl" />
   }
@@ -696,6 +800,32 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                   Send email
                 </>
               )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setMergeError(null)
+                setMergeSearch("")
+                setSelectedMergeTargetId(null)
+                setIsMergeDialogOpen(true)
+              }}
+              className="h-9 rounded-lg border-white/20 text-[11px] font-bold tracking-wider uppercase"
+            >
+              <GitMerge className="mr-2 size-3.5" />
+              Merge into…
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setDeleteError(null)
+                setIsDeleteDialogOpen(true)
+              }}
+              className="h-9 rounded-lg px-3 text-[11px] font-bold tracking-wider uppercase"
+            >
+              <Trash2 className="mr-2 size-3.5" />
+              Delete Order
             </Button>
             {!canResendConfirmation && (
               <p className="text-xs text-muted-foreground">
@@ -1224,6 +1354,199 @@ export default function EventOrderDetailPage({ params }: PageProps) {
           bookerName={orderPayload?.order.bookerName ?? undefined}
         />
       )}
+
+      <Dialog
+        open={isMergeDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsMergeDialogOpen(false)
+            setSelectedMergeTargetId(null)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Merge into another order</DialogTitle>
+            <DialogDescription>
+              Search for the target order to merge this order into. All
+              attendees, payments, and ticket selections will be moved.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <Input
+              placeholder="Search by name, email, or booking ref…"
+              value={mergeSearch}
+              onChange={(e) => {
+                setMergeSearch(e.target.value)
+                setSelectedMergeTargetId(null)
+              }}
+            />
+
+            {mergeError && (
+              <Alert variant="destructive" className="rounded-xl">
+                <AlertCircle className="size-4" />
+                <AlertTitle className="text-destructive">Merge failed</AlertTitle>
+                <AlertDescription className="text-destructive/80">
+                  {mergeError}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {debouncedMergeSearch && (
+              <div className="max-h-64 overflow-y-auto rounded-xl border border-white/20">
+                {(mergeSearchResults ?? []).length === 0 ? (
+                  <p className="p-4 text-center text-xs text-muted-foreground">
+                    No orders found.
+                  </p>
+                ) : (
+                  (mergeSearchResults ?? []).map((result) => (
+                    <button
+                      key={result.orderId}
+                      type="button"
+                      onClick={() => setSelectedMergeTargetId(result.orderId)}
+                      className={cn(
+                        "flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/10",
+                        selectedMergeTargetId === result.orderId &&
+                          "bg-primary/10 ring-1 ring-primary/20",
+                        result.orderId === (orderId as Id<"orders">) &&
+                          "cursor-not-allowed opacity-40"
+                      )}
+                      disabled={result.orderId === (orderId as Id<"orders">)}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-bold">
+                          {result.bookerName ?? result.bookerEmail ?? "—"}
+                        </p>
+                        <p className="truncate font-mono text-[10px] text-muted-foreground/60">
+                          {result.orderId}
+                          {result.bookingRef ? ` · ${result.bookingRef}` : ""}
+                        </p>
+                      </div>
+                      <div className="ml-3 shrink-0 text-right">
+                        <p className="text-xs font-black tabular-nums">
+                          {formatMoney(result.totalAmountMinor ?? 0)}
+                        </p>
+                        <p className="text-[9px] text-muted-foreground">
+                          {formatDateTime(result.orderedAt)}
+                        </p>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setIsMergeDialogOpen(false)
+                setSelectedMergeTargetId(null)
+              }}
+              className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                !selectedMergeTargetId || isMerging
+              }
+              onClick={() => {
+                if (selectedMergeTargetId) {
+                  void mergeInto(selectedMergeTargetId)
+                }
+              }}
+              className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
+            >
+              {isMerging ? (
+                <>
+                  <Loader2 className="mr-2 size-3.5 animate-spin" />
+                  Merging…
+                </>
+              ) : (
+                "Merge"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsDeleteDialogOpen(false)
+            setDeleteError(null)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Order</DialogTitle>
+            <DialogDescription>
+              {orderPayload?.order.providerOrderId
+                ? `This will remove order ${orderPayload.order.providerOrderId} from local dashboard records. The order will be hidden from views and reports but can be recovered.`
+                : "This will remove the order from local dashboard records. The order will be hidden from views and reports but can be recovered."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteError && (
+            <Alert variant="destructive" className="rounded-xl">
+              <AlertCircle className="size-4" />
+              <AlertTitle className="text-destructive">Delete failed</AlertTitle>
+              <AlertDescription className="text-destructive/80">
+                {deleteError}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {!canRemoveLocally && (
+            <Alert className="rounded-xl border-amber-500/20 bg-amber-500/5 text-amber-700 dark:text-amber-400">
+              <AlertCircle className="size-4" />
+              <AlertTitle>Cannot delete</AlertTitle>
+              <AlertDescription>
+                {hasAssignedPayments
+                  ? "Unassign all payments before deleting this order."
+                  : "Only archived or cancelled orders can be deleted. Cancel the order first in edit mode."}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setIsDeleteDialogOpen(false)
+                setDeleteError(null)
+              }}
+              className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={!canRemoveLocally || isDeleting}
+              onClick={() => void deleteOrder()}
+              className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 size-3.5 animate-spin" />
+                  Deleting…
+                </>
+              ) : (
+                "Delete Order"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

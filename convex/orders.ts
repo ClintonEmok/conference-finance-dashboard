@@ -1081,9 +1081,9 @@ export const searchOrders = query({
         !isOrderRemoved(o) &&
         isInternalEvent(eventSourceKindsById, o.eventId) &&
         (!search ||
-          (o.bookerName && o.bookerName.toLowerCase().includes(search)) ||
-          (o.providerOrderId &&
-            o.providerOrderId.toLowerCase().includes(search)))
+              (o.bookerName && o.bookerName.toLowerCase().includes(search)) ||
+              (o.providerOrderId &&
+                o.providerOrderId.toLowerCase().includes(search)))
     )
 
     const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
@@ -1103,6 +1103,65 @@ export const searchOrders = query({
           order.totalAmountMinor ??
           null,
       }))
+  },
+})
+
+export const searchOrdersForMerge = query({
+  args: {
+    search: v.string(),
+    eventId: v.union(v.id("events"), v.string()),
+  },
+  returns: v.array(
+    v.object({
+      orderId: v.id("orders"),
+      bookerName: nullableStringValidator,
+      bookerEmail: nullableStringValidator,
+      bookingRef: nullableStringValidator,
+      totalAmountMinor: v.union(v.number(), v.null()),
+      orderedAt: nullableStringValidator,
+    })
+  ),
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const needle = args.search.trim().toLowerCase()
+
+    const orders = await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) =>
+        q.eq("eventId", args.eventId as Id<"events">)
+      )
+      .order("desc")
+      .take(200)
+
+    const withExtensions = await loadOrdersWithExtensions(ctx, orders)
+    const eventSourceKindsById = await loadEventSourceKindsById(ctx)
+
+    const matches = withExtensions
+      .filter(
+        ({ order, extension }) =>
+          !isOrderRemoved(extension) &&
+          isInternalEvent(eventSourceKindsById, order.eventId) &&
+          (!needle ||
+            (order.bookerName?.toLowerCase().includes(needle)) ||
+            (order.bookerEmail?.toLowerCase().includes(needle)) ||
+            (order.bookingRef?.toLowerCase().includes(needle)) ||
+            (order.providerOrderId?.toLowerCase().includes(needle)))
+      )
+      .map(({ order }) => ({
+        orderId: order._id,
+        bookerName: order.bookerName ?? null,
+        bookerEmail: order.bookerEmail ?? null,
+        bookingRef: order.bookingRef ?? null,
+        totalAmountMinor: order.totalAmountMinor ?? null,
+        orderedAt: order.orderedAt
+          ? new Date(order.orderedAt).toISOString()
+          : order.submittedAt
+            ? new Date(order.submittedAt).toISOString()
+            : null,
+      }))
+      .slice(0, 10)
+
+    return matches
   },
 })
 
@@ -1365,6 +1424,142 @@ export const removeOrderLocally = mutation({
     return {
       orderId: args.orderId,
       removedAt,
+    }
+  },
+})
+
+export const mergeOrders = mutation({
+  args: {
+    sourceOrderId: v.id("orders"),
+    targetOrderId: v.id("orders"),
+  },
+  returns: v.object({
+    targetOrderId: v.id("orders"),
+    movedAttendees: v.number(),
+    movedPayments: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    if (args.sourceOrderId === args.targetOrderId) {
+      throw new Error("Source and target orders must be different")
+    }
+
+    const source = await ctx.db.get("orders", args.sourceOrderId)
+    if (!source) throw new Error("Source order not found")
+
+    const target = await ctx.db.get("orders", args.targetOrderId)
+    if (!target) throw new Error("Target order not found")
+
+    if (String(source.eventId ?? "") !== String(target.eventId ?? "")) {
+      throw new Error("Orders must belong to the same event")
+    }
+
+    const sourceExt = await ctx.db
+      .query("ticketTailorOrders")
+      .withIndex("orderId", (q) => q.eq("orderId", args.sourceOrderId))
+      .first()
+
+    if (sourceExt && isOrderRemoved(sourceExt)) {
+      throw new Error("Source order has already been removed")
+    }
+
+    const targetExt = await ctx.db
+      .query("ticketTailorOrders")
+      .withIndex("orderId", (q) => q.eq("orderId", args.targetOrderId))
+      .first()
+
+    if (targetExt && isOrderRemoved(targetExt)) {
+      throw new Error("Target order has been removed")
+    }
+
+    const sourceAttendees = await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.sourceOrderId))
+      .collect()
+
+    for (const attendee of sourceAttendees) {
+      await ctx.db.patch("orderAttendees", attendee._id, {
+        orderId: args.targetOrderId,
+      })
+    }
+
+    const sourceSelections = await ctx.db
+      .query("orderTicketSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.sourceOrderId))
+      .collect()
+
+    for (const selection of sourceSelections) {
+      await ctx.db.patch("orderTicketSelections", selection._id, {
+        orderId: args.targetOrderId,
+      })
+    }
+
+    const sourceTtAttendees = await ctx.db
+      .query("ticketTailorAttendees")
+      .withIndex("orderId", (q) => q.eq("orderId", args.sourceOrderId))
+      .collect()
+
+    for (const ttAttendee of sourceTtAttendees) {
+      await ctx.db.patch("ticketTailorAttendees", ttAttendee._id, {
+        orderId: args.targetOrderId,
+      })
+    }
+
+    const sourceAssignments = await ctx.db
+      .query("orderAssignments")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.sourceOrderId))
+      .collect()
+
+    for (const assignment of sourceAssignments) {
+      await ctx.db.patch("orderAssignments", assignment._id, {
+        orderId: args.targetOrderId,
+      })
+    }
+
+    const sourcePayments = await ctx.db
+      .query("payments")
+      .withIndex("orderId", (q) => q.eq("orderId", args.sourceOrderId))
+      .collect()
+
+    for (const payment of sourcePayments) {
+      await ctx.db.patch("payments", payment._id, {
+        orderId: String(args.targetOrderId),
+      })
+    }
+
+    const sourceTikkieLinks = await ctx.db
+      .query("tikkiePaymentLinks")
+      .withIndex("orderId", (q) => q.eq("orderId", args.sourceOrderId))
+      .collect()
+
+    for (const link of sourceTikkieLinks) {
+      await ctx.db.patch("tikkiePaymentLinks", link._id, {
+        orderId: String(args.targetOrderId),
+      })
+    }
+
+    const removedAt = Date.now()
+    if (sourceExt) {
+      await ctx.db.patch("ticketTailorOrders", sourceExt._id, {
+        removedAt,
+        removedReason: "merged_into_" + String(args.targetOrderId),
+      })
+    } else {
+      await ctx.db.insert("ticketTailorOrders", {
+        providerOrderId: source.providerOrderId ?? "",
+        providerEventId: source.providerEventId ?? "",
+        orderId: source._id,
+        removedAt,
+        removedReason: "merged_into_" + String(args.targetOrderId),
+        rawPayload: {},
+      })
+    }
+
+    return {
+      targetOrderId: args.targetOrderId,
+      movedAttendees: sourceAttendees.length,
+      movedPayments: sourcePayments.length,
     }
   },
 })
