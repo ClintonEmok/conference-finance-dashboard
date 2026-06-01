@@ -8,6 +8,7 @@ import type { FullReportView } from "@/convex/reports"
 
 import { Button } from "@/components/ui/button"
 import { ReportCharts } from "@/components/reporting/report-charts"
+import { ReportLocationDetail } from "@/components/reporting/report-location-detail"
 import { ReportRegionDetail } from "@/components/reporting/report-region-detail"
 import { ReportSlices } from "@/components/reporting/report-slices"
 import { ReportSummary } from "@/components/reporting/report-summary"
@@ -64,13 +65,25 @@ export function PublicReportView({
   report: FullReportView | null
   token: string
 }) {
-  const [tab, setTab] = useState<"summary" | "attendees">("summary")
+  const [tab, setTab] = useState<"summary" | "attendees" | "locations">("summary")
 
   if (!report) {
     return <ReportUnavailableState />
   }
 
-  const effectiveTab = tab === "summary" && report.aggregate == null && report.regionAggregate == null ? "attendees" : tab
+  const hasSummary = !!(report.aggregate ?? report.regionAggregate)
+  const hasLocations = !!(report.locationGroups?.length)
+
+  const effectiveTab =
+    tab === "summary" && !hasSummary
+      ? hasLocations
+        ? "locations"
+        : "attendees"
+      : tab === "locations" && !hasLocations
+        ? hasSummary
+          ? "summary"
+          : "attendees"
+        : tab
 
   const summaryReport = report.aggregate ?? report.regionAggregate
 
@@ -98,6 +111,11 @@ export function PublicReportView({
               <TabButton active={effectiveTab === "attendees"} onClick={() => setTab("attendees")}>
                 Orders
               </TabButton>
+              {hasLocations && (
+                <TabButton active={effectiveTab === "locations"} onClick={() => setTab("locations")}>
+                  By Location
+                </TabButton>
+              )}
             </div>
             <Button asChild variant="outline" className="rounded-full px-3 py-1 text-xs">
               <Link href={`/api/reports/export?token=${encodeURIComponent(token)}`}>
@@ -117,6 +135,13 @@ export function PublicReportView({
 
         {effectiveTab === "attendees" && report.attendees && (
           <ReportRegionDetail report={report.attendees} descriptionLabel="All attendee entries grouped by order." />
+        )}
+
+        {effectiveTab === "locations" && report.locationGroups && (
+          <ReportLocationDetail
+            groups={report.locationGroups}
+            generatedAt={report.attendees?.generatedAt ?? report.aggregate?.generatedAt ?? report.regionAggregate?.generatedAt ?? ""}
+          />
         )}
       </section>
     </main>

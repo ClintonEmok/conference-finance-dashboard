@@ -8,6 +8,8 @@ import {
   allocateReportPaymentsByAttendee,
   buildRegionDetailReport,
   buildStakeholderReport,
+  type LocationGroup,
+  type RegionDetailAttendee,
   type RegionDetailOrderGroup,
   type RegionDetailReport,
   type ReportView,
@@ -26,6 +28,10 @@ function normalizeLabel(value: string | null | undefined) {
 
 function normalizeRegion(value: string | null | undefined) {
   return normalizeLabel(value)?.toLowerCase() ?? null
+}
+
+function normalizeLocationLabel(value: string | null | undefined) {
+  return normalizeLabel(value)
 }
 
 function matchesRegion(value: string | null | undefined, region: string) {
@@ -54,6 +60,14 @@ function buildTicketTypeSummary(parts: Array<{ label: string; quantity: number }
     .sort((left, right) => right.quantity - left.quantity || left.label.localeCompare(right.label))
     .map(({ label, quantity }) => (quantity > 1 ? `${label} × ${quantity}` : label))
     .join(", ")
+}
+
+type ReportRow = Parameters<typeof buildStakeholderReport>[0]["rows"][number]
+
+type SharedEventReportData = {
+  rows: ReportRow[]
+  orderGroups: RegionDetailOrderGroup[]
+  locationGroups: LocationGroup[]
 }
 
 async function loadOrdersForEvent(
@@ -218,7 +232,7 @@ async function loadRegionOrderGroups(
         name: attendee.name,
         email: attendee.email ?? null,
         ticketTypeLabel,
-        location: attendee.location ?? null,
+        location: normalizeLocationLabel(attendee.location),
         amountDueMinor: balance.amountDueMinor,
         paidMinor: balance.paidAmountMinor,
         outstandingMinor: balance.outstandingAmountMinor,
@@ -252,6 +266,145 @@ async function loadRegionOrderGroups(
   }
 
   return groups
+}
+
+async function buildSharedEventReportData(
+  ctx: Pick<QueryCtx, "db">,
+  event: Doc<"events">
+): Promise<SharedEventReportData> {
+  const orders = await loadOrdersForEvent(ctx, event._id)
+  const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(ctx, orders)
+  const paymentsByOrderId = await batchLoadPaymentsByOrderId(ctx, orders)
+
+  const rows: ReportRow[] = []
+  const orderGroups: RegionDetailOrderGroup[] = []
+  const locationGroupsByKey = new Map<string, LocationGroup>()
+
+  for (const order of orders) {
+    const amountDueBreakdown = amountDueBreakdownsByOrderId.get(String(order._id))
+    if (!amountDueBreakdown) {
+      continue
+    }
+
+    const attendeesWithExtensions = await loadOrderAttendeesWithExtensions(ctx as QueryCtx, order._id)
+    const ticketTypeResolution = await loadOrderTicketTypeResolution(ctx, order._id)
+    const payments = paymentsByOrderId.get(String(order._id)) ?? []
+
+    const totalPaidMinor = payments
+      .filter((payment) => MATCHED_PAYMENT_STATUSES.has(payment.status ?? "unassigned"))
+      .reduce((sum, payment) => sum + payment.amountMinor, 0)
+
+    if (attendeesWithExtensions.length === 0) {
+      rows.push({
+        location: null,
+        genderType: null,
+        ticketTypeLabel: null,
+        amountDueMinor: amountDueBreakdown.amountDueMinor ?? 0,
+        paidAmountMinor: totalPaidMinor,
+        createdAt: new Date(order._creationTime).toISOString(),
+      })
+      continue
+    }
+
+    const paidByAttendeeId = allocateReportPaymentsByAttendee({
+      totalPaidMinor,
+      attendeeWeights: attendeesWithExtensions.map((attendee) => ({
+        attendeeId: String(attendee._id),
+        weightMinor: amountDueBreakdown.amountDueByAttendeeId.get(String(attendee._id)) ?? 0,
+      })),
+    })
+
+    const attendees: RegionDetailOrderGroup["attendees"] = []
+    let groupAmountDueMinor = 0
+    let groupPaidMinor = 0
+    let groupOutstandingMinor = 0
+    let groupOverpaidMinor = 0
+
+    for (const attendee of attendeesWithExtensions) {
+      const amountDueMinor =
+        amountDueBreakdown.amountDueByAttendeeId.get(String(attendee._id)) ?? 0
+      const paidMinor = paidByAttendeeId.get(String(attendee._id)) ?? 0
+      const balance = deriveBalanceAmounts(amountDueMinor, paidMinor)
+      const ticketTypeLabel =
+        ticketTypeResolution.ticketTypeLabelByAttendeeId.get(String(attendee._id)) ??
+        attendee.ticketTypeLabel ??
+        null
+      const location = normalizeLocationLabel(attendee.location)
+
+      const attendeeReportRow = {
+        name: attendee.name,
+        email: attendee.email ?? null,
+        ticketTypeLabel,
+        location,
+        amountDueMinor: balance.amountDueMinor,
+        paidMinor: balance.paidAmountMinor,
+        outstandingMinor: balance.outstandingAmountMinor,
+        overpaidMinor: balance.donationAmountMinor,
+      }
+
+      rows.push({
+        location,
+        genderType: normalizeGenderLabel(attendee.gender),
+        ticketTypeLabel,
+        amountDueMinor: balance.amountDueMinor,
+        paidAmountMinor: balance.paidAmountMinor,
+        createdAt: new Date(order._creationTime).toISOString(),
+      })
+
+      attendees.push(attendeeReportRow)
+      groupAmountDueMinor += balance.amountDueMinor
+      groupPaidMinor += balance.paidAmountMinor
+      groupOutstandingMinor += balance.outstandingAmountMinor
+      groupOverpaidMinor += balance.donationAmountMinor
+
+      const locationKey = (location ?? "Unknown location").toLowerCase()
+      let locationGroup = locationGroupsByKey.get(locationKey)
+      if (!locationGroup) {
+        locationGroup = {
+          location: location ?? "Unknown location",
+          attendeeCount: 0,
+          amountDueMinor: 0,
+          paidMinor: 0,
+          outstandingMinor: 0,
+          overpaidMinor: 0,
+          attendees: [],
+        }
+        locationGroupsByKey.set(locationKey, locationGroup)
+      }
+
+      locationGroup.attendeeCount += 1
+      locationGroup.amountDueMinor += balance.amountDueMinor
+      locationGroup.paidMinor += balance.paidAmountMinor
+      locationGroup.outstandingMinor += balance.outstandingAmountMinor
+      locationGroup.overpaidMinor += balance.donationAmountMinor
+      locationGroup.attendees.push(attendeeReportRow)
+    }
+
+    orderGroups.push({
+      orderId: String(order._id),
+      bookingRef: order.bookingRef ?? null,
+      providerOrderId: order.providerOrderId ?? null,
+      orderStatus: order.status ?? "pending",
+      orderedAt: new Date(order.submittedAt ?? order.orderedAt ?? order._creationTime).toISOString(),
+      bookerName: order.bookerName ?? null,
+      bookerEmail: order.bookerEmail ?? null,
+      ticketTypeSummary: ticketTypeResolution.ticketTypeSummary,
+      amountDueMinor: groupAmountDueMinor,
+      paidMinor: groupPaidMinor,
+      outstandingMinor: groupOutstandingMinor,
+      overpaidMinor: groupOverpaidMinor,
+      attendeeCount: attendees.length,
+      attendees,
+    })
+  }
+
+  return {
+    rows,
+    orderGroups,
+    locationGroups: Array.from(locationGroupsByKey.values()).sort((left, right) =>
+      left.location.localeCompare(right.location)
+    ),
+  }
 }
 
 async function buildAggregateReport(
@@ -317,6 +470,14 @@ async function buildAttendeesReport(
   })
 }
 
+async function buildLocationGroups(
+  ctx: Pick<QueryCtx, "db">,
+  event: Doc<"events">
+): Promise<LocationGroup[]> {
+  const { locationGroups } = await buildSharedEventReportData(ctx, event)
+  return locationGroups
+}
+
 async function buildReportRows(
   ctx: Pick<QueryCtx, "db">,
   orders: Doc<"orders">[]
@@ -376,7 +537,7 @@ async function buildReportRows(
       const balance = deriveBalanceAmounts(amountDueMinor, paidAmountMinor)
 
       rows.push({
-        location: attendee.location ?? null,
+        location: normalizeLocationLabel(attendee.location),
         genderType: normalizeGenderLabel(attendee.gender),
         ticketTypeLabel:
           ticketTypeResolution.ticketTypeLabelByAttendeeId.get(String(attendee._id)) ??
@@ -478,6 +639,7 @@ export type FullReportView = {
   aggregate: StakeholderReport | null
   regionAggregate: StakeholderReport | null
   attendees: RegionDetailReport | null
+  locationGroups: LocationGroup[] | null
 }
 
 export async function buildFullReportForToken(
@@ -499,12 +661,45 @@ export async function buildFullReportForToken(
     regionAggregate = agg
     attendees = att
   } else {
-    const [agg, att] = await Promise.all([
-      buildAggregateReport(ctx, payload.event),
-      buildAttendeesReport(ctx, payload.event),
-    ])
-    aggregate = agg
-    attendees = att
+    const shared = await buildSharedEventReportData(ctx, payload.event)
+    aggregate = buildStakeholderReport({
+      generatedAt: new Date().toISOString(),
+      event: {
+        id: String(payload.event._id),
+        slug: payload.event.slug,
+        title: payload.event.title,
+        startsAt: payload.event.startsAt,
+        currency: payload.event.currency,
+      },
+      rows: shared.rows,
+    })
+
+    attendees = buildRegionDetailReport({
+      generatedAt: new Date().toISOString(),
+      event: {
+        id: String(payload.event._id),
+        slug: payload.event.slug,
+        title: payload.event.title,
+        startsAt: payload.event.startsAt,
+        currency: payload.event.currency,
+      },
+      region: "All attendees",
+      orderGroups: shared.orderGroups,
+    })
+
+    return {
+      event: {
+        id: String(payload.event._id),
+        slug: payload.event.slug,
+        title: payload.event.title,
+        startsAt: payload.event.startsAt,
+        currency: payload.event.currency,
+      },
+      aggregate,
+      regionAggregate,
+      attendees,
+      locationGroups: shared.locationGroups,
+    }
   }
 
   return {
@@ -518,6 +713,7 @@ export async function buildFullReportForToken(
     aggregate,
     regionAggregate,
     attendees,
+    locationGroups: null,
   }
 }
 

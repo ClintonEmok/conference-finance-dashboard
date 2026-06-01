@@ -95,6 +95,16 @@ export type RegionDetailReport = {
   orderGroups: RegionDetailOrderGroup[]
 }
 
+export type LocationGroup = {
+  location: string
+  attendeeCount: number
+  amountDueMinor: number
+  paidMinor: number
+  outstandingMinor: number
+  overpaidMinor: number
+  attendees: RegionDetailAttendee[]
+}
+
 export type RegionDetailReportLike = {
   generatedAt: string
   event: StakeholderReport["event"]

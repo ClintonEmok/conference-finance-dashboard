@@ -65,6 +65,7 @@ describe("public report page", () => {
           aggregate: report,
           regionAggregate: null,
           attendees: null,
+          locationGroups: null,
         },
         token: "report_token",
       })
@@ -135,6 +136,7 @@ describe("public report page", () => {
           aggregate: null,
           regionAggregate: null,
           attendees: attendeesReport,
+          locationGroups: null,
         },
         token: "report_token",
       })
