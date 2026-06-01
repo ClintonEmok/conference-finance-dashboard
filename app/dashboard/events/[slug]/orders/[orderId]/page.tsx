@@ -1475,9 +1475,8 @@ export default function EventOrderDetailPage({ params }: PageProps) {
           <DialogHeader>
             <DialogTitle>Delete Order</DialogTitle>
             <DialogDescription>
-              {orderPayload?.order.providerOrderId
-                ? `This will remove order ${orderPayload.order.providerOrderId} from local dashboard records. The order will be hidden from views and reports but can be recovered.`
-                : "This will remove the order from local dashboard records. The order will be hidden from views and reports but can be recovered."}
+              This will remove the order from local dashboard records.
+              The order will be hidden from views and reports but can be recovered.
             </DialogDescription>
           </DialogHeader>
 
@@ -1487,18 +1486,6 @@ export default function EventOrderDetailPage({ params }: PageProps) {
               <AlertTitle className="text-destructive">Delete failed</AlertTitle>
               <AlertDescription className="text-destructive/80">
                 {deleteError}
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {!canRemoveLocally && (
-            <Alert className="rounded-xl border-amber-500/20 bg-amber-500/5 text-amber-700 dark:text-amber-400">
-              <AlertCircle className="size-4" />
-              <AlertTitle>Cannot delete</AlertTitle>
-              <AlertDescription>
-                {hasAssignedPayments
-                  ? "Unassign all payments before deleting this order."
-                  : "Only archived or cancelled orders can be deleted. Cancel the order first in edit mode."}
               </AlertDescription>
             </Alert>
           )}
@@ -1518,7 +1505,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
             <Button
               type="button"
               variant="destructive"
-              disabled={!canRemoveLocally || isDeleting}
+              disabled={isDeleting}
               onClick={() => void deleteOrder()}
               className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
             >
