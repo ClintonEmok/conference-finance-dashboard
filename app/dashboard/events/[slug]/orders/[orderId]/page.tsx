@@ -1475,8 +1475,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
           <DialogHeader>
             <DialogTitle>Delete Order</DialogTitle>
             <DialogDescription>
-              This will remove the order from local dashboard records.
-              The order will be hidden from views and reports but can be recovered.
+              This will remove the order from local dashboard records and hide it from views and reports.
             </DialogDescription>
           </DialogHeader>
 
