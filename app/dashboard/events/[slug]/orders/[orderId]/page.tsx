@@ -801,20 +801,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                 </>
               )}
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setMergeError(null)
-                setMergeSearch("")
-                setSelectedMergeTargetId(null)
-                setIsMergeDialogOpen(true)
-              }}
-              className="h-9 rounded-lg border-white/20 text-[11px] font-bold tracking-wider uppercase"
-            >
-              <GitMerge className="mr-2 size-3.5" />
-              Merge into…
-            </Button>
+            {/* Merge hidden for now */}
             <Button
               variant="destructive"
               size="sm"
