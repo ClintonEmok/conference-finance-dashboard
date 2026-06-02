@@ -40,6 +40,9 @@ export function ReportLocationDetail({
             All attendee entries grouped by location. Generated{" "}
             {format(new Date(generatedAt), "PP p")}
           </CardDescription>
+          <p className="text-xs text-muted-foreground">
+            Attendee amounts are allocated shares of the location total.
+          </p>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -125,9 +128,11 @@ export function ReportLocationDetail({
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Attendee</TableHead>
-                        <TableHead>Email</TableHead>
+                    <TableRow>
+                      <TableHead>Attendee</TableHead>
+                        <TableHead className="text-right">Due</TableHead>
+                        <TableHead className="text-right">Paid</TableHead>
+                        <TableHead className="text-right">Left</TableHead>
                         <TableHead>Ticket</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -137,8 +142,14 @@ export function ReportLocationDetail({
                           <TableCell className="font-medium text-foreground">
                             {attendee.name}
                           </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {attendee.email ?? "–"}
+                          <TableCell className="text-right tabular-nums text-muted-foreground">
+                            {formatMoney(attendee.amountDueMinor)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-emerald-600">
+                            {formatMoney(attendee.paidMinor)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-foreground">
+                            {formatMoney(attendee.outstandingMinor)}
                           </TableCell>
                           <TableCell className="text-muted-foreground">
                             {attendee.ticketTypeLabel ?? "–"}

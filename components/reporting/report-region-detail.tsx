@@ -56,6 +56,9 @@ export function ReportRegionDetail({
             {descriptionLabel ?? "Orders grouped with attendees for this region."} Generated{" "}
             {format(new Date(report.generatedAt), "PP p")}
           </CardDescription>
+          <p className="text-xs text-muted-foreground">
+            Attendee amounts are allocated shares of the order total.
+          </p>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -152,9 +155,11 @@ export function ReportRegionDetail({
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Attendee</TableHead>
-                        <TableHead>Email</TableHead>
+                    <TableRow>
+                      <TableHead>Attendee</TableHead>
+                        <TableHead className="text-right">Due</TableHead>
+                        <TableHead className="text-right">Paid</TableHead>
+                        <TableHead className="text-right">Left</TableHead>
                         <TableHead>Ticket</TableHead>
                         <TableHead>Location</TableHead>
                       </TableRow>
@@ -165,8 +170,14 @@ export function ReportRegionDetail({
                           <TableCell className="font-medium text-foreground">
                             {attendee.name}
                           </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {attendee.email ?? "–"}
+                          <TableCell className="text-right tabular-nums text-muted-foreground">
+                            {formatMoney(attendee.amountDueMinor)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-emerald-600">
+                            {formatMoney(attendee.paidMinor)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-foreground">
+                            {formatMoney(attendee.outstandingMinor)}
                           </TableCell>
                           <TableCell className="text-muted-foreground">
                             {attendee.ticketTypeLabel ?? "–"}
