@@ -251,10 +251,8 @@ export default function EventOrderDetailPage({ params }: PageProps) {
   const [attendeeEditDrafts, setAttendeeEditDrafts] = useState<
     Record<string, AttendeeEditDraft>
   >({})
-  const [savingAttendeeId, setSavingAttendeeId] = useState<string | null>(null)
-  const [attendeeSaveErrors, setAttendeeSaveErrors] = useState<
-    Record<string, string | null>
-  >({})
+  const [isSavingAttendees, setIsSavingAttendees] = useState(false)
+  const [attendeeSaveError, setAttendeeSaveError] = useState<string | null>(null)
   const [attendeeLoadError, setAttendeeLoadError] = useState<string | null>(
     null
   )
@@ -439,6 +437,22 @@ export default function EventOrderDetailPage({ params }: PageProps) {
       )
   )
 
+  const dirtyAttendees = useMemo(() => {
+    const attendees = orderPayload?.attendees ?? []
+
+    return attendees.filter((attendee) => {
+      const draft = attendeeEditDrafts[attendee.id]
+      const snapshot = attendeeDetailSnapshots[attendee.id]
+
+      return (
+        !!draft &&
+        !!snapshot &&
+        (draft.genderType !== (snapshot.signals.genderType ?? "") ||
+          draft.ticketTypeId !== (snapshot.attendee.ticketTypeId ?? ""))
+      )
+    })
+  }, [attendeeDetailSnapshots, attendeeEditDrafts, orderPayload?.attendees])
+
   const canResendConfirmation = Boolean(
     orderPayload?.order.bookerEmail && orderPayload?.order.bookingRef
   )
@@ -558,44 +572,44 @@ export default function EventOrderDetailPage({ params }: PageProps) {
     }
   }
 
-  async function saveAttendeeDetails(attendeeId: string) {
-    const draft = attendeeEditDrafts[attendeeId]
-    if (!draft) return
+  async function saveAttendeeDetails() {
+    if (!dirtyAttendees.length) return
 
-    setSavingAttendeeId(attendeeId)
-    setAttendeeSaveErrors((current) => ({ ...current, [attendeeId]: null }))
+    setIsSavingAttendees(true)
+    setAttendeeSaveError(null)
 
     try {
-      const response = await fetch(
-        `/api/dashboard/attendees/${encodeURIComponent(attendeeId)}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            genderType: draft.genderType || null,
-            ...(draft.ticketTypeId
-              ? { ticketTypeId: draft.ticketTypeId }
-              : {}),
-          }),
-        }
-      )
+      for (const attendee of dirtyAttendees) {
+        const draft = attendeeEditDrafts[attendee.id]
+        if (!draft) continue
 
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: { message?: string }
-        } | null
-        throw new Error(body?.error?.message ?? "Failed to save attendee details.")
+        const response = await fetch(
+          `/api/dashboard/attendees/${encodeURIComponent(attendee.id)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              genderType: draft.genderType || null,
+              ...(draft.ticketTypeId ? { ticketTypeId: draft.ticketTypeId } : {}),
+            }),
+          }
+        )
+
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as {
+            error?: { message?: string }
+          } | null
+          throw new Error(body?.error?.message ?? "Failed to save attendee details.")
+        }
       }
 
       window.location.reload()
     } catch (error) {
-      setAttendeeSaveErrors((current) => ({
-        ...current,
-        [attendeeId]:
-          error instanceof Error ? error.message : "Failed to save attendee details.",
-      }))
+      setAttendeeSaveError(
+        error instanceof Error ? error.message : "Failed to save attendee details."
+      )
     } finally {
-      setSavingAttendeeId(null)
+      setIsSavingAttendees(false)
     }
   }
 
@@ -1190,36 +1204,26 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                   </TableBody>
                 </Table>
                 <div className="border-t border-white/10 px-4 py-4">
-                  <div className="flex flex-wrap items-start justify-end gap-3">
+                  <div className="flex flex-wrap items-center justify-end gap-3">
+                    {attendeeSaveError && (
+                      <p className="text-[10px] font-medium text-destructive">
+                        {attendeeSaveError}
+                      </p>
+                    )}
                     {!areAttendeeDetailsHydrated ? (
                       <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground/60">
                         Loading attendee details...
                       </p>
                     ) : (
-                      orderPayload.attendees
-                        .filter((attendee) => {
-                          const draft = attendeeEditDrafts[attendee.id]
-                          const snapshot = attendeeDetailSnapshots[attendee.id]
-
-                          return (
-                            !!draft &&
-                            !!snapshot &&
-                            (draft.genderType !== (snapshot.signals.genderType ?? "") ||
-                              draft.ticketTypeId !== (snapshot.attendee.ticketTypeId ?? ""))
-                          )
-                        })
-                        .map((attendee) => (
-                          <Button
-                            key={attendee.id}
-                            size="sm"
-                            variant="outline"
-                            className="h-8 rounded-lg text-[10px] font-bold tracking-wider uppercase"
-                            disabled={savingAttendeeId === attendee.id}
-                            onClick={() => void saveAttendeeDetails(attendee.id)}
-                          >
-                            Save
-                          </Button>
-                        ))
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 rounded-lg text-[10px] font-bold tracking-wider uppercase"
+                        disabled={isSavingAttendees || dirtyAttendees.length === 0}
+                        onClick={() => void saveAttendeeDetails()}
+                      >
+                        {isSavingAttendees ? "Saving..." : `Save attendee changes${dirtyAttendees.length ? ` (${dirtyAttendees.length})` : ""}`}
+                      </Button>
                     )}
                   </div>
                 </div>

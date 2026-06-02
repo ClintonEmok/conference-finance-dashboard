@@ -254,6 +254,11 @@ export default function EventOrdersPage({ params }: PageProps) {
     outstandingAmountMinor: 0,
   }
 
+  const displayTotalRows = visibleRows.length === 0 ? 0 : payload?.page.totalRows ?? 0
+  const showPagination = Boolean(
+    payload && visibleRows.length > 0 && payload.page.totalPages > 1
+  )
+
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (dateValidationError) return
@@ -567,22 +572,28 @@ export default function EventOrdersPage({ params }: PageProps) {
           </Table>
         </div>
 
-        {payload && payload.page.totalPages > 1 && (
+        {payload && (
           <footer className="flex items-center justify-between border-t border-border/30 bg-muted/20 px-8 py-5">
             <p className="text-xs font-medium text-muted-foreground">
-              Showing <span className="text-foreground">{visibleRows.length}</span> of <span className="text-foreground">{payload.page.totalRows}</span> entries
+              Showing <span className="text-foreground">{visibleRows.length}</span> of <span className="text-foreground">{displayTotalRows}</span> entries
             </p>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" disabled={payload.page.number <= 1} onClick={() => setPage((value) => value - 1)} className="h-9 rounded-xl px-4">
-                <ChevronLeft className="mr-2 size-4" /> Previous
-              </Button>
-              <div className="px-4 text-xs font-bold tracking-widest text-muted-foreground/60 uppercase">
-                {payload.page.number} / {payload.page.totalPages}
+            {showPagination ? (
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={payload.page.number <= 1} onClick={() => setPage((value) => value - 1)} className="h-9 rounded-xl px-4">
+                  <ChevronLeft className="mr-2 size-4" /> Previous
+                </Button>
+                <div className="px-4 text-xs font-bold tracking-widest text-muted-foreground/60 uppercase">
+                  {payload.page.number} / {payload.page.totalPages}
+                </div>
+                <Button variant="outline" size="sm" disabled={payload.page.number >= payload.page.totalPages} onClick={() => setPage((value) => value + 1)} className="h-9 rounded-xl px-4">
+                  Next <ChevronRight className="ml-2 size-4" />
+                </Button>
               </div>
-              <Button variant="outline" size="sm" disabled={payload.page.number >= payload.page.totalPages} onClick={() => setPage((value) => value + 1)} className="h-9 rounded-xl px-4">
-                Next <ChevronRight className="ml-2 size-4" />
-              </Button>
-            </div>
+            ) : (
+              <p className="text-xs font-medium text-muted-foreground">
+                Showing 0 of 0 entries
+              </p>
+            )}
           </footer>
         )}
       </article>
