@@ -248,27 +248,11 @@ export default function EventOrdersPage({ params }: PageProps) {
     })
   }, [appliedSearch, payload?.rows])
 
-  const totals = useMemo(() => {
-    const rows = payload?.rows ?? []
-
-    return rows.reduce(
-      (acc, row) => {
-        const amountDueMinor = row.amountDueMinor ?? 0
-        const matchedAmountMinor = row.matchedAmountMinor ?? 0
-        const outstandingAmountMinor = row.outstandingAmountMinor ?? 0
-
-        acc.amountDueMinor += amountDueMinor
-        acc.matchedAmountMinor += matchedAmountMinor
-        acc.outstandingAmountMinor += outstandingAmountMinor
-        return acc
-      },
-      {
-        amountDueMinor: 0,
-        matchedAmountMinor: 0,
-        outstandingAmountMinor: 0,
-      }
-    )
-  }, [payload?.rows])
+  const totals = payload?.totals ?? {
+    amountDueMinor: 0,
+    matchedAmountMinor: 0,
+    outstandingAmountMinor: 0,
+  }
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
