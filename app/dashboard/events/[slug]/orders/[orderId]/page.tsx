@@ -632,7 +632,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
         return
       }
 
-      window.location.assign(`/dashboard/events/${slug}/orders`)
+      window.location.assign(`/dashboard/events/${slug}/overview`)
     } catch {
       setRemoveErrorMessage("Network error while removing order.")
     } finally {
@@ -660,7 +660,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
         return
       }
 
-      window.location.assign(`/dashboard/events/${slug}/orders`)
+      window.location.assign(`/dashboard/events/${slug}/overview`)
     } catch {
       setDeleteError("Network error while deleting order.")
     } finally {
