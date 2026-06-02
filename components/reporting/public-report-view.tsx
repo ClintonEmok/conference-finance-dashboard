@@ -65,7 +65,8 @@ export function PublicReportView({
   report: FullReportView | null
   token: string
 }) {
-  const [tab, setTab] = useState<"summary" | "attendees" | "locations">("summary")
+  const [tab, setTab] = useState<"summary" | "details">("summary")
+  const [detailView, setDetailView] = useState<"attendees" | "locations">("attendees")
 
   if (!report) {
     return <ReportUnavailableState />
@@ -76,16 +77,14 @@ export function PublicReportView({
 
   const effectiveTab =
     tab === "summary" && !hasSummary
-      ? hasLocations
-        ? "locations"
-        : "attendees"
-      : tab === "locations" && !hasLocations
-        ? hasSummary
-          ? "summary"
-          : "attendees"
+      ? "details"
+      : tab === "details" && !hasLocations
+        ? "details"
         : tab
 
   const summaryReport = report.aggregate ?? report.regionAggregate
+  const effectiveDetailView =
+    detailView === "locations" && !hasLocations ? "attendees" : detailView
 
   return (
     <main className="min-h-svh bg-[radial-gradient(circle_at_top,rgba(113,84,255,0.08),transparent_36%),linear-gradient(180deg,rgba(2,6,23,0.03),transparent_24%)] px-4 py-12 md:px-8 md:py-16">
@@ -108,14 +107,9 @@ export function PublicReportView({
               <TabButton active={effectiveTab === "summary"} onClick={() => setTab("summary")}>
                 Summary
               </TabButton>
-              <TabButton active={effectiveTab === "attendees"} onClick={() => setTab("attendees")}>
-                Orders
+              <TabButton active={effectiveTab === "details"} onClick={() => setTab("details")}>
+                Details
               </TabButton>
-              {hasLocations && (
-                <TabButton active={effectiveTab === "locations"} onClick={() => setTab("locations")}>
-                  By Location
-                </TabButton>
-              )}
             </div>
             <Button asChild variant="outline" className="rounded-full px-3 py-1 text-xs">
               <Link href={`/api/reports/export?token=${encodeURIComponent(token)}`}>
@@ -133,15 +127,30 @@ export function PublicReportView({
           </div>
         )}
 
-        {effectiveTab === "attendees" && report.attendees && (
-          <ReportRegionDetail report={report.attendees} descriptionLabel="All attendee entries grouped by order." />
-        )}
+        {effectiveTab === "details" && (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap gap-1 rounded-2xl border border-border/60 bg-background/80 p-1 shadow-sm backdrop-blur">
+              <TabButton active={effectiveDetailView === "attendees"} onClick={() => setDetailView("attendees")}>
+                Attendees
+              </TabButton>
+              {hasLocations && (
+                <TabButton active={effectiveDetailView === "locations"} onClick={() => setDetailView("locations")}>
+                  By Location
+                </TabButton>
+              )}
+            </div>
 
-        {effectiveTab === "locations" && report.locationGroups && (
-          <ReportLocationDetail
-            groups={report.locationGroups}
-            generatedAt={report.attendees?.generatedAt ?? report.aggregate?.generatedAt ?? report.regionAggregate?.generatedAt ?? ""}
-          />
+            {effectiveDetailView === "attendees" && report.attendees && (
+              <ReportRegionDetail report={report.attendees} descriptionLabel="All attendee entries grouped by order." />
+            )}
+
+            {effectiveDetailView === "locations" && report.locationGroups && (
+              <ReportLocationDetail
+                groups={report.locationGroups}
+                generatedAt={report.attendees?.generatedAt ?? report.aggregate?.generatedAt ?? report.regionAggregate?.generatedAt ?? ""}
+              />
+            )}
+          </div>
         )}
       </section>
     </main>

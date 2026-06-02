@@ -3,14 +3,14 @@ import type { StakeholderReport } from "@/lib/domain/finance/stakeholder-report"
 
 export function ReportSummary({ report }: { report: StakeholderReport }) {
   const cards = [
+    { label: "Amount Due", value: formatMoney(report.totals.amountDueMinor) },
     { label: "Collected", value: formatMoney(report.totals.paidMinor) },
     { label: "Outstanding", value: formatMoney(report.totals.outstandingMinor) },
     { label: "Donation", value: formatMoney(report.totals.overpaidMinor) },
-    { label: "Entries", value: report.totals.rows.toLocaleString() },
   ]
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
       {cards.map((card) => (
         <div
           key={card.label}
