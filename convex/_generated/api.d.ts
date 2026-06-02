@@ -763,6 +763,7 @@ export declare const api: {
       {
         eventId?: string;
         from?: number;
+        location?: string;
         page?: number;
         pageSize?: number;
         status?: "paid" | "refunded" | "cancelled" | "pending";
@@ -791,6 +792,11 @@ export declare const api: {
         }>;
         totalPages: number;
         totalRows: number;
+        totals: {
+          amountDueMinor: number;
+          matchedAmountMinor: number;
+          outstandingAmountMinor: number;
+        };
       }
     >;
     getOrderWithAttendees: FunctionReference<
@@ -838,8 +844,8 @@ export declare const api: {
     removeOrderLocally: FunctionReference<
       "mutation",
       "public",
-      { orderId: Id<"orders">; reason?: string },
-      { orderId: Id<"orders">; removedAt: number }
+      { orderId: Id<"orders"> },
+      { deletedAt: number; orderId: Id<"orders"> }
     >;
     searchOrders: FunctionReference<
       "query",

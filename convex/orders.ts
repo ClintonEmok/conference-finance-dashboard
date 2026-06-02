@@ -605,6 +605,47 @@ function sortOrdersByNewest<
   return bTime - aTime
 }
 
+function normalizeLocationLabel(value: string | null | undefined) {
+  const trimmed = typeof value === "string" ? value.trim() : ""
+  return trimmed || null
+}
+
+async function loadOrderLocationsByOrderId(
+  ctx: QueryCtx,
+  orders: CandidateOrder[]
+): Promise<Map<string, string[]>> {
+  const entries = await Promise.all(
+    orders.map(async (order) => {
+      const attendees = await loadOrderAttendeesWithExtensions(ctx, order._id)
+      const locations = new Map<string, string>()
+
+      for (const attendee of attendees) {
+        const value = normalizeLocationLabel(attendee.location)
+        if (!value) continue
+
+        const key = value.toLowerCase()
+        if (!locations.has(key)) {
+          locations.set(key, value)
+        }
+      }
+
+      return [String(order._id), Array.from(locations.values())] as const
+    })
+  )
+
+  return new Map(entries)
+}
+
+function matchesLocationFilter(
+  orderId: Id<"orders">,
+  locationsByOrderId: Map<string, string[]>,
+  location: string
+) {
+  const normalized = location.toLowerCase()
+  const orderLocations = locationsByOrderId.get(String(orderId)) ?? []
+  return orderLocations.some((value) => value.toLowerCase() === normalized)
+}
+
 function matchesOrderFilters(
   order: {
     eventId?: string
@@ -617,6 +658,7 @@ function matchesOrderFilters(
     from?: number
     to?: number
     status?: "paid" | "refunded" | "cancelled" | "pending"
+    location?: string
   }
 ) {
   if (args.eventId && order.eventId !== args.eventId) {
@@ -670,13 +712,13 @@ async function listCandidateOrders(
         q.eq("eventId", args.eventId! as Id<"events">)
       )
       .order("desc")
-      .take(maxItems)
+      .collect()
   } else if (args.status) {
     orders = await ctx.db
       .query("orders")
       .withIndex("by_status", (q) => q.eq("status", args.status!))
       .order("desc")
-      .take(maxItems)
+      .collect()
   } else {
     // For date range queries without event/status, use bounded scan
     // Note: orderedAt is not indexed, so we filter in memory
@@ -790,38 +832,75 @@ export const getOrdersWithFilters = query({
         v.literal("pending")
       )
     ),
+    location: v.optional(v.string()),
     page: v.optional(v.number()),
     pageSize: v.optional(v.number()),
   },
   returns: v.object({
     totalRows: v.number(),
     totalPages: v.number(),
+    totals: v.object({
+      amountDueMinor: v.number(),
+      matchedAmountMinor: v.number(),
+      outstandingAmountMinor: v.number(),
+    }),
     orders: v.array(orderLedgerRowValidator),
   }),
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     const candidates = await listCandidateOrders(ctx, args, 500)
     const eventSourceKindsById = await loadEventSourceKindsById(ctx)
-    const orders = candidates
+    const location = normalizeLocationLabel(args.location)
+    let orders = candidates
       .filter((order) => !isOrderRemoved(order))
       .filter((order) => isInternalEvent(eventSourceKindsById, order.eventId))
       .filter((order) => matchesOrderFilters(order, args))
       .sort(sortOrdersByNewest)
 
+    if (location) {
+      const locationsByOrderId = await loadOrderLocationsByOrderId(ctx, orders)
+      orders = orders.filter((order) =>
+        matchesLocationFilter(order._id, locationsByOrderId, location)
+      )
+    }
+
     const page = args.page ?? 1
     const pageSize = args.pageSize ?? 25
     const totalRows = orders.length
     const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
-    const skip = (page - 1) * pageSize
-    const paginatedOrders = orders.slice(skip, skip + pageSize)
     const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
       ctx,
-      paginatedOrders
+      orders
     )
     const matchedPaymentTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
       ctx,
-      paginatedOrders
+      orders
     )
+
+    const totals = orders.reduce(
+      (acc, order) => {
+        const amountDueMinor =
+          amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
+          order.totalAmountMinor ??
+          0
+        const matchedAmountMinor =
+          matchedPaymentTotalsByOrderId.get(String(order._id)) ?? 0
+        const balance = deriveBalanceAmounts(amountDueMinor, matchedAmountMinor)
+
+        acc.amountDueMinor += amountDueMinor
+        acc.matchedAmountMinor += matchedAmountMinor
+        acc.outstandingAmountMinor += balance.outstandingAmountMinor
+        return acc
+      },
+      {
+        amountDueMinor: 0,
+        matchedAmountMinor: 0,
+        outstandingAmountMinor: 0,
+      }
+    )
+
+    const skip = (page - 1) * pageSize
+    const paginatedOrders = orders.slice(skip, skip + pageSize)
 
     const eventNamesById = await loadEventNamesById(ctx)
     const eventSlugsById = await loadEventSlugsById(ctx)
@@ -867,6 +946,7 @@ export const getOrdersWithFilters = query({
     return {
       totalRows,
       totalPages,
+      totals,
       orders: ordersWithEvent,
     }
   },
@@ -1391,39 +1471,114 @@ export const getOrderPaymentStatus = query({
 export const removeOrderLocally = mutation({
   args: {
     orderId: v.id("orders"),
-    reason: v.optional(v.string()),
   },
   returns: v.object({
     orderId: v.id("orders"),
-    removedAt: v.number(),
+    deletedAt: v.number(),
   }),
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
 
-    // Verify order exists
     const order = await ctx.db.get("orders", args.orderId)
     if (!order) {
       throw new Error("Order not found")
     }
 
-    // Update extension table with removed status
     const extension = await ctx.db
       .query("ticketTailorOrders")
       .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
       .first()
 
-    const removedAt = Date.now()
+    const payments = await ctx.db
+      .query("payments")
+      .withIndex("orderId", (q) => q.eq("orderId", String(args.orderId)))
+      .collect()
+
+    const orderLinks = await ctx.db
+      .query("tikkiePaymentLinks")
+      .withIndex("orderId", (q) => q.eq("orderId", String(args.orderId)))
+      .collect()
+
+    const attendees = await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.orderId))
+      .collect()
+
+    const attendeeIds = attendees.map((attendee) => attendee._id)
+
+    const ticketSelections = await ctx.db
+      .query("orderTicketSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.orderId))
+      .collect()
+
+    const assignments = await ctx.db
+      .query("orderAssignments")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.orderId))
+      .collect()
+
+    const ttAttendees = await ctx.db
+      .query("ticketTailorAttendees")
+      .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
+      .collect()
+
+    const familyMembers = attendeeIds.length
+      ? await Promise.all(
+          attendeeIds.map((attendeeId) =>
+            ctx.db
+              .query("attendeeFamilyMembers")
+              .withIndex("attendeeId", (q) => q.eq("attendeeId", String(attendeeId)))
+              .collect()
+          )
+        )
+      : []
+
+    const deletedAt = Date.now()
 
     if (extension) {
-      await ctx.db.patch("ticketTailorOrders", extension._id, {
-        removedAt,
-        removedReason: args.reason?.trim() || "removed_by_user",
+      await ctx.db.delete("ticketTailorOrders", extension._id)
+    }
+
+    for (const payment of payments) {
+      await ctx.db.patch("payments", payment._id, {
+        orderId: undefined,
+        eventId: undefined,
+        status: "unassigned",
+        matchedAt: undefined,
+        matchedBy: undefined,
       })
     }
 
+    for (const link of orderLinks) {
+      await ctx.db.delete("tikkiePaymentLinks", link._id)
+    }
+
+    for (const selection of ticketSelections) {
+      await ctx.db.delete("orderTicketSelections", selection._id)
+    }
+
+    for (const assignment of assignments) {
+      await ctx.db.delete("orderAssignments", assignment._id)
+    }
+
+    for (const ttAttendee of ttAttendees) {
+      await ctx.db.delete("ticketTailorAttendees", ttAttendee._id)
+    }
+
+    for (const familyMemberGroup of familyMembers) {
+      for (const familyMember of familyMemberGroup) {
+        await ctx.db.delete("attendeeFamilyMembers", familyMember._id)
+      }
+    }
+
+    for (const attendee of attendees) {
+      await ctx.db.delete("orderAttendees", attendee._id)
+    }
+
+    await ctx.db.delete("orders", args.orderId)
+
     return {
       orderId: args.orderId,
-      removedAt,
+      deletedAt,
     }
   },
 })

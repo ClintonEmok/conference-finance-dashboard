@@ -599,20 +599,19 @@ export default function EventOrderDetailPage({ params }: PageProps) {
     }
   }
 
-  const canRemoveLocally = useMemo(() => {
+  const canDeleteOrder = useMemo(() => {
     if (!orderPayload) return false
     return (
-      (orderPayload.order.isArchived === true ||
-        orderPayload.order.normalizedStatus === "cancelled") &&
-      !hasAssignedPayments
+      orderPayload.order.isArchived === true ||
+      orderPayload.order.normalizedStatus === "cancelled"
     )
-  }, [hasAssignedPayments, orderPayload])
+  }, [orderPayload])
 
   async function removeOrderLocally() {
-    if (!orderId || !canRemoveLocally) return
+    if (!orderId || !canDeleteOrder) return
 
     const confirmed = window.confirm(
-      "Remove this order from local dashboard records? This hides it from order views and reports."
+      "Permanently delete this order? Attached payments will be unassigned and attendee records will be deleted. This cannot be undone."
     )
     if (!confirmed) return
 
@@ -757,11 +756,11 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                   </p>
                   <p className="text-[10px] text-amber-600/70">
                     {hasAssignedPayments
-                      ? "Assigned payments must be removed before this order can be deleted."
-                      : "Missing upstream in provider."}
+                      ? "Attached payments will be unassigned automatically."
+                      : "This order can be permanently deleted."}
                   </p>
                 </div>
-                {canRemoveLocally && (
+                {canDeleteOrder && (
                   <Button
                     variant="destructive"
                     size="sm"
@@ -769,7 +768,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                     disabled={isRemoving}
                     className="h-8 rounded-lg px-3 text-[10px] font-bold tracking-wider uppercase"
                   >
-                    {isRemoving ? "Removing..." : "Remove Locally"}
+                    {isRemoving ? "Deleting..." : "Delete Order"}
                   </Button>
                 )}
               </div>

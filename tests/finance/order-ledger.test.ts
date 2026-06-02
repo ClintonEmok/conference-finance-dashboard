@@ -202,6 +202,38 @@ describe("order-ledger domain", () => {
       expect(result.filters.to).toBe(to.toISOString())
     })
 
+    it("leaves dates empty when no date filters are provided", async () => {
+      const mockOrdersResult = {
+        orders: [],
+        totalRows: 0,
+        totalPages: 1,
+        totals: {
+          amountDueMinor: 0,
+          matchedAmountMinor: 0,
+          outstandingAmountMinor: 0,
+        },
+      }
+
+      const mockEvents = [
+        {
+          _id: "event-integration-1",
+          slug: "integration-camp",
+          title: "Integration Summer Camp",
+          startsAt: 1743340800000,
+          currency: "EUR",
+        },
+      ]
+
+      vi.mocked(convexQuery)
+        .mockResolvedValueOnce(mockOrdersResult)
+        .mockResolvedValueOnce(mockEvents)
+
+      const result = await getOrderLedger({})
+
+      expect(result.filters.from).toBeNull()
+      expect(result.filters.to).toBeNull()
+    })
+
     it("normalizes null title to null in availableEvents", async () => {
       const mockOrdersResult = {
         orders: [],

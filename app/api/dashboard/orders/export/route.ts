@@ -23,15 +23,30 @@ function parseOptionalDate(value: string | null, field: "from" | "to") {
   return parsed
 }
 
+function parseOptionalString(value: string | null) {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
+}
+
+function slugifyForFilename(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48)
+}
+
 function parseFilters(request: Request) {
   const params = new URL(request.url).searchParams
   const eventIdParam = params.get("eventId")
   const statusParam = params.get("status")
+  const locationParam = params.get("location")
 
   const eventId = eventIdParam && eventIdParam.trim() ? eventIdParam.trim() : null
   const from = parseOptionalDate(params.get("from"), "from")
   const to = parseOptionalDate(params.get("to"), "to")
   const status = statusParam && statusParam.trim() ? statusParam.trim().toLowerCase() : null
+  const location = parseOptionalString(locationParam)
 
   if (status && !allowedStatuses.has(status as CanonicalOrderStatus)) {
     throw new Error("Invalid 'status'. Expected one of: paid, refunded, cancelled, pending.")
@@ -46,15 +61,19 @@ function parseFilters(request: Request) {
     from,
     to,
     status: (status as CanonicalOrderStatus | null) ?? null,
+    location,
   }
 }
 
-function buildFilename(filters: { eventId: string | null; status: CanonicalOrderStatus | null }) {
+function buildFilename(filters: { eventId: string | null; status: CanonicalOrderStatus | null; location: string | null }) {
   const datePart = new Date().toISOString().slice(0, 10)
   const eventPart = filters.eventId ? `event-${filters.eventId}` : "all-events"
   const statusPart = filters.status ? `status-${filters.status}` : "all-statuses"
+  const locationPart = filters.location
+    ? `location-${slugifyForFilename(filters.location) || "custom"}`
+    : "all-locations"
 
-  return `orders-${eventPart}-${statusPart}-${datePart}.csv`
+  return `orders-${eventPart}-${statusPart}-${locationPart}-${datePart}.csv`
 }
 
 export async function GET(request: Request) {
@@ -73,7 +92,7 @@ export async function GET(request: Request) {
     })
 
     const csv = buildOrderLedgerCsv(ledger.rows)
-    const filename = buildFilename({ eventId: filters.eventId, status: filters.status })
+    const filename = buildFilename({ eventId: filters.eventId, status: filters.status, location: filters.location })
 
     return new NextResponse(csv, {
       status: 200,

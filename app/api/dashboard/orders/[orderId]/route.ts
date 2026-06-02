@@ -307,12 +307,42 @@ export async function DELETE(
     return authResult
   }
 
-  const { orderId } = await params
+  try {
+    const orderId = await normalizeOrderId({ params })
 
-  await convexMutation(api.orders.removeOrderLocally, {
-    orderId: orderId as Id<"orders">,
-    reason: "removed_by_user",
-  })
+    await convexMutation(api.orders.removeOrderLocally, {
+      orderId: orderId as Id<"orders">,
+    })
 
-  return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    console.error("Error deleting order:", error)
+    const message = error instanceof Error ? error.message : "Invalid request"
+
+    if (message === "Invalid orderId") {
+      return badRequest("Invalid orderId")
+    }
+
+    if (message.includes("not found")) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "NOT_FOUND",
+            message: "Order not found",
+          },
+        },
+        { status: 404 }
+      )
+    }
+
+    return NextResponse.json(
+      {
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to delete order",
+        },
+      },
+      { status: 500 }
+    )
+  }
 }

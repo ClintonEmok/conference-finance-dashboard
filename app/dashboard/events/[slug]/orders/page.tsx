@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
+  ExternalLink,
   FileDown,
   Filter,
   Search,
@@ -31,9 +32,10 @@ type OrdersPayload = {
   generatedAt: string
   filters: {
     eventId: string | null
-    from: string
-    to: string
+    from: string | null
+    to: string | null
     status: CanonicalOrderStatus | null
+    location: string | null
     page: number
     pageSize: number
   }
@@ -42,6 +44,11 @@ type OrdersPayload = {
     size: number
     totalRows: number
     totalPages: number
+  }
+  totals: {
+    amountDueMinor: number
+    matchedAmountMinor: number
+    outstandingAmountMinor: number
   }
   rows: Array<{
     orderId: string
@@ -66,8 +73,19 @@ type PageProps = {
   params: Promise<{ slug: string }>
 }
 
-function toDateInputValue(date: Date) {
-  return date.toISOString().slice(0, 10)
+function formatNlDateTime(value: string | null) {
+  if (!value) return "-"
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+
+  return parsed.toLocaleString("nl-NL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }
 
 function toIsoBoundary(value: string, boundary: "start" | "end") {
@@ -136,23 +154,26 @@ export default function EventOrdersPage({ params }: PageProps) {
   const { slug } = use(params)
   const router = useRouter()
   const event = useEventBySlug(slug)
+  const eventLocations = useQuery(
+    api.reports.getEventLocations,
+    event?._id ? { eventId: event._id } : ("skip" as const)
+  ) as string[] | undefined
 
   const [searchInput, setSearchInput] = useState("")
   const [statusInput, setStatusInput] = useState<"all" | CanonicalOrderStatus>(
     "all"
   )
-  const [fromInput, setFromInput] = useState(() => {
-    const today = new Date()
-    return toDateInputValue(new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000))
-  })
-  const [toInput, setToInput] = useState(() => toDateInputValue(new Date()))
+  const [locationInput, setLocationInput] = useState("all")
+  const [fromInput, setFromInput] = useState("")
+  const [toInput, setToInput] = useState("")
 
   const [appliedSearch, setAppliedSearch] = useState("")
   const [appliedStatus, setAppliedStatus] = useState<"all" | CanonicalOrderStatus>(
     "all"
   )
-  const [appliedFrom, setAppliedFrom] = useState(fromInput)
-  const [appliedTo, setAppliedTo] = useState(toInput)
+  const [appliedLocation, setAppliedLocation] = useState("all")
+  const [appliedFrom, setAppliedFrom] = useState("")
+  const [appliedTo, setAppliedTo] = useState("")
   const [page, setPage] = useState(1)
   const [payload, setPayload] = useState<OrdersPayload | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -161,7 +182,7 @@ export default function EventOrdersPage({ params }: PageProps) {
   const dateValidationError = useMemo(() => {
     const fromIso = toIsoBoundary(fromInput, "start")
     const toIso = toIsoBoundary(toInput, "end")
-    if (!fromIso || !toIso) return "Select valid from/to dates."
+    if (!fromIso || !toIso) return null
     if (new Date(fromIso).getTime() > new Date(toIso).getTime()) {
       return "From date must be before or equal to To date."
     }
@@ -173,9 +194,6 @@ export default function EventOrdersPage({ params }: PageProps) {
 
     const fromIso = toIsoBoundary(appliedFrom, "start")
     const toIso = toIsoBoundary(appliedTo, "end")
-    if (!fromIso || !toIso) return
-    const safeFromIso = fromIso
-    const safeToIso = toIso
 
     const controller = new AbortController()
 
@@ -186,12 +204,14 @@ export default function EventOrdersPage({ params }: PageProps) {
       try {
         const query = new URLSearchParams()
         query.set("eventId", event._id)
-        query.set("from", safeFromIso)
-        query.set("to", safeToIso)
         query.set("page", String(page))
         query.set("pageSize", "25")
 
+        if (fromIso) query.set("from", fromIso)
+        if (toIso) query.set("to", toIso)
+
         if (appliedStatus !== "all") query.set("status", appliedStatus)
+        if (appliedLocation !== "all") query.set("location", appliedLocation)
 
         const response = await fetch(`/api/dashboard/orders?${query.toString()}`, {
           signal: controller.signal,
@@ -211,7 +231,7 @@ export default function EventOrdersPage({ params }: PageProps) {
 
     loadOrders()
     return () => controller.abort()
-  }, [appliedFrom, appliedStatus, appliedTo, event, page])
+  }, [appliedFrom, appliedLocation, appliedStatus, appliedTo, event, page])
 
   const visibleRows = useMemo(() => {
     const rows = payload?.rows ?? []
@@ -228,11 +248,18 @@ export default function EventOrdersPage({ params }: PageProps) {
     })
   }, [appliedSearch, payload?.rows])
 
+  const totals = payload?.totals ?? {
+    amountDueMinor: 0,
+    matchedAmountMinor: 0,
+    outstandingAmountMinor: 0,
+  }
+
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (dateValidationError) return
     setAppliedSearch(searchInput)
     setAppliedStatus(statusInput)
+    setAppliedLocation(locationInput)
     setAppliedFrom(fromInput)
     setAppliedTo(toInput)
     setPage(1)
@@ -242,15 +269,13 @@ export default function EventOrdersPage({ params }: PageProps) {
     if (!event) return
     const fromIso = toIsoBoundary(appliedFrom, "start")
     const toIso = toIsoBoundary(appliedTo, "end")
-    if (!fromIso || !toIso) return
-    const safeFromIso = fromIso
-    const safeToIso = toIso
 
     const query = new URLSearchParams()
     query.set("eventId", event._id)
-    query.set("from", safeFromIso)
-    query.set("to", safeToIso)
+    if (fromIso) query.set("from", fromIso)
+    if (toIso) query.set("to", toIso)
     if (appliedStatus !== "all") query.set("status", appliedStatus)
+    if (appliedLocation !== "all") query.set("location", appliedLocation)
     window.location.assign(`/api/dashboard/orders/export?${query.toString()}`)
   }
 
@@ -312,7 +337,7 @@ export default function EventOrdersPage({ params }: PageProps) {
                   Amount Due
                 </p>
                 <p className="mt-0.5 text-xl font-bold">
-                  {formatMoney(payload.rows.reduce((sum, row) => sum + (row.amountDueMinor ?? 0), 0))}
+                  {formatMoney(totals.amountDueMinor)}
                 </p>
               </div>
             </div>
@@ -327,7 +352,7 @@ export default function EventOrdersPage({ params }: PageProps) {
                   Amount Paid
                 </p>
                 <p className="mt-0.5 text-xl font-bold text-emerald-600">
-                  {formatMoney(payload.rows.reduce((sum, row) => sum + (row.matchedAmountMinor ?? 0), 0))}
+                  {formatMoney(totals.matchedAmountMinor)}
                 </p>
               </div>
             </div>
@@ -342,7 +367,7 @@ export default function EventOrdersPage({ params }: PageProps) {
                   Amount Left
                 </p>
                 <p className="mt-0.5 text-xl font-bold text-rose-600">
-                  {formatMoney(payload.rows.reduce((sum, row) => sum + (row.outstandingAmountMinor ?? 0), 0))}
+                  {formatMoney(totals.outstandingAmountMinor)}
                 </p>
               </div>
             </div>
@@ -380,6 +405,25 @@ export default function EventOrdersPage({ params }: PageProps) {
               <option value="refunded">Refunded</option>
               <option value="cancelled">Cancelled</option>
               <option value="pending">Pending</option>
+            </select>
+          </div>
+
+          <div className="min-w-[180px] flex-1 space-y-1.5">
+            <label className="ml-1 flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
+              <Filter className="size-3" /> Location
+            </label>
+            <select
+              aria-label="Filter by location"
+              value={locationInput}
+              onChange={(e) => setLocationInput(e.target.value)}
+              className="h-11 w-full rounded-lg border border-border/40 bg-background/50 px-4 text-sm"
+            >
+              <option value="all">All locations</option>
+              {(eventLocations ?? []).map((location) => (
+                <option key={location} value={location}>
+                  {location}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -473,16 +517,19 @@ export default function EventOrdersPage({ params }: PageProps) {
                       className="cursor-pointer transition-colors hover:bg-muted/30"
                     >
                       <TableCell className="px-6 py-5">
-                        <div className="font-mono text-[10px] font-bold text-primary/70">{row.orderId}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {row.orderedAt ? new Date(row.orderedAt).toLocaleString("en-GB", {
-                            day: "2-digit",
-                            month: "short",
-                            year: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          }) : "-"}
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/dashboard/events/${slug}/orders/${row.orderId}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                            className="font-mono text-[10px] font-bold text-primary/70 underline-offset-2 hover:underline"
+                          >
+                            {row.orderId}
+                          </Link>
+                          <ExternalLink className="size-3 text-muted-foreground/60" />
                         </div>
+                        <div className="mt-1 text-xs text-muted-foreground">{formatNlDateTime(row.orderedAt)}</div>
                       </TableCell>
                       <TableCell className="px-6 py-5">
                         <div className="font-bold text-foreground">{row.buyerName || "Anonymous"}</div>
