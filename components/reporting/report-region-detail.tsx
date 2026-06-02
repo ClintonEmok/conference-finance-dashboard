@@ -64,9 +64,9 @@ export function ReportRegionDetail({
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             {[
               { label: "Entries", value: report.totals.rows.toLocaleString() },
-              { label: "Due", value: formatMoney(report.totals.amountDueMinor) },
-              { label: "Paid", value: formatMoney(report.totals.paidMinor) },
-              { label: "Outstanding", value: formatMoney(report.totals.outstandingMinor) },
+              { label: "Amount due", value: formatMoney(report.totals.amountDueMinor) },
+              { label: "Amount paid", value: formatMoney(report.totals.paidMinor) },
+              { label: "Amount outstanding", value: formatMoney(report.totals.outstandingMinor) },
               { label: "Donation", value: formatMoney(report.totals.overpaidMinor) },
             ].map((card) => (
               <div
@@ -118,6 +118,32 @@ export function ReportRegionDetail({
                       </p>
                     )}
                   </div>
+                  <div className="grid min-w-[250px] grid-cols-3 gap-3 text-right">
+                    <div>
+                      <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
+                        Amount due
+                      </p>
+                      <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
+                        {formatMoney(group.amountDueMinor)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
+                        Amount paid
+                      </p>
+                      <p className="mt-1 text-sm font-semibold tabular-nums text-emerald-500">
+                        {formatMoney(group.paidMinor)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
+                        Amount outstanding
+                      </p>
+                      <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
+                        {formatMoney(group.outstandingMinor)}
+                      </p>
+                    </div>
+                  </div>
                   <svg
                     className="mt-1 h-5 w-5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
                     viewBox="0 0 20 20"
@@ -133,19 +159,19 @@ export function ReportRegionDetail({
 
                 <div className="grid grid-cols-3 gap-4 border-b border-border/20 px-5 py-4">
                   <div>
-                    <span className="text-sm text-muted-foreground">Due </span>
+                    <span className="text-sm text-muted-foreground">Amount due </span>
                     <span className="mt-1 block text-lg font-semibold tabular-nums text-foreground">
                       {formatMoney(group.amountDueMinor)}
                     </span>
                   </div>
                   <div>
-                    <span className="text-sm text-muted-foreground">Paid </span>
+                    <span className="text-sm text-muted-foreground">Amount paid </span>
                     <span className="mt-1 block text-lg font-semibold tabular-nums text-emerald-500">
                       {formatMoney(group.paidMinor)}
                     </span>
                   </div>
                   <div>
-                    <span className="text-sm text-muted-foreground">Outstanding </span>
+                    <span className="text-sm text-muted-foreground">Amount outstanding </span>
                     <span className="mt-1 block text-lg font-semibold tabular-nums text-foreground">
                       {formatMoney(group.outstandingMinor)}
                     </span>
@@ -157,9 +183,9 @@ export function ReportRegionDetail({
                     <TableHeader>
                     <TableRow>
                       <TableHead>Attendee</TableHead>
-                        <TableHead className="text-right">Due</TableHead>
-                        <TableHead className="text-right">Paid</TableHead>
-                        <TableHead className="text-right">Left</TableHead>
+                        <TableHead className="text-right">Amount due</TableHead>
+                        <TableHead className="text-right">Amount paid</TableHead>
+                        <TableHead className="text-right">Amount outstanding</TableHead>
                         <TableHead>Ticket</TableHead>
                         <TableHead>Location</TableHead>
                       </TableRow>

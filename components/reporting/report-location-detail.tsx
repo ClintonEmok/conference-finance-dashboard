@@ -48,9 +48,9 @@ export function ReportLocationDetail({
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             {[
               { label: "Attendees", value: totalAttendees.toLocaleString() },
-              { label: "Due", value: formatMoney(totalDue) },
-              { label: "Paid", value: formatMoney(totalPaid) },
-              { label: "Outstanding", value: formatMoney(totalOutstanding) },
+              { label: "Amount due", value: formatMoney(totalDue) },
+              { label: "Amount paid", value: formatMoney(totalPaid) },
+              { label: "Amount outstanding", value: formatMoney(totalOutstanding) },
               { label: "Donation", value: formatMoney(totalOverpaid) },
             ].map((card) => (
               <div
@@ -106,19 +106,19 @@ export function ReportLocationDetail({
 
                 <div className="grid grid-cols-3 gap-4 border-b border-border/20 px-5 py-4">
                   <div>
-                    <span className="text-sm text-muted-foreground">Due </span>
+                    <span className="text-sm text-muted-foreground">Amount due </span>
                     <span className="mt-1 block text-lg font-semibold tabular-nums text-foreground">
                       {formatMoney(group.amountDueMinor)}
                     </span>
                   </div>
                   <div>
-                    <span className="text-sm text-muted-foreground">Paid </span>
+                    <span className="text-sm text-muted-foreground">Amount paid </span>
                     <span className="mt-1 block text-lg font-semibold tabular-nums text-emerald-500">
                       {formatMoney(group.paidMinor)}
                     </span>
                   </div>
                   <div>
-                    <span className="text-sm text-muted-foreground">Outstanding </span>
+                    <span className="text-sm text-muted-foreground">Amount outstanding </span>
                     <span className="mt-1 block text-lg font-semibold tabular-nums text-foreground">
                       {formatMoney(group.outstandingMinor)}
                     </span>
