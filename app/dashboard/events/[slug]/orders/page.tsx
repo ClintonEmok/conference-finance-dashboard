@@ -572,7 +572,7 @@ export default function EventOrdersPage({ params }: PageProps) {
           </Table>
         </div>
 
-        {payload && (
+        {payload && visibleRows.length > 0 && (
           <footer className="flex items-center justify-between border-t border-border/30 bg-muted/20 px-8 py-5">
             <p className="text-xs font-medium text-muted-foreground">
               Showing <span className="text-foreground">{visibleRows.length}</span> of <span className="text-foreground">{displayTotalRows}</span> entries
@@ -589,11 +589,7 @@ export default function EventOrdersPage({ params }: PageProps) {
                   Next <ChevronRight className="ml-2 size-4" />
                 </Button>
               </div>
-            ) : (
-              <p className="text-xs font-medium text-muted-foreground">
-                Showing 0 of 0 entries
-              </p>
-            )}
+            ) : null}
           </footer>
         )}
       </article>
