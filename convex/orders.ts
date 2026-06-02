@@ -218,7 +218,7 @@ export const createOrder = mutation({
       currency: args.currency,
       totalAmountMinor: args.totalAmountMinor,
       orderedAt: args.orderedAt,
-      status: args.normalizedStatus,
+      status: args.normalizedStatus ?? "pending",
       source: "integration",
     })
 
@@ -228,7 +228,7 @@ export const createOrder = mutation({
       providerOrderId: args.providerOrderId,
       providerEventId: args.providerEventId,
       providerStatus: args.providerStatus,
-      normalizedStatus: args.normalizedStatus,
+      normalizedStatus: args.normalizedStatus ?? "pending",
       rawPayload: args.rawPayload,
     })
 
@@ -277,14 +277,14 @@ export const upsertOrder = mutation({
       currency: args.currency,
       totalAmountMinor: args.totalAmountMinor,
       orderedAt: args.orderedAt,
-      status: args.normalizedStatus,
+      status: args.normalizedStatus ?? "pending",
     }
 
     const extensionData = {
       providerOrderId: args.providerOrderId,
       providerEventId: args.providerEventId,
       providerStatus: args.providerStatus,
-      normalizedStatus: args.normalizedStatus,
+      normalizedStatus: args.normalizedStatus ?? "pending",
       rawPayload: args.rawPayload,
     }
 
@@ -675,8 +675,11 @@ function matchesOrderFilters(
     return false
   }
 
-  if (args.status && order.status !== args.status) {
-    return false
+  if (args.status) {
+    const normalizedStatus = order.status ?? "pending"
+    if (normalizedStatus !== args.status) {
+      return false
+    }
   }
 
   return true
@@ -713,6 +716,10 @@ async function listCandidateOrders(
       )
       .order("desc")
       .collect()
+  } else if (args.status === "pending") {
+    // Older rows can have an unset status but still represent pending orders.
+    // Pending must therefore scan the full set rather than using the status index.
+    orders = await ctx.db.query("orders").order("desc").collect()
   } else if (args.status) {
     orders = await ctx.db
       .query("orders")

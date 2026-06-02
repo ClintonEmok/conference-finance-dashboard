@@ -88,6 +88,7 @@ export async function GET(request: Request) {
       filters: ledger.filters,
       availableEvents: ledger.availableEvents,
       page: ledger.page,
+      totals: ledger.totals,
       rows: ledger.rows,
     })
   } catch (error) {
