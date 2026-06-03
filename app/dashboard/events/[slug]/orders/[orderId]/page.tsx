@@ -93,6 +93,7 @@ type OrderEditDraft = {
 type AttendeeEditDraft = {
   genderType: "" | GenderType
   ticketTypeId: string
+  location: string
 }
 
 type AttendeeDetailSnapshot = {
@@ -102,6 +103,7 @@ type AttendeeDetailSnapshot = {
   }
   signals: {
     genderType: GenderType | null
+    location: string | null
   }
 }
 
@@ -385,6 +387,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
           draftMap[attendeeId] = {
             genderType: detail.signals.genderType ?? "",
             ticketTypeId: detail.attendee.ticketTypeId ?? "",
+            location: detail.signals.location ?? "",
           }
         }
 
@@ -448,7 +451,8 @@ export default function EventOrderDetailPage({ params }: PageProps) {
         !!draft &&
         !!snapshot &&
         (draft.genderType !== (snapshot.signals.genderType ?? "") ||
-          draft.ticketTypeId !== (snapshot.attendee.ticketTypeId ?? ""))
+          draft.ticketTypeId !== (snapshot.attendee.ticketTypeId ?? "") ||
+          draft.location !== (snapshot.signals.location ?? ""))
       )
     })
   }, [attendeeDetailSnapshots, attendeeEditDrafts, orderPayload?.attendees])
@@ -591,6 +595,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
             body: JSON.stringify({
               genderType: draft.genderType || null,
               ...(draft.ticketTypeId ? { ticketTypeId: draft.ticketTypeId } : {}),
+              location: draft.location.trim() || null,
             }),
           }
         )
@@ -1117,6 +1122,9 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                         Due
                       </TableHead>
                       <TableHead className="h-10 text-[10px] font-black tracking-widest uppercase">
+                        Location
+                      </TableHead>
+                      <TableHead className="h-10 text-[10px] font-black tracking-widest uppercase">
                         Gender
                       </TableHead>
                     </TableRow>
@@ -1150,6 +1158,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                                     ...(current[attendee.id] ?? {
                                       genderType: "",
                                       ticketTypeId: "",
+                                      location: "",
                                     }),
                                     ticketTypeId: value,
                                   },
@@ -1174,6 +1183,24 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                             </span>
                           </TableCell>
                           <TableCell className="py-4 align-top">
+                            <Input
+                              value={attendeeEditDrafts[attendee.id]?.location ?? ""}
+                              disabled={!areAttendeeDetailsHydrated}
+                              placeholder="Location"
+                              onChange={(event) =>
+                                setAttendeeEditDrafts((current) => ({
+                                  ...current,
+                                  [attendee.id]: {
+                                    genderType: current[attendee.id]?.genderType ?? "",
+                                    ticketTypeId: current[attendee.id]?.ticketTypeId ?? "",
+                                    location: event.target.value,
+                                  },
+                                }))
+                              }
+                              className="h-9 rounded-lg bg-white/60 text-xs"
+                            />
+                          </TableCell>
+                          <TableCell className="py-4 align-top">
                             <Select
                               value={attendeeEditDrafts[attendee.id]?.genderType ?? ""}
                               disabled={!areAttendeeDetailsHydrated}
@@ -1183,6 +1210,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                                   [attendee.id]: {
                                     genderType: value as AttendeeEditDraft["genderType"],
                                     ticketTypeId: current[attendee.id]?.ticketTypeId ?? "",
+                                    location: current[attendee.id]?.location ?? "",
                                   },
                                 }))
                               }

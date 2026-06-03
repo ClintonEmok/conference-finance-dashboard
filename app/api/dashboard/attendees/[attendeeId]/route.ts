@@ -21,6 +21,23 @@ function badRequest(message: string) {
 
 const GENDER_VALUES = new Set(["MALE", "FEMALE", "MIXED", "UNKNOWN"])
 
+function parseOptionalString(value: unknown, fieldName: string) {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (value === null || value === "") {
+    return null
+  }
+
+  if (typeof value !== "string") {
+    throw new Error(`Invalid '${fieldName}'. Expected a string.`)
+  }
+
+  const normalized = value.trim()
+  return normalized || null
+}
+
 async function getNormalizedAttendeeId(context: {
   params: Promise<{ attendeeId: string }>
 }) {
@@ -109,6 +126,7 @@ export async function PATCH(
       tikkieAmountOverrideMinor?: number
       genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
       ticketTypeId?: string
+      location?: string | null
     } = {}
 
     if ("tikkieAmountOverrideMinor" in input) {
@@ -157,9 +175,13 @@ export async function PATCH(
       }
     }
 
+    if ("location" in input) {
+      updateData.location = parseOptionalString(input.location, "location")
+    }
+
     if (Object.keys(updateData).length === 0) {
       return badRequest(
-        "No valid fields to update. Allowed fields: tikkieAmountOverrideMinor, genderType, ticketTypeId"
+        "No valid fields to update. Allowed fields: tikkieAmountOverrideMinor, genderType, ticketTypeId, location"
       )
     }
 
@@ -168,6 +190,7 @@ export async function PATCH(
       tikkieAmountOverrideMinor?: number
       genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
       ticketTypeId?: string
+      location?: string | null
     } = { attendeeId: normalizedAttendeeId }
 
     if (updateData.tikkieAmountOverrideMinor !== undefined) {
@@ -183,6 +206,10 @@ export async function PATCH(
       mutationArgs.ticketTypeId = updateData.ticketTypeId
     }
 
+    if (updateData.location !== undefined) {
+      mutationArgs.location = updateData.location
+    }
+
     await convexMutation(api.attendees.updateAttendee as any, mutationArgs)
 
     return NextResponse.json({
@@ -191,6 +218,7 @@ export async function PATCH(
         tikkieAmountOverrideMinor: updateData.tikkieAmountOverrideMinor ?? null,
         genderType: updateData.genderType ?? null,
         ticketTypeId: updateData.ticketTypeId ?? null,
+        location: updateData.location ?? null,
       },
     })
   } catch (error) {

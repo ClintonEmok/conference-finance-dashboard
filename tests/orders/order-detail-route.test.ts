@@ -160,7 +160,7 @@ describe("/api/dashboard/orders/[orderId] route", () => {
     })
   })
 
-  it("rejects DELETE requests when the order has assigned payments", async () => {
+  it("removes archived orders locally on DELETE requests", async () => {
     vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
 
     vi.mocked(convexQuery)
@@ -182,25 +182,6 @@ describe("/api/dashboard/orders/[orderId] route", () => {
         },
         attendees: [],
       })
-      .mockResolvedValueOnce([
-        {
-          _id: "payment_1",
-          source: "cash",
-          sourceId: null,
-          payerName: "Ada",
-          payerAccountNumber: null,
-          amountMinor: 2500,
-          paidAt: Date.parse("2026-03-01T10:00:00.000Z"),
-          eventId: null,
-          orderId: "order_1",
-          status: "manual_assignment",
-          matchedAt: Date.parse("2026-03-01T10:05:00.000Z"),
-          matchedBy: "user_1",
-          reference: null,
-          notes: null,
-          providerPayload: null,
-        },
-      ])
 
     const response = await DELETE(
       new Request("http://localhost/api/dashboard/orders/order_1", {
@@ -210,12 +191,10 @@ describe("/api/dashboard/orders/[orderId] route", () => {
     )
     const body = await response.json()
 
-    expect(response.status).toBe(400)
-    expect(body).toEqual({
-      error: {
-        message: "Orders with assigned payments cannot be removed from local records.",
-      },
+    expect(response.status).toBe(200)
+    expect(body).toEqual({ ok: true })
+    expect(convexMutation).toHaveBeenCalledWith(api.orders.removeOrderLocally, {
+      orderId: "order_1",
     })
-    expect(convexMutation).not.toHaveBeenCalled()
   })
 })

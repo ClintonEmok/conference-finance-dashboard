@@ -337,6 +337,7 @@ export declare const api: {
         attendeeId: string;
         email?: string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
+        location?: string | null;
         name?: string;
         priorityReason?: string;
         ticketTypeId?: Id<"ticketTypes">;

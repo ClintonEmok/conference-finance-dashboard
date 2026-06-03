@@ -527,6 +527,7 @@ export const updateAttendee = mutation({
     assignedRoomId: v.optional(v.string()),
     name: v.optional(v.string()),
     email: v.optional(v.string()),
+    location: v.optional(v.union(v.string(), v.null())),
     genderType: v.optional(
       v.union(
         v.literal("MALE"),
@@ -560,6 +561,7 @@ export const updateAttendee = mutation({
       assignedRoomId?: string
       name?: string
       email?: string
+      location?: string
       genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
       allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
       priorityReason?: string
@@ -571,6 +573,7 @@ export const updateAttendee = mutation({
       assignedRoomId?: string
       name?: string
       email?: string
+      location?: string
       gender?: "male" | "female" | "mixed" | "unknown"
       allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
       priorityReason?: string
@@ -589,6 +592,11 @@ export const updateAttendee = mutation({
     if (args.email !== undefined) {
       extensionUpdates.email = args.email
       coreUpdates.email = args.email
+    }
+
+    if (args.location !== undefined) {
+      extensionUpdates.location = args.location ?? undefined
+      coreUpdates.location = args.location ?? undefined
     }
 
     if (args.genderType !== undefined) {

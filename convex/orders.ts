@@ -1622,7 +1622,11 @@ export const mergeOrders = mutation({
       .withIndex("orderId", (q) => q.eq("orderId", args.sourceOrderId))
       .first()
 
-    if (sourceExt && isOrderRemoved(sourceExt)) {
+    if (!sourceExt) {
+      throw new Error("Source order extension not found")
+    }
+
+    if (isOrderRemoved(sourceExt)) {
       throw new Error("Source order has already been removed")
     }
 
@@ -1702,21 +1706,10 @@ export const mergeOrders = mutation({
     }
 
     const removedAt = Date.now()
-    if (sourceExt) {
-      await ctx.db.patch("ticketTailorOrders", sourceExt._id, {
-        removedAt,
-        removedReason: "merged_into_" + String(args.targetOrderId),
-      })
-    } else {
-      await ctx.db.insert("ticketTailorOrders", {
-        providerOrderId: source.providerOrderId ?? "",
-        providerEventId: source.providerEventId ?? "",
-        orderId: source._id,
-        removedAt,
-        removedReason: "merged_into_" + String(args.targetOrderId),
-        rawPayload: {},
-      })
-    }
+    await ctx.db.patch("ticketTailorOrders", sourceExt._id, {
+      removedAt,
+      removedReason: "merged_into_" + String(args.targetOrderId),
+    })
 
     return {
       targetOrderId: args.targetOrderId,
