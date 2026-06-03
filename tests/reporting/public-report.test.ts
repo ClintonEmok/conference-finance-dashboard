@@ -145,6 +145,8 @@ describe("public report page", () => {
     expect(html).toContain("Conference 2026")
     expect(html).toContain("Alice Brown")
     expect(html).toContain("ORD-1001")
+    expect(html).toContain("Attendee register")
+    expect(html).toContain("Search attendee")
     expect(html).toContain("Tickets: Standard")
     expect(html).toContain("Download CSV")
   })

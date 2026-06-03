@@ -1,4 +1,7 @@
+"use client"
+
 import { format } from "date-fns"
+import { useState } from "react"
 
 import {
   Card,
@@ -7,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import {
   Table,
   TableBody,
@@ -46,6 +50,23 @@ export function ReportRegionDetail({
   descriptionLabel?: string
 }) {
   const orderGroups = getRegionOrderGroups(report)
+  const [search, setSearch] = useState("")
+
+  const registerEntries = orderGroups
+    .flatMap((group) =>
+      group.attendees.map((attendee, index) => ({
+        orderId: group.orderId,
+        bookingRef: group.bookingRef,
+        rowKey: `${group.orderId}-${index}`,
+        attendeeName: attendee.name,
+        ticketTypeLabel: attendee.ticketTypeLabel,
+        amountDueMinor: attendee.amountDueMinor,
+        paidMinor: attendee.paidMinor,
+        outstandingMinor: attendee.outstandingMinor,
+      }))
+    )
+    .filter((entry) => entry.attendeeName.toLowerCase().includes(search.trim().toLowerCase()))
+    .sort((left, right) => left.attendeeName.localeCompare(right.attendeeName))
 
   return (
     <section className="grid gap-6">
@@ -82,6 +103,66 @@ export function ReportRegionDetail({
               </div>
             ))}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60 bg-background/70 shadow-sm">
+        <CardHeader className="space-y-1.5">
+          <CardTitle className="text-base">Attendee register</CardTitle>
+          <CardDescription>
+            Flat attendee list for this region. Search by attendee name to track progress.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="max-w-sm">
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search attendee"
+              className="h-10 rounded-lg bg-white/60 text-sm"
+            />
+          </div>
+
+          {registerEntries.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-border/60 bg-muted/20 p-5 text-sm text-muted-foreground">
+              No attendees found.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Attendee</TableHead>
+                    <TableHead>Ticket</TableHead>
+                    <TableHead className="text-right">Due</TableHead>
+                    <TableHead className="text-right">Paid</TableHead>
+                    <TableHead className="text-right">Left</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {registerEntries.map((attendee) => (
+                    <TableRow key={attendee.rowKey}>
+                      <TableCell className="font-medium text-foreground">
+                        {attendee.attendeeName}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {attendee.ticketTypeLabel ?? "–"}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-muted-foreground">
+                        {formatMoney(attendee.amountDueMinor)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-emerald-600">
+                        {formatMoney(attendee.paidMinor)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-foreground">
+                        {formatMoney(attendee.outstandingMinor)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
