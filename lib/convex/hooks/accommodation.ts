@@ -142,6 +142,15 @@ export function useRoomAllocationBoard(args?: {
   return useQuery(api.accommodation.getRoomAllocationBoard, args ?? {})
 }
 
+/** The Overview only needs the bounded allocation summary, not the board rows. */
+export function useEventAllocationSummary(eventId: string | undefined) {
+  const board = useQuery(
+    api.accommodation.getRoomAllocationBoard,
+    eventId ? { eventId } : "skip"
+  )
+  return board?.summary
+}
+
 export function useSlotsForEvent(eventId: Id<"events"> | undefined) {
   return useQuery(
     api.accommodation.getSlotsForEvent,
