@@ -269,11 +269,11 @@ export default function EventAllocationPage({
     return (
       <div className="space-y-6">
         <Link
-          href={`/dashboard/events/${slug}/accommodation`}
+          href={`/dashboard/events/${slug}/settings`}
           className="flex w-fit items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ChevronLeft className="size-4" />
-          Back to Accommodation
+          Go to Settings
         </Link>
         <div className="rounded-2xl border border-dashed border-white/20 bg-white/5 p-12 text-center">
           <BedDouble className="mx-auto size-12 text-muted-foreground opacity-20" />
