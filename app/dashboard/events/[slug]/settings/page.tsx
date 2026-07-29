@@ -19,6 +19,7 @@ import { useUpdateEvent, useEventBySlug } from "@/lib/convex/hooks/events"
 import { useRoomTypes } from "@/lib/convex/hooks/accommodation"
 import { Id } from "@/convex/_generated/dataModel"
 import { EventTikkieSection } from "@/components/dashboard/event-tikkie-section"
+import EventShareSettings from "@/components/dashboard/event-share-settings"
 
 const COMMON_TIMEZONES = [
   "Europe/London",
@@ -120,6 +121,16 @@ export default function EventSettingsPage({
         events={[{ eventId: event._id, title: event.title }]}
         selectedEventId={event._id}
       />
+
+      <section id="sharing" className="scroll-mt-20 space-y-4">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight">Sharing</h2>
+          <p className="text-sm text-muted-foreground">
+            Create and manage read-only public report links for stakeholders.
+          </p>
+        </div>
+        <EventShareSettings eventId={event._id} />
+      </section>
 
       <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-7">
