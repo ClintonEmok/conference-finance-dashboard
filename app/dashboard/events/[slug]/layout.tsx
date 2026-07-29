@@ -163,15 +163,15 @@ function SidebarContentInner({
       href: `/dashboard/events/${slug}/tickets`,
     },
     {
+      label: "Finance",
+      icon: CreditCard,
+      href: `/dashboard/events/${slug}/payments`,
+    },
+    {
       label: "Accommodation",
       icon: BedDouble,
       href: `/dashboard/events/${slug}/accommodation`,
       show: event.accommodationEnabled,
-    },
-    {
-      label: "Finance",
-      icon: CreditCard,
-      href: `/dashboard/events/${slug}/payments`,
     },
     {
       label: "Settings",
