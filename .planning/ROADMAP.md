@@ -2,212 +2,135 @@
 
 ## Overview
 
-v3.0 focuses on making canonical internal order, attendee, payable, and payment data trustworthy enough to drive finance and operations without runtime dependence on `ticketTailor*` tables. The milestone stays brownfield and internal-first: stabilize runtime truth, make the dashboard event-scoped, define deterministic money rules, migrate safely, then remove legacy fallbacks without attempting a full Ticket Tailor redesign.
+v4.0 improves the protected event-scoped dashboard without changing canonical finance semantics. It starts with information architecture, turns the event home into an actionable Overview, consolidates Finance and Accommodation workflows, then hardens shared states, responsive behavior, accessibility, and regression coverage.
 
 ## Milestones
 
-- ✅ **v1.0 MVP** — shipped 2026-03-27 (archive: `.planning/milestones/v1.0-ROADMAP.md`, requirements: `.planning/milestones/v1.0-REQUIREMENTS.md`, audit: `.planning/milestones/v1.0-MILESTONE-AUDIT.md`)
+- ✅ **v1.0 MVP** — shipped 2026-03-27
 - ✅ **v2.0 Attendee Signup + Accommodation Self-Assignment** — groundwork delivered in phases 18-25
-- 🚧 **v3.0 Canonical Orders Foundation** — planned 2026-04-01
+- ✅ **v3.0 Canonical Orders Foundation** — canonical runtime and finance groundwork delivered in phases 26-33
+- 🚧 **v4.0 Event Dashboard UX Overhaul** — initialized 2026-07-29
 
-## Active Milestone: v3.0 Canonical Orders Foundation
+## Active Milestone: v4.0 Event Dashboard UX Overhaul
 
-**Objective:** Make internal order, attendee, payable, and payment-reconciliation tables the sole runtime source for finance and operational queries, while making the admin dashboard event-scoped before any provider-model redesign.
+**Objective:** Turn the event-scoped dashboard into a stats-led operational home with concise navigation and coherent Finance and Accommodation workspaces.
 
 ### Scope
 
-- Canonical internal runtime truth for finance and ops reads
-- Event-scoped admin dashboard entry and shell
-- Deterministic order totals, attendee payables, and payment allocations
-- Brownfield-safe widen/backfill/dual-write/parity/cutover workflow
-- Runtime deprecation of `ticketTailor*` query dependencies
-- Explicit provider ingest and mapping boundary for Ticket Tailor
+- Event Overview information architecture and bounded operational stats
+- One concise event sidebar and clear event context
+- Finance workspace for Orders, Payments, Donations, and Reconciliation
+- Accommodation workspace for Hotels and Allocation
+- Shared query states, responsive behavior, accessibility, settings/share placement, and regression verification
 
-### Out of Scope
+### Out Of Scope
 
-- Full Ticket Tailor table redesign
-- New public signup UX features unrelated to order/finance correctness
-- Multi-tenant support
+- New public signup UX
+- Ticket Tailor/provider schema redesign
+- New finance formulas or canonical data model changes
+- Cross-event analytics or multi-tenant support
 
 ## Phases
 
-- [ ] **Phase 26: Canonical Runtime Contract** - Normalize runtime identity and isolate provider data behind ingest/mapping boundaries.
-- [ ] **Phase 27: Event-Scoped Dashboard** - Make the admin entry point event-first with a chooser for existing or new events.
-- [x] **Phase 28: Single-Sidebar Event Shell** - Collapse event-scoped dashboard chrome into one sidebar and move duplicate context/navigation into the main content header. (completed 2026-04-24)
-- [x] **Phase 29: Deterministic Money Model** - Define canonical totals, attendee payables, and payment allocation truth. (completed 2026-04-25)
-- [ ] **Phase 30: Shareable Reporting Link** - Publish a read-only stakeholder report link with aggregated slices only.
-- [ ] **Phase 31: Safe Migration and Parity** - Backfill and dual-write canonical finance data with production-safe parity checks.
-- [ ] **Phase 32: Canonical Runtime Read Cutover** - Move finance and operational reads onto canonical internal tables with reconciliation reason codes.
-- [ ] **Phase 33: Legacy Path Removal** - Remove validated fallbacks and leave Ticket Tailor as ingest/mapping only.
+- [ ] **Phase 34: Event Dashboard Information Architecture** - Establish the final event home, sidebar structure, route ownership, and Settings placement.
+- [ ] **Phase 35: Actionable Event Overview** - Build the stats-led event home and action-oriented operational summary from bounded existing contracts.
+- [ ] **Phase 36: Finance And Accommodation Workspaces** - Consolidate related routes into tabbed workspaces while preserving behavior and deep links.
+- [ ] **Phase 37: Shared Dashboard Quality** - Standardize query states, responsive layouts, keyboard behavior, and accessibility across migrated surfaces.
+- [ ] **Phase 38: UX Regression And Human Verification** - Verify route integrity, data consistency, mobile/desktop behavior, and visual coherence.
 
 ---
 
-### Phase 26: Canonical Runtime Contract
+### Phase 34: Event Dashboard Information Architecture
 
-**Goal:** New and updated runtime joins use one internal order identity contract, while provider data is accessed through explicit ingest/mapping boundaries instead of direct runtime truth.
+**Goal:** Admins see one clear event-scoped navigation model and a deliberate Overview entry point at every event depth.
 
-**Depends on:** Phase 25
+**Depends on:** v3.0 event shell
 
-**Requirements:** RTM-02
-
-**Success Criteria:**
-
-1. New and updated order-payment joins resolve through one canonical internal `orders` identifier contract.
-2. Runtime write paths no longer need mixed internal/provider order identifiers to link payments, orders, and attendees.
-3. Verifiable runtime contracts exist for where provider data is allowed, so later cutover work can remove direct `ticketTailor*` dependencies safely.
-
-**Plans:** 3/3
-
----
-
-### Phase 27: Event-Scoped Dashboard
-
-**Goal:** After login, admins land on an event chooser and the rest of the dashboard is scoped to the selected event.
-
-**Depends on:** Phase 26
-
-**Requirements:** TBD
+**Requirements:** UX-01, UX-02, UX-03, QUAL-04
 
 **Success Criteria:**
 
-1. Authenticated admins see a focused event chooser instead of a broad global dashboard landing page.
-2. Existing events are easy to open and creating a new event is a first-class action.
-3. The selected event is reflected in the URL so dashboard navigation and reloads stay scoped.
-4. The global shell is limited to event switching and top-level navigation, not day-to-day event work.
-
-**Plans:** 2/2
-
-Plans:
-- [ ] 27-01-PLAN.md — Make /dashboard land on the event chooser
-- [ ] 27-02-PLAN.md — Add the event-first shell and switcher
-
-**Checkpoint:** Human verification is still pending for the sidebar cleanup follow-up.
-
----
-
-### Phase 28: Single-Sidebar Event Shell
-
-**Goal:** Event-scoped dashboard pages use one sidebar only, with `EventSwitcher` and short section navigation in that sidebar while event context moves into a compact header strip and facts footer.
-
-**Depends on:** Phase 27
-
-**Requirements:** TBD
-
-**Success Criteria:**
-
-1. Event-scoped dashboard pages show a single authoritative sidebar that starts with `EventSwitcher` and a short flat section list.
-2. Event title, slug, status, public-page/back links remain visible in a compact header strip above content.
-3. Event facts stay visible in a sidebar footer card with `startsAt`, timezone, and currency.
-4. The selected event stays obvious at every depth of the dashboard without repeating the same chrome in two places.
-5. The fullscreen picker and create-flow routes remain fullscreen and separate from the shell.
-
-**Plans:** 0/1 plans complete
-
-Plans:
-- [ ] 28-01-PLAN.md — Collapse duplicate sidebar chrome into the event-local shell
-
-**Checkpoint:** Human verification is required for the single-sidebar event shell and preserved fullscreen picker.
-
----
-
-### Phase 29: Deterministic Money Model
-
-**Goal:** Canonical internal facts produce one deterministic answer for order totals, attendee payables, and payment allocation state.
-
-**Depends on:** Phase 28
-
-**Requirements:** FIN-01, FIN-02, FIN-03
-
-**Success Criteria:**
-
-1. The same order returns one canonical total in minor units across ledger, detail, reconciliation, and export contexts.
-2. Each attendee shows a canonical payable amount derived from internal order facts rather than equal-split heuristics.
-3. Partial, split, and overpayments can be recorded as explicit allocations to orders and, when needed, attendees.
-4. Payment allocation records are auditable enough to explain how collected money was applied.
-
-**Plans:** 4/4 plans complete
-
-Plans:
-- [ ] 29-01-PLAN.md — Lock in deterministic minor-unit math and canonical amount readers
-- [ ] 29-02-PLAN.md — Move orders behind slug-scoped event URLs
-- [ ] 29-03-PLAN.md — Build the slug-scoped reconciliation workspace
-- [ ] 29-04-PLAN.md — Human-verify the canonical finance surfaces
-
----
-
-### Phase 30: Shareable Reporting Link
-
-**Goal:** Stakeholders can open a tokenized, read-only reporting link that shows aggregated finance slices without exposing raw attendee or order rows.
-
-**Depends on:** Phase 29
-
-**Requirements:** RPT-03
-
-**Success Criteria:**
-
-1. A shareable `/reports/[token]` link renders a read-only reporting surface for a single event or report scope.
-2. The report can group canonical data by location, gender, and balance state, including overpayment visibility.
-3. The public report never exposes row-level attendee/order records or editing actions.
-4. Event-scoped dashboard pages expose a simple share action that produces the link.
-
-**Plans:** 0/3 plans complete
-
-Plans:
-- [ ] 30-01-PLAN.md — Define the reporting token model and aggregated data contract
-- [ ] 30-02-PLAN.md — Build the public read-only report surface
-- [ ] 30-03-PLAN.md — Add share controls and privacy verification
-
----
-
-### Phase 31: Safe Migration and Parity
-
-**Goal:** Canonical finance data can be introduced safely into existing production-shaped records and proven against legacy outputs before cutover.
-
-**Depends on:** Phase 30
-
-**Requirements:** MIG-01, MIG-02
-
-**Success Criteria:**
-
-1. Canonical finance fields can be widened and backfilled against existing data without destructive resets.
-2. Live write paths can dual-write legacy and canonical facts while current dashboard and sync behavior stays operational.
-3. Operators or developers can compare canonical outputs against legacy outputs with explicit parity checks before final cutover.
+1. The event home route renders as the Overview entry point rather than a link directory.
+2. The event sidebar contains the agreed concise sections with stable active-state behavior.
+3. Event identity, switcher, status, and primary event actions remain clear without duplicate chrome.
+4. Settings owns event-level share/configuration actions while primary navigation stays operational.
+5. Existing event deep links remain reachable or have explicit safe redirects.
 
 **Plans:** TBD
 
 ---
 
-### Phase 32: Canonical Runtime Read Cutover
+### Phase 35: Actionable Event Overview
 
-**Goal:** Finance and operations reads use canonical internal tables as runtime truth, with reconciliation logic derived from canonical totals, payables, and allocations.
+**Goal:** The Overview gives finance and operations admins a fast, trustworthy read on the selected event and its next actions.
 
-**Depends on:** Phase 31
+**Depends on:** Phase 34
 
-**Requirements:** RTM-01, FIN-04
+**Requirements:** OPS-01, OPS-02
 
 **Success Criteria:**
 
-1. Finance and operations reads return order, attendee, and balance data from canonical internal tables without requiring runtime `ticketTailor*` queries.
-2. Reconciliation surfaces show reason codes derived from canonical totals, attendee payables, and payment allocations.
-3. Operators can trace an order's balance from canonical total through payable and allocation facts without relying on provider runtime truth.
+1. Overview shows bounded event-scoped metrics for attendance, orders/tickets, money status, and accommodation.
+2. Metric values reuse existing canonical contracts and agree with their corresponding detail surfaces.
+3. The page highlights actionable exceptions with direct links to the relevant workflow.
+4. The Overview remains useful for empty or early-stage events without fabricated values.
 
 **Plans:** TBD
 
 ---
 
-### Phase 33: Legacy Path Removal
+### Phase 36: Finance And Accommodation Workspaces
 
-**Goal:** Remove validated legacy compatibility paths and leave Ticket Tailor as a secondary ingest/mapping boundary rather than runtime finance truth.
+**Goal:** Related finance and accommodation operations share context through accessible tabbed workspaces without losing existing behavior.
 
-**Depends on:** Phase 32
+**Depends on:** Phase 34
 
-**Requirements:** RTM-03, MIG-03
+**Requirements:** FINUX-01, FINUX-02, ACCUX-01, ACCUX-02
 
 **Success Criteria:**
 
-1. Runtime provider fallbacks and other legacy compatibility paths can be removed after canonical parity is validated.
-2. Ticket Tailor data remains available for ingest, raw diagnostics, and mapping, but no longer acts as runtime finance truth.
-3. Canonical runtime behavior remains stable after legacy path removal, without requiring a full Ticket Tailor redesign in this milestone.
+1. Finance provides accessible navigation for Orders, Payments, Donations, and Reconciliation under one event-scoped workspace.
+2. Accommodation provides accessible navigation for Hotels and Allocation under one event-scoped workspace.
+3. Existing filters, mutations, canonical money semantics, and event scoping continue to work.
+4. Existing useful deep links remain valid or redirect predictably to the corresponding workspace tab.
+
+**Plans:** TBD
+
+---
+
+### Phase 37: Shared Dashboard Quality
+
+**Goal:** Event-scoped pages behave consistently across loading, errors, empty data, keyboard navigation, and viewport sizes.
+
+**Depends on:** Phases 35-36
+
+**Requirements:** QUAL-01, QUAL-02, QUAL-03
+
+**Success Criteria:**
+
+1. Shared query-state components or patterns cover loading, error, empty, and populated states across migrated surfaces.
+2. Primary workflows are usable on narrow mobile widths and desktop without horizontal overflow or hidden critical actions.
+3. Sidebar, tabs, tables, status indicators, and action controls are keyboard-accessible and semantically labeled.
+4. Dashboard data reads remain bounded and do not duplicate expensive finance or accommodation queries.
+
+**Plans:** TBD
+
+---
+
+### Phase 38: UX Regression And Human Verification
+
+**Goal:** The redesigned event dashboard is verified as a coherent, data-correct experience across routes and devices.
+
+**Depends on:** Phase 37
+
+**Requirements:** OPS-03
+
+**Success Criteria:**
+
+1. Every primary event route has intentional loading, error, empty, and no-access behavior.
+2. Overview metrics and action links are verified against source surfaces for representative events.
+3. Desktop and mobile route walkthroughs confirm no duplicate shell, broken deep links, or inaccessible controls.
+4. Automated tests, type checks, and Convex validation pass for the completed changes.
 
 **Plans:** TBD
 
@@ -215,15 +138,12 @@ Plans:
 
 ## Progress
 
-| Phase                               | Goal                                             | Requirements           | Plans | Status             |
-| ----------------------------------- | ------------------------------------------------ | ---------------------- | ----- | ------------------ |
-| 26 - Canonical Runtime Contract     | Normalize runtime identity and provider boundary | RTM-02                 | 3/3   | Complete           |
-| 27 - Event-Scoped Dashboard         | Event-first dashboard entry and scoping          | TBD                    | 2/2   | Checkpoint pending |
-| 28 - Single-Sidebar Event Shell     | Single sidebar for event-scoped chrome           | TBD                    | Complete    | 2026-04-24 |
-| 29 - Deterministic Money Model      | Deterministic totals, payables, and allocations  | FIN-01, FIN-02, FIN-03 | Complete    | 2026-04-25 |
-| 30 - Shareable Reporting Link       | Read-only stakeholder report link                | RPT-03                 | 0/3   | Not started        |
-| 31 - Safe Migration and Parity      | Brownfield-safe backfill, dual-write, and parity | MIG-01, MIG-02         | TBD   | Not started        |
-| 32 - Canonical Runtime Read Cutover | Canonical finance and ops runtime reads          | RTM-01, FIN-04         | TBD   | Not started        |
-| 33 - Legacy Path Removal            | Remove fallbacks after canonical validation      | RTM-03, MIG-03         | TBD   | Not started        |
+| Phase | Goal | Requirements | Plans | Status |
+| --- | --- | --- | --- | --- |
+| 34 - Event Dashboard Information Architecture | Event home and navigation | UX-01, UX-02, UX-03, QUAL-04 | TBD | Not started |
+| 35 - Actionable Event Overview | Stats-led operational home | OPS-01, OPS-02 | TBD | Not started |
+| 36 - Finance And Accommodation Workspaces | Consolidated operational workspaces | FINUX-01, FINUX-02, ACCUX-01, ACCUX-02 | TBD | Not started |
+| 37 - Shared Dashboard Quality | Shared states and responsive accessibility | QUAL-01, QUAL-02, QUAL-03 | TBD | Not started |
+| 38 - UX Regression And Human Verification | Cross-route verification | OPS-03 | TBD | Not started |
 
-**Totals:** 8 phases, 11 requirements mapped, phase numbering continues from Phase 25.
+**Totals:** 5 phases, 14 requirements mapped, 0 plans complete.
