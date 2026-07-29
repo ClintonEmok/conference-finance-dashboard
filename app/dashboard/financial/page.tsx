@@ -7,11 +7,12 @@ import {
   ReceiptText,
   WalletCards,
 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
 
 import { Button } from "@/components/ui/button"
 import { EventTikkieSection } from "@/components/dashboard/event-tikkie-section"
+import { DonationForm } from "@/components/dashboard/donation-form"
 import {
   Table,
   TableBody,
@@ -27,6 +28,7 @@ type RevenueResponse = {
     paidMinor: number
     refundedMinor: number
     netMinor: number
+    standaloneDonationMinor: number
   }
   statusCounts: {
     paid: number
@@ -34,6 +36,16 @@ type RevenueResponse = {
     cancelled: number
     pending: number
   }
+}
+
+type Donation = {
+  id: string
+  source: "cash" | "bank_transfer"
+  payerName: string
+  amountMinor: number
+  paidAt: string
+  eventId: string | null
+  notes: string | null
 }
 
 type BalanceResponse = {
@@ -89,11 +101,14 @@ function FinancialSkeleton() {
 export default function FinancialPage() {
   const [revenue, setRevenue] = useState<RevenueResponse | null>(null)
   const [balances, setBalances] = useState<BalanceResponse | null>(null)
+  const [donations, setDonations] = useState<Donation[]>([])
   const [events, setEvents] = useState<
     Array<{ eventId: string; title: string | null }>
   >([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [showDonationForm, setShowDonationForm] = useState(false)
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
 
   useEffect(() => {
     const to = new Date().toISOString()
@@ -106,14 +121,16 @@ export default function FinancialPage() {
       setErrorMessage(null)
 
       try {
-        const [revenueResponse, balancesResponse] = await Promise.all([
-          fetch(
-            `/api/dashboard/revenue?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-          ),
-          fetch(
-            `/api/dashboard/reconciliation?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-          ),
-        ])
+        const [revenueResponse, balancesResponse, donationsResponse] =
+          await Promise.all([
+            fetch(
+              `/api/dashboard/revenue?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+            ),
+            fetch(
+              `/api/dashboard/reconciliation?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+            ),
+            fetch("/api/dashboard/donations"),
+          ])
 
         if (!revenueResponse.ok || !balancesResponse.ok) {
           setErrorMessage("Unable to load the financial workspace right now.")
@@ -124,6 +141,11 @@ export default function FinancialPage() {
         const balancesData = (await balancesResponse.json()) as BalanceResponse
         setBalances(balancesData)
         setEvents(balancesData.availableEvents ?? [])
+
+        if (donationsResponse.ok) {
+          const donationsData = await donationsResponse.json()
+          setDonations(donationsData.donations ?? [])
+        }
       } catch {
         setErrorMessage("Network error while loading the financial workspace.")
       } finally {
@@ -132,6 +154,18 @@ export default function FinancialPage() {
     }
 
     void load()
+  }, [])
+
+  const refreshDonations = useCallback(async () => {
+    try {
+      const response = await fetch("/api/dashboard/donations")
+      if (response.ok) {
+        const data = await response.json()
+        setDonations(data.donations ?? [])
+      }
+    } catch {
+      // Silent fail - donations will refresh on next page load
+    }
   }, [])
 
   const portfolio = useMemo(() => {
@@ -232,7 +266,7 @@ export default function FinancialPage() {
           </div>
         </div>
 
-        <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {[
             {
               label: "Order value",
@@ -251,6 +285,15 @@ export default function FinancialPage() {
                 ? `${revenue.statusCounts.refunded} refunded`
                 : "Final liquidity",
               trend: "stable",
+            },
+            {
+              label: "Donations",
+              value: revenue
+                ? formatMoney(revenue.totals.standaloneDonationMinor)
+                : "--",
+              sub: `${donations.length} standalone donations`,
+              trend: "up",
+              isDonation: true,
             },
             {
               label: "Outstanding",
@@ -276,12 +319,14 @@ export default function FinancialPage() {
               key={card.label}
               className={`group overflow-hidden rounded-2xl border transition-all hover:scale-[1.02] ${card.isWarning
                 ? "border-orange-500/20 bg-orange-500/5 shadow-[0_8px_30px_rgb(249,115,22,0.08)]"
-                : "border-[rgba(113,84,255,0.3)] bg-[linear-gradient(145deg,rgba(113,84,255,0.05),rgba(113,84,255,0.02))] shadow-sm"
+                : card.isDonation
+                  ? "border-emerald-500/20 bg-emerald-500/5 shadow-[0_8px_30px_rgb(16,185,129,0.08)]"
+                  : "border-[rgba(113,84,255,0.3)] bg-[linear-gradient(145deg,rgba(113,84,255,0.05),rgba(113,84,255,0.02))] shadow-sm"
                 } p-6`}
             >
               <div className="flex items-center justify-between">
                 <p
-                  className={`text-[10px] font-bold tracking-[0.2em] uppercase ${card.isWarning ? "text-orange-600/70" : "text-primary/70"}`}
+                  className={`text-[10px] font-bold tracking-[0.2em] uppercase ${card.isWarning ? "text-orange-600/70" : card.isDonation ? "text-emerald-600/70" : "text-primary/70"}`}
                 >
                   {card.label}
                 </p>
@@ -291,7 +336,7 @@ export default function FinancialPage() {
               </p>
               <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
                 <span
-                  className={`size-1.5 rounded-full ${card.isWarning ? "bg-orange-500" : "bg-primary"}`}
+                  className={`size-1.5 rounded-full ${card.isWarning ? "bg-orange-500" : card.isDonation ? "bg-emerald-500" : "bg-primary"}`}
                 />
                 {card.sub}
               </p>
@@ -392,6 +437,79 @@ export default function FinancialPage() {
           </div>
         </article>
       )}
+
+      {donations.length > 0 || showDonationForm ? (
+        <article className="animate-in slide-in-from-bottom-4 duration-700 delay-200 fill-mode-both rounded-3xl border border-border/50 bg-card/40 p-8 shadow-sm backdrop-blur-xl">
+          <div className="mb-6 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase">
+                Standalone Donations
+              </p>
+              <h3 className="mt-2 text-2xl font-bold text-foreground">
+                Donations not linked to orders
+              </h3>
+            </div>
+            <Button
+              onClick={() => setShowDonationForm(!showDonationForm)}
+              className="rounded-xl"
+            >
+              {showDonationForm ? "Cancel" : "Record Donation"}
+            </Button>
+          </div>
+
+          {showDonationForm && (
+            <DonationForm
+              events={events}
+              selectedEventId={selectedEventId}
+              onSelectEvent={setSelectedEventId}
+              onSuccess={() => {
+                setShowDonationForm(false)
+                refreshDonations()
+              }}
+            />
+          )}
+
+          {donations.length > 0 && (
+            <div className="mt-6 overflow-x-auto rounded-2xl border border-border/50 bg-background/50">
+              <table className="min-w-full text-sm">
+                <thead className="border-b border-border/40 bg-muted/30 text-left text-[10px] font-black tracking-[0.2em] text-muted-foreground uppercase">
+                  <tr>
+                    <th className="px-4 py-3">Payer</th>
+                    <th className="px-4 py-3">Amount</th>
+                    <th className="px-4 py-3">Source</th>
+                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/40">
+                  {donations.map((donation) => (
+                    <tr
+                      key={donation.id}
+                      className="transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                    >
+                      <td className="px-4 py-3 font-medium text-foreground">
+                        {donation.payerName}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-sm font-semibold tabular-nums text-primary">
+                        {formatMoney(donation.amountMinor)}
+                      </td>
+                      <td className="px-4 py-3 capitalize text-muted-foreground">
+                        {donation.source.replace("_", " ")}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {new Date(donation.paidAt).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {donation.notes || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </article>
+      ) : null}
 
       <article className="rounded-3xl border border-border/50 bg-card/40 p-8 shadow-sm backdrop-blur-xl">
         <div className="mb-8">

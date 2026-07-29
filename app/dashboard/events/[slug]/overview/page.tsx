@@ -29,6 +29,7 @@ type RevenueResponse = {
     paidMinor: number
     refundedMinor: number
     netMinor: number
+    standaloneDonationMinor: number
   }
   statusCounts: {
     paid: number
@@ -45,6 +46,16 @@ type RevenueResponse = {
     netMinor: number
     orderCount: number
   }>
+}
+
+type Donation = {
+  id: string
+  source: "cash" | "bank_transfer"
+  payerName: string
+  amountMinor: number
+  paidAt: string
+  eventId: string | null
+  notes: string | null
 }
 
 type OrdersResponse = {
@@ -152,6 +163,7 @@ export default function EventOverviewSurface({
   const [orders, setOrders] = useState<OrdersResponse | null>(null)
   const [attendees, setAttendees] = useState<AttendeesResponse | null>(null)
   const [reconciliation, setReconciliation] = useState<ReconciliationResponse | null>(null)
+  const [donations, setDonations] = useState<Donation[]>([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [shareStatus, setShareStatus] = useState<string | null>(null)
   const [shareError, setShareError] = useState<string | null>(null)
@@ -183,7 +195,7 @@ export default function EventOverviewSurface({
       attendeesQuery.set("page", "1")
       attendeesQuery.set("pageSize", "8")
 
-      const [revenueResponse, ordersResponse, attendeesResponse, reconciliationResponse] =
+      const [revenueResponse, ordersResponse, attendeesResponse, reconciliationResponse, donationsResponse] =
         await Promise.all([
           fetch(`/api/dashboard/revenue?${query.toString()}`, {
             signal: abortSignal,
@@ -197,6 +209,9 @@ export default function EventOverviewSurface({
           fetch(`/api/dashboard/reconciliation?${query.toString()}`, {
             signal: abortSignal,
           }),
+          fetch(`/api/dashboard/donations?eventId=${event._id}`, {
+            signal: abortSignal,
+          }),
         ])
 
       if (!revenueResponse.ok || !ordersResponse.ok || !attendeesResponse.ok || !reconciliationResponse.ok) {
@@ -207,6 +222,11 @@ export default function EventOverviewSurface({
       setOrders((await ordersResponse.json()) as OrdersResponse)
       setAttendees((await attendeesResponse.json()) as AttendeesResponse)
       setReconciliation((await reconciliationResponse.json()) as ReconciliationResponse)
+
+      if (donationsResponse.ok) {
+        const donationsData = await donationsResponse.json()
+        setDonations(donationsData.donations ?? [])
+      }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return
       setErrorMessage("Network error while loading the event overview.")
@@ -318,7 +338,7 @@ export default function EventOverviewSurface({
         </CardHeader>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {[
           {
             label: "Order value",
@@ -331,6 +351,15 @@ export default function EventOverviewSurface({
             value: revenue ? formatMoney(revenue.totals.paidMinor) : "--",
             desc: "Cash collected so far",
             icon: CreditCard,
+          },
+          {
+            label: "Donations",
+            value: revenue
+              ? formatMoney(revenue.totals.standaloneDonationMinor)
+              : "--",
+            desc: `${donations.length} standalone donations`,
+            icon: HandCoins,
+            isDonation: true,
           },
           {
             label: "Outstanding",
@@ -348,16 +377,16 @@ export default function EventOverviewSurface({
           const Icon = card.icon
 
           return (
-            <Card key={card.label} className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+            <Card key={card.label} className={`border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20 ${card.isDonation ? "border-emerald-500/20 bg-emerald-500/5" : ""}`}>
               <CardContent className="flex items-start justify-between gap-4 p-6">
                 <div className="space-y-2">
-                  <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
+                  <p className={`text-[10px] font-black tracking-[0.22em] uppercase ${card.isDonation ? "text-emerald-600/70" : "text-muted-foreground"}`}>
                     {card.label}
                   </p>
                   <p className="text-3xl font-bold tracking-tight text-foreground">{card.value}</p>
                   <p className="text-xs text-muted-foreground">{card.desc}</p>
                 </div>
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${card.isDonation ? "bg-emerald-500/10 text-emerald-500" : "bg-primary/10 text-primary"}`}>
                   <Icon className="size-5" />
                 </div>
               </CardContent>

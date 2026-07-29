@@ -963,6 +963,19 @@ export declare const api: {
       },
       any
     >;
+    createStandaloneDonation: FunctionReference<
+      "mutation",
+      "public",
+      {
+        amountMinor: number;
+        eventId: Id<"events">;
+        notes?: string;
+        paidAt: number;
+        payerName: string;
+        source: "cash" | "bank_transfer";
+      },
+      any
+    >;
     getPaymentById: FunctionReference<
       "query",
       "public",
@@ -1042,6 +1055,12 @@ export declare const api: {
       "query",
       "public",
       { orderId: string },
+      any
+    >;
+    getStandaloneDonations: FunctionReference<
+      "query",
+      "public",
+      { eventId?: Id<"events"> },
       any
     >;
     getUnassignedPayments: FunctionReference<"query", "public", {}, any>;

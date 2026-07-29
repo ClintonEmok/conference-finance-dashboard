@@ -3,6 +3,7 @@ import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
 import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export type ReconciliationFilters = {
   eventId?: string | null
@@ -51,6 +52,7 @@ export type ReconciliationResult = {
   totals: {
     rows: number
     outstandingMinor: number
+    standaloneDonationMinor: number
   }
   rows: ReconciliationRow[]
 }
@@ -137,7 +139,7 @@ export async function getReconciliationRows(
   const fromMs = from.getTime()
   const toMs = to.getTime()
 
-  const [orders, availableEvents] = await Promise.all([
+  const [orders, availableEvents, standaloneDonations] = await Promise.all([
     convexQuery(api.orders.getOrdersForReconciliation, {
       eventId: eventId ?? undefined,
       from: fromMs,
@@ -145,9 +147,18 @@ export async function getReconciliationRows(
       status: status ?? undefined,
     }),
     convexQuery(api.events.getEventsForLedger, {}),
+    convexQuery(api.payments.getStandaloneDonations, {
+      eventId: eventId ? (eventId as Id<"events">) : undefined,
+    }),
   ])
 
   const matchedTotalsByOrderId = await buildMatchedTotalsByOrderId(orders)
+
+  // Calculate total standalone donations for this event
+  const totalStandaloneDonations = standaloneDonations.reduce(
+    (sum: number, d: { amountMinor: number }) => sum + d.amountMinor,
+    0
+  )
 
   const rows: ReconciliationRow[] = []
   let outstandingMinor = 0
@@ -197,6 +208,12 @@ export async function getReconciliationRows(
     })
   }
 
+  // Standalone donations reduce the overall outstanding for the event
+  const adjustedOutstandingMinor = Math.max(
+    0,
+    outstandingMinor - totalStandaloneDonations
+  )
+
   return {
     generatedAt: new Date().toISOString(),
     filters: {
@@ -208,7 +225,8 @@ export async function getReconciliationRows(
     availableEvents,
     totals: {
       rows: rows.length,
-      outstandingMinor,
+      outstandingMinor: adjustedOutstandingMinor,
+      standaloneDonationMinor: totalStandaloneDonations,
     },
     rows,
   }

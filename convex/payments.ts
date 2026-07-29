@@ -418,6 +418,58 @@ export const markPaymentAsDonation = mutation({
   },
 })
 
+export const createStandaloneDonation = mutation({
+  args: {
+    eventId: v.id("events"),
+    payerName: v.string(),
+    amountMinor: v.number(),
+    paidAt: v.number(),
+    source: v.union(v.literal("cash"), v.literal("bank_transfer")),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    if (args.amountMinor <= 0) {
+      throw new Error("Amount must be greater than zero")
+    }
+
+    const id = await ctx.db.insert("payments", {
+      source: args.source,
+      payerName: args.payerName,
+      amountMinor: args.amountMinor,
+      paidAt: args.paidAt,
+      eventId: args.eventId,
+      status: "donation",
+      notes: args.notes,
+    })
+
+    return id
+  },
+})
+
+export const getStandaloneDonations = query({
+  args: {
+    eventId: v.optional(v.id("events")),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    let donations = await ctx.db
+      .query("payments")
+      .withIndex("status", (q) => q.eq("status", "donation"))
+      .take(500)
+
+    donations = donations.filter((d) => !d.orderId)
+
+    if (args.eventId) {
+      donations = donations.filter((d) => d.eventId === args.eventId)
+    }
+
+    return donations
+  },
+})
+
 export const autoMatchPayments = mutation({
   args: { eventId: v.union(v.id("events"), v.string()) },
   handler: async (ctx, args) => {
