@@ -6,15 +6,10 @@ import {
   ChevronRight,
   CreditCard,
   ExternalLink,
-  Link2,
   Settings,
   Users,
   Ticket,
   BedDouble,
-  Hotel,
-  ShoppingBag,
-  HandCoins,
-  Gift,
 } from "lucide-react"
 import { LogoutButton } from "@/app/dashboard/logout-button"
 import Link from "next/link"
@@ -25,6 +20,7 @@ import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { EventSwitcher } from "@/components/dashboard/event-switcher"
 import {
   Sidebar,
   SidebarContent,
@@ -173,35 +169,9 @@ function SidebarContentInner({
       show: event.accommodationEnabled,
     },
     {
-      label: "Allocation",
-      icon: Hotel,
-      href: `/dashboard/events/${slug}/accommodation/allocation`,
-      show: event.accommodationEnabled,
-    },
-    {
       label: "Finance",
       icon: CreditCard,
       href: `/dashboard/events/${slug}/payments`,
-    },
-    {
-      label: "Donations",
-      icon: Gift,
-      href: `/dashboard/events/${slug}/donation`,
-    },
-    {
-      label: "Orders",
-      icon: ShoppingBag,
-      href: `/dashboard/events/${slug}/orders`,
-    },
-    {
-      label: "Reconciliation",
-      icon: HandCoins,
-      href: `/dashboard/events/${slug}/reconciliation`,
-    },
-    {
-      label: "Share",
-      icon: Link2,
-      href: `/dashboard/events/${slug}/share`,
     },
     {
       label: "Settings",
@@ -213,15 +183,10 @@ function SidebarContentInner({
   return (
     <>
       <SidebarHeader className="h-[64px] justify-center pt-6 group-data-[collapsible=icon]:h-auto group-data-[collapsible=icon]:p-1 group-data-[collapsible=icon]:pt-4">
-        <div className="rounded-2xl border border-border/50 bg-background/70 p-3 shadow-sm backdrop-blur group-data-[collapsible=icon]:rounded-none group-data-[collapsible=icon]:border-none group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:shadow-none">
-          <p className="text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase group-data-[collapsible=icon]:hidden">
-            Event
-          </p>
-          <p className="truncate text-sm font-semibold text-foreground group-data-[collapsible=icon]:hidden">
-            {event ? event.title ?? event.slug : "—"}
-          </p>
-          <img src="/dlbc-logo.png" alt="Logo" className="mx-auto hidden size-6 group-data-[collapsible=icon]:block" />
-        </div>
+        <EventSwitcher
+          currentSlug={slug}
+          className="group-data-[collapsible=icon]:rounded-none group-data-[collapsible=icon]:border-none group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:shadow-none group-data-[collapsible=icon]:[&>div]:hidden"
+        />
       </SidebarHeader>
 
       <SidebarContent className="gap-0 px-3 pt-3 group-data-[collapsible=icon]:px-1 group-data-[collapsible=icon]:pt-1">
@@ -229,10 +194,7 @@ function SidebarContentInner({
           <nav className="space-y-2">
             {menuItems.map((item) => {
               if (item.show === false) return null
-              const isOverview = menuItems[0] === item
-              const isActive =
-                item.href === pathname ||
-                (!isOverview && pathname.startsWith(`${item.href}/`))
+              const isActive = getSectionActive(item.label, pathname, slug)
               const Icon = item.icon
 
               const subpage = pathname.startsWith(`${item.href}/`)
@@ -294,4 +256,20 @@ function SidebarContentInner({
       </SidebarFooter>
     </>
   )
+}
+
+function getSectionActive(label: string, pathname: string, slug: string) {
+  const eventRoot = `/dashboard/events/${slug}`
+
+  if (label === "Overview") return pathname === eventRoot
+  if (label === "Finance") {
+    return ["payments", "orders", "donation", "reconciliation"].some(
+      (section) => pathname === `${eventRoot}/${section}` || pathname.startsWith(`${eventRoot}/${section}/`)
+    )
+  }
+  if (label === "Accommodation") {
+    return pathname === `${eventRoot}/accommodation` || pathname.startsWith(`${eventRoot}/accommodation/`)
+  }
+
+  return pathname === `/dashboard/events/${slug}/${label.toLowerCase()}` || pathname.startsWith(`/dashboard/events/${slug}/${label.toLowerCase()}/`)
 }
