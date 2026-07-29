@@ -63,7 +63,7 @@ describe("event overview projection", () => {
   it("distinguishes accommodation setup, allocation, and no issue states", () => {
     const setup = projectEventOverview(input({ accommodation: domain({ summary: { hotelsLinked: 0, totalSlots: 0, assignableSlots: 0, submissionsCount: 0, unassignedAttendeesCount: 0 } }) }))
     expect(setup.exceptions[0]?.key).toBe("reconciliation")
-    expect(setup.exceptions.at(-1)?.key).toBe("accommodation-setup")
+    expect(setup.exceptions.at(-1)).toMatchObject({ key: "accommodation-setup", href: "/dashboard/events/spring-conference/settings" })
 
     const allocation = projectEventOverview(input({ accommodation: domain({ summary: { hotelsLinked: 1, totalSlots: 10, assignableSlots: 8, submissionsCount: 2, unassignedAttendeesCount: 2 } }) }))
     expect(allocation.exceptions.at(-1)).toMatchObject({ key: "unassigned-attendees", href: "/dashboard/events/spring-conference/accommodation/allocation" })

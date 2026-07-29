@@ -186,7 +186,7 @@ export function projectEventOverview(input: OverviewInputs): EventOverviewProjec
   } else if (input.accommodation.status === "ready" && input.accommodation.data) {
     const summary = input.accommodation.data.summary
     if (summary.hotelsLinked === 0 || summary.assignableSlots === 0) {
-      exceptions.push({ key: "accommodation-setup", title: "Accommodation setup needed", reason: summary.hotelsLinked === 0 ? "No hotels are linked to this event" : "No usable room slots are available", href: eventHref(event.slug, "accommodation") })
+      exceptions.push({ key: "accommodation-setup", title: "Accommodation setup needed", reason: summary.hotelsLinked === 0 ? "No hotels are linked to this event" : "No usable room slots are available", href: eventHref(event.slug, "settings") })
     } else if (summary.unassignedAttendeesCount > 0) {
       exceptions.push({ key: "unassigned-attendees", title: "Unassigned attendees", reason: `${summary.unassignedAttendeesCount} attendee(s) need allocation`, href: eventHref(event.slug, "accommodation/allocation") })
     }
