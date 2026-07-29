@@ -14,6 +14,7 @@ import {
   Hotel,
   ShoppingBag,
   HandCoins,
+  Gift,
 } from "lucide-react"
 import { LogoutButton } from "@/app/dashboard/logout-button"
 import Link from "next/link"
@@ -181,6 +182,11 @@ function SidebarContentInner({
       label: "Finance",
       icon: CreditCard,
       href: `/dashboard/events/${slug}/payments`,
+    },
+    {
+      label: "Donations",
+      icon: Gift,
+      href: `/dashboard/events/${slug}/donation`,
     },
     {
       label: "Orders",

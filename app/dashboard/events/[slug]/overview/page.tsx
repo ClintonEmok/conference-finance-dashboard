@@ -113,6 +113,7 @@ type ReconciliationResponse = {
   totals: {
     rows: number
     outstandingMinor: number
+    standaloneDonationMinor: number
   }
   rows: Array<{
     orderId: string | null
@@ -209,9 +210,12 @@ export default function EventOverviewSurface({
           fetch(`/api/dashboard/reconciliation?${query.toString()}`, {
             signal: abortSignal,
           }),
-          fetch(`/api/dashboard/donations?eventId=${event._id}`, {
+          fetch(
+            `/api/dashboard/donations?eventId=${encodeURIComponent(event._id)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+            {
             signal: abortSignal,
-          }),
+            }
+          ),
         ])
 
       if (!revenueResponse.ok || !ordersResponse.ok || !attendeesResponse.ok || !reconciliationResponse.ok) {

@@ -90,6 +90,11 @@ describe("money model", () => {
           currency: "EUR",
         },
       ])
+      .mockResolvedValueOnce({
+        page: [],
+        isDone: true,
+        continueCursor: "",
+      })
       .mockResolvedValueOnce([
         {
           amountMinor: 2000,

@@ -3,7 +3,8 @@ import { NextResponse } from "next/server"
 import { requireApiUser } from "@/lib/auth/server"
 import type { Id } from "@/convex/_generated/dataModel"
 import { api } from "@/lib/convex/api"
-import { convexMutation, convexQuery } from "@/lib/convex/server"
+import { convexMutation } from "@/lib/convex/server"
+import { listStandaloneDonations } from "@/lib/domain/finance/standalone-donations"
 
 type DonationSource = "cash" | "bank_transfer"
 
@@ -12,13 +13,33 @@ const allowedSources: DonationSource[] = ["cash", "bank_transfer"]
 function parseDonationFilters(request: Request) {
   const params = new URL(request.url).searchParams
   const eventIdParam = params.get("eventId")
+  const fromParam = params.get("from")
+  const toParam = params.get("to")
 
   const eventId =
     eventIdParam && eventIdParam.trim()
       ? (eventIdParam.trim() as Id<"events">)
       : undefined
+  const from = fromParam ? new Date(fromParam) : null
+  const to = toParam ? new Date(toParam) : null
 
-  return { eventId }
+  if (from && Number.isNaN(from.getTime())) {
+    throw new Error("Invalid 'from' date")
+  }
+
+  if (to && Number.isNaN(to.getTime())) {
+    throw new Error("Invalid 'to' date")
+  }
+
+  if (from && to && from.getTime() > to.getTime()) {
+    throw new Error("Invalid date range")
+  }
+
+  return {
+    eventId,
+    from: from?.getTime(),
+    to: to?.getTime(),
+  }
 }
 
 function parseDonationBody(body: unknown) {
@@ -74,22 +95,16 @@ export async function GET(request: Request) {
   }
 
   try {
-    const { eventId } = parseDonationFilters(request)
+    const { eventId, from, to } = parseDonationFilters(request)
 
-    const donations = await convexQuery(api.payments.getStandaloneDonations, {
+    const donations = await listStandaloneDonations({
       eventId,
+      from,
+      to,
     })
 
     return NextResponse.json({
-      donations: donations.map((d: {
-        _id: string
-        source: string
-        payerName: string
-        amountMinor: number
-        paidAt: number
-        eventId: string | null
-        notes: string | null
-      }) => ({
+      donations: donations.map((d) => ({
         id: d._id,
         source: d.source,
         payerName: d.payerName,
@@ -100,15 +115,18 @@ export async function GET(request: Request) {
       })),
     })
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load donations"
+    const isBadRequest = message.startsWith("Invalid")
+
     console.error("Failed to load donations:", error)
     return NextResponse.json(
       {
         error: {
-          code: "INTERNAL_ERROR",
-          message: "Failed to load donations",
+          code: isBadRequest ? "BAD_REQUEST" : "INTERNAL_ERROR",
+          message: isBadRequest ? message : "Failed to load donations",
         },
       },
-      { status: 500 }
+      { status: isBadRequest ? 400 : 500 }
     )
   }
 }
@@ -135,6 +153,15 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       id,
+      donation: {
+        id,
+        eventId: donation.eventId,
+        payerName: donation.payerName,
+        amountMinor: donation.amountMinor,
+        paidAt: new Date(donation.paidAt).toISOString(),
+        source: donation.source,
+        notes: donation.notes ?? null,
+      },
       message: "Donation created successfully",
     })
   } catch (error) {
@@ -144,7 +171,8 @@ export async function POST(request: Request) {
     if (
       message.includes("required") ||
       message.includes("must be") ||
-      message.includes("Invalid")
+      message.includes("Invalid") ||
+      message.includes("Event not found")
     ) {
       return NextResponse.json(
         {

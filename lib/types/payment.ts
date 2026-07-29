@@ -30,6 +30,13 @@ export type PaymentStatus =
   | "unassigned"
   | "donation"
 
+export const donationKindValidator = v.union(
+  v.literal("overpayment"),
+  v.literal("standalone")
+)
+
+export type DonationKind = "overpayment" | "standalone"
+
 /**
  * Full payment document validator — mirrors the `payments` table schema.
  */
@@ -44,6 +51,7 @@ export const paymentDocValidator = v.object({
   paidAt: v.number(),
   eventId: v.optional(v.id("events")),
   orderId: v.optional(v.string()),
+  donationKind: v.optional(donationKindValidator),
   status: v.optional(paymentStatusValidator),
   matchedAt: v.optional(v.number()),
   matchedBy: v.optional(v.string()),

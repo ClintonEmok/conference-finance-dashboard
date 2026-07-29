@@ -22,6 +22,8 @@ export type PaymentMatchStatus =
   | "unassigned"
   | "donation"
 
+export type DonationKind = "overpayment" | "standalone"
+
 export type PaymentDto = {
   _id: string
   source: PaymentSource
@@ -32,6 +34,7 @@ export type PaymentDto = {
   paidAt: number
   eventId: Id<"events"> | null
   orderId: string | null
+  donationKind: DonationKind | null
   status: PaymentMatchStatus | null
   matchedAt: number | null
   matchedBy: string | null
@@ -99,6 +102,7 @@ type ConvexPayment = {
   amountMinor: number
   paidAt: number
   orderId?: string
+  donationKind?: DonationKind
   status?: PaymentMatchStatus
   matchedAt?: number
   matchedBy?: string
@@ -121,6 +125,7 @@ function mapPaymentDto(payment: ConvexPayment): PaymentDto {
     paidAt: payment.paidAt,
     eventId: payment.eventId ?? null,
     orderId: normalizedOrderId || null,
+    donationKind: payment.donationKind ?? null,
     status: payment.status ?? null,
     matchedAt: payment.matchedAt ?? null,
     matchedBy: payment.matchedBy ?? null,

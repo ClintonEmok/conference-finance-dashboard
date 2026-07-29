@@ -4,6 +4,7 @@ import {
   allocateMinorAmountByWeight,
   deriveBalanceAmounts,
 } from "@/lib/domain/finance/amounts"
+import { listStandaloneDonations } from "@/lib/domain/finance/standalone-donations"
 import type { Id } from "@/convex/_generated/dataModel"
 
 export type RevenueTrendGranularity = "day"
@@ -147,8 +148,10 @@ export async function getRevenueOverview(
       to: toMs,
     }),
     convexQuery(api.events.getEventsForLedger, {}),
-    convexQuery(api.payments.getStandaloneDonations, {
+    listStandaloneDonations({
       eventId: eventId ? (eventId as Id<"events">) : undefined,
+      from: fromMs,
+      to: toMs,
     }),
   ])) as [
     RevenueOrderProjection[],
@@ -159,15 +162,7 @@ export async function getRevenueOverview(
       startsAt: number | null
       currency: string | null
     }>,
-    Array<{
-      _id: string
-      source: string
-      payerName: string
-      amountMinor: number
-      paidAt: number
-      eventId: string | null
-      notes: string | null
-    }>,
+    Awaited<ReturnType<typeof listStandaloneDonations>>,
   ]
 
   const statusCounts: Record<CanonicalStatus, number> = {
@@ -262,18 +257,9 @@ export async function getRevenueOverview(
       })
     }
 
-    current.netMinor = current.paidMinor - current.refundedMinor
-
     orderValueMinor += amountMinor
     trendMap.set(bucket, current)
   }
-
-  const trend = Array.from(trendMap.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([bucket, values]) => ({
-      bucket,
-      ...values,
-    }))
 
   // Add standalone donations to the donations array and totals
   for (const donation of standaloneDonations) {
@@ -281,6 +267,25 @@ export async function getRevenueOverview(
     paidMinor += donation.amountMinor
 
     const eventInfo = availableEvents.find((e) => e.eventId === donation.eventId)
+    const bucket = toUtcDayBucket(new Date(donation.paidAt))
+    const current = trendMap.get(bucket) ?? {
+      eventLabel: eventInfo?.title?.trim() || eventInfo?.slug || "Standalone donations",
+      orderValueMinor: 0,
+      paidMinor: 0,
+      refundedMinor: 0,
+      netMinor: 0,
+      overpaidMinor: 0,
+      orderCount: 0,
+    }
+
+    current.paidMinor += donation.amountMinor
+
+    const nextEventLabel = eventInfo?.title?.trim() || eventInfo?.slug || "Standalone donations"
+    if (current.eventLabel !== nextEventLabel) {
+      current.eventLabel = "Multiple events"
+    }
+
+    trendMap.set(bucket, current)
 
     donations.push({
       orderId: null,
@@ -293,10 +298,18 @@ export async function getRevenueOverview(
       amountDueMinor: 0,
       matchedAmountMinor: 0,
       donationMinor: donation.amountMinor,
-      currency: null,
+      currency: eventInfo?.currency ?? null,
       type: "standalone",
     })
   }
+
+  const trend = Array.from(trendMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([bucket, values]) => ({
+      bucket,
+      ...values,
+      netMinor: values.paidMinor - values.refundedMinor,
+    }))
 
   donations.sort((left, right) => {
     if (right.donationMinor !== left.donationMinor) {

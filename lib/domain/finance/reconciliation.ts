@@ -3,6 +3,7 @@ import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
 import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
+import { listStandaloneDonations } from "@/lib/domain/finance/standalone-donations"
 import type { Id } from "@/convex/_generated/dataModel"
 
 export type ReconciliationFilters = {
@@ -147,8 +148,10 @@ export async function getReconciliationRows(
       status: status ?? undefined,
     }),
     convexQuery(api.events.getEventsForLedger, {}),
-    convexQuery(api.payments.getStandaloneDonations, {
+    listStandaloneDonations({
       eventId: eventId ? (eventId as Id<"events">) : undefined,
+      from: fromMs,
+      to: toMs,
     }),
   ])
 
@@ -156,12 +159,15 @@ export async function getReconciliationRows(
 
   // Calculate total standalone donations for this event
   const totalStandaloneDonations = standaloneDonations.reduce(
-    (sum: number, d: { amountMinor: number }) => sum + d.amountMinor,
+    (sum, donation) => sum + donation.amountMinor,
     0
   )
 
   const rows: ReconciliationRow[] = []
   let outstandingMinor = 0
+  // Apply unlinked donations to displayed follow-up rows without linking them
+  // to an attendee or order, keeping row totals consistent with the aggregate.
+  let remainingStandaloneDonationMinor = totalStandaloneDonations
 
   for (const order of orders) {
     const typedOrder = order as typeof order & {
@@ -174,14 +180,14 @@ export async function getReconciliationRows(
       ? new Date(typedOrder.refundedAt)
       : null
 
-      const reconciliation = deriveReconciliation({
-        normalizedStatus: typedOrder.normalizedStatus,
-        amountDueMinor: typedOrder.amountDueMinor ?? null,
-        totalAmountMinor: typedOrder.totalAmountMinor,
-        refundedAt: refundedAtDate,
-        matchedAmountMinor:
-          (orderLookupKey
-            ? matchedTotalsByOrderId.get(orderLookupKey)
+    const reconciliation = deriveReconciliation({
+      normalizedStatus: typedOrder.normalizedStatus,
+      amountDueMinor: typedOrder.amountDueMinor ?? null,
+      totalAmountMinor: typedOrder.totalAmountMinor,
+      refundedAt: refundedAtDate,
+      matchedAmountMinor:
+        (orderLookupKey
+          ? matchedTotalsByOrderId.get(orderLookupKey)
           : undefined) ?? 0,
     })
 
@@ -189,30 +195,32 @@ export async function getReconciliationRows(
       continue
     }
 
-    outstandingMinor += reconciliation.outstandingMinor
+    const donationAppliedMinor = Math.min(
+      remainingStandaloneDonationMinor,
+      reconciliation.outstandingMinor
+    )
+    remainingStandaloneDonationMinor -= donationAppliedMinor
+    const adjustedOutstandingMinor =
+      reconciliation.outstandingMinor - donationAppliedMinor
 
-      rows.push({
-        orderId: typedOrder.orderId ?? null,
-        providerOrderId: typedOrder.providerOrderId ?? null,
-        eventId: typedOrder.eventId,
-        eventSlug: typedOrder.eventSlug,
-        eventTitle: typedOrder.eventTitle,
-        normalizedStatus: typedOrder.normalizedStatus,
-        amountDueMinor: typedOrder.amountDueMinor ?? null,
-        totalAmountMinor: typedOrder.totalAmountMinor,
-        currency: typedOrder.currency,
-        orderedAt: typedOrder.orderedAt,
+    outstandingMinor += adjustedOutstandingMinor
+
+    rows.push({
+      orderId: typedOrder.orderId ?? null,
+      providerOrderId: typedOrder.providerOrderId ?? null,
+      eventId: typedOrder.eventId,
+      eventSlug: typedOrder.eventSlug,
+      eventTitle: typedOrder.eventTitle,
+      normalizedStatus: typedOrder.normalizedStatus,
+      amountDueMinor: typedOrder.amountDueMinor ?? null,
+      totalAmountMinor: typedOrder.totalAmountMinor,
+      currency: typedOrder.currency,
+      orderedAt: typedOrder.orderedAt,
       refundedAt: typedOrder.refundedAt,
-      outstandingMinor: reconciliation.outstandingMinor,
+      outstandingMinor: adjustedOutstandingMinor,
       reasons: reconciliation.reasons,
     })
   }
-
-  // Standalone donations reduce the overall outstanding for the event
-  const adjustedOutstandingMinor = Math.max(
-    0,
-    outstandingMinor - totalStandaloneDonations
-  )
 
   return {
     generatedAt: new Date().toISOString(),
@@ -225,7 +233,7 @@ export async function getReconciliationRows(
     availableEvents,
     totals: {
       rows: rows.length,
-      outstandingMinor: adjustedOutstandingMinor,
+      outstandingMinor,
       standaloneDonationMinor: totalStandaloneDonations,
     },
     rows,

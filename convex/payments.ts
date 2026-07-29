@@ -354,6 +354,7 @@ export const assignPaymentToOrder = mutation({
     await ctx.db.patch("payments", args.paymentId, {
       orderId: canonicalOrderId,
       eventId: order?.eventId,
+      donationKind: undefined,
       status: args.status ?? "manual_assignment",
       matchedAt: Date.now(),
       matchedBy: args.matchedBy,
@@ -371,6 +372,7 @@ export const unassignPayment = mutation({
     await ctx.db.patch("payments", args.paymentId, {
       orderId: undefined,
       eventId: undefined,
+      donationKind: undefined,
       status: "unassigned",
       matchedAt: undefined,
       matchedBy: undefined,
@@ -409,6 +411,7 @@ export const markPaymentAsDonation = mutation({
     await ctx.db.patch("payments", args.paymentId, {
       orderId: undefined,
       eventId,
+      donationKind: "overpayment",
       status: "donation",
       matchedAt: Date.now(),
       matchedBy: args.matchedBy,
@@ -430,18 +433,41 @@ export const createStandaloneDonation = mutation({
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
 
-    if (args.amountMinor <= 0) {
-      throw new Error("Amount must be greater than zero")
+    const event = await ctx.db.get("events", args.eventId)
+    if (!event) {
+      throw new Error("Event not found")
+    }
+
+    const payerName = args.payerName.trim()
+    if (!payerName) {
+      throw new Error("Payer name is required")
+    }
+
+    if (
+      !Number.isFinite(args.amountMinor) ||
+      !Number.isInteger(args.amountMinor) ||
+      args.amountMinor <= 0
+    ) {
+      throw new Error("Amount must be a positive integer")
+    }
+
+    if (
+      !Number.isFinite(args.paidAt) ||
+      !Number.isInteger(args.paidAt) ||
+      args.paidAt <= 0
+    ) {
+      throw new Error("Paid date must be a valid timestamp")
     }
 
     const id = await ctx.db.insert("payments", {
       source: args.source,
-      payerName: args.payerName,
+      payerName,
       amountMinor: args.amountMinor,
       paidAt: args.paidAt,
       eventId: args.eventId,
+      donationKind: "standalone",
       status: "donation",
-      notes: args.notes,
+      notes: args.notes?.trim() || undefined,
     })
 
     return id
@@ -451,22 +477,103 @@ export const createStandaloneDonation = mutation({
 export const getStandaloneDonations = query({
   args: {
     eventId: v.optional(v.id("events")),
+    from: v.optional(v.number()),
+    to: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
 
-    let donations = await ctx.db
-      .query("payments")
-      .withIndex("status", (q) => q.eq("status", "donation"))
-      .take(500)
-
-    donations = donations.filter((d) => !d.orderId)
-
     if (args.eventId) {
-      donations = donations.filter((d) => d.eventId === args.eventId)
+      if (args.from !== undefined && args.to !== undefined) {
+        return await ctx.db
+          .query("payments")
+          .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
+            q
+              .eq("donationKind", "standalone")
+              .eq("eventId", args.eventId!)
+              .gte("paidAt", args.from!)
+              .lte("paidAt", args.to!)
+          )
+          .order("desc")
+          .paginate(args.paginationOpts)
+      }
+
+      if (args.from !== undefined) {
+        return await ctx.db
+          .query("payments")
+          .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
+            q
+              .eq("donationKind", "standalone")
+              .eq("eventId", args.eventId!)
+              .gte("paidAt", args.from!)
+          )
+          .order("desc")
+          .paginate(args.paginationOpts)
+      }
+
+      if (args.to !== undefined) {
+        return await ctx.db
+          .query("payments")
+          .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
+            q
+              .eq("donationKind", "standalone")
+              .eq("eventId", args.eventId!)
+              .lte("paidAt", args.to!)
+          )
+          .order("desc")
+          .paginate(args.paginationOpts)
+      }
+
+      return await ctx.db
+        .query("payments")
+        .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
+          q.eq("donationKind", "standalone").eq("eventId", args.eventId!)
+        )
+        .order("desc")
+        .paginate(args.paginationOpts)
     }
 
-    return donations
+    if (args.from !== undefined && args.to !== undefined) {
+      return await ctx.db
+        .query("payments")
+        .withIndex("by_donationKind_and_paidAt", (q) =>
+          q
+            .eq("donationKind", "standalone")
+            .gte("paidAt", args.from!)
+            .lte("paidAt", args.to!)
+        )
+        .order("desc")
+        .paginate(args.paginationOpts)
+    }
+
+    if (args.from !== undefined) {
+      return await ctx.db
+        .query("payments")
+        .withIndex("by_donationKind_and_paidAt", (q) =>
+          q.eq("donationKind", "standalone").gte("paidAt", args.from!)
+        )
+        .order("desc")
+        .paginate(args.paginationOpts)
+    }
+
+    if (args.to !== undefined) {
+      return await ctx.db
+        .query("payments")
+        .withIndex("by_donationKind_and_paidAt", (q) =>
+          q.eq("donationKind", "standalone").lte("paidAt", args.to!)
+        )
+        .order("desc")
+        .paginate(args.paginationOpts)
+    }
+
+    return await ctx.db
+      .query("payments")
+      .withIndex("by_donationKind_and_paidAt", (q) =>
+        q.eq("donationKind", "standalone")
+      )
+      .order("desc")
+      .paginate(args.paginationOpts)
   },
 })
 

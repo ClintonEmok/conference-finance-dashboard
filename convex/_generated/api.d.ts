@@ -984,6 +984,7 @@ export declare const api: {
         _creationTime: number;
         _id: Id<"payments">;
         amountMinor: number;
+        donationKind?: "overpayment" | "standalone";
         eventId?: Id<"events">;
         matchedAt?: number;
         matchedBy?: string;
@@ -1031,6 +1032,7 @@ export declare const api: {
         _creationTime: number;
         _id: Id<"payments">;
         amountMinor: number;
+        donationKind?: "overpayment" | "standalone";
         eventId?: Id<"events">;
         matchedAt?: number;
         matchedBy?: string;
@@ -1060,7 +1062,19 @@ export declare const api: {
     getStandaloneDonations: FunctionReference<
       "query",
       "public",
-      { eventId?: Id<"events"> },
+      {
+        eventId?: Id<"events">;
+        from?: number;
+        paginationOpts: {
+          cursor: string | null;
+          endCursor?: string | null;
+          id?: number;
+          maximumBytesRead?: number;
+          maximumRowsRead?: number;
+          numItems: number;
+        };
+        to?: number;
+      },
       any
     >;
     getUnassignedPayments: FunctionReference<"query", "public", {}, any>;

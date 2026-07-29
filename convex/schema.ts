@@ -582,6 +582,9 @@ export default defineSchema({
       paidAt: v.number(),
       eventId: v.optional(v.id("events")),
       orderId: v.optional(v.string()),
+      donationKind: v.optional(
+        v.union(v.literal("overpayment"), v.literal("standalone"))
+      ),
       status: v.optional(
         v.union(
           v.literal("auto_matched"),
@@ -602,6 +605,12 @@ export default defineSchema({
     .index("eventId", ["eventId"])
     .index("source_sourceId", ["source", "sourceId"])
     .index("status", ["status"])
+    .index("by_donationKind_and_paidAt", ["donationKind", "paidAt"])
+    .index("by_donationKind_and_eventId_and_paidAt", [
+      "donationKind",
+      "eventId",
+      "paidAt",
+    ])
     .index("paidAt", ["paidAt"]),
 
   roomAllocations: defineTable(

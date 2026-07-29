@@ -3,28 +3,23 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { formatMoney } from "@/lib/format"
-
-type Event = {
-  eventId: string
-  title: string | null
-}
 
 type DonationFormProps = {
-  events: Event[]
-  selectedEventId: string | null
-  onSelectEvent: (eventId: string | null) => void
+  eventId: string
+  eventTitle: string
   onSuccess: () => void
 }
 
 export function DonationForm({
-  events,
-  selectedEventId,
-  onSelectEvent,
+  eventId,
+  eventTitle,
   onSuccess,
 }: DonationFormProps) {
   const [payerName, setPayerName] = useState("")
   const [amount, setAmount] = useState("")
+  const [paidDate, setPaidDate] = useState(() =>
+    new Date().toISOString().slice(0, 10)
+  )
   const [source, setSource] = useState<"cash" | "bank_transfer">("cash")
   const [notes, setNotes] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -33,11 +28,6 @@ export function DonationForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-
-    if (!selectedEventId) {
-      setError("Please select an event")
-      return
-    }
 
     if (!payerName.trim()) {
       setError("Payer name is required")
@@ -50,6 +40,12 @@ export function DonationForm({
       return
     }
 
+    const paidAt = new Date(`${paidDate}T12:00:00`).getTime()
+    if (!Number.isFinite(paidAt)) {
+      setError("Date is required")
+      return
+    }
+
     setIsSubmitting(true)
 
     try {
@@ -57,10 +53,10 @@ export function DonationForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          eventId: selectedEventId,
+          eventId,
           payerName: payerName.trim(),
           amountMinor,
-          paidAt: Date.now(),
+          paidAt,
           source,
           notes: notes.trim() || undefined,
         }),
@@ -74,6 +70,7 @@ export function DonationForm({
       // Reset form
       setPayerName("")
       setAmount("")
+      setPaidDate(new Date().toISOString().slice(0, 10))
       setNotes("")
       onSuccess()
     } catch (err) {
@@ -96,19 +93,9 @@ export function DonationForm({
           <label className="text-xs font-bold uppercase text-muted-foreground">
             Event
           </label>
-          <select
-            value={selectedEventId ?? ""}
-            onChange={(e) => onSelectEvent(e.target.value || null)}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-            required
-          >
-            <option value="">Select an event</option>
-            {events.map((event) => (
-              <option key={event.eventId} value={event.eventId}>
-                {event.title || "Unnamed Event"}
-              </option>
-            ))}
-          </select>
+          <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-foreground">
+            {eventTitle}
+          </div>
         </div>
 
         <div className="space-y-2">
@@ -134,6 +121,18 @@ export function DonationForm({
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="0.00"
+            required
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs font-bold uppercase text-muted-foreground">
+            Date
+          </label>
+          <Input
+            type="date"
+            value={paidDate}
+            onChange={(e) => setPaidDate(e.target.value)}
             required
           />
         </div>

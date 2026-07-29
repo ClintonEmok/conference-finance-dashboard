@@ -12,7 +12,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 import { Button } from "@/components/ui/button"
 import { EventTikkieSection } from "@/components/dashboard/event-tikkie-section"
-import { DonationForm } from "@/components/dashboard/donation-form"
 import {
   Table,
   TableBody,
@@ -38,20 +37,11 @@ type RevenueResponse = {
   }
 }
 
-type Donation = {
-  id: string
-  source: "cash" | "bank_transfer"
-  payerName: string
-  amountMinor: number
-  paidAt: string
-  eventId: string | null
-  notes: string | null
-}
-
 type BalanceResponse = {
   totals: {
     rows: number
     outstandingMinor: number
+    standaloneDonationMinor: number
   }
   availableEvents: Array<{
     eventId: string
@@ -83,8 +73,8 @@ function FinancialSkeleton() {
             <Skeleton className="h-10 w-28 rounded-xl" />
           </div>
         </div>
-        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
+        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {[1, 2, 3, 4, 5].map((i) => (
             <Skeleton key={i} className="h-32 rounded-2xl" />
           ))}
         </div>
@@ -101,72 +91,47 @@ function FinancialSkeleton() {
 export default function FinancialPage() {
   const [revenue, setRevenue] = useState<RevenueResponse | null>(null)
   const [balances, setBalances] = useState<BalanceResponse | null>(null)
-  const [donations, setDonations] = useState<Donation[]>([])
-  const [events, setEvents] = useState<
-    Array<{ eventId: string; title: string | null }>
-  >([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [showDonationForm, setShowDonationForm] = useState(false)
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     const to = new Date().toISOString()
     const fromDate = new Date()
     fromDate.setDate(fromDate.getDate() - 30)
     const from = fromDate.toISOString()
 
-    async function load() {
-      setIsLoading(true)
-      setErrorMessage(null)
+    setIsLoading(true)
+    setErrorMessage(null)
 
-      try {
-        const [revenueResponse, balancesResponse, donationsResponse] =
-          await Promise.all([
-            fetch(
-              `/api/dashboard/revenue?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-            ),
-            fetch(
-              `/api/dashboard/reconciliation?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-            ),
-            fetch("/api/dashboard/donations"),
-          ])
-
-        if (!revenueResponse.ok || !balancesResponse.ok) {
-          setErrorMessage("Unable to load the financial workspace right now.")
-          return
-        }
-
-        setRevenue((await revenueResponse.json()) as RevenueResponse)
-        const balancesData = (await balancesResponse.json()) as BalanceResponse
-        setBalances(balancesData)
-        setEvents(balancesData.availableEvents ?? [])
-
-        if (donationsResponse.ok) {
-          const donationsData = await donationsResponse.json()
-          setDonations(donationsData.donations ?? [])
-        }
-      } catch {
-        setErrorMessage("Network error while loading the financial workspace.")
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    void load()
-  }, [])
-
-  const refreshDonations = useCallback(async () => {
     try {
-      const response = await fetch("/api/dashboard/donations")
-      if (response.ok) {
-        const data = await response.json()
-        setDonations(data.donations ?? [])
+      const [revenueResponse, balancesResponse] =
+        await Promise.all([
+          fetch(
+            `/api/dashboard/revenue?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+          ),
+          fetch(
+            `/api/dashboard/reconciliation?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+          ),
+        ])
+
+      if (!revenueResponse.ok || !balancesResponse.ok) {
+        setErrorMessage("Unable to load the financial workspace right now.")
+        return
       }
+
+      setRevenue((await revenueResponse.json()) as RevenueResponse)
+      const balancesData = (await balancesResponse.json()) as BalanceResponse
+      setBalances(balancesData)
     } catch {
-      // Silent fail - donations will refresh on next page load
+      setErrorMessage("Network error while loading the financial workspace.")
+    } finally {
+      setIsLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
 
   const portfolio = useMemo(() => {
     if (!balances) return []
@@ -291,7 +256,7 @@ export default function FinancialPage() {
               value: revenue
                 ? formatMoney(revenue.totals.standaloneDonationMinor)
                 : "--",
-              sub: `${donations.length} standalone donations`,
+              sub: "Tracked within each event",
               trend: "up",
               isDonation: true,
             },
@@ -437,79 +402,6 @@ export default function FinancialPage() {
           </div>
         </article>
       )}
-
-      {donations.length > 0 || showDonationForm ? (
-        <article className="animate-in slide-in-from-bottom-4 duration-700 delay-200 fill-mode-both rounded-3xl border border-border/50 bg-card/40 p-8 shadow-sm backdrop-blur-xl">
-          <div className="mb-6 flex items-center justify-between">
-            <div>
-              <p className="text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase">
-                Standalone Donations
-              </p>
-              <h3 className="mt-2 text-2xl font-bold text-foreground">
-                Donations not linked to orders
-              </h3>
-            </div>
-            <Button
-              onClick={() => setShowDonationForm(!showDonationForm)}
-              className="rounded-xl"
-            >
-              {showDonationForm ? "Cancel" : "Record Donation"}
-            </Button>
-          </div>
-
-          {showDonationForm && (
-            <DonationForm
-              events={events}
-              selectedEventId={selectedEventId}
-              onSelectEvent={setSelectedEventId}
-              onSuccess={() => {
-                setShowDonationForm(false)
-                refreshDonations()
-              }}
-            />
-          )}
-
-          {donations.length > 0 && (
-            <div className="mt-6 overflow-x-auto rounded-2xl border border-border/50 bg-background/50">
-              <table className="min-w-full text-sm">
-                <thead className="border-b border-border/40 bg-muted/30 text-left text-[10px] font-black tracking-[0.2em] text-muted-foreground uppercase">
-                  <tr>
-                    <th className="px-4 py-3">Payer</th>
-                    <th className="px-4 py-3">Amount</th>
-                    <th className="px-4 py-3">Source</th>
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">Notes</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/40">
-                  {donations.map((donation) => (
-                    <tr
-                      key={donation.id}
-                      className="transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-                    >
-                      <td className="px-4 py-3 font-medium text-foreground">
-                        {donation.payerName}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-sm font-semibold tabular-nums text-primary">
-                        {formatMoney(donation.amountMinor)}
-                      </td>
-                      <td className="px-4 py-3 capitalize text-muted-foreground">
-                        {donation.source.replace("_", " ")}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {new Date(donation.paidAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {donation.notes || "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </article>
-      ) : null}
 
       <article className="rounded-3xl border border-border/50 bg-card/40 p-8 shadow-sm backdrop-blur-xl">
         <div className="mb-8">

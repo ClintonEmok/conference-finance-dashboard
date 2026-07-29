@@ -495,6 +495,7 @@ export type DataModel = {
   payments: {
     document: {
       amountMinor: number;
+      donationKind?: "overpayment" | "standalone";
       eventId?: Id<"events">;
       matchedAt?: number;
       matchedBy?: string;
@@ -520,6 +521,7 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "amountMinor"
+      | "donationKind"
       | "eventId"
       | "matchedAt"
       | "matchedBy"
@@ -536,6 +538,13 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_donationKind_and_eventId_and_paidAt: [
+        "donationKind",
+        "eventId",
+        "paidAt",
+        "_creationTime",
+      ];
+      by_donationKind_and_paidAt: ["donationKind", "paidAt", "_creationTime"];
       eventId: ["eventId", "_creationTime"];
       orderId: ["orderId", "_creationTime"];
       paidAt: ["paidAt", "_creationTime"];
