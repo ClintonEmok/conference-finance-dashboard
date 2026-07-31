@@ -1,6 +1,6 @@
 "use client"
 
-import { useQuery, useMutation } from "convex/react"
+import { useQuery, useMutation, useQueries } from "convex/react"
 import { api } from "@/lib/convex/api"
 import type { Id } from "@/convex/_generated/dataModel"
 
@@ -151,6 +151,27 @@ export function useEventAllocationSummary(eventId: string | undefined) {
   return board?.summary
 }
 
+export type OverviewAccommodationQuery<T> =
+  | { status: "pending" }
+  | { status: "success"; data: T }
+  | { status: "error"; message: string }
+
+function overviewQueryResult<T>(value: T | undefined | Error): OverviewAccommodationQuery<T> {
+  if (value instanceof Error) return { status: "error", message: value.message || "Accommodation data could not be loaded." }
+  if (value === undefined) return { status: "pending" }
+  return { status: "success", data: value }
+}
+
+/** Overview-only wrappers retain Convex query errors instead of collapsing them into undefined. */
+export function useEventAllocationSummaryForOverview(eventId: string | undefined) {
+  const result = useQueries(eventId ? {
+    allocation: { query: api.accommodation.getRoomAllocationBoard, args: { eventId } },
+  } : {})
+  const queryResult = overviewQueryResult(result.allocation)
+  if (queryResult.status !== "success") return queryResult
+  return { status: "success" as const, data: queryResult.data.summary }
+}
+
 export function useSlotsForEvent(eventId: Id<"events"> | undefined) {
   return useQuery(
     api.accommodation.getSlotsForEvent,
@@ -165,4 +186,11 @@ export function useAccommodationSummaryForEvent(
     api.accommodation.getAccommodationSummaryForEvent,
     eventId ? { eventId } : "skip"
   )
+}
+
+export function useAccommodationSummaryForEventForOverview(eventId: Id<"events"> | undefined) {
+  const result = useQueries(eventId ? {
+    summary: { query: api.accommodation.getAccommodationSummaryForEvent, args: { eventId } },
+  } : {})
+  return overviewQueryResult(result.summary)
 }
