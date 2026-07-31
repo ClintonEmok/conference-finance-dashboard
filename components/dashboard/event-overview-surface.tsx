@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatMoney } from "@/lib/format"
 import { useEventBySlug } from "@/lib/convex/hooks/events"
-import { useAccommodationSummaryForEvent, useEventAllocationSummary } from "@/lib/convex/hooks/accommodation"
+import { useAccommodationSummaryForEventForOverview, useEventAllocationSummaryForOverview } from "@/lib/convex/hooks/accommodation"
 import {
   createEventOverviewScope,
   projectEventOverview,
@@ -36,13 +36,12 @@ async function getJson<T>(url: string, signal: AbortSignal): Promise<T> {
   return (await response.json()) as T
 }
 
-function stateMessage(status: string) {
-  if (status === "loading") return "Loading…"
-  if (status === "error") return "Could not load"
-  if (status === "unavailable") return "Unavailable"
-  if (status === "empty") return "No activity yet"
-  if (status === "disabled") return "Not enabled"
-  if (status === "unconfigured") return "Not configured"
+function stateMessage(state: EventOverviewProjection["metrics"][number]["state"]) {
+  if (state.status === "loading") return "Loading…"
+  if (state.status === "error" || state.status === "unavailable") return state.message
+  if (state.status === "empty") return "No activity yet"
+  if (state.status === "disabled") return "Not enabled"
+  if (state.status === "unconfigured") return "Not configured"
   return "—"
 }
 
@@ -52,7 +51,7 @@ function MetricIcon({ metric }: { metric: EventOverviewProjection["metrics"][num
 }
 
 function metricValue(metric: EventOverviewProjection["metrics"][number]) {
-  if (metric.state.status !== "ready" || !metric.values) return stateMessage(metric.state.status)
+  if (metric.state.status !== "ready" || !metric.values) return stateMessage(metric.state)
   if (metric.key === "attendance") return Number(metric.values.total) === 0 ? "No activity yet" : Number(metric.values.total).toLocaleString()
   if (metric.key === "orders") return Number(metric.values.total) === 0 ? "No activity yet" : Number(metric.values.total).toLocaleString()
   if (metric.key === "money") return Number(metric.values.orderValueMinor) === 0 ? "No activity yet" : formatMoney(Number(metric.values.orderValueMinor))
@@ -63,8 +62,8 @@ function metricValue(metric: EventOverviewProjection["metrics"][number]) {
 export default function EventOverviewSurface({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params)
   const event = useEventBySlug(slug)
-  const accommodationSummary = useAccommodationSummaryForEvent(event?.accommodationEnabled ? event._id : undefined)
-  const allocationSummary = useEventAllocationSummary(event?.accommodationEnabled ? event._id : undefined)
+  const accommodationSummary = useAccommodationSummaryForEventForOverview(event?.accommodationEnabled ? event._id : undefined)
+  const allocationSummary = useEventAllocationSummaryForOverview(event?.accommodationEnabled ? event._id : undefined)
   const [revenue, setRevenue] = useState<FetchState<RevenuePayload>>(loading)
   const [orders, setOrders] = useState<FetchState<OrdersPayload>>(loading)
   const [attendees, setAttendees] = useState<FetchState<AttendeesPayload>>(loading)
@@ -125,16 +124,18 @@ export default function EventOverviewSurface({ params }: { params: Promise<{ slu
 
   const accommodation = useMemo<FetchState<AccommodationPayload>>(() => {
     if (!event?.accommodationEnabled) return { status: "disabled" }
-    if (accommodationSummary === undefined || allocationSummary === undefined) return { status: "loading" }
+    if (accommodationSummary.status === "pending" || allocationSummary.status === "pending") return { status: "loading" }
+    if (accommodationSummary.status === "error") return { status: "error", message: accommodationSummary.message }
+    if (allocationSummary.status === "error") return { status: "error", message: allocationSummary.message }
     return {
       status: "ready",
       data: {
         summary: {
-          hotelsLinked: accommodationSummary.hotelsLinked,
-          totalSlots: accommodationSummary.totalSlots,
-          assignableSlots: accommodationSummary.assignableSlots,
-          submissionsCount: accommodationSummary.submissionsCount,
-          unassignedAttendeesCount: allocationSummary.unassignedAttendeesCount,
+          hotelsLinked: accommodationSummary.data.hotelsLinked,
+          totalSlots: accommodationSummary.data.totalSlots,
+          assignableSlots: accommodationSummary.data.assignableSlots,
+          submissionsCount: accommodationSummary.data.submissionsCount,
+          unassignedAttendeesCount: allocationSummary.data?.unassignedAttendeesCount ?? 0,
         },
       },
     }
@@ -157,6 +158,7 @@ export default function EventOverviewSurface({ params }: { params: Promise<{ slu
     reconciliation,
     accommodation,
   })
+  const moneyMetric = projection.metrics.find((metric) => metric.key === "money")
   const hasUnavailableData = projection.metrics.some((metric) => metric.state.status === "error" || metric.state.status === "unavailable")
 
   return (
@@ -193,8 +195,8 @@ export default function EventOverviewSurface({ params }: { params: Promise<{ slu
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card><CardHeader><CardTitle>Paid</CardTitle><CardDescription>Canonical event-start-to-now total</CardDescription></CardHeader><CardContent className="text-2xl font-semibold">{revenue.status === "ready" && revenue.data ? formatMoney(revenue.data.totals.paidMinor) : stateMessage(revenue.status)}</CardContent></Card>
-        <Card><CardHeader><CardTitle>Outstanding</CardTitle><CardDescription>Canonical reconciliation balance</CardDescription></CardHeader><CardContent className="text-2xl font-semibold">{reconciliation.status === "ready" && reconciliation.data ? formatMoney(reconciliation.data.totals.outstandingMinor) : stateMessage(reconciliation.status)}</CardContent></Card>
+        <Card><CardHeader><CardTitle>Paid</CardTitle><CardDescription>Canonical event-start-to-now total</CardDescription></CardHeader><CardContent className="text-2xl font-semibold">{revenue.status === "ready" && revenue.data ? formatMoney(revenue.data.totals.paidMinor) : stateMessage(revenue)}</CardContent></Card>
+        <Card><CardHeader><CardTitle>Outstanding</CardTitle><CardDescription>Canonical reconciliation balance</CardDescription></CardHeader><CardContent className="text-2xl font-semibold">{moneyMetric?.state.status === "ready" && moneyMetric.values ? formatMoney(Number(moneyMetric.values.outstandingMinor)) : moneyMetric ? stateMessage(moneyMetric.state) : "Unavailable"}</CardContent></Card>
         <Card><CardHeader><CardTitle>Next setup</CardTitle><CardDescription>Keep this event operational</CardDescription></CardHeader><CardContent><Button asChild variant="outline"><Link href={`/dashboard/events/${slug}/settings`}>Event Settings <ArrowRight className="ml-2 size-4" /></Link></Button></CardContent></Card>
       </div>
     </section>

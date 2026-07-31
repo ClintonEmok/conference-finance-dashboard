@@ -104,6 +104,14 @@ const stateOnly = (domain: OverviewDomain<unknown>): OverviewDomainState => ({
     : {}),
 }) as OverviewDomainState
 
+function moneyState(input: OverviewInputs): OverviewDomainState {
+  if (input.revenue.status !== "ready") return stateOnly(input.revenue)
+  if (!input.revenue.data) return { status: "unavailable", message: "Revenue totals are unavailable." }
+  if (input.reconciliation.status !== "ready") return stateOnly(input.reconciliation)
+  if (!input.reconciliation.data) return { status: "unavailable", message: "Reconciliation totals are unavailable." }
+  return { status: "ready" }
+}
+
 function eventHref(slug: string, path: string) {
   return `/dashboard/events/${encodeURIComponent(slug)}/${path}`
 }
@@ -147,12 +155,12 @@ export function projectEventOverview(input: OverviewInputs): EventOverviewProjec
       key: "money",
       label: "Money status",
       scope: scopeLabel,
-      state: stateOnly(input.revenue),
-      values: input.revenue.data
+      state: moneyState(input),
+      values: input.revenue.status === "ready" && input.revenue.data && input.reconciliation.status === "ready" && input.reconciliation.data
         ? {
             orderValueMinor: input.revenue.data.totals.orderValueMinor,
             paidMinor: input.revenue.data.totals.paidMinor,
-            outstandingMinor: input.reconciliation.data?.totals.outstandingMinor ?? 0,
+            outstandingMinor: input.reconciliation.data.totals.outstandingMinor,
           }
         : null,
       href: eventHref(event.slug, "reconciliation"),
