@@ -25,7 +25,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useEventBySlug } from "@/lib/convex/hooks/events"
+import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
+import type { AttentionQueryState } from "@/lib/dashboard/workspace-attention"
+import type { AccommodationReadPlan } from "@/lib/dashboard/accommodation-read-plan"
 import {
   useRoomAllocationBoard,
   useAssignAttendeeToRoom,
@@ -44,24 +46,46 @@ type Suggestion = {
   accepted: boolean
 }
 
+export type AccommodationBoard = {
+  hotels: ReadonlyArray<unknown>
+  rooms: ReadonlyArray<unknown>
+  unassignedAttendees: ReadonlyArray<unknown>
+  roomTypes?: ReadonlyArray<unknown>
+  summary: {
+    totalRooms: number
+    totalBeds: number
+    occupiedBeds: number
+    availableBeds: number
+    unassignedAttendeesCount: number
+    emptyRooms: number
+    availableRooms: number
+    fullRooms: number
+  }
+}
+
 export default function EventAllocationPage({
   params,
   roomId: roomIntentProp,
+  event,
+  parentBoard,
+  readPlan,
 }: {
   params: Promise<{ slug: string }>
   roomId?: string
+  event: EventDashboardEvent
+  parentBoard: AttentionQueryState<AccommodationBoard>
+  readPlan: AccommodationReadPlan
 }) {
   const { slug } = use(params)
-  const event = useEventBySlug(slug)
   const router = useRouter()
   const searchParams = useSearchParams()
   const filters = useMemo(
     () => readAllocationFiltersFromSearchParams(searchParams),
     [searchParams]
   )
+  const roomIntent = roomIntentProp?.trim() || searchParams.get("roomId")?.trim() || null
+  const activeReadPlan = readPlan
   const boardArgs = useMemo(() => {
-    if (!event?._id) return undefined
-
     return {
       eventId: event._id,
       ...(filters.hotelId ? { hotelId: filters.hotelId } : {}),
@@ -74,8 +98,17 @@ export default function EventAllocationPage({
         : {}),
       ...(filters.hasPriority !== null ? { hasPriority: filters.hasPriority } : {}),
     }
-  }, [event?._id, filters])
-  const board = useRoomAllocationBoard(boardArgs)
+  }, [event._id, filters])
+  const ownBoard = useRoomAllocationBoard(
+    boardArgs,
+    activeReadPlan.readDetailBoard
+  ) as AccommodationBoard | undefined
+  const boardState = activeReadPlan.reuseParentBoard
+    ? parentBoard
+    : ownBoard === undefined
+      ? { status: "pending" as const }
+      : { status: "ready" as const, data: ownBoard }
+  const board = boardState.status === "ready" ? boardState.data : undefined
   const assignAttendee = useAssignAttendeeToRoom()
   const unassignAttendee = useUnassignAttendeeFromRoom()
 
@@ -102,8 +135,6 @@ export default function EventAllocationPage({
         fullRooms: number
       }
     | undefined
-
-  const roomIntent = roomIntentProp?.trim() || searchParams.get("roomId")?.trim() || null
 
   useEffect(() => {
     if (!board || !roomIntent) return

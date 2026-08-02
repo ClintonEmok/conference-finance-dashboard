@@ -138,8 +138,8 @@ export function useRoomAllocationBoard(args?: {
   location?: string
   allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
   hasPriority?: boolean
-}) {
-  return useQuery(api.accommodation.getRoomAllocationBoard, args ?? {})
+}, enabled = true) {
+  return useQuery(api.accommodation.getRoomAllocationBoard, enabled ? (args ?? {}) : "skip")
 }
 
 /** The Overview only needs the bounded allocation summary, not the board rows. */

@@ -23,7 +23,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useEventBySlug } from "@/lib/convex/hooks/events"
+import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 import {
   useEventHotels,
   useSlotsForEvent,
@@ -43,12 +43,13 @@ import { CreateHotelDialog } from "@/app/dashboard/events/[slug]/accommodation/w
 
 export default function EventAccommodationWorkspacePage({
   params,
+  event,
 }: {
   params: Promise<{ slug: string }>
+  event: EventDashboardEvent
 }) {
   const router = useRouter()
   const { slug } = use(params)
-  const event = useEventBySlug(slug)
 
   const eventHotels = useEventHotels(event?._id ?? "")
   const slots = useSlotsForEvent(event?._id)
