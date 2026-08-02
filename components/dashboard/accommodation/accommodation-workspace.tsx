@@ -2,6 +2,7 @@
 
 import { useMemo } from "react"
 import { useSearchParams } from "next/navigation"
+import { useQueries } from "convex/react"
 import Link from "next/link"
 import { BedDouble } from "lucide-react"
 import { WorkspaceFrame } from "@/components/dashboard/workspace-frame"
@@ -9,15 +10,51 @@ import { WorkspaceTabs } from "@/components/dashboard/workspace-tabs"
 import { WorkspaceAttentionQueue } from "@/components/dashboard/workspace-attention-queue"
 import { accommodationHref, parseAccommodationTab } from "@/lib/dashboard/workspace-routes"
 import { useEventBySlug } from "@/lib/convex/hooks/events"
+import { api } from "@/lib/convex/api"
+import {
+  buildAccommodationAttentionItems,
+  type AttentionQueryState,
+} from "@/lib/dashboard/workspace-attention"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { AccommodationHotelsTab } from "./hotels-tab"
 import { AccommodationAllocationTab } from "./allocation-tab"
 
+function toQueryState<T>(value: T | Error | undefined): AttentionQueryState<T> {
+  if (value instanceof Error) return { status: "error", message: value.message }
+  if (value === undefined) return { status: "pending" }
+  return { status: "ready", data: value }
+}
+
 export function AccommodationWorkspace({ slug }: { slug: string }) {
   const event = useEventBySlug(slug)
   const searchParams = useSearchParams()
   const activeTab = parseAccommodationTab(searchParams)
+  const attentionQueries = useQueries(event?.accommodationEnabled ? {
+    board: {
+      query: api.accommodation.getRoomAllocationBoard,
+      args: { eventId: event._id },
+    },
+  } : {})
+  const attention = useMemo(() => buildAccommodationAttentionItems(
+    {
+      enabled: event?.accommodationEnabled === true,
+      board: toQueryState(
+        attentionQueries.board as
+          | {
+              hotels: Array<unknown>
+              rooms: Array<unknown>
+              summary: { unassignedAttendeesCount: number }
+            }
+          | Error
+          | undefined
+      ),
+    },
+    {
+      allocation: accommodationHref(slug, "allocation"),
+      hotels: accommodationHref(slug, "hotels"),
+    }
+  ), [attentionQueries.board, event?.accommodationEnabled, slug])
   const tabs = useMemo(() => [
     { value: "hotels", label: "Hotels", href: accommodationHref(slug, "hotels") },
     { value: "allocation", label: "Allocation", href: accommodationHref(slug, "allocation") },
@@ -32,7 +69,7 @@ export function AccommodationWorkspace({ slug }: { slug: string }) {
     description="Resolve setup, capacity, and attendee placement from one event-scoped workspace."
     eventLabel={event.title}
     workspaceLabel="Accommodation"
-    summary={<WorkspaceAttentionQueue items={[{ id: "allocation", label: "Placement inbox", detail: "Review attendees waiting for a room and available capacity.", href: accommodationHref(slug, "allocation"), tone: "urgent" }, { id: "hotels", label: "Hotel setup", detail: "Link hotels and configure rooms when inventory is missing.", href: accommodationHref(slug, "hotels") }]} />}
+     summary={<WorkspaceAttentionQueue {...attention} />}
     tabs={<WorkspaceTabs tabs={tabs} activeTab={activeTab} />}
   >
     {activeTab === "hotels" && <AccommodationHotelsTab slug={slug} />}
