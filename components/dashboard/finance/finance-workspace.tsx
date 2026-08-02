@@ -70,10 +70,12 @@ export function FinanceWorkspace({ slug }: { slug: string }) {
   return <WorkspaceFrame
     title="Finance"
     description="Resolve money exceptions in one event-scoped workspace. Canonical ledger values and existing actions remain in their focused operational surfaces."
-    eventLabel={event.title}
-    workspaceLabel="Finance"
+     eventLabel={event.title}
+     workspaceLabel="Finance"
+     workspaceId="finance"
+     activeTab={activeTab}
      summary={<WorkspaceAttentionQueue {...attention} />}
-    tabs={<WorkspaceTabs tabs={tabs} activeTab={activeTab} />}
+     tabs={<WorkspaceTabs workspaceId="finance" tabs={tabs} activeTab={activeTab} />}
   >
     {activeTab === "orders" && <FinanceOrdersTab slug={slug} orderId={orderId} />}
     {activeTab === "payments" && <FinancePaymentsTab slug={slug} />}

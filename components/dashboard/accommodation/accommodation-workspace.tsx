@@ -67,10 +67,12 @@ export function AccommodationWorkspace({ slug }: { slug: string }) {
   return <WorkspaceFrame
     title="Accommodation"
     description="Resolve setup, capacity, and attendee placement from one event-scoped workspace."
-    eventLabel={event.title}
-    workspaceLabel="Accommodation"
+     eventLabel={event.title}
+     workspaceLabel="Accommodation"
+     workspaceId="accommodation"
+     activeTab={activeTab}
      summary={<WorkspaceAttentionQueue {...attention} />}
-    tabs={<WorkspaceTabs tabs={tabs} activeTab={activeTab} />}
+     tabs={<WorkspaceTabs workspaceId="accommodation" tabs={tabs} activeTab={activeTab} />}
   >
     {activeTab === "hotels" && <AccommodationHotelsTab slug={slug} />}
     {activeTab === "allocation" && <AccommodationAllocationTab slug={slug} />}
