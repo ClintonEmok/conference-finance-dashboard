@@ -97,19 +97,19 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
           <SidebarContentInner slug={slug} pathname={pathname} event={event} />
         </Sidebar>
 
-        <SidebarInset className="bg-black/5 dark:bg-white/2">
-          <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-white/60 bg-white/80 px-4 backdrop-blur-xl dark:border-white/10 dark:bg-black/40">
-            <div className="flex items-center gap-4">
+        <SidebarInset className="min-w-0 overflow-x-hidden bg-black/5 dark:bg-white/2">
+          <header className="sticky top-0 z-30 flex min-w-0 h-14 shrink-0 items-center justify-between gap-4 border-b border-white/60 bg-white/80 px-4 backdrop-blur-xl dark:border-white/10 dark:bg-black/40">
+            <div className="flex min-w-0 items-center gap-4">
               <SidebarTrigger className="-ml-1" />
               <SidebarSeparator orientation="vertical" className="mr-2 h-4" />
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-center gap-2">
-                  <h1 className="text-base font-semibold text-foreground">
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <h1 className="min-w-0 truncate text-base font-semibold text-foreground">
                     {event.title}
                   </h1>
                   {getStatusBadge(event.isPublished, event.isSignupOpen)}
                 </div>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">
                   <span className="font-mono">/{event.slug}</span>
                   <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
                     <Link href={`/events/${event.slug}`} target="_blank">
@@ -125,8 +125,8 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
             </div>
           </header>
 
-          <div className="flex-1 overflow-x-hidden p-4 lg:p-6">
-            <div className="mx-auto max-w-7xl">
+          <div className="min-w-0 flex-1 overflow-x-hidden p-4 lg:p-6">
+            <div className="mx-auto min-w-0 max-w-7xl">
               <div className="animate-in duration-700 fade-in slide-in-from-bottom-2">
                 {children}
               </div>
@@ -147,7 +147,7 @@ function SidebarContentInner({
   pathname: string
   event: NonNullable<ReturnType<typeof useEventBySlug>>
 }) {
-  const { state: sidebarState } = useSidebar()
+  const { state: sidebarState, isMobile, setOpenMobile } = useSidebar()
 
   const menuItems = [
     {
@@ -195,7 +195,7 @@ function SidebarContentInner({
 
       <SidebarContent className="gap-0 px-3 pt-3 group-data-[collapsible=icon]:px-1 group-data-[collapsible=icon]:pt-1">
         <TooltipProvider>
-          <nav className="space-y-2">
+          <nav aria-label="Event navigation" className="space-y-2">
             {menuItems.map((item) => {
               if (item.show === false) return null
               const isActive = getSectionActive(item.label, pathname, slug)
@@ -210,6 +210,10 @@ function SidebarContentInner({
                   <TooltipTrigger asChild>
                     <Link
                       href={item.href}
+                      aria-current={isActive ? "page" : undefined}
+                      onClick={() => {
+                        if (isMobile) setOpenMobile(false)
+                      }}
                       className={cn(
                         "flex items-start justify-between gap-3 rounded-lg border px-4 py-3 transition-all duration-200",
                         "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-none group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-1.5 group-data-[collapsible=icon]:shadow-none",
