@@ -19,7 +19,7 @@ export type WorkspaceAttentionResult = {
 }
 
 type ReconciliationRow = {
-  outstandingAmountMinor: number
+  outstandingAmountMinor?: number
 }
 
 type FinanceAttentionInput = {
@@ -88,7 +88,9 @@ export function buildFinanceAttentionItems(
 
   const items: AttentionItem[] = []
   const outstandingCount = input.reconciliation.data.filter(
-    (row) => row.outstandingAmountMinor > 0
+    (row) =>
+      typeof row.outstandingAmountMinor === "number" &&
+      row.outstandingAmountMinor > 0
   ).length
   const unassignedCount = input.unassignedPayments.data.length
 

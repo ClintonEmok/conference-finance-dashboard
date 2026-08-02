@@ -9,26 +9,37 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton"
 import { PaymentCard } from "@/components/payments/payment-card"
 import type { Doc } from "@/convex/_generated/dataModel"
-import { useEventBySlug } from "@/lib/convex/hooks/events"
+import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
+import type { AttentionQueryState } from "@/lib/dashboard/workspace-attention"
 import {
   useMarkPaymentAsDonation,
   usePayments,
   useUnassignedPayments,
 } from "@/lib/convex/hooks/payments"
 
-type PaymentRow = Doc<"payments">
+export type PaymentRow = Doc<"payments">
 
 export default function EventPaymentsPage({
   params,
+  event,
+  unassignedPayments: parentUnassignedPayments,
 }: {
   params: Promise<{ slug: string }>
+  event: EventDashboardEvent
+  unassignedPayments?: AttentionQueryState<ReadonlyArray<PaymentRow>>
 }) {
   const { slug } = use(params)
-  const event = useEventBySlug(slug)
   const eventPayments = usePayments(event?._id ? { eventId: event._id } : undefined) as
     | PaymentRow[]
     | undefined
-  const unassignedPayments = useUnassignedPayments() as PaymentRow[] | undefined
+  const fallbackUnassignedPayments = useUnassignedPayments(!parentUnassignedPayments) as
+    | PaymentRow[]
+    | undefined
+  const unassignedState = parentUnassignedPayments ?? (
+    fallbackUnassignedPayments === undefined
+      ? { status: "pending" as const }
+      : { status: "ready" as const, data: fallbackUnassignedPayments }
+  )
   const markAsDonation = useMarkPaymentAsDonation()
   const [busyPaymentId, setBusyPaymentId] = useState<PaymentRow["_id"] | null>(null)
   const [successPaymentId, setSuccessPaymentId] = useState<PaymentRow["_id"] | null>(null)
@@ -54,16 +65,7 @@ export default function EventPaymentsPage({
     }
   }
 
-  if (event === null) {
-    return (
-      <div className="rounded-2xl border border-border/50 bg-card/40 p-10 text-center">
-        <h1 className="text-2xl font-bold">Event not found</h1>
-        <p className="mt-2 text-muted-foreground">The slug &ldquo;{slug}&rdquo; does not exist.</p>
-      </div>
-    )
-  }
-
-  if (event === undefined || eventPayments === undefined || unassignedPayments === undefined) {
+  if (eventPayments === undefined || unassignedState.status === "pending") {
     return (
       <div className="space-y-4">
         <Skeleton className="h-14 w-full rounded-lg" />
@@ -72,8 +74,12 @@ export default function EventPaymentsPage({
     )
   }
 
+  if (unassignedState.status === "error") {
+    return <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">{unassignedState.message}</div>
+  }
+
   const linkedPayments = eventPayments ?? []
-  const pendingDonations = unassignedPayments ?? []
+  const pendingDonations = unassignedState.data
 
   return (
     <div className="space-y-6">

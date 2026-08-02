@@ -25,7 +25,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/convex/api"
-import { useEventBySlug } from "@/lib/convex/hooks/events"
+import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
+import type { AttentionQueryState } from "@/lib/dashboard/workspace-attention"
 import { useAssignPaymentToOrder, useCreatePayment, usePayments, useUnassignedPayments, useUnassignPayment } from "@/lib/convex/hooks/payments"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -36,26 +37,35 @@ type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 function PaymentAssignList({
   orderId,
   onAssigned,
+  parentUnassignedPayments,
 }: {
   orderId: string
   onAssigned: () => void
+  parentUnassignedPayments?: AttentionQueryState<ReadonlyArray<Doc<"payments">>>
 }) {
-  const unassignedPayments = useUnassignedPayments()
+  const fallbackUnassignedPayments = useUnassignedPayments(!parentUnassignedPayments)
+  const unassignedState = parentUnassignedPayments ?? (
+    fallbackUnassignedPayments === undefined
+      ? { status: "pending" as const }
+      : { status: "ready" as const, data: fallbackUnassignedPayments }
+  )
   const assignPayment = useAssignPaymentToOrder()
   const [assigningId, setAssigningId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
 
   const filteredPayments = useMemo(() => {
-    if (!unassignedPayments || !searchQuery.trim()) return unassignedPayments
+    if (unassignedState.status !== "ready" || !searchQuery.trim()) {
+      return unassignedState.status === "ready" ? unassignedState.data : []
+    }
     const query = searchQuery.trim().toLowerCase()
-    return unassignedPayments.filter(
+    return unassignedState.data.filter(
       (p: Doc<"payments">) =>
         p.payerName?.toLowerCase().includes(query) ||
         p.reference?.toLowerCase().includes(query) ||
         p.notes?.toLowerCase().includes(query) ||
         p.source?.toLowerCase().includes(query)
     )
-  }, [unassignedPayments, searchQuery])
+  }, [unassignedState, searchQuery])
 
   async function handleAssign(paymentId: Id<"payments">) {
     setAssigningId(paymentId)
@@ -69,7 +79,7 @@ function PaymentAssignList({
     }
   }
 
-  if (unassignedPayments === undefined) {
+  if (unassignedState.status === "pending") {
     return (
       <div className="space-y-3">
         {Array.from({ length: 3 }).map((_, i) => (
@@ -78,6 +88,12 @@ function PaymentAssignList({
       </div>
     )
   }
+
+  if (unassignedState.status === "error") {
+    return <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">{unassignedState.message}</div>
+  }
+
+  const unassignedPayments = unassignedState.data
 
   const isEmpty = (filteredPayments ?? []).length === 0
 
@@ -326,7 +342,7 @@ function OrderAttendeeRows({ orderId }: { orderId: string }) {
   )
 }
 
-type OrderRow = {
+export type ReconciliationOrderRow = {
   orderId: string
   eventTitle: string | null
   totalAmountMinor: number | null
@@ -341,16 +357,29 @@ type OrderRow = {
 
 type PageProps = {
   params: Promise<{ slug: string }>
+  event: EventDashboardEvent
+  reconciliation?: AttentionQueryState<ReadonlyArray<ReconciliationOrderRow>>
+  unassignedPayments?: AttentionQueryState<ReadonlyArray<Doc<"payments">>>
 }
 
-export default function EventReconciliationPage({ params }: PageProps) {
+export default function EventReconciliationPage({
+  params,
+  event,
+  reconciliation: parentReconciliation,
+  unassignedPayments: parentUnassignedPayments,
+}: PageProps) {
   const { slug } = use(params)
-  const event = useEventBySlug(slug)
 
   const ordersQuery = useQuery(
     api.orders.getOrdersForReconciliation,
-    event ? { eventId: event._id } : ("skip" as const)
-  ) as OrderRow[] | undefined
+    parentReconciliation ? "skip" : { eventId: event._id }
+  ) as ReconciliationOrderRow[] | undefined
+  const reconciliationState = parentReconciliation ?? (
+    ordersQuery === undefined
+      ? { status: "pending" as const }
+      : { status: "ready" as const, data: ordersQuery }
+  )
+  const resolvedOrders = reconciliationState.status === "ready" ? reconciliationState.data : undefined
 
   const [page, setPage] = useState(1)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
@@ -365,11 +394,11 @@ export default function EventReconciliationPage({ params }: PageProps) {
   const pageSize = 25
 
   const visibleOrders = useMemo(() => {
-    const rows = ordersQuery ?? []
+    const rows = resolvedOrders ?? []
     return rows
       .filter((row) => (row.outstandingAmountMinor ?? row.amountDueMinor ?? 0) > 0)
       .sort((a, b) => (b.outstandingAmountMinor ?? b.amountDueMinor ?? 0) - (a.outstandingAmountMinor ?? a.amountDueMinor ?? 0))
-  }, [ordersQuery])
+  }, [resolvedOrders])
 
   const totalPages = Math.max(1, Math.ceil(visibleOrders.length / pageSize))
   const currentPage = Math.min(page, totalPages)
@@ -416,7 +445,7 @@ export default function EventReconciliationPage({ params }: PageProps) {
     }
   }
 
-  if (event === undefined || ordersQuery === undefined) {
+  if (reconciliationState.status === "pending") {
     return (
       <div className="space-y-4">
         <Skeleton className="h-24 w-full rounded-2xl" />
@@ -425,13 +454,8 @@ export default function EventReconciliationPage({ params }: PageProps) {
     )
   }
 
-  if (event === null) {
-    return (
-      <div className="rounded-2xl border border-border/50 bg-card/40 p-10 text-center">
-        <h1 className="text-2xl font-bold">Event not found</h1>
-        <p className="mt-2 text-muted-foreground">The slug &ldquo;{slug}&rdquo; does not exist.</p>
-      </div>
-    )
+  if (reconciliationState.status === "error") {
+    return <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">{reconciliationState.message}</div>
   }
 
   return (
@@ -621,6 +645,7 @@ export default function EventReconciliationPage({ params }: PageProps) {
                 <PaymentAssignList
                   orderId={selectedOrder.orderId}
                   onAssigned={() => setIsSheetOpen(false)}
+                  parentUnassignedPayments={parentUnassignedPayments}
                 />
 
                 <AssignedPaymentsList

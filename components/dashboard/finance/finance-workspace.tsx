@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useMemo } from "react"
+import { useMemo } from "react"
 import { useSearchParams } from "next/navigation"
 import { useQueries } from "convex/react"
 import { WorkspaceFrame } from "@/components/dashboard/workspace-frame"
@@ -11,13 +11,14 @@ import { FinancePaymentsTab } from "./payments-tab"
 import { FinanceDonationsTab } from "./donations-tab"
 import { FinanceReconciliationTab } from "./reconciliation-tab"
 import { financeHref, parseFinanceTab } from "@/lib/dashboard/workspace-routes"
-import { useEventBySlug } from "@/lib/convex/hooks/events"
+import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 import { api } from "@/lib/convex/api"
 import {
   buildFinanceAttentionItems,
   type AttentionQueryState,
 } from "@/lib/dashboard/workspace-attention"
-import { Skeleton } from "@/components/ui/skeleton"
+import type { Doc } from "@/convex/_generated/dataModel"
+import type { ReconciliationOrderRow } from "./legacy-reconciliation-surface"
 
 function toQueryState<T>(value: T | Error | undefined): AttentionQueryState<T> {
   if (value instanceof Error) return { status: "error", message: value.message }
@@ -26,11 +27,11 @@ function toQueryState<T>(value: T | Error | undefined): AttentionQueryState<T> {
 }
 
 export function FinanceWorkspace({ slug }: { slug: string }) {
-  const event = useEventBySlug(slug)
+  const { event } = useEventDashboard()
   const searchParams = useSearchParams()
   const activeTab = parseFinanceTab(searchParams)
   const orderId = searchParams.get("orderId") ?? undefined
-  const attentionQueries = useQueries(event ? {
+  const attentionQueries = useQueries({
     reconciliation: {
       query: api.orders.getOrdersForReconciliation,
       args: { eventId: event._id },
@@ -39,33 +40,35 @@ export function FinanceWorkspace({ slug }: { slug: string }) {
       query: api.payments.getUnassignedPayments,
       args: {},
     },
-  } : {})
+  })
+  const reconciliationState = toQueryState(
+    attentionQueries.reconciliation as
+      | ReadonlyArray<ReconciliationOrderRow>
+      | Error
+      | undefined
+  )
+  const unassignedPaymentsState = toQueryState(
+    attentionQueries.unassignedPayments as
+      | ReadonlyArray<Doc<"payments">>
+      | Error
+      | undefined
+  )
   const attention = useMemo(() => buildFinanceAttentionItems(
     {
-      reconciliation: toQueryState(
-        attentionQueries.reconciliation as
-          | Array<{ outstandingAmountMinor: number }>
-          | Error
-          | undefined
-      ),
-      unassignedPayments: toQueryState(
-        attentionQueries.unassignedPayments as Array<unknown> | Error | undefined
-      ),
+      reconciliation: reconciliationState,
+      unassignedPayments: unassignedPaymentsState,
     },
     {
       reconciliation: financeHref(slug, "reconciliation"),
       payments: financeHref(slug, "payments"),
     }
-  ), [attentionQueries.reconciliation, attentionQueries.unassignedPayments, slug])
+  ), [reconciliationState, unassignedPaymentsState, slug])
   const tabs = useMemo(() => [
     { value: "orders", label: "Orders", href: financeHref(slug, "orders") },
     { value: "payments", label: "Payments", href: financeHref(slug, "payments") },
     { value: "donations", label: "Donations", href: financeHref(slug, "donations") },
     { value: "reconciliation", label: "Reconciliation", href: financeHref(slug, "reconciliation") },
   ], [slug])
-
-  if (event === undefined) return <Skeleton className="h-96 w-full rounded-xl" />
-  if (event === null) return <div className="rounded-xl border p-8 text-center"><h1 className="font-semibold">Event not found</h1><p className="mt-2 text-sm text-muted-foreground">The slug “{slug}” does not exist.</p></div>
 
   return <WorkspaceFrame
     title="Finance"
@@ -78,8 +81,8 @@ export function FinanceWorkspace({ slug }: { slug: string }) {
      tabs={<WorkspaceTabs workspaceId="finance" tabs={tabs} activeTab={activeTab} />}
   >
     {activeTab === "orders" && <FinanceOrdersTab slug={slug} orderId={orderId} />}
-    {activeTab === "payments" && <FinancePaymentsTab slug={slug} />}
+     {activeTab === "payments" && <FinancePaymentsTab slug={slug} event={event} unassignedPayments={unassignedPaymentsState} />}
     {activeTab === "donations" && <FinanceDonationsTab slug={slug} />}
-    {activeTab === "reconciliation" && <FinanceReconciliationTab slug={slug} />}
+     {activeTab === "reconciliation" && <FinanceReconciliationTab slug={slug} event={event} reconciliation={reconciliationState} unassignedPayments={unassignedPaymentsState} />}
   </WorkspaceFrame>
 }
