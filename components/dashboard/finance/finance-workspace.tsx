@@ -17,6 +17,7 @@ export function FinanceWorkspace({ slug }: { slug: string }) {
   const event = useEventBySlug(slug)
   const searchParams = useSearchParams()
   const activeTab = parseFinanceTab(searchParams)
+  const orderId = searchParams.get("orderId") ?? undefined
   const tabs = useMemo(() => [
     { value: "orders", label: "Orders", href: financeHref(slug, "orders") },
     { value: "payments", label: "Payments", href: financeHref(slug, "payments") },
@@ -35,7 +36,7 @@ export function FinanceWorkspace({ slug }: { slug: string }) {
     summary={<WorkspaceAttentionQueue items={[{ id: "reconciliation", label: "Reconciliation", detail: "Review outstanding orders and incoming payments.", href: financeHref(slug, "reconciliation"), tone: "urgent" }, { id: "payments", label: "Unmatched payments", detail: "Classify or match payments from the global inbox.", href: financeHref(slug, "payments") }]} />}
     tabs={<WorkspaceTabs tabs={tabs} activeTab={activeTab} />}
   >
-    {activeTab === "orders" && <FinanceOrdersTab slug={slug} />}
+    {activeTab === "orders" && <FinanceOrdersTab slug={slug} orderId={orderId} />}
     {activeTab === "payments" && <FinancePaymentsTab slug={slug} />}
     {activeTab === "donations" && <FinanceDonationsTab slug={slug} />}
     {activeTab === "reconciliation" && <FinanceReconciliationTab slug={slug} />}
