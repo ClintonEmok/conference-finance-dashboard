@@ -6,9 +6,9 @@ import { ArrowRight, BedDouble, CreditCard, Users, WalletCards } from "lucide-re
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
+import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
+import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 import { formatMoney } from "@/lib/format"
-import { useEventBySlug } from "@/lib/convex/hooks/events"
 import { useAccommodationSummaryForEventForOverview, useEventAllocationSummaryForOverview } from "@/lib/convex/hooks/accommodation"
 import {
   createEventOverviewScope,
@@ -21,6 +21,7 @@ import {
   type ReconciliationPayload,
   type RevenuePayload,
 } from "@/lib/domain/overview/event-overview"
+import type { DashboardQueryStatus } from "@/lib/dashboard/query-state"
 
 type FetchState<T> = OverviewDomain<T>
 
@@ -36,38 +37,68 @@ async function getJson<T>(url: string, signal: AbortSignal): Promise<T> {
   return (await response.json()) as T
 }
 
-function stateMessage(state: EventOverviewProjection["metrics"][number]["state"]) {
-  if (state.status === "loading") return "Loading…"
-  if (state.status === "error" || state.status === "unavailable") return state.message
-  if (state.status === "empty") return "No activity yet"
-  if (state.status === "disabled") return "Not enabled"
-  if (state.status === "unconfigured") return "Not configured"
-  return "—"
-}
-
 function MetricIcon({ metric }: { metric: EventOverviewProjection["metrics"][number] }) {
   const Icon = metric.key === "attendance" ? Users : metric.key === "orders" ? WalletCards : metric.key === "money" ? CreditCard : BedDouble
   return <Icon className="size-5" aria-hidden="true" />
 }
 
-function metricValue(metric: EventOverviewProjection["metrics"][number]) {
-  if (metric.state.status !== "ready" || !metric.values) return stateMessage(metric.state)
-  if (metric.key === "attendance") return Number(metric.values.total) === 0 ? "No activity yet" : Number(metric.values.total).toLocaleString()
-  if (metric.key === "orders") return Number(metric.values.total) === 0 ? "No activity yet" : Number(metric.values.total).toLocaleString()
-  if (metric.key === "money") return Number(metric.values.orderValueMinor) === 0 ? "No activity yet" : formatMoney(Number(metric.values.orderValueMinor))
-  if (Number(metric.values.hotelsLinked) === 0 || Number(metric.values.assignableSlots) === 0) return "Not configured"
+function metricPresentationState(
+  metric: EventOverviewProjection["metrics"][number]
+): DashboardQueryStatus {
+  if (metric.state.status !== "ready") return metric.state.status
+  if (!metric.values) return "unavailable"
+  if (
+    (metric.key === "attendance" || metric.key === "orders") &&
+    Number(metric.values.total) === 0
+  ) {
+    return "empty"
+  }
+  if (
+    metric.key === "accommodation" &&
+    (Number(metric.values.hotelsLinked) === 0 ||
+      Number(metric.values.assignableSlots) === 0)
+  ) {
+    return "unconfigured"
+  }
+  return "ready"
+}
+
+function metricValue(
+  metric: EventOverviewProjection["metrics"][number],
+  onRetry: () => void
+) {
+  const state = metricPresentationState(metric)
+  if (state !== "ready") {
+    const message = "message" in metric.state ? metric.state.message : undefined
+    return <DashboardQueryState state={state} message={message} onRetry={state === "error" ? onRetry : undefined} />
+  }
+  if (!metric.values) return null
+  if (metric.key === "attendance") return Number(metric.values.total).toLocaleString()
+  if (metric.key === "orders") return Number(metric.values.total).toLocaleString()
+  if (metric.key === "money") return formatMoney(Number(metric.values.orderValueMinor))
   return `${Number(metric.values.assignableSlots).toLocaleString()} slots`
+}
+
+function domainState(
+  domain: FetchState<unknown>,
+  onRetry: () => void
+) {
+  const hasData = domain.status === "ready" && domain.data !== undefined
+  const state: DashboardQueryStatus = domain.status === "ready" && !hasData ? "unavailable" : domain.status
+  const message = "message" in domain ? domain.message : undefined
+  return <DashboardQueryState state={state} message={message} onRetry={state === "error" ? onRetry : undefined} />
 }
 
 export default function EventOverviewSurface({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params)
-  const event = useEventBySlug(slug)
+  const { event } = useEventDashboard()
   const accommodationSummary = useAccommodationSummaryForEventForOverview(event?.accommodationEnabled ? event._id : undefined)
   const allocationSummary = useEventAllocationSummaryForOverview(event?.accommodationEnabled ? event._id : undefined)
   const [revenue, setRevenue] = useState<FetchState<RevenuePayload>>(loading)
   const [orders, setOrders] = useState<FetchState<OrdersPayload>>(loading)
   const [attendees, setAttendees] = useState<FetchState<AttendeesPayload>>(loading)
   const [reconciliation, setReconciliation] = useState<FetchState<ReconciliationPayload>>(loading)
+  const [requestAttempt, setRequestAttempt] = useState(0)
 
   const scope = useMemo(() => {
     if (!event) return null
@@ -120,7 +151,7 @@ export default function EventOverviewSurface({ params }: { params: Promise<{ slu
     })
 
     return () => controller.abort()
-  }, [event, scope])
+  }, [event, scope, requestAttempt])
 
   const accommodation = useMemo<FetchState<AccommodationPayload>>(() => {
     if (!event?.accommodationEnabled) return { status: "disabled" }
@@ -141,14 +172,6 @@ export default function EventOverviewSurface({ params }: { params: Promise<{ slu
     }
   }, [accommodationSummary, allocationSummary, event?.accommodationEnabled])
 
-  if (event === undefined) {
-    return <section className="space-y-6" aria-label="Loading event overview"><Skeleton className="h-40 rounded-2xl" /><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-36 rounded-2xl" />)}</div></section>
-  }
-
-  if (event === null) {
-    return <Card><CardHeader><CardTitle>Event not found</CardTitle><CardDescription>This event could not be resolved from the selected link.</CardDescription></CardHeader></Card>
-  }
-
   const projection = projectEventOverview({
     event: { id: event._id, slug: event.slug, title: event.title, startsAt: event.startsAt, accommodationEnabled: event.accommodationEnabled },
     scope,
@@ -160,44 +183,56 @@ export default function EventOverviewSurface({ params }: { params: Promise<{ slu
   })
   const moneyMetric = projection.metrics.find((metric) => metric.key === "money")
   const hasUnavailableData = projection.metrics.some((metric) => metric.state.status === "error" || metric.state.status === "unavailable")
+  const hasRequestError = [revenue, orders, attendees, reconciliation].some((domain) => domain.status === "error")
+  const retryRequests = () => setRequestAttempt((attempt) => attempt + 1)
 
   return (
-    <section className="space-y-6">
-      <Card>
+    <section className="min-w-0 space-y-6" aria-labelledby="event-overview-title">
+      <Card className="min-w-0">
         <CardHeader>
           <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">Event overview</p>
-          <CardTitle className="text-3xl">{event.title}</CardTitle>
+          <CardTitle id="event-overview-title" className="break-words text-3xl">{event.title}</CardTitle>
           <CardDescription>{scope?.label ?? "Event lifetime is unavailable until this event has a valid start date."}</CardDescription>
         </CardHeader>
       </Card>
 
-      <Card>
-        <CardHeader><CardTitle>What needs attention</CardTitle><CardDescription>Only confirmed operational exceptions appear here.</CardDescription></CardHeader>
-        <CardContent className="space-y-3">
+      {hasRequestError ? (
+        <DashboardQueryState
+          state="error"
+          title="Overview data is unavailable"
+          message="One or more event metrics could not be loaded. Try again to refresh the existing overview reads."
+          onRetry={retryRequests}
+          className="rounded-xl border border-destructive/20 bg-destructive/5 p-4"
+        />
+      ) : null}
+
+      <Card className="min-w-0" aria-labelledby="overview-attention-title">
+        <CardHeader><CardTitle id="overview-attention-title">What needs attention</CardTitle><CardDescription>Only confirmed operational exceptions appear here.</CardDescription></CardHeader>
+        <CardContent className="min-w-0 space-y-3">
           {projection.exceptions.length === 0 ? (
             <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">{hasUnavailableData ? "Some overview data is unavailable; no additional exception was confirmed." : "No follow-up needed."}</p>
           ) : projection.exceptions.map((exception) => (
-            <div key={exception.key} className="flex flex-col gap-3 rounded-xl border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div><p className="font-semibold">{exception.title}</p><p className="text-sm text-muted-foreground">{exception.reason}</p></div>
-              <Button asChild variant="outline" size="sm"><Link href={exception.href}>Open {exception.title.toLowerCase()} <ArrowRight className="ml-2 size-4" /></Link></Button>
+              <div key={exception.key} className="flex min-w-0 flex-col gap-3 rounded-xl border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+               <div className="min-w-0"><p className="font-semibold">{exception.title}</p><p className="break-words text-sm text-muted-foreground">{exception.reason}</p></div>
+               <Button asChild variant="outline" size="sm"><Link href={exception.href}>Open {exception.title.toLowerCase()} <ArrowRight className="ml-2 size-4" aria-hidden="true" /></Link></Button>
             </div>
           ))}
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {projection.metrics.map((metric) => (
-          <Card key={metric.key}>
-            <CardHeader className="flex flex-row items-start justify-between space-y-0"><div><CardDescription>{metric.label}</CardDescription><CardTitle className="mt-2 text-2xl">{metricValue(metric)}</CardTitle></div><div className="rounded-xl bg-primary/10 p-3 text-primary"><MetricIcon metric={metric} /></div></CardHeader>
-            <CardContent className="space-y-3"><p className="text-xs text-muted-foreground">{metric.scope}</p>{metric.state.status === "error" ? <p className="text-xs text-destructive">{metric.state.message}</p> : null}<Button asChild variant="ghost" size="sm" className="px-0"><Link href={metric.href}>Open details <ArrowRight className="ml-2 size-4" /></Link></Button></CardContent>
+          <Card key={metric.key} className="min-w-0">
+            <CardHeader className="flex flex-row items-start justify-between space-y-0"><div className="min-w-0"><CardDescription>{metric.label}</CardDescription><div className="mt-2 text-2xl font-semibold">{metricValue(metric, retryRequests)}</div></div><div className="rounded-xl bg-primary/10 p-3 text-primary"><MetricIcon metric={metric} /></div></CardHeader>
+            <CardContent className="min-w-0 space-y-3"><p className="break-words text-xs text-muted-foreground">{metric.scope}</p><Button asChild variant="ghost" size="sm" className="px-0"><Link href={metric.href}>Open details <ArrowRight className="ml-2 size-4" aria-hidden="true" /></Link></Button></CardContent>
           </Card>
         ))}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card><CardHeader><CardTitle>Paid</CardTitle><CardDescription>Canonical event-start-to-now total</CardDescription></CardHeader><CardContent className="text-2xl font-semibold">{revenue.status === "ready" && revenue.data ? formatMoney(revenue.data.totals.paidMinor) : stateMessage(revenue)}</CardContent></Card>
-        <Card><CardHeader><CardTitle>Outstanding</CardTitle><CardDescription>Canonical reconciliation balance</CardDescription></CardHeader><CardContent className="text-2xl font-semibold">{moneyMetric?.state.status === "ready" && moneyMetric.values ? formatMoney(Number(moneyMetric.values.outstandingMinor)) : moneyMetric ? stateMessage(moneyMetric.state) : "Unavailable"}</CardContent></Card>
-        <Card><CardHeader><CardTitle>Next setup</CardTitle><CardDescription>Keep this event operational</CardDescription></CardHeader><CardContent><Button asChild variant="outline"><Link href={`/dashboard/events/${slug}/settings`}>Event Settings <ArrowRight className="ml-2 size-4" /></Link></Button></CardContent></Card>
+      <div className="grid min-w-0 gap-4 md:grid-cols-3">
+        <Card className="min-w-0"><CardHeader><CardTitle>Paid</CardTitle><CardDescription>Canonical event-start-to-now total</CardDescription></CardHeader><CardContent className="min-w-0 text-2xl font-semibold">{revenue.status === "ready" && revenue.data ? formatMoney(revenue.data.totals.paidMinor) : domainState(revenue, retryRequests)}</CardContent></Card>
+        <Card className="min-w-0"><CardHeader><CardTitle>Outstanding</CardTitle><CardDescription>Canonical reconciliation balance</CardDescription></CardHeader><CardContent className="min-w-0 text-2xl font-semibold">{moneyMetric?.state.status === "ready" && moneyMetric.values ? formatMoney(Number(moneyMetric.values.outstandingMinor)) : moneyMetric ? <DashboardQueryState state={moneyMetric.state.status === "ready" ? "unavailable" : moneyMetric.state.status} message={"message" in moneyMetric.state ? moneyMetric.state.message : undefined} onRetry={moneyMetric.state.status === "error" ? retryRequests : undefined} /> : null}</CardContent></Card>
+        <Card className="min-w-0"><CardHeader><CardTitle>Next setup</CardTitle><CardDescription>Keep this event operational</CardDescription></CardHeader><CardContent><Button asChild variant="outline"><Link href={`/dashboard/events/${slug}/settings`}>Event Settings <ArrowRight className="ml-2 size-4" aria-hidden="true" /></Link></Button></CardContent></Card>
       </div>
     </section>
   )
