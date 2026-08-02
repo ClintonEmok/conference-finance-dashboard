@@ -21,6 +21,15 @@ describe("workspace tab semantics", () => {
     }
   })
 
+  it("keeps the active tab and panel relationship deterministic", () => {
+    const activeTab = workspaceTabId("finance", "reconciliation")
+    const activePanel = workspacePanelId("finance")
+
+    expect(activeTab).toBe("finance-tab-reconciliation")
+    expect(activePanel).toBe("finance-tabpanel")
+    expect(activeTab).not.toBe(activePanel)
+  })
+
   it("normalizes unsafe workspace and tab labels for stable DOM IDs", () => {
     expect(workspaceTabId("Finance workspace", "room/allocation")).toBe("finance-workspace-tab-room-allocation")
   })
