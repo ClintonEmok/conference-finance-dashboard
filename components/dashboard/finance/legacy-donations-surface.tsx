@@ -12,9 +12,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
-import { useEventBySlug } from "@/lib/convex/hooks/events"
+import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatMoney } from "@/lib/format"
+import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 
 type Donation = {
   id: string
@@ -27,11 +28,12 @@ type Donation = {
 
 export default function EventDonationPage({
   params,
+  event,
 }: {
   params: Promise<{ slug: string }>
+  event: EventDashboardEvent
 }) {
   const { slug } = use(params)
-  const event = useEventBySlug(slug)
   const [donations, setDonations] = useState<Donation[]>([])
   const [showForm, setShowForm] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -77,30 +79,10 @@ export default function EventDonationPage({
     [donations]
   )
 
-  if (event === undefined) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-36 w-full rounded-2xl" />
-        <Skeleton className="h-96 w-full rounded-2xl" />
-      </div>
-    )
-  }
-
-  if (event === null) {
-    return (
-      <div className="rounded-2xl border border-border/50 bg-card/40 p-10 text-center">
-        <h1 className="text-2xl font-bold">Event not found</h1>
-        <p className="mt-2 text-muted-foreground">
-          The event with slug &ldquo;{slug}&rdquo; does not exist.
-        </p>
-      </div>
-    )
-  }
-
   return (
-    <section className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
-        <div>
+    <section className="min-w-0 space-y-6">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
+        <div className="min-w-0">
           <p className="text-sm font-semibold">Event-scoped donation ledger</p>
           <p className="text-xs text-muted-foreground">{event.title} · standalone cash and bank transfer records</p>
         </div>
@@ -111,13 +93,11 @@ export default function EventDonationPage({
       </div>
 
       {errorMessage && (
-        <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
-          {errorMessage}
-        </div>
+        <DashboardQueryState state="error" message={errorMessage} onRetry={() => void load()} className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4" />
       )}
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-sm">
-        <span className="font-semibold">Recorded total: {isLoading ? "Checking…" : formatMoney(totalDonationMinor)}</span>
+        <span className="font-semibold">Recorded total: {isLoading || errorMessage ? "Unavailable" : formatMoney(totalDonationMinor)}</span>
         <span className="text-muted-foreground">{isLoading ? "Checking donation records…" : `${donations.length} event-scoped record${donations.length === 1 ? "" : "s"}`}</span>
       </div>
 
@@ -141,41 +121,42 @@ export default function EventDonationPage({
           )}
 
           {isLoading ? (
-            <Skeleton className="h-48 w-full rounded-2xl" />
+            <DashboardQueryState state="loading" className="py-8" />
+          ) : errorMessage ? (
+            <DashboardQueryState state="error" message={errorMessage} onRetry={() => void load()} className="py-8" />
           ) : donations.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-border/50 bg-background/50 p-6 text-sm text-muted-foreground">
-              No donations have been recorded for this event.
-            </p>
+            <DashboardQueryState state="empty" message="No donations have been recorded for this event." className="rounded-2xl border border-dashed border-border/50 bg-background/50 p-6" />
           ) : (
-            <div className="overflow-x-auto rounded-2xl border border-border/50 bg-background/50">
-              <table className="min-w-full text-sm">
-                <thead className="border-b border-border/40 bg-muted/30 text-left text-[10px] font-black tracking-[0.2em] text-muted-foreground uppercase">
-                  <tr>
-                    <th className="px-4 py-3">Payer</th>
-                    <th className="px-4 py-3">Amount</th>
-                    <th className="px-4 py-3">Source</th>
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">Notes</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/40">
+            <div className="min-w-0 rounded-2xl border border-border/50 bg-background/50">
+              <Table>
+                <TableCaption>Standalone event-scoped donation ledger</TableCaption>
+                <TableHeader className="bg-muted/30 text-[10px] font-black tracking-[0.2em] text-muted-foreground uppercase">
+                  <TableRow>
+                    <TableHead>Payer</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Notes</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody className="divide-y divide-border/40">
                   {donations.map((donation) => (
-                    <tr key={donation.id} className="transition-colors hover:bg-black/5 dark:hover:bg-white/5">
-                      <td className="px-4 py-3 font-medium text-foreground">{donation.payerName}</td>
-                      <td className="px-4 py-3 font-mono text-sm font-semibold tabular-nums text-primary">
+                    <TableRow key={donation.id} className="transition-colors hover:bg-black/5 dark:hover:bg-white/5">
+                      <TableCell className="font-medium text-foreground">{donation.payerName}</TableCell>
+                      <TableCell className="font-mono text-sm font-semibold tabular-nums text-primary">
                         {formatMoney(donation.amountMinor)}
-                      </td>
-                      <td className="px-4 py-3 capitalize text-muted-foreground">
+                      </TableCell>
+                      <TableCell className="capitalize text-muted-foreground">
                         {donation.source.replace("_", " ")}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
                         {new Date(donation.paidAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">{donation.notes || "—"}</td>
-                    </tr>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{donation.notes || "—"}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>

@@ -6,7 +6,7 @@ import { ArrowRight, CheckCircle2, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
+import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 import { PaymentCard } from "@/components/payments/payment-card"
 import type { Doc } from "@/convex/_generated/dataModel"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
@@ -67,24 +67,21 @@ export default function EventPaymentsPage({
 
   if (eventPayments === undefined || unassignedState.status === "pending") {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-14 w-full rounded-lg" />
-        <Skeleton className="h-64 w-full rounded-lg" />
-      </div>
+      <DashboardQueryState state="loading" className="rounded-xl border border-border/60 bg-card p-6" />
     )
   }
 
   if (unassignedState.status === "error") {
-    return <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">{unassignedState.message}</div>
+    return <DashboardQueryState state="error" message={unassignedState.message} className="rounded-xl border border-destructive/20 bg-destructive/5 p-4" />
   }
 
   const linkedPayments = eventPayments ?? []
   const pendingDonations = unassignedState.data
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
-        <div>
+    <div className="min-w-0 space-y-6">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
+        <div className="min-w-0">
           <p className="text-sm font-semibold">Payment operations</p>
           <p className="text-xs text-muted-foreground">Event-linked payments plus the global unmatched inbox.</p>
         </div>
@@ -96,12 +93,12 @@ export default function EventPaymentsPage({
         </Button>
       </div>
       {errorMessage && (
-        <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
+        <div role="alert" aria-live="assertive" className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
           {errorMessage}
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid min-w-0 gap-6 lg:grid-cols-2">
         <Card className="border-border/60 bg-card shadow-none">
           <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
             <div className="space-y-1">
@@ -115,11 +112,9 @@ export default function EventPaymentsPage({
               </Link>
             </Button>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="min-w-0 space-y-3">
             {pendingDonations.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border/50 bg-background/40 p-6 text-sm text-muted-foreground">
-                No unassigned payments right now.
-              </div>
+              <DashboardQueryState state="empty" message="No unassigned payments right now." className="rounded-2xl border border-dashed border-border/50 bg-background/40 p-6" />
             ) : (
               pendingDonations.map((payment) => (
                 <PaymentCard
@@ -134,9 +129,9 @@ export default function EventPaymentsPage({
                         disabled={busyPaymentId === payment._id}
                       >
                         {busyPaymentId === payment._id ? (
-                          <Loader2 className="mr-2 size-3.5 animate-spin" />
+                            <Loader2 className="mr-2 size-3.5 animate-spin" aria-hidden="true" />
                         ) : successPaymentId === payment._id ? (
-                          <CheckCircle2 className="mr-2 size-3.5" />
+                            <CheckCircle2 className="mr-2 size-3.5" aria-hidden="true" />
                         ) : null}
                         {successPaymentId === payment._id ? "Done" : "Mark donation"}
                       </Button>
@@ -156,11 +151,9 @@ export default function EventPaymentsPage({
             <CardTitle className="text-lg font-bold">Event payments</CardTitle>
             <CardDescription>All payments already linked to this event, including donations.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="min-w-0 space-y-3">
             {linkedPayments.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border/50 bg-background/40 p-6 text-sm text-muted-foreground">
-                No linked payments yet.
-              </div>
+              <DashboardQueryState state="empty" message="No linked payments yet." className="rounded-2xl border border-dashed border-border/50 bg-background/40 p-6" />
             ) : (
               linkedPayments.map((payment) => (
                 <PaymentCard

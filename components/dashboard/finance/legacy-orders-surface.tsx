@@ -2,7 +2,6 @@
 
 import Link from "next/link"
 import { Fragment, use, useEffect, useMemo, useState, type FormEvent } from "react"
-import { useRouter } from "next/navigation"
 import { useQuery } from "convex/react"
 import {
   Archive,
@@ -18,12 +17,13 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { api } from "@/lib/convex/api"
-import { useEventBySlug } from "@/lib/convex/hooks/events"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { Id } from "@/convex/_generated/dataModel"
+import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 
 type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 
@@ -70,6 +70,11 @@ type OrdersPayload = {
 
 type PageProps = {
   params: Promise<{ slug: string }>
+  event: EventDashboardEvent
+}
+
+function moneyDisplay(value: number | null) {
+  return typeof value === "number" ? formatMoney(value) : "Unavailable"
 }
 
 function formatNlDateTime(value: string | null) {
@@ -149,10 +154,8 @@ function OrderAttendeeRows({ orderId }: { orderId: string }) {
   )
 }
 
-export default function EventOrdersPage({ params }: PageProps) {
+export default function EventOrdersPage({ params, event }: PageProps) {
   const { slug } = use(params)
-  const router = useRouter()
-  const event = useEventBySlug(slug)
   const eventLocations = useQuery(
     api.reports.getEventLocations,
     event?._id ? { eventId: event._id } : ("skip" as const)
@@ -177,6 +180,7 @@ export default function EventOrdersPage({ params }: PageProps) {
   const [payload, setPayload] = useState<OrdersPayload | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
   const dateValidationError = useMemo(() => {
     const fromIso = toIsoBoundary(fromInput, "start")
@@ -230,7 +234,7 @@ export default function EventOrdersPage({ params }: PageProps) {
 
     loadOrders()
     return () => controller.abort()
-  }, [appliedFrom, appliedLocation, appliedStatus, appliedTo, event, page])
+  }, [appliedFrom, appliedLocation, appliedStatus, appliedTo, event, loadAttempt, page])
 
   const visibleRows = useMemo(() => {
     const rows = payload?.rows ?? []
@@ -277,28 +281,10 @@ export default function EventOrdersPage({ params }: PageProps) {
     window.location.assign(`/api/dashboard/orders/export?${query.toString()}`)
   }
 
-  if (event === undefined) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-24 w-full rounded-2xl" />
-        <Skeleton className="h-96 w-full rounded-2xl" />
-      </div>
-    )
-  }
-
-  if (event === null) {
-    return (
-      <div className="rounded-2xl border border-border/50 bg-card/40 p-10 text-center">
-        <h1 className="text-2xl font-bold">Event not found</h1>
-        <p className="mt-2 text-muted-foreground">The slug “{slug}” does not exist.</p>
-      </div>
-    )
-  }
-
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
-        <div>
+    <div className="min-w-0 space-y-6">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
+        <div className="min-w-0">
           <p className="text-sm font-semibold">Event-scoped order ledger</p>
           <p className="text-xs text-muted-foreground">{event.title} · {event.slug}</p>
         </div>
@@ -308,9 +294,9 @@ export default function EventOrdersPage({ params }: PageProps) {
         </Button>
       </div>
 
-      <article className="rounded-xl border border-border/50 bg-card/40 p-6">
-        <form className="flex flex-wrap items-end gap-4" onSubmit={applyFilters}>
-          <div className="min-w-[220px] flex-1 space-y-1.5">
+      <article className="min-w-0 rounded-xl border border-border/50 bg-card/40 p-4 md:p-6">
+        <form className="flex min-w-0 flex-col items-stretch gap-4 md:flex-row md:flex-wrap md:items-end" onSubmit={applyFilters}>
+          <div className="min-w-0 flex-1 space-y-1.5">
             <label className="ml-1 flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
               <Search className="size-3" /> Search
             </label>
@@ -323,7 +309,7 @@ export default function EventOrdersPage({ params }: PageProps) {
             />
           </div>
 
-          <div className="min-w-[150px] flex-1 space-y-1.5">
+          <div className="min-w-0 flex-1 space-y-1.5">
             <label className="ml-1 flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
               <Filter className="size-3" /> Status
             </label>
@@ -341,7 +327,7 @@ export default function EventOrdersPage({ params }: PageProps) {
             </select>
           </div>
 
-          <div className="min-w-[180px] flex-1 space-y-1.5">
+          <div className="min-w-0 flex-1 space-y-1.5">
             <label className="ml-1 flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
               <Filter className="size-3" /> Location
             </label>
@@ -360,7 +346,7 @@ export default function EventOrdersPage({ params }: PageProps) {
             </select>
           </div>
 
-          <div className="min-w-[280px] flex-1 space-y-1.5">
+          <div className="min-w-0 flex-1 space-y-1.5">
             <label className="ml-1 flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
               <Calendar className="size-3" /> Date range
             </label>
@@ -404,6 +390,7 @@ export default function EventOrdersPage({ params }: PageProps) {
                 setPage(1)
                 setIsLoading(true)
                 setErrorMessage(null)
+                setLoadAttempt((attempt) => attempt + 1)
               }}
               className="rounded-xl h-8 px-3 text-xs"
             >
@@ -413,9 +400,9 @@ export default function EventOrdersPage({ params }: PageProps) {
         </article>
       )}
 
-      <article className="overflow-hidden rounded-xl border border-border/50 bg-card/40">
-        <div className="overflow-x-auto">
+      <article className="min-w-0 overflow-hidden rounded-xl border border-border/50 bg-card/40">
           <Table>
+            <TableCaption>Event-scoped canonical order ledger</TableCaption>
             <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Order</TableHead>
@@ -436,19 +423,28 @@ export default function EventOrdersPage({ params }: PageProps) {
                     </TableCell>
                   </TableRow>
                 ))
+              ) : errorMessage ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="px-6 py-12">
+                    <DashboardQueryState state="error" message={errorMessage} onRetry={() => setLoadAttempt((attempt) => attempt + 1)} className="text-center" />
+                  </TableCell>
+                </TableRow>
+              ) : payload === null ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="px-6 py-12">
+                    <DashboardQueryState state="unavailable" message="The order ledger is not available yet." className="text-center" />
+                  </TableCell>
+                </TableRow>
               ) : visibleRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="px-6 py-12 text-center text-muted-foreground">
-                    No records match these filters
+                  <TableCell colSpan={7} className="px-6 py-12">
+                    <DashboardQueryState state="empty" message="No records match these filters." className="text-center" />
                   </TableCell>
                 </TableRow>
               ) : (
                 visibleRows.map((row) => (
                   <Fragment key={row.orderId}>
-                    <TableRow
-                      onClick={() => router.push(`/dashboard/events/${slug}/orders/${row.orderId}`)}
-                      className="cursor-pointer transition-colors hover:bg-muted/30"
-                    >
+                    <TableRow className="transition-colors hover:bg-muted/30">
                       <TableCell className="px-6 py-5">
                         <div className="flex items-center gap-2">
                           <Link
@@ -460,7 +456,7 @@ export default function EventOrdersPage({ params }: PageProps) {
                           >
                             {row.orderId}
                           </Link>
-                          <ExternalLink className="size-3 text-muted-foreground/60" />
+                          <ExternalLink className="size-3 text-muted-foreground/60" aria-hidden="true" />
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">{formatNlDateTime(row.orderedAt)}</div>
                       </TableCell>
@@ -468,11 +464,12 @@ export default function EventOrdersPage({ params }: PageProps) {
                         <div className="font-bold text-foreground">{row.buyerName || "Anonymous"}</div>
                         <div className="text-[11px] text-muted-foreground/60">{row.buyerEmail}</div>
                       </TableCell>
-<TableCell className="px-6 py-5 font-bold tabular-nums text-foreground">{typeof row.amountDueMinor === "number" ? formatMoney(row.amountDueMinor) : formatMoney(0)}</TableCell>
-<TableCell className="px-6 py-5 font-bold tabular-nums text-emerald-600">{typeof row.matchedAmountMinor === "number" ? formatMoney(row.matchedAmountMinor) : formatMoney(0)}</TableCell>
-<TableCell className="px-6 py-5 font-bold tabular-nums text-rose-600">{typeof row.outstandingAmountMinor === "number" ? formatMoney(row.outstandingAmountMinor) : formatMoney(0)}</TableCell>
+<TableCell className="px-6 py-5 font-bold tabular-nums text-foreground">{moneyDisplay(row.amountDueMinor)}</TableCell>
+<TableCell className="px-6 py-5 font-bold tabular-nums text-emerald-600">{moneyDisplay(row.matchedAmountMinor)}</TableCell>
+<TableCell className="px-6 py-5 font-bold tabular-nums text-rose-600">{moneyDisplay(row.outstandingAmountMinor)}</TableCell>
                       <TableCell className="px-6 py-5">
-                        <Badge
+                          <Badge
+                           aria-label={`Order status: ${row.normalizedStatus}`}
                           variant={row.normalizedStatus === "paid" ? "secondary" : row.normalizedStatus === "cancelled" ? "destructive" : "outline"}
                           className={cn(
                             "h-6 rounded-lg px-2 text-[10px] font-bold tracking-wider uppercase",
@@ -484,12 +481,12 @@ export default function EventOrdersPage({ params }: PageProps) {
                         </Badge>
                         {row.isArchived && (
                           <div className="mt-1 flex items-center gap-1 text-[9px] font-bold text-muted-foreground/50 uppercase">
-                            <Archive className="size-2.5" /> Archived
+                            <Archive className="size-2.5" aria-hidden="true" /> Archived
                           </div>
                         )}
                       </TableCell>
                       <TableCell className="px-6 py-5 text-right">
-                        <ChevronRight className="ml-auto size-4 text-muted-foreground" />
+                         <ChevronRight className="ml-auto size-4 text-muted-foreground" aria-hidden="true" />
                       </TableCell>
                     </TableRow>
                     <OrderAttendeeRows orderId={row.orderId} />
@@ -498,10 +495,9 @@ export default function EventOrdersPage({ params }: PageProps) {
               )}
             </TableBody>
           </Table>
-        </div>
 
         {payload && visibleRows.length > 0 && (
-          <footer className="flex items-center justify-between border-t border-border/30 bg-muted/20 px-8 py-5">
+          <footer className="flex flex-wrap items-center justify-between gap-4 border-t border-border/30 bg-muted/20 px-4 py-5 md:px-8">
             <p className="text-xs font-medium text-muted-foreground">
               Showing <span className="text-foreground">{visibleRows.length}</span> of <span className="text-foreground">{displayTotalRows}</span> entries
             </p>

@@ -80,9 +80,9 @@ export function FinanceWorkspace({ slug }: { slug: string }) {
      summary={<WorkspaceAttentionQueue {...attention} />}
      tabs={<WorkspaceTabs workspaceId="finance" tabs={tabs} activeTab={activeTab} />}
   >
-    {activeTab === "orders" && <FinanceOrdersTab slug={slug} orderId={orderId} />}
+     {activeTab === "orders" && <FinanceOrdersTab slug={slug} event={event} orderId={orderId} />}
      {activeTab === "payments" && <FinancePaymentsTab slug={slug} event={event} unassignedPayments={unassignedPaymentsState} />}
-    {activeTab === "donations" && <FinanceDonationsTab slug={slug} />}
+     {activeTab === "donations" && <FinanceDonationsTab slug={slug} event={event} />}
      {activeTab === "reconciliation" && <FinanceReconciliationTab slug={slug} event={event} reconciliation={reconciliationState} unassignedPayments={unassignedPaymentsState} />}
   </WorkspaceFrame>
 }

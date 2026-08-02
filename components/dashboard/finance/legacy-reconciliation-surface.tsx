@@ -22,7 +22,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/convex/api"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
@@ -52,6 +53,7 @@ function PaymentAssignList({
   const assignPayment = useAssignPaymentToOrder()
   const [assigningId, setAssigningId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [assignError, setAssignError] = useState<string | null>(null)
 
   const filteredPayments = useMemo(() => {
     if (unassignedState.status !== "ready" || !searchQuery.trim()) {
@@ -69,11 +71,12 @@ function PaymentAssignList({
 
   async function handleAssign(paymentId: Id<"payments">) {
     setAssigningId(paymentId)
+    setAssignError(null)
     try {
       await assignPayment({ paymentId, orderId: orderId as Id<"orders"> })
       onAssigned()
-    } catch {
-      // handled by Convex retry
+    } catch (error) {
+      setAssignError(error instanceof Error ? error.message : "Failed to assign payment.")
     } finally {
       setAssigningId(null)
     }
@@ -90,7 +93,7 @@ function PaymentAssignList({
   }
 
   if (unassignedState.status === "error") {
-    return <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">{unassignedState.message}</div>
+    return <DashboardQueryState state="error" message={unassignedState.message} className="rounded-xl border border-destructive/20 bg-destructive/5 p-4" />
   }
 
   const unassignedPayments = unassignedState.data
@@ -98,12 +101,13 @@ function PaymentAssignList({
   const isEmpty = (filteredPayments ?? []).length === 0
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-3">
+      {assignError ? <p role="alert" aria-live="assertive" className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{assignError}</p> : null}
       <div className="shrink-0 space-y-3">
         <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
           Unassigned payments ({unassignedPayments.length})
         </p>
-        <div className="relative">
+          <div className="relative min-w-0">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search by name, reference, source..."
@@ -117,11 +121,7 @@ function PaymentAssignList({
         {isEmpty ? (
           <div className="rounded-2xl border border-dashed border-border/50 py-12 text-center">
             <CreditCard className="mx-auto mb-3 size-8 text-muted-foreground/30" />
-            <p className="text-sm font-medium text-muted-foreground">
-              {searchQuery.trim()
-                ? "No payments match your search."
-                : "No unassigned payments"}
-            </p>
+            <DashboardQueryState state="empty" message={searchQuery.trim() ? "No payments match your search." : "No unassigned payments."} />
           </div>
         ) : (
           (filteredPayments ?? unassignedPayments).map((p: Doc<"payments">) => (
@@ -355,6 +355,16 @@ export type ReconciliationOrderRow = {
   orderedAt: string | null
 }
 
+function knownOutstanding(row: ReconciliationOrderRow) {
+  return typeof row.outstandingAmountMinor === "number"
+    ? row.outstandingAmountMinor
+    : null
+}
+
+function moneyDisplay(value: number | null | undefined) {
+  return typeof value === "number" ? formatMoney(value) : "Unavailable"
+}
+
 type PageProps = {
   params: Promise<{ slug: string }>
   event: EventDashboardEvent
@@ -390,15 +400,23 @@ export default function EventReconciliationPage({
   const [logPayerName, setLogPayerName] = useState("")
   const [notes, setNotes] = useState("")
   const [isCreating, setIsCreating] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
   const createPayment = useCreatePayment()
   const pageSize = 25
 
   const visibleOrders = useMemo(() => {
     const rows = resolvedOrders ?? []
     return rows
-      .filter((row) => (row.outstandingAmountMinor ?? row.amountDueMinor ?? 0) > 0)
-      .sort((a, b) => (b.outstandingAmountMinor ?? b.amountDueMinor ?? 0) - (a.outstandingAmountMinor ?? a.amountDueMinor ?? 0))
+      .filter((row) => {
+        const outstanding = knownOutstanding(row)
+        return outstanding !== null && outstanding > 0
+      })
+      .sort((a, b) => knownOutstanding(b)! - knownOutstanding(a)!)
   }, [resolvedOrders])
+
+  const hasUnresolvedBalances = Boolean(
+    resolvedOrders?.some((row) => knownOutstanding(row) === null)
+  )
 
   const totalPages = Math.max(1, Math.ceil(visibleOrders.length / pageSize))
   const currentPage = Math.min(page, totalPages)
@@ -407,7 +425,8 @@ export default function EventReconciliationPage({
   const selectedOrder = visibleOrders.find((o) => o.orderId === selectedOrderId)
 
   function totalOutstandingMinor() {
-    return visibleOrders.reduce((sum, row) => sum + (row.outstandingAmountMinor ?? row.amountDueMinor ?? 0), 0)
+    if (hasUnresolvedBalances) return null
+    return visibleOrders.reduce((sum, row) => sum + knownOutstanding(row)!, 0)
   }
 
   function handleRowClick(orderId: string) {
@@ -416,8 +435,8 @@ export default function EventReconciliationPage({
     setActiveTab("link")
     const order = visibleOrders.find((o) => o.orderId === orderId)
     if (order) {
-      const outstanding = order.outstandingAmountMinor ?? order.amountDueMinor ?? 0
-      setAmountString(outstanding > 0 ? (outstanding / 100).toFixed(2) : "")
+       const outstanding = knownOutstanding(order)
+       setAmountString(outstanding !== null && outstanding > 0 ? (outstanding / 100).toFixed(2) : "")
       setLogPayerName(order.buyerName || "")
       setNotes("")
     }
@@ -427,6 +446,7 @@ export default function EventReconciliationPage({
     e.preventDefault()
     if (!selectedOrderId) return
     setIsCreating(true)
+    setFormError(null)
     try {
       const amountMinor = Math.round(parseFloat(amountString) * 100)
       await createPayment({
@@ -439,7 +459,7 @@ export default function EventReconciliationPage({
       })
       setIsSheetOpen(false)
     } catch (err) {
-      console.error(err)
+      setFormError(err instanceof Error ? err.message : "Failed to log payment.")
     } finally {
       setIsCreating(false)
     }
@@ -447,34 +467,31 @@ export default function EventReconciliationPage({
 
   if (reconciliationState.status === "pending") {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-24 w-full rounded-2xl" />
-        <Skeleton className="h-96 w-full rounded-2xl" />
-      </div>
+      <DashboardQueryState state="loading" className="rounded-xl border border-border/60 bg-card p-6" />
     )
   }
 
   if (reconciliationState.status === "error") {
-    return <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">{reconciliationState.message}</div>
+    return <DashboardQueryState state="error" message={reconciliationState.message} className="rounded-xl border border-destructive/20 bg-destructive/5 p-4" />
   }
 
   return (
     <TooltipProvider>
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-sm">
-        <div>
+    <div className="min-w-0 space-y-8">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+        <div className="min-w-0">
           <p className="font-semibold">Outstanding order reconciliation</p>
           <p className="text-xs text-muted-foreground">Select an order to assign an existing payment or log cash/bank transfer.</p>
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>{visibleOrders.length} outstanding order{visibleOrders.length === 1 ? "" : "s"}</span>
-          <span className="font-semibold text-foreground">{formatMoney(totalOutstandingMinor())} outstanding</span>
+          <span className="font-semibold text-foreground">{moneyDisplay(totalOutstandingMinor())} outstanding</span>
         </div>
       </div>
 
       <article className="overflow-hidden rounded-xl border border-border/60 bg-card">
-        <div className="overflow-x-auto">
           <Table>
+            <TableCaption>Outstanding event-scoped order reconciliation</TableCaption>
             <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Order</TableHead>
@@ -486,21 +503,24 @@ export default function EventReconciliationPage({
               </TableRow>
             </TableHeader>
             <TableBody className="divide-y divide-border/20">
-              {pageRows.length === 0 ? (
-                    <TableRow>
-                  <TableCell                   colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
-                    No outstanding orders
+              {hasUnresolvedBalances ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="px-6 py-12">
+                    <DashboardQueryState state="unavailable" message="Some outstanding balances are unavailable." className="text-center" />
+                  </TableCell>
+                </TableRow>
+              ) : pageRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="px-6 py-12">
+                    <DashboardQueryState state="empty" message="No outstanding orders." className="text-center" />
                   </TableCell>
                 </TableRow>
               ) : (
                 pageRows.map((row) => (
                   <Fragment key={row.orderId}>
-                    <TableRow
-                      onClick={() => handleRowClick(row.orderId)}
-                      className="cursor-pointer transition-colors hover:bg-muted/30"
-                    >
+                    <TableRow className="transition-colors hover:bg-muted/30">
                       <TableCell className="px-6 py-5">
-                        <div className="font-mono text-[10px] font-bold text-primary/70">{row.orderId}</div>
+                        <button type="button" onClick={() => handleRowClick(row.orderId)} className="rounded font-mono text-left text-[10px] font-bold text-primary/70 underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">{row.orderId}</button>
                         <div className="mt-1 text-xs text-muted-foreground">
                           {row.orderedAt
                             ? new Date(row.orderedAt).toLocaleString("en-GB", {
@@ -518,26 +538,19 @@ export default function EventReconciliationPage({
                         <div className="text-[11px] text-muted-foreground/60">{row.buyerEmail}</div>
                       </TableCell>
                       <TableCell className="px-6 py-5 text-right font-bold tabular-nums">
-                        {typeof row.amountDueMinor === "number"
-                          ? formatMoney(row.amountDueMinor)
-                          : "—"}
+                          {moneyDisplay(row.amountDueMinor)}
                       </TableCell>
                       <TableCell className="px-6 py-5 text-right font-bold tabular-nums text-emerald-600">
-                        {typeof row.matchedAmountMinor === "number"
-                          ? formatMoney(row.matchedAmountMinor)
-                          : "—"}
+                          {moneyDisplay(row.matchedAmountMinor)}
                       </TableCell>
                       <TableCell className="px-6 py-5 text-right font-bold tabular-nums text-orange-600">
-                        {typeof row.outstandingAmountMinor === "number"
-                          ? formatMoney(row.outstandingAmountMinor)
-                          : typeof row.amountDueMinor === "number"
-                            ? formatMoney(row.amountDueMinor)
-                            : "—"}
+                          {moneyDisplay(row.outstandingAmountMinor)}
                       </TableCell>
                       <TableCell className="px-6 py-5">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Badge
+                              aria-label={`Order status: ${row.normalizedStatus}. Activate the order to assign a payment.`}
                               variant={row.normalizedStatus === "paid" ? "secondary" : row.normalizedStatus === "cancelled" ? "destructive" : "outline"}
                               className={cn(
                                 "h-6 rounded-lg px-2 text-[10px] font-bold tracking-wider uppercase",
@@ -548,8 +561,8 @@ export default function EventReconciliationPage({
                               {row.normalizedStatus}
                             </Badge>
                           </TooltipTrigger>
-                          <TooltipContent side="top" className="text-[10px]">
-                            Click row to assign
+                           <TooltipContent side="top" className="text-[10px]">
+                             Activate the order to assign
                           </TooltipContent>
                         </Tooltip>
                       </TableCell>
@@ -560,10 +573,9 @@ export default function EventReconciliationPage({
               )}
             </TableBody>
           </Table>
-        </div>
 
         {totalPages > 1 && (
-          <footer className="flex items-center justify-between border-t border-border/30 bg-muted/20 px-8 py-5">
+          <footer className="flex flex-wrap items-center justify-between gap-4 border-t border-border/30 bg-muted/20 px-4 py-5 md:px-8">
             <p className="text-xs font-medium text-muted-foreground">
               Showing <span className="text-foreground">{pageRows.length}</span> of{" "}
               <span className="text-foreground">{visibleOrders.length}</span> entries
@@ -596,7 +608,7 @@ export default function EventReconciliationPage({
       </article>
 
       <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-        <SheetContent className="sm:max-w-md overflow-y-auto">
+        <SheetContent className="max-w-[calc(100vw-1rem)] overflow-y-auto sm:max-w-md">
           <SheetHeader className="pb-4">
             <SheetTitle className="text-lg font-bold">Assign Payment</SheetTitle>
           </SheetHeader>
@@ -620,23 +632,19 @@ export default function EventReconciliationPage({
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Amount Due</span>
                   <span className="font-mono text-sm font-bold tabular-nums">
-                    {typeof selectedOrder.amountDueMinor === "number" ? formatMoney(selectedOrder.amountDueMinor) : "—"}
+                    {moneyDisplay(selectedOrder.amountDueMinor)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Amount Paid</span>
                   <span className="font-mono text-sm font-bold tabular-nums text-emerald-600">
-                    {typeof selectedOrder.matchedAmountMinor === "number" ? formatMoney(selectedOrder.matchedAmountMinor) : "—"}
+                     {moneyDisplay(selectedOrder.matchedAmountMinor)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Amount Left</span>
                   <span className="font-mono text-sm font-black text-orange-600">
-                    {typeof selectedOrder.outstandingAmountMinor === "number"
-                      ? formatMoney(selectedOrder.outstandingAmountMinor)
-                      : typeof selectedOrder.amountDueMinor === "number"
-                        ? formatMoney(selectedOrder.amountDueMinor)
-                        : "—"}
+                     {moneyDisplay(selectedOrder.outstandingAmountMinor)}
                   </span>
                 </div>
               </div>
@@ -658,6 +666,7 @@ export default function EventReconciliationPage({
 
               <TabsContent value="new">
                 <form onSubmit={handleLogNew} className="space-y-4">
+                  {formError ? <p role="alert" aria-live="assertive" className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{formError}</p> : null}
                   <div className="space-y-2">
                     <Label>Payment Source</Label>
                     <Select value={source} onValueChange={(val: "cash" | "bank_transfer") => setSource(val)}>

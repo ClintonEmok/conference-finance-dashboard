@@ -48,10 +48,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Skeleton } from "@/components/ui/skeleton"
+import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 import {
   Table,
   TableBody,
+  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
@@ -59,16 +60,17 @@ import {
 } from "@/components/ui/table"
 import { api } from "@/lib/convex/api"
 import { useTicketTypesForEvent } from "@/lib/convex/hooks/events"
-import { useEventBySlug } from "@/lib/convex/hooks/events"
 import { useUnassignPayment } from "@/lib/convex/hooks/payments"
 import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { Id } from "@/convex/_generated/dataModel"
 import { AssignPaymentSheet } from "@/app/dashboard/manage-orders/[orderId]/assign-payment-sheet"
+import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 
 type PageProps = {
   params: Promise<{ slug: string; orderId: string }>
+  event: EventDashboardEvent
 }
 
 type PaymentStatus =
@@ -212,10 +214,9 @@ function parseMinorUnitInput(value: string, field: string) {
   return parsed
 }
 
-export default function EventOrderDetailPage({ params }: PageProps) {
+export default function EventOrderDetailPage({ params, event }: PageProps) {
   const { slug, orderId: rawOrderId } = use(params)
   const orderId = rawOrderId.trim()
-  const event = useEventBySlug(slug)
   const { ticketTypes } = useTicketTypesForEvent(event?._id?.toString())
   const payload = useQuery(
     api.orders.getOrderWithAttendees,
@@ -236,6 +237,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
   )
   const [isAssignSheetOpen, setIsAssignSheetOpen] = useState(false)
   const [isUnassigningId, setIsUnassigningId] = useState<string | null>(null)
+  const [unassignError, setUnassignError] = useState<string | null>(null)
   const [isResendingEmail, setIsResendingEmail] = useState(false)
   const [resendMessage, setResendMessage] = useState<string | null>(null)
   const [resendErrorMessage, setResendErrorMessage] = useState<string | null>(
@@ -426,10 +428,8 @@ export default function EventOrderDetailPage({ params }: PageProps) {
     [paymentDocs]
   )
 
-  const isLoading =
-    !orderId || event === undefined || payload === undefined || paymentDocs === undefined
+  const isLoading = payload === undefined || paymentDocs === undefined
   const eventOrderMismatch =
-    event !== undefined &&
     payload !== undefined &&
     payload !== null &&
     String(payload.order.eventId) !== String(event?._id)
@@ -462,8 +462,10 @@ export default function EventOrderDetailPage({ params }: PageProps) {
   )
 
   const metrics = useMemo(() => {
-    const hasKnownDue = typeof orderPayload?.order.amountDueMinor === "number"
-    const amountDueMinor = orderPayload?.order.amountDueMinor ?? 0
+    const amountDueMinor = typeof orderPayload?.order.amountDueMinor === "number"
+      ? orderPayload.order.amountDueMinor
+      : null
+    const hasKnownDue = amountDueMinor !== null
     const matchedPayments = payments.filter(
       (payment) =>
         payment.status === "auto_matched" || payment.status === "manual_assignment"
@@ -475,7 +477,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
 
     const balance = deriveBalanceAmounts(amountDueMinor, paidAmountMinor)
     const coverage =
-      hasKnownDue && amountDueMinor > 0
+      amountDueMinor !== null && amountDueMinor > 0
         ? Math.min(100, Math.round((paidAmountMinor / amountDueMinor) * 100))
         : amountDueMinor === 0
           ? 100
@@ -483,13 +485,15 @@ export default function EventOrderDetailPage({ params }: PageProps) {
 
     const attendeeCount = orderPayload?.attendees.length ?? 0
     const sharedOutstandingPerAttendeeMinor =
-      attendeeCount > 0 ? Math.ceil(balance.outstandingAmountMinor / attendeeCount) : 0
+      hasKnownDue && attendeeCount > 0
+        ? Math.ceil(balance.outstandingAmountMinor / attendeeCount)
+        : null
 
     return {
-      amountDueMinor: balance.amountDueMinor,
+      amountDueMinor: hasKnownDue ? balance.amountDueMinor : null,
       paidAmountMinor: balance.paidAmountMinor,
-      outstandingAmountMinor: balance.outstandingAmountMinor,
-      donationAmountMinor: balance.donationAmountMinor,
+      outstandingAmountMinor: hasKnownDue ? balance.outstandingAmountMinor : null,
+      donationAmountMinor: hasKnownDue ? balance.donationAmountMinor : null,
       coverage,
       hasKnownDue,
       attendeeCount,
@@ -687,32 +691,22 @@ export default function EventOrderDetailPage({ params }: PageProps) {
     }
   }
 
-  if (isLoading) {
-    return <Skeleton className="h-96 w-full rounded-2xl" />
+  if (!orderId) {
+    return <DashboardQueryState state="unavailable" message="This order link is unavailable." className="rounded-xl border border-border/60 bg-card p-6" />
   }
 
-  if (event === null) {
-    return (
-      <div className="rounded-2xl border border-border/50 bg-card/40 p-10 text-center">
-        <h1 className="text-2xl font-bold">Event not found</h1>
-        <p className="mt-2 text-muted-foreground">The slug “{slug}” does not exist.</p>
-      </div>
-    )
+  if (isLoading) {
+    return <DashboardQueryState state="loading" className="rounded-xl border border-border/60 bg-card p-6" />
   }
 
   if (orderPayload === null || eventOrderMismatch) {
-    return (
-      <div className="rounded-2xl border border-border/50 bg-card/40 p-10 text-center">
-        <h1 className="text-2xl font-bold">Order not found</h1>
-        <p className="mt-2 text-muted-foreground">The canonical order could not be loaded.</p>
-      </div>
-    )
+    return <DashboardQueryState state="empty" title="Order not found" message="The canonical order could not be loaded for this event." className="rounded-xl border border-border/60 bg-card p-6" />
   }
 
   return (
-    <div className="animate-in space-y-8 duration-700 fade-in slide-in-from-bottom-4">
+    <div className="min-w-0 animate-in space-y-8 duration-700 fade-in slide-in-from-bottom-4">
       {removeErrorMessage && (
-        <div className="flex items-center gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
+        <div role="alert" aria-live="assertive" className="flex items-center gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
           <AlertCircle className="size-4" />
           {removeErrorMessage}
         </div>
@@ -726,6 +720,12 @@ export default function EventOrderDetailPage({ params }: PageProps) {
             {resendErrorMessage}
           </AlertDescription>
         </Alert>
+      )}
+
+      {unassignError && (
+        <p role="alert" aria-live="assertive" className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
+          {unassignError}
+        </p>
       )}
 
       {resendMessage && (
@@ -840,32 +840,32 @@ export default function EventOrderDetailPage({ params }: PageProps) {
           </div>
         </CardHeader>
 
-        <CardContent>
+           <CardContent className="min-w-0">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             {[
               {
                 label: "Amount Due",
-                value: metrics.hasKnownDue ? formatMoney(metrics.amountDueMinor) : "Missing",
+                 value: metrics.hasKnownDue && metrics.amountDueMinor !== null ? formatMoney(metrics.amountDueMinor) : "Unavailable",
                 icon: Receipt,
                 color: "text-foreground",
               },
               {
                 label: "Paid Amount",
-                value: formatMoney(metrics.paidAmountMinor),
+                 value: typeof metrics.paidAmountMinor === "number" ? formatMoney(metrics.paidAmountMinor) : "Unavailable",
                 icon: ShieldCheck,
                 color: "text-emerald-600 dark:text-emerald-400",
               },
               {
                 label: "Outstanding",
-                value: metrics.hasKnownDue
-                  ? formatMoney(metrics.outstandingAmountMinor)
-                  : "Missing",
+                 value: metrics.hasKnownDue && metrics.outstandingAmountMinor !== null
+                   ? formatMoney(metrics.outstandingAmountMinor)
+                   : "Unavailable",
                 icon: Clock,
                 color: "text-rose-600 dark:text-rose-400",
               },
               {
                 label: "Donation",
-                value: formatMoney(metrics.donationAmountMinor),
+                 value: metrics.donationAmountMinor !== null ? formatMoney(metrics.donationAmountMinor) : "Unavailable",
                 icon: AlertCircle,
                 color: "text-amber-600 dark:text-amber-300",
               },
@@ -878,7 +878,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
             ].map((item, i) => (
               <article
                 key={i}
-                className="rounded-2xl border border-white/60 bg-white/50 p-4 transition-all hover:bg-white/80 dark:border-white/5 dark:bg-white/5 dark:hover:bg-white/10"
+                 className="min-w-0 rounded-2xl border border-white/60 bg-white/50 p-4 transition-all hover:bg-white/80 dark:border-white/5 dark:bg-white/5 dark:hover:bg-white/10"
               >
                 <p className="mb-3 px-1 text-[10px] font-black tracking-[0.2em] text-muted-foreground uppercase">
                   {item.label}
@@ -887,7 +887,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                   <span className={cn("text-2xl font-black tracking-tight", item.color)}>
                     {item.value}
                   </span>
-                  <item.icon className={cn("size-5 opacity-20", item.color)} />
+                   <item.icon aria-hidden="true" className={cn("size-5 opacity-20", item.color)} />
                 </div>
               </article>
             ))}
@@ -895,10 +895,12 @@ export default function EventOrderDetailPage({ params }: PageProps) {
 
           <div className="mt-6 flex items-center gap-3 rounded-xl border border-primary/10 bg-primary/5 p-4">
             <Users className="size-4 text-primary" />
-            <p className="text-xs font-medium text-muted-foreground">
-              {metrics.attendeeCount > 1
-                ? `Consolidated ledger for ${metrics.attendeeCount} attendees. Outstanding averages ${formatMoney(metrics.sharedOutstandingPerAttendeeMinor)} per ticket.`
-                : "Direct progress mapping for a single attendee order."}
+              <p className="text-xs font-medium text-muted-foreground">
+                {metrics.attendeeCount > 1
+                 ? metrics.sharedOutstandingPerAttendeeMinor !== null
+                   ? `Consolidated ledger for ${metrics.attendeeCount} attendees. Outstanding averages ${formatMoney(metrics.sharedOutstandingPerAttendeeMinor)} per ticket.`
+                   : `Consolidated ledger for ${metrics.attendeeCount} attendees. Outstanding average is unavailable.`
+                 : "Direct progress mapping for a single attendee order."}
             </p>
           </div>
         </CardContent>
@@ -1105,8 +1107,9 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                 <p className="text-sm font-bold tracking-widest uppercase opacity-40">No attendees</p>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-white/20 bg-background/20">
+               <div className="min-w-0 rounded-xl border border-white/20 bg-background/20">
                 <Table>
+                  <TableCaption>Attendees in this canonical order</TableCaption>
                   <TableHeader className="bg-white/10">
                     <TableRow>
                       <TableHead className="h-10 text-[10px] font-black tracking-widest uppercase">
@@ -1266,11 +1269,13 @@ export default function EventOrderDetailPage({ params }: PageProps) {
               <CardTitle className="text-lg font-bold">Assigned Payments</CardTitle>
               <CardDescription>Matched to this order ID</CardDescription>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsAssignSheetOpen(true)}
-              className="h-8 rounded-lg border-white/20 text-[11px] font-bold uppercase transition-all hover:bg-white/10"
+             <Button
+               variant="outline"
+               size="sm"
+               onClick={() => setIsAssignSheetOpen(true)}
+               disabled={!metrics.hasKnownDue}
+               aria-label={metrics.hasKnownDue ? "Assign a payment to this order" : "Assign payment unavailable until the amount due is known"}
+               className="h-8 rounded-lg border-white/20 text-[11px] font-bold uppercase transition-all hover:bg-white/10"
             >
               <Plus className="mr-2 size-3" /> Assign
             </Button>
@@ -1325,21 +1330,22 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                         <p className="mt-1 font-medium text-foreground">{paymentStatusLabel(payment.status)}</p>
                       </div>
                     </div>
-                    <div className="absolute -top-2 -right-2 opacity-0 transition-opacity group-hover:opacity-100">
+                    <div className="absolute top-2 right-2">
                       <Button
                         variant="destructive"
                         size="icon"
                         className="size-7 rounded-full shadow-md"
+                        aria-label={`Unlink payment from ${payment.payerName}`}
                         onClick={() => {
-                          setIsUnassigningId(payment.id)
-                          void unassignPayment({ paymentId: payment.id as Id<"payments"> })
+                           setIsUnassigningId(payment.id)
+                           setUnassignError(null)
+                           void unassignPayment({ paymentId: payment.id as Id<"payments"> })
                             .catch((error) => {
-                              console.error(error)
+                              setUnassignError(error instanceof Error ? error.message : "Failed to unlink payment.")
                             })
                             .finally(() => setIsUnassigningId(null))
                         }}
                         disabled={isUnassigningId === payment.id}
-                        title="Unlink Payment"
                       >
                         {isUnassigningId === payment.id ? (
                           <Loader2 className="size-3.5 animate-spin" />
@@ -1363,7 +1369,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
         </Card>
       </div>
 
-      {orderId && metrics && (
+       {orderId && metrics && metrics.hasKnownDue && metrics.outstandingAmountMinor !== null && (
         <AssignPaymentSheet
           open={isAssignSheetOpen}
           onOpenChange={setIsAssignSheetOpen}
@@ -1443,7 +1449,7 @@ export default function EventOrderDetailPage({ params }: PageProps) {
                       </div>
                       <div className="ml-3 shrink-0 text-right">
                         <p className="text-xs font-black tabular-nums">
-                          {formatMoney(result.totalAmountMinor ?? 0)}
+                           {typeof result.totalAmountMinor === "number" ? formatMoney(result.totalAmountMinor) : "Unavailable"}
                         </p>
                         <p className="text-[9px] text-muted-foreground">
                           {formatDateTime(result.orderedAt)}
