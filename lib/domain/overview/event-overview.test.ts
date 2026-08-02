@@ -129,4 +129,27 @@ describe("event overview projection", () => {
     expect(failed.metrics.find((metric) => metric.key === "accommodation")?.state).toEqual({ status: "error", message: "Accommodation query failed." })
     expect(failed.exceptions.some((exception) => exception.key === "accommodation-setup")).toBe(false)
   })
+
+  it("preserves explicit error, unavailable, and unconfigured domain states", () => {
+    const failedRevenue = projectEventOverview(
+      input({
+        revenue: { status: "error", message: "Revenue request failed." },
+      })
+    )
+    expect(failedRevenue.metrics.find((metric) => metric.key === "money")?.state).toEqual({
+      status: "error",
+      message: "Revenue request failed.",
+    })
+    expect(failedRevenue.metrics.find((metric) => metric.key === "money")?.values).toBeNull()
+
+    const unconfiguredAccommodation = projectEventOverview(
+      input({ accommodation: { status: "unconfigured" } })
+    )
+    expect(
+      unconfiguredAccommodation.metrics.find((metric) => metric.key === "accommodation")?.state
+    ).toEqual({ status: "unconfigured" })
+    expect(
+      unconfiguredAccommodation.metrics.find((metric) => metric.key === "accommodation")?.href
+    ).toBe("/dashboard/events/spring-conference/accommodation")
+  })
 })
