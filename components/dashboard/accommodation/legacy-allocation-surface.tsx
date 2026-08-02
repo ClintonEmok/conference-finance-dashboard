@@ -310,20 +310,8 @@ export default function EventAllocationPage({
   if (event === undefined || board === undefined) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-48 rounded-2xl" />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 rounded-2xl" />
-          ))}
-        </div>
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
-          <Skeleton className="h-[600px] rounded-2xl" />
-          <div className="grid gap-4 sm:grid-cols-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-48 rounded-2xl" />
-            ))}
-          </div>
-        </div>
+        <Skeleton className="h-14 w-full rounded-lg" />
+        <Skeleton className="h-[600px] w-full rounded-lg" />
       </div>
     )
   }
@@ -370,51 +358,20 @@ export default function EventAllocationPage({
 
   return (
     <div className="space-y-6">
-      <Link
-        href={`/dashboard/events/${slug}/accommodation/workspace`}
-        className="flex w-fit items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ChevronLeft className="size-4" />
-        Back to Workspace
-      </Link>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="group rounded-2xl border border-white/40 bg-white/40 p-5 shadow-sm dark:border-white/5 dark:bg-black/20">
-          <p className="flex items-center gap-2 text-[10px] font-black tracking-[0.22em] text-muted-foreground/60 uppercase">
-            <Building2 className="size-3" />
-            Total Rooms
-          </p>
-          <p className="mt-2 text-3xl font-black tracking-tighter">{summary?.totalRooms ?? 0}</p>
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+        <div>
+          <p className="font-semibold">Allocation inbox and room board</p>
+          <p className="text-xs text-muted-foreground">Select a room, then assign waiting attendees or fulfill a compatible group.</p>
         </div>
-        <div className="group rounded-2xl border border-emerald-200/60 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900/30 dark:bg-emerald-950/20">
-          <p className="flex items-center gap-2 text-[10px] font-black tracking-[0.22em] text-emerald-700/60 uppercase dark:text-emerald-400/60">
-            <BedDouble className="size-3" />
-            Available Beds
-          </p>
-          <p className="mt-2 text-3xl font-black tracking-tighter text-emerald-700 dark:text-emerald-400">
-            {summary?.availableBeds ?? 0}
-          </p>
-        </div>
-        <div className="group rounded-2xl border border-amber-200/60 bg-amber-50/60 p-5 shadow-sm dark:border-amber-900/30 dark:bg-amber-950/20">
-          <p className="flex items-center gap-2 text-[10px] font-black tracking-[0.22em] text-amber-700/60 uppercase dark:text-amber-400/60">
-            <Users className="size-3" />
-            Occupied
-          </p>
-          <p className="mt-2 text-3xl font-black tracking-tighter text-amber-700 dark:text-amber-400">
-            {summary?.occupiedBeds ?? 0}
-          </p>
-        </div>
-        <div className="group rounded-2xl border border-rose-200/60 bg-rose-50/60 p-5 shadow-sm dark:border-rose-900/30 dark:bg-rose-950/20">
-          <p className="flex items-center gap-2 text-[10px] font-black tracking-[0.22em] text-rose-700/60 uppercase dark:text-rose-400/60">
-            <Users className="size-3" />
-            Unassigned
-          </p>
-          <p className="mt-2 text-3xl font-black tracking-tighter text-rose-700 dark:text-rose-400">
-            {summary?.unassignedAttendeesCount ?? 0}
-          </p>
-        </div>
+        {summary && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span>{summary.totalRooms} rooms</span>
+            <span>{summary.availableBeds} available beds</span>
+            <span>{summary.occupiedBeds} occupied</span>
+            <span className="font-semibold text-foreground">{summary.unassignedAttendeesCount} unassigned</span>
+          </div>
+        )}
       </div>
-
       {error && (
         <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-5 py-3 text-sm text-destructive">{error}</div>
       )}
@@ -647,7 +604,7 @@ export default function EventAllocationPage({
       )}
 
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[380px_1fr]">
-        <div className="flex h-[700px] flex-col overflow-hidden rounded-2xl border border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+        <div className="flex h-[700px] flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-none">
           <div className="flex items-center justify-between border-b border-border/40 px-5 py-4">
             <div>
               <h3 className="text-sm font-bold tracking-tight">Inbox</h3>
@@ -669,7 +626,7 @@ export default function EventAllocationPage({
               unassigned.map((attendee: any) => (
                   <div
                     key={attendee.attendeeId}
-                    className="flex flex-col rounded-xl border border-white/40 bg-white/40 p-3 transition-all hover:bg-white/60 dark:border-white/5 dark:bg-black/20 dark:hover:bg-black/40"
+                    className="flex flex-col rounded-xl border border-border/60 bg-card p-3 transition-colors hover:border-primary/30"
                   >
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-semibold">{attendee.attendeeName ?? "Unnamed"}</p>
@@ -764,7 +721,7 @@ export default function EventAllocationPage({
                       className={`rounded-2xl border p-4 shadow-sm transition-all ${
                         isSelected
                           ? "border-primary/60 bg-primary/5 ring-2 ring-primary/20"
-                          : "border-white/40 bg-white/40 hover:bg-white/60 dark:border-white/5 dark:bg-black/20 dark:hover:bg-black/40"
+                          : "border-border/60 bg-card hover:border-primary/30"
                       }`}
                     >
                       <button
