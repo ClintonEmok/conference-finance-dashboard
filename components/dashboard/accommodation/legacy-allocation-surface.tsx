@@ -550,9 +550,9 @@ export default function EventAllocationPage({
             {suggestions.map((s) => {
               const room = rooms.find((r: any) => r.id === s.roomId)
               return (
-                <div
-                  key={s.attendee.attendeeId}
-                  className={`flex items-center gap-3 rounded-xl border p-3 transition-all ${
+                 <div
+                   key={s.attendee.attendeeId}
+                   className={`flex min-w-0 flex-col gap-3 rounded-xl border p-3 transition-all sm:flex-row sm:items-center ${
                     s.accepted ? "border-emerald-200/60 bg-emerald-50/40" : "border-border/30 bg-muted/20 opacity-60"
                   }`}
                 >
@@ -594,7 +594,7 @@ export default function EventAllocationPage({
                       )
                     }
                   >
-                    <SelectTrigger className="h-8 w-44 rounded-lg border-white/20 text-xs">
+                     <SelectTrigger className="h-8 w-full rounded-lg border-white/20 text-xs sm:w-44">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -641,7 +641,7 @@ export default function EventAllocationPage({
                     key={attendee.attendeeId}
                     className="flex flex-col rounded-xl border border-border/60 bg-card p-3 transition-colors hover:border-primary/30"
                   >
-                  <div className="flex items-center justify-between">
+                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-sm font-semibold">{attendee.attendeeName ?? "Unnamed"}</p>
                     <div className="flex items-center gap-1">
                       <Button
@@ -695,10 +695,11 @@ export default function EventAllocationPage({
                   variant="outline"
                   size="sm"
                   disabled={roomPage <= 1}
+                  aria-label="Previous room page"
                   onClick={() => setRoomPage((p) => p - 1)}
                   className="h-8 rounded-lg border-white/20 text-xs"
                 >
-                  <ChevronLeft className="size-3.5" />
+                   <ChevronLeft className="size-3.5" aria-hidden="true" />
                 </Button>
                 <span className="text-xs font-medium text-muted-foreground">
                   {roomPage} / {Math.ceil(rooms.length / roomsPerPage)}
@@ -707,10 +708,11 @@ export default function EventAllocationPage({
                   variant="outline"
                   size="sm"
                   disabled={roomPage >= Math.ceil(rooms.length / roomsPerPage)}
+                  aria-label="Next room page"
                   onClick={() => setRoomPage((p) => p + 1)}
                   className="h-8 rounded-lg border-white/20 text-xs"
                 >
-                  <ChevronRight className="size-3.5" />
+                   <ChevronRight className="size-3.5" aria-hidden="true" />
                 </Button>
               </div>
             )}
@@ -743,8 +745,9 @@ export default function EventAllocationPage({
                       >
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-semibold">{room.label}</p>
-                          <Badge
-                            variant="outline"
+                           <Badge
+                             aria-label={`Room status: ${isFull ? "full" : isEmpty ? "empty" : "available"}; ${room.occupants?.length ?? 0} of ${room.capacity} occupied`}
+                             variant="outline"
                             className={
                               isFull
                                 ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/30 dark:bg-rose-950/20 dark:text-rose-400"
@@ -758,7 +761,7 @@ export default function EventAllocationPage({
                         </div>
                         {room.hotel && (
                           <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground/60">
-                            <Building2 className="size-3" />
+                             <Building2 className="size-3" aria-hidden="true" />
                             {room.hotel.name}
                           </p>
                         )}
@@ -780,7 +783,7 @@ export default function EventAllocationPage({
                                 aria-label={`Unassign ${occ.attendeeName ?? "unnamed attendee"} from ${room.label}`}
                                 className="size-7 shrink-0 rounded p-1 text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
                               >
-                                <X className="size-3" />
+                                 <X className="size-3" aria-hidden="true" />
                               </button>
                             </div>
                           ))}

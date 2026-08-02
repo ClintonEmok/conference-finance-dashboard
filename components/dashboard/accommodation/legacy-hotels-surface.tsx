@@ -279,7 +279,7 @@ export default function EventAccommodationWorkspacePage({
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Link href={`/dashboard/events/${slug}/accommodation/allocation`} className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Link href={`/dashboard/events/${slug}/accommodation/allocation`} className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
         <Card className="border-border/60 bg-card shadow-none transition-colors hover:border-primary/30">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base font-bold">
@@ -298,7 +298,7 @@ export default function EventAccommodationWorkspacePage({
         </Card>
         </Link>
 
-        <Link href="/dashboard/accommodation/inventory" className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Link href="/dashboard/accommodation/inventory" className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
         <Card className="border-border/60 bg-card shadow-none transition-colors hover:border-primary/30">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base font-bold">
