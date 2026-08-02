@@ -4,20 +4,27 @@ import { useMemo } from "react"
 
 import { useEvents } from "@/lib/convex/hooks/events"
 import { cn } from "@/lib/utils"
+import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 
 type EventSwitcherProps = {
   currentSlug?: string | null
+  event?: Pick<EventDashboardEvent, "slug" | "title"> | null
   className?: string
 }
 
-export function EventSwitcher({ currentSlug, className }: EventSwitcherProps) {
-  const events = useEvents()
+export function EventSwitcher({
+  currentSlug,
+  event,
+  className,
+}: EventSwitcherProps) {
+  const events = useEvents(!event)
 
   const activeEvent = useMemo(() => {
+    if (event) return event
     if (!events || !currentSlug) return null
 
     return events.find((event) => event.slug === currentSlug) ?? null
-  }, [events, currentSlug])
+  }, [event, events, currentSlug])
 
   return (
     <div

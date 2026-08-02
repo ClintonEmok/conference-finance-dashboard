@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EventSwitcher } from "@/components/dashboard/event-switcher"
+import { EventDashboardProvider } from "@/components/dashboard/event-dashboard-context"
 import {
   Sidebar,
   SidebarContent,
@@ -87,51 +88,53 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
   }
 
   return (
-    <SidebarProvider>
-      <Sidebar
-        collapsible="icon"
-        className="border-r border-white/60 dark:border-white/10 group-data-[collapsible=icon]:border-none"
-      >
-        <SidebarContentInner slug={slug} pathname={pathname} event={event} />
-      </Sidebar>
+    <EventDashboardProvider slug={slug} event={event}>
+      <SidebarProvider>
+        <Sidebar
+          collapsible="icon"
+          className="border-r border-white/60 dark:border-white/10 group-data-[collapsible=icon]:border-none"
+        >
+          <SidebarContentInner slug={slug} pathname={pathname} event={event} />
+        </Sidebar>
 
-      <SidebarInset className="bg-black/5 dark:bg-white/2">
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-white/60 bg-white/80 px-4 backdrop-blur-xl dark:border-white/10 dark:bg-black/40">
-          <div className="flex items-center gap-4">
-            <SidebarTrigger className="-ml-1" />
-            <SidebarSeparator orientation="vertical" className="mr-2 h-4" />
-            <div className="flex flex-col gap-0.5">
-              <div className="flex items-center gap-2">
-                <h1 className="text-base font-semibold text-foreground">
-                  {event.title}
-                </h1>
-                {getStatusBadge(event.isPublished, event.isSignupOpen)}
+        <SidebarInset className="bg-black/5 dark:bg-white/2">
+          <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-white/60 bg-white/80 px-4 backdrop-blur-xl dark:border-white/10 dark:bg-black/40">
+            <div className="flex items-center gap-4">
+              <SidebarTrigger className="-ml-1" />
+              <SidebarSeparator orientation="vertical" className="mr-2 h-4" />
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-base font-semibold text-foreground">
+                    {event.title}
+                  </h1>
+                  {getStatusBadge(event.isPublished, event.isSignupOpen)}
+                </div>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <span className="font-mono">/{event.slug}</span>
+                  <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
+                    <Link href={`/events/${event.slug}`} target="_blank">
+                      <ExternalLink className="size-3" />
+                      Public page
+                    </Link>
+                  </Button>
+                  <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
+                    <Link href="/dashboard">Go to home</Link>
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                <span className="font-mono">/{event.slug}</span>
-                <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
-                  <Link href={`/events/${event.slug}`} target="_blank">
-                    <ExternalLink className="size-3" />
-                    Public page
-                  </Link>
-                </Button>
-                <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
-                  <Link href="/dashboard">Go to home</Link>
-                </Button>
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-x-hidden p-4 lg:p-6">
+            <div className="mx-auto max-w-7xl">
+              <div className="animate-in duration-700 fade-in slide-in-from-bottom-2">
+                {children}
               </div>
             </div>
           </div>
-        </header>
-
-        <div className="flex-1 overflow-x-hidden p-4 lg:p-6">
-          <div className="mx-auto max-w-7xl">
-            <div className="animate-in duration-700 fade-in slide-in-from-bottom-2">
-              {children}
-            </div>
-          </div>
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+        </SidebarInset>
+      </SidebarProvider>
+    </EventDashboardProvider>
   )
 }
 
@@ -183,10 +186,11 @@ function SidebarContentInner({
   return (
     <>
       <SidebarHeader className="h-[64px] justify-center pt-6 group-data-[collapsible=icon]:h-auto group-data-[collapsible=icon]:p-1 group-data-[collapsible=icon]:pt-4">
-        <EventSwitcher
-          currentSlug={slug}
-          className="group-data-[collapsible=icon]:rounded-none group-data-[collapsible=icon]:border-none group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:shadow-none group-data-[collapsible=icon]:[&>div]:hidden"
-        />
+          <EventSwitcher
+            currentSlug={slug}
+            event={event}
+            className="group-data-[collapsible=icon]:rounded-none group-data-[collapsible=icon]:border-none group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:shadow-none group-data-[collapsible=icon]:[&>div]:hidden"
+          />
       </SidebarHeader>
 
       <SidebarContent className="gap-0 px-3 pt-3 group-data-[collapsible=icon]:px-1 group-data-[collapsible=icon]:pt-1">
