@@ -97,6 +97,11 @@ export default function EventPaymentsPage({
           {errorMessage}
         </div>
       )}
+      {successPaymentId && (
+        <p role="status" aria-live="polite" className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-700 dark:text-emerald-300">
+          Payment marked as a donation.
+        </p>
+      )}
 
       <div className="grid min-w-0 gap-6 lg:grid-cols-2">
         <Card className="border-border/60 bg-card shadow-none">
