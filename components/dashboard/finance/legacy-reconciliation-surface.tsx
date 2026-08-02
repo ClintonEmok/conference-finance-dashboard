@@ -4,7 +4,6 @@ import { Fragment, use, useMemo, useState } from "react"
 import { useQuery } from "convex/react"
 import {
   Banknote,
-  Calendar,
   ChevronLeft,
   ChevronRight,
   CreditCard,
@@ -13,7 +12,6 @@ import {
   Link2Off,
   Loader2,
   Search,
-  ShoppingBag,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -439,51 +437,18 @@ export default function EventReconciliationPage({ params }: PageProps) {
   return (
     <TooltipProvider>
     <div className="space-y-8">
-      <header className="flex flex-col gap-4 px-1">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-sm">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">
-              Reconciliation
-            </h1>
-          </div>
-          <p className="mt-1 text-muted-foreground">
-            Click a row to assign unassigned payments to an outstanding order
-          </p>
+          <p className="font-semibold">Outstanding order reconciliation</p>
+          <p className="text-xs text-muted-foreground">Select an order to assign an existing payment or log cash/bank transfer.</p>
         </div>
-      </header>
-
-      {visibleOrders.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <article className="rounded-xl border border-border/50 bg-card/40 p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <ShoppingBag className="size-5" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-                  Outstanding Orders
-                </p>
-                <p className="mt-0.5 text-xl font-bold">{visibleOrders.length}</p>
-              </div>
-            </div>
-          </article>
-          <article className="rounded-xl border border-border/50 bg-card/40 p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-orange-500/10 text-orange-600">
-                <Calendar className="size-5" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-                  Total Amount Left
-                </p>
-                <p className="mt-0.5 text-xl font-bold">{formatMoney(totalOutstandingMinor())}</p>
-              </div>
-            </div>
-          </article>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span>{visibleOrders.length} outstanding order{visibleOrders.length === 1 ? "" : "s"}</span>
+          <span className="font-semibold text-foreground">{formatMoney(totalOutstandingMinor())} outstanding</span>
         </div>
-      )}
+      </div>
 
-      <article className="overflow-hidden rounded-xl border border-border/50 bg-card/40">
+      <article className="overflow-hidden rounded-xl border border-border/60 bg-card">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-muted/50">

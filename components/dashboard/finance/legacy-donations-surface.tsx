@@ -1,11 +1,9 @@
 "use client"
 
-import Link from "next/link"
 import { use, useCallback, useEffect, useMemo, useState } from "react"
-import { ArrowLeft, Gift, Plus } from "lucide-react"
+import { Plus } from "lucide-react"
 
 import { DonationForm } from "@/components/dashboard/donation-form"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -101,29 +99,16 @@ export default function EventDonationPage({
 
   return (
     <section className="space-y-6">
-      <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
-        <CardHeader>
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-3">
-              <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
-                Event donations
-              </p>
-              <CardTitle className="text-3xl font-bold tracking-tight">
-                {event.title}
-              </CardTitle>
-              <CardDescription className="max-w-2xl text-muted-foreground/80">
-                Record and review donations belonging to this event without linking them to an attendee or order.
-              </CardDescription>
-            </div>
-            <Button asChild variant="outline" className="rounded-xl">
-              <Link href={`/dashboard/events/${slug}/overview`}>
-                <ArrowLeft className="mr-2 size-4" />
-                Event overview
-              </Link>
-            </Button>
-          </div>
-        </CardHeader>
-      </Card>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
+        <div>
+          <p className="text-sm font-semibold">Event-scoped donation ledger</p>
+          <p className="text-xs text-muted-foreground">{event.title} · standalone cash and bank transfer records</p>
+        </div>
+        <Button onClick={() => setShowForm((current) => !current)} className="h-9 rounded-lg">
+          <Plus className="mr-2 size-4" />
+          {showForm ? "Cancel" : "Record donation"}
+        </Button>
+      </div>
 
       {errorMessage && (
         <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
@@ -131,51 +116,17 @@ export default function EventDonationPage({
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="border-emerald-500/20 bg-emerald-500/5 shadow-sm">
-          <CardContent className="flex items-start justify-between gap-4 p-6">
-            <div className="space-y-2">
-              <p className="text-[10px] font-black tracking-[0.22em] text-emerald-700/70 uppercase">
-                Total donations
-              </p>
-              <p className="text-3xl font-bold tracking-tight text-foreground">
-                {isLoading ? "--" : formatMoney(totalDonationMinor)}
-              </p>
-              <p className="text-xs text-muted-foreground">All donations recorded for this event</p>
-            </div>
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500">
-              <Gift className="size-5" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
-          <CardContent className="flex items-start justify-between gap-4 p-6">
-            <div className="space-y-2">
-              <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
-                Donation records
-              </p>
-              <p className="text-3xl font-bold tracking-tight text-foreground">
-                {isLoading ? "--" : donations.length}
-              </p>
-              <p className="text-xs text-muted-foreground">Cash and bank transfer entries</p>
-            </div>
-            <Badge variant="outline" className="rounded-lg">
-              Event scoped
-            </Badge>
-          </CardContent>
-        </Card>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+        <span className="font-semibold">Recorded total: {isLoading ? "Checking…" : formatMoney(totalDonationMinor)}</span>
+        <span className="text-muted-foreground">{isLoading ? "Checking donation records…" : `${donations.length} event-scoped record${donations.length === 1 ? "" : "s"}`}</span>
       </div>
 
-      <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+      <Card className="border-border/60 bg-card shadow-none">
         <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
           <div>
             <CardTitle>Donation ledger</CardTitle>
             <CardDescription>Every standalone donation recorded for {event.title}.</CardDescription>
           </div>
-          <Button onClick={() => setShowForm((current) => !current)} className="rounded-xl">
-            <Plus className="mr-2 size-4" />
-            {showForm ? "Cancel" : "Record donation"}
-          </Button>
         </CardHeader>
         <CardContent className="space-y-4">
           {showForm && (
