@@ -3,7 +3,6 @@
 import { use, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { format } from "date-fns"
 import {
   ChevronLeft,
   BedDouble,
@@ -168,12 +167,8 @@ export default function EventAccommodationWorkspacePage({
   if (event === undefined) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-48 rounded-2xl" />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 rounded-2xl" />
-          ))}
-        </div>
+        <Skeleton className="h-14 w-full rounded-lg" />
+        <Skeleton className="h-64 w-full rounded-lg" />
       </div>
     )
   }
@@ -234,70 +229,19 @@ export default function EventAccommodationWorkspacePage({
 
   return (
     <div className="space-y-6">
-      <Link
-        href={`/dashboard/events/${slug}/accommodation`}
-        className="flex w-fit items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ChevronLeft className="size-4" />
-        Back to Accommodation
-      </Link>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="group rounded-2xl border border-white/40 bg-white/40 p-5 shadow-sm transition-all hover:bg-white/60 dark:border-white/5 dark:bg-black/20 dark:hover:bg-black/40">
-          <p className="flex items-center gap-2 text-[10px] font-black tracking-[0.22em] text-muted-foreground/60 uppercase">
-            <Hotel className="size-3" />
-            Hotels Linked
-          </p>
-          <p className="mt-2 text-3xl font-black tracking-tighter text-foreground">
-            {eventHotels === undefined ? "-" : eventHotels.length}
-          </p>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
+        <div>
+          <p className="text-sm font-semibold">Hotel setup and linked inventory</p>
+          <p className="text-xs text-muted-foreground">{event.title} · event-scoped accommodation configuration</p>
         </div>
-
-        <div className="group rounded-2xl border border-white/40 bg-white/40 p-5 shadow-sm transition-all hover:bg-white/60 dark:border-white/5 dark:bg-black/20 dark:hover:bg-black/40">
-          <p className="flex items-center gap-2 text-[10px] font-black tracking-[0.22em] text-muted-foreground/60 uppercase">
-            <Building2 className="size-3" />
-            Total Slots
-          </p>
-          <p className="mt-2 text-3xl font-black tracking-tighter text-foreground">
-            {summary?.totalSlots ?? "-"}
-          </p>
-          {summary && (
-            <p className="mt-1 text-xs text-muted-foreground/60">
-              {summary.assignableSlots} assignable
-            </p>
-          )}
-        </div>
-
-        <div className="group rounded-2xl border border-white/40 bg-white/40 p-5 shadow-sm transition-all hover:bg-white/60 dark:border-white/5 dark:bg-black/20 dark:hover:bg-black/40">
-          <p className="flex items-center gap-2 text-[10px] font-black tracking-[0.22em] text-muted-foreground/60 uppercase">
-            <Users className="size-3" />
-            Submissions
-          </p>
-          <p className="mt-2 text-3xl font-black tracking-tighter text-foreground">
-            {summary?.submissionsCount ?? "-"}
-          </p>
-        </div>
-
-        <div className="group rounded-2xl border border-white/40 bg-white/40 p-5 shadow-sm transition-all hover:bg-white/60 dark:border-white/5 dark:bg-black/20 dark:hover:bg-black/40">
-          <p className="flex items-center gap-2 text-[10px] font-black tracking-[0.22em] text-muted-foreground/60 uppercase">
-            <BedDouble className="size-3" />
-            Occupancy
-          </p>
-          <p className="mt-2 text-3xl font-black tracking-tighter text-foreground">
-            {slots
-              ? `${Math.round(
-                  (slots.filter(
-                    (s: { isAssignable: boolean }) => !s.isAssignable
-                  ).length /
-                    (slots.length || 1)) *
-                    100
-                )}%`
-              : "-"}
-          </p>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span>{eventHotels === undefined ? "Checking hotels…" : `${eventHotels.length} linked hotel${eventHotels.length === 1 ? "" : "s"}`}</span>
+          <span>{slots === undefined ? "Checking rooms…" : `${slots.length} slot${slots.length === 1 ? "" : "s"}`}</span>
+          {summary && <span>{summary.assignableSlots} assignable</span>}
         </div>
       </div>
 
-      <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+      <Card className="border-border/60 bg-card shadow-none">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-lg font-bold">
@@ -377,7 +321,7 @@ export default function EventAccommodationWorkspacePage({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card
-          className="cursor-pointer border-white/40 bg-white/40 shadow-sm backdrop-blur transition-colors hover:border-primary/30 dark:border-white/10 dark:bg-black/20"
+          className="cursor-pointer border-border/60 bg-card shadow-none transition-colors hover:border-primary/30"
           onClick={() => router.push(`/dashboard/events/${slug}/accommodation/allocation`)}
         >
           <CardHeader>
@@ -397,7 +341,7 @@ export default function EventAccommodationWorkspacePage({
         </Card>
 
         <Card
-          className="cursor-pointer border-white/40 bg-white/40 shadow-sm backdrop-blur transition-colors hover:border-primary/30 dark:border-white/10 dark:bg-black/20"
+          className="cursor-pointer border-border/60 bg-card shadow-none transition-colors hover:border-primary/30"
           onClick={() => router.push("/dashboard/accommodation/inventory")}
         >
           <CardHeader>
