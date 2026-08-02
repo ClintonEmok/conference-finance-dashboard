@@ -1,7 +1,6 @@
 "use client"
 
 import { use, useState } from "react"
-import { useRouter } from "next/navigation"
 import Link from "next/link"
 import {
   ChevronLeft,
@@ -22,7 +21,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
+import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 import {
   useEventHotels,
@@ -48,7 +47,6 @@ export default function EventAccommodationWorkspacePage({
   params: Promise<{ slug: string }>
   event: EventDashboardEvent
 }) {
-  const router = useRouter()
   const { slug } = use(params)
 
   const eventHotels = useEventHotels(event?._id ?? "")
@@ -64,6 +62,7 @@ export default function EventAccommodationWorkspacePage({
     string | undefined
   >(undefined)
   const [isAddingRooms, setIsAddingRooms] = useState(false)
+  const [operationError, setOperationError] = useState<string | null>(null)
 
   const hotels = useHotels()
   const roomTypes = useRoomTypes()
@@ -74,8 +73,8 @@ export default function EventAccommodationWorkspacePage({
   const selectedHotelForRooms = useHotelById(selectedHotelForRoomsId)
 
   const handleAddHotelSubmit = async (data: { hotelId: any }) => {
-    if (!event) return
     setIsLinkingHotel(true)
+    setOperationError(null)
     try {
       await linkHotelToEvent({
         eventId: event._id,
@@ -84,6 +83,7 @@ export default function EventAccommodationWorkspacePage({
       })
     } catch (err) {
       console.error("Failed to assign hotel:", err)
+      setOperationError(err instanceof Error ? err.message : "Failed to link hotel.")
       throw err
     } finally {
       setIsLinkingHotel(false)
@@ -100,7 +100,6 @@ export default function EventAccommodationWorkspacePage({
         name: data.name,
         city: data.city,
       })
-      if (!event) return
       await linkHotelToEvent({
         eventId: event._id,
         hotelId: hotelId as any,
@@ -125,8 +124,8 @@ export default function EventAccommodationWorkspacePage({
       roomCount: number
     }>
   }) => {
-    if (!event) return
     setIsAddingRooms(true)
+    setOperationError(null)
     try {
       const roomTypeMap = new Map<string, any>()
       for (const rt of data.roomTypes) {
@@ -159,41 +158,11 @@ export default function EventAccommodationWorkspacePage({
       }
     } catch (err) {
       console.error("Failed to add rooms:", err)
+      setOperationError(err instanceof Error ? err.message : "Failed to add rooms.")
       throw err
     } finally {
       setIsAddingRooms(false)
     }
-  }
-
-  if (event === undefined) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-14 w-full rounded-lg" />
-        <Skeleton className="h-64 w-full rounded-lg" />
-      </div>
-    )
-  }
-
-  if (event === null) {
-    return (
-      <div className="space-y-6">
-        <Link
-          href={`/dashboard/events/${slug}/accommodation`}
-          className="flex w-fit items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ChevronLeft className="size-4" />
-          Back to Accommodation
-        </Link>
-        <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-8 text-center">
-          <h1 className="text-2xl font-bold text-destructive">
-            Event Not Found
-          </h1>
-          <p className="mt-2 text-muted-foreground">
-            The event &quot;{slug}&quot; could not be found.
-          </p>
-        </div>
-      </div>
-    )
   }
 
   if (!event.accommodationEnabled) {
@@ -210,13 +179,7 @@ export default function EventAccommodationWorkspacePage({
         <Card className="border-dashed border-white/20 bg-white/5 dark:bg-black/10">
           <CardContent className="py-20 text-center">
             <BedDouble className="mx-auto size-16 text-muted-foreground opacity-10" />
-            <h3 className="mt-6 text-xl font-bold tracking-tight">
-              Accommodation Disabled
-            </h3>
-            <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
-              Enable accommodation in event settings to manage hotels, room
-              assignments, and floor plans.
-            </p>
+            <DashboardQueryState state="disabled" title="Accommodation disabled" message="Enable accommodation in event settings to manage hotels, room assignments, and floor plans." className="mx-auto mt-6 max-w-sm" />
             <Button asChild variant="outline" className="mt-8 rounded-2xl border-white/20">
               <Link href={`/dashboard/events/${slug}/settings`}>
                 Go to Settings
@@ -229,13 +192,13 @@ export default function EventAccommodationWorkspacePage({
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
-        <div>
+    <div className="min-w-0 space-y-6">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
+        <div className="min-w-0">
           <p className="text-sm font-semibold">Hotel setup and linked inventory</p>
           <p className="text-xs text-muted-foreground">{event.title} · event-scoped accommodation configuration</p>
         </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>{eventHotels === undefined ? "Checking hotels…" : `${eventHotels.length} linked hotel${eventHotels.length === 1 ? "" : "s"}`}</span>
           <span>{slots === undefined ? "Checking rooms…" : `${slots.length} slot${slots.length === 1 ? "" : "s"}`}</span>
           {summary && <span>{summary.assignableSlots} assignable</span>}
@@ -243,7 +206,7 @@ export default function EventAccommodationWorkspacePage({
       </div>
 
       <Card className="border-border/60 bg-card shadow-none">
-        <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <CardTitle className="text-lg font-bold">
               Linked Hotels
@@ -252,7 +215,7 @@ export default function EventAccommodationWorkspacePage({
               Hotels linked to this event for room assignments
             </CardDescription>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -274,16 +237,11 @@ export default function EventAccommodationWorkspacePage({
         </CardHeader>
         <CardContent>
           {eventHotels === undefined ? (
-            <Skeleton className="h-24 rounded-2xl" />
+            <DashboardQueryState state="loading" className="py-8" />
           ) : eventHotels.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-white/20 bg-white/5 p-12 text-center">
               <Hotel className="mx-auto mb-4 size-12 text-muted-foreground opacity-20" />
-              <p className="text-sm font-bold tracking-widest text-muted-foreground/40 uppercase">
-                No hotels linked yet
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground/60">
-                Add hotels to enable room assignments for this event
-              </p>
+              <DashboardQueryState state="unconfigured" title="No hotels linked yet" message="Add a hotel to enable room assignments for this event." />
               <div className="mt-6 flex items-center justify-center gap-2">
                 <Button
                   variant="outline"
@@ -321,13 +279,11 @@ export default function EventAccommodationWorkspacePage({
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Card
-          className="cursor-pointer border-border/60 bg-card shadow-none transition-colors hover:border-primary/30"
-          onClick={() => router.push(`/dashboard/events/${slug}/accommodation/allocation`)}
-        >
+        <Link href={`/dashboard/events/${slug}/accommodation/allocation`} className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Card className="border-border/60 bg-card shadow-none transition-colors hover:border-primary/30">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base font-bold">
-              <Users className="size-5 text-muted-foreground" />
+              <Users className="size-5 text-muted-foreground" aria-hidden="true" />
               Room Allocation
             </CardTitle>
             <CardDescription className="text-muted-foreground/70">
@@ -336,18 +292,17 @@ export default function EventAccommodationWorkspacePage({
           </CardHeader>
           <CardContent>
             <div className="flex items-center text-sm text-primary">
-              View allocation <ArrowRight className="ml-2 size-4" />
+              View allocation <ArrowRight className="ml-2 size-4" aria-hidden="true" />
             </div>
           </CardContent>
         </Card>
+        </Link>
 
-        <Card
-          className="cursor-pointer border-border/60 bg-card shadow-none transition-colors hover:border-primary/30"
-          onClick={() => router.push("/dashboard/accommodation/inventory")}
-        >
+        <Link href="/dashboard/accommodation/inventory" className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Card className="border-border/60 bg-card shadow-none transition-colors hover:border-primary/30">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base font-bold">
-              <Building2 className="size-5 text-muted-foreground" />
+              <Building2 className="size-5 text-muted-foreground" aria-hidden="true" />
               Global Inventory
             </CardTitle>
             <CardDescription className="text-muted-foreground/70">
@@ -356,14 +311,14 @@ export default function EventAccommodationWorkspacePage({
           </CardHeader>
           <CardContent>
             <div className="flex items-center text-sm text-primary">
-              Manage inventory <ArrowRight className="ml-2 size-4" />
+              Manage inventory <ArrowRight className="ml-2 size-4" aria-hidden="true" />
             </div>
           </CardContent>
         </Card>
+        </Link>
       </div>
 
-      {event && (
-        <AddHotelDialog
+      <AddHotelDialog
           open={isAddHotelDialogOpen}
           onOpenChange={setIsAddHotelDialogOpen}
           existingHotels={hotels}
@@ -371,7 +326,6 @@ export default function EventAccommodationWorkspacePage({
           onSubmit={handleAddHotelSubmit}
           isSubmitting={isLinkingHotel}
         />
-      )}
 
       <CreateHotelDialog
         open={isCreateHotelDialogOpen}
@@ -388,6 +342,7 @@ export default function EventAccommodationWorkspacePage({
         onSubmit={handleAddRoomsSubmit}
         isSubmitting={isAddingRooms}
       />
+      {operationError ? <p role="alert" aria-live="assertive" className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">{operationError}</p> : null}
     </div>
   )
 }

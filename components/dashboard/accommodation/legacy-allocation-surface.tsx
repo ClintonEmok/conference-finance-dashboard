@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Skeleton } from "@/components/ui/skeleton"
+import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 import type { AttentionQueryState } from "@/lib/dashboard/workspace-attention"
 import type { AccommodationReadPlan } from "@/lib/dashboard/accommodation-read-plan"
@@ -338,59 +338,36 @@ export default function EventAllocationPage({
     }
   }
 
-  if (event === undefined || board === undefined) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-14 w-full rounded-lg" />
-        <Skeleton className="h-[600px] w-full rounded-lg" />
-      </div>
-    )
-  }
-
-  if (event === null) {
-    return (
-      <div className="space-y-6">
-        <Link
-          href={`/dashboard/events/${slug}/accommodation`}
-          className="flex w-fit items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ChevronLeft className="size-4" />
-          Back to Accommodation
-        </Link>
-        <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-8 text-center">
-          <h1 className="text-2xl font-bold text-destructive">Event Not Found</h1>
-          <p className="mt-2 text-muted-foreground">
-            The event &quot;{slug}&quot; could not be found.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
   if (!event.accommodationEnabled) {
     return (
       <div className="space-y-6">
-        <Link
-          href={`/dashboard/events/${slug}/settings`}
-          className="flex w-fit items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ChevronLeft className="size-4" />
+        <Link href={`/dashboard/events/${slug}/settings`} className="flex w-fit items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+          <ChevronLeft className="size-4" aria-hidden="true" />
           Go to Settings
         </Link>
-        <div className="rounded-2xl border border-dashed border-white/20 bg-white/5 p-12 text-center">
-          <BedDouble className="mx-auto size-12 text-muted-foreground opacity-20" />
-          <p className="mt-4 text-sm font-bold tracking-widest text-muted-foreground/40 uppercase">
-            Accommodation Disabled
-          </p>
-        </div>
+        <DashboardQueryState state="disabled" title="Accommodation disabled" message="Enable accommodation in event settings before managing allocation." className="rounded-xl border border-dashed p-12 text-center" />
       </div>
     )
   }
 
+  if (boardState.status === "pending") {
+    return (
+      <DashboardQueryState state="loading" className="rounded-xl border border-border/60 bg-card p-6" />
+    )
+  }
+
+  if (boardState.status === "error") {
+    return <DashboardQueryState state="error" message={boardState.message} className="rounded-xl border border-destructive/20 bg-destructive/5 p-4" />
+  }
+
+  if (board === undefined) {
+    return <DashboardQueryState state="unavailable" message="The allocation board is unavailable." className="rounded-xl border border-border/60 bg-card p-6" />
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-sm">
-        <div>
+    <div className="min-w-0 space-y-6">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+        <div className="min-w-0">
           <p className="font-semibold">Allocation inbox and room board</p>
           <p className="text-xs text-muted-foreground">Select a room, then assign waiting attendees or fulfill a compatible group.</p>
         </div>
@@ -404,10 +381,10 @@ export default function EventAllocationPage({
         )}
       </div>
       {error && (
-        <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-5 py-3 text-sm text-destructive">{error}</div>
+        <div role="alert" aria-live="assertive" className="rounded-2xl border border-destructive/20 bg-destructive/5 px-5 py-3 text-sm text-destructive">{error}</div>
       )}
       {success && (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300">{success}</div>
+        <div role="status" aria-live="polite" className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300">{success}</div>
       )}
 
       <section aria-labelledby="allocation-filters" className="rounded-xl border border-border/60 bg-card p-4">
@@ -420,7 +397,7 @@ export default function EventAllocationPage({
             Clear filters
           </Button>
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="space-y-1.5 text-xs font-medium">
             <span>Hotel</span>
             <select
@@ -579,8 +556,10 @@ export default function EventAllocationPage({
                     s.accepted ? "border-emerald-200/60 bg-emerald-50/40" : "border-border/30 bg-muted/20 opacity-60"
                   }`}
                 >
-                  <button
-                    type="button"
+                   <button
+                     type="button"
+                     aria-pressed={s.accepted}
+                     aria-label={`${s.accepted ? "Remove" : "Accept"} suggested assignment for ${s.attendee.attendeeName ?? "unnamed attendee"}`}
                     onClick={() =>
                       setSuggestions((prev) =>
                         prev?.map((p) =>
@@ -594,7 +573,7 @@ export default function EventAllocationPage({
                       s.accepted ? "border-emerald-500 bg-emerald-500 text-white" : "border-border bg-background"
                     }`}
                   >
-                    {s.accepted && <Check className="size-3" />}
+                    {s.accepted && <Check className="size-3" aria-hidden="true" />}
                   </button>
 
                   <div className="min-w-0 flex-1">
@@ -604,7 +583,8 @@ export default function EventAllocationPage({
                     </p>
                   </div>
 
-                  <Select
+                   <Select
+                     aria-label={`Suggested room for ${s.attendee.attendeeName ?? "unnamed attendee"}`}
                     value={s.roomId}
                     onValueChange={(val) =>
                       setSuggestions((prev) =>
@@ -634,8 +614,8 @@ export default function EventAllocationPage({
         </div>
       )}
 
-      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[380px_1fr]">
-        <div className="flex h-[700px] flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-none">
+       <div className="grid min-w-0 grid-cols-1 items-start gap-6 lg:grid-cols-[380px_1fr]">
+         <div className="flex h-[700px] min-w-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-none">
           <div className="flex items-center justify-between border-b border-border/40 px-5 py-4">
             <div>
               <h3 className="text-sm font-bold tracking-tight">Inbox</h3>
@@ -649,10 +629,12 @@ export default function EventAllocationPage({
           </div>
 
           <div className="flex-1 space-y-2 overflow-y-auto p-3">
-            {unassigned.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-white/20 bg-white/5 p-8 text-center text-sm text-muted-foreground">
-                All attendees have been placed.
-              </div>
+             {unassigned.length === 0 ? (
+               hotels.length === 0 || rooms.length === 0 ? (
+                 <DashboardQueryState state="unconfigured" message="Configure a hotel and usable rooms before placing attendees." className="rounded-xl border border-dashed border-white/20 bg-white/5 p-8" />
+               ) : (
+                 <DashboardQueryState state="empty" message="All attendees have been placed." className="rounded-xl border border-dashed border-white/20 bg-white/5 p-8" />
+               )
             ) : (
               unassigned.map((attendee: any) => (
                   <div
@@ -701,7 +683,7 @@ export default function EventAllocationPage({
           </div>
         </div>
 
-        <div className="flex flex-col gap-4">
+         <div className="flex min-w-0 flex-col gap-4">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-bold tracking-tight">Room availability</h3>
@@ -734,11 +716,8 @@ export default function EventAllocationPage({
             )}
           </div>
 
-          {rooms.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-white/20 bg-white/5 p-12 text-center">
-              <Hotel className="mx-auto size-12 text-muted-foreground opacity-20" />
-              <p className="mt-4 text-sm font-bold tracking-widest text-muted-foreground/40 uppercase">No rooms found</p>
-            </div>
+           {rooms.length === 0 ? (
+             <DashboardQueryState state="unconfigured" title="No rooms found" message="Add room inventory before using allocation." className="rounded-2xl border border-dashed border-white/20 bg-white/5 p-12 text-center" />
           ) : (
             <>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
