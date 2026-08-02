@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { workspacePanelId, workspaceTabId } from "@/lib/dashboard/workspace-tabs"
 
 export function WorkspaceFrame({
   title,
@@ -8,6 +9,8 @@ export function WorkspaceFrame({
   summary,
   actions,
   tabs,
+  workspaceId = "workspace",
+  activeTab = "default",
   children,
 }: {
   title: string
@@ -17,6 +20,8 @@ export function WorkspaceFrame({
   summary?: ReactNode
   actions?: ReactNode
   tabs: ReactNode
+  workspaceId?: string
+  activeTab?: string
   children: ReactNode
 }) {
   return (
@@ -31,7 +36,14 @@ export function WorkspaceFrame({
       </header>
       {summary}
       <nav aria-label={`${workspaceLabel} sections`} className="border-b border-border/60">{tabs}</nav>
-      <section>{children}</section>
+      <section
+        id={workspacePanelId(workspaceId)}
+        role="tabpanel"
+        aria-labelledby={workspaceTabId(workspaceId, activeTab)}
+        tabIndex={0}
+      >
+        {children}
+      </section>
     </main>
   )
 }
