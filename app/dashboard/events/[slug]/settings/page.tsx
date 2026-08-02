@@ -15,7 +15,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { useUpdateEvent, useEventBySlug } from "@/lib/convex/hooks/events"
+import { useUpdateEvent } from "@/lib/convex/hooks/events"
+import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 import { useRoomTypes } from "@/lib/convex/hooks/accommodation"
 import { Id } from "@/convex/_generated/dataModel"
 import { EventTikkieSection } from "@/components/dashboard/event-tikkie-section"
@@ -48,7 +49,7 @@ export default function EventSettingsPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = use(params)
-  const event = useEventBySlug(slug)
+  const { event } = useEventDashboard()
   
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)

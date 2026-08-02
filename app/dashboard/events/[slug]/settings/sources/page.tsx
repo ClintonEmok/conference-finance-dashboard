@@ -15,7 +15,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
-import { useEventSourcesForEvent, useEventBySlug } from "@/lib/convex/hooks/events"
+import { useEventSourcesForEvent } from "@/lib/convex/hooks/events"
+import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 
 export default function EventSourcesPage({
   params,
@@ -23,7 +24,7 @@ export default function EventSourcesPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = use(params)
-  const event = useEventBySlug(slug)
+  const { event } = useEventDashboard()
   const eventSources = useEventSourcesForEvent(event?._id)
 
   if (!event) return null
