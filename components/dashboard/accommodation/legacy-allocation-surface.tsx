@@ -677,6 +677,7 @@ export default function EventAllocationPage({
                       <Button
                         type="button"
                         size="sm"
+                        aria-label={`Fulfill ${attendee.attendeeName ?? "attendee"}`}
                         className="h-7 rounded-lg bg-emerald-500/10 px-2.5 text-[11px] font-bold text-emerald-600 hover:bg-emerald-600 hover:text-white"
                         onClick={() => handleFulfill(attendee)}
                       >
@@ -685,6 +686,7 @@ export default function EventAllocationPage({
                       <Button
                         type="button"
                         size="sm"
+                        aria-label={`Assign ${attendee.attendeeName ?? "attendee"} to selected room`}
                         className="h-7 rounded-lg bg-primary/10 px-2.5 text-[11px] font-bold text-primary hover:bg-primary hover:text-white"
                         onClick={() => handleAssign(attendee.attendeeId)}
                       >
@@ -767,6 +769,7 @@ export default function EventAllocationPage({
                     >
                       <button
                         type="button"
+                        aria-label={`${isSelected ? "Deselect" : "Select"} room ${room.label}`}
                         aria-pressed={isSelected}
                         onClick={() => setSelectedRoomId(isSelected ? null : room.id)}
                         className="w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
