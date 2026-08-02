@@ -165,7 +165,7 @@ function SidebarContentInner({
     {
       label: "Finance",
       icon: CreditCard,
-      href: `/dashboard/events/${slug}/payments`,
+      href: `/dashboard/events/${slug}/finance`,
     },
     {
       label: "Accommodation",
@@ -263,7 +263,7 @@ function getSectionActive(label: string, pathname: string, slug: string) {
 
   if (label === "Overview") return pathname === eventRoot
   if (label === "Finance") {
-    return ["payments", "orders", "donation", "reconciliation"].some(
+    return ["finance", "payments", "orders", "donation", "reconciliation"].some(
       (section) => pathname === `${eventRoot}/${section}` || pathname.startsWith(`${eventRoot}/${section}/`)
     )
   }
