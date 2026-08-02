@@ -1,6 +1,6 @@
 "use client"
 
-import LegacyAccommodationPage from "@/app/dashboard/events/[slug]/accommodation/page"
+import LegacyAccommodationPage from "./legacy-hotels-surface"
 
 export function AccommodationHotelsTab({ slug }: { slug: string }) {
   return <LegacyAccommodationPage params={Promise.resolve({ slug })} />

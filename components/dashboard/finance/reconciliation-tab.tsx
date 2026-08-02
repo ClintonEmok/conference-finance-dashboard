@@ -1,6 +1,6 @@
 "use client"
 
-import LegacyReconciliationPage from "@/app/dashboard/events/[slug]/reconciliation/page"
+import LegacyReconciliationPage from "./legacy-reconciliation-surface"
 
 export function FinanceReconciliationTab({ slug }: { slug: string }) {
   return <LegacyReconciliationPage params={Promise.resolve({ slug })} />
