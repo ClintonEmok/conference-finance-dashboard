@@ -1,7 +1,8 @@
 "use client"
 
-import { use, useState } from "react"
+import { use, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   ChevronLeft,
   ChevronRight,
@@ -30,6 +31,12 @@ import {
   useAssignAttendeeToRoom,
   useUnassignAttendeeFromRoom,
 } from "@/lib/convex/hooks/accommodation"
+import {
+  getRoomPageForRoomId,
+  readAllocationFiltersFromSearchParams,
+  syncAllocationFiltersToSearchParams,
+  type AllocationFilterState,
+} from "@/app/dashboard/accommodation/filter-state"
 
 type Suggestion = {
   attendee: any
@@ -39,14 +46,36 @@ type Suggestion = {
 
 export default function EventAllocationPage({
   params,
+  roomId: roomIntentProp,
 }: {
   params: Promise<{ slug: string }>
+  roomId?: string
 }) {
   const { slug } = use(params)
   const event = useEventBySlug(slug)
-  const board = useRoomAllocationBoard(
-    event?._id ? { eventId: event._id } : undefined
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const filters = useMemo(
+    () => readAllocationFiltersFromSearchParams(searchParams),
+    [searchParams]
   )
+  const boardArgs = useMemo(() => {
+    if (!event?._id) return undefined
+
+    return {
+      eventId: event._id,
+      ...(filters.hotelId ? { hotelId: filters.hotelId } : {}),
+      ...(filters.roomTypeId ? { roomTypeId: filters.roomTypeId } : {}),
+      ...(filters.genderType ? { genderType: filters.genderType } : {}),
+      ...(filters.familyGroupId ? { familyGroupId: filters.familyGroupId } : {}),
+      ...(filters.location ? { location: filters.location } : {}),
+      ...(filters.allocationPriority
+        ? { allocationPriority: filters.allocationPriority }
+        : {}),
+      ...(filters.hasPriority !== null ? { hasPriority: filters.hasPriority } : {}),
+    }
+  }, [event?._id, filters])
+  const board = useRoomAllocationBoard(boardArgs)
   const assignAttendee = useAssignAttendeeToRoom()
   const unassignAttendee = useUnassignAttendeeFromRoom()
 
@@ -58,9 +87,9 @@ export default function EventAllocationPage({
   const [roomPage, setRoomPage] = useState(1)
   const roomsPerPage = 12
 
-  const rooms = (board?.rooms as any[]) ?? []
-  const hotels = (board?.hotels as any[]) ?? []
-  const unassigned = (board?.unassignedAttendees as any[]) ?? []
+  const rooms = useMemo(() => (board?.rooms as any[]) ?? [], [board])
+  const hotels = useMemo(() => (board?.hotels as any[]) ?? [], [board])
+  const unassigned = useMemo(() => (board?.unassignedAttendees as any[]) ?? [], [board])
   const summary = board?.summary as
     | {
         totalRooms: number
@@ -73,6 +102,60 @@ export default function EventAllocationPage({
         fullRooms: number
       }
     | undefined
+
+  const roomIntent = roomIntentProp?.trim() || searchParams.get("roomId")?.trim() || null
+
+  useEffect(() => {
+    if (!board || !roomIntent) return
+
+    const nextPage = getRoomPageForRoomId(
+      rooms.map((room: any) => room.id),
+      roomIntent,
+      roomsPerPage
+    )
+
+    if (nextPage === null) {
+      setSelectedRoomId(null)
+      return
+    }
+
+    setSelectedRoomId(roomIntent)
+    setRoomPage(nextPage)
+  }, [board, roomIntent, rooms])
+
+  const roomIntentUnavailable = Boolean(
+    board && roomIntent && !rooms.some((room: any) => room.id === roomIntent)
+  )
+
+  function updateFilter<K extends keyof AllocationFilterState>(
+    key: K,
+    value: AllocationFilterState[K]
+  ) {
+    const nextFilters = { ...filters, [key]: value } as AllocationFilterState
+    const nextParams = new URLSearchParams(searchParams.toString())
+    nextParams.set("tab", "allocation")
+    syncAllocationFiltersToSearchParams(nextParams, nextFilters)
+    setRoomPage(1)
+    setSelectedRoomId(null)
+    router.replace(`?${nextParams.toString()}`, { scroll: false })
+  }
+
+  function clearFilters() {
+    const nextParams = new URLSearchParams(searchParams.toString())
+    nextParams.set("tab", "allocation")
+    syncAllocationFiltersToSearchParams(nextParams, {
+      hotelId: null,
+      roomTypeId: null,
+      genderType: null,
+      familyGroupId: null,
+      location: null,
+      allocationPriority: null,
+      hasPriority: null,
+    })
+    setRoomPage(1)
+    setSelectedRoomId(null)
+    router.replace(`?${nextParams.toString()}`, { scroll: false })
+  }
 
   function resolveRoomTypeId(attendee: any) {
     return attendee.allocatedRoomTypeId ?? (event as any)?.defaultRoomTypeId ?? null
@@ -339,6 +422,113 @@ export default function EventAllocationPage({
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300">{success}</div>
       )}
 
+      <section aria-labelledby="allocation-filters" className="rounded-xl border border-border/60 bg-card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 id="allocation-filters" className="text-sm font-semibold">Allocation filters</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Filter the event-scoped board without changing room capacity data.</p>
+          </div>
+          <Button type="button" variant="ghost" size="sm" onClick={clearFilters} className="h-8 text-xs">
+            Clear filters
+          </Button>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="space-y-1.5 text-xs font-medium">
+            <span>Hotel</span>
+            <select
+              aria-label="Filter by hotel"
+              value={filters.hotelId ?? ""}
+              onChange={(event) => updateFilter("hotelId", event.target.value || null)}
+              className="h-10 w-full rounded-md border border-border/60 bg-background px-3 text-sm"
+            >
+              <option value="">All hotels</option>
+              {hotels.map((hotel: any) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}
+            </select>
+          </label>
+          <label className="space-y-1.5 text-xs font-medium">
+            <span>Room type</span>
+            <select
+              aria-label="Filter by room type"
+              value={filters.roomTypeId ?? ""}
+              onChange={(event) => updateFilter("roomTypeId", event.target.value || null)}
+              className="h-10 w-full rounded-md border border-border/60 bg-background px-3 text-sm"
+            >
+              <option value="">All room types</option>
+              {(board?.roomTypes as any[] ?? []).map((roomType: any) => <option key={roomType.id} value={roomType.id}>{roomType.label}</option>)}
+            </select>
+          </label>
+          <label className="space-y-1.5 text-xs font-medium">
+            <span>Gender</span>
+            <select
+              aria-label="Filter by gender"
+              value={filters.genderType ?? ""}
+              onChange={(event) => updateFilter("genderType", (event.target.value || null) as AllocationFilterState["genderType"])}
+              className="h-10 w-full rounded-md border border-border/60 bg-background px-3 text-sm"
+            >
+              <option value="">All genders</option>
+              <option value="MALE">Male</option>
+              <option value="FEMALE">Female</option>
+              <option value="MIXED">Mixed</option>
+              <option value="UNKNOWN">Unknown</option>
+            </select>
+          </label>
+          <label className="space-y-1.5 text-xs font-medium">
+            <span>Allocation priority</span>
+            <select
+              aria-label="Filter by allocation priority"
+              value={filters.allocationPriority ?? ""}
+              onChange={(event) => updateFilter("allocationPriority", (event.target.value || null) as AllocationFilterState["allocationPriority"])}
+              className="h-10 w-full rounded-md border border-border/60 bg-background px-3 text-sm"
+            >
+              <option value="">All priorities</option>
+              <option value="CRITICAL">Critical</option>
+              <option value="HIGH">High</option>
+              <option value="NORMAL">Normal</option>
+              <option value="LOW">Low</option>
+            </select>
+          </label>
+          <label className="space-y-1.5 text-xs font-medium">
+            <span>Priority present</span>
+            <select
+              aria-label="Filter by priority presence"
+              value={filters.hasPriority === null ? "" : String(filters.hasPriority)}
+              onChange={(event) => updateFilter("hasPriority", event.target.value === "" ? null : event.target.value === "true")}
+              className="h-10 w-full rounded-md border border-border/60 bg-background px-3 text-sm"
+            >
+              <option value="">Any priority state</option>
+              <option value="true">Has priority</option>
+              <option value="false">No priority</option>
+            </select>
+          </label>
+          <label className="space-y-1.5 text-xs font-medium">
+            <span>Family group</span>
+            <input
+              aria-label="Filter by family group"
+              value={filters.familyGroupId ?? ""}
+              onChange={(event) => updateFilter("familyGroupId", event.target.value || null)}
+              placeholder="Family group ID"
+              className="h-10 w-full rounded-md border border-border/60 bg-background px-3 text-sm"
+            />
+          </label>
+          <label className="space-y-1.5 text-xs font-medium sm:col-span-2">
+            <span>Location</span>
+            <input
+              aria-label="Filter by location"
+              value={filters.location ?? ""}
+              onChange={(event) => updateFilter("location", event.target.value || null)}
+              placeholder="Location"
+              className="h-10 w-full rounded-md border border-border/60 bg-background px-3 text-sm"
+            />
+          </label>
+        </div>
+      </section>
+
+      {roomIntentUnavailable && (
+        <div role="status" className="rounded-xl border border-amber-300/70 bg-amber-50/60 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300">
+          Room <span className="font-mono">{roomIntent}</span> is not available in this event or is hidden by the current filters.
+        </div>
+      )}
+
       {selectedRoomId && (
         <div className="rounded-2xl border border-primary/30 bg-primary/5 px-5 py-3 text-sm text-primary">
           Room selected. Click an attendee in the inbox to assign them.
@@ -477,17 +667,17 @@ export default function EventAllocationPage({
               </div>
             ) : (
               unassigned.map((attendee: any) => (
-                <div
-                  key={attendee.attendeeId}
-                  className="group flex flex-col rounded-xl border border-white/40 bg-white/40 p-3 transition-all hover:bg-white/60 dark:border-white/5 dark:bg-black/20 dark:hover:bg-black/40"
-                >
+                  <div
+                    key={attendee.attendeeId}
+                    className="flex flex-col rounded-xl border border-white/40 bg-white/40 p-3 transition-all hover:bg-white/60 dark:border-white/5 dark:bg-black/20 dark:hover:bg-black/40"
+                  >
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-semibold">{attendee.attendeeName ?? "Unnamed"}</p>
                     <div className="flex items-center gap-1">
                       <Button
                         type="button"
                         size="sm"
-                        className="h-7 rounded-lg bg-emerald-500/10 px-2.5 text-[11px] font-bold text-emerald-600 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-emerald-600 hover:text-white"
+                        className="h-7 rounded-lg bg-emerald-500/10 px-2.5 text-[11px] font-bold text-emerald-600 hover:bg-emerald-600 hover:text-white"
                         onClick={() => handleFulfill(attendee)}
                       >
                         Fulfill
@@ -495,7 +685,7 @@ export default function EventAllocationPage({
                       <Button
                         type="button"
                         size="sm"
-                        className="h-7 rounded-lg bg-primary/10 px-2.5 text-[11px] font-bold text-primary opacity-0 transition-opacity group-hover:opacity-100 hover:bg-primary hover:text-white"
+                        className="h-7 rounded-lg bg-primary/10 px-2.5 text-[11px] font-bold text-primary hover:bg-primary hover:text-white"
                         onClick={() => handleAssign(attendee.attendeeId)}
                       >
                         Assign
@@ -569,35 +759,46 @@ export default function EventAllocationPage({
                   return (
                     <div
                       key={room.id}
-                      onClick={() => setSelectedRoomId(isSelected ? null : room.id)}
-                      className={`cursor-pointer rounded-2xl border p-4 shadow-sm transition-all ${
+                      className={`rounded-2xl border p-4 shadow-sm transition-all ${
                         isSelected
                           ? "border-primary/60 bg-primary/5 ring-2 ring-primary/20"
                           : "border-white/40 bg-white/40 hover:bg-white/60 dark:border-white/5 dark:bg-black/20 dark:hover:bg-black/40"
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold">{room.label}</p>
-                        <Badge
-                          variant="outline"
-                          className={
-                            isFull
-                              ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/30 dark:bg-rose-950/20 dark:text-rose-400"
-                              : isEmpty
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-400"
-                                : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-400"
-                          }
-                        >
-                          {room.occupants?.length ?? 0}/{room.capacity}
-                        </Badge>
-                      </div>
-                      {room.hotel && (
-                        <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground/60">
-                          <Building2 className="size-3" />
-                          {room.hotel.name}
-                        </p>
-                      )}
-                      {room.roomType && <p className="mt-0.5 text-xs text-muted-foreground">{room.roomType.label}</p>}
+                      <button
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => setSelectedRoomId(isSelected ? null : room.id)}
+                        className="w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold">{room.label}</p>
+                          <Badge
+                            variant="outline"
+                            className={
+                              isFull
+                                ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/30 dark:bg-rose-950/20 dark:text-rose-400"
+                                : isEmpty
+                                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-400"
+                                  : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-400"
+                            }
+                          >
+                            {room.occupants?.length ?? 0}/{room.capacity}
+                          </Badge>
+                        </div>
+                        {room.hotel && (
+                          <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground/60">
+                            <Building2 className="size-3" />
+                            {room.hotel.name}
+                          </p>
+                        )}
+                        {room.roomType && <p className="mt-0.5 text-xs text-muted-foreground">{room.roomType.label}</p>}
+                        {isSelected && (
+                          <div className="mt-3 flex items-center gap-1.5 text-[11px] font-bold text-primary">
+                            <Check className="size-3" /> Selected
+                          </div>
+                        )}
+                      </button>
                       {room.occupants && room.occupants.length > 0 && (
                         <div className="mt-3 space-y-1 border-t border-border/30 pt-3">
                           {room.occupants.slice(0, 3).map((occ: any) => (
@@ -606,7 +807,8 @@ export default function EventAllocationPage({
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); handleUnassign(occ.attendeeId) }}
-                                className="size-5 shrink-0 rounded p-0.5 text-destructive opacity-0 transition-opacity hover:bg-destructive/10 group-hover/occ:opacity-100"
+                                aria-label={`Unassign ${occ.attendeeName ?? "unnamed attendee"} from ${room.label}`}
+                                className="size-7 shrink-0 rounded p-1 text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
                               >
                                 <X className="size-3" />
                               </button>
@@ -615,11 +817,6 @@ export default function EventAllocationPage({
                           {room.occupants.length > 3 && (
                             <p className="text-xs text-muted-foreground/50">+{room.occupants.length - 3} more</p>
                           )}
-                        </div>
-                      )}
-                      {isSelected && (
-                        <div className="mt-3 flex items-center gap-1.5 text-[11px] font-bold text-primary">
-                          <Check className="size-3" /> Selected
                         </div>
                       )}
                     </div>

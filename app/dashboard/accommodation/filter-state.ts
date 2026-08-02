@@ -6,6 +6,11 @@ export type AccommodationSignalFilters = {
   familyGroupId: string | null
 }
 
+export type AllocationFilterState = AccommodationSignalFilters & {
+  hotelId: string | null
+  roomTypeId: string | null
+}
+
 type SearchParamsLike = {
   get(name: string): string | null
 }
@@ -71,6 +76,11 @@ type SignalFilterInput = {
   familyGroupId?: string | null
 }
 
+type AllocationFilterInput = SignalFilterInput & {
+  hotelId?: string | null
+  roomTypeId?: string | null
+}
+
 export function normalizeSignalFilters(
   input: SignalFilterInput
 ): AccommodationSignalFilters {
@@ -81,6 +91,30 @@ export function normalizeSignalFilters(
     location: normalizeOptionalString(input.location),
     familyGroupId: normalizeOptionalString(input.familyGroupId),
   }
+}
+
+export function normalizeAllocationFilters(
+  input: AllocationFilterInput
+): AllocationFilterState {
+  return {
+    hotelId: normalizeOptionalString(input.hotelId),
+    roomTypeId: normalizeOptionalString(input.roomTypeId),
+    ...normalizeSignalFilters(input),
+  }
+}
+
+export function readAllocationFiltersFromSearchParams(
+  params: SearchParamsLike
+): AllocationFilterState {
+  return normalizeAllocationFilters({
+    hotelId: params.get("hotelId"),
+    roomTypeId: params.get("roomTypeId"),
+    genderType: params.get("genderType"),
+    allocationPriority: params.get("allocationPriority"),
+    hasPriority: parseBoolean(params.get("hasPriority")),
+    location: params.get("location"),
+    familyGroupId: params.get("familyGroupId"),
+  })
 }
 
 export function readSignalFiltersFromSearchParams(
@@ -130,6 +164,33 @@ export function syncSignalFiltersToSearchParams(
   } else {
     params.delete("familyGroupId")
   }
+}
+
+export function syncAllocationFiltersToSearchParams(
+  params: URLSearchParams,
+  filters: AllocationFilterState
+) {
+  for (const [key, value] of [
+    ["hotelId", filters.hotelId],
+    ["roomTypeId", filters.roomTypeId],
+  ] as const) {
+    if (value) params.set(key, value)
+    else params.delete(key)
+  }
+
+  syncSignalFiltersToSearchParams(params, filters)
+}
+
+export function getRoomPageForRoomId(
+  roomIds: readonly string[],
+  roomId: string | null | undefined,
+  pageSize: number
+): number | null {
+  const normalizedRoomId = normalizeOptionalString(roomId)
+  if (!normalizedRoomId || pageSize <= 0) return null
+
+  const roomIndex = roomIds.indexOf(normalizedRoomId)
+  return roomIndex < 0 ? null : Math.floor(roomIndex / pageSize) + 1
 }
 
 export function appendSignalFiltersToQuery(

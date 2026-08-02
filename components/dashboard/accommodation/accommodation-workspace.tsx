@@ -8,7 +8,7 @@ import { BedDouble } from "lucide-react"
 import { WorkspaceFrame } from "@/components/dashboard/workspace-frame"
 import { WorkspaceTabs } from "@/components/dashboard/workspace-tabs"
 import { WorkspaceAttentionQueue } from "@/components/dashboard/workspace-attention-queue"
-import { accommodationHref, parseAccommodationTab } from "@/lib/dashboard/workspace-routes"
+import { accommodationHref, parseAccommodationTab, readWorkspaceIntent } from "@/lib/dashboard/workspace-routes"
 import { useEventBySlug } from "@/lib/convex/hooks/events"
 import { api } from "@/lib/convex/api"
 import {
@@ -30,6 +30,7 @@ export function AccommodationWorkspace({ slug }: { slug: string }) {
   const event = useEventBySlug(slug)
   const searchParams = useSearchParams()
   const activeTab = parseAccommodationTab(searchParams)
+  const roomId = readWorkspaceIntent(searchParams).roomId
   const attentionQueries = useQueries(event?.accommodationEnabled ? {
     board: {
       query: api.accommodation.getRoomAllocationBoard,
@@ -75,6 +76,6 @@ export function AccommodationWorkspace({ slug }: { slug: string }) {
      tabs={<WorkspaceTabs workspaceId="accommodation" tabs={tabs} activeTab={activeTab} />}
   >
     {activeTab === "hotels" && <AccommodationHotelsTab slug={slug} />}
-    {activeTab === "allocation" && <AccommodationAllocationTab slug={slug} />}
+     {activeTab === "allocation" && <AccommodationAllocationTab slug={slug} roomId={roomId} />}
   </WorkspaceFrame>
 }
