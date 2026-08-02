@@ -13,7 +13,6 @@ import {
   FileDown,
   Filter,
   Search,
-  ShoppingBag,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -248,12 +247,6 @@ export default function EventOrdersPage({ params }: PageProps) {
     })
   }, [appliedSearch, payload?.rows])
 
-  const totals = payload?.totals ?? {
-    amountDueMinor: 0,
-    matchedAmountMinor: 0,
-    outstandingAmountMinor: 0,
-  }
-
   const displayTotalRows = visibleRows.length === 0 ? 0 : payload?.page.totalRows ?? 0
   const showPagination = Boolean(
     payload && visibleRows.length > 0 && payload.page.totalPages > 1
@@ -303,82 +296,17 @@ export default function EventOrdersPage({ params }: PageProps) {
   }
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-col gap-4 px-1 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">
-              Orders
-            </h1>
-            <Badge variant="outline" className="font-mono text-[10px] uppercase">
-              {event.slug}
-            </Badge>
-          </div>
-          <p className="mt-1 text-muted-foreground">
-            {event.title} · canonical event-scoped ledger
-          </p>
+          <p className="text-sm font-semibold">Event-scoped order ledger</p>
+          <p className="text-xs text-muted-foreground">{event.title} · {event.slug}</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            onClick={exportCsv}
-            className="h-11 rounded-2xl px-5 shadow-sm"
-          >
-            <FileDown className="mr-2 size-4 text-primary" />
-            Export CSV
-          </Button>
-        </div>
-      </header>
-
-      {payload && (
-        <div className="grid gap-4 sm:grid-cols-3">
-          <article className="rounded-xl border border-border/50 bg-card/40 p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <ShoppingBag className="size-5" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-                  Amount Due
-                </p>
-                <p className="mt-0.5 text-xl font-bold">
-                  {formatMoney(totals.amountDueMinor)}
-                </p>
-              </div>
-            </div>
-          </article>
-          <article className="rounded-xl border border-border/50 bg-card/40 p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
-                <Calendar className="size-5" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-                  Amount Paid
-                </p>
-                <p className="mt-0.5 text-xl font-bold text-emerald-600">
-                  {formatMoney(totals.matchedAmountMinor)}
-                </p>
-              </div>
-            </div>
-          </article>
-          <article className="rounded-xl border border-border/50 bg-card/40 p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600">
-                <ShoppingBag className="size-5" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-                  Amount Left
-                </p>
-                <p className="mt-0.5 text-xl font-bold text-rose-600">
-                  {formatMoney(totals.outstandingAmountMinor)}
-                </p>
-              </div>
-            </div>
-          </article>
-        </div>
-      )}
+        <Button variant="outline" onClick={exportCsv} className="h-9 rounded-lg px-4">
+          <FileDown className="mr-2 size-4 text-primary" />
+          Export CSV
+        </Button>
+      </div>
 
       <article className="rounded-xl border border-border/50 bg-card/40 p-6">
         <form className="flex flex-wrap items-end gap-4" onSubmit={applyFilters}>

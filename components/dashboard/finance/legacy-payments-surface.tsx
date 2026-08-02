@@ -1,8 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { use, useMemo, useState } from "react"
-import { ArrowRight, CalendarRange, CheckCircle2, CreditCard, HandCoins, Loader2, ShieldCheck } from "lucide-react"
+import { use, useState } from "react"
+import { ArrowRight, CheckCircle2, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -33,20 +33,6 @@ export default function EventPaymentsPage({
   const [busyPaymentId, setBusyPaymentId] = useState<PaymentRow["_id"] | null>(null)
   const [successPaymentId, setSuccessPaymentId] = useState<PaymentRow["_id"] | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  const summary = useMemo(() => {
-    const linked = eventPayments ?? []
-    const unassigned = unassignedPayments ?? []
-
-    return {
-      linkedCount: linked.length,
-      donationCount: linked.filter((payment) => payment.status === "donation").length,
-      matchedCount: linked.filter(
-        (payment) => payment.status === "auto_matched" || payment.status === "manual_assignment"
-      ).length,
-      unassignedCount: unassigned.length,
-    }
-  }, [eventPayments, unassignedPayments])
 
   async function handleMarkDonation(paymentId: PaymentRow["_id"]) {
     if (!event?._id) return
@@ -80,17 +66,8 @@ export default function EventPaymentsPage({
   if (event === undefined || eventPayments === undefined || unassignedPayments === undefined) {
     return (
       <div className="space-y-4">
-        <Skeleton className="h-24 w-full rounded-2xl" />
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Skeleton className="h-32 w-full rounded-2xl" />
-          <Skeleton className="h-32 w-full rounded-2xl" />
-          <Skeleton className="h-32 w-full rounded-2xl" />
-          <Skeleton className="h-32 w-full rounded-2xl" />
-        </div>
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Skeleton className="h-64 w-full rounded-2xl" />
-          <Skeleton className="h-64 w-full rounded-2xl" />
-        </div>
+        <Skeleton className="h-14 w-full rounded-lg" />
+        <Skeleton className="h-64 w-full rounded-lg" />
       </div>
     )
   }
@@ -100,54 +77,26 @@ export default function EventPaymentsPage({
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
+        <div>
+          <p className="text-sm font-semibold">Payment operations</p>
+          <p className="text-xs text-muted-foreground">Event-linked payments plus the global unmatched inbox.</p>
+        </div>
+        <Button asChild variant="outline" size="sm" className="h-8 rounded-lg text-[11px] font-bold uppercase">
+          <Link href={`/dashboard/events/${slug}/reconciliation`}>
+            Reconciliation
+            <ArrowRight className="ml-2 size-3" />
+          </Link>
+        </Button>
+      </div>
       {errorMessage && (
         <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
           {errorMessage}
         </div>
       )}
 
-      <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
-        <CardHeader>
-          <div className="space-y-3">
-            <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
-              Payments inbox
-            </p>
-            <CardTitle className="text-3xl font-bold tracking-tight">{event.title}</CardTitle>
-            <CardDescription className="max-w-2xl text-muted-foreground/80">
-              Review incoming payments, classify orphan donations, and jump to reconciliation when an order needs matching.
-            </CardDescription>
-          </div>
-        </CardHeader>
-      </Card>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {[
-          { label: "Linked payments", value: linkedPayments.length, desc: "Payments tied to this event", icon: CreditCard },
-          { label: "Matched", value: summary.matchedCount, desc: "Auto or manual matches", icon: HandCoins },
-          { label: "Donations", value: summary.donationCount, desc: "Persisted donation payments", icon: ShieldCheck },
-          { label: "Unassigned", value: summary.unassignedCount, desc: "Waiting in the global inbox", icon: CalendarRange },
-        ].map((metric) => {
-          const Icon = metric.icon
-
-          return (
-            <Card key={metric.label} className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
-              <CardContent className="flex items-start justify-between gap-4 p-6">
-                <div className="space-y-2">
-                  <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">{metric.label}</p>
-                  <p className="text-3xl font-bold tracking-tight text-foreground">{metric.value}</p>
-                  <p className="text-xs text-muted-foreground">{metric.desc}</p>
-                </div>
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Icon className="size-5" />
-                </div>
-              </CardContent>
-            </Card>
-          )
-        })}
-      </div>
-
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+        <Card className="border-border/60 bg-card shadow-none">
           <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
             <div className="space-y-1">
               <CardTitle className="text-lg font-bold">Unassigned payments</CardTitle>
@@ -196,7 +145,7 @@ export default function EventPaymentsPage({
           </CardContent>
         </Card>
 
-        <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
+        <Card className="border-border/60 bg-card shadow-none">
           <CardHeader>
             <CardTitle className="text-lg font-bold">Event payments</CardTitle>
             <CardDescription>All payments already linked to this event, including donations.</CardDescription>
