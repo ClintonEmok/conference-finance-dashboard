@@ -5,7 +5,6 @@ import Link from "next/link"
 import {
   ChevronLeft,
   BedDouble,
-  Building2,
   Users,
   ArrowRight,
   Plus,
@@ -13,7 +12,6 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
@@ -23,12 +21,12 @@ import {
 } from "@/components/ui/card"
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
+import type { Doc, Id } from "@/convex/_generated/dataModel"
 import {
   useEventHotels,
   useSlotsForEvent,
   useAccommodationSummaryForEvent,
   useHotelById,
-  useHotels,
   useRoomTypes,
   useCreateHotel,
   useCreateRooms,
@@ -36,7 +34,6 @@ import {
   useLinkHotelToEvent,
 } from "@/lib/convex/hooks/accommodation"
 import { LinkedHotelCard } from "@/app/dashboard/events/[slug]/components/linked-hotel-card"
-import { AddHotelDialog } from "@/app/dashboard/events/[slug]/components/add-hotel-dialog"
 import { AddRoomsDialog } from "@/app/dashboard/events/[slug]/accommodation/workspace/components/add-rooms-dialog"
 import { CreateHotelDialog } from "@/app/dashboard/events/[slug]/accommodation/workspace/components/create-hotel-dialog"
 
@@ -53,8 +50,6 @@ export default function EventAccommodationWorkspacePage({
   const slots = useSlotsForEvent(event?._id)
   const summary = useAccommodationSummaryForEvent(event?._id)
 
-  const [isAddHotelDialogOpen, setIsAddHotelDialogOpen] = useState(false)
-  const [isLinkingHotel, setIsLinkingHotel] = useState(false)
   const [isCreateHotelDialogOpen, setIsCreateHotelDialogOpen] = useState(false)
   const [isCreatingHotel, setIsCreatingHotel] = useState(false)
   const [isAddRoomsDialogOpen, setIsAddRoomsDialogOpen] = useState(false)
@@ -64,7 +59,6 @@ export default function EventAccommodationWorkspacePage({
   const [isAddingRooms, setIsAddingRooms] = useState(false)
   const [operationError, setOperationError] = useState<string | null>(null)
 
-  const hotels = useHotels()
   const roomTypes = useRoomTypes()
   const createHotel = useCreateHotel()
   const createRooms = useCreateRooms()
@@ -72,22 +66,6 @@ export default function EventAccommodationWorkspacePage({
   const linkHotelToEvent = useLinkHotelToEvent()
   const selectedHotelForRooms = useHotelById(selectedHotelForRoomsId)
 
-  const handleAddHotelSubmit = async (data: { hotelId: any }) => {
-    setIsLinkingHotel(true)
-    setOperationError(null)
-    try {
-      await linkHotelToEvent({
-        eventId: event._id,
-        hotelId: data.hotelId,
-        autoGenerateSlots: true,
-      })
-    } catch (err) {
-      console.error("Failed to assign hotel:", err)
-      setOperationError(err instanceof Error ? err.message : "Failed to link hotel.")
-      throw err
-    } finally {
-      setIsLinkingHotel(false)
-    }
   }
 
   const handleCreateHotelSubmit = async (data: {
@@ -102,7 +80,7 @@ export default function EventAccommodationWorkspacePage({
       })
       await linkHotelToEvent({
         eventId: event._id,
-        hotelId: hotelId as any,
+        hotelId: hotelId as Id<"accommodationHotels">,
         autoGenerateSlots: true,
       })
       setSelectedHotelForRoomsId(hotelId)
@@ -116,7 +94,7 @@ export default function EventAccommodationWorkspacePage({
   }
 
   const handleAddRoomsSubmit = async (data: {
-    hotelId: any
+    hotelId: Id<"accommodationHotels">
     roomTypes: Array<{
       id: string
       label: string
@@ -127,7 +105,7 @@ export default function EventAccommodationWorkspacePage({
     setIsAddingRooms(true)
     setOperationError(null)
     try {
-      const roomTypeMap = new Map<string, any>()
+      const roomTypeMap = new Map<string, Id<"accommodationRoomTypes">>()
       for (const rt of data.roomTypes) {
         if (rt.id.startsWith("new-")) {
           const newRtId = await createRoomType({
@@ -136,7 +114,10 @@ export default function EventAccommodationWorkspacePage({
           })
           roomTypeMap.set(rt.id, newRtId)
         } else {
-          roomTypeMap.set(rt.id, rt.id)
+          roomTypeMap.set(
+            rt.id,
+            rt.id as Id<"accommodationRoomTypes">
+          )
         }
       }
 
@@ -195,11 +176,11 @@ export default function EventAccommodationWorkspacePage({
     <div className="min-w-0 space-y-6">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold">Hotel setup and linked inventory</p>
+          <p className="text-sm font-semibold">Hotel setup for this event</p>
           <p className="text-xs text-muted-foreground">{event.title} · event-scoped accommodation configuration</p>
         </div>
         <div className="flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          <span>{eventHotels === undefined ? "Checking hotels…" : `${eventHotels.length} linked hotel${eventHotels.length === 1 ? "" : "s"}`}</span>
+          <span>{eventHotels === undefined ? "Checking hotels…" : `${eventHotels.length} hotel${eventHotels.length === 1 ? "" : "s"}`}</span>
           <span>{slots === undefined ? "Checking rooms…" : `${slots.length} slot${slots.length === 1 ? "" : "s"}`}</span>
           {summary && <span>{summary.assignableSlots} assignable</span>}
         </div>
@@ -209,22 +190,13 @@ export default function EventAccommodationWorkspacePage({
           <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <CardTitle className="text-lg font-bold">
-              Linked Hotels
+              Event Hotels
             </CardTitle>
             <CardDescription className="text-muted-foreground/70">
-              Hotels linked to this event for room assignments
+              Hotels configured for room assignments at this event
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsAddHotelDialogOpen(true)}
-              className="rounded-2xl border-white/20 text-[11px] font-bold uppercase"
-            >
-              <Plus className="mr-2 size-3" />
-              Import
-            </Button>
             <Button
               size="sm"
               onClick={() => setIsCreateHotelDialogOpen(true)}
@@ -241,16 +213,8 @@ export default function EventAccommodationWorkspacePage({
           ) : eventHotels.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-white/20 bg-white/5 p-12 text-center">
               <Hotel className="mx-auto mb-4 size-12 text-muted-foreground opacity-20" />
-              <DashboardQueryState state="unconfigured" title="No hotels linked yet" message="Add a hotel to enable room assignments for this event." />
-              <div className="mt-6 flex items-center justify-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsAddHotelDialogOpen(true)}
-                  className="rounded-2xl border-white/20 text-[11px] font-bold uppercase"
-                >
-                  Import Inventory
-                </Button>
+              <DashboardQueryState state="unconfigured" title="No hotels configured yet" message="Add a hotel to enable room assignments for this event." />
+              <div className="mt-6 flex items-center justify-center">
                 <Button
                   size="sm"
                   onClick={() => setIsCreateHotelDialogOpen(true)}
@@ -262,7 +226,7 @@ export default function EventAccommodationWorkspacePage({
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {eventHotels.map((hotel: any) => (
+              {eventHotels.map((hotel: Doc<"accommodationHotels">) => (
                 <LinkedHotelCard
                   key={hotel._id}
                   hotel={hotel}
@@ -298,34 +262,7 @@ export default function EventAccommodationWorkspacePage({
         </Card>
         </Link>
 
-        <Link href="/dashboard/accommodation/inventory" className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-        <Card className="border-border/60 bg-card shadow-none transition-colors hover:border-primary/30">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base font-bold">
-              <Building2 className="size-5 text-muted-foreground" aria-hidden="true" />
-              Global Inventory
-            </CardTitle>
-            <CardDescription className="text-muted-foreground/70">
-              Manage hotels, rooms, and room types across all events
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center text-sm text-primary">
-              Manage inventory <ArrowRight className="ml-2 size-4" aria-hidden="true" />
-            </div>
-          </CardContent>
-        </Card>
-        </Link>
       </div>
-
-      <AddHotelDialog
-          open={isAddHotelDialogOpen}
-          onOpenChange={setIsAddHotelDialogOpen}
-          existingHotels={hotels}
-          linkedHotelIds={eventHotels?.map((hotel: any) => hotel._id) ?? []}
-          onSubmit={handleAddHotelSubmit}
-          isSubmitting={isLinkingHotel}
-        />
 
       <CreateHotelDialog
         open={isCreateHotelDialogOpen}

@@ -61,8 +61,8 @@ export function CreateHotelDialog({
             Add Hotel
           </DialogTitle>
           <DialogDescription>
-            Create a new hotel in global inventory, link it to this event, then
-            add room inventory.
+            Add a hotel for this event, then configure its rooms for attendee
+            assignments.
           </DialogDescription>
         </DialogHeader>
 
