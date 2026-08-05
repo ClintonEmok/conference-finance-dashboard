@@ -291,7 +291,12 @@ Plans:
 4. Submitting the order persists per-attendee accommodation selections (preferences), not room placements; final room placement remains admin-controlled.
 5. Room eligibility derives from the selected ticket's allowed room category/type; the signup shows the selected ticket rather than asking for ticket type again, and invalid option/ticket combinations are rejected at submission.
 
-**Plans:** TBD
+**Plans:** 2 plans
+
+Plans:
+
+- [ ] 42-01-PLAN.md — Establish the public catalog, canonical live quote, and server-side options-only submission contract
+- [ ] 42-02-PLAN.md — Replace room assignment with quote-backed per-attendee accommodation options in public signup
 
 ---
 
@@ -366,7 +371,7 @@ Plans:
 | 39 - Accommodation Catalog & Event Config Schema | Reusable catalog + event config | CAT-01, CAT-02, CAT-03, CFG-01..05 | TBD | Complete    |
 | 40 - Canonical Finance Derivation | Accommodation in canonical amount-due | FIN-01, FIN-02, FIN-03, FIN-04 | 1 plan | Not started |
 | 41 - Admin Upgrades & Options Tab | Config surface + explicit confirm | ADM-01, ADM-02, ADM-03, CAT-04 | 2 plans | Not started |
-| 42 - Public Signup Options | Options-only signup + ticket eligibility | SIG-01..04, TKT-01, TKT-02 | TBD | Not started |
+| 42 - Public Signup Options | Options-only signup + ticket eligibility | SIG-01..04, TKT-01, TKT-02 | 2 plans | Planned |
 | 43 - Track Payment Permalink | Booking-ref permalink + re-price | TRK-01..06 | TBD | Not started |
 | 44 - Allocation Paid-Priority | Paid-priority allocation + lock | ALL-01, ALL-02, ALL-03 | TBD | Not started |
 | 45 - Verification & Cross-Surface Audit | Money/security/idempotency audit | — | TBD | Not started |
