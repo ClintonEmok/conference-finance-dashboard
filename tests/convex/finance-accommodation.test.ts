@@ -991,3 +991,57 @@ test("multi-order loader derives each order's total from grouped child rows", as
     breakdowns?.[String(secondOrderId)]?.accommodationLines
   ).toHaveLength(2)
 })
+
+// ---------------------------------------------------------------------------
+// Read boundary: orders with more than 100 selections must be fully priced —
+// the loader reads all child rows through bounded async iteration instead of
+// silently truncating at a fixed `.take(100)`.
+// ---------------------------------------------------------------------------
+
+test("prices orders with more than 100 selections without truncation", async () => {
+  const t = fresh()
+  const ctx = await seedEvent(t)
+
+  const order = await t.mutation(async (db) => {
+    const orderId = await db.db.insert("orders", {
+      eventId: ctx.eventId as never,
+      source: "internal",
+      bookingRef: "BK-20260411-BIG01",
+      bookerName: "Big Buyer",
+      submittedAt: BASE_EVENT_AT,
+    })
+    // 120 attendees, each with one ticket selection and one accommodation
+    // selection — well past the old fixed 100-row read limit.
+    for (let i = 0; i < 120; i++) {
+      const attendeeId = await db.db.insert("orderAttendees", {
+        orderId: orderId as never,
+        attendeeKey: `big-${i}`,
+        name: `Attendee ${i}`,
+        gender: "unknown",
+        sortOrder: i,
+      })
+      await db.db.insert("orderTicketSelections", {
+        orderId: orderId as never,
+        attendeeId: attendeeId as never,
+        ticketTypeId: ctx.ticketNotIncludedId as never,
+        quantity: 1,
+        sortOrder: i,
+      })
+      await db.db.insert("orderAccommodationSelections", {
+        orderId: orderId as never,
+        attendeeId: attendeeId as never,
+        categoryId: ctx.categoryStandardId as never,
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+        nightCount: 2,
+      })
+    }
+    return orderId
+  })
+
+  const breakdown = await loadOrderAmountDue(t, String(order))
+  // 120 × (ticket 2000 + base 2×3000) = 120 × 8000 = 960000
+  expect(breakdown?.amountDueMinor).toBe(960000)
+  expect(breakdown?.accommodationLines).toHaveLength(120)
+})
