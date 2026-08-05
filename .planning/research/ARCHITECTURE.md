@@ -1,365 +1,305 @@
-# Architecture Research
+# Architecture Research: Accommodation Upgrades & Options (v5.0)
 
-**Domain:** Brownfield canonical orders/payments/payables foundation for a finance-first conference ops app
-**Researched:** 2026-04-01
-**Confidence:** HIGH
+**Domain:** Conference finance dashboard — accommodation catalog/configuration/options integration
+**Researched:** 2026-08-05
+**Confidence:** HIGH for integration points and data flow (verified against `convex/schema.ts`, `convex/finance.ts`, `convex/signupSubmission.ts`, `convex/signupCatalog.ts`, `convex/publicTracking.ts`, `convex/accommodation.ts`, `lib/domain/finance/amounts.ts`); MEDIUM for new-table naming and shape (design recommendation, not yet validated with stakeholders).
 
-## Standard Architecture
+## Executive Framing
+
+The v5.0 milestone does **not** introduce a new subsystem. It adds one new order-scoped record type (`orderAccommodationSelections` + option children), a reusable catalog with event-scoped pricing, and three behavioral changes to existing surfaces:
+
+1. **Amount-due derivation** — the single canonical loader `convex/finance.ts → loadOrderAmountDueBreakdowns` is the choke point. Extend it once and every consumer (public tracking, order ledger, payments, reports, attendees, internal sync, allocation board) picks up accommodation charges with **zero consumer changes**. This is the highest-leverage integration in the milestone.
+2. **Signup semantics shift** — the public signup stops reserving concrete bed slots and instead records *preferences* (category/occupancy, upgrade, cot, age band). Final placement remains admin-controlled via the existing `orderAssignments` / `orderAttendees.assignedRoomId` machinery. Preferences and placement are two different records and must stay separate.
+3. **Re-pricing is a feature, not a bug** — the existing system derives money at read time (`ticketTypes.priceMinor` × selections; no price snapshots anywhere). The track-payment permalink "allows configuration changes before admin confirmation and re-prices the order" is only coherent if accommodation charges are **derived dynamically from event config at read time**, exactly like ticket prices today. Do not snapshot option prices into selection rows.
+
+## Recommended Architecture
 
 ### System Overview
 
-```text
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                         App Surfaces (existing)                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  Public signup     Dashboard finance     Dashboard attendees/accommodation  │
-│  Next.js routes    Next.js API/routes    Next.js API/routes                 │
-└──────────────┬──────────────────────┬───────────────────────────┬───────────┘
-               │                      │                           │
-               ▼                      ▼                           ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                    Canonical Convex domain boundary                          │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  order write service   payable projector   payment service   read models     │
-│  order mutation API    cost/payable rules  assignment/apply  finance/order   │
-│                                                              attendee/room   │
-└──────────────┬──────────────────────┬───────────────────────────┬───────────┘
-               │                      │                           │
-               ▼                      ▼                           ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                        Canonical internal tables                             │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  orders  orderAttendees  orderLineItems  attendeePayables                    │
-│  payments  paymentAllocations  orderTicketSelections  orderAssignments       │
-└──────────────┬───────────────────────────────────────────────────────────────┘
-               │
-               ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                 Deferred provider boundary (not runtime truth)               │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  raw ingest tables/events   provider mapping tables   provider sync workers  │
-│  Ticket Tailor payloads     canonical↔provider links  internalMutation only  │
-└──────────────────────────────────────────────────────────────────────────────┘
+```
+┌─────────────────────────── CATALOG LAYER (reusable, global) ───────────────────────────┐
+│  accommodationCategories            accommodationOptionDefinitions (kind:               │
+│  (label, sortOrder, description)     upgrade | cot | age_band | resource)               │
+│                                        ▲                                                 │
+│  accommodationRoomTypes [MODIFIED]    │ (categoryId, description, sortOrder added)      │
+└───────────────────────────────────────┼─────────────────────────────────────────────────┘
+                                        │
+┌────────────────────────── EVENT CONFIG LAYER (event-scoped, per event) ────────────────┐
+│  accommodationEventConfig (one row/event: toggles, confirmation policy)                 │
+│  accommodationEventRoomTypeRates (eventId, roomTypeId, baseRateMinor, availability)     │
+│  accommodationEventOptions        (eventId, optionDefinitionId, priceMinor, enabled)    │
+└───────────────────────────────────────┼─────────────────────────────────────────────────┘
+                                        │ validated against + priced from
+┌────────────────────────── ORDER LAYER (per order) ─────────────────────────────────────┐
+│  orderAccommodationSelections         ──(child)── orderAccommodationOptionSelections    │
+│  (orderId, attendeeId, roomTypeId,    (selectionId, optionDefinitionId, quantity)      │
+│   ageBandId?, assignmentState, confirmedAt/By)                                           │
+│                                                                                         │
+│  existing: orderTicketSelections  ·  orderAssignments (placement)  ·  orderAttendees    │
+└───────────────────────────────────────┼─────────────────────────────────────────────────┘
+                                        │
+┌────────────────────────── CANONICAL FINANCE LAYER ─────────────────────────────────────┐
+│  convex/finance.ts → loadOrderAmountDueBreakdowns [MODIFIED]                            │
+│  lib/domain/finance/amounts.ts → deriveOrderAmountBreakdown [MODIFIED]                 │
+│    = ticket selections × ticketTypes.priceMinor + accommodation selections × event rates│
+└───────────────┬─────────────────────────────────────────────────────────────────────────┘
+                │ same signature → zero consumer changes
+   ┌────────────┼─────────────┬──────────────┬──────────────┐
+   ▼            ▼             ▼              ▼              ▼
+publicTracking  orders ledger  payments      reports        attendees / sync / allocation
 ```
 
 ### Component Responsibilities
 
-| Component                            | Responsibility                                                                                          | Typical Implementation                                                                                       |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Canonical order aggregate            | Own internal order header, booker, attendee, assignment, ticket-selection facts                         | Existing `orders`, `orderAttendees`, `orderTicketSelections`, `orderAssignments` with additive normalization |
-| Canonical financial obligation layer | Own deterministic amount facts instead of deriving from provider tables at read time                    | **New** `orderLineItems` + `attendeePayables` projector/write helpers                                        |
-| Canonical payment layer              | Own payment receipts and explicit application of money to obligations/orders                            | Existing `payments` plus **new** `paymentAllocations` (or `paymentApplications`)                             |
-| Finance read models                  | Expose order ledger, balances, attendee follow-up, reconciliation from canonical tables only            | **Modified** `convex/orders.ts`, finance domain modules, protected API routes                                |
-| Accommodation/attendee read models   | Read attendee identity and assignment truth from canonical attendees/assignments, not TT extension docs | **Modified** `convex/attendees.ts`, `convex/accommodation.ts`                                                |
-| Provider ingest boundary             | Store provider payloads and mapping metadata without leaking them into runtime reads                    | Existing `sync/*` kept, but moved toward raw-ingest + mapping role later                                     |
+| Component | Responsibility | Typical Implementation |
+|-----------|----------------|------------------------|
+| Catalog (global) | Reusable definitions: categories, room types with descriptions, option/age-band definitions | Extend `accommodationRoomTypes` additively; new `accommodationCategories`, `accommodationOptionDefinitions` |
+| Event config (per event) | Rates, availability, enabled options, confirmation policy for one event | New `accommodationEventConfig`, `accommodationEventRoomTypeRates`, `accommodationEventOptions` |
+| Signup catalog | Publishes selectable options (not slots) to public signup, filtered by ticket entitlement | Modify `convex/signupCatalog.ts` + `lib/domain/signup/catalog.ts` |
+| Signup submission | Validates and persists per-attendee accommodation preferences | Modify `convex/signupSubmission.ts` envelope + restore payload; insert `orderAccommodationSelections` |
+| Canonical finance | Derives amount-due = tickets + accommodation, per order and per attendee | Modify `convex/finance.ts` + `lib/domain/finance/amounts.ts` (pure function) |
+| Track payment | Booking-ref permalink; shows/re-prices; lets buyer edit options pre-confirmation | New `app/track-payment/[bookingRef]/page.tsx`; new public mutation for editing selections |
+| Admin config | "Upgrades & Options" tab: rates, options, age bands, availability, descriptions | New admin queries/mutations over event config + catalog tables |
+| Allocation board | Shows paid attendees highlighted, unpaid grayed; paid-first ordering | Modify `getRoomAllocationBoard` in `convex/accommodation.ts` to join canonical payment/amount-due |
+| Tikkie links | Payment links whose amount must match canonical amount-due incl. accommodation | Modify template match / link regeneration in `lib/domain/finance/tikkie-templates.ts` + `convex/tikkie.ts` |
 
-## Recommended Project Structure
+## New vs Modified (explicit)
 
-```text
-convex/
-├── orders.ts                     # public/internal order query surface (keep, slim)
-├── payments.ts                   # public/internal payment query surface (keep, slim)
-├── attendees.ts                  # canonical attendee reads after cutover
-├── accommodation.ts              # canonical assignment/occupancy reads after cutover
-├── schema.ts                     # additive table/index evolution
-├── orderDomain/
-│   ├── writes.ts                 # canonical order creation/update helpers
-│   ├── pricing.ts                # order total + line-item derivation rules
-│   ├── payables.ts               # attendee payable derivation/projector
-│   └── invariants.ts             # runtime assertions / comparison helpers
-├── paymentDomain/
-│   ├── receipts.ts               # create/update canonical payments
-│   ├── allocations.ts            # apply/unapply payment amounts
-│   └── matching.ts               # auto-match inputs, no UI-specific logic
-└── sync/
-    ├── orders.ts                 # keep dual-write temporarily
-    ├── attendees.ts              # keep dual-write temporarily
-    └── provider/                 # later: raw ingest + mapping-focused modules
+### New tables (all additive; no destructive migration)
 
-lib/domain/finance/
-├── order-ledger.ts               # read canonical finance contracts
-├── reconciliation.ts             # canonical reasons only
-├── matched-payments.ts           # replaced by payment allocation aggregation
-└── attendee-*.ts                 # consume attendeePayables, not even-split heuristics
-```
+| Table | Scope | Purpose | Key shape |
+|-------|-------|---------|-----------|
+| `accommodationCategories` | global | Reusable category/occupancy groupings ("Standard", "Superior", ...) | `label`, `description?`, `sortOrder`; index `by_sortOrder` |
+| `accommodationOptionDefinitions` | global | Reusable option definitions incl. age bands via `kind` discriminator | `kind` ("upgrade"\|"cot"\|"age_band"\|"resource"), `label`, `description?`, `minAge?`, `maxAge?`, `sortOrder`; index `by_kind` |
+| `accommodationEventConfig` | event | One row per event: feature toggles (age bands enabled, require category), confirmation policy | `eventId` (FK `v.id("events")`); index `by_eventId` |
+| `accommodationEventRoomTypeRates` | event | Rate + availability per room type per event | `eventId` FK, `roomTypeId` FK (`v.id("accommodationRoomTypes")`), `baseRateMinor`, `availabilityState` ("selectable"\|"unavailable"), `updatedAt`; indexes `by_eventId`, `by_eventId_and_roomTypeId` |
+| `accommodationEventOptions` | event | Price + enabled state per option definition per event (incl. age bands) | `eventId` FK, `optionDefinitionId` FK, `priceMinor`, `enabled`, `sortOrder`; indexes `by_eventId`, `by_eventId_and_optionDefinitionId` |
+| `orderAccommodationSelections` | order | Buyer's per-attendee accommodation preferences; mutable until admin confirmation | `orderId` FK, `attendeeId` FK, `roomTypeId` FK, `ageBandId?` FK, `assignmentState` ("selected"\|"confirmed"\|"removed"), `confirmedAt?`, `confirmedBy?`; indexes `by_orderId`, `by_attendeeId`, `by_orderId_and_assignmentState` |
+| `orderAccommodationOptionSelections` | order | Child rows for each chosen option on a selection | `selectionId` FK, `optionDefinitionId` FK, `quantity`; indexes `by_selectionId` |
 
-### Structure Rationale
+Notes:
+- Follow the Convex guideline: **child collections live in their own tables** (`orderAccommodationOptionSelections`), not as unbounded arrays inside `orderAccommodationSelections`. A small bounded `optionIds` array is defensible, but the child table is more robust for admin adjustment and audit, and matches how the codebase models `orderTicketSelections`/`orderAssignments` as child rows.
+- New tables should use typed FKs (`v.id(...)`) — the accommodation domain is the worst offender for string-ID joins today (`TABLE_RELATIONSHIPS.md` §Orphaned Relationships). Do not repeat that pattern in new tables.
+- Index naming per Convex convention `by_field1_and_field2`.
 
-- **`convex/orderDomain/` and `convex/paymentDomain/`:** pull business rules out of large endpoint files so migration logic and canonical formulas live in one place.
-- **Keep `orders.ts` / `payments.ts` as API facades:** protects existing generated refs and route integrations while the internals change.
-- **`sync/` remains separate:** provider-specific logic stays operational, but stops being allowed to define runtime truth.
+### Modified tables / modules
 
-## Architectural Patterns
+| Target | Change | Why |
+|--------|--------|-----|
+| `accommodationRoomTypes` | Add `categoryId?` (FK), `description?`, `sortOrder?`, `isActive?` | Catalog needs category membership + buyer-facing descriptions; additive only, keeps existing rows valid |
+| `convex/signupCatalog.ts` + `lib/domain/signup/catalog.ts` | Return options catalog (room types w/ rates, upgrade, cot, age bands) instead of / alongside assignable slots; eligibility from event config availability | Buyers select options, not bed slots |
+| `convex/signupSubmission.ts` | Envelope gains `accommodationSelections: [{ attendeeKey, roomTypeId, optionIds?, ageBandId? }]`; validate against event config + ticket entitlement + availability; insert selection rows; include selections in `restorePayload` and `buildRestorePayload` | Persist preferences at submit; replay-safe |
+| `convex/finance.ts` (`loadOrderAmountDueBreakdowns`) | Also load `orderAccommodationSelections` + event rates/options and fold into breakdown | **Single choke point** — all finance consumers update automatically |
+| `lib/domain/finance/amounts.ts` (`deriveOrderAmountBreakdown`) | Accept accommodation line items alongside ticket selections; sum into `amountDueMinor` and `amountDueByAttendeeId` | Pure, testable derivation |
+| `convex/publicTracking.ts` | No logic change required (uses loader); add accommodation selections to response for the permalink page | Tracking auto-correct once loader extends |
+| `convex/signupSubmission.ts` `getByBookingRef` | Replace inline `ticketSelections.reduce(...)` total (lines ~850-854) with `loadOrderAmountDueBreakdowns` | This is a **duplicate money calculation** that diverges from canonical totals; accommodation makes the divergence visible |
+| `convex/accommodation.ts` `getRoomAllocationBoard` | Attach `amountDueMinor` + `paymentStatus` ("unpaid"\|"partial"\|"paid"\|"overpaid") + `isPaid` to occupants, unassigned attendees, and queue rows; paid-first sort | "Allocation prioritizes paid attendees" |
+| `lib/domain/finance/tikkie-templates.ts` + `convex/tikkie.ts` | Order payment-link amount must include accommodation (derive from per-attendee canonical amount-due, or regenerate order link after admin confirmation) | Prevents link-amount vs amount-due mismatch on the tracking page |
+| `app/track-payment/page.tsx` | Becomes a lookup page that redirects to `/track-payment/[bookingRef]` | Milestone requirement; preserve the existing entry (deep-link constraint) |
+| New `app/track-payment/[bookingRef]/page.tsx` | Renders canonical tracking + editable accommodation options pre-confirmation | Permalink with re-pricing |
+| `convex/emailActions.ts` signup confirmation | List selected options; payment amount includes accommodation | Buyer confirmation email truthfulness |
+| `lib/types/signup.ts` | New validators/types for accommodation selections + error codes (`OPTION_UNAVAILABLE`, `OPTION_CAPACITY_EXCEEDED`, `ACCOMMODATION_CONFIRMED`) | Typed contract boundary |
 
-### Pattern 1: Canonical facts first, provider facts second
+### Not changed (deliberately)
 
-**What:** The runtime model should answer finance questions from canonical internal tables without reading `ticketTailor*` rows.
-**When to use:** Immediately for this milestone.
-**Trade-offs:** Requires additive tables and backfills now, but prevents another rewrite later.
-
-**Example:**
-
-```typescript
-// Runtime read path
-order -> orderLineItems -> attendeePayables -> paymentAllocations
-
-// Provider lookup path (deferred boundary)
-ticketTailorRawEvent -> providerOrderMapping -> order
-```
-
-### Pattern 2: Explicit money application, not inferred payment attachment
-
-**What:** Keep `payments` as receipt facts and add a child table that explains how each payment amount is applied.
-**When to use:** Before replacing reconciliation and attendee outstanding logic.
-**Trade-offs:** More rows and write logic, but much cleaner auditability than `payments.orderId` alone.
-
-**Example:**
-
-```typescript
-// receipt fact
-payments: {
-  amountMinor,
-  source,
-  paidAt,
-}
-
-// application fact
-paymentAllocations: {
-  paymentId,
-  orderId,
-  attendeePayableId,
-  allocatedAmountMinor,
-  allocatedAt,
-}
-```
-
-### Pattern 3: Widen → migrate → cut over → narrow
-
-**What:** Add new fields/tables first, backfill and dual-run reads, then switch consumers, then remove legacy assumptions.
-**When to use:** Any Convex schema/data change touching live rows.
-**Trade-offs:** Temporary duplication, but safest for production-shaped data.
-
-**Example:**
-
-```typescript
-// Phase A: add new tables/indexes
-// Phase B: backfill canonical payables and allocations
-// Phase C: switch order/reconciliation queries to canonical-only reads
-// Phase D: stop legacy joins and narrow contracts
-```
-
-## Data Flow
-
-### Request Flow
-
-```text
-Signup / operator action
-    ↓
-Next.js route or client mutation
-    ↓
-Convex public mutation/query facade
-    ↓
-Canonical domain helper
-    ↓
-Canonical tables (+ optional sync/mapping side write)
-    ↓
-Finance/attendee/accommodation read model
-    ↓
-Protected UI / public confirmation
-```
-
-### State Management
-
-```text
-Convex canonical query
-    ↓ subscribe
-React hooks / route handlers
-    ↓
-UI components
-    ↓ action
-Convex mutations
-    ↓
-Canonical tables updated
-```
-
-### Key Data Flows
-
-1. **Internal signup/order write:** `submitSignupEnvelope` continues writing `orders`/`orderAttendees`/`orderTicketSelections`/`orderAssignments`, then additionally creates canonical financial rows (`orderLineItems`, `attendeePayables`).
-2. **Manual payment / imported payment:** payment receipt is stored in `payments`; allocation logic writes `paymentAllocations`; balances are read from allocations, not inferred from `payments.orderId`.
-3. **Finance reads:** order ledger, attendee follow-up, reconciliation, and payment summary read canonical order + payable + allocation tables only.
-4. **Provider sync (temporary brownfield mode):** sync keeps dual-writing canonical order/attendee facts and provider extension rows, but provider rows are no longer consulted by canonical finance reads.
-
-## Build Order and Migration Boundaries
-
-### Recommended Build Order
-
-1. **Stabilize canonical identifiers and payment semantics**
-   - Normalize all new payment writes to canonical `orders` IDs only.
-   - Stop introducing new provider-id-vs-Convex-id ambiguity.
-   - Keep read-time fallback for old rows.
-
-2. **Add canonical financial child tables (additive only)**
-   - Add `orderLineItems` for order-level charge facts.
-   - Add `attendeePayables` for attendee-specific obligations.
-   - Add `paymentAllocations` for explicit money application.
-   - Keep `orders.totalAmountMinor` as compatibility/cache field during transition.
-
-3. **Backfill/project canonical financial facts**
-   - Internal orders: derive from `orderTicketSelections × ticketTypes.priceMinor`.
-   - Ticket Tailor orders: seed one or more synthetic canonical line items from current provider-backed totals for now.
-   - Backfill attendee payables using deterministic milestone rules.
-   - Backfill allocations from existing matched payments.
-
-4. **Create canonical read models beside legacy ones**
-   - New order detail, ledger, attendee ledger, reconciliation, room occupancy helpers.
-   - Add comparison/invariant utilities to prove parity where expected.
-
-5. **Cut over dashboard/runtime consumers**
-   - Finance pages first.
-   - Then attendee detail/follow-up.
-   - Then accommodation occupancy/assignment views.
-   - Leave provider admin/debug screens on extension tables if needed.
-
-6. **Quarantine provider tables behind ingest/mapping boundaries**
-   - Replace direct `ticketTailor*` runtime reads with raw ingest + mapping lookups.
-   - This is the first milestone _after_ canonical runtime cutover, not part of the foundation milestone.
-
-### Migration Boundaries
-
-| Boundary                                              | In This Milestone                                    | Defer |
-| ----------------------------------------------------- | ---------------------------------------------------- | ----- |
-| `orders` / `orderAttendees` canonical core            | Yes — evolve and normalize                           | No    |
-| `payments` semantics cleanup                          | Yes — stop new ambiguity, keep legacy fallback reads | No    |
-| Canonical payables/allocations tables                 | Yes — additive + backfill                            | No    |
-| Dashboard finance read paths                          | Yes — migrate to canonical-only                      | No    |
-| `attendees.ts` and `accommodation.ts` direct TT reads | Yes, after finance queries stabilize                 | No    |
-| Ticket Tailor raw ingest redesign                     | No                                                   | Yes   |
-| Full provider mapping model redesign                  | No                                                   | Yes   |
-| Provider webhook/sync UX redesign                     | No                                                   | Yes   |
-
-### Dependency Graph
-
-```text
-payment semantics cleanup
-    ↓
-orderLineItems
-    ↓
-attendeePayables
-    ↓
-paymentAllocations
-    ↓
-canonical finance reads
-    ↓
-attendee/accommodation canonical reads
-    ↓
-provider boundary quarantine
-```
-
-## Validation Strategy
-
-### Runtime Invariants
-
-- `sum(orderLineItems.amountMinor where orderId) == orders.totalAmountMinor` during transition.
-- `sum(attendeePayables.amountMinor where orderId) == sum(orderLineItems.amountMinor where orderId)`.
-- `sum(paymentAllocations.allocatedAmountMinor where paymentId) <= payments.amountMinor`.
-- `order outstanding = payable total - allocated total`, never from TT extension joins.
-
-### Rollout Validation
-
-1. **Backfill dry run first** using migration tooling/batched internal mutations.
-2. **Dual-run queries**: old finance read vs new canonical read for same event/date window.
-3. **Diff logging** for orders with mismatched totals, balances, attendee counts, or archive visibility.
-4. **Cut over consumers only after diff set is explained**.
-
-### Test Strategy
-
-- `convex-test` for mutation/projector invariants and migration helpers.
-- Snapshot-style fixtures for:
-  - internal signup order
-  - Ticket Tailor synced order
-  - partial payment
-  - overpayment
-  - cancelled/refunded order
-- Protected API regression tests for dashboard routes that must return the same contracts after cutover.
-
-## Scaling Considerations
-
-| Scale                       | Architecture Adjustments                                                                           |
-| --------------------------- | -------------------------------------------------------------------------------------------------- |
-| Current church-scale usage  | Monolith is fine; use additive tables and indexed joins only                                       |
-| Larger order history        | Replace `.take()`-heavy cross-table scans with tighter indexes and paginated canonical read models |
-| Much larger provider volume | Split raw ingest processing from canonical projection jobs, but keep one canonical runtime model   |
-
-### Scaling Priorities
-
-1. **First bottleneck:** current scan/join-heavy brownfield queries in `orders.ts`, `attendees.ts`, and `accommodation.ts`.
-2. **Second bottleneck:** migration/backfill transaction size; batch with Convex migration tooling/internal mutations.
-
-## Anti-Patterns
-
-### Anti-Pattern 1: Keep `ticketTailor*` in the runtime read path “just for one more screen”
-
-**What people do:** Migrate finance queries but leave attendee/accommodation visibility or room occupancy dependent on TT extension rows.
-**Why it's wrong:** You never get one canonical runtime truth, and cross-screen totals keep drifting.
-**Do this instead:** finish the runtime cutover per vertical slice until finance + attendee + room reads all use canonical tables.
-
-### Anti-Pattern 2: Model “payment attached to order” as a single nullable FK forever
-
-**What people do:** Keep solving balances with `payments.orderId` and status flags only.
-**Why it's wrong:** It cannot represent partial allocations, splits, reassignments, or auditable attendee follow-up.
-**Do this instead:** treat `payments` as receipts and add explicit allocation rows.
-
-### Anti-Pattern 3: Redesign provider ingest and canonical finance in the same phase
-
-**What people do:** Try to introduce raw ingest, mapping, new core tables, and UI cutovers together.
-**Why it's wrong:** Too many moving parts; hard to isolate whether defects are core-model or integration-boundary issues.
-**Do this instead:** stabilize canonical runtime first, then move providers behind cleaner ingest/mapping boundaries.
+- `orderAssignments` + `accommodationSlots` + `orderAttendees.assignedRoomId` — remain the **placement** record; admin assigns final rooms through the existing workspace. Do not overload slots with option semantics.
+- `orders.totalAmountMinor` — stays the provider/write-time total; canonical amount-due continues to be derived at read time (`amountDueBreakdown?.amountDueMinor ?? order.totalAmountMinor ?? 0` everywhere).
+- `payments` matching, reconciliation, donation semantics — untouched; accommodation only shifts the amount-due side of the balance.
+- `ticketTypes.roomTypeId` — remains the single entitlement field for SEED-002 alignment; multi-room-type `roomTypeIds` array is deferred (see Open Questions).
 
 ## Integration Points
 
-### External Services
+### 1. Schema ↔ amount-due (the critical seam)
 
-| Service       | Integration Pattern                                                                          | Notes                                                                                         |
-| ------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Ticket Tailor | Keep current sync/webhook ingestion; dual-write canonical core + provider tables temporarily | Runtime finance reads should stop depending on `ticketTailorOrders` / `ticketTailorAttendees` |
-| Tikkie        | Keep current payment fetch/webhook ingestion into canonical `payments`                       | Add allocation layer behind it; do not redesign Tikkie UX in this milestone                   |
-| Clerk         | No architecture change                                                                       | Auth boundary already correct for dashboard/protected mutations                               |
+`loadOrderAmountDueBreakdowns(ctx, orders)` currently:
+- queries `orderTicketSelections` by orderId (bounded `take(100)`),
+- collects `ticketTypeIds`, loads `ticketTypes`, builds `ticketTypePriceById`,
+- calls pure `deriveOrderAmountBreakdown({ selections, ticketTypePriceById })`.
 
-### Internal Boundaries
+Extension plan (keep the function signature; extend internals):
+1. After loading selections, collect `orderAccommodationSelections` by the same orderIds (bounded `take`, `by_orderId` index).
+2. Collect unique `eventId` from the input orders; load `accommodationEventRoomTypeRates` + `accommodationEventOptions` once per event (batch, not N+1).
+3. Build a price map: `roomTypeRateByEventAndRoomType` and `optionPriceByEventAndOption`.
+4. Produce accommodation line items (`{ attendeeId, priceMinor }`) and pass both ticket + accommodation lines into an extended `deriveOrderAmountBreakdown` (or a new pure helper `deriveAccommodationAmountMinor` added in `amounts.ts`, called alongside the existing derivation and summed).
 
-| Boundary                                                                         | Communication                                       | Notes                                                              |
-| -------------------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------ |
-| `signupSubmission` ↔ canonical finance projector                                 | Direct helper call within same mutation transaction | Best place to mint order line items/payables for internal orders   |
-| `sync/orders.ts` / `sync/attendees.ts` ↔ canonical core                          | `internalMutation` dual-write                       | Keep until raw-ingest/mapping redesign milestone                   |
-| `payments.ts` ↔ allocation helper                                                | Direct helper call within mutation transaction      | New canonical balance truth starts here                            |
-| `orders.ts` / finance domain ↔ canonical financial tables                        | Query-only joins on canonical IDs                   | Removes provider-order-id runtime dependency over time             |
-| `attendees.ts` / `accommodation.ts` ↔ canonical attendee/assignment/payable data | Query-only joins on canonical IDs                   | Required to remove TT attendee table as occupancy/assignment truth |
+Consumers that automatically become correct (verified call sites):
+`convex/publicTracking.ts` (×2), `convex/orders.ts` (ledger, detail, syncFullyPaidOrders), `convex/payments.ts`, `convex/reports.ts` (×3), `convex/attendees.ts`, `convex/sync/internal.ts`.
 
-## Recommended Brownfield End State for This Milestone
+Tests to require: extend `tests/finance/money-model.test.ts` with accommodation line items (per-attendee attribution, zero-price options, attendee map accumulation).
 
-- `orders` and `orderAttendees` remain the aggregate roots.
-- `orderTicketSelections` and `orderAssignments` remain operational child tables.
-- New canonical finance children (`orderLineItems`, `attendeePayables`, `paymentAllocations`) become the money truth.
-- `orders.totalAmountMinor` survives as a derived/cache/back-compat field, not the only source of truth.
-- `ticketTailor*` tables remain operationally useful but become non-authoritative extension/raw-ingest inputs.
+### 2. Catalog → signup catalog → signup submission
+
+- `signupCatalog.getPublicSignupCatalog` accommodation section changes from "assignable slots" to an options view: for the event, list enabled room types (from `accommodationEventRoomTypeRates` joined to `accommodationRoomTypes` descriptions), their base rate, availability; plus enabled options (`accommodationEventOptions` joined to `accommodationOptionDefinitions`: superior upgrade, cot, age bands). `accommodationIneligibilityReason` gains a `no_configured_options` reason; "no_assignable_inventory" becomes legacy.
+- Ticket entitlement: an attendee's eligible room types = `ticketType.roomTypeId` if set, else all enabled room types for the event (matches SEED-002's "omitted ⇒ all allowed" and the existing fallback to `event.defaultRoomTypeId` in `signupSubmission.ts` ~line 619).
+- `submitSignupEnvelope` validation order: attendee keys → ticket selections (unchanged) → **accommodation selections** (attendee exists; roomTypeId is event-enabled and ticket-entitled; optionIds are event-enabled; ageBandId event-enabled if provided; availability counts not exceeded per room type) → assignments (unchanged placement validation).
+- Capacity semantics shift: today capacity = ticket count vs assignable slot count (`CAPACITY_EXCEEDED`). With options-only signup, capacity checks move to per-room-type availability in event config. Keep the old slot-based check only for events that still expose slot assignment (back-compat) or remove once signup fully migrates.
+
+### 3. Track-payment permalink
+
+- Route: `app/track-payment/[bookingRef]` renders `publicTracking.getByBookingRef` (canonical) + the order's accommodation selections (new read) + edit controls.
+- New public mutation `updateOrderAccommodationSelections({ bookingRef, selections })`:
+  - guards: order exists by normalized bookingRef; no `confirmedAt` on any selection row (or an order-level `accommodationConfirmedAt` on `accommodationEventConfig` policy); selections still valid against event config; idempotency not needed (low-stakes edits) but bounded and validated;
+  - re-validates availability (admin may have changed config mid-edit — same spirit as the existing slot `isAssignable` re-check);
+  - amount-due re-prices automatically because the loader derives from current config — no recompute step in the mutation.
+- New admin mutation `confirmOrderAccommodationSelections({ orderId })`: sets `confirmedAt/confirmedBy` on selection rows; optionally regenerates the Tikkie order link with the canonical total (see Tikkie integration).
+
+### 4. Tikkie payment links (must not drift)
+
+Today per-attendee links come from `matchTemplateForAttendee` (ticket-type templates, `tikkieAmountOverrideMinor` override). If amount-due includes accommodation but the link is ticket-only, the tracking page shows a paid % against a larger amount-due than the link asks for. Recommended: after admin confirmation (or at link creation when selections exist), derive the order link amount from the canonical per-attendee amount-due (tickets + accommodation) rather than the template. This mirrors how `syncFullyPaidOrders` already trusts the canonical loader.
+
+### 5. Allocation board paid-priority
+
+`getRoomAllocationBoard` already loads `allOrders` (scoped). Add:
+- `loadOrderAmountDueBreakdowns(ctx, scopedOrders)` + `loadMatchedPaymentTotalsByOrderId(ctx, scopedOrders)` (both exist; reused, not re-implemented),
+- per attendee: `paymentStatus` from their order's due vs paid (reuse `deriveBalanceAmounts` / `isOrderAppliedPayment` semantics — the board must not recalculate money; it consumes canonical totals),
+- surface `isPaid` on occupants, unassigned attendees, and `submissionQueueRows`; sort unassigned/queue paid-first; highlight paid names, gray unpaid (UI concern, driven by this data).
+
+Bound this by event-scoping and existing `.take()` limits; the payments-side loader (`payments.take(2000)`) is pre-existing and already used at this scale (see Scaling).
+
+## Data Flows
+
+### Signup → Order → Amount-due → Tracking
+
+```
+Buyer picks ticket + accommodation options (category/occupancy, upgrade, cot, age band)
+   │  (options filtered by ticket entitlement from signupCatalog)
+   ▼
+submitSignupEnvelope(accommodationSelections=[...])
+   ├─ validate: attendee keys, ticket availability (unchanged),
+   │            option availability, room-type entitlement, per-type availability
+   ├─ insert orders, orderAttendees, orderTicketSelections (unchanged)
+   ├─ insert orderAccommodationSelections + orderAccommodationOptionSelections   [NEW]
+   └─ orderAssignments: only for legacy slot flow; otherwise none (admin assigns later)
+   │
+   ▼
+loadOrderAmountDueBreakdowns(order)                       [MODIFIED]
+   ├─ orderTicketSelections × ticketTypes.priceMinor      (unchanged)
+   └─ orderAccommodationSelections × event rates/options  [NEW]
+   ▼
+publicTracking.getByBookingRef(bookingRef)  →  amountDue incl. accommodation  (unchanged call)
+   ▼
+/track-payment/[bookingRef]  ← buyer edits options → updateOrderAccommodationSelections
+   → loader re-derives amount-due → progress bar updates → admin confirms →
+     confirmOrderAccommodationSelections (locks edits, regenerates Tikkie link w/ total)
+```
+
+### Allocation board
+
+```
+getRoomAllocationBoard(eventId)
+   ├─ load scoped orders/attendees/rooms/slots (unchanged)
+   ├─ loadOrderAmountDueBreakdowns(scopedOrders) + loadMatchedPaymentTotalsByOrderId   [NEW]
+   ├─ compute per-attendee paymentStatus/isPaid from canonical totals                  [NEW]
+   ├─ occupants: paid highlighted, unpaid grayed                                       [NEW]
+   ├─ unassigned queue + buyerSuggestions: paid-first sort                            [NEW]
+   └─ admin assigns room via existing assignRoomToAttendee (placement unchanged)
+```
+
+## Patterns to Follow
+
+### Pattern 1: Single canonical derivation choke point
+
+**What:** All money presentation flows through `loadOrderAmountDueBreakdowns` + pure `deriveOrderAmountBreakdown`; UI and board never recalculate.
+**When:** Any change touching amount-due (this milestone's core).
+**Trade-offs:** One function to change; risk concentrated in that function — mitigate with the pure `amounts.ts` helper + unit tests (`tests/finance/money-model.test.ts`).
+
+### Pattern 2: Preferences vs placement as separate records
+
+**What:** `orderAccommodationSelections` = buyer preferences (mutable, priced). `orderAssignments`/`assignedRoomId` = operator placement (final, not priced). Keep the seam explicit.
+**When:** The whole milestone depends on this separation (options-only signup + admin final assignment).
+**Trade-offs:** Two records to keep consistent per attendee; keep the invariant "a confirmed selection may exist with no assignment yet" and surface that state in the admin order detail.
+
+### Pattern 3: Dynamic derivation, no price snapshots
+
+**What:** Re-price by reading current event config at read time, exactly like `ticketTypes.priceMinor` today. Re-pricing on config change is the product requirement.
+**When:** Config may change before admin confirmation; canonical totals must reflect the latest state.
+**Trade-offs:** Historical orders re-price if admin changes rates — acceptable and consistent with today's ticket behavior; if a hard price lock is ever required, add a `confirmedAt` boundary (already proposed), never snapshots.
+
+### Pattern 4: Event-scoped batch reads
+
+**What:** Load event config once per event for all orders in a batch (collect `eventId`s, load rates/options, build maps), avoid N+1 in the loader and board.
+**When:** Extending `loadOrderAmountDueBreakdowns` and the allocation board.
+**Trade-offs:** Slightly more plumbing; bounded `.take()` reads stay within Convex limits and keep reactivity coarse-grained per event rather than per row.
+
+## Anti-Patterns to Avoid
+
+### Anti-Pattern 1: Snapshotting option prices into selection rows
+
+**What people do:** Store `priceMinor` on `orderAccommodationSelections` "so the price is frozen."
+**Why it's wrong:** Breaks the mandated re-pricing behavior and creates a second money source diverging from every canonical consumer; the rest of the system has no price snapshots.
+**Do this instead:** Derive at read time from event config; lock via `confirmedAt` if a price boundary is ever needed.
+
+### Anti-Pattern 2: Storing event config as arrays inside one document
+
+**What people do:** `accommodationEventConfig` with `roomTypeRates: [...]`, `options: [...]` arrays.
+**Why it's wrong:** Convex 1MB document cap + every update rewrites the whole doc; violates the "child items in their own table" guideline.
+**Do this instead:** `accommodationEventRoomTypeRates` and `accommodationEventOptions` as separate rows keyed by `eventId`.
+
+### Anti-Pattern 3: Reusing slots/assignments to mean options
+
+**What people do:** Store option choices in `orderAssignments` or mint pseudo-slots per option.
+**Why it's wrong:** Slots are real bed inventory with capacity/occupancy semantics; mixing preferences into them corrupts occupancy counts, `signupCatalog` slot summaries, and the allocation board.
+**Do this instead:** New `orderAccommodationSelections` records; leave slot machinery for placement only.
+
+### Anti-Pattern 4: Recalculating money in the UI or in duplicate reads
+
+**What people do:** Recompute totals in `signupSubmission.getByBookingRef` (already happening: inline `reduce` at lines ~850-854) or in the allocation board.
+**Why it's wrong:** Duplicate formulas drift; the project explicitly forbids UI-specific finance formulas (PROJECT.md constraints, v4.0 decisions).
+**Do this instead:** Route every read through `loadOrderAmountDueBreakdowns`; delete the inline total in `getByBookingRef` as part of this milestone.
+
+### Anti-Pattern 5: Tikkie link amount ≠ canonical amount-due
+
+**What people do:** Create the payment link from the ticket template while amount-due includes accommodation.
+**Why it's wrong:** Tracking page shows progress vs a total the link doesn't collect; under/over-collection confusion for the finance team.
+**Do this instead:** Derive the order link amount from canonical per-attendee amount-due (or regenerate after admin confirmation).
+
+## Scaling Considerations
+
+| Concern | Today (v4.0) | After v5.0 | Mitigation |
+|---------|--------------|------------|------------|
+| Amount-due loader | `orderTicketSelections` per order, bounded `.take(100)`; `ticketTypes` deduped | + `orderAccommodationSelections` per order (bounded) + event config loaded once per event | Batch event-config loads; keep `.take()` bounds; selection rows are small |
+| Payments scan | `payments.take(2000)` in `loadMatchedPaymentTotalsByOrderId` (pre-existing) | Same; allocation board now also consumes it | Reuse the existing loader; do not add a second payments scan |
+| Allocation board | `orderAttendees.take(2000)`, rooms `.take(500)`, slots `.take(1000)` (pre-existing) | + canonical amount-due/payment totals for scoped orders | Same bounded reads; compute in-memory maps |
+| Catalog/config tables | tiny | + 3 small config tables per event | Trivial; reactive queries fine |
+| Signup capacity check | slot-count based | per-room-type availability counts | Availability counters denormalized on `accommodationEventRoomTypeRates` if contention appears |
+
+**First bottleneck:** the amount-due loader's per-order child reads (already the pattern; grows linearly with orders per batch). Keep `.take()` bounds and event-batched config loads.
+**Second bottleneck:** `loadMatchedPaymentTotalsByOrderId` full payments scan at high payment volume — pre-existing; flag for a future index/pagination change, not this milestone.
+
+## Build Order Recommendation (for roadmap phases)
+
+Rationale: finance derivation must exist before selections are priced; admin config before public signup can offer options; signup before the permalink can edit them; allocation last (depends on canonical totals + selections).
+
+1. **Schema + catalog foundation** — new tables (additive), extend `accommodationRoomTypes`, typed FKs, indexes, codegen. No behavior change. *(Unblocks everything; zero risk.)*
+2. **Canonical finance derivation** — extend `amounts.ts` (pure, tested) + `finance.ts` loader; delete inline total in `signupSubmission.getByBookingRef`. *(Choke point; every consumer verified by existing tests.)*
+3. **Admin "Upgrades & Options" config surface** — admin CRUD over event config + catalog; descriptions/rates/availability/age bands.
+4. **Signup catalog + submission** — options step, validation, selection insert, restore payload, email confirmation.
+5. **Track-payment permalink** — route, edit mutation, confirmation boundary, Tikkie link amount alignment.
+6. **Allocation paid-priority + SEED-002 eligibility alignment** — board joins canonical totals; ticket entitlement respected.
+
+## Open Questions / Flags
+
+- **Multi-room-type entitlement (SEED-002 full):** schema only has single `ticketTypes.roomTypeId`. This milestone can align with the single-field rule (set ⇒ only that type; unset ⇒ all enabled). The `roomTypeIds` array is a larger schema change — defer and decide explicitly.
+- **Tikkie link regeneration timing:** derive link amount from canonical totals at creation, or regenerate after admin confirmation? Recommend: creation-time derivation with regeneration on confirmation (avoids stale links).
+- **Legacy slot-based signup:** do existing events keep slot assignment, or does the options flow fully replace it? Recommend phased: options flow new/default; slot flow remains for events without config until migration verified.
+- **Age-band pricing:** per-event price on `accommodationEventOptions` with `kind="age_band"` covers it; confirm whether a band affects room-type rate (occupancy) vs per-attendee add-on (option). Assumption here: per-attendee option.
 
 ## Sources
 
-- `.planning/PROJECT.md`
-- `.planning/STATE.md`
-- `.planning/codebase/FINANCIAL_DATA_FLOW.md`
-- `.planning/tickettailor-table-usage.md`
-- `convex/schema.ts`
-- `convex/orders.ts`
-- `convex/payments.ts`
-- `convex/attendees.ts`
-- `convex/accommodation.ts`
-- `convex/signupSubmission.ts`
-- Convex docs: https://docs.convex.dev/database/schemas
-- Convex docs: https://docs.convex.dev/database/writing-data
-- Context7 `/get-convex/migrations` README snippets for batched live migrations
+- `convex/schema.ts` — existing accommodation/order/finance tables (verified)
+- `convex/finance.ts` — `loadOrderAmountDueBreakdowns`, `loadMatchedPaymentTotalsByOrderId` (verified)
+- `lib/domain/finance/amounts.ts` — `deriveOrderAmountBreakdown`, `isOrderAppliedPayment`, `deriveBalanceAmounts` (verified)
+- `convex/signupSubmission.ts` — envelope, validators, restore payload, `getByBookingRef` inline total (verified)
+- `convex/signupCatalog.ts` — assignable-slot summaries, ineligibility reasons (verified)
+- `convex/publicTracking.ts` — canonical tracking read (verified)
+- `convex/accommodation.ts` — `getRoomAllocationBoard` (verified)
+- `lib/domain/finance/tikkie-templates.ts`, `convex/tikkie.ts` — template/link amount derivation (verified)
+- `.planning/codebase/TABLE_RELATIONSHIPS.md` — string-ID join inventory (verified)
+- `.planning/codebase/FINANCIAL_DATA_FLOW.md` — amount authority and attendee outstanding derivation (verified)
+- `.planning/PROJECT.md` — v5.0 target features and decisions
+- `.planning/seeds/SEED-002-ticket-room-eligibility.md` — ticket-driven eligibility rules
+- `convex/_generated/ai/guidelines.md` — Convex schema/query/mutation guidelines (child tables, index naming, bounded reads)
 
 ---
-
-_Architecture research for: Canonical Orders Foundation_
-_Researched: 2026-04-01_
+*Architecture research for: v5.0 Accommodation Upgrades & Options*
+*Researched: 2026-08-05*
