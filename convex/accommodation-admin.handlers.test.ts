@@ -262,6 +262,7 @@ test("empty pending state reports zero pending orders before Phase 42", async ()
   })
   expect(response.pendingOrderCount).toBe(0)
   expect(response.pendingOrders).toEqual([])
+  expect(response.hasAccommodationSelections).toBe(false)
 })
 
 test("pending orders count distinct orders with unconfirmed selection rows only", async () => {
@@ -359,6 +360,8 @@ test("pending orders count distinct orders with unconfirmed selection rows only"
     bookerName: "Pending A",
     selectionCount: 2,
   })
+  // Selection rows exist for this event, so the pre-signup empty copy is off.
+  expect(response.hasAccommodationSelections).toBe(true)
 })
 
 // ---------------------------------------------------------------------------

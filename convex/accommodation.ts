@@ -2633,6 +2633,9 @@ export const getEventAccommodationConfig = query({
     // order (every row has `confirmedAt`) is never counted as pending, and an
     // order with no selection rows is not pending either (pre-Phase 42). The
     // count and list are server-derived; the UI never computes them.
+    // `hasAccommodationSelections` distinguishes the pre-Phase-42 empty state
+    // (no selection rows at all) from an all-confirmed event so the admin UI
+    // can show the honest signup-empty copy instead of a fake zero state.
     const eventOrders = await ctx.db
       .query("orders")
       .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
@@ -2643,6 +2646,7 @@ export const getEventAccommodationConfig = query({
       bookerName: string | null
       selectionCount: number
     }> = []
+    let hasAccommodationSelections = false
     for (const order of eventOrders) {
       let hasUnconfirmedRow = false
       let selectionCount = 0
@@ -2650,6 +2654,7 @@ export const getEventAccommodationConfig = query({
         .query("orderAccommodationSelections")
         .withIndex("by_orderId", (q) => q.eq("orderId", order._id))) {
         selectionCount += 1
+        hasAccommodationSelections = true
         if (row.confirmedAt === undefined || row.confirmedAt === null) {
           hasUnconfirmedRow = true
         }
@@ -2714,6 +2719,7 @@ export const getEventAccommodationConfig = query({
       agePricing: sortBySortOrder(agePricingRows),
       pendingOrders,
       pendingOrderCount: pendingOrders.length,
+      hasAccommodationSelections,
     }
   },
 })
