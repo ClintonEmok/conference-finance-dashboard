@@ -714,6 +714,52 @@ test("rate, option, resource and age-pricing writes advance the config version",
   expect(afterAgePricing).not.toBe(afterResource)
 })
 
+test("config versions strictly advance even for writes in the same millisecond", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await createEvent(t)
+  const categoryId = await t.mutation(api.accommodation.createAccommodationCategory, {
+    code: "standard",
+    label: "Standard",
+    sortOrder: 1,
+  })
+
+  const readVersion = async () => {
+    const response = await t.query(api.accommodation.getEventAccommodationConfig, {
+      eventId,
+    })
+    return response.config?.updatedAt ?? null
+  }
+
+  // Two writes back to back with no intervening work: a naive Date.now()
+  // version can collide in the same millisecond. The monotonic boundary must
+  // still strictly advance.
+  await t.mutation(api.accommodation.upsertEventAccommodationRate, {
+    eventId,
+    categoryId,
+    occupancy: "single",
+    pricePerPersonMinor: 9000,
+  })
+  const first = await readVersion()
+  await t.mutation(api.accommodation.upsertEventAccommodationRate, {
+    eventId,
+    categoryId,
+    occupancy: "shared",
+    pricePerPersonMinor: 8000,
+  })
+  const second = await readVersion()
+  await t.mutation(api.accommodation.upsertEventAccommodationConfig, {
+    eventId,
+    breakfastIncluded: true,
+  })
+  const third = await readVersion()
+
+  expect(first).not.toBeNull()
+  expect(second).not.toBeNull()
+  expect(third).not.toBeNull()
+  expect(second).toBeGreaterThan(first as number)
+  expect(third).toBeGreaterThan(second as number)
+})
+
 test("catalog label edits do not advance the config version", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const eventId = await createEvent(t)

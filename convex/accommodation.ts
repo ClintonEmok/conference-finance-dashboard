@@ -3021,6 +3021,19 @@ export function normalizeExtendedStayFlags(input: {
 }
 
 /**
+ * Returns a strictly monotonic config version: `Date.now()` when there is no
+ * previous version, or at least `previous + 1` so two successful writes in
+ * the same millisecond can never share a version. The single version boundary
+ * must strictly advance for a confirmation to record an unambiguous
+ * `configVersion`.
+ */
+function nextConfigVersion(
+  previousUpdatedAt: number | null | undefined
+): number {
+  return Math.max(Date.now(), (previousUpdatedAt ?? 0) + 1)
+}
+
+/**
  * Advances the single event accommodation config version boundary after an
  * event-scoped pricing/config write (rates, options, resources, age pricing).
  * The version lives on `eventAccommodationConfig.updatedAt` — there is
@@ -3041,7 +3054,7 @@ async function touchEventAccommodationConfigVersion(
 
   if (existing) {
     await ctx.db.patch("eventAccommodationConfig", existing._id, {
-      updatedAt: Date.now(),
+      updatedAt: nextConfigVersion(existing.updatedAt),
     })
     return
   }
@@ -3058,7 +3071,7 @@ async function touchEventAccommodationConfigVersion(
     allowExtendedStayBoth: false,
     breakfastIncluded: false,
     nightCount,
-    updatedAt: Date.now(),
+    updatedAt: nextConfigVersion(null),
   })
 }
 
@@ -3120,7 +3133,7 @@ export const upsertEventAccommodationConfig = mutation({
             : args.defaultCategoryId,
         breakfastIncluded: args.breakfastIncluded ?? existing.breakfastIncluded,
         nightCount,
-        updatedAt: Date.now(),
+        updatedAt: nextConfigVersion(existing.updatedAt),
       })
       return await ctx.db.get("eventAccommodationConfig", existing._id)
     }
@@ -3150,7 +3163,7 @@ export const upsertEventAccommodationConfig = mutation({
       defaultCategoryId: args.defaultCategoryId,
       breakfastIncluded: args.breakfastIncluded ?? false,
       nightCount,
-      updatedAt: Date.now(),
+      updatedAt: nextConfigVersion(null),
     })
     return await ctx.db.get("eventAccommodationConfig", id)
   },
