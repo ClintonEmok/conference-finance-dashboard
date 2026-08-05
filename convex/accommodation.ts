@@ -2624,6 +2624,42 @@ export const getEventAccommodationConfig = query({
         return category !== undefined
       })
 
+    // Pending buyer impact: bounded, event-scoped projection of orders that
+    // carry at least one unconfirmed accommodation selection row. A confirmed
+    // order (every row has `confirmedAt`) is never counted as pending, and an
+    // order with no selection rows is not pending either (pre-Phase 42). The
+    // count and list are server-derived; the UI never computes them.
+    const eventOrders = await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .take(200)
+    const pendingOrders: Array<{
+      orderId: Id<"orders">
+      bookingRef: string | null
+      bookerName: string | null
+      selectionCount: number
+    }> = []
+    for (const order of eventOrders) {
+      let hasUnconfirmedRow = false
+      let selectionCount = 0
+      for await (const row of ctx.db
+        .query("orderAccommodationSelections")
+        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))) {
+        selectionCount += 1
+        if (row.confirmedAt === undefined || row.confirmedAt === null) {
+          hasUnconfirmedRow = true
+        }
+      }
+      if (hasUnconfirmedRow) {
+        pendingOrders.push({
+          orderId: order._id,
+          bookingRef: order.bookingRef ?? null,
+          bookerName: order.bookerName ?? null,
+          selectionCount,
+        })
+      }
+    }
+
     const rates = rateRows.map((rate) => {
       const category = categoryById.get(rate.categoryId)
       return {
@@ -2672,6 +2708,8 @@ export const getEventAccommodationConfig = query({
       options,
       resources,
       agePricing: sortBySortOrder(agePricingRows),
+      pendingOrders,
+      pendingOrderCount: pendingOrders.length,
     }
   },
 })
@@ -2946,6 +2984,48 @@ export function normalizeExtendedStayFlags(input: {
   }
 }
 
+/**
+ * Advances the single event accommodation config version boundary after an
+ * event-scoped pricing/config write (rates, options, resources, age pricing).
+ * The version lives on `eventAccommodationConfig.updatedAt` — there is
+ * deliberately no second version field. When no config row exists yet (e.g.
+ * an admin saves a rate before ever saving the stay window), the singleton is
+ * initialized from the existing default one-night-before-event window so a
+ * later confirmation always has a `configVersion` to record. This never
+ * touches orders, selection rows, totals, or payment links.
+ */
+async function touchEventAccommodationConfigVersion(
+  ctx: MutationCtx,
+  eventId: Id<"events">
+) {
+  const existing = await ctx.db
+    .query("eventAccommodationConfig")
+    .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+    .unique()
+
+  if (existing) {
+    await ctx.db.patch("eventAccommodationConfig", existing._id, {
+      updatedAt: Date.now(),
+    })
+    return
+  }
+
+  const event = await getEventOrThrow(ctx, eventId)
+  const window = deriveInitialStayWindow(event.startsAt)
+  const nightCount = deriveNightCount(window.baseCheckInAt, window.baseCheckOutAt)
+  await ctx.db.insert("eventAccommodationConfig", {
+    eventId,
+    baseCheckInAt: window.baseCheckInAt,
+    baseCheckOutAt: window.baseCheckOutAt,
+    allowExtendedStayBefore: false,
+    allowExtendedStayAfter: false,
+    allowExtendedStayBoth: false,
+    breakfastIncluded: false,
+    nightCount,
+    updatedAt: Date.now(),
+  })
+}
+
 export const upsertEventAccommodationConfig = mutation({
   args: {
     eventId: v.id("events"),
@@ -3070,9 +3150,11 @@ export const upsertEventAccommodationRate = mutation({
       await ctx.db.patch("eventAccommodationRates", existing._id, {
         pricePerPersonMinor: args.pricePerPersonMinor,
       })
+      await touchEventAccommodationConfigVersion(ctx, args.eventId)
       return await ctx.db.get("eventAccommodationRates", existing._id)
     }
     const id = await ctx.db.insert("eventAccommodationRates", args)
+    await touchEventAccommodationConfigVersion(ctx, args.eventId)
     return await ctx.db.get("eventAccommodationRates", id)
   },
 })
@@ -3139,6 +3221,7 @@ export const upsertEventAccommodationOption = mutation({
             ? existing.notes
             : normalizeOptionalString(args.notes) ?? undefined,
       })
+      await touchEventAccommodationConfigVersion(ctx, args.eventId)
       return await ctx.db.get("eventAccommodationOptions", existing._id)
     }
 
@@ -3150,6 +3233,7 @@ export const upsertEventAccommodationOption = mutation({
       eligibilityAgeBandCode: args.eligibilityAgeBandCode,
       notes: normalizeOptionalString(args.notes) ?? undefined,
     })
+    await touchEventAccommodationConfigVersion(ctx, args.eventId)
     return await ctx.db.get("eventAccommodationOptions", id)
   },
 })
@@ -3192,9 +3276,11 @@ export const upsertEventAccommodationResource = mutation({
       await ctx.db.patch("eventAccommodationResources", existing._id, {
         count: args.count,
       })
+      await touchEventAccommodationConfigVersion(ctx, args.eventId)
       return await ctx.db.get("eventAccommodationResources", existing._id)
     }
     const id = await ctx.db.insert("eventAccommodationResources", args)
+    await touchEventAccommodationConfigVersion(ctx, args.eventId)
     return await ctx.db.get("eventAccommodationResources", id)
   },
 })
@@ -3261,6 +3347,7 @@ export const upsertEventAccommodationAgePricing = mutation({
         value: args.value,
         sortOrder,
       })
+      await touchEventAccommodationConfigVersion(ctx, args.eventId)
       return await ctx.db.get("eventAccommodationAgePricing", existing._id)
     }
     const id = await ctx.db.insert("eventAccommodationAgePricing", {
