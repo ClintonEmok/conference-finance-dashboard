@@ -3444,10 +3444,10 @@ const VALID_AGE_BAND_CODES = new Set<string>([
  * Phase 40 snapshot patch using current server-side configuration. Throws for
  * missing config, an order with no selection rows, already-confirmed rows,
  * unknown selection references, or rows that cannot be priced from a complete
- * event configuration. Reusable by Phase 44 assignment confirmation so the
- * snapshot boundary is persisted through one shared code path.
+ * event configuration. Exported so Phase 44 assignment confirmation reuses
+ * the exact snapshot-boundary code path instead of inventing a second one.
  */
-async function resolveOrderAccommodationConfirmation(
+export async function resolveOrderAccommodationConfirmation(
   ctx: MutationCtx,
   orderId: Id<"orders">
 ): Promise<{

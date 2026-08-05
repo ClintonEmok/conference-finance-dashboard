@@ -6,6 +6,7 @@ import type { GenericDataModel } from "convex/server"
 import { api } from "./_generated/api"
 import schema from "./schema"
 import { loadOrderAmountDueBreakdowns } from "./finance"
+import { resolveOrderAccommodationConfirmation } from "./accommodation"
 import type { Id } from "./_generated/dataModel"
 
 const modules = import.meta.glob("./**/*.ts")
@@ -231,6 +232,12 @@ async function loadOrderAmountDue(
 // Authentication: the admin read and the confirmation mutation both require
 // an identity; no order id is ever accepted from an anonymous caller.
 // ---------------------------------------------------------------------------
+
+test("the reusable confirmation helper is exported for Phase 44 reuse", () => {
+  // Compile-level proof that Phase 44 assignment confirmation can import the
+  // exact snapshot-boundary code path rather than duplicating it.
+  expect(typeof resolveOrderAccommodationConfirmation).toBe("function")
+})
 
 test("admin config read rejects unauthenticated callers", async () => {
   const t = fresh().withIdentity(adminIdentity)
