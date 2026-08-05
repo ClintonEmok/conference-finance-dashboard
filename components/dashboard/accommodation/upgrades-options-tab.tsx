@@ -25,6 +25,22 @@ function toConfigState(value: unknown): ConfigState {
   return { status: "ready" }
 }
 
+/**
+ * The pending-impact fields are required parts of the server response. A
+ * partial/older backend or a malformed payload must surface as an error
+ * state — never as a fabricated "no pending orders"/"signup has not started"
+ * zero state (no-fake-zero rule).
+ */
+function hasCompletePendingResponse(data: unknown): boolean {
+  if (!data || typeof data !== "object") return false
+  const record = data as Record<string, unknown>
+  return (
+    typeof record.pendingOrderCount === "number" &&
+    Array.isArray(record.pendingOrders) &&
+    typeof record.hasAccommodationSelections === "boolean"
+  )
+}
+
 export function AccommodationUpgradesOptionsTab({
   event,
 }: {
@@ -60,6 +76,16 @@ export function AccommodationUpgradesOptionsTab({
         className="py-10"
       />
     )
+  } else if (!hasCompletePendingResponse(configResult)) {
+    content = (
+      <DashboardQueryState
+        state="error"
+        title="Upgrades & Options could not be loaded"
+        message="The server response was incomplete. Refresh and try again."
+        onRetry={retry}
+        className="py-10"
+      />
+    )
   } else {
     const data = configResult as NonNullable<typeof configResult>
     const catalogData =
@@ -78,9 +104,9 @@ export function AccommodationUpgradesOptionsTab({
     content = (
       <div className="min-w-0 space-y-5">
         <UpgradesOptionsPendingOrders
-          pendingOrders={data.pendingOrders ?? []}
-          pendingOrderCount={data.pendingOrderCount ?? 0}
-          hasAccommodationSelections={data.hasAccommodationSelections ?? false}
+          pendingOrders={data.pendingOrders}
+          pendingOrderCount={data.pendingOrderCount}
+          hasAccommodationSelections={data.hasAccommodationSelections}
         />
         <UpgradesOptionsConfigForm eventId={eventId} config={data} catalogAgeBands={catalogAgeBands} />
         <UpgradesOptionsCatalog
