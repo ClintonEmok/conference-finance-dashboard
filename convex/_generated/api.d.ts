@@ -1363,13 +1363,91 @@ export declare const api: {
     >;
   };
   signupCatalog: {
+    getPublicSignupAccommodationQuote: FunctionReference<
+      "query",
+      "public",
+      {
+        attendees: Array<{
+          ageBandCode?: "under_3" | "3_11" | "12_17" | "18_plus";
+          attendeeKey: string;
+          categoryId?: Id<"accommodationCategories">;
+          cotSelected?: boolean;
+          occupancy?: "single" | "shared" | "family";
+          ticketTypeId: Id<"ticketTypes">;
+          upgradeSelected?: boolean;
+        }>;
+        eventId: Id<"events">;
+      },
+      {
+        accommodationTotalMinor: number;
+        attendees: Array<{
+          accommodationTotalMinor: number;
+          ageBandCode?: "under_3" | "3_11" | "12_17" | "18_plus";
+          amountDueMinor: number;
+          attendeeKey: string;
+          categoryCode?: "standard" | "superior" | "family";
+          categoryId?: Id<"accommodationCategories">;
+          categoryLabel?: string;
+          cotSelected: boolean;
+          lines: Array<{
+            chargeMinor: number;
+            kind: "accommodation" | "superior_upgrade" | "cot";
+            label: string;
+            nights: number;
+            ratePerNightMinor: number;
+          }>;
+          occupancy?: "single" | "shared" | "family";
+          ticketLabel: string;
+          ticketPriceMinor: number;
+          ticketTypeId: Id<"ticketTypes">;
+          upgradeSelected: boolean;
+        }>;
+        breakfastIncluded: boolean;
+        currency: string;
+        eventId: Id<"events">;
+        ticketTotalMinor: number;
+        totalDueMinor: number;
+      }
+    >;
     getPublicSignupCatalog: FunctionReference<
       "query",
       "public",
       {},
       Array<{
         accommodation: {
+          activeCategories: Array<{
+            categoryId: Id<"accommodationCategories">;
+            code: "standard" | "superior" | "family";
+            label: string;
+            rates: Array<{
+              occupancy: "single" | "shared" | "family";
+              pricePerPersonMinor: number;
+            }>;
+          }>;
+          ageBands: Array<{
+            code: "under_3" | "3_11" | "12_17" | "18_plus";
+            label: string;
+            maxAge: number | null;
+            minAge: number;
+          }>;
+          config: {
+            baseCheckInAt: number;
+            baseCheckOutAt: number;
+            breakfastIncluded: boolean;
+            nightCount: number;
+          } | null;
           eligible: boolean;
+          options: Array<{
+            eligibilityAgeBandCode:
+              | "under_3"
+              | "3_11"
+              | "12_17"
+              | "18_plus"
+              | null;
+            label: string;
+            optionCode: "superior_upgrade" | "cot";
+            priceMinor: number;
+          }>;
           reason:
             | "accommodation_disabled"
             | "no_assignable_inventory"
@@ -1397,6 +1475,8 @@ export declare const api: {
           label: string;
           priceMinor: number;
           reason: "sold_out" | "disabled" | "hidden" | "not_on_sale" | null;
+          roomTypeCategoryCode?: "standard" | "superior" | "family";
+          roomTypeCategoryId?: Id<"accommodationCategories">;
           roomTypeId?: Id<"accommodationRoomTypes">;
           selectable: boolean;
           ticketTypeId: Id<"ticketTypes">;
@@ -1452,6 +1532,14 @@ export declare const api: {
       "mutation",
       "public",
       {
+        accommodationSelections: Array<{
+          ageBandCode?: "under_3" | "3_11" | "12_17" | "18_plus";
+          attendeeKey: string;
+          categoryId: Id<"accommodationCategories">;
+          cotSelected: boolean;
+          occupancy: "single" | "shared" | "family";
+          upgradeSelected: boolean;
+        }>;
         assignments: Array<{
           assignmentIntent: "assign" | "skip";
           attendeeKey: string;
@@ -1484,6 +1572,14 @@ export declare const api: {
       {
         bookingRef?: string;
         restorePayload: {
+          accommodationSelections: Array<{
+            ageBandCode?: string;
+            attendeeKey: string;
+            categoryId: string;
+            cotSelected: boolean;
+            occupancy: "single" | "shared" | "family";
+            upgradeSelected: boolean;
+          }>;
           assignments: Array<{
             assignmentIntent: "assign" | "skip";
             attendeeKey: string;

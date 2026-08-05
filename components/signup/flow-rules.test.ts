@@ -31,6 +31,10 @@ const baseEvent: PublicSignupCatalogEvent = {
   accommodation: {
     eligible: true,
     reason: null,
+    config: null,
+    activeCategories: [],
+    options: [],
+    ageBands: [],
     slots: [],
   },
 }

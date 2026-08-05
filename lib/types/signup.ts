@@ -40,6 +40,66 @@ export type AccommodationIneligibilityReason =
   | "no_assignable_inventory"
   | "event_closed"
 
+/**
+ * The locked age-band code union shared by the public signup contract. Codes,
+ * labels and bounds are event-configured catalog data — the UI and submission
+ * rules never hardcode a specific band such as under_3.
+ */
+export const signupAgeBandCodeValidator = v.union(
+  v.literal("under_3"),
+  v.literal("3_11"),
+  v.literal("12_17"),
+  v.literal("18_plus")
+)
+
+export type SignupAgeBandCode = "under_3" | "3_11" | "12_17" | "18_plus"
+
+export const signupAccommodationOccupancyValidator = v.union(
+  v.literal("single"),
+  v.literal("shared"),
+  v.literal("family")
+)
+
+export type SignupAccommodationOccupancy = "single" | "shared" | "family"
+
+/**
+ * One per-attendee accommodation preference carried by a public signup
+ * submission. It contains exactly one attendee key, a category ID, an
+ * occupancy literal, the superior/cot flags, and an optional age-band code.
+ * It never contains room IDs, slot IDs, dates, night counts, prices, totals,
+ * or snapshots — those are server-resolved.
+ */
+export const signupAccommodationSelectionValidator = v.object({
+  attendeeKey: v.string(),
+  categoryId: v.id("accommodationCategories"),
+  occupancy: signupAccommodationOccupancyValidator,
+  upgradeSelected: v.boolean(),
+  cotSelected: v.boolean(),
+  ageBandCode: v.optional(signupAgeBandCodeValidator),
+})
+
+export type SignupAccommodationSelection = {
+  attendeeKey: string
+  categoryId: string
+  occupancy: SignupAccommodationOccupancy
+  upgradeSelected: boolean
+  cotSelected: boolean
+  ageBandCode?: SignupAgeBandCode
+}
+
+/**
+ * Restore-payload shape for accommodation preferences. IDs are stringified
+ * (like the other restore arrays) so a replayed restore payload round-trips.
+ */
+export type SignupAccommodationSelectionRestore = {
+  attendeeKey: string
+  categoryId: string
+  occupancy: SignupAccommodationOccupancy
+  upgradeSelected: boolean
+  cotSelected: boolean
+  ageBandCode?: string
+}
+
 export type SignupSubmissionEnvelope = {
   eventId: string
   source: SignupSource
@@ -73,6 +133,7 @@ export type SignupSubmissionEnvelope = {
     slotId: string
     assignmentIntent: "assign" | "skip"
   }>
+  accommodationSelections: SignupAccommodationSelection[]
 }
 
 export type SignupSubmissionResult = {
@@ -94,6 +155,7 @@ export type SignupSubmissionRestorePayload = {
   attendees: SignupSubmissionEnvelope["attendees"]
   ticketSelections: SignupSubmissionEnvelope["ticketSelections"]
   assignments: SignupSubmissionEnvelope["assignments"]
+  accommodationSelections: SignupAccommodationSelectionRestore[]
 }
 
 export const signupSubmissionErrorCodeValues = [

@@ -1,5 +1,7 @@
 import type {
   AccommodationIneligibilityReason,
+  SignupAccommodationOccupancy,
+  SignupAgeBandCode,
   TicketUnavailableReason,
 } from "@/lib/types/signup"
 
@@ -8,6 +10,64 @@ export type PublicSignupCatalogSlot = {
   roomLabel: string
   roomTypeLabel: string
   assignable: boolean
+}
+
+export type PublicSignupCatalogAccommodationConfig = {
+  baseCheckInAt: number
+  baseCheckOutAt: number
+  nightCount: number
+  breakfastIncluded: boolean
+}
+
+export type PublicSignupCatalogActiveCategory = {
+  categoryId: string
+  code: "standard" | "superior" | "family"
+  label: string
+  rates: Array<{
+    occupancy: SignupAccommodationOccupancy
+    pricePerPersonMinor: number
+  }>
+}
+
+export type PublicSignupCatalogOption = {
+  optionCode: "superior_upgrade" | "cot"
+  label: string
+  priceMinor: number
+  eligibilityAgeBandCode: SignupAgeBandCode | null
+}
+
+export type PublicSignupCatalogAgeBand = {
+  code: SignupAgeBandCode
+  label: string
+  minAge: number
+  maxAge: number | null
+}
+
+export type PublicSignupCatalogAccommodation = {
+  eligible: boolean
+  reason: AccommodationIneligibilityReason | null
+  /**
+   * Legacy slot-based contract preserved only for compatibility with
+   * historical consumers. The options-only client must never use slots as a
+   * selection source.
+   */
+  slots: PublicSignupCatalogSlot[]
+  config: PublicSignupCatalogAccommodationConfig | null
+  activeCategories: PublicSignupCatalogActiveCategory[]
+  options: PublicSignupCatalogOption[]
+  ageBands: PublicSignupCatalogAgeBand[]
+}
+
+export type PublicSignupCatalogTicket = {
+  ticketTypeId: string
+  label: string
+  priceMinor: number
+  selectable: boolean
+  reason: TicketUnavailableReason | null
+  roomTypeId?: string
+  /** Resolved ticket entitlement: the category of `ticketTypes.roomTypeId`. */
+  roomTypeCategoryId?: string
+  roomTypeCategoryCode?: string
 }
 
 export type PublicSignupCatalogEvent = {
@@ -24,19 +84,8 @@ export type PublicSignupCatalogEvent = {
     externalEventId: string | null
   }
   defaultRoomTypeId?: string
-  tickets: Array<{
-    ticketTypeId: string
-    label: string
-    priceMinor: number
-    selectable: boolean
-    reason: TicketUnavailableReason | null
-    roomTypeId?: string
-  }>
-  accommodation: {
-    eligible: boolean
-    reason: AccommodationIneligibilityReason | null
-    slots: PublicSignupCatalogSlot[]
-  }
+  tickets: PublicSignupCatalogTicket[]
+  accommodation: PublicSignupCatalogAccommodation
 }
 
 export function normalizePublicSignupCatalog(
@@ -56,6 +105,9 @@ export function normalizePublicSignupCatalog(
     tickets: event.tickets.map((ticket) => ({
       ...ticket,
       reason: ticket.reason ?? null,
+      roomTypeId: ticket.roomTypeId ?? undefined,
+      roomTypeCategoryId: ticket.roomTypeCategoryId ?? undefined,
+      roomTypeCategoryCode: ticket.roomTypeCategoryCode ?? undefined,
     })),
     accommodation: {
       ...event.accommodation,
@@ -63,6 +115,26 @@ export function normalizePublicSignupCatalog(
       slots: event.accommodation.slots.map((slot) => ({
         ...slot,
         assignable: Boolean(slot.assignable),
+      })),
+      config: event.accommodation.config ?? null,
+      activeCategories: event.accommodation.activeCategories.map(
+        (category) => ({
+          ...category,
+          rates: category.rates.map((rate) => ({
+            ...rate,
+            pricePerPersonMinor: Number(rate.pricePerPersonMinor) || 0,
+          })),
+        })
+      ),
+      options: event.accommodation.options.map((option) => ({
+        ...option,
+        priceMinor: Number(option.priceMinor) || 0,
+        eligibilityAgeBandCode: option.eligibilityAgeBandCode ?? null,
+      })),
+      ageBands: event.accommodation.ageBands.map((band) => ({
+        ...band,
+        minAge: Number(band.minAge) || 0,
+        maxAge: band.maxAge ?? null,
       })),
     },
   }))
