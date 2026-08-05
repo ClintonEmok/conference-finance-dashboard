@@ -1045,3 +1045,103 @@ test("prices orders with more than 100 selections without truncation", async () 
   expect(breakdown?.amountDueMinor).toBe(960000)
   expect(breakdown?.accommodationLines).toHaveLength(120)
 })
+
+// ---------------------------------------------------------------------------
+// Confirmed immutability at the loader level: mutating the live selection
+// flags/category of a confirmed row must never re-price it — the persisted
+// snapshot is self-contained (CR-02 regression).
+// ---------------------------------------------------------------------------
+
+test("confirmed order is not re-priced when live selection flags are edited", async () => {
+  const t = fresh()
+  const ctx = await seedEvent(t)
+
+  // Confirm with upgrade selected: ticket 2000 + base 2×3000 + upgrade 2×1500
+  // = 11000.
+  const snapshot = buildAccommodationPriceSnapshot({
+    selection: {
+      attendeeId: ctx.attendeeNotIncludedId,
+      categoryCode: "standard",
+      occupancy: "shared",
+      upgradeSelected: true,
+      cotSelected: false,
+      ageBandCode: "18_plus",
+      nightCount: 2,
+    },
+    pricing: {
+      baseRatePerNightMinor: 3000,
+      superiorUpgradePriceMinor: 1500,
+      cotPriceMinor: 500,
+      ticketAccommodationIncluded: false,
+      eventBaseNights: 2,
+    },
+  })
+
+  const order = await t.mutation(async (db) => {
+    return await db.db.insert("orders", {
+      eventId: ctx.eventId as never,
+      source: "internal",
+      bookingRef: "BK-20260411-MUTFLAG",
+      bookerName: "Flag Buyer",
+      submittedAt: BASE_EVENT_AT,
+    })
+  })
+  const attendeeId = await t.mutation(async (db) => {
+    return await db.db.insert("orderAttendees", {
+      orderId: order as never,
+      attendeeKey: "flag-a",
+      name: "Flag Buyer",
+      gender: "unknown",
+      sortOrder: 0,
+    })
+  })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderTicketSelections", {
+      orderId: order as never,
+      attendeeId: attendeeId as never,
+      ticketTypeId: ctx.ticketNotIncludedId as never,
+      quantity: 1,
+      sortOrder: 0,
+    })
+  })
+  const selectionId = await t.mutation(async (db) => {
+    return await db.db.insert("orderAccommodationSelections", {
+      orderId: order as never,
+      attendeeId: attendeeId as never,
+      categoryId: ctx.categoryStandardId as never,
+      occupancy: "shared",
+      upgradeSelected: true,
+      cotSelected: false,
+      nightCount: 2,
+      confirmedAt: BASE_EVENT_AT,
+      configVersion: BASE_EVENT_AT,
+      priceSnapshot: snapshot,
+    })
+  })
+
+  const before = await loadOrderAmountDue(t, String(order))
+  expect(before?.amountDueMinor).toBe(11000)
+
+  // Live selection edited after confirmation: upgrade deselected, cot
+  // selected, category moved to superior. The confirmed amount must stay
+  // fixed at 11000 — never re-derived from the mutated flags.
+  await t.mutation(async (db) => {
+    return await db.db.patch(
+      "orderAccommodationSelections",
+      selectionId as never,
+      {
+        categoryId: ctx.categorySuperiorId as never,
+        upgradeSelected: false,
+        cotSelected: true,
+        ageBandCode: "under_3",
+      }
+    )
+  })
+
+  const after = await loadOrderAmountDue(t, String(order))
+  expect(after?.amountDueMinor).toBe(11000)
+  expect(after?.accommodationLines.map((line) => line.kind)).toEqual([
+    "accommodation",
+    "superior_upgrade",
+  ])
+})
