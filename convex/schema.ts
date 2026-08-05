@@ -274,7 +274,8 @@ export default defineSchema({
     })
   )
     .index("by_orderId", ["orderId"])
-    .index("by_attendeeId", ["attendeeId"]),
+    .index("by_attendeeId", ["attendeeId"])
+    .index("by_orderId_and_attendeeId", ["orderId", "attendeeId"]),
 
   orderIdempotency: defineTable(
     v.object({

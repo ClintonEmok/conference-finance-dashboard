@@ -434,7 +434,11 @@ describe("Phase 39 schema contract", () => {
       ])
     )
     expect(indexNames(table("orderAccommodationSelections"))).toEqual(
-      expect.arrayContaining(["by_orderId", "by_attendeeId"])
+      expect.arrayContaining([
+        "by_orderId",
+        "by_attendeeId",
+        "by_orderId_and_attendeeId",
+      ])
     )
   })
 })
