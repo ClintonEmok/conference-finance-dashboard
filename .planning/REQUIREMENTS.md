@@ -70,4 +70,132 @@
 
 ---
 
-_Requirements defined: 2026-07-29 for milestone v4.0_
+## v5.0 Requirements
+
+### Reusable Accommodation Catalog
+
+- [ ] **CAT-01**: The system provides a reusable catalog of accommodation categories (standard, superior, family) with a label and admin-facing description for allocation.
+- [ ] **CAT-02**: The system stores physical room types as leaf inventory items (label, capacity, physical count, admin description) where bed arrangement is part of the label, and each room type references a category.
+- [ ] **CAT-03**: The system provides reusable accommodation options (superior upgrade, cot) and age bands (under 3, 3-11, 12-17, 18+) that can be configured per event.
+- [ ] **CAT-04**: An admin can view and edit the reusable catalog and room-type descriptions so room allocation decisions are well informed.
+
+### Event-Scoped Configuration
+
+- [ ] **CFG-01**: An event configures its accommodation stay (one night before the event initially, night count configurable) and which catalog items/options are active.
+- [ ] **CFG-02**: An event configures per-category × occupancy rates charged per person per night (single, shared, family) using minor-unit prices.
+- [ ] **CFG-03**: An event configures the standard-to-superior upgrade price (default €10 per person per night), cot price (default €10 per night), and cot age eligibility (under 3).
+- [ ] **CFG-04**: An event configures physical availability per room type and cot count; sellable beds equal room count × capacity.
+- [ ] **CFG-05**: An event configures age-band pricing rules that may be left empty and seeded later; breakfast is included in all room prices.
+
+### Admin Upgrades & Options Tab
+
+- [ ] **ADM-01**: The event Accommodation workspace provides an "Upgrades & Options" tab where an admin configures rates, upgrade/cot options, age bands, availability counts, and room-type descriptions.
+- [ ] **ADM-02**: The admin tab preserves the existing Hotels and Allocation tabs and never recomputes money in the UI.
+- [ ] **ADM-03**: An admin can explicitly confirm accommodation configuration/assignment, which locks buyer configuration changes.
+
+### Public Signup Options
+
+- [ ] **SIG-01**: During signup a buyer selects accommodation options only (category + single/shared/family occupancy, superior upgrade, cot for under-3, optional age band); the buyer never books a specific room.
+- [ ] **SIG-02**: Signup shows per-person-per-night pricing and a live price breakdown in the review step, with breakfast included and cot eligibility by age band.
+- [ ] **SIG-03**: Age band is captured optionally per attendee and may be left blank.
+- [ ] **SIG-04**: The public signup accommodation step replaces the buyer-facing slot drag-drop with option selection; final room placement remains admin-controlled.
+
+### Track Payment Permalink
+
+- [ ] **TRK-01**: A buyer can open a booking via a durable permalink `/track-payment/[bookingRef]` that shows balance, progress, tickets, and accommodation selections.
+- [ ] **TRK-02**: Before admin confirmation, a buyer can change accommodation configuration on the permalink; the change re-prices the order and updates the amount due.
+- [ ] **TRK-03**: Permalink edits are authorized by a buyer ownership gate (booker email / edit token), idempotent, rate-limited, and server-side priced; client-provided amounts are never trusted.
+- [ ] **TRK-04**: After confirmation, permalink edits are rejected and the payment link reflects the confirmed amount.
+- [ ] **TRK-05**: When a change reduces the amount due, the excess is treated as a donation.
+- [ ] **TRK-06**: The existing booking-reference search page remains as an entry point to the permalink.
+
+### Finance Derivation
+
+- [ ] **FIN-01**: Canonical order amount-due includes accommodation option charges so Paid, Outstanding, and Reconciliation remain correct across all consumers.
+- [ ] **FIN-02**: Accommodation pricing is derived live for unconfirmed orders and snapshotted (with a config version boundary) at admin confirmation so confirmed orders never retroactively re-price.
+- [ ] **FIN-03**: A pure domain module computes accommodation amounts and is covered by unit tests; UI surfaces never compute accommodation totals.
+- [ ] **FIN-04**: Tikkie payment links and amount-due agree after accommodation re-pricing, with stale links regenerated/expired as needed.
+
+### Allocation Paid-Priority
+
+- [ ] **ALL-01**: The admin Allocation view derives a per-attendee paid state from canonical per-attendee due/paid maps, never from order status.
+- [ ] **ALL-02**: Paid attendees are highlighted and prioritized; unpaid attendees are grayed so admins do not assign rooms before payment completes.
+- [ ] **ALL-03**: Admin assignment confirmation sets the confirmedAt boundary that locks buyer config changes.
+
+### Ticket-Driven Room Eligibility (SEED-002)
+
+- [ ] **TKT-01**: Ticket type remains the source of room entitlement, mapping a ticket to its allowed room category/type during signup and allocation.
+- [ ] **TKT-02**: Signup shows the selected ticket rather than asking for ticket type again, and room eligibility derives from the ticket's allowed room types.
+
+## Future Requirements
+
+- Cross-event analytics and portfolio dashboards.
+- Full Ticket Tailor schema/provider redesign.
+- Advanced commerce features such as coupons and new refund workflows.
+- QR-code event check-in (SEED-001).
+
+## Out Of Scope
+
+| Feature | Reason |
+| --- | --- |
+| New backend finance formulas or provider migration | v5.0 extends the canonical amount-due derivation rather than replacing it. |
+| Multi-tenant organization support | The project remains single-org scoped. |
+| Cross-event reporting product | Would require a separate information architecture and authorization model. |
+| Public attendee-facing UX redesign beyond accommodation options | This milestone focuses on accommodation upgrades/options and the track-payment permalink. |
+| Waitlist/exhaustion workflows | Full waitlist is deferred; exhausted inventory keeps current no-availability behavior. |
+
+## Traceability
+
+| Requirement | Phase | Status |
+| --- | --- | --- |
+| UX-01 | 34 | Done |
+| UX-02 | 34 | Done |
+| UX-03 | 34 | Done |
+| OPS-01 | 35 | Done |
+| OPS-02 | 35 | Done |
+| OPS-03 | 38 | Pending |
+| FINUX-01 | 36 | Done |
+| FINUX-02 | 36 | Done |
+| ACCUX-01 | 36 | Done |
+| ACCUX-02 | 36 | Done |
+| QUAL-01 | 37 | Done |
+| QUAL-02 | 37 | Done |
+| QUAL-03 | 37 | Done |
+| QUAL-04 | 34 | Done |
+| CAT-01 | TBD | Pending |
+| CAT-02 | TBD | Pending |
+| CAT-03 | TBD | Pending |
+| CAT-04 | TBD | Pending |
+| CFG-01 | TBD | Pending |
+| CFG-02 | TBD | Pending |
+| CFG-03 | TBD | Pending |
+| CFG-04 | TBD | Pending |
+| CFG-05 | TBD | Pending |
+| ADM-01 | TBD | Pending |
+| ADM-02 | TBD | Pending |
+| ADM-03 | TBD | Pending |
+| SIG-01 | TBD | Pending |
+| SIG-02 | TBD | Pending |
+| SIG-03 | TBD | Pending |
+| SIG-04 | TBD | Pending |
+| TRK-01 | TBD | Pending |
+| TRK-02 | TBD | Pending |
+| TRK-03 | TBD | Pending |
+| TRK-04 | TBD | Pending |
+| TRK-05 | TBD | Pending |
+| TRK-06 | TBD | Pending |
+| FIN-01 | TBD | Pending |
+| FIN-02 | TBD | Pending |
+| FIN-03 | TBD | Pending |
+| FIN-04 | TBD | Pending |
+| ALL-01 | TBD | Pending |
+| ALL-02 | TBD | Pending |
+| ALL-03 | TBD | Pending |
+| TKT-01 | TBD | Pending |
+| TKT-02 | TBD | Pending |
+
+**Coverage:** v5.0 has 36 requirements; the roadmapper will map all of them to phases.
+
+---
+
+_Requirements defined: 2026-08-05 for milestone v5.0_
