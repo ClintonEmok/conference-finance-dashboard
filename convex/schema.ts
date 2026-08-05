@@ -569,7 +569,12 @@ export default defineSchema({
     })
   )
     .index("by_eventId", ["eventId"])
-    .index("by_eventId_and_kind", ["eventId", "kind"]),
+    .index("by_eventId_and_kind", ["eventId", "kind"])
+    .index("by_eventId_and_kind_and_roomTypeId", [
+      "eventId",
+      "kind",
+      "roomTypeId",
+    ]),
 
   eventAccommodationAgePricing: defineTable(
     v.object({

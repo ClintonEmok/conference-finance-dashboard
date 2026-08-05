@@ -2533,7 +2533,7 @@ export const getEventAccommodationConfig = query({
       ctx.db
         .query("eventAccommodationConfig")
         .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
-        .first(),
+        .unique(),
       ctx.db
         .query("eventAccommodationRates")
         .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
@@ -2858,7 +2858,7 @@ export const upsertEventAccommodationConfig = mutation({
     const existing = await ctx.db
       .query("eventAccommodationConfig")
       .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
-      .first()
+      .unique()
 
     if (existing) {
       const baseCheckInAt = args.baseCheckInAt ?? existing.baseCheckInAt
@@ -3049,15 +3049,15 @@ export const upsertEventAccommodationResource = mutation({
         throw new Error("Room type not found")
       }
     }
-    const existingRows = await ctx.db
+    const existing = await ctx.db
       .query("eventAccommodationResources")
-      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
-      .take(100)
-    const existing = existingRows.find(
-      (row) =>
-        row.kind === args.kind &&
-        (row.roomTypeId ?? null) === (args.roomTypeId ?? null)
-    )
+      .withIndex("by_eventId_and_kind_and_roomTypeId", (q) =>
+        q
+          .eq("eventId", args.eventId)
+          .eq("kind", args.kind)
+          .eq("roomTypeId", args.roomTypeId ?? undefined)
+      )
+      .first()
     if (existing) {
       await ctx.db.patch("eventAccommodationResources", existing._id, {
         count: args.count,
