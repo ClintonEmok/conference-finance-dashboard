@@ -2,6 +2,7 @@ import { v } from "convex/values"
 import { mutation, query, type MutationCtx } from "./_generated/server"
 import type { Id } from "./_generated/dataModel"
 import { api, internal } from "./_generated/api"
+import { loadOrderAmountDueBreakdowns } from "./finance"
 import {
   signupGenderValidator,
   signupSourceValidator,
@@ -788,6 +789,14 @@ export const getByBookingRef = query({
         })
       ),
       totalAmountMinor: v.optional(v.number()),
+      accommodationLines: v.array(
+        v.object({
+          label: v.string(),
+          nights: v.number(),
+          ratePerNightMinor: v.number(),
+          chargeMinor: v.number(),
+        })
+      ),
       ticketSelections: v.array(
         v.object({
           id: v.string(),
@@ -847,11 +856,17 @@ export const getByBookingRef = query({
       }
     })
 
-    // Calculate total amount
-    const totalAmountMinor = ticketSelections.reduce(
-      (sum, ts) => sum + ts.pricePerTicketMinor * ts.quantity,
-      0
+    // Canonical amount-due (tickets + accommodation) from the shared loader.
+    // The booking reference response must never recompute its own total.
+    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      [{ _id: submission._id }]
     )
+    const amountDueBreakdown = amountDueBreakdownsByOrderId.get(
+      String(submission._id)
+    )
+    const totalAmountMinor = amountDueBreakdown?.amountDueMinor ?? 0
+    const accommodationLines = amountDueBreakdown?.accommodationLines ?? []
 
     // Build attendee list with ticket info
     const attendees = attendeeRows.map((attendee) => {
@@ -966,6 +981,7 @@ export const getByBookingRef = query({
       attendees: attendeesWithRooms,
       roomAssignments,
       totalAmountMinor,
+      accommodationLines,
       ticketSelections,
     }
   },

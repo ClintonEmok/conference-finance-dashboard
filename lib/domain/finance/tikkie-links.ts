@@ -288,9 +288,9 @@ function normalizeReferenceId(value: string | null | undefined) {
 }
 
 function normalizeAmountMinor(value: number) {
-  if (!Number.isInteger(value) || value <= 0) {
+  if (!Number.isInteger(value) || value < 0) {
     throw new Error(
-      "Invalid 'amountMinor'. Expected a positive integer in cents."
+      "Invalid 'amountMinor'. Expected a non-negative integer in cents (0 = flexible installment link)."
     )
   }
 
@@ -328,12 +328,12 @@ export function buildTikkieGenerationDefaults(params: {
     "providerOrderId"
   )
 
+  // Tikkie links are open, flexible payment requests that support
+  // installments: the payer may pay any amount against the same link, so the
+  // created link always carries the flexible zero amount regardless of
+  // outstanding, canonical, or client-supplied totals.
   return {
-    amountMinor:
-      Number.isInteger(params.outstandingAmountMinor) &&
-      params.outstandingAmountMinor > 0
-        ? params.outstandingAmountMinor
-        : 0,
+    amountMinor: 0,
     expiryDate: toTikkieDate(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)),
     description: `Order ${providerOrderId}`.slice(0, TIKKIE_TEXT_LIMIT),
     referenceId: providerOrderId.slice(0, TIKKIE_TEXT_LIMIT),
@@ -430,7 +430,6 @@ export async function createTikkiePaymentLink(
     orderId,
     providerOrderId,
     providerEventId,
-    amountMinor,
     description,
     expiryDate,
     referenceId,
@@ -446,8 +445,14 @@ export async function createTikkiePaymentLink(
       ? normalizeProviderIdentifier(order.providerOrderId, "providerOrderId")
       : providerOrderId
 
+  // Order links are flexible by design (installments): the created link
+  // always carries amountMinor 0, regardless of outstanding, canonical, or
+  // client-supplied totals. The canonical amount-due drives tracking
+  // balance/progress and matching, never the link amount.
+  const flexibleAmountMinor = 0
+
   const providerResponse = await createPaymentRequest({
-    amountInCents: amountMinor,
+    amountInCents: flexibleAmountMinor,
     description,
     expiryDate: toTikkieDate(expiryDate),
     ...(referenceId ? { referenceId } : {}),
@@ -478,7 +483,7 @@ export async function createTikkiePaymentLink(
     paymentRequestToken: providerResponse.paymentRequestToken,
     paymentRequestUrl: providerResponse.url,
     providerStatus: providerResponse.status,
-    amountMinor,
+    amountMinor: flexibleAmountMinor,
     description,
     expiryDate: expiryDate.getTime(),
     referenceId: referenceId ?? undefined,
@@ -495,7 +500,7 @@ export async function createTikkiePaymentLink(
     status: appStatus,
     statusSource: "create",
     providerStatus: providerResponse.status,
-    amountMinor,
+    amountMinor: flexibleAmountMinor,
     description,
     expiryDate: expiryDate.getTime(),
     referenceId: referenceId,

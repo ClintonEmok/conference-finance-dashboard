@@ -161,7 +161,7 @@ describe("accommodation amounts - locked pricing formula", () => {
 
   it("contributes €0 when config, rate or selection data is missing", () => {
     const missingEverything = deriveAccommodationAmount({
-      selection: {},
+      selection: { attendeeId: "attendee_1" },
       pricing: {},
     })
     expect(missingEverything.totalMinor).toBe(0)

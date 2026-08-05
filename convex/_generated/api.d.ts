@@ -1406,6 +1406,12 @@ export declare const api: {
       "public",
       { bookingRef: string },
       null | {
+        accommodationLines: Array<{
+          chargeMinor: number;
+          label: string;
+          nights: number;
+          ratePerNightMinor: number;
+        }>;
         attendees: Array<{
           assignedRoom?: string;
           email?: string;
