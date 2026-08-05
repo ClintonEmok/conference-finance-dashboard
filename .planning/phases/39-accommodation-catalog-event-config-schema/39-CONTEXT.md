@@ -23,7 +23,9 @@ The system stores a reusable accommodation catalog (categories, room types with 
 - `eventAccommodationConfig` stores the **base stay window as `baseCheckInAt`/`baseCheckOutAt`** (the conference nights a ticket may cover); the buyer's actual stay is selectable per order, `nightCount` is derived and **never hardcoded**.
 - The admin configures **extended-stay availability**: whether buyers may stay **before the event, after the event, or both**, plus per-direction night limits if needed (`allowExtendedStayBefore` / `allowExtendedStayAfter` / `allowExtendedStayBoth` — configurable, not assumed).
 - Rates are stored as **full rates per category × occupancy**: `(eventId, categoryId, occupancy)` → `pricePerPersonMinor` per night (e.g. standard single 9000, standard shared 6000, superior single 10000, superior shared 7000). The standard→superior "upgrade" is a **selection**, not a second charge — the €10 is the price difference shown in the UI, derived from the rate table, never added on top of the superior rate.
-- Upgrade and cot are separate `eventAccommodationOptions` rows with per-night prices; cot has age eligibility (under 3) and its own availability count. Breakfast is an included flag on rates.
+- Upgrade and cot are separate `eventAccommodationOptions` rows with per-night prices that **default to €10** (1000 minor units) when an event creates the option and no price is supplied; explicit €0 and other prices remain supported. Cot has age eligibility (under 3) and its own availability count.
+- Breakfast is included in all room prices and modeled as an **event-level `breakfastIncluded` flag on `eventAccommodationConfig`** (not per-rate), since breakfast is included uniformly across the event's accommodation.
+- Category activation is **derived**: a category is active for an event when at least one `eventAccommodationRates` row exists for `(eventId, categoryId)` — no separate active-categories list or flag is stored.
 - Availability is physical room count per room type plus cot count; **sellable beds = count × capacity** — one derived availability source, no separate manually-tracked availability counter.
 
 ### Compatibility
