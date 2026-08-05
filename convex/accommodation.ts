@@ -2449,10 +2449,9 @@ export function isValidAgeBandRange(
 }
 
 /**
- * The locked (code, minAge, maxAge) tuples for the built-in age bands. Cot
- * eligibility is derived from the code alone (`under_3`), so the numeric
- * bounds must always match the code or the catalog could claim cot
- * eligibility for people outside the intended age range.
+ * The locked (code, minAge, maxAge) tuples for the built-in age bands. The
+ * numeric bounds must always match the code or the catalog could claim an age
+ * range that contradicts the band's meaning.
  */
 export const LOCKED_AGE_BAND_BOUNDS: Record<
   string,
@@ -3228,28 +3227,6 @@ export const upsertEventAccommodationOption = mutation({
     if (args.priceMinor !== undefined && !isNonNegativePrice(args.priceMinor)) {
       throw new Error("priceMinor must be a non-negative number")
     }
-    if (
-      args.eligibilityAgeBandCode !== undefined &&
-      !isCotEligibilityValid({
-        optionCode: option.code,
-        eligibilityAgeBandCode: args.eligibilityAgeBandCode,
-      })
-    ) {
-      throw new Error(
-        `Option "${option.code}" cannot use age band "${args.eligibilityAgeBandCode}"`
-      )
-    }
-    if (args.eligibilityAgeBandCode !== undefined) {
-      const band = await ctx.db
-        .query("accommodationAgeBands")
-        .withIndex("by_code", (q) =>
-          q.eq("code", args.eligibilityAgeBandCode as "under_3" | "3_11" | "12_17" | "18_plus")
-        )
-        .first()
-      if (!band) {
-        throw new Error("Age band not found")
-      }
-    }
 
     const existing = await ctx.db
       .query("eventAccommodationOptions")
@@ -3258,14 +3235,42 @@ export const upsertEventAccommodationOption = mutation({
       )
       .first()
 
+    // Validate the EFFECTIVE persisted eligibility band, not just the arg: a
+    // cot option must end up with a configured band (update keeps the existing
+    // value when omitted) and a non-cot option must end up with none. This
+    // prevents a cot option from being persisted without an eligibility band
+    // when the caller omits the field.
+    const effectiveEligibilityAgeBandCode =
+      existing && args.eligibilityAgeBandCode === undefined
+        ? existing.eligibilityAgeBandCode
+        : args.eligibilityAgeBandCode
+    if (
+      !isCotEligibilityValid({
+        optionCode: option.code,
+        eligibilityAgeBandCode: effectiveEligibilityAgeBandCode,
+      })
+    ) {
+      throw new Error(
+        `Option "${option.code}" requires an eligibility age band`
+      )
+    }
+    if (effectiveEligibilityAgeBandCode !== undefined) {
+      const band = await ctx.db
+        .query("accommodationAgeBands")
+        .withIndex("by_code", (q) =>
+          q.eq("code", effectiveEligibilityAgeBandCode as "under_3" | "3_11" | "12_17" | "18_plus")
+        )
+        .first()
+      if (!band) {
+        throw new Error("Age band not found")
+      }
+    }
+
     if (existing) {
       await ctx.db.patch("eventAccommodationOptions", existing._id, {
         enabled: args.enabled ?? existing.enabled,
         priceMinor: args.priceMinor ?? existing.priceMinor,
-        eligibilityAgeBandCode:
-          args.eligibilityAgeBandCode === undefined
-            ? existing.eligibilityAgeBandCode
-            : args.eligibilityAgeBandCode,
+        eligibilityAgeBandCode: effectiveEligibilityAgeBandCode,
         notes:
           args.notes === undefined
             ? existing.notes
@@ -3280,7 +3285,7 @@ export const upsertEventAccommodationOption = mutation({
       optionId: args.optionId,
       enabled: args.enabled ?? false,
       priceMinor: resolveEventOptionPriceMinor(args.priceMinor),
-      eligibilityAgeBandCode: args.eligibilityAgeBandCode,
+      eligibilityAgeBandCode: effectiveEligibilityAgeBandCode,
       notes: normalizeOptionalString(args.notes) ?? undefined,
     })
     await touchEventAccommodationConfigVersion(ctx, args.eventId)

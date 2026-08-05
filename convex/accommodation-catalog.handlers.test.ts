@@ -461,6 +461,25 @@ test("event option upsert enforces cot eligibility through the handler", async (
       eligibilityAgeBandCode: "3_11" as never,
     })
   ).rejects.toThrow(/Age band not found/)
+  // A cot option cannot be inserted without an eligibility band.
+  const bareCotEventId = await createEvent(t)
+  await expect(
+    t.mutation(api.accommodation.upsertEventAccommodationOption, {
+      eventId: bareCotEventId,
+      optionId: cotId,
+    })
+  ).rejects.toThrow(/requires an eligibility age band/)
+  // An update that omits the band preserves the existing configured band
+  // (never silently clears it).
+  const preserved = await t.mutation(
+    api.accommodation.upsertEventAccommodationOption,
+    {
+      eventId,
+      optionId: cotId,
+      enabled: true,
+    }
+  )
+  expect(preserved.eligibilityAgeBandCode).toBe("under_3")
   // Non-cot options must not carry an eligibility age band.
   await expect(
     t.mutation(api.accommodation.upsertEventAccommodationOption, {
@@ -468,7 +487,7 @@ test("event option upsert enforces cot eligibility through the handler", async (
       optionId: upgradeId,
       eligibilityAgeBandCode: "under_3",
     })
-  ).rejects.toThrow(/cannot use age band "under_3"/)
+  ).rejects.toThrow(/requires an eligibility age band/)
 })
 
 // ---------------------------------------------------------------------------
