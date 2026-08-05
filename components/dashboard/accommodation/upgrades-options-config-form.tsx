@@ -706,7 +706,7 @@ function OptionCard({
             className="w-40 font-mono tabular-nums"
           />
           <span className="text-sm text-muted-foreground">
-            = {formatMoney(Math.max(0, Number(price) || 0))} / night
+            Current: {formatMoney(option.priceMinor)} / night
           </span>
         </div>
       </div>
