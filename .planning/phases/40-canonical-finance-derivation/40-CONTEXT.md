@@ -23,9 +23,10 @@ Accommodation option charges (room rate, superior upgrade, cot) become part of t
 - At **admin confirmation** (the assignment-confirm flow, Phase 44) the resolved amount is snapshotted with a `configVersion` boundary so confirmed orders never retroactively re-price when an admin later edits a rate.
 - `configVersion` stores the resolved event-config version (e.g. `eventAccommodationConfig.updatedAt`) on the snapshot, so it is traceable which config produced the prices.
 
-### Tikkie Payment Links (open by nature)
-- Tikkie links are **open payment requests**: a buyer may pay any amount against them, and the stored `amountMinor` is the requested/expected amount — not a hard cap. No link regeneration is needed when configuration changes.
-- Where a Tikkie link is created/expected for an order, its **expected amount derives from the canonical amount-due** (including accommodation) so the tracking page's requested amount and balance agree. Phase 40 only ensures link-amount sourcing agrees; the permalink config-change flow (Phase 43) just presents the canonical total.
+### Tikkie Payment Links (flexible by design)
+- Tikkie links are **open, flexible payment requests**: the payer may pay any amount against them. This deliberately enables **installments** — a buyer can pay part now and more later against the same link.
+- Tikkie link `amountMinor` is therefore **0 (flexible)** at creation, not derived from the canonical amount-due. No derivation, regeneration, or expiration of links is needed when configuration changes.
+- The tracking page presents the canonical amount-due as the *balance/remaining target*; the Tikkie link itself stays flexible. The canonical total is what progress and Outstanding/Reconciliation use.
 
 </decisions>
 
@@ -37,7 +38,7 @@ Accommodation option charges (room rate, superior upgrade, cot) become part of t
 - `lib/domain/finance/amounts.ts` — minor-unit helpers; `deriveBalanceAmounts`, `deriveOrderAmountBreakdown`.
 - `convex/orders.ts` — `getOrdersForReconciliation`, ledger reads; `getOrderWithAttendees`.
 - `convex/signupSubmission.ts` — `getByBookingRef` inline tickets-only total (lines 850-854) to be replaced.
-- `convex/tikkie.ts` — `createPaymentLink` stores `amountMinor` as expected/requested amount; links are open by nature.
+- `convex/tikkie.ts` — `createPaymentLink` stores `amountMinor`; links are flexible by design, amount set to 0 to allow installment payments. `lib/domain/finance/tikkie-links.ts` `normalizeAmountMinor` currently rejects 0 — allow 0 as the flexible-link amount.
 
 ### Established Patterns
 - Minor-unit money everywhere; pure domain modules in `lib/domain/finance/` with vitest siblings.
@@ -58,6 +59,7 @@ Accommodation option charges (room rate, superior upgrade, cot) become part of t
 - The pricing formula (per attendee): `coveredNights = ticket.accommodationIncluded ? eventBaseNights : 0`; `totalNights = buyer-chosen nights`; `baseCharge = max(0, totalNights − coveredNights) × baseRate`; `upgradeCharge = upgradePrice × totalNights`; `cotCharge = cotPrice × totalNights`. Amount-due = tickets + baseCharge + upgradeCharge + cotCharge.
 - Upgrade is a selection (superior rate from rate table), never added on top of the superior rate. Cot eligible only for under-3. Breakfast included (no charge). Rate table supports €0.
 - If no `orderAccommodationSelections` rows exist (legacy orders, or ticket-inclusive events with no add-ons), accommodation contribution is €0 — loader unchanged behavior.
+- Tikkie links are flexible: creation amount is **0** so buyers can pay in installments; the canonical amount-due drives the tracking page balance, not the link amount.
 
 </specifics>
 
