@@ -7,6 +7,7 @@ import { Settings2 } from "lucide-react"
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 import { useAccommodationCatalog, useEventAccommodationConfig } from "@/lib/convex/hooks/accommodation"
+import { hasCompletePendingResponse } from "@/lib/dashboard/accommodation-pending-response"
 import type { Id } from "@/convex/_generated/dataModel"
 import { UpgradesOptionsPendingOrders } from "./upgrades-options-pending-orders"
 import { UpgradesOptionsConfigForm } from "./upgrades-options-config-form"
@@ -23,22 +24,6 @@ function toConfigState(value: unknown): ConfigState {
   }
   if (value === undefined) return { status: "loading" }
   return { status: "ready" }
-}
-
-/**
- * The pending-impact fields are required parts of the server response. A
- * partial/older backend or a malformed payload must surface as an error
- * state — never as a fabricated "no pending orders"/"signup has not started"
- * zero state (no-fake-zero rule).
- */
-function hasCompletePendingResponse(data: unknown): boolean {
-  if (!data || typeof data !== "object") return false
-  const record = data as Record<string, unknown>
-  return (
-    typeof record.pendingOrderCount === "number" &&
-    Array.isArray(record.pendingOrders) &&
-    typeof record.hasAccommodationSelections === "boolean"
-  )
 }
 
 export function AccommodationUpgradesOptionsTab({

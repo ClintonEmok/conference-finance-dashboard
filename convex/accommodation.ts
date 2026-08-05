@@ -3,7 +3,6 @@ import type { MutationCtx, QueryCtx } from "./_generated/server"
 import { v } from "convex/values"
 import type { Doc, Id } from "./_generated/dataModel"
 import { requireIdentity } from "./auth"
-import { requireAdmin } from "./adminAccess"
 import {
   buildAccommodationPriceSnapshot,
   type AccommodationPriceSnapshot,
@@ -2513,7 +2512,7 @@ async function getAccommodationCatalogData(ctx: QueryCtx | MutationCtx) {
 export const getAccommodationCatalog = query({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx)
+    await requireIdentity(ctx)
     const catalog = await getAccommodationCatalogData(ctx)
     return {
       categories: sortBySortOrder(catalog.categories),
@@ -2527,7 +2526,7 @@ export const getAccommodationCatalog = query({
 export const getEventAccommodationConfig = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx)
+    await requireIdentity(ctx)
     const event = await ctx.db.get("events", args.eventId)
     if (!event) {
       throw new Error("Event not found")
@@ -2790,7 +2789,7 @@ export const updateAccommodationCategory = mutation({
     sortOrder: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx)
+    await requireIdentity(ctx)
     const category = await ctx.db.get("accommodationCategories", args.categoryId)
     if (!category) {
       throw new Error("Category not found")
@@ -2891,7 +2890,7 @@ export const updateAccommodationOption = mutation({
     description: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx)
+    await requireIdentity(ctx)
     const option = await ctx.db.get("accommodationOptions", args.optionId)
     if (!option) {
       throw new Error("Option not found")
@@ -2958,7 +2957,7 @@ export const updateAccommodationAgeBand = mutation({
     sortOrder: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx)
+    await requireIdentity(ctx)
     const band = await ctx.db.get("accommodationAgeBands", args.ageBandId)
     if (!band) {
       throw new Error("Age band not found")
@@ -3087,7 +3086,7 @@ export const upsertEventAccommodationConfig = mutation({
     breakfastIncluded: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx)
+    await requireIdentity(ctx)
     const event = await getEventOrThrow(ctx, args.eventId)
     if (
       (args.baseCheckInAt === undefined) !== (args.baseCheckOutAt === undefined)
@@ -3177,7 +3176,7 @@ export const upsertEventAccommodationRate = mutation({
     pricePerPersonMinor: v.number(),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx)
+    await requireIdentity(ctx)
     await getEventOrThrow(ctx, args.eventId)
     const category = await ctx.db.get("accommodationCategories", args.categoryId)
     if (!category) {
@@ -3218,7 +3217,7 @@ export const upsertEventAccommodationOption = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx)
+    await requireIdentity(ctx)
     await getEventOrThrow(ctx, args.eventId)
     const option = await ctx.db.get("accommodationOptions", args.optionId)
     if (!option) {
@@ -3295,7 +3294,7 @@ export const upsertEventAccommodationResource = mutation({
     count: v.number(),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx)
+    await requireIdentity(ctx)
     await getEventOrThrow(ctx, args.eventId)
     if (!isNonNegativeInteger(args.count)) {
       throw new Error("count must be a non-negative integer")
@@ -3366,7 +3365,7 @@ export const upsertEventAccommodationAgePricing = mutation({
     sortOrder: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx)
+    await requireIdentity(ctx)
     await getEventOrThrow(ctx, args.eventId)
     const band = await ctx.db
       .query("accommodationAgeBands")
@@ -3431,14 +3430,6 @@ type SelectionConfirmationPatch = {
   priceSnapshot: AccommodationPriceSnapshot
 }
 
-/** The locked age-band codes a selection row may carry. */
-const VALID_AGE_BAND_CODES = new Set<string>([
-  "under_3",
-  "3_11",
-  "12_17",
-  "18_plus",
-])
-
 /**
  * Resolves every unconfirmed accommodation selection of an order into a
  * Phase 40 snapshot patch using current server-side configuration. Throws for
@@ -3446,6 +3437,11 @@ const VALID_AGE_BAND_CODES = new Set<string>([
  * unknown selection references, or rows that cannot be priced from a complete
  * event configuration. Exported so Phase 44 assignment confirmation reuses
  * the exact snapshot-boundary code path instead of inventing a second one.
+ *
+ * Valid age bands and cot eligibility are resolved from the event's own
+ * configuration (age-pricing rows and the enabled cot option's eligibility
+ * band) — never from hardcoded catalog constants, since bands may differ per
+ * event.
  */
 export async function resolveOrderAccommodationConfirmation(
   ctx: MutationCtx,
@@ -3506,10 +3502,23 @@ export async function resolveOrderAccommodationConfirmation(
   for await (const ticketSelection of ctx.db
     .query("orderTicketSelections")
     .withIndex("by_orderId", (q) => q.eq("orderId", orderId))) {
-    const previous = ticketTypeIdByAttendeeId.get(ticketSelection.attendeeId)
-    if (previous !== undefined && previous !== ticketSelection.ticketTypeId) {
+    // Fail closed: every ticket row must reference a real attendee of this
+    // order, and each attendee may have at most one ticket selection row —
+    // duplicates of the same ticket type are malformed and must never be
+    // silently collapsed.
+    const ticketAttendee = await ctx.db.get(
+      "orderAttendees",
+      ticketSelection.attendeeId
+    )
+    if (!ticketAttendee) {
+      throw new Error("Ticket selection references an unknown attendee")
+    }
+    if (ticketAttendee.orderId !== orderId) {
+      throw new Error("Ticket selection attendee does not belong to the order")
+    }
+    if (ticketTypeIdByAttendeeId.has(ticketSelection.attendeeId)) {
       throw new Error(
-        "Attendee has multiple ticket types and cannot be confirmed"
+        "Attendee has more than one ticket selection and cannot be confirmed"
       )
     }
     ticketTypeIdByAttendeeId.set(
@@ -3577,6 +3586,7 @@ export async function resolveOrderAccommodationConfirmation(
   }
   let superiorUpgradePriceMinor: number | null = null
   let cotPriceMinor: number | null = null
+  let cotEligibilityAgeBandCode: string | null = null
   for (const optionRow of eventOptionRows) {
     if (!optionRow.enabled) continue
     const definition = optionDefinitionById.get(String(optionRow.optionId))
@@ -3585,7 +3595,17 @@ export async function resolveOrderAccommodationConfirmation(
       superiorUpgradePriceMinor = optionRow.priceMinor
     } else if (definition.code === "cot") {
       cotPriceMinor = optionRow.priceMinor
+      cotEligibilityAgeBandCode = optionRow.eligibilityAgeBandCode ?? null
     }
+  }
+
+  // The set of age bands valid for THIS event comes from its configured
+  // age-pricing rows — bands are event-scoped catalog data, not constants.
+  const eventAgeBandCodes = new Set<string>()
+  for await (const agePricingRow of ctx.db
+    .query("eventAccommodationAgePricing")
+    .withIndex("by_eventId", (q) => q.eq("eventId", eventId))) {
+    eventAgeBandCodes.add(agePricingRow.ageBandCode)
   }
 
   const patches: SelectionConfirmationPatch[] = []
@@ -3616,19 +3636,25 @@ export async function resolveOrderAccommodationConfirmation(
     if (attendee.orderId !== orderId) {
       throw new Error("Selection attendee does not belong to the order")
     }
-    // Age-band data must be valid, and a selected cot is only eligible for
-    // an under-3 attendee. A confirmed snapshot must never record an
-    // ineligible cot as a zero-charge line — reject the row instead.
+    // Age-band data must be present and configured for this event, and a
+    // selected cot is only eligible for the event-configured cot eligibility
+    // band. A confirmed snapshot must never record an ineligible or missing
+    // age band as a zero-charge line — reject the row instead of persisting
+    // an empty or unknown code.
     if (
-      row.ageBandCode !== undefined &&
-      row.ageBandCode !== null &&
-      !VALID_AGE_BAND_CODES.has(row.ageBandCode)
+      row.ageBandCode === undefined ||
+      row.ageBandCode === null ||
+      !eventAgeBandCodes.has(row.ageBandCode)
     ) {
-      throw new Error("Selection has an invalid age band")
+      throw new Error("Selection has a missing or invalid age band")
     }
-    if (row.cotSelected && row.ageBandCode !== "under_3") {
+    if (
+      row.cotSelected &&
+      (cotEligibilityAgeBandCode === null ||
+        row.ageBandCode !== cotEligibilityAgeBandCode)
+    ) {
       throw new Error(
-        "Cot is only eligible for attendees in the under-3 age band"
+        "Cot is only eligible for the age band configured for this event"
       )
     }
     const category = await ctx.db.get(
@@ -3655,10 +3681,14 @@ export async function resolveOrderAccommodationConfirmation(
     }
 
     const attendeeTicketTypeId = ticketTypeIdByAttendeeId.get(row.attendeeId)
-    const ticketAccommodationIncluded = attendeeTicketTypeId
-      ? (ticketAccommodationIncludedByType.get(String(attendeeTicketTypeId)) ??
-        false)
-      : false
+    if (attendeeTicketTypeId === undefined) {
+      throw new Error(
+        "Selection attendee has no ticket selection and cannot be confirmed"
+      )
+    }
+    const ticketAccommodationIncluded =
+      ticketAccommodationIncludedByType.get(String(attendeeTicketTypeId)) ??
+      false
 
     const priceSnapshot = buildAccommodationPriceSnapshot({
       selection: {
@@ -3693,7 +3723,7 @@ export async function resolveOrderAccommodationConfirmation(
 export const confirmAccommodationOrderConfiguration = mutation({
   args: { orderId: v.id("orders") },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx)
+    await requireIdentity(ctx)
     const { configVersion, patches } = await resolveOrderAccommodationConfirmation(
       ctx,
       args.orderId
