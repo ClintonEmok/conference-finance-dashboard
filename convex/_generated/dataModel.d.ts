@@ -555,11 +555,15 @@ export type DataModel = {
       occupancy?: "single" | "shared" | "family";
       orderId: Id<"orders">;
       priceSnapshot?: {
+        ageBandCode?: string;
         baseRatePerNightMinor: number;
+        categoryIsSuperior?: boolean;
         cotRatePerNightMinor: number;
+        cotSelected?: boolean;
         coveredNights: number;
         totalNights: number;
         upgradeRatePerNightMinor: number;
+        upgradeSelected?: boolean;
       };
       upgradeSelected: boolean;
       _id: Id<"orderAccommodationSelections">;
@@ -580,11 +584,15 @@ export type DataModel = {
       | "occupancy"
       | "orderId"
       | "priceSnapshot"
+      | "priceSnapshot.ageBandCode"
       | "priceSnapshot.baseRatePerNightMinor"
+      | "priceSnapshot.categoryIsSuperior"
       | "priceSnapshot.cotRatePerNightMinor"
+      | "priceSnapshot.cotSelected"
       | "priceSnapshot.coveredNights"
       | "priceSnapshot.totalNights"
       | "priceSnapshot.upgradeRatePerNightMinor"
+      | "priceSnapshot.upgradeSelected"
       | "upgradeSelected";
     indexes: {
       by_id: ["_id"];

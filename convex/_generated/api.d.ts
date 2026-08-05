@@ -1408,6 +1408,7 @@ export declare const api: {
       null | {
         accommodationLines: Array<{
           chargeMinor: number;
+          kind: "accommodation" | "superior_upgrade" | "cot";
           label: string;
           nights: number;
           ratePerNightMinor: number;
