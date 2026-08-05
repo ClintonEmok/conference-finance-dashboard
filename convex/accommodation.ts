@@ -806,6 +806,7 @@ export const getRoomAllocationBoard = query({
 export const getHotels = query({
   args: {},
   handler: async (ctx) => {
+    await requireIdentity(ctx)
     // Bounded: small number of hotels
     return await ctx.db.query("accommodationHotels").take(200)
   },
@@ -814,6 +815,7 @@ export const getHotels = query({
 export const getRoomTypesWithCount = query({
   args: {},
   handler: async (ctx) => {
+    await requireIdentity(ctx)
     // Bounded: small config tables
     const roomTypes = await ctx.db.query("accommodationRoomTypes").take(100)
     const rooms = await ctx.db.query("accommodationRooms").take(500)
@@ -991,6 +993,7 @@ export const listAccommodationInventory = query({
 export const getHotelById = query({
   args: { hotelId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     return await getAccommodationHotelByStringId(ctx, args.hotelId)
   },
 })
@@ -1001,6 +1004,7 @@ export const getRooms = query({
     roomTypeId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     if (args.hotelId) {
       // Bounded: one hotel has limited rooms
       const rooms = await ctx.db
@@ -1017,6 +1021,7 @@ export const getRooms = query({
 export const getRoomById = query({
   args: { roomId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     return await getAccommodationRoomByStringId(ctx, args.roomId)
   },
 })
@@ -1024,6 +1029,7 @@ export const getRoomById = query({
 export const getRoomTypes = query({
   args: {},
   handler: async (ctx) => {
+    await requireIdentity(ctx)
     // Bounded: small config table
     return await ctx.db.query("accommodationRoomTypes").take(200)
   },
@@ -1032,6 +1038,7 @@ export const getRoomTypes = query({
 export const getRoomTypeById = query({
   args: { roomTypeId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     return await getAccommodationRoomTypeByStringId(ctx, args.roomTypeId)
   },
 })
@@ -1401,6 +1408,7 @@ export const unassignAttendeeFromRoom = mutation({
 export const getEventHotels = query({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     // Bounded: one event links to limited hotels
     const eventHotels = await ctx.db
       .query("accommodationEventHotels")
@@ -1762,6 +1770,7 @@ export const deleteRoomType = mutation({
 export const getEventByProviderId = query({
   args: { providerEventId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const event = await ctx.db
       .query("ticketTailorEvents")
       .withIndex("providerEventId", (q) =>
@@ -1946,6 +1955,7 @@ export const generateSlotsForRoom = mutation({
 export const getSlotsForEvent = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const slots = await ctx.db
       .query("accommodationSlots")
       .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
@@ -1990,6 +2000,7 @@ export const getSlotsForEvent = query({
 export const getAccommodationSummaryForEvent = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const event = await ctx.db.get("events", args.eventId)
     if (!event) {
       throw new Error("Event not found")
