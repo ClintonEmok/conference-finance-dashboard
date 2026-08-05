@@ -526,6 +526,57 @@ test("pending orders count distinct orders with unconfirmed selection rows only"
   expect(response.hasAccommodationSelections).toBe(true)
 })
 
+test("pending order count stays exact beyond the first 200 orders", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await createEvent(t)
+  const categoryId = await t.mutation(api.accommodation.createAccommodationCategory, {
+    code: "standard",
+    label: "Standard",
+    sortOrder: 1,
+  })
+
+  // 205 distinct pending orders — past the old `.take(200)` cutoff. Each
+  // order carries one unconfirmed selection row.
+  const PENDING_BEYOND_CUTOFF = 205
+  for (let i = 0; i < PENDING_BEYOND_CUTOFF; i++) {
+    await t.mutation(async (ctx) => {
+      const orderId = await ctx.db.insert("orders", {
+        eventId: eventId as never,
+        source: "internal",
+        bookingRef: `BK-BULK-${i}`,
+        bookerName: `Bulk Buyer ${i}`,
+        submittedAt: BASE_EVENT_AT + i,
+      })
+      const attendeeId = await ctx.db.insert("orderAttendees", {
+        orderId: orderId as never,
+        attendeeKey: `bulk-${i}`,
+        name: `Bulk Buyer ${i}`,
+        gender: "unknown",
+        sortOrder: 0,
+      })
+      return await ctx.db.insert("orderAccommodationSelections", {
+        orderId: orderId as never,
+        attendeeId: attendeeId as never,
+        categoryId: categoryId as never,
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+        nightCount: 2,
+      })
+    })
+  }
+
+  const response = await t.query(api.accommodation.getEventAccommodationConfig, {
+    eventId,
+  })
+  // The exact count reports every pending order — none are hidden past the
+  // display cutoff — while the returned list stays bounded for the UI.
+  expect(response.pendingOrderCount).toBe(PENDING_BEYOND_CUTOFF)
+  expect(response.pendingOrders.length).toBeLessThan(PENDING_BEYOND_CUTOFF)
+  expect(response.pendingOrders.length).toBeGreaterThan(0)
+  expect(response.hasAccommodationSelections).toBe(true)
+})
+
 // ---------------------------------------------------------------------------
 // Version boundary: every event-scoped pricing write advances the single
 // eventAccommodationConfig.updatedAt; catalog label edits do not.

@@ -2254,6 +2254,12 @@ export const removeBuyerAssignment = mutation({
 export const DAY_MS = 24 * 60 * 60 * 1000
 export const EVENT_OPTION_DEFAULT_PRICE_MINOR = 1000 // €10
 
+/**
+ * The pending-order LIST returned to the admin UI is bounded for display
+ * while `pendingOrderCount` stays exact (see getEventAccommodationConfig).
+ */
+export const PENDING_ORDERS_DISPLAY_LIMIT = 50
+
 export const categoryCodeValidator = v.union(
   v.literal("standard"),
   v.literal("superior"),
@@ -2629,7 +2635,7 @@ export const getEventAccommodationConfig = query({
         return category !== undefined
       })
 
-    // Pending buyer impact: bounded, event-scoped projection of orders that
+    // Pending buyer impact: exact, event-scoped projection of orders that
     // carry at least one unconfirmed accommodation selection row. A confirmed
     // order (every row has `confirmedAt`) is never counted as pending, and an
     // order with no selection rows is not pending either (pre-Phase 42). The
@@ -2637,18 +2643,23 @@ export const getEventAccommodationConfig = query({
     // `hasAccommodationSelections` distinguishes the pre-Phase-42 empty state
     // (no selection rows at all) from an all-confirmed event so the admin UI
     // can show the honest signup-empty copy instead of a fake zero state.
-    const eventOrders = await ctx.db
-      .query("orders")
-      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
-      .take(200)
+    //
+    // The COUNT must never be derived from a bounded order fetch: capping the
+    // order scan at N would silently drop pending orders beyond N and report
+    // a lower repricing impact. The full indexed event order set is streamed
+    // via bounded async iteration (never `.collect()`), while only a bounded
+    // display list is returned to the admin UI.
     const pendingOrders: Array<{
       orderId: Id<"orders">
       bookingRef: string | null
       bookerName: string | null
       selectionCount: number
     }> = []
+    let pendingOrderCount = 0
     let hasAccommodationSelections = false
-    for (const order of eventOrders) {
+    for await (const order of ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))) {
       let hasUnconfirmedRow = false
       let selectionCount = 0
       for await (const row of ctx.db
@@ -2661,12 +2672,15 @@ export const getEventAccommodationConfig = query({
         }
       }
       if (hasUnconfirmedRow) {
-        pendingOrders.push({
-          orderId: order._id,
-          bookingRef: order.bookingRef ?? null,
-          bookerName: order.bookerName ?? null,
-          selectionCount,
-        })
+        pendingOrderCount += 1
+        if (pendingOrders.length < PENDING_ORDERS_DISPLAY_LIMIT) {
+          pendingOrders.push({
+            orderId: order._id,
+            bookingRef: order.bookingRef ?? null,
+            bookerName: order.bookerName ?? null,
+            selectionCount,
+          })
+        }
       }
     }
 
@@ -2719,7 +2733,7 @@ export const getEventAccommodationConfig = query({
       resources,
       agePricing: sortBySortOrder(agePricingRows),
       pendingOrders,
-      pendingOrderCount: pendingOrders.length,
+      pendingOrderCount,
       hasAccommodationSelections,
     }
   },
