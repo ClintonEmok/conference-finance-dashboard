@@ -15,6 +15,7 @@ import {
   isValidAgeBandRange,
   isValidAgePricingValue,
   isValidOptionSemantics,
+  normalizeExtendedStayFlags,
   resolveEventOptionPriceMinor,
 } from "@/convex/accommodation"
 
@@ -298,6 +299,47 @@ describe("isValidOptionSemantics", () => {
         unit: "per_night",
       })
     ).toBe(false)
+  })
+})
+
+describe("normalizeExtendedStayFlags", () => {
+  it("preserves independent directional flags when both is false", () => {
+    expect(
+      normalizeExtendedStayFlags({
+        allowExtendedStayBefore: true,
+        allowExtendedStayAfter: false,
+        allowExtendedStayBoth: false,
+      })
+    ).toEqual({
+      allowExtendedStayBefore: true,
+      allowExtendedStayAfter: false,
+      allowExtendedStayBoth: false,
+    })
+  })
+
+  it("forces both directions when both is true", () => {
+    expect(
+      normalizeExtendedStayFlags({
+        allowExtendedStayBefore: false,
+        allowExtendedStayAfter: false,
+        allowExtendedStayBoth: true,
+      })
+    ).toEqual({
+      allowExtendedStayBefore: true,
+      allowExtendedStayAfter: true,
+      allowExtendedStayBoth: true,
+    })
+    expect(
+      normalizeExtendedStayFlags({
+        allowExtendedStayBefore: true,
+        allowExtendedStayAfter: true,
+        allowExtendedStayBoth: true,
+      })
+    ).toEqual({
+      allowExtendedStayBefore: true,
+      allowExtendedStayAfter: true,
+      allowExtendedStayBoth: true,
+    })
   })
 })
 

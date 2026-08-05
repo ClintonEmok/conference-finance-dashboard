@@ -2528,7 +2528,6 @@ export const getEventAccommodationConfig = query({
       eventOptionRows,
       resourceRows,
       agePricingRows,
-      catalog,
     ] = await Promise.all([
       ctx.db
         .query("eventAccommodationConfig")
@@ -2550,12 +2549,73 @@ export const getEventAccommodationConfig = query({
         .query("eventAccommodationAgePricing")
         .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
         .take(50),
-      getAccommodationCatalogData(ctx),
     ])
 
-    const categoryById = new Map(catalog.categories.map((c) => [c._id, c]))
-    const optionById = new Map(catalog.options.map((o) => [o._id, o]))
-    const roomTypeById = new Map(catalog.roomTypes.map((rt) => [rt._id, rt]))
+    // Fetch every referenced catalog row by ID instead of relying on the
+    // bounded catalog listing. A category, option or room type beyond the
+    // 50/100-row limits would otherwise silently drop labels and corrupt
+    // derived availability (e.g. a room resource falling back to a wrong
+    // capacity). Referenced rows are few per event, so per-ID reads stay
+    // bounded.
+    const referencedCategoryIds = [
+      ...new Set(rateRows.map((rate) => rate.categoryId as string)),
+    ]
+    const referencedOptionIds = [
+      ...new Set(eventOptionRows.map((row) => row.optionId as string)),
+    ]
+    const referencedRoomTypeIds = [
+      ...new Set(
+        resourceRows
+          .filter((row) => row.roomTypeId !== undefined)
+          .map((row) => row.roomTypeId as string)
+      ),
+    ]
+    const [referencedCategories, referencedOptions, referencedRoomTypes] =
+      await Promise.all([
+        Promise.all(
+          referencedCategoryIds.map((id) =>
+            ctx.db.get(
+              "accommodationCategories",
+              id as Id<"accommodationCategories">
+            )
+          )
+        ),
+        Promise.all(
+          referencedOptionIds.map((id) =>
+            ctx.db.get("accommodationOptions", id as Id<"accommodationOptions">)
+          )
+        ),
+        Promise.all(
+          referencedRoomTypeIds.map((id) =>
+            ctx.db.get(
+              "accommodationRoomTypes",
+              id as Id<"accommodationRoomTypes">
+            )
+          )
+        ),
+      ])
+
+    const categoryById = new Map(
+      referencedCategories
+        .filter((category): category is NonNullable<typeof category> => {
+          return category !== null
+        })
+        .map((category) => [category._id, category])
+    )
+    const optionById = new Map(
+      referencedOptions
+        .filter((option): option is NonNullable<typeof option> => {
+          return option !== null
+        })
+        .map((option) => [option._id, option])
+    )
+    const roomTypeById = new Map(
+      referencedRoomTypes
+        .filter((roomType): roomType is NonNullable<typeof roomType> => {
+          return roomType !== null
+        })
+        .map((roomType) => [roomType._id, roomType])
+    )
 
     const activeCategoryIds = deriveActiveCategoryIds(rateRows)
     const activeCategories = activeCategoryIds
@@ -2862,6 +2922,30 @@ export const updateAccommodationAgeBand = mutation({
   },
 })
 
+/**
+ * Extended-stay policy is stored as three booleans. `allowExtendedStayBoth`
+ * must imply both directional flags, otherwise consumers would read a
+ * contradictory policy ("both" while neither direction is allowed). This
+ * normalizes the trio so `both` forces both directions to true.
+ */
+export function normalizeExtendedStayFlags(input: {
+  allowExtendedStayBefore: boolean
+  allowExtendedStayAfter: boolean
+  allowExtendedStayBoth: boolean
+}): {
+  allowExtendedStayBefore: boolean
+  allowExtendedStayAfter: boolean
+  allowExtendedStayBoth: boolean
+} {
+  const { allowExtendedStayBoth } = input
+  return {
+    allowExtendedStayBefore:
+      allowExtendedStayBoth || input.allowExtendedStayBefore,
+    allowExtendedStayAfter: allowExtendedStayBoth || input.allowExtendedStayAfter,
+    allowExtendedStayBoth,
+  }
+}
+
 export const upsertEventAccommodationConfig = mutation({
   args: {
     eventId: v.id("events"),
@@ -2900,15 +2984,20 @@ export const upsertEventAccommodationConfig = mutation({
       const baseCheckInAt = args.baseCheckInAt ?? existing.baseCheckInAt
       const baseCheckOutAt = args.baseCheckOutAt ?? existing.baseCheckOutAt
       const nightCount = deriveNightCount(baseCheckInAt, baseCheckOutAt)
-      await ctx.db.patch("eventAccommodationConfig", existing._id, {
-        baseCheckInAt,
-        baseCheckOutAt,
+      const extendedStay = normalizeExtendedStayFlags({
         allowExtendedStayBefore:
           args.allowExtendedStayBefore ?? existing.allowExtendedStayBefore,
         allowExtendedStayAfter:
           args.allowExtendedStayAfter ?? existing.allowExtendedStayAfter,
         allowExtendedStayBoth:
           args.allowExtendedStayBoth ?? existing.allowExtendedStayBoth,
+      })
+      await ctx.db.patch("eventAccommodationConfig", existing._id, {
+        baseCheckInAt,
+        baseCheckOutAt,
+        allowExtendedStayBefore: extendedStay.allowExtendedStayBefore,
+        allowExtendedStayAfter: extendedStay.allowExtendedStayAfter,
+        allowExtendedStayBoth: extendedStay.allowExtendedStayBoth,
         defaultCategoryId:
           args.defaultCategoryId === undefined
             ? existing.defaultCategoryId
@@ -2930,13 +3019,18 @@ export const upsertEventAccommodationConfig = mutation({
           }
         : deriveInitialStayWindow(event.startsAt)
     const nightCount = deriveNightCount(window.baseCheckInAt, window.baseCheckOutAt)
+    const extendedStay = normalizeExtendedStayFlags({
+      allowExtendedStayBefore: args.allowExtendedStayBefore ?? false,
+      allowExtendedStayAfter: args.allowExtendedStayAfter ?? false,
+      allowExtendedStayBoth: args.allowExtendedStayBoth ?? false,
+    })
     const id = await ctx.db.insert("eventAccommodationConfig", {
       eventId: args.eventId,
       baseCheckInAt: window.baseCheckInAt,
       baseCheckOutAt: window.baseCheckOutAt,
-      allowExtendedStayBefore: args.allowExtendedStayBefore ?? false,
-      allowExtendedStayAfter: args.allowExtendedStayAfter ?? false,
-      allowExtendedStayBoth: args.allowExtendedStayBoth ?? false,
+      allowExtendedStayBefore: extendedStay.allowExtendedStayBefore,
+      allowExtendedStayAfter: extendedStay.allowExtendedStayAfter,
+      allowExtendedStayBoth: extendedStay.allowExtendedStayBoth,
       defaultCategoryId: args.defaultCategoryId,
       breakfastIncluded: args.breakfastIncluded ?? false,
       nightCount,
