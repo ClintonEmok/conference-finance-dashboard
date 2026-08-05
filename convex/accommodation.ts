@@ -1,4 +1,5 @@
 import { internalMutation, query, mutation } from "./_generated/server"
+import type { MutationCtx, QueryCtx } from "./_generated/server"
 import { v } from "convex/values"
 import type { Doc, Id } from "./_generated/dataModel"
 import { requireIdentity } from "./auth"
@@ -1183,10 +1184,36 @@ export const createRoomType = mutation({
     label: v.string(),
     defaultCapacity: v.number(),
     notes: v.optional(v.string()),
+    count: v.optional(v.number()),
+    description: v.optional(v.string()),
+    categoryId: v.optional(v.id("accommodationCategories")),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const id = await ctx.db.insert("accommodationRoomTypes", args)
+    const label = args.label.trim()
+    if (!label) {
+      throw new Error("Room type label is required")
+    }
+    if (args.count !== undefined && !isNonNegativeInteger(args.count)) {
+      throw new Error("count must be a non-negative integer")
+    }
+    if (args.categoryId !== undefined) {
+      const category = await ctx.db.get(
+        "accommodationCategories",
+        args.categoryId
+      )
+      if (!category) {
+        throw new Error("Category not found")
+      }
+    }
+    const id = await ctx.db.insert("accommodationRoomTypes", {
+      label,
+      defaultCapacity: args.defaultCapacity,
+      notes: normalizeOptionalString(args.notes) ?? undefined,
+      count: args.count,
+      description: normalizeOptionalString(args.description) ?? undefined,
+      categoryId: args.categoryId,
+    })
     return id
   },
 })
@@ -1670,16 +1697,38 @@ export const updateRoomType = mutation({
     label: v.optional(v.string()),
     defaultCapacity: v.optional(v.number()),
     notes: v.optional(v.string()),
+    count: v.optional(v.number()),
+    description: v.optional(v.string()),
+    categoryId: v.optional(v.id("accommodationCategories")),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const { roomTypeId, ...data } = args
+    const { roomTypeId, count, description, categoryId, ...rest } = args
     const normalizedRoomTypeId = normalizeDocId(
       ctx,
       "accommodationRoomTypes",
       roomTypeId,
       "Room type not found"
     )
+    if (count !== undefined && !isNonNegativeInteger(count)) {
+      throw new Error("count must be a non-negative integer")
+    }
+    if (categoryId !== undefined) {
+      const category = await ctx.db.get("accommodationCategories", categoryId)
+      if (!category) {
+        throw new Error("Category not found")
+      }
+    }
+    const data: Partial<Doc<"accommodationRoomTypes">> = { ...rest }
+    if (count !== undefined) {
+      data.count = count
+    }
+    if (description !== undefined) {
+      data.description = normalizeOptionalString(description) ?? undefined
+    }
+    if (categoryId !== undefined) {
+      data.categoryId = categoryId
+    }
     await ctx.db.patch("accommodationRoomTypes", normalizedRoomTypeId, data)
     return await ctx.db.get("accommodationRoomTypes", normalizedRoomTypeId)
   },
@@ -2162,5 +2211,825 @@ export const removeBuyerAssignment = mutation({
       assignmentId: args.assignmentId,
       attendeeId: assignment.attendeeId,
     }
+  },
+})
+
+// ---------------------------------------------------------------------------
+// Phase 39: Accommodation catalog & event configuration
+//
+// Reusable catalog tables (categories, options, age bands) and event-scoped
+// configuration (stay config, rates, options, resources, age pricing) with
+// authenticated, bounded, validated reads and mutations. Purely additive:
+// existing hotels/rooms/room-type/assignment exports above are preserved.
+// ---------------------------------------------------------------------------
+
+export const DAY_MS = 24 * 60 * 60 * 1000
+export const EVENT_OPTION_DEFAULT_PRICE_MINOR = 1000 // €10
+
+export const categoryCodeValidator = v.union(
+  v.literal("standard"),
+  v.literal("superior"),
+  v.literal("family")
+)
+export const optionCodeValidator = v.union(
+  v.literal("superior_upgrade"),
+  v.literal("cot")
+)
+export const ageBandCodeValidator = v.union(
+  v.literal("under_3"),
+  v.literal("3_11"),
+  v.literal("12_17"),
+  v.literal("18_plus")
+)
+export const occupancyValidator = v.union(
+  v.literal("single"),
+  v.literal("shared"),
+  v.literal("family")
+)
+export const resourceKindValidator = v.union(
+  v.literal("room"),
+  v.literal("cot")
+)
+export const agePricingRateTypeValidator = v.union(
+  v.literal("free"),
+  v.literal("full"),
+  v.literal("percent"),
+  v.literal("flat")
+)
+export const optionKindValidator = v.union(
+  v.literal("addon"),
+  v.literal("upgrade"),
+  v.literal("eligibility")
+)
+export const optionUnitValidator = v.union(
+  v.literal("per_night"),
+  v.literal("per_person")
+)
+
+function isNonNegativeInteger(value: number): boolean {
+  return Number.isInteger(value) && value >= 0
+}
+
+function isNonNegativePrice(value: number): boolean {
+  return Number.isFinite(value) && value >= 0
+}
+
+/**
+ * Derives the night count for a stay window from its timestamps. The night
+ * count is never hardcoded or client-supplied: it is always computed from the
+ * configured check-in/check-out timestamps.
+ */
+export function deriveNightCount(checkInAt: number, checkOutAt: number): number {
+  if (!Number.isFinite(checkInAt) || !Number.isFinite(checkOutAt)) {
+    throw new Error("Invalid stay window: timestamps must be finite numbers")
+  }
+  if (checkOutAt <= checkInAt) {
+    throw new Error("Invalid stay window: check-out must be after check-in")
+  }
+  return Math.max(1, Math.round((checkOutAt - checkInAt) / DAY_MS))
+}
+
+/**
+ * The locked initial stay window for a newly initialized event config: one
+ * night before the event (check-in the day before the event starts, check-out
+ * on the event start day), so the initial derived nightCount is 1.
+ */
+export function deriveInitialStayWindow(eventStartsAt: number): {
+  baseCheckInAt: number
+  baseCheckOutAt: number
+} {
+  if (!Number.isFinite(eventStartsAt)) {
+    throw new Error("Invalid event start time")
+  }
+  return {
+    baseCheckInAt: eventStartsAt - DAY_MS,
+    baseCheckOutAt: eventStartsAt,
+  }
+}
+
+/**
+ * Omitted upgrade/cot per-night prices default to €10 (1000 minor units).
+ * Explicit €0 and any other supplied price are preserved.
+ */
+export function resolveEventOptionPriceMinor(
+  priceMinor: number | null | undefined
+): number {
+  return priceMinor ?? EVENT_OPTION_DEFAULT_PRICE_MINOR
+}
+
+/**
+ * Sellable beds for a room resource = physical count × room type
+ * defaultCapacity. Cot resources (and room resources without a linked room
+ * type) count one bed per physical item.
+ */
+export function deriveResourceSellableBeds(input: {
+  count: number
+  roomTypeDefaultCapacity?: number | null
+}): number {
+  const capacity = input.roomTypeDefaultCapacity ?? 1
+  return input.count * capacity
+}
+
+/**
+ * Active categories are derived solely from eventAccommodationRates rows:
+ * a category is active for an event when at least one rate row exists for
+ * that (eventId, categoryId). No separate active-categories list/flag exists.
+ */
+export function deriveActiveCategoryIds(
+  rateRows: ReadonlyArray<{ categoryId: string }>
+): string[] {
+  const seen = new Set<string>()
+  const ids: string[] = []
+  for (const row of rateRows) {
+    if (!seen.has(row.categoryId)) {
+      seen.add(row.categoryId)
+      ids.push(row.categoryId)
+    }
+  }
+  return ids
+}
+
+/**
+ * Absent `ticketTypes.accommodationIncluded` is treated as false; only an
+ * explicit true marks a ticket as covering the base stay nights.
+ */
+export function isAccommodationIncluded(ticket: {
+  accommodationIncluded?: boolean | null
+}): boolean {
+  return ticket.accommodationIncluded === true
+}
+
+/**
+ * Cot eligibility is locked to the `under_3` age band. Any other age-band code
+ * (or none) is invalid for the cot option; non-cot options must not carry an
+ * eligibility age-band code.
+ */
+export function isCotEligibilityValid(input: {
+  optionCode: string
+  eligibilityAgeBandCode?: string | null
+}): boolean {
+  if (input.optionCode === "cot") {
+    return input.eligibilityAgeBandCode === "under_3"
+  }
+  return !input.eligibilityAgeBandCode
+}
+
+/**
+ * Age-band bounds must be non-negative integers with maxAge (when defined)
+ * greater than or equal to minAge. 18+ bands may omit maxAge.
+ */
+export function isValidAgeBandRange(
+  minAge: number,
+  maxAge: number | null | undefined
+): boolean {
+  if (!Number.isInteger(minAge) || minAge < 0) {
+    return false
+  }
+  if (maxAge === null || maxAge === undefined) {
+    return true
+  }
+  return Number.isInteger(maxAge) && maxAge >= minAge
+}
+
+function sortBySortOrder<T extends { sortOrder: number }>(
+  rows: readonly T[]
+): T[] {
+  return [...rows].sort((a, b) => a.sortOrder - b.sortOrder)
+}
+
+async function getEventOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  eventId: Id<"events">
+) {
+  const event = await ctx.db.get("events", eventId)
+  if (!event) {
+    throw new Error("Event not found")
+  }
+  return event
+}
+
+async function getAccommodationCatalogData(ctx: QueryCtx | MutationCtx) {
+  const [categories, options, ageBands, roomTypes] = await Promise.all([
+    ctx.db.query("accommodationCategories").take(50),
+    ctx.db.query("accommodationOptions").take(50),
+    ctx.db.query("accommodationAgeBands").take(50),
+    ctx.db.query("accommodationRoomTypes").take(100),
+  ])
+  return { categories, options, ageBands, roomTypes }
+}
+
+export const getAccommodationCatalog = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireIdentity(ctx)
+    const catalog = await getAccommodationCatalogData(ctx)
+    return {
+      categories: sortBySortOrder(catalog.categories),
+      options: catalog.options,
+      ageBands: sortBySortOrder(catalog.ageBands),
+      roomTypes: catalog.roomTypes,
+    }
+  },
+})
+
+export const getEventAccommodationConfig = query({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const event = await ctx.db.get("events", args.eventId)
+    if (!event) {
+      throw new Error("Event not found")
+    }
+
+    const [
+      configRow,
+      rateRows,
+      eventOptionRows,
+      resourceRows,
+      agePricingRows,
+      catalog,
+    ] = await Promise.all([
+      ctx.db
+        .query("eventAccommodationConfig")
+        .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+        .first(),
+      ctx.db
+        .query("eventAccommodationRates")
+        .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+        .take(200),
+      ctx.db
+        .query("eventAccommodationOptions")
+        .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+        .take(100),
+      ctx.db
+        .query("eventAccommodationResources")
+        .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+        .take(100),
+      ctx.db
+        .query("eventAccommodationAgePricing")
+        .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+        .take(50),
+      getAccommodationCatalogData(ctx),
+    ])
+
+    const categoryById = new Map(catalog.categories.map((c) => [c._id, c]))
+    const optionById = new Map(catalog.options.map((o) => [o._id, o]))
+    const roomTypeById = new Map(catalog.roomTypes.map((rt) => [rt._id, rt]))
+
+    const activeCategoryIds = deriveActiveCategoryIds(rateRows)
+    const activeCategories = activeCategoryIds
+      .map((id) => categoryById.get(id as Id<"accommodationCategories">))
+      .filter((category): category is NonNullable<typeof category> => {
+        return category !== undefined
+      })
+
+    const rates = rateRows.map((rate) => {
+      const category = categoryById.get(rate.categoryId)
+      return {
+        ...rate,
+        categoryCode: category?.code ?? null,
+        categoryLabel: category?.label ?? null,
+      }
+    })
+
+    const options = eventOptionRows.map((row) => {
+      const option = optionById.get(row.optionId)
+      return {
+        ...row,
+        optionCode: option?.code ?? null,
+        optionLabel: option?.label ?? null,
+        kind: option?.kind ?? null,
+        unit: option?.unit ?? null,
+      }
+    })
+
+    const resources = resourceRows.map((row) => {
+      const roomType = row.roomTypeId
+        ? roomTypeById.get(row.roomTypeId)
+        : undefined
+      return {
+        ...row,
+        roomTypeLabel: roomType?.label ?? null,
+        sellableBeds: deriveResourceSellableBeds({
+          count: row.count,
+          roomTypeDefaultCapacity: roomType?.defaultCapacity ?? null,
+        }),
+      }
+    })
+
+    return {
+      event: {
+        eventId: event._id,
+        slug: event.slug,
+        title: event.title,
+        startsAt: event.startsAt,
+      },
+      config: configRow ?? null,
+      activeCategories,
+      rates,
+      options,
+      resources,
+      agePricing: sortBySortOrder(agePricingRows),
+    }
+  },
+})
+
+export const createAccommodationCategory = mutation({
+  args: {
+    code: categoryCodeValidator,
+    label: v.string(),
+    description: v.optional(v.string()),
+    sortOrder: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const label = args.label.trim()
+    if (!label) {
+      throw new Error("Category label is required")
+    }
+    if (!isNonNegativeInteger(args.sortOrder)) {
+      throw new Error("sortOrder must be a non-negative integer")
+    }
+    const existing = await ctx.db
+      .query("accommodationCategories")
+      .withIndex("by_code", (q) => q.eq("code", args.code))
+      .first()
+    if (existing) {
+      throw new Error(`Category code "${args.code}" already exists`)
+    }
+    return await ctx.db.insert("accommodationCategories", {
+      code: args.code,
+      label,
+      description: normalizeOptionalString(args.description) ?? undefined,
+      sortOrder: args.sortOrder,
+    })
+  },
+})
+
+export const updateAccommodationCategory = mutation({
+  args: {
+    categoryId: v.id("accommodationCategories"),
+    label: v.optional(v.string()),
+    description: v.optional(v.string()),
+    sortOrder: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const category = await ctx.db.get("accommodationCategories", args.categoryId)
+    if (!category) {
+      throw new Error("Category not found")
+    }
+    const patch: Partial<Doc<"accommodationCategories">> = {}
+    if (args.label !== undefined) {
+      const label = args.label.trim()
+      if (!label) {
+        throw new Error("Category label is required")
+      }
+      patch.label = label
+    }
+    if (args.description !== undefined) {
+      patch.description = normalizeOptionalString(args.description) ?? undefined
+    }
+    if (args.sortOrder !== undefined) {
+      if (!isNonNegativeInteger(args.sortOrder)) {
+        throw new Error("sortOrder must be a non-negative integer")
+      }
+      patch.sortOrder = args.sortOrder
+    }
+    await ctx.db.patch("accommodationCategories", args.categoryId, patch)
+    return await ctx.db.get("accommodationCategories", args.categoryId)
+  },
+})
+
+export const createAccommodationOption = mutation({
+  args: {
+    code: optionCodeValidator,
+    label: v.string(),
+    description: v.optional(v.string()),
+    kind: optionKindValidator,
+    unit: optionUnitValidator,
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const label = args.label.trim()
+    if (!label) {
+      throw new Error("Option label is required")
+    }
+    const existing = await ctx.db
+      .query("accommodationOptions")
+      .withIndex("by_code", (q) => q.eq("code", args.code))
+      .first()
+    if (existing) {
+      throw new Error(`Option code "${args.code}" already exists`)
+    }
+    return await ctx.db.insert("accommodationOptions", {
+      code: args.code,
+      label,
+      description: normalizeOptionalString(args.description) ?? undefined,
+      kind: args.kind,
+      unit: args.unit,
+    })
+  },
+})
+
+export const updateAccommodationOption = mutation({
+  args: {
+    optionId: v.id("accommodationOptions"),
+    label: v.optional(v.string()),
+    description: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const option = await ctx.db.get("accommodationOptions", args.optionId)
+    if (!option) {
+      throw new Error("Option not found")
+    }
+    const patch: Partial<Doc<"accommodationOptions">> = {}
+    if (args.label !== undefined) {
+      const label = args.label.trim()
+      if (!label) {
+        throw new Error("Option label is required")
+      }
+      patch.label = label
+    }
+    if (args.description !== undefined) {
+      patch.description = normalizeOptionalString(args.description) ?? undefined
+    }
+    await ctx.db.patch("accommodationOptions", args.optionId, patch)
+    return await ctx.db.get("accommodationOptions", args.optionId)
+  },
+})
+
+export const createAccommodationAgeBand = mutation({
+  args: {
+    code: ageBandCodeValidator,
+    label: v.string(),
+    minAge: v.number(),
+    maxAge: v.optional(v.number()),
+    sortOrder: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const label = args.label.trim()
+    if (!label) {
+      throw new Error("Age band label is required")
+    }
+    if (!isValidAgeBandRange(args.minAge, args.maxAge)) {
+      throw new Error("Invalid age band bounds")
+    }
+    if (!isNonNegativeInteger(args.sortOrder)) {
+      throw new Error("sortOrder must be a non-negative integer")
+    }
+    const existing = await ctx.db
+      .query("accommodationAgeBands")
+      .withIndex("by_code", (q) => q.eq("code", args.code))
+      .first()
+    if (existing) {
+      throw new Error(`Age band code "${args.code}" already exists`)
+    }
+    return await ctx.db.insert("accommodationAgeBands", {
+      code: args.code,
+      label,
+      minAge: args.minAge,
+      maxAge: args.maxAge,
+      sortOrder: args.sortOrder,
+    })
+  },
+})
+
+export const updateAccommodationAgeBand = mutation({
+  args: {
+    ageBandId: v.id("accommodationAgeBands"),
+    label: v.optional(v.string()),
+    minAge: v.optional(v.number()),
+    maxAge: v.optional(v.number()),
+    sortOrder: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const band = await ctx.db.get("accommodationAgeBands", args.ageBandId)
+    if (!band) {
+      throw new Error("Age band not found")
+    }
+    const patch: Partial<Doc<"accommodationAgeBands">> = {}
+    if (args.label !== undefined) {
+      const label = args.label.trim()
+      if (!label) {
+        throw new Error("Age band label is required")
+      }
+      patch.label = label
+    }
+    const minAge = args.minAge ?? band.minAge
+    const maxAge =
+      args.maxAge !== undefined
+        ? args.maxAge
+        : band.maxAge === undefined
+          ? null
+          : band.maxAge
+    if (args.minAge !== undefined || args.maxAge !== undefined) {
+      if (!isValidAgeBandRange(minAge, maxAge)) {
+        throw new Error("Invalid age band bounds")
+      }
+      patch.minAge = minAge
+      patch.maxAge = args.maxAge !== undefined ? args.maxAge : band.maxAge
+    }
+    if (args.sortOrder !== undefined) {
+      if (!isNonNegativeInteger(args.sortOrder)) {
+        throw new Error("sortOrder must be a non-negative integer")
+      }
+      patch.sortOrder = args.sortOrder
+    }
+    await ctx.db.patch("accommodationAgeBands", args.ageBandId, patch)
+    return await ctx.db.get("accommodationAgeBands", args.ageBandId)
+  },
+})
+
+export const upsertEventAccommodationConfig = mutation({
+  args: {
+    eventId: v.id("events"),
+    baseCheckInAt: v.optional(v.number()),
+    baseCheckOutAt: v.optional(v.number()),
+    allowExtendedStayBefore: v.optional(v.boolean()),
+    allowExtendedStayAfter: v.optional(v.boolean()),
+    allowExtendedStayBoth: v.optional(v.boolean()),
+    defaultCategoryId: v.optional(v.id("accommodationCategories")),
+    breakfastIncluded: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const event = await getEventOrThrow(ctx, args.eventId)
+    if (
+      (args.baseCheckInAt === undefined) !== (args.baseCheckOutAt === undefined)
+    ) {
+      throw new Error("Both baseCheckInAt and baseCheckOutAt are required")
+    }
+    if (args.defaultCategoryId !== undefined) {
+      const category = await ctx.db.get(
+        "accommodationCategories",
+        args.defaultCategoryId
+      )
+      if (!category) {
+        throw new Error("Category not found")
+      }
+    }
+
+    const existing = await ctx.db
+      .query("eventAccommodationConfig")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .first()
+
+    if (existing) {
+      const baseCheckInAt = args.baseCheckInAt ?? existing.baseCheckInAt
+      const baseCheckOutAt = args.baseCheckOutAt ?? existing.baseCheckOutAt
+      const nightCount = deriveNightCount(baseCheckInAt, baseCheckOutAt)
+      await ctx.db.patch("eventAccommodationConfig", existing._id, {
+        baseCheckInAt,
+        baseCheckOutAt,
+        allowExtendedStayBefore:
+          args.allowExtendedStayBefore ?? existing.allowExtendedStayBefore,
+        allowExtendedStayAfter:
+          args.allowExtendedStayAfter ?? existing.allowExtendedStayAfter,
+        allowExtendedStayBoth:
+          args.allowExtendedStayBoth ?? existing.allowExtendedStayBoth,
+        defaultCategoryId:
+          args.defaultCategoryId === undefined
+            ? existing.defaultCategoryId
+            : args.defaultCategoryId,
+        breakfastIncluded: args.breakfastIncluded ?? existing.breakfastIncluded,
+        nightCount,
+        updatedAt: Date.now(),
+      })
+      return await ctx.db.get("eventAccommodationConfig", existing._id)
+    }
+
+    // Newly initialized: default to the locked initial one-night-before-event
+    // window when no explicit timestamps are supplied.
+    const window =
+      args.baseCheckInAt !== undefined && args.baseCheckOutAt !== undefined
+        ? {
+            baseCheckInAt: args.baseCheckInAt,
+            baseCheckOutAt: args.baseCheckOutAt,
+          }
+        : deriveInitialStayWindow(event.startsAt)
+    const nightCount = deriveNightCount(window.baseCheckInAt, window.baseCheckOutAt)
+    const id = await ctx.db.insert("eventAccommodationConfig", {
+      eventId: args.eventId,
+      baseCheckInAt: window.baseCheckInAt,
+      baseCheckOutAt: window.baseCheckOutAt,
+      allowExtendedStayBefore: args.allowExtendedStayBefore ?? false,
+      allowExtendedStayAfter: args.allowExtendedStayAfter ?? false,
+      allowExtendedStayBoth: args.allowExtendedStayBoth ?? false,
+      defaultCategoryId: args.defaultCategoryId,
+      breakfastIncluded: args.breakfastIncluded ?? false,
+      nightCount,
+      updatedAt: Date.now(),
+    })
+    return await ctx.db.get("eventAccommodationConfig", id)
+  },
+})
+
+export const upsertEventAccommodationRate = mutation({
+  args: {
+    eventId: v.id("events"),
+    categoryId: v.id("accommodationCategories"),
+    occupancy: occupancyValidator,
+    pricePerPersonMinor: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    await getEventOrThrow(ctx, args.eventId)
+    const category = await ctx.db.get("accommodationCategories", args.categoryId)
+    if (!category) {
+      throw new Error("Category not found")
+    }
+    if (!isNonNegativePrice(args.pricePerPersonMinor)) {
+      throw new Error("pricePerPersonMinor must be a non-negative number")
+    }
+    const existing = await ctx.db
+      .query("eventAccommodationRates")
+      .withIndex("by_eventId_and_categoryId_and_occupancy", (q) =>
+        q
+          .eq("eventId", args.eventId)
+          .eq("categoryId", args.categoryId)
+          .eq("occupancy", args.occupancy)
+      )
+      .first()
+    if (existing) {
+      await ctx.db.patch("eventAccommodationRates", existing._id, {
+        pricePerPersonMinor: args.pricePerPersonMinor,
+      })
+      return await ctx.db.get("eventAccommodationRates", existing._id)
+    }
+    const id = await ctx.db.insert("eventAccommodationRates", args)
+    return await ctx.db.get("eventAccommodationRates", id)
+  },
+})
+
+export const upsertEventAccommodationOption = mutation({
+  args: {
+    eventId: v.id("events"),
+    optionId: v.id("accommodationOptions"),
+    enabled: v.optional(v.boolean()),
+    priceMinor: v.optional(v.number()),
+    eligibilityAgeBandCode: v.optional(ageBandCodeValidator),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    await getEventOrThrow(ctx, args.eventId)
+    const option = await ctx.db.get("accommodationOptions", args.optionId)
+    if (!option) {
+      throw new Error("Option not found")
+    }
+    if (args.priceMinor !== undefined && !isNonNegativePrice(args.priceMinor)) {
+      throw new Error("priceMinor must be a non-negative number")
+    }
+    if (
+      args.eligibilityAgeBandCode !== undefined &&
+      !isCotEligibilityValid({
+        optionCode: option.code,
+        eligibilityAgeBandCode: args.eligibilityAgeBandCode,
+      })
+    ) {
+      throw new Error(
+        `Option "${option.code}" cannot use age band "${args.eligibilityAgeBandCode}"`
+      )
+    }
+    if (args.eligibilityAgeBandCode !== undefined) {
+      const band = await ctx.db
+        .query("accommodationAgeBands")
+        .withIndex("by_code", (q) =>
+          q.eq("code", args.eligibilityAgeBandCode as "under_3" | "3_11" | "12_17" | "18_plus")
+        )
+        .first()
+      if (!band) {
+        throw new Error("Age band not found")
+      }
+    }
+
+    const existing = await ctx.db
+      .query("eventAccommodationOptions")
+      .withIndex("by_eventId_and_optionId", (q) =>
+        q.eq("eventId", args.eventId).eq("optionId", args.optionId)
+      )
+      .first()
+
+    if (existing) {
+      await ctx.db.patch("eventAccommodationOptions", existing._id, {
+        enabled: args.enabled ?? existing.enabled,
+        priceMinor: args.priceMinor ?? existing.priceMinor,
+        eligibilityAgeBandCode:
+          args.eligibilityAgeBandCode === undefined
+            ? existing.eligibilityAgeBandCode
+            : args.eligibilityAgeBandCode,
+        notes:
+          args.notes === undefined
+            ? existing.notes
+            : normalizeOptionalString(args.notes) ?? undefined,
+      })
+      return await ctx.db.get("eventAccommodationOptions", existing._id)
+    }
+
+    const id = await ctx.db.insert("eventAccommodationOptions", {
+      eventId: args.eventId,
+      optionId: args.optionId,
+      enabled: args.enabled ?? false,
+      priceMinor: resolveEventOptionPriceMinor(args.priceMinor),
+      eligibilityAgeBandCode: args.eligibilityAgeBandCode,
+      notes: normalizeOptionalString(args.notes) ?? undefined,
+    })
+    return await ctx.db.get("eventAccommodationOptions", id)
+  },
+})
+
+export const upsertEventAccommodationResource = mutation({
+  args: {
+    eventId: v.id("events"),
+    kind: resourceKindValidator,
+    roomTypeId: v.optional(v.id("accommodationRoomTypes")),
+    count: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    await getEventOrThrow(ctx, args.eventId)
+    if (!isNonNegativeInteger(args.count)) {
+      throw new Error("count must be a non-negative integer")
+    }
+    if (args.kind === "cot" && args.roomTypeId !== undefined) {
+      throw new Error("Cot resources cannot reference a room type")
+    }
+    if (args.roomTypeId !== undefined) {
+      const roomType = await ctx.db.get("accommodationRoomTypes", args.roomTypeId)
+      if (!roomType) {
+        throw new Error("Room type not found")
+      }
+    }
+    const existingRows = await ctx.db
+      .query("eventAccommodationResources")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .take(100)
+    const existing = existingRows.find(
+      (row) =>
+        row.kind === args.kind &&
+        (row.roomTypeId ?? null) === (args.roomTypeId ?? null)
+    )
+    if (existing) {
+      await ctx.db.patch("eventAccommodationResources", existing._id, {
+        count: args.count,
+      })
+      return await ctx.db.get("eventAccommodationResources", existing._id)
+    }
+    const id = await ctx.db.insert("eventAccommodationResources", args)
+    return await ctx.db.get("eventAccommodationResources", id)
+  },
+})
+
+export const upsertEventAccommodationAgePricing = mutation({
+  args: {
+    eventId: v.id("events"),
+    ageBandCode: ageBandCodeValidator,
+    rateType: agePricingRateTypeValidator,
+    value: v.number(),
+    sortOrder: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    await getEventOrThrow(ctx, args.eventId)
+    const band = await ctx.db
+      .query("accommodationAgeBands")
+      .withIndex("by_code", (q) => q.eq("code", args.ageBandCode))
+      .first()
+    if (!band) {
+      throw new Error("Age band not found")
+    }
+    if (!isNonNegativePrice(args.value)) {
+      throw new Error("value must be a non-negative number")
+    }
+    const sortOrder = args.sortOrder ?? 0
+    if (!isNonNegativeInteger(sortOrder)) {
+      throw new Error("sortOrder must be a non-negative integer")
+    }
+    const existing = await ctx.db
+      .query("eventAccommodationAgePricing")
+      .withIndex("by_eventId_and_ageBandCode", (q) =>
+        q.eq("eventId", args.eventId).eq("ageBandCode", args.ageBandCode)
+      )
+      .first()
+    if (existing) {
+      await ctx.db.patch("eventAccommodationAgePricing", existing._id, {
+        rateType: args.rateType,
+        value: args.value,
+        sortOrder,
+      })
+      return await ctx.db.get("eventAccommodationAgePricing", existing._id)
+    }
+    const id = await ctx.db.insert("eventAccommodationAgePricing", {
+      eventId: args.eventId,
+      ageBandCode: args.ageBandCode,
+      rateType: args.rateType,
+      value: args.value,
+      sortOrder,
+    })
+    return await ctx.db.get("eventAccommodationAgePricing", id)
   },
 })

@@ -27,6 +27,58 @@ import type { GenericId } from "convex/values";
  */
 
 export type DataModel = {
+  accommodationAgeBands: {
+    document: {
+      code: "under_3" | "3_11" | "12_17" | "18_plus";
+      label: string;
+      maxAge?: number;
+      minAge: number;
+      sortOrder: number;
+      _id: Id<"accommodationAgeBands">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "code"
+      | "label"
+      | "maxAge"
+      | "minAge"
+      | "sortOrder";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_code: ["code", "_creationTime"];
+      by_sortOrder: ["sortOrder", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  accommodationCategories: {
+    document: {
+      code: "standard" | "superior" | "family";
+      description?: string;
+      label: string;
+      sortOrder: number;
+      _id: Id<"accommodationCategories">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "code"
+      | "description"
+      | "label"
+      | "sortOrder";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_code: ["code", "_creationTime"];
+      by_sortOrder: ["sortOrder", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   accommodationEventHotels: {
     document: {
       eventId: string;
@@ -57,6 +109,32 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       name: ["name", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  accommodationOptions: {
+    document: {
+      code: "superior_upgrade" | "cot";
+      description?: string;
+      kind: "addon" | "upgrade" | "eligibility";
+      label: string;
+      unit: "per_night" | "per_person";
+      _id: Id<"accommodationOptions">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "code"
+      | "description"
+      | "kind"
+      | "label"
+      | "unit";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_code: ["code", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -93,16 +171,28 @@ export type DataModel = {
   };
   accommodationRoomTypes: {
     document: {
+      categoryId?: Id<"accommodationCategories">;
+      count?: number;
       defaultCapacity: number;
+      description?: string;
       label: string;
       notes?: string;
       _id: Id<"accommodationRoomTypes">;
       _creationTime: number;
     };
-    fieldPaths: "_creationTime" | "_id" | "defaultCapacity" | "label" | "notes";
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "categoryId"
+      | "count"
+      | "defaultCapacity"
+      | "description"
+      | "label"
+      | "notes";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_categoryId: ["categoryId", "_creationTime"];
       label: ["label", "_creationTime"];
     };
     searchIndexes: {};
@@ -216,6 +306,155 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  eventAccommodationAgePricing: {
+    document: {
+      ageBandCode: "under_3" | "3_11" | "12_17" | "18_plus";
+      eventId: Id<"events">;
+      rateType: "free" | "full" | "percent" | "flat";
+      sortOrder: number;
+      value: number;
+      _id: Id<"eventAccommodationAgePricing">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "ageBandCode"
+      | "eventId"
+      | "rateType"
+      | "sortOrder"
+      | "value";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+      by_eventId_and_ageBandCode: ["eventId", "ageBandCode", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  eventAccommodationConfig: {
+    document: {
+      allowExtendedStayAfter: boolean;
+      allowExtendedStayBefore: boolean;
+      allowExtendedStayBoth: boolean;
+      baseCheckInAt: number;
+      baseCheckOutAt: number;
+      breakfastIncluded: boolean;
+      defaultCategoryId?: Id<"accommodationCategories">;
+      eventId: Id<"events">;
+      nightCount: number;
+      updatedAt: number;
+      _id: Id<"eventAccommodationConfig">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "allowExtendedStayAfter"
+      | "allowExtendedStayBefore"
+      | "allowExtendedStayBoth"
+      | "baseCheckInAt"
+      | "baseCheckOutAt"
+      | "breakfastIncluded"
+      | "defaultCategoryId"
+      | "eventId"
+      | "nightCount"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  eventAccommodationOptions: {
+    document: {
+      eligibilityAgeBandCode?: string;
+      enabled: boolean;
+      eventId: Id<"events">;
+      notes?: string;
+      optionId: Id<"accommodationOptions">;
+      priceMinor: number;
+      _id: Id<"eventAccommodationOptions">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "eligibilityAgeBandCode"
+      | "enabled"
+      | "eventId"
+      | "notes"
+      | "optionId"
+      | "priceMinor";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+      by_eventId_and_enabled: ["eventId", "enabled", "_creationTime"];
+      by_eventId_and_optionId: ["eventId", "optionId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  eventAccommodationRates: {
+    document: {
+      categoryId: Id<"accommodationCategories">;
+      eventId: Id<"events">;
+      occupancy: "single" | "shared" | "family";
+      pricePerPersonMinor: number;
+      _id: Id<"eventAccommodationRates">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "categoryId"
+      | "eventId"
+      | "occupancy"
+      | "pricePerPersonMinor";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+      by_eventId_and_categoryId: ["eventId", "categoryId", "_creationTime"];
+      by_eventId_and_categoryId_and_occupancy: [
+        "eventId",
+        "categoryId",
+        "occupancy",
+        "_creationTime",
+      ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  eventAccommodationResources: {
+    document: {
+      count: number;
+      eventId: Id<"events">;
+      kind: "room" | "cot";
+      roomTypeId?: Id<"accommodationRoomTypes">;
+      _id: Id<"eventAccommodationResources">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "count"
+      | "eventId"
+      | "kind"
+      | "roomTypeId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+      by_eventId_and_kind: ["eventId", "kind", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   events: {
     document: {
       accommodationEnabled: boolean;
@@ -292,6 +531,43 @@ export type DataModel = {
         "externalEventId",
         "_creationTime",
       ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  orderAccommodationSelections: {
+    document: {
+      ageBandCode?: string;
+      attendeeId: Id<"orderAttendees">;
+      categoryId?: Id<"accommodationCategories">;
+      checkInAt?: number;
+      checkOutAt?: number;
+      cotSelected: boolean;
+      nightCount?: number;
+      occupancy?: "single" | "shared" | "family";
+      orderId: Id<"orders">;
+      upgradeSelected: boolean;
+      _id: Id<"orderAccommodationSelections">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "ageBandCode"
+      | "attendeeId"
+      | "categoryId"
+      | "checkInAt"
+      | "checkOutAt"
+      | "cotSelected"
+      | "nightCount"
+      | "occupancy"
+      | "orderId"
+      | "upgradeSelected";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_attendeeId: ["attendeeId", "_creationTime"];
+      by_orderId: ["orderId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -902,6 +1178,7 @@ export type DataModel = {
   };
   ticketTypes: {
     document: {
+      accommodationIncluded?: boolean;
       availabilityState: "selectable" | "unavailable";
       eventId: Id<"events">;
       isActive: boolean;
@@ -920,6 +1197,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "accommodationIncluded"
       | "availabilityState"
       | "eventId"
       | "isActive"

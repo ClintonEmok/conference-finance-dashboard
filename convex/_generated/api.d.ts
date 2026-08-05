@@ -48,6 +48,41 @@ export declare const api: {
       },
       any
     >;
+    createAccommodationAgeBand: FunctionReference<
+      "mutation",
+      "public",
+      {
+        code: "under_3" | "3_11" | "12_17" | "18_plus";
+        label: string;
+        maxAge?: number;
+        minAge: number;
+        sortOrder: number;
+      },
+      any
+    >;
+    createAccommodationCategory: FunctionReference<
+      "mutation",
+      "public",
+      {
+        code: "standard" | "superior" | "family";
+        description?: string;
+        label: string;
+        sortOrder: number;
+      },
+      any
+    >;
+    createAccommodationOption: FunctionReference<
+      "mutation",
+      "public",
+      {
+        code: "superior_upgrade" | "cot";
+        description?: string;
+        kind: "addon" | "upgrade" | "eligibility";
+        label: string;
+        unit: "per_night" | "per_person";
+      },
+      any
+    >;
     createHotel: FunctionReference<
       "mutation",
       "public",
@@ -82,7 +117,14 @@ export declare const api: {
     createRoomType: FunctionReference<
       "mutation",
       "public",
-      { defaultCapacity: number; label: string; notes?: string },
+      {
+        categoryId?: Id<"accommodationCategories">;
+        count?: number;
+        defaultCapacity: number;
+        description?: string;
+        label: string;
+        notes?: string;
+      },
       any
     >;
     deleteHotel: FunctionReference<
@@ -119,7 +161,14 @@ export declare const api: {
       },
       any
     >;
+    getAccommodationCatalog: FunctionReference<"query", "public", {}, any>;
     getAccommodationSummaryForEvent: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
+    getEventAccommodationConfig: FunctionReference<
       "query",
       "public",
       { eventId: Id<"events"> },
@@ -217,6 +266,39 @@ export declare const api: {
       { eventId: string; hotelId: Id<"accommodationHotels"> },
       any
     >;
+    updateAccommodationAgeBand: FunctionReference<
+      "mutation",
+      "public",
+      {
+        ageBandId: Id<"accommodationAgeBands">;
+        label?: string;
+        maxAge?: number;
+        minAge?: number;
+        sortOrder?: number;
+      },
+      any
+    >;
+    updateAccommodationCategory: FunctionReference<
+      "mutation",
+      "public",
+      {
+        categoryId: Id<"accommodationCategories">;
+        description?: string;
+        label?: string;
+        sortOrder?: number;
+      },
+      any
+    >;
+    updateAccommodationOption: FunctionReference<
+      "mutation",
+      "public",
+      {
+        description?: string;
+        label?: string;
+        optionId: Id<"accommodationOptions">;
+      },
+      any
+    >;
     updateHotel: FunctionReference<
       "mutation",
       "public",
@@ -233,10 +315,75 @@ export declare const api: {
       "mutation",
       "public",
       {
+        categoryId?: Id<"accommodationCategories">;
+        count?: number;
         defaultCapacity?: number;
+        description?: string;
         label?: string;
         notes?: string;
         roomTypeId: string;
+      },
+      any
+    >;
+    upsertEventAccommodationAgePricing: FunctionReference<
+      "mutation",
+      "public",
+      {
+        ageBandCode: "under_3" | "3_11" | "12_17" | "18_plus";
+        eventId: Id<"events">;
+        rateType: "free" | "full" | "percent" | "flat";
+        sortOrder?: number;
+        value: number;
+      },
+      any
+    >;
+    upsertEventAccommodationConfig: FunctionReference<
+      "mutation",
+      "public",
+      {
+        allowExtendedStayAfter?: boolean;
+        allowExtendedStayBefore?: boolean;
+        allowExtendedStayBoth?: boolean;
+        baseCheckInAt?: number;
+        baseCheckOutAt?: number;
+        breakfastIncluded?: boolean;
+        defaultCategoryId?: Id<"accommodationCategories">;
+        eventId: Id<"events">;
+      },
+      any
+    >;
+    upsertEventAccommodationOption: FunctionReference<
+      "mutation",
+      "public",
+      {
+        eligibilityAgeBandCode?: "under_3" | "3_11" | "12_17" | "18_plus";
+        enabled?: boolean;
+        eventId: Id<"events">;
+        notes?: string;
+        optionId: Id<"accommodationOptions">;
+        priceMinor?: number;
+      },
+      any
+    >;
+    upsertEventAccommodationRate: FunctionReference<
+      "mutation",
+      "public",
+      {
+        categoryId: Id<"accommodationCategories">;
+        eventId: Id<"events">;
+        occupancy: "single" | "shared" | "family";
+        pricePerPersonMinor: number;
+      },
+      any
+    >;
+    upsertEventAccommodationResource: FunctionReference<
+      "mutation",
+      "public",
+      {
+        count: number;
+        eventId: Id<"events">;
+        kind: "room" | "cot";
+        roomTypeId?: Id<"accommodationRoomTypes">;
       },
       any
     >;
