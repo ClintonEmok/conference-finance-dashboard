@@ -568,6 +568,229 @@ test("loader fails closed when a confirmed selection lacks a priceSnapshot", asy
   )
 })
 
+test("loader fails closed when confirmedAt is a malformed epoch timestamp", async () => {
+  const t = fresh()
+  const ctx = await seedEvent(t)
+
+  const order = await t.mutation(async (db) => {
+    return await db.db.insert("orders", {
+      eventId: ctx.eventId as never,
+      source: "internal",
+      bookingRef: "BK-20260411-EPOCH",
+      bookerName: "Epoch Buyer",
+      submittedAt: BASE_EVENT_AT,
+    })
+  })
+  const attendeeId = await t.mutation(async (db) => {
+    return await db.db.insert("orderAttendees", {
+      orderId: order as never,
+      attendeeKey: "epoch-a",
+      name: "Epoch Buyer",
+      gender: "unknown",
+      sortOrder: 0,
+    })
+  })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderTicketSelections", {
+      orderId: order as never,
+      attendeeId: attendeeId as never,
+      ticketTypeId: ctx.ticketNotIncludedId as never,
+      quantity: 1,
+      sortOrder: 0,
+    })
+  })
+  const snapshot = buildAccommodationPriceSnapshot({
+    selection: {
+      attendeeId: ctx.attendeeNotIncludedId,
+      categoryCode: "standard",
+      occupancy: "shared",
+      upgradeSelected: false,
+      cotSelected: false,
+      ageBandCode: "18_plus",
+      nightCount: 2,
+    },
+    pricing: {
+      baseRatePerNightMinor: 3000,
+      superiorUpgradePriceMinor: 1500,
+      cotPriceMinor: 500,
+      ticketAccommodationIncluded: false,
+      eventBaseNights: 2,
+    },
+  })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderAccommodationSelections", {
+      orderId: order as never,
+      attendeeId: attendeeId as never,
+      categoryId: ctx.categoryStandardId as never,
+      occupancy: "shared",
+      upgradeSelected: false,
+      cotSelected: false,
+      nightCount: 2,
+      // Epoch `confirmedAt` must still count as confirmed (field presence) —
+      // never silently re-priced as a live row.
+      confirmedAt: 0,
+      configVersion: BASE_EVENT_AT,
+      priceSnapshot: snapshot,
+    })
+  })
+
+  await expect(loadOrderAmountDue(t, String(order))).rejects.toThrow(
+    /confirmed.*missing a complete priceSnapshot/
+  )
+})
+
+test("loader fails closed when a confirmed row lacks configVersion", async () => {
+  const t = fresh()
+  const ctx = await seedEvent(t)
+
+  const order = await t.mutation(async (db) => {
+    return await db.db.insert("orders", {
+      eventId: ctx.eventId as never,
+      source: "internal",
+      bookingRef: "BK-20260411-NOCFGVER",
+      bookerName: "No Config Version Buyer",
+      submittedAt: BASE_EVENT_AT,
+    })
+  })
+  const attendeeId = await t.mutation(async (db) => {
+    return await db.db.insert("orderAttendees", {
+      orderId: order as never,
+      attendeeKey: "nocfg-a",
+      name: "No Config Version Buyer",
+      gender: "unknown",
+      sortOrder: 0,
+    })
+  })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderTicketSelections", {
+      orderId: order as never,
+      attendeeId: attendeeId as never,
+      ticketTypeId: ctx.ticketNotIncludedId as never,
+      quantity: 1,
+      sortOrder: 0,
+    })
+  })
+  const snapshot = buildAccommodationPriceSnapshot({
+    selection: {
+      attendeeId: ctx.attendeeNotIncludedId,
+      categoryCode: "standard",
+      occupancy: "shared",
+      upgradeSelected: false,
+      cotSelected: false,
+      ageBandCode: "18_plus",
+      nightCount: 2,
+    },
+    pricing: {
+      baseRatePerNightMinor: 3000,
+      superiorUpgradePriceMinor: 1500,
+      cotPriceMinor: 500,
+      ticketAccommodationIncluded: false,
+      eventBaseNights: 2,
+    },
+  })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderAccommodationSelections", {
+      orderId: order as never,
+      attendeeId: attendeeId as never,
+      categoryId: ctx.categoryStandardId as never,
+      occupancy: "shared",
+      upgradeSelected: false,
+      cotSelected: false,
+      nightCount: 2,
+      confirmedAt: BASE_EVENT_AT,
+      configVersion: undefined,
+      priceSnapshot: snapshot,
+    })
+  })
+
+  await expect(loadOrderAmountDue(t, String(order))).rejects.toThrow(
+    /confirmed.*missing a complete priceSnapshot/
+  )
+})
+
+test("confirmed row prices from its snapshot even when event config is missing", async () => {
+  const t = fresh()
+  const ctx = await seedEvent(t)
+
+  const snapshot = buildAccommodationPriceSnapshot({
+    selection: {
+      attendeeId: ctx.attendeeNotIncludedId,
+      categoryCode: "standard",
+      occupancy: "shared",
+      upgradeSelected: false,
+      cotSelected: false,
+      ageBandCode: "18_plus",
+      nightCount: 2,
+    },
+    pricing: {
+      baseRatePerNightMinor: 3000,
+      superiorUpgradePriceMinor: 1500,
+      cotPriceMinor: 500,
+      ticketAccommodationIncluded: false,
+      eventBaseNights: 2,
+    },
+  })
+
+  const order = await t.mutation(async (db) => {
+    return await db.db.insert("orders", {
+      eventId: ctx.eventId as never,
+      source: "internal",
+      bookingRef: "BK-20260411-NOCFG01",
+      bookerName: "No Config Buyer",
+      submittedAt: BASE_EVENT_AT,
+    })
+  })
+  const attendeeId = await t.mutation(async (db) => {
+    return await db.db.insert("orderAttendees", {
+      orderId: order as never,
+      attendeeKey: "nocfg-conf",
+      name: "No Config Buyer",
+      gender: "unknown",
+      sortOrder: 0,
+    })
+  })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderTicketSelections", {
+      orderId: order as never,
+      attendeeId: attendeeId as never,
+      ticketTypeId: ctx.ticketNotIncludedId as never,
+      quantity: 1,
+      sortOrder: 0,
+    })
+  })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderAccommodationSelections", {
+      orderId: order as never,
+      attendeeId: attendeeId as never,
+      categoryId: ctx.categoryStandardId as never,
+      occupancy: "shared",
+      upgradeSelected: false,
+      cotSelected: false,
+      nightCount: 2,
+      confirmedAt: BASE_EVENT_AT,
+      configVersion: BASE_EVENT_AT,
+      priceSnapshot: snapshot,
+    })
+  })
+
+  // Remove the event accommodation config entirely: a confirmed row must still
+  // be priced from its snapshot instead of silently degrading to €0.
+  await t.mutation(async (db) => {
+    const config = await db.db
+      .query("eventAccommodationConfig")
+      .withIndex("by_eventId", (q) => q.eq("eventId", ctx.eventId as never))
+      .first()
+    if (config) {
+      await db.db.delete("eventAccommodationConfig", config._id)
+    }
+  })
+
+  const breakdown = await loadOrderAmountDue(t, String(order))
+  // ticket 2000 + snapshot base 2×3000 = 8000 — unchanged by config removal.
+  expect(breakdown?.amountDueMinor).toBe(8000)
+  expect(breakdown?.accommodationLines[0]?.ratePerNightMinor).toBe(3000)
+})
+
 // ---------------------------------------------------------------------------
 // Booking lookup exposes canonical total + optional lines for live orders.
 // ---------------------------------------------------------------------------

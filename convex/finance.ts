@@ -7,6 +7,7 @@ import {
 } from "../lib/domain/finance/amounts"
 import {
   deriveAccommodationAmount,
+  isCompleteAccommodationPriceSnapshot,
   type AccommodationPriceSnapshot,
   type AccommodationReceiptLine,
 } from "../lib/domain/finance/accommodation-amounts"
@@ -337,73 +338,94 @@ export async function loadOrderAmountDueBreakdowns(
       ? eventAccommodationContextByEventId.get(String(eventId))
       : null
 
-    // Missing event accommodation config means no pricing exists: the
-    // accommodation contribution stays €0 (legacy/empty behavior unchanged).
-    if (accommodationContext?.config) {
-      for (const row of accommodationSelectionsByOrderId.get(orderKey) ?? []) {
-        const attendeeKey = String(row.attendeeId)
-        const ticketTypeId = attendeeTicketTypeId.get(attendeeKey)
-        const ticketInfo = ticketTypeId
-          ? ticketTypeInfoById.get(String(ticketTypeId))
-          : undefined
+    for (const row of accommodationSelectionsByOrderId.get(orderKey) ?? []) {
+      const attendeeKey = String(row.attendeeId)
+      const ticketTypeId = attendeeTicketTypeId.get(attendeeKey)
+      const ticketInfo = ticketTypeId
+        ? ticketTypeInfoById.get(String(ticketTypeId))
+        : undefined
 
-        const isConfirmed =
-          typeof row.confirmedAt === "number" && row.confirmedAt > 0
-        let snapshot: AccommodationPriceSnapshot | null = null
+      // Confirmation is determined by field presence, not by a positive
+      // timestamp: a malformed/epoch `confirmedAt` is still inside the
+      // confirmation boundary and must never be re-priced as live.
+      const isConfirmed = row.confirmedAt !== undefined && row.confirmedAt !== null
 
-        if (isConfirmed) {
-          snapshot = row.priceSnapshot ?? null
-          if (!snapshot) {
-            // Fail closed: a confirmed row must carry a complete snapshot and
-            // must never be silently re-priced from the current config.
-            throw new Error(
-              "Invalid accommodation snapshot: selection is confirmed but missing a complete priceSnapshot."
-            )
-          }
-        }
-
-        const rate =
-          row.categoryId && row.occupancy
-            ? accommodationContext.ratesByKey.get(
-                `${String(row.categoryId)}:${row.occupancy}`
-              )
-            : undefined
-        const categoryCode = row.categoryId
-          ? accommodationContext.categoryCodeById.get(String(row.categoryId))
-          : undefined
-
-        const result = deriveAccommodationAmount({
-          selection: {
-            attendeeId: attendeeKey,
-            categoryCode,
-            occupancy: row.occupancy,
-            upgradeSelected: row.upgradeSelected,
-            cotSelected: row.cotSelected,
-            ageBandCode: row.ageBandCode,
-            nightCount: row.nightCount,
-          },
-          pricing: {
-            baseRatePerNightMinor: rate?.pricePerPersonMinor,
-            superiorUpgradePriceMinor:
-              accommodationContext.superiorUpgradePriceMinor,
-            cotPriceMinor: accommodationContext.cotPriceMinor,
-            ticketAccommodationIncluded: ticketInfo?.accommodationIncluded,
-            eventBaseNights: accommodationContext.config.nightCount,
-          },
-          snapshot,
-        })
-
-        if (result.totalMinor > 0) {
-          amountDueMinor += result.totalMinor
-          amountDueByAttendeeId.set(
-            attendeeKey,
-            (amountDueByAttendeeId.get(attendeeKey) ?? 0) + result.totalMinor
+      // Fail closed BEFORE any config-dependent pricing branch: every
+      // confirmed row must carry a valid `confirmedAt`, a `configVersion`
+      // boundary, and a complete snapshot. A confirmed row that lacks any of
+      // these is a broken confirmation — it is never silently re-priced from
+      // the current config and never silently dropped as €0, even when the
+      // event has no accommodation config.
+      if (isConfirmed) {
+        if (
+          typeof row.confirmedAt !== "number" ||
+          !Number.isFinite(row.confirmedAt) ||
+          row.confirmedAt <= 0 ||
+          typeof row.configVersion !== "number" ||
+          !Number.isFinite(row.configVersion) ||
+          row.configVersion <= 0 ||
+          !isCompleteAccommodationPriceSnapshot(row.priceSnapshot)
+        ) {
+          throw new Error(
+            "Invalid accommodation snapshot: selection is confirmed but missing a complete priceSnapshot."
           )
         }
+      }
 
-        for (const line of result.lines) {
-          accommodationLines.push(line)
-        }
+      const snapshot: AccommodationPriceSnapshot | null = row.priceSnapshot ?? null
+
+      // Live derivation needs the event config; when it is missing (legacy or
+      // unconfigured event) an unconfirmed row contributes €0 — the legacy
+      // behavior is preserved for unconfirmed rows only. Confirmed rows price
+      // exclusively from their persisted snapshot and never need live config.
+      const canPrice =
+        isConfirmed || accommodationContext?.config !== null
+
+      if (!canPrice) {
+        continue
+      }
+
+      const rate =
+        row.categoryId && row.occupancy
+          ? accommodationContext?.ratesByKey.get(
+              `${String(row.categoryId)}:${row.occupancy}`
+            )
+          : undefined
+      const categoryCode = row.categoryId
+        ? accommodationContext?.categoryCodeById.get(String(row.categoryId))
+        : undefined
+
+      const result = deriveAccommodationAmount({
+        selection: {
+          attendeeId: attendeeKey,
+          categoryCode,
+          occupancy: row.occupancy,
+          upgradeSelected: row.upgradeSelected,
+          cotSelected: row.cotSelected,
+          ageBandCode: row.ageBandCode,
+          nightCount: row.nightCount,
+        },
+        pricing: {
+          baseRatePerNightMinor: rate?.pricePerPersonMinor,
+          superiorUpgradePriceMinor:
+            accommodationContext?.superiorUpgradePriceMinor ?? null,
+          cotPriceMinor: accommodationContext?.cotPriceMinor ?? null,
+          ticketAccommodationIncluded: ticketInfo?.accommodationIncluded,
+          eventBaseNights: accommodationContext?.config?.nightCount,
+        },
+        snapshot: isConfirmed ? snapshot : null,
+      })
+
+      if (result.totalMinor > 0) {
+        amountDueMinor += result.totalMinor
+        amountDueByAttendeeId.set(
+          attendeeKey,
+          (amountDueByAttendeeId.get(attendeeKey) ?? 0) + result.totalMinor
+        )
+      }
+
+      for (const line of result.lines) {
+        accommodationLines.push(line)
       }
     }
 
