@@ -3069,6 +3069,29 @@ export const upsertEventAccommodationResource = mutation({
   },
 })
 
+/**
+ * Age-pricing values are rateType-dependent: `percent` must stay in the
+ * percentage domain (0..100), `flat` must be whole minor units, and
+ * `free`/`full` must be finite and non-negative (their values are not yet
+ * consumed by any calculation). A percent value of 150 or a flat value of
+ * 12.5 would produce invalid amounts downstream, so both are rejected.
+ */
+export function isValidAgePricingValue(
+  rateType: string,
+  value: number
+): boolean {
+  if (!Number.isFinite(value) || value < 0) {
+    return false
+  }
+  if (rateType === "percent") {
+    return value <= 100
+  }
+  if (rateType === "flat") {
+    return Number.isInteger(value)
+  }
+  return true
+}
+
 export const upsertEventAccommodationAgePricing = mutation({
   args: {
     eventId: v.id("events"),
@@ -3087,8 +3110,10 @@ export const upsertEventAccommodationAgePricing = mutation({
     if (!band) {
       throw new Error("Age band not found")
     }
-    if (!isNonNegativePrice(args.value)) {
-      throw new Error("value must be a non-negative number")
+    if (!isValidAgePricingValue(args.rateType, args.value)) {
+      throw new Error(
+        `value must be a valid ${args.rateType} age-pricing amount`
+      )
     }
     const sortOrder = args.sortOrder ?? 0
     if (!isNonNegativeInteger(sortOrder)) {

@@ -13,6 +13,7 @@ import {
   isCotEligibilityValid,
   isValidAgeBandBounds,
   isValidAgeBandRange,
+  isValidAgePricingValue,
   resolveEventOptionPriceMinor,
 } from "@/convex/accommodation"
 
@@ -231,6 +232,32 @@ describe("isValidAgeBandBounds", () => {
     expect(isValidAgeBandBounds("18_plus", 18, 21)).toBe(false)
     // Unknown codes are rejected outright.
     expect(isValidAgeBandBounds("unknown", 0, 3)).toBe(false)
+  })
+})
+
+describe("isValidAgePricingValue", () => {
+  it("keeps percent values inside the percentage domain", () => {
+    expect(isValidAgePricingValue("percent", 0)).toBe(true)
+    expect(isValidAgePricingValue("percent", 100)).toBe(true)
+    expect(isValidAgePricingValue("percent", 12.5)).toBe(true)
+    expect(isValidAgePricingValue("percent", 150)).toBe(false)
+    expect(isValidAgePricingValue("percent", Number.POSITIVE_INFINITY)).toBe(
+      false
+    )
+    expect(isValidAgePricingValue("percent", -1)).toBe(false)
+  })
+
+  it("requires flat values to be whole minor units", () => {
+    expect(isValidAgePricingValue("flat", 0)).toBe(true)
+    expect(isValidAgePricingValue("flat", 1500)).toBe(true)
+    expect(isValidAgePricingValue("flat", 12.5)).toBe(false)
+  })
+
+  it("requires free/full values to be finite and non-negative", () => {
+    expect(isValidAgePricingValue("free", 0)).toBe(true)
+    expect(isValidAgePricingValue("full", 1)).toBe(true)
+    expect(isValidAgePricingValue("full", -1)).toBe(false)
+    expect(isValidAgePricingValue("free", Number.NaN)).toBe(false)
   })
 })
 
