@@ -39,6 +39,12 @@ export declare const api: {
       { eventProviderEventId: string; hotelId: string },
       any
     >;
+    confirmAccommodationOrderConfiguration: FunctionReference<
+      "mutation",
+      "public",
+      { orderId: Id<"orders"> },
+      any
+    >;
     confirmBuyerAssignment: FunctionReference<
       "mutation",
       "public",
@@ -2209,6 +2215,9 @@ export declare const internal: {
       },
       any
     >;
+  };
+  init: {
+    default: FunctionReference<"mutation", "internal", any, any>;
   };
   orders: {
     syncFullyPaidOrders: FunctionReference<
