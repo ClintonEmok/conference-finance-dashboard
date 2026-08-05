@@ -76,6 +76,22 @@ type ConfigAgePricing = {
   sortOrder: number
 }
 
+type CatalogOption = {
+  _id: Id<"accommodationOptions">
+  code: string
+  label: string
+  description?: string
+  kind: string
+  unit: string
+}
+
+type CatalogRoomType = {
+  _id: Id<"accommodationRoomTypes">
+  label: string
+  defaultCapacity: number
+  categoryId?: Id<"accommodationCategories">
+}
+
 type EventConfigResponse = {
   event: {
     eventId: Id<"events">
@@ -99,6 +115,9 @@ type EventConfigResponse = {
   options: ConfigOption[]
   resources: ConfigResource[]
   agePricing: ConfigAgePricing[]
+  catalogCategories: ConfigCategory[]
+  catalogOptions: CatalogOption[]
+  catalogRoomTypes: CatalogRoomType[]
 }
 
 type CatalogAgeBand = {
@@ -364,9 +383,15 @@ function RateGridSection({
 }) {
   const upsert = useUpsertEventAccommodationRate()
 
-  // Grid rows: every active category (server-derived) so unconfigured
-  // occupancy cells stay honest and editable.
-  const categories = config.activeCategories ?? []
+  // Grid rows: every reusable catalog category so a fresh event with zero
+  // rates can create its first rows instead of dead-ending on "no active
+  // categories" (CR-05). Blank occupancy cells are left unchanged on save;
+  // explicit €0 is preserved. Falls back to the server-derived active
+  // categories only when the catalog did not load.
+  const categories =
+    (config.catalogCategories ?? []).length > 0
+      ? config.catalogCategories
+      : (config.activeCategories ?? [])
   const rateByKey = useMemo(() => {
     const map = new Map<string, ConfigRate>()
     for (const rate of config.rates ?? []) {
@@ -459,7 +484,8 @@ function RateGridSection({
       <CardContent className="min-w-0 space-y-4">
         {categories.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            No categories are active yet. Save a rate for a category to activate it.
+            No categories are seeded in the reusable catalog yet. Rates appear
+            here once the catalog is populated.
           </p>
         ) : (
           <div className="min-w-0 overflow-x-auto rounded-lg border border-border/60">
@@ -557,6 +583,11 @@ function OptionSection({
 }) {
   const upsert = useUpsertEventAccommodationOption()
   const options = config.options ?? []
+  const catalogOptions = config.catalogOptions ?? []
+  const configuredByOptionId = useMemo(
+    () => new Map(options.map((option) => [String(option.optionId), option])),
+    [options]
+  )
 
   return (
     <Card className="border-border/60 bg-card shadow-none">
@@ -569,21 +600,33 @@ function OptionSection({
         </CardDescription>
       </CardHeader>
       <CardContent className="min-w-0 space-y-4">
-        {options.length === 0 ? (
+        {catalogOptions.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            No event options are configured yet. Options will appear here once they are
-            enabled from the reusable catalog.
+            No options are seeded in the reusable catalog yet. Options appear here once
+            the catalog is populated.
           </p>
         ) : (
           <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-            {options.map((option) => (
-              <OptionCard
-                key={option._id}
-                eventId={eventId}
-                option={option}
-                upsert={upsert}
-              />
-            ))}
+            {catalogOptions.map((catalogOption) => {
+              const configured = configuredByOptionId.get(
+                String(catalogOption._id)
+              )
+              return configured ? (
+                <OptionCard
+                  key={catalogOption._id}
+                  eventId={eventId}
+                  option={configured}
+                  upsert={upsert}
+                />
+              ) : (
+                <UnconfiguredOptionCard
+                  key={catalogOption._id}
+                  eventId={eventId}
+                  option={catalogOption}
+                  upsert={upsert}
+                />
+              )
+            })}
           </div>
         )}
       </CardContent>
@@ -700,6 +743,115 @@ function OptionCard({
         <Button type="button" size="sm" onClick={save} disabled={isPending}>
           {isPending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
           Save option
+        </Button>
+        <Feedback error={error} success={success} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Card for a reusable catalog option that has no event row yet. Saving calls
+ * the same upsert mutation, which inserts the event configuration row — the
+ * first option of an unconfigured event can be created here instead of
+ * dead-ending on an empty state (CR-05).
+ */
+function UnconfiguredOptionCard({
+  eventId,
+  option,
+  upsert,
+}: {
+  eventId: Id<"events">
+  option: CatalogOption
+  upsert: ReturnType<typeof useUpsertEventAccommodationOption>
+}) {
+  const [enabled, setEnabled] = useState(false)
+  const [price, setPrice] = useState("0")
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [isPending, setIsPending] = useState(false)
+
+  const isCot = option.code === "cot"
+  const isSuperiorUpgrade = option.code === "superior_upgrade"
+
+  const save = async () => {
+    setError(null)
+    setSuccess(null)
+    const value = Number(price)
+    if (!Number.isInteger(value) || value < 0) {
+      setError("Price must be a whole number of cents (minor units).")
+      return
+    }
+    setIsPending(true)
+    try {
+      await upsert({
+        eventId,
+        optionId: option._id,
+        enabled,
+        priceMinor: value,
+        ...(isCot ? { eligibilityAgeBandCode: "under_3" } : {}),
+      })
+      setSuccess(`${option.label} configured for this event.`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save option.")
+    } finally {
+      setIsPending(false)
+    }
+  }
+
+  return (
+    <div className="min-w-0 space-y-3 rounded-lg border border-dashed border-border/70 p-4">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 space-y-1">
+          <p className="break-words text-sm font-semibold">
+            {option.label}{" "}
+            <span className="ml-1 font-mono text-xs text-muted-foreground">
+              {option.code}
+            </span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {option.kind === "upgrade"
+              ? "Upgrade · per night"
+              : option.kind === "addon"
+                ? "Add-on · per night"
+                : "Per night"}
+            {isCot && " · under 3 only"} · not configured for this event yet
+          </p>
+        </div>
+        <Badge variant="outline">Not configured</Badge>
+      </div>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="size-4 accent-primary"
+          checked={enabled}
+          onChange={(event) => setEnabled(event.target.checked)}
+        />
+        Offer this option to buyers
+      </label>
+
+      <div className="min-w-0 space-y-2">
+        <Label htmlFor={`uo-new-option-${option._id}`}>
+          Price per night in cents{isSuperiorUpgrade ? " (per person)" : ""}
+        </Label>
+        <Input
+          id={`uo-new-option-${option._id}`}
+          type="number"
+          inputMode="numeric"
+          min={0}
+          step={1}
+          value={price}
+          onChange={(event) => setPrice(event.target.value)}
+          className="w-40 font-mono tabular-nums"
+        />
+      </div>
+
+      <Separator />
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="button" size="sm" onClick={save} disabled={isPending}>
+          {isPending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+          Configure for this event
         </Button>
         <Feedback error={error} success={success} />
       </div>
@@ -891,6 +1043,22 @@ function AvailabilitySection({
 }) {
   const upsert = useUpsertEventAccommodationResource()
   const resources = config.resources ?? []
+  const catalogRoomTypes = config.catalogRoomTypes ?? []
+
+  const roomResourceByRoomTypeId = useMemo(() => {
+    const map = new Map<string, ConfigResource>()
+    for (const resource of resources) {
+      if (resource.kind === "room" && resource.roomTypeId) {
+        map.set(String(resource.roomTypeId), resource)
+      }
+    }
+    return map
+  }, [resources])
+  const hasCotResource = resources.some((resource) => resource.kind === "cot")
+  const unconfiguredRoomTypes = catalogRoomTypes.filter(
+    (roomType) => !roomResourceByRoomTypeId.has(String(roomType._id))
+  )
+  const showEmpty = catalogRoomTypes.length === 0 && !hasCotResource
 
   return (
     <Card className="border-border/60 bg-card shadow-none">
@@ -902,10 +1070,10 @@ function AvailabilitySection({
         </CardDescription>
       </CardHeader>
       <CardContent className="min-w-0 space-y-4">
-        {resources.length === 0 ? (
+        {showEmpty ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            No availability configured yet. Add room-type and cot counts to make this
-            event bookable.
+            No room types are seeded in the reusable catalog yet. Availability
+            appears here once the catalog is populated.
           </p>
         ) : (
           <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -917,6 +1085,15 @@ function AvailabilitySection({
                 upsert={upsert}
               />
             ))}
+            {unconfiguredRoomTypes.map((roomType) => (
+              <AddRoomResourceCard
+                key={roomType._id}
+                eventId={eventId}
+                roomType={roomType}
+                upsert={upsert}
+              />
+            ))}
+            {!hasCotResource && <AddCotResourceCard eventId={eventId} upsert={upsert} />}
           </div>
         )}
       </CardContent>
@@ -998,6 +1175,146 @@ function ResourceCard({
         <Button type="button" size="sm" onClick={save} disabled={isPending}>
           {isPending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
           Save availability
+        </Button>
+        <Feedback error={error} success={success} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Add-card for a reusable room type that has no event resource yet. Saving
+ * calls the same resource upsert to create the first availability row of an
+ * unconfigured event (CR-05).
+ */
+function AddRoomResourceCard({
+  eventId,
+  roomType,
+  upsert,
+}: {
+  eventId: Id<"events">
+  roomType: CatalogRoomType
+  upsert: ReturnType<typeof useUpsertEventAccommodationResource>
+}) {
+  const [count, setCount] = useState("0")
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [isPending, setIsPending] = useState(false)
+
+  const save = async () => {
+    setError(null)
+    setSuccess(null)
+    const value = Number(count)
+    if (!Number.isInteger(value) || value < 0) {
+      setError("Count must be a whole number.")
+      return
+    }
+    setIsPending(true)
+    try {
+      await upsert({
+        eventId,
+        kind: "room",
+        roomTypeId: roomType._id,
+        count: value,
+      })
+      setSuccess("Availability saved.")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save availability.")
+    } finally {
+      setIsPending(false)
+    }
+  }
+
+  return (
+    <div className="min-w-0 space-y-3 rounded-lg border border-dashed border-border/70 p-4">
+      <div className="min-w-0 space-y-1">
+        <p className="break-words text-sm font-semibold">{roomType.label}</p>
+        <p className="text-xs text-muted-foreground">
+          Room resource · not configured · default capacity{" "}
+          <span className="font-mono tabular-nums">{roomType.defaultCapacity}</span>
+        </p>
+      </div>
+      <div className="min-w-0 space-y-1.5">
+        <Label htmlFor={`uo-add-room-${roomType._id}`}>Physical count</Label>
+        <Input
+          id={`uo-add-room-${roomType._id}`}
+          type="number"
+          inputMode="numeric"
+          min={0}
+          step={1}
+          value={count}
+          onChange={(event) => setCount(event.target.value)}
+          className="w-full font-mono tabular-nums"
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" size="sm" onClick={save} disabled={isPending}>
+          {isPending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+          Add room availability
+        </Button>
+        <Feedback error={error} success={success} />
+      </div>
+    </div>
+  )
+}
+
+/** Add-card for the event's physical cot count when no cot resource exists yet. */
+function AddCotResourceCard({
+  eventId,
+  upsert,
+}: {
+  eventId: Id<"events">
+  upsert: ReturnType<typeof useUpsertEventAccommodationResource>
+}) {
+  const [count, setCount] = useState("0")
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [isPending, setIsPending] = useState(false)
+
+  const save = async () => {
+    setError(null)
+    setSuccess(null)
+    const value = Number(count)
+    if (!Number.isInteger(value) || value < 0) {
+      setError("Count must be a whole number.")
+      return
+    }
+    setIsPending(true)
+    try {
+      await upsert({ eventId, kind: "cot", count: value })
+      setSuccess("Availability saved.")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save availability.")
+    } finally {
+      setIsPending(false)
+    }
+  }
+
+  return (
+    <div className="min-w-0 space-y-3 rounded-lg border border-dashed border-border/70 p-4">
+      <div className="min-w-0 space-y-1">
+        <p className="break-words text-sm font-semibold">Cot</p>
+        <p className="text-xs text-muted-foreground">
+          Cot resource · not configured
+        </p>
+      </div>
+      <div className="min-w-0 space-y-1.5">
+        <Label htmlFor="uo-add-cot">Physical count</Label>
+        <Input
+          id="uo-add-cot"
+          type="number"
+          inputMode="numeric"
+          min={0}
+          step={1}
+          value={count}
+          onChange={(event) => setCount(event.target.value)}
+          className="w-full font-mono tabular-nums"
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" size="sm" onClick={save} disabled={isPending}>
+          {isPending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+          Add cot availability
         </Button>
         <Feedback error={error} success={success} />
       </div>

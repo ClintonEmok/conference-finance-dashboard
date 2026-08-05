@@ -430,6 +430,56 @@ test("empty pending state reports zero pending orders before Phase 42", async ()
   expect(response.event.timezone).toBe("Europe/Amsterdam")
 })
 
+// ---------------------------------------------------------------------------
+// Unconfigured-event editor data (CR-05): the config read returns the full
+// reusable catalog choices so a fresh event can create its first rate,
+// option, and resource rows instead of dead-ending on empty states.
+// ---------------------------------------------------------------------------
+
+test("config read returns catalog choices for an event with zero configuration", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await createEvent(t)
+
+  // Seed the reusable catalog but configure nothing for the event.
+  const categoryId = await t.mutation(api.accommodation.createAccommodationCategory, {
+    code: "standard",
+    label: "Standard",
+    sortOrder: 1,
+  })
+  await t.mutation(api.accommodation.createAccommodationOption, {
+    code: "superior_upgrade",
+    label: "Superior Upgrade",
+    kind: "upgrade",
+    unit: "per_night",
+  })
+  const roomTypeId = await t.mutation(api.accommodation.createRoomType, {
+    label: "Twin",
+    defaultCapacity: 2,
+  })
+
+  const response = await t.query(api.accommodation.getEventAccommodationConfig, {
+    eventId,
+  })
+  // No event-scoped rows exist yet...
+  expect(response.config).toBeNull()
+  expect(response.rates).toEqual([])
+  expect(response.options).toEqual([])
+  expect(response.resources).toEqual([])
+  // ...but the reusable catalog choices are present for the editor's
+  // add/configure controls.
+  expect(response.catalogCategories.map((category: { _id: string }) => category._id)).toEqual([
+    categoryId,
+  ])
+  expect(response.catalogOptions.length).toBe(1)
+  expect(response.catalogRoomTypes.map((roomType: { _id: string }) => roomType._id)).toEqual([
+    roomTypeId,
+  ])
+  // The rate grid renders every catalog category (not just active ones), so
+  // the first rate can be created for the unconfigured event.
+  expect(response.activeCategories).toEqual([])
+  expect(response.catalogCategories[0].label).toBe("Standard")
+})
+
 test("pending orders count distinct orders with unconfirmed selection rows only", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const eventId = await createEvent(t)

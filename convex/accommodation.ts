@@ -2628,6 +2628,13 @@ export const getEventAccommodationConfig = query({
         .map((roomType) => [roomType._id, roomType])
     )
 
+    // The full reusable catalog choices are returned alongside the event
+    // configuration so the editor can render add/configure controls for an
+    // event that has no rates, options, or resources yet (CR-05). A fresh
+    // event must not dead-end on "no active categories" when the catalog is
+    // seeded — the admin needs the catalog rows to create the first ones.
+    const catalogData = await getAccommodationCatalogData(ctx)
+
     const activeCategoryIds = deriveActiveCategoryIds(rateRows)
     const activeCategories = activeCategoryIds
       .map((id) => categoryById.get(id as Id<"accommodationCategories">))
@@ -2736,6 +2743,9 @@ export const getEventAccommodationConfig = query({
       pendingOrders,
       pendingOrderCount,
       hasAccommodationSelections,
+      catalogCategories: sortBySortOrder(catalogData.categories),
+      catalogOptions: catalogData.options,
+      catalogRoomTypes: catalogData.roomTypes,
     }
   },
 })
