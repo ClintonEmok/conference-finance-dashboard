@@ -78,15 +78,36 @@ describe("deriveInitialStayWindow", () => {
 describe("deriveResourceSellableBeds", () => {
   it("derives sellable beds as room count × room type defaultCapacity", () => {
     expect(
-      deriveResourceSellableBeds({ count: 3, roomTypeDefaultCapacity: 2 })
+      deriveResourceSellableBeds({
+        count: 3,
+        kind: "room",
+        roomTypeDefaultCapacity: 2,
+      })
     ).toBe(6)
   })
 
-  it("counts cot resources and unlinked room resources one bed per item", () => {
+  it("counts cot resources one bed per item without a room type", () => {
     expect(
-      deriveResourceSellableBeds({ count: 5, roomTypeDefaultCapacity: null })
+      deriveResourceSellableBeds({
+        count: 5,
+        kind: "cot",
+        roomTypeDefaultCapacity: null,
+      })
     ).toBe(5)
-    expect(deriveResourceSellableBeds({ count: 4 })).toBe(4)
+    expect(deriveResourceSellableBeds({ count: 4, kind: "cot" })).toBe(4)
+  })
+
+  it("throws for room resources without a linked room type capacity", () => {
+    expect(() =>
+      deriveResourceSellableBeds({ count: 3, kind: "room" })
+    ).toThrow(/linked room type/)
+    expect(() =>
+      deriveResourceSellableBeds({
+        count: 3,
+        kind: "room",
+        roomTypeDefaultCapacity: null,
+      })
+    ).toThrow(/linked room type/)
   })
 })
 

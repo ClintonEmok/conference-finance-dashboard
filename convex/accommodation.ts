@@ -1204,6 +1204,12 @@ export const createRoomType = mutation({
     if (args.count !== undefined && !isNonNegativeInteger(args.count)) {
       throw new Error("count must be a non-negative integer")
     }
+    if (
+      !Number.isInteger(args.defaultCapacity) ||
+      args.defaultCapacity < 1
+    ) {
+      throw new Error("defaultCapacity must be a positive integer")
+    }
     if (args.categoryId !== undefined) {
       const category = await ctx.db.get(
         "accommodationCategories",
@@ -1720,6 +1726,12 @@ export const updateRoomType = mutation({
     )
     if (count !== undefined && !isNonNegativeInteger(count)) {
       throw new Error("count must be a non-negative integer")
+    }
+    if (
+      args.defaultCapacity !== undefined &&
+      (!Number.isInteger(args.defaultCapacity) || args.defaultCapacity < 1)
+    ) {
+      throw new Error("defaultCapacity must be a positive integer")
     }
     if (categoryId !== undefined) {
       const category = await ctx.db.get("accommodationCategories", categoryId)
@@ -2335,15 +2347,32 @@ export function resolveEventOptionPriceMinor(
 
 /**
  * Sellable beds for a room resource = physical count × room type
- * defaultCapacity. Cot resources (and room resources without a linked room
- * type) count one bed per physical item.
+ * defaultCapacity. Room resources must reference a linked room type with a
+ * positive-integer default capacity — there is deliberately no capacity-1
+ * fallback for a room, because silently misrepresenting a multi-bed room
+ * corrupts event availability. Cot resources count one bed per physical item.
  */
 export function deriveResourceSellableBeds(input: {
   count: number
+  kind: "room" | "cot"
   roomTypeDefaultCapacity?: number | null
 }): number {
-  const capacity = input.roomTypeDefaultCapacity ?? 1
-  return input.count * capacity
+  if (input.kind === "room") {
+    const capacity = input.roomTypeDefaultCapacity
+    if (capacity === null || capacity === undefined) {
+      throw new Error(
+        "Room resources require a linked room type to derive sellable beds"
+      )
+    }
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      throw new Error(
+        "Room type defaultCapacity must be a positive integer to derive sellable beds"
+      )
+    }
+    return input.count * capacity
+  }
+  // Cot resources count one bed per physical item.
+  return input.count
 }
 
 /**
@@ -2528,6 +2557,7 @@ export const getEventAccommodationConfig = query({
         roomTypeLabel: roomType?.label ?? null,
         sellableBeds: deriveResourceSellableBeds({
           count: row.count,
+          kind: row.kind,
           roomTypeDefaultCapacity: roomType?.defaultCapacity ?? null,
         }),
       }
@@ -2973,6 +3003,9 @@ export const upsertEventAccommodationResource = mutation({
     }
     if (args.kind === "cot" && args.roomTypeId !== undefined) {
       throw new Error("Cot resources cannot reference a room type")
+    }
+    if (args.kind === "room" && args.roomTypeId === undefined) {
+      throw new Error("Room resources require a room type")
     }
     if (args.roomTypeId !== undefined) {
       const roomType = await ctx.db.get("accommodationRoomTypes", args.roomTypeId)
