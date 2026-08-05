@@ -371,7 +371,7 @@ export type DataModel = {
   };
   eventAccommodationOptions: {
     document: {
-      eligibilityAgeBandCode?: string;
+      eligibilityAgeBandCode?: "under_3" | "3_11" | "12_17" | "18_plus";
       enabled: boolean;
       eventId: Id<"events">;
       notes?: string;
@@ -451,6 +451,12 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_eventId: ["eventId", "_creationTime"];
       by_eventId_and_kind: ["eventId", "kind", "_creationTime"];
+      by_eventId_and_kind_and_roomTypeId: [
+        "eventId",
+        "kind",
+        "roomTypeId",
+        "_creationTime",
+      ];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -537,7 +543,7 @@ export type DataModel = {
   };
   orderAccommodationSelections: {
     document: {
-      ageBandCode?: string;
+      ageBandCode?: "under_3" | "3_11" | "12_17" | "18_plus";
       attendeeId: Id<"orderAttendees">;
       categoryId?: Id<"accommodationCategories">;
       checkInAt?: number;

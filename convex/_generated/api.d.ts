@@ -624,6 +624,7 @@ export declare const api: {
       "mutation",
       "public",
       {
+        accommodationIncluded?: boolean;
         eventId: Id<"events">;
         isActive?: boolean;
         label: string;
@@ -769,6 +770,7 @@ export declare const api: {
       "mutation",
       "public",
       {
+        accommodationIncluded?: boolean;
         availabilityState?: "selectable" | "unavailable";
         isActive?: boolean;
         label?: string;
