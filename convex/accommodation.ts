@@ -3,7 +3,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server"
 import { v } from "convex/values"
 import type { Doc, Id } from "./_generated/dataModel"
 import { requireIdentity } from "./auth"
-import { requireAdmin } from "./admin-access"
+import { requireAdmin } from "./adminAccess"
 import {
   buildAccommodationPriceSnapshot,
   type AccommodationPriceSnapshot,
