@@ -425,6 +425,9 @@ test("empty pending state reports zero pending orders before Phase 42", async ()
   expect(response.pendingOrderCount).toBe(0)
   expect(response.pendingOrders).toEqual([])
   expect(response.hasAccommodationSelections).toBe(false)
+  // The event timezone is server-provided so the editor converts stay dates
+  // in the event timezone, never the browser's local timezone.
+  expect(response.event.timezone).toBe("Europe/Amsterdam")
 })
 
 test("pending orders count distinct orders with unconfirmed selection rows only", async () => {
@@ -915,14 +918,14 @@ test("confirmation rejects selections that cannot be priced", async () => {
 async function firstSelectionRow(
   t: TestConvexForDataModel<GenericDataModel>,
   orderId: string
-) {
+): Promise<Id<"orderAccommodationSelections">> {
   return await t.mutation(async (db) => {
     const row = await db.db
       .query("orderAccommodationSelections")
       .withIndex("by_orderId", (q) => q.eq("orderId", orderId as never))
       .first()
     if (!row) throw new Error("expected a selection row")
-    return row._id
+    return row._id as Id<"orderAccommodationSelections">
   })
 }
 
@@ -981,6 +984,7 @@ test("confirmation rejects a ticket type that belongs to another event", async (
       .query("orderTicketSelections")
       .withIndex("by_orderId", (q) => q.eq("orderId", ctx.orderId as never))
       .first()
+    if (!ticketSelection) throw new Error("expected a ticket selection")
     await db.db.patch("orderTicketSelections", ticketSelection._id, {
       ticketTypeId: foreignTicketTypeId as never,
     })

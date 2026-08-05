@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { formatMoney } from "@/lib/format"
+import { fromDateInputValue, toDateInputValue } from "@/lib/dashboard/accommodation-dates"
 import type { Id } from "@/convex/_generated/dataModel"
 import {
   useUpsertEventAccommodationAgePricing,
@@ -76,6 +77,13 @@ type ConfigAgePricing = {
 }
 
 type EventConfigResponse = {
+  event: {
+    eventId: Id<"events">
+    slug: string
+    title: string
+    startsAt: number
+    timezone: string
+  }
   config: {
     baseCheckInAt: number
     baseCheckOutAt: number
@@ -113,36 +121,6 @@ const RATE_TYPES: Array<{ value: ConfigAgePricing["rateType"]; label: string }> 
   { value: "percent", label: "Percent of rate" },
   { value: "flat", label: "Flat minor units" },
 ]
-
-function toDateInputValue(epoch: number): string {
-  const date = new Date(epoch)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  const day = String(date.getDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
-}
-
-/** Rebuilds an epoch from a date input, preserving the original local clock time. */
-function fromDateInputValue(
-  value: string,
-  fallbackEpoch: number
-): number | null {
-  const parts = value.split("-").map((part) => Number(part))
-  if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) {
-    return null
-  }
-  const [year, month, day] = parts
-  const original = new Date(fallbackEpoch)
-  return new Date(
-    year,
-    month - 1,
-    day,
-    original.getHours(),
-    original.getMinutes(),
-    0,
-    0
-  ).getTime()
-}
 
 function Feedback({
   error,
@@ -205,6 +183,10 @@ function StayConfigSection({
 }) {
   const upsert = useUpsertEventAccommodationConfig()
   const row = config.config
+  // Stay dates convert in the EVENT timezone (never the browser's local
+  // timezone) so an admin outside the event timezone sees and saves the same
+  // calendar dates around UTC midnight and DST boundaries.
+  const timeZone = config.event?.timezone ?? "UTC"
 
   const [checkIn, setCheckIn] = useState<string>("")
   const [checkOut, setCheckOut] = useState<string>("")
@@ -220,8 +202,8 @@ function StayConfigSection({
   // an unconfigured state — never as zero data.
   const serverKey = row?.updatedAt ?? "unconfigured"
   useEffect(() => {
-    setCheckIn(row ? toDateInputValue(row.baseCheckInAt) : "")
-    setCheckOut(row ? toDateInputValue(row.baseCheckOutAt) : "")
+    setCheckIn(row ? toDateInputValue(row.baseCheckInAt, timeZone) : "")
+    setCheckOut(row ? toDateInputValue(row.baseCheckOutAt, timeZone) : "")
     setExtendBefore(row?.allowExtendedStayBefore ?? false)
     setExtendAfter(row?.allowExtendedStayAfter ?? false)
     setExtendBoth(row?.allowExtendedStayBoth ?? false)
@@ -240,11 +222,13 @@ function StayConfigSection({
     }
     const baseCheckInAt = fromDateInputValue(
       checkIn,
-      row?.baseCheckInAt ?? Date.now()
+      row?.baseCheckInAt ?? Date.now(),
+      timeZone
     )
     const baseCheckOutAt = fromDateInputValue(
       checkOut,
-      row?.baseCheckOutAt ?? Date.now()
+      row?.baseCheckOutAt ?? Date.now(),
+      timeZone
     )
     if (baseCheckInAt === null || baseCheckOutAt === null) {
       setError("Check-in and check-out must be valid dates.")

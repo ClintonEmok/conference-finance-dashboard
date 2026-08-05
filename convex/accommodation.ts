@@ -2725,6 +2725,7 @@ export const getEventAccommodationConfig = query({
         slug: event.slug,
         title: event.title,
         startsAt: event.startsAt,
+        timezone: event.timezone,
       },
       config: configRow ?? null,
       activeCategories,
