@@ -162,39 +162,39 @@
 | QUAL-02 | 37 | Done |
 | QUAL-03 | 37 | Done |
 | QUAL-04 | 34 | Done |
-| CAT-01 | TBD | Pending |
-| CAT-02 | TBD | Pending |
-| CAT-03 | TBD | Pending |
-| CAT-04 | TBD | Pending |
-| CFG-01 | TBD | Pending |
-| CFG-02 | TBD | Pending |
-| CFG-03 | TBD | Pending |
-| CFG-04 | TBD | Pending |
-| CFG-05 | TBD | Pending |
-| ADM-01 | TBD | Pending |
-| ADM-02 | TBD | Pending |
-| ADM-03 | TBD | Pending |
-| SIG-01 | TBD | Pending |
-| SIG-02 | TBD | Pending |
-| SIG-03 | TBD | Pending |
-| SIG-04 | TBD | Pending |
-| TRK-01 | TBD | Pending |
-| TRK-02 | TBD | Pending |
-| TRK-03 | TBD | Pending |
-| TRK-04 | TBD | Pending |
-| TRK-05 | TBD | Pending |
-| TRK-06 | TBD | Pending |
-| FIN-01 | TBD | Pending |
-| FIN-02 | TBD | Pending |
-| FIN-03 | TBD | Pending |
-| FIN-04 | TBD | Pending |
-| ALL-01 | TBD | Pending |
-| ALL-02 | TBD | Pending |
-| ALL-03 | TBD | Pending |
-| TKT-01 | TBD | Pending |
-| TKT-02 | TBD | Pending |
+| CAT-01 | 39 | Pending |
+| CAT-02 | 39 | Pending |
+| CAT-03 | 39 | Pending |
+| CAT-04 | 41 | Pending |
+| CFG-01 | 39 | Pending |
+| CFG-02 | 39 | Pending |
+| CFG-03 | 39 | Pending |
+| CFG-04 | 39 | Pending |
+| CFG-05 | 39 | Pending |
+| ADM-01 | 41 | Pending |
+| ADM-02 | 41 | Pending |
+| ADM-03 | 41 | Pending |
+| SIG-01 | 42 | Pending |
+| SIG-02 | 42 | Pending |
+| SIG-03 | 42 | Pending |
+| SIG-04 | 42 | Pending |
+| TRK-01 | 43 | Pending |
+| TRK-02 | 43 | Pending |
+| TRK-03 | 43 | Pending |
+| TRK-04 | 43 | Pending |
+| TRK-05 | 43 | Pending |
+| TRK-06 | 43 | Pending |
+| FIN-01 | 40 | Pending |
+| FIN-02 | 40 | Pending |
+| FIN-03 | 40 | Pending |
+| FIN-04 | 40 | Pending |
+| ALL-01 | 44 | Pending |
+| ALL-02 | 44 | Pending |
+| ALL-03 | 44 | Pending |
+| TKT-01 | 42 | Pending |
+| TKT-02 | 42 | Pending |
 
-**Coverage:** v5.0 has 36 requirements; the roadmapper will map all of them to phases.
+**Coverage:** v5.0 has 31 requirements, all mapped to a phase (39-44). Note: the earlier "36 requirements" count was a miscount; the traceability table above lists all 31 actual v5.0 requirements.
 
 ---
 
