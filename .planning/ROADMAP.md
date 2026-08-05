@@ -32,10 +32,10 @@ v4.0 improves the protected event-scoped dashboard without changing canonical fi
 
 ## Phases
 
-- [ ] **Phase 34: Event Dashboard Information Architecture** - Establish the final event home, sidebar structure, route ownership, and Settings placement.
-- [ ] **Phase 35: Actionable Event Overview** - Build the stats-led event home and action-oriented operational summary from bounded existing contracts.
-- [ ] **Phase 36: Finance And Accommodation Workspaces** - Consolidate related routes into tabbed workspaces while preserving behavior and deep links.
-- [ ] **Phase 37: Shared Dashboard Quality** - Standardize query states, responsive layouts, keyboard behavior, and accessibility across migrated surfaces.
+- [x] **Phase 34: Event Dashboard Information Architecture** - Establish the final event home, sidebar structure, route ownership, and Settings placement.
+- [x] **Phase 35: Actionable Event Overview** - Build the stats-led event home and action-oriented operational summary from bounded existing contracts.
+- [x] **Phase 36: Finance And Accommodation Workspaces** - Consolidate related routes into tabbed workspaces while preserving behavior and deep links.
+- [x] **Phase 37: Shared Dashboard Quality** - Standardize query states, responsive layouts, keyboard behavior, and accessibility across migrated surfaces.
 - [ ] **Phase 38: UX Regression And Human Verification** - Verify route integrity, data consistency, mobile/desktop behavior, and visual coherence.
 
 ---
@@ -56,7 +56,12 @@ v4.0 improves the protected event-scoped dashboard without changing canonical fi
 4. Settings owns event-level share/configuration actions while primary navigation stays operational.
 5. Existing event deep links remain reachable or have explicit safe redirects.
 
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [x] 34-01-PLAN.md — Establish the canonical event Overview and concise event shell
+- [x] 34-02-PLAN.md — Move sharing to Settings and preserve deep-link compatibility
+- [x] 34-03-PLAN.md — Guide disabled accommodation allocation to event Settings
 
 ---
 
@@ -75,7 +80,12 @@ v4.0 improves the protected event-scoped dashboard without changing canonical fi
 3. The page highlights actionable exceptions with direct links to the relevant workflow.
 4. The Overview remains useful for empty or early-stage events without fabricated values.
 
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [x] 35-01-PLAN.md — Define and test the bounded canonical Overview projection and exception model
+- [x] 35-02-PLAN.md — Render the actionable stats-led Overview with honest query states
+- [x] 35-03-PLAN.md — Close reconciliation and accommodation trustworthiness gaps
 
 ---
 
@@ -94,7 +104,13 @@ v4.0 improves the protected event-scoped dashboard without changing canonical fi
 3. Existing filters, mutations, canonical money semantics, and event scoping continue to work.
 4. Existing useful deep links remain valid or redirect predictably to the corresponding workspace tab.
 
-**Plans:** TBD
+**Plans:** 4 plans
+
+Plans:
+- [x] 36-01-PLAN.md — Establish shared exception-first workspace primitives and URL/tab contracts
+- [x] 36-02-PLAN.md — Build the canonical Finance workspace for Orders, Payments, Donations, and Reconciliation
+- [x] 36-03-PLAN.md — Build the canonical Accommodation workspace for Hotels and Allocation
+- [x] 36-04-PLAN.md — Migrate sidebar ownership and add same-slug legacy route bridges
 
 ---
 
@@ -113,7 +129,17 @@ v4.0 improves the protected event-scoped dashboard without changing canonical fi
 3. Sidebar, tabs, tables, status indicators, and action controls are keyboard-accessible and semantically labeled.
 4. Dashboard data reads remain bounded and do not duplicate expensive finance or accommodation queries.
 
-**Plans:** TBD
+**Plans:** 8 plans
+
+Plans:
+- [x] 37-01-PLAN.md — Establish one event-scoped query boundary and shared event context
+- [x] 37-02-PLAN.md — Define shared dashboard loading/error/empty/unavailable presentation states
+- [x] 37-03-PLAN.md — Harden sidebar, workspace tabs, tables, and responsive shell semantics
+- [x] 37-04-PLAN.md — Normalize Overview states, responsiveness, accessibility, and money trust
+- [x] 37-05-PLAN.md — Remove duplicate Finance attention/detail reads with active-tab data reuse
+- [x] 37-06-PLAN.md — Harden Finance states, canonical money display, tables, and actions
+- [x] 37-07-PLAN.md — Gate and reuse Accommodation attention/allocation board reads
+- [x] 37-08-PLAN.md — Harden Accommodation states, board responsiveness, and accessible actions
 
 ---
 
@@ -140,10 +166,10 @@ v4.0 improves the protected event-scoped dashboard without changing canonical fi
 
 | Phase | Goal | Requirements | Plans | Status |
 | --- | --- | --- | --- | --- |
-| 34 - Event Dashboard Information Architecture | Event home and navigation | UX-01, UX-02, UX-03, QUAL-04 | TBD | Not started |
-| 35 - Actionable Event Overview | Stats-led operational home | OPS-01, OPS-02 | TBD | Not started |
-| 36 - Finance And Accommodation Workspaces | Consolidated operational workspaces | FINUX-01, FINUX-02, ACCUX-01, ACCUX-02 | TBD | Not started |
-| 37 - Shared Dashboard Quality | Shared states and responsive accessibility | QUAL-01, QUAL-02, QUAL-03 | TBD | Not started |
+| 34 - Event Dashboard Information Architecture | Event home and navigation | UX-01, UX-02, UX-03, QUAL-04 | 3 plans | Complete |
+| 35 - Actionable Event Overview | Stats-led operational home | OPS-01, OPS-02 | 2 plans | Complete |
+| 36 - Finance And Accommodation Workspaces | Consolidated operational workspaces | FINUX-01, FINUX-02, ACCUX-01, ACCUX-02 | 4 plans | Complete |
+| 37 - Shared Dashboard Quality | Shared states and responsive accessibility | QUAL-01, QUAL-02, QUAL-03 | 8 plans | Complete |
 | 38 - UX Regression And Human Verification | Cross-route verification | OPS-03 | TBD | Not started |
 
-**Totals:** 5 phases, 14 requirements mapped, 0 plans complete.
+**Totals:** 5 phases, 14 requirements mapped, 23 known plans complete across completed Phases 34-37; Phase 38 remains not started.
