@@ -432,6 +432,7 @@ test("confirmed order stays fixed after a rate edit using its snapshot", async (
     upgradeSelected: false,
     cotSelected: false,
     ageBandCode: "18_plus",
+    cotEligibilityAgeBandCode: null,
   })
 
   const order = await t.mutation(async (db) => {

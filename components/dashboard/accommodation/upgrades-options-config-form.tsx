@@ -14,6 +14,15 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { formatMoney } from "@/lib/format"
 import { fromDateInputValue, toDateInputValue } from "@/lib/dashboard/accommodation-dates"
@@ -128,6 +137,8 @@ type CatalogAgeBand = {
   maxAge?: number
 }
 
+type AgeBandCode = "under_3" | "3_11" | "12_17" | "18_plus"
+
 const OCCUPANCIES = [
   { value: "single", label: "Single" },
   { value: "shared", label: "Shared" },
@@ -182,7 +193,7 @@ export function UpgradesOptionsConfigForm({
     <div className="min-w-0 space-y-5">
       <StayConfigSection eventId={eventId} config={config} />
       <RateGridSection eventId={eventId} config={config} />
-      <OptionSection eventId={eventId} config={config} />
+      <OptionSection eventId={eventId} config={config} catalogAgeBands={catalogAgeBands} />
       <AgePricingSection eventId={eventId} config={config} catalogAgeBands={catalogAgeBands} />
       <AvailabilitySection eventId={eventId} config={config} />
     </div>
@@ -577,9 +588,11 @@ function RateGridSection({
 function OptionSection({
   eventId,
   config,
+  catalogAgeBands = [],
 }: {
   eventId: Id<"events">
   config: EventConfigResponse
+  catalogAgeBands?: CatalogAgeBand[]
 }) {
   const upsert = useUpsertEventAccommodationOption()
   const options = config.options ?? []
@@ -595,8 +608,8 @@ function OptionSection({
         <CardTitle>Upgrades &amp; options</CardTitle>
         <CardDescription>
           Optional per-night add-ons. The superior upgrade moves a buyer to the superior
-          category rate; the cot is available for children under 3 only. Explicit €0
-          prices are preserved.
+          category rate; the cot is available to the age band configured for this event.
+          Explicit €0 prices are preserved.
         </CardDescription>
       </CardHeader>
       <CardContent className="min-w-0 space-y-4">
@@ -617,6 +630,7 @@ function OptionSection({
                   eventId={eventId}
                   option={configured}
                   upsert={upsert}
+                  catalogAgeBands={catalogAgeBands}
                 />
               ) : (
                 <UnconfiguredOptionCard
@@ -624,6 +638,7 @@ function OptionSection({
                   eventId={eventId}
                   option={catalogOption}
                   upsert={upsert}
+                  catalogAgeBands={catalogAgeBands}
                 />
               )
             })}
@@ -638,13 +653,18 @@ function OptionCard({
   eventId,
   option,
   upsert,
+  catalogAgeBands = [],
 }: {
   eventId: Id<"events">
   option: ConfigOption
   upsert: ReturnType<typeof useUpsertEventAccommodationOption>
+  catalogAgeBands?: CatalogAgeBand[]
 }) {
   const [enabled, setEnabled] = useState(option.enabled)
   const [price, setPrice] = useState(String(option.priceMinor))
+  const [cotBand, setCotBand] = useState<AgeBandCode | "">(
+    (option.eligibilityAgeBandCode ?? "") as AgeBandCode | ""
+  )
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [isPending, setIsPending] = useState(false)
@@ -655,9 +675,10 @@ function OptionCard({
   useEffect(() => {
     setEnabled(option.enabled)
     setPrice(String(option.priceMinor))
+    setCotBand((option.eligibilityAgeBandCode ?? "") as AgeBandCode | "")
     setError(null)
     setSuccess(null)
-  }, [option._id, option.enabled, option.priceMinor])
+  }, [option._id, option.enabled, option.priceMinor, option.eligibilityAgeBandCode])
 
   const save = async () => {
     setError(null)
@@ -667,6 +688,10 @@ function OptionCard({
       setError("Price must be a whole number of cents (minor units).")
       return
     }
+    if (isCot && !cotBand) {
+      setError("Select an age band the cot applies to.")
+      return
+    }
     setIsPending(true)
     try {
       await upsert({
@@ -674,7 +699,7 @@ function OptionCard({
         optionId: option.optionId,
         enabled,
         priceMinor: value,
-        ...(isCot ? { eligibilityAgeBandCode: "under_3" } : {}),
+        ...(isCot ? { eligibilityAgeBandCode: cotBand as AgeBandCode } : {}),
       })
       setSuccess(
         `${option.optionLabel ?? "Option"} ${enabled ? "enabled" : "disabled"}.`
@@ -699,7 +724,10 @@ function OptionCard({
               : option.kind === "addon"
                 ? "Add-on · per night"
                 : "Per night"}
-            {isCot && " · under 3 only"}
+            {isCot &&
+              (option.eligibilityAgeBandCode
+                ? ` · ${option.eligibilityAgeBandCode.replace(/_/g, "-")} only`
+                : " · age band not configured")}
           </p>
         </div>
         <Badge variant={enabled ? "secondary" : "outline"}>
@@ -738,6 +766,35 @@ function OptionCard({
         </div>
       </div>
 
+      {isCot && (
+        <div className="min-w-0 space-y-2">
+          <Label htmlFor={`uo-cot-band-${option.optionId}`}>
+            Age band the cot applies to
+          </Label>
+          <Select
+            value={cotBand}
+            onValueChange={(value) => setCotBand(value as AgeBandCode)}
+          >
+            <SelectTrigger
+              id={`uo-cot-band-${option.optionId}`}
+              className="w-56"
+            >
+              <SelectValue placeholder="Select an age band" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectLabel>Age bands</SelectLabel>
+                {catalogAgeBands.map((band) => (
+                  <SelectItem key={band._id} value={band.code}>
+                    {band.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       <Separator />
       <div className="flex flex-wrap items-center gap-3">
         <Button type="button" size="sm" onClick={save} disabled={isPending}>
@@ -760,13 +817,16 @@ function UnconfiguredOptionCard({
   eventId,
   option,
   upsert,
+  catalogAgeBands = [],
 }: {
   eventId: Id<"events">
   option: CatalogOption
   upsert: ReturnType<typeof useUpsertEventAccommodationOption>
+  catalogAgeBands?: CatalogAgeBand[]
 }) {
   const [enabled, setEnabled] = useState(false)
   const [price, setPrice] = useState("0")
+  const [cotBand, setCotBand] = useState<AgeBandCode | "">("")
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [isPending, setIsPending] = useState(false)
@@ -782,6 +842,10 @@ function UnconfiguredOptionCard({
       setError("Price must be a whole number of cents (minor units).")
       return
     }
+    if (isCot && !cotBand) {
+      setError("Select an age band the cot applies to.")
+      return
+    }
     setIsPending(true)
     try {
       await upsert({
@@ -789,7 +853,7 @@ function UnconfiguredOptionCard({
         optionId: option._id,
         enabled,
         priceMinor: value,
-        ...(isCot ? { eligibilityAgeBandCode: "under_3" } : {}),
+        ...(isCot ? { eligibilityAgeBandCode: cotBand as AgeBandCode } : {}),
       })
       setSuccess(`${option.label} configured for this event.`)
     } catch (err) {
@@ -815,7 +879,7 @@ function UnconfiguredOptionCard({
               : option.kind === "addon"
                 ? "Add-on · per night"
                 : "Per night"}
-            {isCot && " · under 3 only"} · not configured for this event yet
+            {isCot && " · age band to be configured"} · not configured for this event yet
           </p>
         </div>
         <Badge variant="outline">Not configured</Badge>
@@ -846,6 +910,32 @@ function UnconfiguredOptionCard({
           className="w-40 font-mono tabular-nums"
         />
       </div>
+
+      {isCot && (
+        <div className="min-w-0 space-y-2">
+          <Label htmlFor={`uo-new-cot-band-${option._id}`}>
+            Age band the cot applies to
+          </Label>
+          <Select
+            value={cotBand}
+            onValueChange={(value) => setCotBand(value as AgeBandCode)}
+          >
+            <SelectTrigger id={`uo-new-cot-band-${option._id}`} className="w-56">
+              <SelectValue placeholder="Select an age band" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectLabel>Age bands</SelectLabel>
+                {catalogAgeBands.map((band) => (
+                  <SelectItem key={band._id} value={band.code}>
+                    {band.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <Separator />
       <div className="flex flex-wrap items-center gap-3">

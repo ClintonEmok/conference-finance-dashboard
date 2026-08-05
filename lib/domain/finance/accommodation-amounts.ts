@@ -53,6 +53,12 @@ export type AccommodationPricingInput = {
   superiorUpgradePriceMinor?: number | null
   /** Resolved per-night price of the enabled cot option. */
   cotPriceMinor?: number | null
+  /**
+   * The age band eligible for the cot option, from the event's cot option
+   * configuration (`eventAccommodationOptions.eligibilityAgeBandCode`).
+   * Absent/null means cot is not eligible for this event.
+   */
+  cotEligibilityAgeBandCode?: string | null
   /** The attendee's ticket type `accommodationIncluded` flag (absent = false). */
   ticketAccommodationIncluded?: boolean | null
   /** The event's base night count (`eventAccommodationConfig.nightCount`). */
@@ -84,6 +90,11 @@ export type AccommodationPriceSnapshot = {
   cotSelected: boolean
   /** Resolved at confirmation: the attendee's age band code (lowercased). */
   ageBandCode: string
+  /**
+   * The event's cot-eligibility age band resolved at confirmation. Cot
+   * charges only apply when the attendee's age band matches this band.
+   */
+  cotEligibilityAgeBandCode: string | null
 }
 
 /**
@@ -112,7 +123,9 @@ export function isCompleteAccommodationPriceSnapshot(
     typeof snapshot.categoryIsSuperior === "boolean" &&
     typeof snapshot.upgradeSelected === "boolean" &&
     typeof snapshot.cotSelected === "boolean" &&
-    typeof snapshot.ageBandCode === "string"
+    typeof snapshot.ageBandCode === "string" &&
+    (snapshot.cotEligibilityAgeBandCode === null ||
+      typeof snapshot.cotEligibilityAgeBandCode === "string")
   )
 }
 
@@ -184,6 +197,9 @@ export function buildAccommodationPriceSnapshot(input: {
     upgradeSelected: normalizeBoolean(selection.upgradeSelected),
     cotSelected: normalizeBoolean(selection.cotSelected),
     ageBandCode: (selection.ageBandCode ?? "").toLowerCase(),
+    cotEligibilityAgeBandCode: pricing.cotEligibilityAgeBandCode
+      ? String(pricing.cotEligibilityAgeBandCode).toLowerCase()
+      : null,
   }
 }
 
@@ -243,10 +259,21 @@ export function deriveAccommodationAmount(input: {
       ? totalNights * upgradeRatePerNightMinor
       : 0
 
-  // Cot eligibility is locked to the under_3 age band.
-  const cotEligible = usesSnapshot
-    ? snapshot.ageBandCode === "under_3"
-    : (selection.ageBandCode ?? "").toLowerCase() === "under_3"
+  // Cot eligibility is resolved from the event's configured cot-eligibility
+  // age band, never hardcoded — bands differ per event. A confirmed row uses
+  // the band resolved at confirmation; an unconfirmed row uses the current
+  // event config. When no band is configured, cot is not eligible.
+  const cotEligibilityAgeBandCode = usesSnapshot
+    ? snapshot.cotEligibilityAgeBandCode ?? null
+    : pricing.cotEligibilityAgeBandCode
+      ? String(pricing.cotEligibilityAgeBandCode).toLowerCase()
+      : null
+  const cotEligible =
+    cotEligibilityAgeBandCode !== null &&
+    (usesSnapshot
+      ? snapshot.ageBandCode.toLowerCase()
+      : (selection.ageBandCode ?? "").toLowerCase()) ===
+      cotEligibilityAgeBandCode
   const cotSelected = usesSnapshot
     ? snapshot.cotSelected === true
     : normalizeBoolean(selection.cotSelected)

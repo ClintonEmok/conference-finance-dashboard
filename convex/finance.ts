@@ -78,6 +78,7 @@ type EventAccommodationContext = {
   categoryCodeById: Map<string, string | undefined>
   superiorUpgradePriceMinor: number | null
   cotPriceMinor: number | null
+  cotEligibilityAgeBandCode: string | null
 }
 
 type EventAccommodationConfigDoc = {
@@ -98,6 +99,7 @@ type EventAccommodationOptionDoc = {
   optionId: Id<"accommodationOptions">
   enabled: boolean
   priceMinor: number
+  eligibilityAgeBandCode?: string | null
 }
 
 async function loadEventAccommodationContexts(
@@ -196,12 +198,14 @@ async function loadEventAccommodationContexts(
 
     let superiorUpgradePriceMinor: number | null = null
     let cotPriceMinor: number | null = null
+    let cotEligibilityAgeBandCode: string | null = null
     for (const row of enabledOptionRows) {
       const code = optionCodeById.get(String(row.optionId))
       if (code === "superior_upgrade") {
         superiorUpgradePriceMinor = row.priceMinor
       } else if (code === "cot") {
         cotPriceMinor = row.priceMinor
+        cotEligibilityAgeBandCode = row.eligibilityAgeBandCode ?? null
       }
     }
 
@@ -211,6 +215,7 @@ async function loadEventAccommodationContexts(
       categoryCodeById,
       superiorUpgradePriceMinor,
       cotPriceMinor,
+      cotEligibilityAgeBandCode,
     })
   }
 
@@ -410,6 +415,8 @@ export async function loadOrderAmountDueBreakdowns(
           superiorUpgradePriceMinor:
             accommodationContext?.superiorUpgradePriceMinor ?? null,
           cotPriceMinor: accommodationContext?.cotPriceMinor ?? null,
+          cotEligibilityAgeBandCode:
+            accommodationContext?.cotEligibilityAgeBandCode ?? null,
           ticketAccommodationIncluded: ticketInfo?.accommodationIncluded,
           eventBaseNights: accommodationContext?.config?.nightCount,
         },

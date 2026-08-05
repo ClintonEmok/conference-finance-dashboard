@@ -558,6 +558,7 @@ export type DataModel = {
         ageBandCode?: string;
         baseRatePerNightMinor: number;
         categoryIsSuperior?: boolean;
+        cotEligibilityAgeBandCode?: string | null;
         cotRatePerNightMinor: number;
         cotSelected?: boolean;
         coveredNights: number;
@@ -587,6 +588,7 @@ export type DataModel = {
       | "priceSnapshot.ageBandCode"
       | "priceSnapshot.baseRatePerNightMinor"
       | "priceSnapshot.categoryIsSuperior"
+      | "priceSnapshot.cotEligibilityAgeBandCode"
       | "priceSnapshot.cotRatePerNightMinor"
       | "priceSnapshot.cotSelected"
       | "priceSnapshot.coveredNights"

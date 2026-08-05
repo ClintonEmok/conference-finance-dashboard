@@ -420,7 +420,7 @@ test("event option upsert rejects fractional prices", async () => {
   ).rejects.toThrow(/non-negative number/)
 })
 
-test("event option upsert enforces cot under_3 eligibility through the handler", async () => {
+test("event option upsert enforces cot eligibility through the handler", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const eventId = await createEvent(t)
   const cotId = await t.mutation(api.accommodation.createAccommodationOption, {
@@ -435,13 +435,32 @@ test("event option upsert enforces cot under_3 eligibility through the handler",
     kind: "upgrade",
     unit: "per_night",
   })
+  await t.mutation(api.accommodation.createAccommodationAgeBand, {
+    code: "under_3",
+    label: "Under 3",
+    minAge: 0,
+    maxAge: 3,
+    sortOrder: 1,
+  })
+  // The cot option accepts any configured catalog age band (eligibility is
+  // event-scoped, not locked to a single band).
+  const saved = await t.mutation(
+    api.accommodation.upsertEventAccommodationOption,
+    {
+      eventId,
+      optionId: cotId,
+      eligibilityAgeBandCode: "under_3",
+    }
+  )
+  expect(saved.eligibilityAgeBandCode).toBe("under_3")
+  // An unknown band code is rejected even when the shape is right.
   await expect(
     t.mutation(api.accommodation.upsertEventAccommodationOption, {
       eventId,
       optionId: cotId,
-      eligibilityAgeBandCode: "3_11",
+      eligibilityAgeBandCode: "3_11" as never,
     })
-  ).rejects.toThrow(/cannot use age band "3_11"/)
+  ).rejects.toThrow(/Age band not found/)
   // Non-cot options must not carry an eligibility age band.
   await expect(
     t.mutation(api.accommodation.upsertEventAccommodationOption, {
@@ -450,21 +469,6 @@ test("event option upsert enforces cot under_3 eligibility through the handler",
       eligibilityAgeBandCode: "under_3",
     })
   ).rejects.toThrow(/cannot use age band "under_3"/)
-  // Unknown band codes are rejected even when the shape is right.
-  await t.mutation(api.accommodation.createAccommodationAgeBand, {
-    code: "under_3",
-    label: "Under 3",
-    minAge: 0,
-    maxAge: 3,
-    sortOrder: 1,
-  })
-  await expect(
-    t.mutation(api.accommodation.upsertEventAccommodationOption, {
-      eventId,
-      optionId: cotId,
-      eligibilityAgeBandCode: "3_11" as never,
-    })
-  ).rejects.toThrow(/cannot use age band "3_11"/)
 })
 
 // ---------------------------------------------------------------------------

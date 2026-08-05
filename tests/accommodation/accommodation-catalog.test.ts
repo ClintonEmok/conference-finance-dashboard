@@ -162,7 +162,7 @@ describe("isAccommodationIncluded", () => {
 })
 
 describe("isCotEligibilityValid", () => {
-  it("enforces under_3 eligibility for the cot option", () => {
+  it("requires a configured age band for the cot option", () => {
     expect(
       isCotEligibilityValid({
         optionCode: "cot",
@@ -174,9 +174,12 @@ describe("isCotEligibilityValid", () => {
         optionCode: "cot",
         eligibilityAgeBandCode: "3_11",
       })
-    ).toBe(false)
+    ).toBe(true)
     expect(
       isCotEligibilityValid({ optionCode: "cot", eligibilityAgeBandCode: null })
+    ).toBe(false)
+    expect(
+      isCotEligibilityValid({ optionCode: "cot", eligibilityAgeBandCode: "" })
     ).toBe(false)
   })
 

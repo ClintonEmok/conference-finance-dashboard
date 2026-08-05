@@ -293,6 +293,9 @@ export default defineSchema({
           upgradeSelected: v.optional(v.boolean()),
           cotSelected: v.optional(v.boolean()),
           ageBandCode: v.optional(v.string()),
+          cotEligibilityAgeBandCode: v.optional(
+            v.union(v.string(), v.null())
+          ),
         })
       ),
     })

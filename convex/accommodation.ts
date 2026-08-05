@@ -2415,16 +2415,18 @@ export function isAccommodationIncluded(ticket: {
 }
 
 /**
- * Cot eligibility is locked to the `under_3` age band. Any other age-band code
- * (or none) is invalid for the cot option; non-cot options must not carry an
- * eligibility age-band code.
+ * The cot option must carry an eligibility age-band code (which band is
+ * event-configured via `eventAccommodationOptions.eligibilityAgeBandCode` —
+ * bands differ per event); non-cot options must not carry one. Existence is
+ * the contract here; the referenced band's validity is checked separately
+ * against the catalog when the upsert runs.
  */
 export function isCotEligibilityValid(input: {
   optionCode: string
   eligibilityAgeBandCode?: string | null
 }): boolean {
   if (input.optionCode === "cot") {
-    return input.eligibilityAgeBandCode === "under_3"
+    return Boolean(input.eligibilityAgeBandCode)
   }
   return !input.eligibilityAgeBandCode
 }
@@ -3704,6 +3706,7 @@ export async function resolveOrderAccommodationConfirmation(
         baseRatePerNightMinor,
         superiorUpgradePriceMinor,
         cotPriceMinor,
+        cotEligibilityAgeBandCode,
         ticketAccommodationIncluded,
         eventBaseNights: config.nightCount,
       },

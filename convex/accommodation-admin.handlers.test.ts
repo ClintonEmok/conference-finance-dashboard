@@ -807,6 +807,7 @@ test("confirmation persists a complete snapshot boundary on every selection", as
     upgradeSelected: false,
     cotSelected: false,
     ageBandCode: "18_plus",
+    cotEligibilityAgeBandCode: "under_3",
   })
 
   // The order is no longer pending after confirmation.

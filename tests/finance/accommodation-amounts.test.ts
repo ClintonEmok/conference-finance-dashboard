@@ -21,6 +21,7 @@ const BASE_PRICING = {
   baseRatePerNightMinor: 3000, // €30/night
   superiorUpgradePriceMinor: 1500, // €15/night
   cotPriceMinor: 500, // €5/night
+  cotEligibilityAgeBandCode: "under_3",
   ticketAccommodationIncluded: false,
   eventBaseNights: 2,
 }
@@ -235,6 +236,7 @@ describe("accommodation amounts - locked pricing formula", () => {
       upgradeSelected: false,
       cotSelected: false,
       ageBandCode: "18_plus",
+      cotEligibilityAgeBandCode: "under_3",
     })
 
     const confirmed = deriveAccommodationAmount({
@@ -278,6 +280,7 @@ describe("accommodation amounts - locked pricing formula", () => {
       upgradeSelected: false,
       cotSelected: false,
       ageBandCode: "18_plus",
+      cotEligibilityAgeBandCode: "under_3",
     })
   })
 
@@ -305,6 +308,7 @@ describe("accommodation amounts - locked pricing formula", () => {
       upgradeSelected: false,
       cotSelected: true,
       ageBandCode: "under_3",
+      cotEligibilityAgeBandCode: "under_3",
     })
 
     // The live selection is edited after confirmation: upgrade now selected,
