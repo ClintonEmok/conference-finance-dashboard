@@ -62,6 +62,7 @@ v5.0 turns accommodation into a reusable, configurable catalog: buyers select pr
 **Plans:** 3 plans
 
 Plans:
+
 - [x] 34-01-PLAN.md — Establish the canonical event Overview and concise event shell
 - [x] 34-02-PLAN.md — Move sharing to Settings and preserve deep-link compatibility
 - [x] 34-03-PLAN.md — Guide disabled accommodation allocation to event Settings
@@ -86,6 +87,7 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
+
 - [x] 35-01-PLAN.md — Define and test the bounded canonical Overview projection and exception model
 - [x] 35-02-PLAN.md — Render the actionable stats-led Overview with honest query states
 - [x] 35-03-PLAN.md — Close reconciliation and accommodation trustworthiness gaps
@@ -110,6 +112,7 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
+
 - [x] 36-01-PLAN.md — Establish shared exception-first workspace primitives and URL/tab contracts
 - [x] 36-02-PLAN.md — Build the canonical Finance workspace for Orders, Payments, Donations, and Reconciliation
 - [x] 36-03-PLAN.md — Build the canonical Accommodation workspace for Hotels and Allocation
@@ -135,6 +138,7 @@ Plans:
 **Plans:** 8 plans
 
 Plans:
+
 - [x] 37-01-PLAN.md — Establish one event-scoped query boundary and shared event context
 - [x] 37-02-PLAN.md — Define shared dashboard loading/error/empty/unavailable presentation states
 - [x] 37-03-PLAN.md — Harden sidebar, workspace tabs, tables, and responsive shell semantics
@@ -161,7 +165,11 @@ Plans:
 3. Desktop and mobile route walkthroughs confirm no duplicate shell, broken deep links, or inaccessible controls.
 4. Automated tests, type checks, and Convex validation pass for the completed changes.
 
-**Plans:** TBD
+**Plans:** 1 plan
+
+Plans:
+
+- [ ] 40-01-PLAN.md — Extend canonical finance with live accommodation pricing and confirmation snapshots
 
 ---
 
@@ -189,7 +197,7 @@ Plans:
 
 ## Phases
 
-- [ ] **Phase 39: Accommodation Catalog & Event Config Schema** - Additive catalog and event-config data model that every other phase reads from.
+- [x] **Phase 39: Accommodation Catalog & Event Config Schema** - Additive catalog and event-config data model that every other phase reads from. (completed 2026-08-05)
 - [ ] **Phase 40: Canonical Finance Derivation** - Accommodation charges flow into the single canonical amount-due loader.
 - [ ] **Phase 41: Admin Upgrades & Options Tab** - Third workspace tab for rates, options, age bands, availability, and descriptions with explicit confirmation.
 - [ ] **Phase 42: Public Signup Options** - Options-only selection with live pricing and ticket-driven eligibility.
@@ -215,7 +223,11 @@ Plans:
 4. Sellable beds equal room count × capacity — one derived availability source with no separate manually-tracked availability counter; age-band pricing rules may be left empty and seeded later; breakfast is included in all room prices.
 5. The change is purely additive: existing events, room types, orders, and finance contracts remain valid, and Convex codegen and development deployment pass.
 
-**Plans:** TBD
+**Plans:** 1/1 plans complete
+
+Plans:
+
+- [x] 39-01-PLAN.md — Add the additive accommodation catalog and event configuration contract
 
 ---
 
@@ -254,7 +266,12 @@ Plans:
 4. An explicit confirm action locks buyer configuration changes, closing the buyer edit window for that order (server-enforced by later phases).
 5. Saving rate/option changes communicates pending-order impact (e.g., "N pending orders will re-price") without eagerly rewriting any order data.
 
-**Plans:** TBD
+**Plans:** 2 plans
+
+Plans:
+
+- [ ] 41-01-PLAN.md — Add version-aware admin impact data and server-backed buyer configuration confirmation
+- [ ] 41-02-PLAN.md — Build the responsive Upgrades & Options workspace tab and reusable catalog editor
 
 ---
 
@@ -346,9 +363,9 @@ Plans:
 | 36 - Finance And Accommodation Workspaces | Consolidated operational workspaces | FINUX-01, FINUX-02, ACCUX-01, ACCUX-02 | 4 plans | Complete |
 | 37 - Shared Dashboard Quality | Shared states and responsive accessibility | QUAL-01, QUAL-02, QUAL-03 | 8 plans | Complete |
 | 38 - UX Regression And Human Verification | Cross-route verification | OPS-03 | TBD | Not started |
-| 39 - Accommodation Catalog & Event Config Schema | Reusable catalog + event config | CAT-01, CAT-02, CAT-03, CFG-01..05 | TBD | Not started |
-| 40 - Canonical Finance Derivation | Accommodation in canonical amount-due | FIN-01, FIN-02, FIN-03, FIN-04 | TBD | Not started |
-| 41 - Admin Upgrades & Options Tab | Config surface + explicit confirm | ADM-01, ADM-02, ADM-03, CAT-04 | TBD | Not started |
+| 39 - Accommodation Catalog & Event Config Schema | Reusable catalog + event config | CAT-01, CAT-02, CAT-03, CFG-01..05 | TBD | Complete    |
+| 40 - Canonical Finance Derivation | Accommodation in canonical amount-due | FIN-01, FIN-02, FIN-03, FIN-04 | 1 plan | Not started |
+| 41 - Admin Upgrades & Options Tab | Config surface + explicit confirm | ADM-01, ADM-02, ADM-03, CAT-04 | 2 plans | Not started |
 | 42 - Public Signup Options | Options-only signup + ticket eligibility | SIG-01..04, TKT-01, TKT-02 | TBD | Not started |
 | 43 - Track Payment Permalink | Booking-ref permalink + re-price | TRK-01..06 | TBD | Not started |
 | 44 - Allocation Paid-Priority | Paid-priority allocation + lock | ALL-01, ALL-02, ALL-03 | TBD | Not started |

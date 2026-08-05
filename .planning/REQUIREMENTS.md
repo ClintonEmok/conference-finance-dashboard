@@ -74,18 +74,18 @@
 
 ### Reusable Accommodation Catalog
 
-- [ ] **CAT-01**: The system provides a reusable catalog of accommodation categories (standard, superior, family) with a label and admin-facing description for allocation.
-- [ ] **CAT-02**: The system stores physical room types as leaf inventory items (label, capacity, physical count, admin description) where bed arrangement is part of the label, and each room type references a category.
-- [ ] **CAT-03**: The system provides reusable accommodation options (superior upgrade, cot) and age bands (under 3, 3-11, 12-17, 18+) that can be configured per event.
+- [x] **CAT-01**: The system provides a reusable catalog of accommodation categories (standard, superior, family) with a label and admin-facing description for allocation.
+- [x] **CAT-02**: The system stores physical room types as leaf inventory items (label, capacity, physical count, admin description) where bed arrangement is part of the label, and each room type references a category.
+- [x] **CAT-03**: The system provides reusable accommodation options (superior upgrade, cot) and age bands (under 3, 3-11, 12-17, 18+) that can be configured per event.
 - [ ] **CAT-04**: An admin can view and edit the reusable catalog and room-type descriptions so room allocation decisions are well informed.
 
 ### Event-Scoped Configuration
 
-- [ ] **CFG-01**: An event configures its accommodation stay (one night before the event initially, night count configurable) and which catalog items/options are active.
-- [ ] **CFG-02**: An event configures per-category × occupancy rates charged per person per night (single, shared, family) using minor-unit prices.
-- [ ] **CFG-03**: An event configures the standard-to-superior upgrade price (default €10 per person per night), cot price (default €10 per night), and cot age eligibility (under 3).
-- [ ] **CFG-04**: An event configures physical availability per room type and cot count; sellable beds equal room count × capacity.
-- [ ] **CFG-05**: An event configures age-band pricing rules that may be left empty and seeded later; breakfast is included in all room prices.
+- [x] **CFG-01**: An event configures its accommodation stay (one night before the event initially, night count configurable) and which catalog items/options are active.
+- [x] **CFG-02**: An event configures per-category × occupancy rates charged per person per night (single, shared, family) using minor-unit prices.
+- [x] **CFG-03**: An event configures the standard-to-superior upgrade price (default €10 per person per night), cot price (default €10 per night), and cot age eligibility (under 3).
+- [x] **CFG-04**: An event configures physical availability per room type and cot count; sellable beds equal room count × capacity.
+- [x] **CFG-05**: An event configures age-band pricing rules that may be left empty and seeded later; breakfast is included in all room prices.
 
 ### Admin Upgrades & Options Tab
 
@@ -162,15 +162,15 @@
 | QUAL-02 | 37 | Done |
 | QUAL-03 | 37 | Done |
 | QUAL-04 | 34 | Done |
-| CAT-01 | 39 | Pending |
-| CAT-02 | 39 | Pending |
-| CAT-03 | 39 | Pending |
+| CAT-01 | 39 | Done |
+| CAT-02 | 39 | Done |
+| CAT-03 | 39 | Done |
 | CAT-04 | 41 | Pending |
-| CFG-01 | 39 | Pending |
-| CFG-02 | 39 | Pending |
-| CFG-03 | 39 | Pending |
-| CFG-04 | 39 | Pending |
-| CFG-05 | 39 | Pending |
+| CFG-01 | 39 | Done |
+| CFG-02 | 39 | Done |
+| CFG-03 | 39 | Done |
+| CFG-04 | 39 | Done |
+| CFG-05 | 39 | Done |
 | ADM-01 | 41 | Pending |
 | ADM-02 | 41 | Pending |
 | ADM-03 | 41 | Pending |

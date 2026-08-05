@@ -2,15 +2,19 @@
 gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: Accommodation Upgrades & Options
-status: roadmap_created
-last_updated: "2026-08-05"
+current_phase: 41
+current_phase_name: Admin Upgrades & Options Tab
+status: complete
+stopped_at: Phase 41 plans complete; next Phase 42 options-only signup
+last_updated: "2026-08-05T20:50:00.000Z"
 last_activity: 2026-08-05
+last_activity_desc: Completed 41-01 and 41-02 plans (admin contract + Upgrades & Options tab); Phase 40 human verification remains deferred to v5.0 milestone completion
 progress:
   total_phases: 7
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 4
+  completed_plans: 4
+  percent: 100
 ---
 
 # Project State
@@ -24,10 +28,12 @@ See: `.planning/PROJECT.md`.
 
 ## Current Position
 
-Phase: 39 — Accommodation Catalog & Event Config Schema (next)
-Plan: —
-Status: Roadmap created — awaiting approval, then plan-phase 39
-Last activity: 2026-08-05 — v5.0 roadmap created (Phases 39-45)
+Phase: 41 — Admin Upgrades & Options Tab
+Plan: 01 + 02 complete (server-backed admin contract + event-scoped Upgrades & Options tab)
+Status: Phase plans complete
+Last activity: 2026-08-05 — Completed 41-01-PLAN.md and 41-02-PLAN.md; Phase 40 human verification deferred until v5.0 milestone completion
+
+Progress: ████████ (4/4 plans executed across Phases 39-41; 0/7 phases)
 
 ## Performance Metrics
 
@@ -35,7 +41,7 @@ Last activity: 2026-08-05 — v5.0 roadmap created (Phases 39-45)
 | --- | --- |
 | Total v5.0 phases | 7 (39-45) |
 | v5.0 requirements mapped | 31/31 (100%) |
-| Completed phases | 0 |
+| Completed phases | 0 (phase sign-off absorbed into v5.0 Phase 45 verification) |
 | v4.0 carry-over | Phases 34-37 complete; Phase 38 verification absorbed into v5.0 Phase 45 |
 
 ## Accumulated Context
@@ -47,10 +53,12 @@ Last activity: 2026-08-05 — v5.0 roadmap created (Phases 39-45)
 - Canonical finance: extend `loadOrderAmountDueBreakdowns` + pure `deriveOrderAmountBreakdown` (new pure accommodation-amounts module, unit-tested). Live derivation for unconfirmed orders; snapshot with config-version boundary at admin confirmation; confirmed orders never retroactively re-price. `orders.totalAmountMinor` stays the provider/write-time total.
 - Signup becomes options-only (preferences in `orderAccommodationSelections`); placement stays in `orderAssignments`/`assignedRoomId` (admin assignment) — two separate records, never mixed.
 - Permalink `/track-payment/[bookingRef]` is the app's first public write: ownership gate (booker email match/edit token), rate limiting, honeypot, idempotent replace-style mutation, server-side pricing only, `confirmedAt` write-guard enforced in the mutation.
-- Tikkie links expire/supersede and regenerate on re-price so link amount always equals canonical amount-due.
+- Tikkie links are open, flexible payment requests: creation amount is always 0 (installments), never derived from canonical amount-due, and links are never regenerated/superseded/expired on config change (supersedes the earlier re-price-regeneration roadmap decision).
 - Paid-priority allocation keys on derived per-attendee due/paid maps (tri-state paid/partial/unpaid), never `order.status`; paid-set precomputed once per board load.
 - SEED-002 aligned via single `ticketTypes.roomTypeId` (set ⇒ only that type; unset ⇒ all enabled); multi-room-type `roomTypeIds` array deferred.
 - Phase 45 verification closes the PITFALLS "looks done but isn't" checklist: idempotency, edit-after-confirm rejection, ref-only rejection, price tampering, cross-surface amount agreement, stale-link expiry, internal-event paid status, deep-link preservation.
+- **Phase 40 executed:** `orderAccommodationSelections` carries the confirmation contract on each selection row (`confirmedAt` + `configVersion = eventAccommodationConfig.updatedAt` + immutable `priceSnapshot` with resolved base/upgrade/cot rates and total/covered nights); loader fails closed on confirmed-without-snapshot. Tikkie order links are flexible: creation amount always 0 (installments) — canonical amount-due drives tracking balance/progress and matching only; links are never regenerated/expired on config change. Money is computed only in the pure module `lib/domain/finance/accommodation-amounts.ts`; the UI and booking lookup render server-provided values only.
+- **Phase 41 executed:** the Upgrades & Options admin contract is server-owned — `getEventAccommodationConfig` returns a bounded `pendingOrders` list, `pendingOrderCount`, and `hasAccommodationSelections`; every event-scoped pricing save (rates/options/resources/age pricing) advances the single `eventAccommodationConfig.updatedAt` version boundary (initializing the singleton when absent) without rewriting orders; `confirmAccommodationOrderConfiguration` takes only an order ID and atomically persists `confirmedAt` + `configVersion` + the pure-module `priceSnapshot` on every selection row (reusable by Phase 44). The third Accommodation workspace tab (`?tab=upgrades-options`) edits stay/rates/options/age pricing/availability and the reusable catalog, shows server-backed pending impact, and confirms buyer configurations with a locked state — no client-side money, night, capacity, or pending-count arithmetic; Hotels and Allocation unchanged.
 
 ### Carried From v4.0 (context preserved)
 
@@ -59,9 +67,12 @@ Last activity: 2026-08-05 — v5.0 roadmap created (Phases 39-45)
 ### Pending Todos
 
 - [ ] Await roadmap approval (or revision feedback)
-- [ ] Plan Phase 39 (accommodation catalog & event config schema)
-- [ ] Resolve Phase 40 research flag: snapshot mechanics at confirmation (per-line vs order-total snapshot; `configVersion` field placement)
-- [ ] Resolve Phase 43 research flag: ownership-gate mechanism, rate limiting, honeypot reuse, edit audit rows, Tikkie regeneration timing
+- [x] Execute Phase 39 plan 01 (accommodation catalog & event config schema)
+- [x] Execute Phase 40 plan 01 (canonical finance derivation: pure accommodation pricing, loader wiring, flexible Tikkie links, snapshot contract)
+- [x] Resolve Phase 40 research flag: snapshot mechanics at confirmation (per-line snapshot on each selection row; `confirmedAt`/`configVersion`/`priceSnapshot` field placement locked)
+- [x] Execute Phase 41 plan 01 (admin contract: pending impact, version boundary, order confirmation)
+- [x] Execute Phase 41 plan 02 (Upgrades & Options tab: config editor, catalog editor, pending confirmation UI)
+- [ ] Resolve Phase 43 research flag: ownership-gate mechanism, rate limiting, honeypot reuse, edit audit rows, Tikkie regeneration timing (note: Tikkie links are now flexible-zero, so regeneration on re-price no longer applies)
 - [ ] Resolve Phase 42 research flag: legacy slot-based signup coexistence/migration window
 
 ### Blockers/Concerns
@@ -70,6 +81,7 @@ Last activity: 2026-08-05 — v5.0 roadmap created (Phases 39-45)
 - Repository-wide lint remains red from pre-existing findings (163 errors, 185 warnings); typecheck, tests, and production build pass.
 - v4.0 Phase 38 (UX regression verification) not started; its human-verification scope is absorbed by v5.0 Phase 45.
 - REQUIREMENTS.md earlier claimed 36 v5.0 requirements; the traceability table lists 31 — all 31 are mapped to a phase (100% coverage). Coverage note corrected in REQUIREMENTS.md.
+- Phase 41 execution added one additive contract field beyond the Plan 01 SUMMARY (`hasAccommodationSelections`) so the pending panel renders the honest pre-signup empty state; covered by tests and documented in the 41-02 SUMMARY.
 
 ### Quick Tasks Completed
 
@@ -79,9 +91,9 @@ Last activity: 2026-08-05 — v5.0 roadmap created (Phases 39-45)
 
 ## Session Continuity
 
-Last session: 2026-08-05
-Stopped at: v5.0 roadmap created — Phases 39-45 drafted, awaiting approval
-Resume file: .planning/ROADMAP.md
+Last session: 2026-08-05T20:50:00.000Z
+Stopped at: Completed 41-01-PLAN.md and 41-02-PLAN.md
+Resume file: None (Phase 41 complete; next phase 42 requires planning)
 
 ## Deferred Verification
 
@@ -92,3 +104,4 @@ Resume file: .planning/ROADMAP.md
 | 36 | verification_complete | done |
 | 37 | verification_complete | done |
 | 38 | not_started | absorbed into v5.0 Phase 45 |
+| 40 | verification_deferred_human | /gsd-verify-work 40 (responsive receipt and external Tikkie flow deferred until v5.0 milestone completion) |
