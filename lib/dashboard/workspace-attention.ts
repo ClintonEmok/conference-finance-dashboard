@@ -43,6 +43,13 @@ type AccommodationBoard = {
 type AccommodationAttentionInput = {
   enabled: boolean
   board: AttentionQueryState<AccommodationBoard>
+  /**
+   * The active accommodation read-plan mode. The Upgrades & Options tab
+   * (mode "upgrades-options") shows no Hotels/Allocation attention summary —
+   * its configuration surface must not render allocation setup/loading
+   * states that are unrelated to it.
+   */
+  mode?: string
 }
 
 type AccommodationAttentionLinks = {
@@ -124,6 +131,7 @@ export function buildAccommodationAttentionItems(
   links: AccommodationAttentionLinks
 ): WorkspaceAttentionResult {
   if (!input.enabled) return { status: "ready", items: [] }
+  if (input.mode === "upgrades-options") return { status: "ready", items: [] }
 
   if (input.board.status === "error") {
     return errorResult(input.board.message)

@@ -42,9 +42,14 @@ export function AccommodationWorkspace({ slug }: { slug: string }) {
     roomId,
   })
 
+  // The room-allocation board is only queried on tabs that actually render
+  // allocation/hotels data. The Upgrades & Options tab must not mount the
+  // allocation board query or its loading/error attention states.
   const boardResult = useQuery(
     api.accommodation.getRoomAllocationBoard,
-    event.accommodationEnabled ? { eventId: event._id } : "skip"
+    event.accommodationEnabled && readPlan.readAttentionBoard
+      ? { eventId: event._id }
+      : "skip"
   )
   const boardState = toQueryState(
     boardResult as AccommodationBoard | Error | undefined
@@ -53,12 +58,13 @@ export function AccommodationWorkspace({ slug }: { slug: string }) {
     {
       enabled: event.accommodationEnabled,
       board: boardState,
+      mode: readPlan.mode,
     },
     {
       allocation: accommodationHref(slug, "allocation"),
       hotels: accommodationHref(slug, "hotels"),
     }
-  ), [boardState, event.accommodationEnabled, slug])
+  ), [boardState, event.accommodationEnabled, slug, readPlan.mode])
   const tabs = useMemo(() => [
     { value: "hotels", label: "Hotels", href: accommodationHref(slug, "hotels") },
     { value: "allocation", label: "Allocation", href: accommodationHref(slug, "allocation") },

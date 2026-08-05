@@ -57,6 +57,21 @@ describe("accommodation read plan", () => {
     })
   })
 
+  it("issues no allocation board reads for the Upgrades & Options tab", () => {
+    expect(
+      createAccommodationReadPlan({
+        enabled: true,
+        activeTab: "upgrades-options",
+        filters: noFilters,
+      })
+    ).toMatchObject({
+      mode: "upgrades-options",
+      readAttentionBoard: false,
+      readDetailBoard: false,
+      reuseParentBoard: false,
+    })
+  })
+
   it("requires a distinct detail read for filters but reuses the parent board for room intent", () => {
     expect(
       createAccommodationReadPlan({

@@ -4,6 +4,7 @@ import type { AccommodationTab } from "@/lib/dashboard/workspace-routes"
 export type AccommodationReadMode =
   | "disabled"
   | "hotels"
+  | "upgrades-options"
   | "allocation-default"
   | "allocation-filtered"
 
@@ -38,6 +39,17 @@ export function createAccommodationReadPlan({
     return {
       mode: "hotels",
       readAttentionBoard: true,
+      readDetailBoard: false,
+      reuseParentBoard: false,
+    }
+  }
+
+  // The Upgrades & Options tab edits configuration; it must not mount the
+  // room-allocation board query or the Hotels/Allocation attention surface.
+  if (activeTab === "upgrades-options") {
+    return {
+      mode: "upgrades-options",
+      readAttentionBoard: false,
       readDetailBoard: false,
       reuseParentBoard: false,
     }

@@ -95,6 +95,22 @@ describe("workspace attention derivation", () => {
     ).toEqual({ status: "ready", items: [] })
   })
 
+  it("shows no allocation attention on the Upgrades & Options tab", () => {
+    // The upgrades-options read-plan mode never mounts the board query, so
+    // the attention summary must be an honest empty ready state rather than
+    // a board pending/error state unrelated to configuration.
+    expect(
+      buildAccommodationAttentionItems(
+        {
+          enabled: true,
+          board: { status: "error", message: "Board failed" },
+          mode: "upgrades-options",
+        },
+        { allocation: "/allocation", hotels: "/hotels" }
+      )
+    ).toEqual({ status: "ready", items: [] })
+  })
+
   it("reports setup and placement exceptions from the board payload", () => {
     const result = buildAccommodationAttentionItems(
       {
