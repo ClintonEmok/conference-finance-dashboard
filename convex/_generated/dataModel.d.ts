@@ -574,6 +574,7 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_attendeeId: ["attendeeId", "_creationTime"];
       by_orderId: ["orderId", "_creationTime"];
+      by_orderId_and_attendeeId: ["orderId", "attendeeId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
