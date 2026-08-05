@@ -105,6 +105,7 @@ export default defineSchema({
       ),
       unavailableReason: v.optional(v.string()),
       roomTypeId: v.optional(v.id("accommodationRoomTypes")),
+      accommodationIncluded: v.optional(v.boolean()),
       updatedAt: v.number(),
     })
   )
@@ -239,6 +240,29 @@ export default defineSchema({
     .index("by_slotId", ["slotId"])
     .index("by_attendeeId", ["attendeeId"])
     .index("by_status", ["status"]),
+
+  orderAccommodationSelections: defineTable(
+    v.object({
+      orderId: v.id("orders"),
+      attendeeId: v.id("orderAttendees"),
+      categoryId: v.optional(v.id("accommodationCategories")),
+      occupancy: v.optional(
+        v.union(
+          v.literal("single"),
+          v.literal("shared"),
+          v.literal("family")
+        )
+      ),
+      upgradeSelected: v.boolean(),
+      cotSelected: v.boolean(),
+      ageBandCode: v.optional(v.string()),
+      checkInAt: v.optional(v.number()),
+      checkOutAt: v.optional(v.number()),
+      nightCount: v.optional(v.number()),
+    })
+  )
+    .index("by_orderId", ["orderId"])
+    .index("by_attendeeId", ["attendeeId"]),
 
   orderIdempotency: defineTable(
     v.object({
@@ -412,8 +436,59 @@ export default defineSchema({
       label: v.string(),
       defaultCapacity: v.number(),
       notes: v.optional(v.string()),
+      count: v.optional(v.number()),
+      description: v.optional(v.string()),
+      categoryId: v.optional(v.id("accommodationCategories")),
     })
-  ).index("label", ["label"]),
+  )
+    .index("label", ["label"])
+    .index("by_categoryId", ["categoryId"]),
+
+  accommodationCategories: defineTable(
+    v.object({
+      code: v.union(
+        v.literal("standard"),
+        v.literal("superior"),
+        v.literal("family")
+      ),
+      label: v.string(),
+      description: v.optional(v.string()),
+      sortOrder: v.number(),
+    })
+  )
+    .index("by_code", ["code"])
+    .index("by_sortOrder", ["sortOrder"]),
+
+  accommodationOptions: defineTable(
+    v.object({
+      code: v.union(v.literal("superior_upgrade"), v.literal("cot")),
+      label: v.string(),
+      description: v.optional(v.string()),
+      kind: v.union(
+        v.literal("addon"),
+        v.literal("upgrade"),
+        v.literal("eligibility")
+      ),
+      unit: v.union(v.literal("per_night"), v.literal("per_person")),
+    })
+  ).index("by_code", ["code"]),
+
+  accommodationAgeBands: defineTable(
+    v.object({
+      code: v.union(
+        v.literal("under_3"),
+        v.literal("3_11"),
+        v.literal("12_17"),
+        v.literal("18_plus")
+      ),
+      label: v.string(),
+      minAge: v.number(),
+      maxAge: v.optional(v.number()),
+      sortOrder: v.number(),
+    })
+  )
+    .index("by_code", ["code"])
+    .index("by_sortOrder", ["sortOrder"]),
 
   accommodationRooms: defineTable(
     v.object({
@@ -428,6 +503,88 @@ export default defineSchema({
     .index("hotelId_label", ["hotelId", "label"])
     .index("roomTypeId", ["roomTypeId"])
     .index("hotelId_capacity", ["hotelId", "capacity"]),
+
+  eventAccommodationConfig: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      baseCheckInAt: v.number(),
+      baseCheckOutAt: v.number(),
+      allowExtendedStayBefore: v.boolean(),
+      allowExtendedStayAfter: v.boolean(),
+      allowExtendedStayBoth: v.boolean(),
+      defaultCategoryId: v.optional(v.id("accommodationCategories")),
+      breakfastIncluded: v.boolean(),
+      nightCount: v.number(),
+      updatedAt: v.number(),
+    })
+  ).index("by_eventId", ["eventId"]),
+
+  eventAccommodationRates: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      categoryId: v.id("accommodationCategories"),
+      occupancy: v.union(
+        v.literal("single"),
+        v.literal("shared"),
+        v.literal("family")
+      ),
+      pricePerPersonMinor: v.number(),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_categoryId", ["eventId", "categoryId"])
+    .index("by_eventId_and_categoryId_and_occupancy", [
+      "eventId",
+      "categoryId",
+      "occupancy",
+    ]),
+
+  eventAccommodationOptions: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      optionId: v.id("accommodationOptions"),
+      enabled: v.boolean(),
+      priceMinor: v.number(),
+      eligibilityAgeBandCode: v.optional(v.string()),
+      notes: v.optional(v.string()),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_optionId", ["eventId", "optionId"])
+    .index("by_eventId_and_enabled", ["eventId", "enabled"]),
+
+  eventAccommodationResources: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      kind: v.union(v.literal("room"), v.literal("cot")),
+      roomTypeId: v.optional(v.id("accommodationRoomTypes")),
+      count: v.number(),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_kind", ["eventId", "kind"]),
+
+  eventAccommodationAgePricing: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      ageBandCode: v.union(
+        v.literal("under_3"),
+        v.literal("3_11"),
+        v.literal("12_17"),
+        v.literal("18_plus")
+      ),
+      rateType: v.union(
+        v.literal("free"),
+        v.literal("full"),
+        v.literal("percent"),
+        v.literal("flat")
+      ),
+      value: v.number(),
+      sortOrder: v.number(),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_ageBandCode", ["eventId", "ageBandCode"]),
 
   tikkiePaymentLinks: defineTable(
     v.object({
