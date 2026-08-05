@@ -1,4 +1,5 @@
 import type { AllocationFilterState } from "@/app/dashboard/accommodation/filter-state"
+import type { AccommodationTab } from "@/lib/dashboard/workspace-routes"
 
 export type AccommodationReadMode =
   | "disabled"
@@ -20,7 +21,7 @@ export function createAccommodationReadPlan({
   roomId,
 }: {
   enabled: boolean
-  activeTab: "hotels" | "allocation"
+  activeTab: AccommodationTab
   filters?: AllocationFilterState
   roomId?: string | null
 }): AccommodationReadPlan {

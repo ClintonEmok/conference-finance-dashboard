@@ -196,3 +196,56 @@ export function useAccommodationSummaryForEventForOverview(eventId: Id<"events">
   )
   return overviewQueryResult(result)
 }
+
+// ---------------------------------------------------------------------------
+// Phase 41: Upgrades & Options admin contract (event-scoped typed access)
+// ---------------------------------------------------------------------------
+
+/** Server configuration, catalog references, derived values, and pending-order impact. */
+export function useEventAccommodationConfig(eventId: Id<"events"> | undefined) {
+  return useQuery(
+    api.accommodation.getEventAccommodationConfig,
+    eventId ? { eventId } : "skip"
+  )
+}
+
+/** Reusable catalog (categories, options, age bands, room types). */
+export function useAccommodationCatalog() {
+  return useQuery(api.accommodation.getAccommodationCatalog)
+}
+
+export function useUpsertEventAccommodationConfig() {
+  return useMutation(api.accommodation.upsertEventAccommodationConfig)
+}
+
+export function useUpsertEventAccommodationRate() {
+  return useMutation(api.accommodation.upsertEventAccommodationRate)
+}
+
+export function useUpsertEventAccommodationOption() {
+  return useMutation(api.accommodation.upsertEventAccommodationOption)
+}
+
+export function useUpsertEventAccommodationResource() {
+  return useMutation(api.accommodation.upsertEventAccommodationResource)
+}
+
+export function useUpsertEventAccommodationAgePricing() {
+  return useMutation(api.accommodation.upsertEventAccommodationAgePricing)
+}
+
+export function useUpdateAccommodationCategory() {
+  return useMutation(api.accommodation.updateAccommodationCategory)
+}
+
+export function useUpdateAccommodationOption() {
+  return useMutation(api.accommodation.updateAccommodationOption)
+}
+
+export function useUpdateAccommodationAgeBand() {
+  return useMutation(api.accommodation.updateAccommodationAgeBand)
+}
+
+export function useConfirmAccommodationOrderConfiguration() {
+  return useMutation(api.accommodation.confirmAccommodationOrderConfiguration)
+}

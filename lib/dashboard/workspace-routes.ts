@@ -1,5 +1,5 @@
 export const financeTabs = ["orders", "payments", "donations", "reconciliation"] as const
-export const accommodationTabs = ["hotels", "allocation"] as const
+export const accommodationTabs = ["hotels", "allocation", "upgrades-options"] as const
 
 export type FinanceTab = (typeof financeTabs)[number]
 export type AccommodationTab = (typeof accommodationTabs)[number]
