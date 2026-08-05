@@ -2683,6 +2683,36 @@ export const updateAccommodationCategory = mutation({
   },
 })
 
+/**
+ * Locked catalog semantics for the built-in option codes. The event option
+ * mutation always stores a per-night price, so both built-in codes must be
+ * `per_night` with their appropriate kind or the catalog would describe an
+ * option whose unit disagrees with the pricing contract. Custom option codes
+ * are not yet supported, so unknown codes are left free-form for now.
+ */
+export const LOCKED_OPTION_SEMANTICS: Record<
+  string,
+  {
+    kind: "addon" | "upgrade" | "eligibility"
+    unit: "per_night" | "per_person"
+  }
+> = {
+  cot: { kind: "addon", unit: "per_night" },
+  superior_upgrade: { kind: "upgrade", unit: "per_night" },
+}
+
+export function isValidOptionSemantics(input: {
+  code: string
+  kind: string
+  unit: string
+}): boolean {
+  const locked = LOCKED_OPTION_SEMANTICS[input.code]
+  if (!locked) {
+    return true
+  }
+  return input.kind === locked.kind && input.unit === locked.unit
+}
+
 export const createAccommodationOption = mutation({
   args: {
     code: optionCodeValidator,
@@ -2696,6 +2726,12 @@ export const createAccommodationOption = mutation({
     const label = args.label.trim()
     if (!label) {
       throw new Error("Option label is required")
+    }
+    if (!isValidOptionSemantics({ code: args.code, kind: args.kind, unit: args.unit })) {
+      const locked = LOCKED_OPTION_SEMANTICS[args.code]
+      throw new Error(
+        `Option code "${args.code}" requires kind "${locked?.kind}" and unit "${locked?.unit}"`
+      )
     }
     const existing = await ctx.db
       .query("accommodationOptions")

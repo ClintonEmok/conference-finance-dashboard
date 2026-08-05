@@ -14,6 +14,7 @@ import {
   isValidAgeBandBounds,
   isValidAgeBandRange,
   isValidAgePricingValue,
+  isValidOptionSemantics,
   resolveEventOptionPriceMinor,
 } from "@/convex/accommodation"
 
@@ -258,6 +259,45 @@ describe("isValidAgePricingValue", () => {
     expect(isValidAgePricingValue("full", 1)).toBe(true)
     expect(isValidAgePricingValue("full", -1)).toBe(false)
     expect(isValidAgePricingValue("free", Number.NaN)).toBe(false)
+  })
+})
+
+describe("isValidOptionSemantics", () => {
+  it("accepts the locked per-night combinations for built-in codes", () => {
+    expect(
+      isValidOptionSemantics({
+        code: "cot",
+        kind: "addon",
+        unit: "per_night",
+      })
+    ).toBe(true)
+    expect(
+      isValidOptionSemantics({
+        code: "superior_upgrade",
+        kind: "upgrade",
+        unit: "per_night",
+      })
+    ).toBe(true)
+  })
+
+  it("rejects built-in codes whose kind or unit disagrees with the contract", () => {
+    expect(
+      isValidOptionSemantics({ code: "cot", kind: "addon", unit: "per_person" })
+    ).toBe(false)
+    expect(
+      isValidOptionSemantics({
+        code: "cot",
+        kind: "eligibility",
+        unit: "per_night",
+      })
+    ).toBe(false)
+    expect(
+      isValidOptionSemantics({
+        code: "superior_upgrade",
+        kind: "addon",
+        unit: "per_night",
+      })
+    ).toBe(false)
   })
 })
 
