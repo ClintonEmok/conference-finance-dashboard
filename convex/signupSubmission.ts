@@ -1,11 +1,18 @@
 import { v } from "convex/values"
 import { mutation, query, type MutationCtx } from "./_generated/server"
-import type { Id } from "./_generated/dataModel"
+import type { Doc, Id } from "./_generated/dataModel"
 import { api, internal } from "./_generated/api"
 import { loadOrderAmountDueBreakdowns } from "./finance"
 import {
+  loadPublicSignupAccommodationContext,
+  resolvePublicSignupSelection,
+  resolveTicketCategoryById,
+} from "./signupCatalog"
+import {
   signupGenderValidator,
   signupSourceValidator,
+  signupAccommodationSelectionValidator,
+  signupAccommodationOccupancyValidator,
   type SignupSubmissionErrorCode,
 } from "../lib/types/signup"
 
@@ -57,6 +64,16 @@ const restorePayloadValidator = v.object({
       attendeeKey: v.string(),
       slotId: v.string(),
       assignmentIntent: v.union(v.literal("assign"), v.literal("skip")),
+    })
+  ),
+  accommodationSelections: v.array(
+    v.object({
+      attendeeKey: v.string(),
+      categoryId: v.string(),
+      occupancy: signupAccommodationOccupancyValidator,
+      upgradeSelected: v.boolean(),
+      cotSelected: v.boolean(),
+      ageBandCode: v.optional(v.string()),
     })
   ),
 })
@@ -180,6 +197,14 @@ async function buildRestorePayload(
     slotId: string
     assignmentIntent: "assign" | "skip"
   }>
+  accommodationSelections: Array<{
+    attendeeKey: string
+    categoryId: string
+    occupancy: "single" | "shared" | "family"
+    upgradeSelected: boolean
+    cotSelected: boolean
+    ageBandCode?: string
+  }>
 } | null> {
   const submission = await ctx.db.get(submissionId)
   if (!submission) {
@@ -201,6 +226,11 @@ async function buildRestorePayload(
 
   const assignments = await ctx.db
     .query("orderAssignments")
+    .withIndex("by_orderId", (q) => q.eq("orderId", submissionId))
+    .take(500)
+
+  const accommodationSelectionRows = await ctx.db
+    .query("orderAccommodationSelections")
     .withIndex("by_orderId", (q) => q.eq("orderId", submissionId))
     .take(500)
 
@@ -252,6 +282,23 @@ async function buildRestorePayload(
         }
       })
       .filter((item): item is NonNullable<typeof item> => item !== null),
+    accommodationSelections: accommodationSelectionRows
+      .map((row) => {
+        const attendee = attendeeById.get(String(row.attendeeId))
+        if (!attendee || !row.categoryId || !row.occupancy) {
+          return null
+        }
+
+        return {
+          attendeeKey: attendee.attendeeKey,
+          categoryId: String(row.categoryId),
+          occupancy: row.occupancy,
+          upgradeSelected: row.upgradeSelected,
+          cotSelected: row.cotSelected,
+          ageBandCode: row.ageBandCode ?? undefined,
+        }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null),
   }
 }
 
@@ -271,6 +318,7 @@ export const submitSignupEnvelope = mutation({
     attendees: v.array(attendeeValidator),
     ticketSelections: v.array(ticketSelectionValidator),
     assignments: v.array(assignmentValidator),
+    accommodationSelections: v.array(signupAccommodationSelectionValidator),
   },
   returns: v.object({
     submissionId: v.id("orders"),
@@ -445,101 +493,110 @@ export const submitSignupEnvelope = mutation({
           "Selected ticket type is no longer selectable"
         )
       }
+
+      attendeeKeyToTicketTypeId.set(
+        selection.attendeeKey,
+        selection.ticketTypeId
+      )
     }
 
-    const eventSlots = await ctx.db
-      .query("accommodationSlots")
-      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
-      .take(1000)
-    const slotById = new Map(eventSlots.map((slot) => [slot._id, slot]))
+    // Options-only contract (D-03): a new public submission never creates a
+    // room-slot placement. Any non-empty assignment list is rejected before a
+    // slot claim or assignment write can occur; historical assignment rows
+    // remain readable through restore payloads.
+    if (args.assignments.length > 0) {
+      throwSubmissionError(
+        "SUBMISSION_CONFLICT",
+        "Room-slot assignments are no longer accepted for public signup; accommodation is captured as options-only preferences."
+      )
+    }
 
-    const requestedAssignedSlotIds = new Set<string>()
+    // Validate every accommodation preference against the event and its
+    // attendee ticket using the exact same rule set as the public quote, so
+    // a stale or client-forged preference can never reach persistence.
+    const accommodationContext =
+      await loadPublicSignupAccommodationContext(ctx, args.eventId)
 
-    for (const assignment of args.assignments) {
-      if (!attendeeKeySet.has(assignment.attendeeKey)) {
+    const selectionTicketById = new Map<string, Doc<"ticketTypes">>()
+    for (const ticketType of eventTicketTypes) {
+      selectionTicketById.set(String(ticketType._id), ticketType)
+    }
+    const selectionTicketCategoryById = await resolveTicketCategoryById(
+      ctx,
+      selectionTicketById
+    )
+
+    const resolvedAccommodationSelections = new Map<string, {
+      categoryId: Id<"accommodationCategories">
+      occupancy: "single" | "shared" | "family"
+      upgradeSelected: boolean
+      cotSelected: boolean
+      ageBandCode?: string
+    }>()
+    for (const preference of args.accommodationSelections) {
+      if (!attendeeKeySet.has(preference.attendeeKey)) {
         throwSubmissionError(
           "SUBMISSION_CONFLICT",
-          `Assignment references unknown attendee '${assignment.attendeeKey}'.`
+          `Accommodation preference references unknown attendee '${preference.attendeeKey}'.`
         )
       }
-
-      const slot = slotById.get(assignment.slotId)
-      if (!slot) {
+      if (resolvedAccommodationSelections.has(preference.attendeeKey)) {
         throwSubmissionError(
-          "ASSIGNMENT_UNAVAILABLE",
-          "Assignment references an unknown accommodation slot"
+          "SUBMISSION_CONFLICT",
+          `Duplicate accommodation preference for attendee '${preference.attendeeKey}'.`
         )
       }
 
-      if (assignment.assignmentIntent === "assign") {
-        if (!slot.isAssignable) {
-          throwSubmissionError(
-            "ASSIGNMENT_UNAVAILABLE",
-            "Selected accommodation slot is no longer assignable"
-          )
-        }
-
-        const slotKey = String(assignment.slotId)
-        if (requestedAssignedSlotIds.has(slotKey)) {
-          throwSubmissionError(
-            "SUBMISSION_CONFLICT",
-            "Submission contains duplicate assignment for the same slot"
-          )
-        }
-        requestedAssignedSlotIds.add(slotKey)
-      }
-    }
-
-    if (event.accommodationEnabled) {
-      const assignableSlotCount = eventSlots.filter(
-        (slot) => slot.isAssignable
-      ).length
-      const requestedTicketCount = args.ticketSelections.length
-
-      if (assignableSlotCount > 0) {
-        const eventSubmissions = await ctx.db
-          .query("orders")
-          .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
-          .take(500)
-
-        let existingTicketCount = 0
-        for (const submission of eventSubmissions) {
-          const existingSelections = await ctx.db
-            .query("orderTicketSelections")
-            .withIndex("by_orderId", (q) => q.eq("orderId", submission._id))
-            .take(500)
-          existingTicketCount += existingSelections.length
-        }
-
-        if (existingTicketCount + requestedTicketCount > assignableSlotCount) {
-          throwSubmissionError(
-            "CAPACITY_EXCEEDED",
-            "Ticket capacity exceeded for this event"
-          )
-        }
-      }
-    }
-
-    for (const assignment of args.assignments) {
-      if (assignment.assignmentIntent !== "assign") {
-        continue
-      }
-
-      const existingAssignments = await ctx.db
-        .query("orderAssignments")
-        .withIndex("by_slotId", (q) => q.eq("slotId", assignment.slotId))
-        .take(20)
-
-      const alreadyAssigned = existingAssignments.some(
-        (existingAssignment) => existingAssignment.assignmentIntent === "assign"
+      const ticketTypeId = attendeeKeyToTicketTypeId.get(
+        preference.attendeeKey
       )
-
-      if (alreadyAssigned) {
+      if (!ticketTypeId) {
         throwSubmissionError(
-          "CAPACITY_EXCEEDED",
-          "Selected room slot has already been claimed"
+          "SUBMISSION_CONFLICT",
+          `Accommodation preference attendee '${preference.attendeeKey}' has no ticket selection.`
         )
       }
+
+      const ticketCategoryId =
+        selectionTicketCategoryById.get(String(ticketTypeId))?.categoryId ??
+        null
+
+      let resolved: ReturnType<typeof resolvePublicSignupSelection>
+      try {
+        resolved = resolvePublicSignupSelection({
+          context: accommodationContext,
+          selection: {
+            categoryId: String(preference.categoryId),
+            occupancy: preference.occupancy,
+            upgradeSelected: preference.upgradeSelected,
+            cotSelected: preference.cotSelected,
+            ageBandCode: preference.ageBandCode ?? null,
+          },
+          ticketCategoryId,
+        })
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Invalid accommodation selection"
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          message.replace(/^QUOTE_INVALID:\s*/, "")
+        )
+      }
+
+      if (!resolved.categoryId || !resolved.occupancy) {
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          "Accommodation preferences require a category and occupancy when the event offers configured accommodation."
+        )
+      }
+
+      resolvedAccommodationSelections.set(preference.attendeeKey, {
+        categoryId: resolved.categoryId as Id<"accommodationCategories">,
+        occupancy: resolved.occupancy,
+        upgradeSelected: resolved.upgradeSelected,
+        cotSelected: resolved.cotSelected,
+        ageBandCode: resolved.ageBandCode ?? undefined,
+      })
     }
 
     const bookingRef = buildBookingRef({
@@ -638,21 +695,48 @@ export const submitSignupEnvelope = mutation({
       })
     }
 
-    for (const [sortOrder, assignment] of args.assignments.entries()) {
-      const attendeeId = attendeeIdsByKey.get(assignment.attendeeKey)
+    // Persist one unconfirmed accommodation-selection row per supplied
+    // attendee preference. Stay timestamps and nightCount are server-resolved
+    // from the event configuration; confirmedAt/configVersion/priceSnapshot
+    // stay absent so the Phase 40 canonical loader prices the rows live and
+    // Phase 41/44 owns confirmation. No orderAssignments row is ever created
+    // for an options-only request.
+    const eventConfig = accommodationContext.config
+    for (const preference of args.accommodationSelections) {
+      const attendeeId = attendeeIdsByKey.get(preference.attendeeKey)
       if (!attendeeId) {
         throwSubmissionError(
           "SUBMISSION_CONFLICT",
-          `Assignment attendee '${assignment.attendeeKey}' could not be resolved`
+          `Accommodation preference attendee '${preference.attendeeKey}' could not be resolved`
         )
       }
 
-      await ctx.db.insert("orderAssignments", {
+      const resolved = resolvedAccommodationSelections.get(
+        preference.attendeeKey
+      )
+      if (!resolved) {
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          `Accommodation preference for '${preference.attendeeKey}' failed validation`
+        )
+      }
+
+      await ctx.db.insert("orderAccommodationSelections", {
         orderId: submissionId,
         attendeeId,
-        slotId: assignment.slotId,
-        assignmentIntent: assignment.assignmentIntent,
-        sortOrder,
+        categoryId: resolved.categoryId,
+        occupancy: resolved.occupancy,
+        upgradeSelected: resolved.upgradeSelected,
+        cotSelected: resolved.cotSelected,
+        ageBandCode: (resolved.ageBandCode ?? undefined) as
+          | "under_3"
+          | "3_11"
+          | "12_17"
+          | "18_plus"
+          | undefined,
+        checkInAt: eventConfig?.baseCheckInAt,
+        checkOutAt: eventConfig?.baseCheckOutAt,
+        nightCount: eventConfig?.nightCount,
       })
     }
 
@@ -753,6 +837,16 @@ export const submitSignupEnvelope = mutation({
           slotId: String(assignment.slotId),
           assignmentIntent: assignment.assignmentIntent,
         })),
+        accommodationSelections: args.accommodationSelections.map(
+          (preference) => ({
+            attendeeKey: preference.attendeeKey,
+            categoryId: String(preference.categoryId),
+            occupancy: preference.occupancy,
+            upgradeSelected: preference.upgradeSelected,
+            cotSelected: preference.cotSelected,
+            ageBandCode: preference.ageBandCode,
+          })
+        ),
       },
     }
   },

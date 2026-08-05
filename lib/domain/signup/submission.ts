@@ -2,6 +2,8 @@ import { api } from "@/lib/convex/api"
 import { convexMutation } from "@/lib/convex/server"
 import type { Id } from "@/convex/_generated/dataModel"
 import type {
+  SignupAccommodationOccupancy,
+  SignupAgeBandCode,
   SignupGender,
   SignupSource,
   SignupSubmissionEnvelope,
@@ -90,6 +92,21 @@ function isSignupGender(value: string): value is SignupGender {
   )
 }
 
+function isSignupAccommodationOccupancy(
+  value: string
+): value is SignupAccommodationOccupancy {
+  return value === "single" || value === "shared" || value === "family"
+}
+
+function isSignupAgeBandCode(value: string): boolean {
+  return (
+    value === "under_3" ||
+    value === "3_11" ||
+    value === "12_17" ||
+    value === "18_plus"
+  )
+}
+
 function normalizeEnvelope(
   input: unknown,
   options?: {
@@ -111,6 +128,11 @@ function normalizeEnvelope(
   const attendeesRaw = toArray(root.attendees, "attendees")
   const ticketSelectionsRaw = toArray(root.ticketSelections, "ticketSelections")
   const assignmentsRaw = Array.isArray(root.assignments) ? root.assignments : []
+  const accommodationSelectionsRaw = Array.isArray(
+    root.accommodationSelections
+  )
+    ? root.accommodationSelections
+    : []
 
   if (attendeesRaw.length === 0) {
     throw new SignupSubmissionValidationError(
@@ -203,6 +225,43 @@ function normalizeEnvelope(
     }
   })
 
+  const accommodationSelections = accommodationSelectionsRaw.map(
+    (value, index) => {
+      const preference = toObject(value, `accommodationSelections[${index}]`)
+      const occupancy = normalizeRequiredString(
+        preference.occupancy,
+        `accommodationSelections[${index}].occupancy`
+      )
+      if (!isSignupAccommodationOccupancy(occupancy)) {
+        throw new SignupSubmissionValidationError(
+          `Invalid 'accommodationSelections[${index}].occupancy'.`
+        )
+      }
+
+      const ageBandCode = normalizeOptionalString(preference.ageBandCode)
+      if (ageBandCode !== undefined && !isSignupAgeBandCode(ageBandCode)) {
+        throw new SignupSubmissionValidationError(
+          `Invalid 'accommodationSelections[${index}].ageBandCode'.`
+        )
+      }
+
+      return {
+        attendeeKey: normalizeRequiredString(
+          preference.attendeeKey,
+          `accommodationSelections[${index}].attendeeKey`
+        ),
+        categoryId: normalizeRequiredString(
+          preference.categoryId,
+          `accommodationSelections[${index}].categoryId`
+        ),
+        occupancy: occupancy as SignupAccommodationOccupancy,
+        upgradeSelected: Boolean(preference.upgradeSelected),
+        cotSelected: Boolean(preference.cotSelected),
+        ageBandCode: ageBandCode as SignupAgeBandCode | undefined,
+      }
+    }
+  )
+
   const deterministicPayload = {
     eventId: normalizeRequiredString(root.eventId, "eventId"),
     source: sourceValue,
@@ -215,6 +274,7 @@ function normalizeEnvelope(
     attendees,
     ticketSelections,
     assignments,
+    accommodationSelections,
   }
 
   const payloadFingerprint =
@@ -262,6 +322,16 @@ export async function submitSignup(
         slotId: assignment.slotId as Id<"accommodationSlots">,
         assignmentIntent: assignment.assignmentIntent,
       })),
+      accommodationSelections: envelope.accommodationSelections.map(
+        (preference) => ({
+          attendeeKey: preference.attendeeKey,
+          categoryId: preference.categoryId as Id<"accommodationCategories">,
+          occupancy: preference.occupancy,
+          upgradeSelected: preference.upgradeSelected,
+          cotSelected: preference.cotSelected,
+          ageBandCode: preference.ageBandCode,
+        })
+      ),
     }
   )
 
@@ -292,6 +362,19 @@ export async function submitSignup(
             slotId: String(assignment.slotId),
             assignmentIntent: assignment.assignmentIntent,
           })),
+          accommodationSelections: result.restorePayload.accommodationSelections
+            .map((preference) => ({
+              attendeeKey: preference.attendeeKey,
+              categoryId: String(preference.categoryId),
+              occupancy: preference.occupancy,
+              upgradeSelected: preference.upgradeSelected,
+              cotSelected: preference.cotSelected,
+              ageBandCode: preference.ageBandCode,
+            }))
+            .filter(
+              (preference): preference is NonNullable<typeof preference> =>
+                preference !== null
+            ),
         }
       : undefined,
   }

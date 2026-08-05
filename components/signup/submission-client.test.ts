@@ -122,6 +122,7 @@ describe("signup-flow submission client", () => {
               assignmentIntent: "assign",
             },
           ],
+          accommodationSelections: [],
           captchaToken: "turnstile-token",
         }),
       })

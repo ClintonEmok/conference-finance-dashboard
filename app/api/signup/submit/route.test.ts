@@ -97,6 +97,7 @@ describe("POST /api/signup/submit", () => {
             assignmentIntent: "assign",
           },
         ],
+        accommodationSelections: [],
       },
     })
 
@@ -140,6 +141,7 @@ describe("POST /api/signup/submit", () => {
               assignmentIntent: "assign",
             },
           ],
+          accommodationSelections: [],
         }),
       })
     )
@@ -187,6 +189,7 @@ describe("POST /api/signup/submit", () => {
               assignmentIntent: "assign",
             },
           ],
+          accommodationSelections: [],
         },
       },
     })
@@ -271,6 +274,7 @@ describe("POST /api/signup/submit", () => {
             },
           ],
           assignments: [],
+          accommodationSelections: [],
         }),
       })
     )
@@ -425,6 +429,7 @@ describe("POST /api/signup/submit", () => {
           attendees: [],
           ticketSelections: [],
           assignments: [],
+          accommodationSelections: [],
         },
       }
       byKey.set(key, created)
@@ -463,6 +468,7 @@ describe("POST /api/signup/submit", () => {
           assignmentIntent: "assign",
         },
       ],
+      accommodationSelections: [],
     }
 
     const first = await POST(
@@ -513,6 +519,7 @@ describe("POST /api/signup/submit", () => {
         attendees: [],
         ticketSelections: [],
         assignments: [],
+        accommodationSelections: [],
       },
     })
 
@@ -549,6 +556,7 @@ describe("POST /api/signup/submit", () => {
             },
           ],
           assignments: [],
+          accommodationSelections: [],
         }),
       })
     )

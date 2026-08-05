@@ -75,6 +75,7 @@ export function buildSubmissionBodyFromDraft(
         slotId: String(assignment.slotId),
         assignmentIntent: "assign" as const,
       })),
+    accommodationSelections: [],
   }
 }
 
