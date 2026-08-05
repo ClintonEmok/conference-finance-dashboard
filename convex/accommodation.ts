@@ -3,6 +3,10 @@ import type { MutationCtx, QueryCtx } from "./_generated/server"
 import { v } from "convex/values"
 import type { Doc, Id } from "./_generated/dataModel"
 import { requireIdentity } from "./auth"
+import {
+  buildAccommodationPriceSnapshot,
+  type AccommodationPriceSnapshot,
+} from "../lib/domain/finance/accommodation-amounts"
 
 type DocTables = {
   accommodationHotels: Doc<"accommodationHotels">
@@ -3357,6 +3361,251 @@ export const upsertEventAccommodationAgePricing = mutation({
       value: args.value,
       sortOrder,
     })
+    await touchEventAccommodationConfigVersion(ctx, args.eventId)
     return await ctx.db.get("eventAccommodationAgePricing", id)
+  },
+})
+
+// ---------------------------------------------------------------------------
+// Phase 41: Per-order accommodation configuration confirmation
+//
+// An explicit, authenticated confirmation persists the Phase 40 snapshot
+// boundary (`confirmedAt` + `configVersion = eventAccommodationConfig.updatedAt`
+// + the pure module's immutable `priceSnapshot`) on every unconfirmed
+// `orderAccommodationSelections` row atomically. Confirmation accepts only an
+// order ID — every rate, option price, category, night count and ticket
+// inclusion flag is resolved server-side, and no client amount is ever
+// accepted. Configuration saves never eagerly re-price or rewrite orders; the
+// confirmation boundary is the only place selection rows are locked.
+// ---------------------------------------------------------------------------
+
+type SelectionConfirmationPatch = {
+  selectionId: Id<"orderAccommodationSelections">
+  confirmedAt: number
+  configVersion: number
+  priceSnapshot: AccommodationPriceSnapshot
+}
+
+/**
+ * Resolves every unconfirmed accommodation selection of an order into a
+ * Phase 40 snapshot patch using current server-side configuration. Throws for
+ * missing config, an order with no selection rows, already-confirmed rows,
+ * unknown selection references, or rows that cannot be priced from a complete
+ * event configuration. Reusable by Phase 44 assignment confirmation so the
+ * snapshot boundary is persisted through one shared code path.
+ */
+async function resolveOrderAccommodationConfirmation(
+  ctx: MutationCtx,
+  orderId: Id<"orders">
+): Promise<{
+  configVersion: number
+  patches: SelectionConfirmationPatch[]
+}> {
+  const order = await ctx.db.get("orders", orderId)
+  if (!order) {
+    throw new Error("Order not found")
+  }
+  if (!order.eventId) {
+    throw new Error("Order is not linked to an event")
+  }
+  const eventId = order.eventId
+
+  const config = await ctx.db
+    .query("eventAccommodationConfig")
+    .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+    .unique()
+  if (!config) {
+    throw new Error(
+      "Event accommodation configuration is required before confirming an order"
+    )
+  }
+  const configVersion = config.updatedAt
+
+  // All selection rows through bounded async iteration — a fixed `.take(100)`
+  // would silently truncate large orders and lock only part of the order.
+  const selectionRows: Array<Doc<"orderAccommodationSelections">> = []
+  for await (const row of ctx.db
+    .query("orderAccommodationSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", orderId))) {
+    selectionRows.push(row)
+  }
+  if (selectionRows.length === 0) {
+    throw new Error("Order has no accommodation selections to confirm")
+  }
+  for (const row of selectionRows) {
+    if (row.confirmedAt !== undefined && row.confirmedAt !== null) {
+      throw new Error(
+        "Order already has confirmed accommodation selections"
+      )
+    }
+  }
+
+  // Attendee ticket selections: accommodationIncluded is resolved from the
+  // attendee's ticket type (absent = false), exactly like the canonical
+  // loader's live derivation.
+  const ticketTypeIdByAttendeeId = new Map<
+    Id<"orderAttendees">,
+    Id<"ticketTypes">
+  >()
+  for await (const ticketSelection of ctx.db
+    .query("orderTicketSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", orderId))) {
+    if (!ticketTypeIdByAttendeeId.has(ticketSelection.attendeeId)) {
+      ticketTypeIdByAttendeeId.set(
+        ticketSelection.attendeeId,
+        ticketSelection.ticketTypeId
+      )
+    }
+  }
+  const ticketTypeIds = [...new Set(ticketTypeIdByAttendeeId.values())]
+  const ticketTypes = await Promise.all(
+    ticketTypeIds.map((ticketTypeId) => ctx.db.get("ticketTypes", ticketTypeId))
+  )
+  const ticketAccommodationIncludedByType = new Map<
+    string,
+    boolean
+  >()
+  for (const ticketType of ticketTypes) {
+    if (!ticketType) continue
+    ticketAccommodationIncludedByType.set(
+      String(ticketType._id),
+      ticketType.accommodationIncluded === true
+    )
+  }
+
+  // Event rates keyed by `${categoryId}:${occupancy}` and enabled option
+  // prices keyed by option code — the same resolution the canonical loader
+  // uses, so a confirmed snapshot always matches live pricing at confirmation.
+  const rateByKey = new Map<string, number>()
+  for await (const rate of ctx.db
+    .query("eventAccommodationRates")
+    .withIndex("by_eventId", (q) => q.eq("eventId", eventId))) {
+    rateByKey.set(`${String(rate.categoryId)}:${rate.occupancy}`, rate.pricePerPersonMinor)
+  }
+
+  const eventOptionRows: Array<Doc<"eventAccommodationOptions">> = []
+  for await (const optionRow of ctx.db
+    .query("eventAccommodationOptions")
+    .withIndex("by_eventId", (q) => q.eq("eventId", eventId))) {
+    eventOptionRows.push(optionRow)
+  }
+  const optionDefinitionById = new Map<string, Doc<"accommodationOptions">>()
+  for (const optionRow of eventOptionRows) {
+    const definition = await ctx.db.get(
+      "accommodationOptions",
+      optionRow.optionId
+    )
+    if (definition) {
+      optionDefinitionById.set(String(optionRow.optionId), definition)
+    }
+  }
+  let superiorUpgradePriceMinor: number | null = null
+  let cotPriceMinor: number | null = null
+  for (const optionRow of eventOptionRows) {
+    if (!optionRow.enabled) continue
+    const definition = optionDefinitionById.get(String(optionRow.optionId))
+    if (!definition) continue
+    if (definition.code === "superior_upgrade") {
+      superiorUpgradePriceMinor = optionRow.priceMinor
+    } else if (definition.code === "cot") {
+      cotPriceMinor = optionRow.priceMinor
+    }
+  }
+
+  const patches: SelectionConfirmationPatch[] = []
+  const confirmedAt = Date.now()
+
+  for (const row of selectionRows) {
+    if (!row.categoryId || !row.occupancy) {
+      throw new Error(
+        "Selection is missing a category or occupancy and cannot be priced"
+      )
+    }
+    if (row.nightCount === undefined || row.nightCount === null) {
+      throw new Error("Selection is missing a night count and cannot be priced")
+    }
+    const category = await ctx.db.get(
+      "accommodationCategories",
+      row.categoryId
+    )
+    if (!category) {
+      throw new Error("Selection references an unknown category")
+    }
+    const baseRatePerNightMinor =
+      rateByKey.get(`${String(row.categoryId)}:${row.occupancy}`) ?? null
+    if (baseRatePerNightMinor === null) {
+      throw new Error(
+        "No rate is configured for the selected category and occupancy"
+      )
+    }
+    if (row.upgradeSelected && superiorUpgradePriceMinor === null) {
+      throw new Error(
+        "Superior upgrade is selected but not enabled for this event"
+      )
+    }
+    if (row.cotSelected && cotPriceMinor === null) {
+      throw new Error("Cot is selected but not enabled for this event")
+    }
+
+    const attendeeTicketTypeId = ticketTypeIdByAttendeeId.get(row.attendeeId)
+    const ticketAccommodationIncluded = attendeeTicketTypeId
+      ? (ticketAccommodationIncludedByType.get(String(attendeeTicketTypeId)) ??
+        false)
+      : false
+
+    const priceSnapshot = buildAccommodationPriceSnapshot({
+      selection: {
+        attendeeId: String(row.attendeeId),
+        categoryCode: category.code,
+        occupancy: row.occupancy,
+        upgradeSelected: row.upgradeSelected,
+        cotSelected: row.cotSelected,
+        ageBandCode: row.ageBandCode ?? null,
+        nightCount: row.nightCount,
+      },
+      pricing: {
+        baseRatePerNightMinor,
+        superiorUpgradePriceMinor,
+        cotPriceMinor,
+        ticketAccommodationIncluded,
+        eventBaseNights: config.nightCount,
+      },
+    })
+
+    patches.push({
+      selectionId: row._id,
+      confirmedAt,
+      configVersion,
+      priceSnapshot,
+    })
+  }
+
+  return { configVersion, patches }
+}
+
+export const confirmAccommodationOrderConfiguration = mutation({
+  args: { orderId: v.id("orders") },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const { configVersion, patches } = await resolveOrderAccommodationConfirmation(
+      ctx,
+      args.orderId
+    )
+    for (const patch of patches) {
+      await ctx.db.patch(
+        "orderAccommodationSelections",
+        patch.selectionId,
+        {
+          confirmedAt: patch.confirmedAt,
+          configVersion: patch.configVersion,
+          priceSnapshot: patch.priceSnapshot,
+        }
+      )
+    }
+    return {
+      orderId: args.orderId,
+      configVersion,
+      confirmedSelectionCount: patches.length,
+    }
   },
 })
