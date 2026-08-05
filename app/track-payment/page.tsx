@@ -312,9 +312,13 @@ export default function TrackPaymentPage() {
                           </span>
                         </div>
                       ))}
-                      {result.submission.accommodationLines?.map((line) => (
+                      {result.submission.accommodationLines?.map((line, index) => (
                         <div
-                          key={line.label}
+                          // `kind` alone is not unique when two attendees
+                          // produce the same line kind (e.g. two
+                          // `Accommodation` rows), so index is appended to
+                          // keep one row per server-provided line.
+                          key={`${line.kind}-${index}`}
                           className="flex items-center justify-between rounded-xl border border-border/30 bg-background/50 px-4 py-3 text-sm shadow-sm"
                         >
                           <span className="font-medium text-foreground">
