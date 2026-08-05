@@ -90,11 +90,15 @@ async function loadEventAccommodationContexts(
       const eventKey = String(eventId)
 
       const [configRow, rateRows, eventOptionRows] = await Promise.all([
+        // Fail loudly on configuration corruption: `.unique()` returns null
+        // only for the legitimate no-row case and throws on duplicate config
+        // rows or database errors. Catching those here would convert an
+        // invalid/transient configuration into a €0 accommodation charge and
+        // silently undercharge the order.
         ctx.db
           .query("eventAccommodationConfig")
           .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
-          .unique()
-          .catch(() => null),
+          .unique(),
         ctx.db
           .query("eventAccommodationRates")
           .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
