@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { CheckCircle2, Loader2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -584,17 +584,53 @@ function RoomTypeRow({
   const [success, setSuccess] = useState<string | null>(null)
   const [isPending, setIsPending] = useState(false)
 
+  // Tracks which fields the admin has edited so an external server update
+  // (another admin saving the same room type) only rehydrates the untouched
+  // fields — a stale draft must never overwrite newer server values (WR-05).
+  const dirtyRef = useRef({
+    label: false,
+    description: false,
+    notes: false,
+    count: false,
+    defaultCapacity: false,
+  })
+  const previousIdRef = useRef(roomType._id)
+
   useEffect(() => {
-    setLabel(roomType.label)
-    setDescription(roomType.description ?? "")
-    setNotes(roomType.notes ?? "")
-    setCount(roomType.count !== undefined ? String(roomType.count) : "")
-    setDefaultCapacity(String(roomType.defaultCapacity))
+    if (previousIdRef.current !== roomType._id) {
+      // A different room-type row: reset every draft and dirty flag.
+      previousIdRef.current = roomType._id
+      dirtyRef.current = {
+        label: false,
+        description: false,
+        notes: false,
+        count: false,
+        defaultCapacity: false,
+      }
+    }
+    const dirty = dirtyRef.current
+    if (!dirty.label) setLabel(roomType.label)
+    if (!dirty.description) setDescription(roomType.description ?? "")
+    if (!dirty.notes) setNotes(roomType.notes ?? "")
+    if (!dirty.count) {
+      setCount(roomType.count !== undefined ? String(roomType.count) : "")
+    }
+    if (!dirty.defaultCapacity) setDefaultCapacity(String(roomType.defaultCapacity))
     setError(null)
     setSuccess(null)
-    // Hydrate drafts only when the row identity changes; edits stay local.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomType._id])
+  }, [
+    roomType._id,
+    roomType.label,
+    roomType.description,
+    roomType.notes,
+    roomType.count,
+    roomType.defaultCapacity,
+  ])
+
+  const markDirty = (field: keyof typeof dirtyRef.current) => {
+    dirtyRef.current[field] = true
+  }
 
   const save = async () => {
     setError(null)
@@ -621,6 +657,14 @@ function RoomTypeRow({
         count: count.trim() === "" ? undefined : Number(count),
         defaultCapacity: capacity,
       })
+      // Local state now matches the server; future prop updates may rehydrate.
+      dirtyRef.current = {
+        label: false,
+        description: false,
+        notes: false,
+        count: false,
+        defaultCapacity: false,
+      }
       setSuccess("Room type saved.")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save room type.")
@@ -650,7 +694,10 @@ function RoomTypeRow({
             min={1}
             step={1}
             value={defaultCapacity}
-            onChange={(event) => setDefaultCapacity(event.target.value)}
+            onChange={(event) => {
+              setDefaultCapacity(event.target.value)
+              markDirty("defaultCapacity")
+            }}
             className="font-mono tabular-nums"
           />
         </div>
@@ -663,7 +710,10 @@ function RoomTypeRow({
             min={0}
             step={1}
             value={count}
-            onChange={(event) => setCount(event.target.value)}
+            onChange={(event) => {
+              setCount(event.target.value)
+              markDirty("count")
+            }}
             className="font-mono tabular-nums"
             placeholder="—"
           />
@@ -671,11 +721,14 @@ function RoomTypeRow({
       </div>
       <div className="min-w-0 space-y-2">
         <Label htmlFor={`uo-rt-label-${roomType._id}`}>Label</Label>
-        <Input
-          id={`uo-rt-label-${roomType._id}`}
-          value={label}
-          onChange={(event) => setLabel(event.target.value)}
-        />
+          <Input
+            id={`uo-rt-label-${roomType._id}`}
+            value={label}
+            onChange={(event) => {
+              setLabel(event.target.value)
+              markDirty("label")
+            }}
+          />
       </div>
       <div className="min-w-0 space-y-2">
         <Label htmlFor={`uo-rt-desc-${roomType._id}`}>Description</Label>
@@ -683,7 +736,10 @@ function RoomTypeRow({
           id={`uo-rt-desc-${roomType._id}`}
           className="min-h-20 w-full min-w-0 resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           value={description}
-          onChange={(event) => setDescription(event.target.value)}
+          onChange={(event) => {
+            setDescription(event.target.value)
+            markDirty("description")
+          }}
         />
       </div>
       <div className="min-w-0 space-y-2">
@@ -692,7 +748,10 @@ function RoomTypeRow({
           id={`uo-rt-notes-${roomType._id}`}
           className="min-h-16 w-full min-w-0 resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           value={notes}
-          onChange={(event) => setNotes(event.target.value)}
+          onChange={(event) => {
+            setNotes(event.target.value)
+            markDirty("notes")
+          }}
         />
       </div>
       <Separator />
