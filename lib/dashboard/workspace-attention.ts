@@ -98,7 +98,7 @@ export function buildFinanceAttentionItems(
     items.push({
       id: "reconciliation",
       label: "Outstanding reconciliation",
-      detail: `${outstandingCount} order${outstandingCount === 1 ? "" : "s"} with a positive canonical outstanding balance.`,
+      detail: `${outstandingCount} order${outstandingCount === 1 ? "" : "s"} with an outstanding balance.`,
       href: links.reconciliation,
       count: outstandingCount,
       tone: "urgent",

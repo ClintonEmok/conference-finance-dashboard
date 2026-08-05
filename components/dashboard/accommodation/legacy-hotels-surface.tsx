@@ -5,8 +5,6 @@ import Link from "next/link"
 import {
   ChevronLeft,
   BedDouble,
-  Users,
-  ArrowRight,
   Plus,
   Hotel,
 } from "lucide-react"
@@ -32,6 +30,7 @@ import {
   useCreateRooms,
   useCreateRoomType,
   useLinkHotelToEvent,
+  useUnlinkHotelFromEvent,
 } from "@/lib/convex/hooks/accommodation"
 import { LinkedHotelCard } from "@/app/dashboard/events/[slug]/components/linked-hotel-card"
 import { AddRoomsDialog } from "@/app/dashboard/events/[slug]/accommodation/workspace/components/add-rooms-dialog"
@@ -57,6 +56,7 @@ export default function EventAccommodationWorkspacePage({
     string | undefined
   >(undefined)
   const [isAddingRooms, setIsAddingRooms] = useState(false)
+  const [unlinkingHotelId, setUnlinkingHotelId] = useState<string | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
 
   const roomTypes = useRoomTypes()
@@ -64,8 +64,23 @@ export default function EventAccommodationWorkspacePage({
   const createRooms = useCreateRooms()
   const createRoomType = useCreateRoomType()
   const linkHotelToEvent = useLinkHotelToEvent()
+  const unlinkHotelFromEvent = useUnlinkHotelFromEvent()
   const selectedHotelForRooms = useHotelById(selectedHotelForRoomsId)
 
+  const handleUnlinkHotel = async (hotelId: string) => {
+    setUnlinkingHotelId(hotelId)
+    setOperationError(null)
+    try {
+      await unlinkHotelFromEvent({
+        eventId: event._id,
+        hotelId: hotelId as Id<"accommodationHotels">,
+      })
+    } catch (err) {
+      console.error("Failed to unlink hotel:", err)
+      setOperationError(err instanceof Error ? err.message : "Failed to unlink hotel.")
+    } finally {
+      setUnlinkingHotelId(null)
+    }
   }
 
   const handleCreateHotelSubmit = async (data: {
@@ -177,7 +192,7 @@ export default function EventAccommodationWorkspacePage({
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold">Hotel setup for this event</p>
-          <p className="text-xs text-muted-foreground">{event.title} · event-scoped accommodation configuration</p>
+          <p className="text-xs text-muted-foreground">{event.title} · accommodation configuration</p>
         </div>
         <div className="flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>{eventHotels === undefined ? "Checking hotels…" : `${eventHotels.length} hotel${eventHotels.length === 1 ? "" : "s"}`}</span>
@@ -190,7 +205,7 @@ export default function EventAccommodationWorkspacePage({
           <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <CardTitle className="text-lg font-bold">
-              Event Hotels
+              Hotels
             </CardTitle>
             <CardDescription className="text-muted-foreground/70">
               Hotels configured for room assignments at this event
@@ -230,7 +245,8 @@ export default function EventAccommodationWorkspacePage({
                 <LinkedHotelCard
                   key={hotel._id}
                   hotel={hotel}
-                  onUnlink={async () => {}}
+                  onUnlink={handleUnlinkHotel}
+                  isUnlinking={unlinkingHotelId === hotel._id}
                   onAddRooms={() => {
                     setSelectedHotelForRoomsId(hotel._id)
                     setIsAddRoomsDialogOpen(true)
@@ -241,28 +257,6 @@ export default function EventAccommodationWorkspacePage({
           )}
         </CardContent>
       </Card>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Link href={`/dashboard/events/${slug}/accommodation/allocation`} className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-        <Card className="border-border/60 bg-card shadow-none transition-colors hover:border-primary/30">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base font-bold">
-              <Users className="size-5 text-muted-foreground" aria-hidden="true" />
-              Room Allocation
-            </CardTitle>
-            <CardDescription className="text-muted-foreground/70">
-              View and manage room assignments, occupancy, and available beds
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center text-sm text-primary">
-              View allocation <ArrowRight className="ml-2 size-4" aria-hidden="true" />
-            </div>
-          </CardContent>
-        </Card>
-        </Link>
-
-      </div>
 
       <CreateHotelDialog
         open={isCreateHotelDialogOpen}

@@ -705,7 +705,7 @@ export default function EventOrderDetailPage({ slug, orderId: rawOrderId, event 
   }
 
   if (orderPayload === null || eventOrderMismatch) {
-    return <DashboardQueryState state="empty" title="Order not found" message="The canonical order could not be loaded for this event." className="rounded-xl border border-border/60 bg-card p-6" />
+    return <DashboardQueryState state="empty" title="Order not found" message="This order could not be loaded for this event." className="rounded-xl border border-border/60 bg-card p-6" />
   }
 
   return (
@@ -903,8 +903,8 @@ export default function EventOrderDetailPage({ slug, orderId: rawOrderId, event 
               <p className="text-xs font-medium text-muted-foreground">
                 {metrics.attendeeCount > 1
                  ? metrics.sharedOutstandingPerAttendeeMinor !== null
-                   ? `Consolidated ledger for ${metrics.attendeeCount} attendees. Outstanding averages ${formatMoney(metrics.sharedOutstandingPerAttendeeMinor)} per ticket.`
-                   : `Consolidated ledger for ${metrics.attendeeCount} attendees. Outstanding average is unavailable.`
+                   ? `${metrics.attendeeCount} attendee${metrics.attendeeCount === 1 ? "" : "s"}. Outstanding averages ${formatMoney(metrics.sharedOutstandingPerAttendeeMinor)} per ticket.`
+                    : `${metrics.attendeeCount} attendee${metrics.attendeeCount === 1 ? "" : "s"}. Outstanding average is unavailable.`
                  : "Direct progress mapping for a single attendee order."}
             </p>
           </div>
@@ -1114,7 +1114,7 @@ export default function EventOrderDetailPage({ slug, orderId: rawOrderId, event 
             ) : (
                <div className="min-w-0 rounded-xl border border-white/20 bg-background/20">
                 <Table>
-                  <TableCaption>Attendees in this canonical order</TableCaption>
+                   <TableCaption>Attendees in this order</TableCaption>
                   <TableHeader className="bg-white/10">
                     <TableRow>
                       <TableHead className="h-10 text-[10px] font-black tracking-widest uppercase">

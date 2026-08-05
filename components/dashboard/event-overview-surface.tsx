@@ -182,6 +182,7 @@ export default function EventOverviewSurface({ params }: { params: Promise<{ slu
     accommodation,
   })
   const moneyMetric = projection.metrics.find((metric) => metric.key === "money")
+  const hasPendingData = projection.metrics.some((metric) => metric.state.status === "loading")
   const hasUnavailableData = projection.metrics.some((metric) => metric.state.status === "error" || metric.state.status === "unavailable")
   const hasRequestError = [revenue, orders, attendees, reconciliation].some((domain) => domain.status === "error")
   const retryRequests = () => setRequestAttempt((attempt) => attempt + 1)
@@ -209,7 +210,13 @@ export default function EventOverviewSurface({ params }: { params: Promise<{ slu
       <Card className="min-w-0" aria-labelledby="overview-attention-title">
         <CardHeader><CardTitle id="overview-attention-title">What needs attention</CardTitle><CardDescription>Only confirmed operational exceptions appear here.</CardDescription></CardHeader>
         <CardContent className="min-w-0 space-y-3">
-          {projection.exceptions.length === 0 ? (
+          {hasPendingData ? (
+            <DashboardQueryState
+              state="loading"
+              title="Checking for follow-up"
+              message="The overview is still loading current event exceptions."
+            />
+          ) : projection.exceptions.length === 0 ? (
             <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">{hasUnavailableData ? "Some overview data is unavailable; no additional exception was confirmed." : "No follow-up needed."}</p>
           ) : projection.exceptions.map((exception) => (
               <div key={exception.key} className="flex min-w-0 flex-col gap-3 rounded-xl border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -230,8 +237,8 @@ export default function EventOverviewSurface({ params }: { params: Promise<{ slu
       </div>
 
       <div className="grid min-w-0 gap-4 md:grid-cols-3">
-        <Card className="min-w-0"><CardHeader><CardTitle>Paid</CardTitle><CardDescription>Canonical event-start-to-now total</CardDescription></CardHeader><CardContent className="min-w-0 text-2xl font-semibold">{revenue.status === "ready" && revenue.data ? formatMoney(revenue.data.totals.paidMinor) : domainState(revenue, retryRequests)}</CardContent></Card>
-        <Card className="min-w-0"><CardHeader><CardTitle>Outstanding</CardTitle><CardDescription>Canonical reconciliation balance</CardDescription></CardHeader><CardContent className="min-w-0 text-2xl font-semibold">{moneyMetric?.state.status === "ready" && moneyMetric.values ? formatMoney(Number(moneyMetric.values.outstandingMinor)) : moneyMetric ? <DashboardQueryState state={moneyMetric.state.status === "ready" ? "unavailable" : moneyMetric.state.status} message={"message" in moneyMetric.state ? moneyMetric.state.message : undefined} onRetry={moneyMetric.state.status === "error" ? retryRequests : undefined} /> : null}</CardContent></Card>
+        <Card className="min-w-0"><CardHeader><CardTitle>Paid</CardTitle><CardDescription>Total paid this event</CardDescription></CardHeader><CardContent className="min-w-0 text-2xl font-semibold">{revenue.status === "ready" && revenue.data ? formatMoney(revenue.data.totals.paidMinor) : domainState(revenue, retryRequests)}</CardContent></Card>
+        <Card className="min-w-0"><CardHeader><CardTitle>Outstanding</CardTitle><CardDescription>Reconciliation balance</CardDescription></CardHeader><CardContent className="min-w-0 text-2xl font-semibold">{moneyMetric?.state.status === "ready" && moneyMetric.values ? formatMoney(Number(moneyMetric.values.outstandingMinor)) : moneyMetric ? <DashboardQueryState state={moneyMetric.state.status === "ready" ? "unavailable" : moneyMetric.state.status} message={"message" in moneyMetric.state ? moneyMetric.state.message : undefined} onRetry={moneyMetric.state.status === "error" ? retryRequests : undefined} /> : null}</CardContent></Card>
         <Card className="min-w-0"><CardHeader><CardTitle>Next setup</CardTitle><CardDescription>Keep this event operational</CardDescription></CardHeader><CardContent><Button asChild variant="outline"><Link href={`/dashboard/events/${slug}/settings`}>Event Settings <ArrowRight className="ml-2 size-4" aria-hidden="true" /></Link></Button></CardContent></Card>
       </div>
     </section>

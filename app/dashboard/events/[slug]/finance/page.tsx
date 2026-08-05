@@ -1,9 +1,9 @@
 "use client"
 
-import { use } from "react"
+import { useParams } from "next/navigation"
 import { FinanceWorkspace } from "@/components/dashboard/finance/finance-workspace"
 
-export default function FinancePage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = use(params)
+export default function FinancePage() {
+  const { slug } = useParams<{ slug: string }>()
   return <FinanceWorkspace slug={slug} />
 }

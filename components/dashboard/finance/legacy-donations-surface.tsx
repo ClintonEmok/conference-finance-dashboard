@@ -82,8 +82,8 @@ export default function EventDonationPage({
     <section className="min-w-0 space-y-6">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold">Event-scoped donation ledger</p>
-          <p className="text-xs text-muted-foreground">{event.title} · standalone cash and bank transfer records</p>
+          <p className="text-sm font-semibold">Donations</p>
+          <p className="text-xs text-muted-foreground">{event.title} · cash and bank transfer donations</p>
         </div>
         <Button onClick={() => setShowForm((current) => !current)} className="h-9 rounded-lg">
           <Plus className="mr-2 size-4" />
@@ -97,14 +97,14 @@ export default function EventDonationPage({
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-sm">
         <span className="font-semibold">Recorded total: {isLoading || errorMessage ? "Unavailable" : formatMoney(totalDonationMinor)}</span>
-        <span className="text-muted-foreground">{isLoading ? "Checking donation records…" : `${donations.length} event-scoped record${donations.length === 1 ? "" : "s"}`}</span>
+        <span className="text-muted-foreground">{isLoading ? "Loading…" : `${donations.length} donation${donations.length === 1 ? "" : "s"}`}</span>
       </div>
 
       <Card className="border-border/60 bg-card shadow-none">
         <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
           <div>
-            <CardTitle>Donation ledger</CardTitle>
-            <CardDescription>Every standalone donation recorded for {event.title}.</CardDescription>
+            <CardTitle>Donations</CardTitle>
+            <CardDescription>Donations recorded for {event.title}.</CardDescription>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -128,7 +128,7 @@ export default function EventDonationPage({
           ) : (
             <div className="min-w-0 rounded-2xl border border-border/50 bg-background/50">
               <Table>
-                <TableCaption>Standalone event-scoped donation ledger</TableCaption>
+                <TableCaption>Donations</TableCaption>
                 <TableHeader className="bg-muted/30 text-[10px] font-black tracking-[0.2em] text-muted-foreground uppercase">
                   <TableRow>
                     <TableHead>Payer</TableHead>

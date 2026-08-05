@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 import { useSearchParams } from "next/navigation"
-import { useQueries } from "convex/react"
+import { useQuery } from "convex/react"
 import Link from "next/link"
 import { BedDouble } from "lucide-react"
 import { WorkspaceFrame } from "@/components/dashboard/workspace-frame"
@@ -40,14 +40,13 @@ export function AccommodationWorkspace({ slug }: { slug: string }) {
     filters,
     roomId,
   })
-  const attentionQueries = useQueries(event?.accommodationEnabled ? {
-    board: {
-      query: api.accommodation.getRoomAllocationBoard,
-      args: { eventId: event._id },
-    },
-  } : {})
+
+  const boardResult = useQuery(
+    api.accommodation.getRoomAllocationBoard,
+    event.accommodationEnabled ? { eventId: event._id } : "skip"
+  )
   const boardState = toQueryState(
-    attentionQueries.board as AccommodationBoard | Error | undefined
+    boardResult as AccommodationBoard | Error | undefined
   )
   const attention = useMemo(() => buildAccommodationAttentionItems(
     {
@@ -68,7 +67,7 @@ export function AccommodationWorkspace({ slug }: { slug: string }) {
 
   return <WorkspaceFrame
     title="Accommodation"
-    description="Resolve setup, capacity, and attendee placement from one event-scoped workspace."
+    description="Resolve setup, capacity, and attendee placement for this event."
      eventLabel={event.title}
      workspaceLabel="Accommodation"
      workspaceId="accommodation"

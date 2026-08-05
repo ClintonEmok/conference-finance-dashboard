@@ -82,8 +82,8 @@ export default function EventPaymentsPage({
     <div className="min-w-0 space-y-6">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold">Payment operations</p>
-          <p className="text-xs text-muted-foreground">Event-linked payments plus the global unmatched inbox.</p>
+          <p className="text-sm font-semibold">Payments</p>
+          <p className="text-xs text-muted-foreground">Payments linked to this event, plus unassigned payments.</p>
         </div>
         <Button asChild variant="outline" size="sm" className="h-8 rounded-lg text-[11px] font-bold uppercase">
           <Link href={financeHref(slug, "reconciliation")}>
@@ -159,12 +159,12 @@ export default function EventPaymentsPage({
 
         <Card className="border-border/60 bg-card shadow-none">
           <CardHeader>
-            <CardTitle className="text-lg font-bold">Event payments</CardTitle>
-            <CardDescription>All payments already linked to this event, including donations.</CardDescription>
+            <CardTitle className="text-lg font-bold">Payments</CardTitle>
+            <CardDescription>Payments linked to this event.</CardDescription>
           </CardHeader>
           <CardContent className="min-w-0 space-y-3">
             {linkedPayments.length === 0 ? (
-              <DashboardQueryState state="empty" message="No linked payments yet." className="rounded-2xl border border-dashed border-border/50 bg-background/40 p-6" />
+              <DashboardQueryState state="empty" message="No payments linked yet." className="rounded-2xl border border-dashed border-border/50 bg-background/40 p-6" />
             ) : (
               linkedPayments.map((payment) => (
                 <PaymentCard

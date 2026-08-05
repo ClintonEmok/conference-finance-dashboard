@@ -10,12 +10,17 @@ export function useHotelRoomsWithDetails(hotelId: string | undefined) {
   const rooms = useHotelRooms(hotelId)
   const roomTypes = useQuery(api.accommodation.getRoomTypes)
 
-  if (!rooms || !roomTypes) return undefined
+  if (rooms === undefined || roomTypes === undefined) {
+    return { status: "pending" as const }
+  }
 
-  return rooms.map((room: Doc<"accommodationRooms">) => ({
-    ...room,
-    roomType: roomTypes.find(
-      (rt: Doc<"accommodationRoomTypes">) => rt._id === room.roomTypeId
-    ),
-  }))
+  return {
+    status: "ready" as const,
+    data: rooms.map((room: Doc<"accommodationRooms">) => ({
+      ...room,
+      roomType: roomTypes.find(
+        (rt: Doc<"accommodationRoomTypes">) => rt._id === room.roomTypeId
+      ),
+    })),
+  }
 }

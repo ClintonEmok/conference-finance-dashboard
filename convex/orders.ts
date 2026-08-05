@@ -747,27 +747,35 @@ async function listCandidateOrders(
 }
 
 async function loadEventNamesById(
-  ctx: QueryCtx
+  ctx: QueryCtx,
+  eventId?: string
 ): Promise<Map<string, string | null>> {
-  // Bounded: small number of events - using canonical events table
-  const events = await ctx.db.query("events").collect()
+  const events = eventId
+    ? [await ctx.db.get("events", eventId as Id<"events">)]
+    : await ctx.db.query("events").take(500)
   return new Map(
-    events.map((event) => [String(event._id), event.title ?? null])
+    events.filter((event): event is NonNullable<typeof event> => Boolean(event)).map((event) => [String(event._id), event.title ?? null])
   )
 }
 
-async function loadEventSlugsById(ctx: QueryCtx): Promise<Map<string, string>> {
-  // Bounded: small number of events - using canonical events table
-  const events = await ctx.db.query("events").collect()
-  return new Map(events.map((event) => [String(event._id), event.slug]))
+async function loadEventSlugsById(ctx: QueryCtx, eventId?: string): Promise<Map<string, string>> {
+  const events = eventId
+    ? [await ctx.db.get("events", eventId as Id<"events">)]
+    : await ctx.db.query("events").take(500)
+  return new Map(
+    events.filter((event): event is NonNullable<typeof event> => Boolean(event)).map((event) => [String(event._id), event.slug])
+  )
 }
 
 async function loadEventSourceKindsById(
-  ctx: QueryCtx
+  ctx: QueryCtx,
+  eventId?: string
 ): Promise<Map<string, "integration" | "internal">> {
-  const events = await ctx.db.query("events").collect()
+  const events = eventId
+    ? [await ctx.db.get("events", eventId as Id<"events">)]
+    : await ctx.db.query("events").take(500)
   return new Map(
-    events.map((event) => [String(event._id), event.primarySourceKind])
+    events.filter((event): event is NonNullable<typeof event> => Boolean(event)).map((event) => [String(event._id), event.primarySourceKind])
   )
 }
 
@@ -916,7 +924,7 @@ export const getOrdersWithFilters = query({
         amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
         order.totalAmountMinor ??
         null
-      const matchedAmountMinor = matchedPaymentTotalsByOrderId.get(String(order._id))
+       const matchedAmountMinor = matchedPaymentTotalsByOrderId.get(String(order._id))
       const balance = deriveBalanceAmounts(amountDueMinor, matchedAmountMinor)
 
       return {
@@ -933,7 +941,7 @@ export const getOrdersWithFilters = query({
           : null,
         archiveReason: order.archiveReason ?? null,
         amountDueMinor,
-        matchedAmountMinor: matchedAmountMinor ?? null,
+        matchedAmountMinor: matchedAmountMinor ?? 0,
         outstandingAmountMinor: balance.outstandingAmountMinor,
         totalAmountMinor: order.totalAmountMinor ?? null,
         currency: order.currency ?? null,
@@ -1022,11 +1030,13 @@ export const getOrdersForReconciliation = query({
     from: v.optional(v.number()),
     to: v.optional(v.number()),
     status: v.optional(canonicalOrderStatusValidator),
+    limit: v.optional(v.number()),
   },
   returns: v.array(orderLedgerRowValidator),
   handler: async (ctx, args) => {
     const fromMs = args.from ?? 0
     const toMs = args.to ?? Date.now()
+    const maxItems = Math.min(Math.max(Math.floor(args.limit ?? 500), 1), 500)
 
     // Query canonical orders table directly
     let orders: Doc<"orders">[]
@@ -1038,13 +1048,13 @@ export const getOrdersForReconciliation = query({
           q.eq("eventId", args.eventId! as Id<"events">)
         )
         .order("desc")
-        .collect()
+        .take(maxItems)
     } else if (args.status) {
       orders = await ctx.db
         .query("orders")
         .withIndex("by_status", (q) => q.eq("status", args.status!))
         .order("desc")
-        .collect()
+        .take(maxItems)
     } else {
       orders = await ctx.db.query("orders").order("desc").take(2000)
     }
@@ -1061,7 +1071,7 @@ export const getOrdersForReconciliation = query({
       return true
     })
 
-    const eventSourceKindsById = await loadEventSourceKindsById(ctx)
+    const eventSourceKindsById = await loadEventSourceKindsById(ctx, args.eventId)
     const visibleOrders = filtered.filter((order) =>
       isInternalEvent(eventSourceKindsById, order.eventId)
     )
@@ -1077,8 +1087,8 @@ export const getOrdersForReconciliation = query({
     // Join with extension data for additional fields, preserving canonical order._id
     const withExtensions = await loadOrdersWithExtensions(ctx, visibleOrders)
 
-    const eventNamesById = await loadEventNamesById(ctx)
-    const eventSlugsById = await loadEventSlugsById(ctx)
+    const eventNamesById = await loadEventNamesById(ctx, args.eventId)
+    const eventSlugsById = await loadEventSlugsById(ctx, args.eventId)
 
     return withExtensions
       .sort((a, b) => sortOrdersByNewest(a.order, b.order))

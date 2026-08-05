@@ -1,6 +1,6 @@
 "use client"
 
-import { use, type ReactNode } from "react"
+import { useParams, usePathname } from "next/navigation"
 import {
   Calendar,
   ChevronRight,
@@ -13,7 +13,6 @@ import {
 } from "lucide-react"
 import { LogoutButton } from "@/app/dashboard/logout-button"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
 
 import { useEventBySlug } from "@/lib/convex/hooks/events"
 import { cn } from "@/lib/utils"
@@ -42,7 +41,6 @@ import {
 
 interface EventLayoutProps {
   children: React.ReactNode
-  params: Promise<{ slug: string }>
 }
 
 function getStatusBadge(isPublished: boolean, isSignupOpen: boolean) {
@@ -56,8 +54,8 @@ function getStatusBadge(isPublished: boolean, isSignupOpen: boolean) {
   return <Badge variant="secondary">Published</Badge>
 }
 
-export default function EventLayout({ children, params }: EventLayoutProps) {
-  const { slug } = use(params)
+export default function EventLayout({ children }: EventLayoutProps) {
+  const { slug } = useParams<{ slug: string }>()
   const event = useEventBySlug(slug)
   const pathname = usePathname()
 
@@ -88,7 +86,7 @@ export default function EventLayout({ children, params }: EventLayoutProps) {
   }
 
   return (
-    <EventDashboardProvider slug={slug} event={event}>
+    <EventDashboardProvider key={slug} slug={slug} event={event}>
       <SidebarProvider>
         <Sidebar
           collapsible="icon"

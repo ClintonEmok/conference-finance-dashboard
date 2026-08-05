@@ -119,13 +119,17 @@ function eventHref(slug: string, path: string) {
 export function createEventOverviewScope(event: OverviewInputs["event"], now = new Date()): OverviewScope | null {
   if (!event.startsAt || !Number.isFinite(event.startsAt)) return null
   const from = new Date(event.startsAt)
-  if (Number.isNaN(from.getTime()) || from.getTime() > now.getTime()) return null
+  if (Number.isNaN(from.getTime())) return null
+  const isUpcoming = from.getTime() > now.getTime()
+  const effectiveFrom = isUpcoming ? new Date(0) : from
   return {
     eventId: event.id,
     eventSlug: event.slug,
-    from: from.toISOString(),
+    from: effectiveFrom.toISOString(),
     to: now.toISOString(),
-    label: `Event lifetime · ${from.toLocaleDateString()} to now`,
+    label: isUpcoming
+      ? `Event activity to date · starts ${from.toLocaleDateString()}`
+      : `Event lifetime · ${from.toLocaleDateString()} to now`,
   }
 }
 

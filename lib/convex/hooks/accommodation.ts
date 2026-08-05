@@ -1,6 +1,6 @@
 "use client"
 
-import { useQuery, useMutation, useQueries } from "convex/react"
+import { useQuery, useMutation } from "convex/react"
 import { api } from "@/lib/convex/api"
 import type { Id } from "@/convex/_generated/dataModel"
 
@@ -164,10 +164,11 @@ function overviewQueryResult<T>(value: T | undefined | Error): OverviewAccommoda
 
 /** Overview-only wrappers retain Convex query errors instead of collapsing them into undefined. */
 export function useEventAllocationSummaryForOverview(eventId: string | undefined) {
-  const result = useQueries(eventId ? {
-    allocation: { query: api.accommodation.getRoomAllocationBoard, args: { eventId } },
-  } : {})
-  const queryResult = overviewQueryResult(result.allocation)
+  const result = useQuery(
+    api.accommodation.getRoomAllocationBoard,
+    eventId ? { eventId } : "skip"
+  )
+  const queryResult = overviewQueryResult(result)
   if (queryResult.status !== "success") return queryResult
   return { status: "success" as const, data: queryResult.data.summary }
 }
@@ -189,8 +190,9 @@ export function useAccommodationSummaryForEvent(
 }
 
 export function useAccommodationSummaryForEventForOverview(eventId: Id<"events"> | undefined) {
-  const result = useQueries(eventId ? {
-    summary: { query: api.accommodation.getAccommodationSummaryForEvent, args: { eventId } },
-  } : {})
-  return overviewQueryResult(result.summary)
+  const result = useQuery(
+    api.accommodation.getAccommodationSummaryForEvent,
+    eventId ? { eventId } : "skip"
+  )
+  return overviewQueryResult(result)
 }

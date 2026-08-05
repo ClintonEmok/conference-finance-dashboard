@@ -391,7 +391,7 @@ export default function EventAllocationPage({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 id="allocation-filters" className="text-sm font-semibold">Allocation filters</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Filter the event-scoped board without changing room capacity data.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Filter the board without changing room capacity data.</p>
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={clearFilters} className="h-8 text-xs">
             Clear filters

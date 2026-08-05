@@ -42,9 +42,11 @@ export function LinkedHotelCard({
   isUnlinking,
 }: LinkedHotelCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const roomsWithDetails = useHotelRoomsWithDetails(hotel._id) as
-    | RoomWithDetails[]
-    | undefined
+  const roomsState = useHotelRoomsWithDetails(hotel._id) as
+    | { status: "pending" }
+    | { status: "ready"; data: RoomWithDetails[] }
+  const roomsWithDetails = roomsState.status === "ready" ? roomsState.data : undefined
+  const roomsLoading = roomsState.status === "pending"
 
   const totalRooms = roomsWithDetails?.length ?? 0
   const totalBeds =
@@ -81,7 +83,9 @@ export function LinkedHotelCard({
           </div>
 
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            {hasRooms ? (
+            {roomsLoading ? (
+              <Badge variant="secondary" className="text-xs">Checking rooms…</Badge>
+            ) : hasRooms ? (
               <>
                 <Badge variant="secondary" className="text-xs">
                   {totalRooms} {totalRooms === 1 ? "room" : "rooms"}
@@ -98,7 +102,7 @@ export function LinkedHotelCard({
             )}
           </div>
 
-          {!hasRooms && (
+          {!roomsLoading && !hasRooms && (
             <p className="text-xs text-amber-600">
               This hotel has no rooms yet. Add rooms before attendees can be
               assigned.
@@ -112,6 +116,9 @@ export function LinkedHotelCard({
             size="sm"
             onClick={() => setIsExpanded(!isExpanded)}
             disabled={!hasRooms}
+            aria-label={isExpanded ? `Collapse rooms for ${hotel.name}` : `Expand rooms for ${hotel.name}`}
+            aria-expanded={isExpanded}
+            title={isExpanded ? "Collapse rooms" : "Expand rooms"}
           >
             {isExpanded ? (
               <ChevronUp className="size-4" />
@@ -123,6 +130,8 @@ export function LinkedHotelCard({
             variant="ghost"
             size="sm"
             onClick={() => onAddRooms(hotel._id)}
+            aria-label={`Add rooms to ${hotel.name}`}
+            title="Add rooms"
           >
             <Plus className="size-4" />
           </Button>
@@ -131,6 +140,8 @@ export function LinkedHotelCard({
             size="sm"
             onClick={() => onUnlink(hotel._id)}
             disabled={isUnlinking}
+            aria-label={`Unlink ${hotel.name}`}
+            title="Unlink hotel"
           >
             <X className="size-4 text-destructive" />
           </Button>

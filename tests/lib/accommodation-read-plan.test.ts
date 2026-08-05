@@ -57,7 +57,7 @@ describe("accommodation read plan", () => {
     })
   })
 
-  it("requires a distinct detail read for filter or room intent", () => {
+  it("requires a distinct detail read for filters but reuses the parent board for room intent", () => {
     expect(
       createAccommodationReadPlan({
         enabled: true,
@@ -72,6 +72,6 @@ describe("accommodation read plan", () => {
         filters: noFilters,
         roomId: "room-42",
       })
-    ).toMatchObject({ readDetailBoard: true, reuseParentBoard: false })
+    ).toMatchObject({ readDetailBoard: false, reuseParentBoard: true })
   })
 })

@@ -225,7 +225,7 @@ export default function EventOrdersPage({ slug, event }: PageProps) {
         setPayload(body)
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") return
-        setErrorMessage("Network error while loading order ledger.")
+        setErrorMessage("Network error while loading orders.")
       } finally {
         setIsLoading(false)
       }
@@ -284,7 +284,7 @@ export default function EventOrdersPage({ slug, event }: PageProps) {
     <div className="min-w-0 space-y-6">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold">Event-scoped order ledger</p>
+          <p className="text-sm font-semibold">Orders</p>
           <p className="text-xs text-muted-foreground">{event.title} · {event.slug}</p>
         </div>
         <Button variant="outline" onClick={exportCsv} className="h-9 rounded-lg px-4">
@@ -401,7 +401,7 @@ export default function EventOrdersPage({ slug, event }: PageProps) {
 
       <article className="min-w-0 overflow-hidden rounded-xl border border-border/50 bg-card/40">
           <Table>
-            <TableCaption>Event-scoped canonical order ledger</TableCaption>
+            <TableCaption>Orders</TableCaption>
             <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Order</TableHead>
@@ -417,7 +417,7 @@ export default function EventOrdersPage({ slug, event }: PageProps) {
               {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={7} className="px-6 py-12">
-                    <DashboardQueryState state="loading" message="Loading the canonical order ledger." className="text-center" />
+                    <DashboardQueryState state="loading" message="Loading orders." className="text-center" />
                   </TableCell>
                 </TableRow>
               ) : errorMessage ? (
@@ -429,7 +429,7 @@ export default function EventOrdersPage({ slug, event }: PageProps) {
               ) : payload === null ? (
                 <TableRow>
                   <TableCell colSpan={7} className="px-6 py-12">
-                    <DashboardQueryState state="unavailable" message="The order ledger is not available yet." className="text-center" />
+                    <DashboardQueryState state="unavailable" message="Orders are not available yet." className="text-center" />
                   </TableCell>
                 </TableRow>
               ) : visibleRows.length === 0 ? (

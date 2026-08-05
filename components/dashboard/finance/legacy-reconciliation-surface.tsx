@@ -498,8 +498,8 @@ export default function EventReconciliationPage({
     <div className="min-w-0 space-y-8">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-sm">
         <div className="min-w-0">
-          <p className="font-semibold">Outstanding order reconciliation</p>
-          <p className="text-xs text-muted-foreground">Select an order to assign an existing payment or log cash/bank transfer.</p>
+          <p className="font-semibold">Reconciliation</p>
+          <p className="text-xs text-muted-foreground">Select an order to assign a payment or log a new one.</p>
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>{visibleOrders.length} outstanding order{visibleOrders.length === 1 ? "" : "s"}</span>
@@ -524,7 +524,7 @@ export default function EventReconciliationPage({
 
       <article className="overflow-hidden rounded-xl border border-border/60 bg-card">
           <Table>
-            <TableCaption>Outstanding event-scoped order reconciliation</TableCaption>
+            <TableCaption>Reconciliation</TableCaption>
             <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Order</TableHead>

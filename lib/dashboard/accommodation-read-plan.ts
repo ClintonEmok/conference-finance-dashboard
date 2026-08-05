@@ -43,7 +43,6 @@ export function createAccommodationReadPlan({
   }
 
   const hasAllocationIntent = Boolean(
-    roomId ||
       filters?.hotelId ||
       filters?.roomTypeId ||
       filters?.genderType ||

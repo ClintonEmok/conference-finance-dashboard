@@ -734,6 +734,7 @@ export declare const api: {
       {
         eventId?: string;
         from?: number;
+        limit?: number;
         status?: "paid" | "refunded" | "cancelled" | "pending";
         to?: number;
       },

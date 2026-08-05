@@ -1,13 +1,9 @@
 "use client"
 
-import { use } from "react"
+import { useParams } from "next/navigation"
 import { AccommodationWorkspace } from "@/components/dashboard/accommodation/accommodation-workspace"
 
-export default function EventAccommodationPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>
-}) {
-  const { slug } = use(params)
+export default function EventAccommodationPage() {
+  const { slug } = useParams<{ slug: string }>()
   return <AccommodationWorkspace slug={slug} />
 }

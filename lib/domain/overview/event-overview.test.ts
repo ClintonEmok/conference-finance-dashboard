@@ -43,6 +43,19 @@ describe("event overview projection", () => {
     expect(result.metrics.every((metric) => metric.href.includes("/spring-conference/"))).toBe(true)
   })
 
+  it("keeps an upcoming event valid without creating a reversed date range", () => {
+    const scope = createEventOverviewScope(
+      { ...event, startsAt: Date.parse("2026-08-15T09:00:00.000Z") },
+      new Date("2026-07-30T12:00:00.000Z")
+    )
+
+    expect(scope).toMatchObject({
+      from: "1970-01-01T00:00:00.000Z",
+      to: "2026-07-30T12:00:00.000Z",
+    })
+    expect(scope?.label).toContain("Event activity to date")
+  })
+
   it("preserves canonical money values without presentation arithmetic", () => {
     const result = projectEventOverview(input())
     expect(result.metrics.find((metric) => metric.key === "money")?.values).toEqual({
@@ -128,6 +141,19 @@ describe("event overview projection", () => {
     const failed = projectEventOverview(input({ accommodation: { status: "error", message: "Accommodation query failed." } }))
     expect(failed.metrics.find((metric) => metric.key === "accommodation")?.state).toEqual({ status: "error", message: "Accommodation query failed." })
     expect(failed.exceptions.some((exception) => exception.key === "accommodation-setup")).toBe(false)
+  })
+
+  it("does not report a clear attention state while operational reads are pending", () => {
+    const result = projectEventOverview(input({
+      revenue: { status: "loading" },
+      orders: { status: "loading" },
+      attendees: { status: "loading" },
+      reconciliation: { status: "loading" },
+      accommodation: { status: "loading" },
+    }))
+
+    expect(result.exceptions).toEqual([])
+    expect(result.metrics.some((metric) => metric.state.status === "loading")).toBe(true)
   })
 
   it("preserves explicit error, unavailable, and unconfigured domain states", () => {

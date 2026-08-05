@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { ArrowRight, CheckCircle2 } from "lucide-react"
+import { AlertCircle, ArrowRight, CheckCircle2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type {
   AttentionItem,
@@ -20,10 +20,6 @@ export function WorkspaceAttentionQueue({
   message?: string
   title?: string
 }) {
-  const openCount =
-    status === "ready"
-      ? items.reduce((total, item) => total + (item.count ?? 1), 0)
-      : null
   const presentationState =
     status === "pending"
       ? "loading"
@@ -41,8 +37,6 @@ export function WorkspaceAttentionQueue({
           <span className="text-xs text-muted-foreground">Checking…</span>
         ) : status === "error" ? (
           <span className="text-xs text-destructive">Unavailable</span>
-        ) : presentationState === "ready" && openCount !== null ? (
-          <span className="text-xs text-muted-foreground">{openCount} open</span>
         ) : null}
       </div>
       <DashboardQueryState
@@ -56,17 +50,35 @@ export function WorkspaceAttentionQueue({
                 No unresolved exceptions.
               </div>
             ) : (
-              <div className="grid divide-y divide-border/60 md:grid-cols-3 md:divide-x md:divide-y-0">
+              <div className="divide-y divide-border/60">
                 {items.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between gap-4 px-4 py-4">
-                    <div className="min-w-0">
-                      <p className={cn("text-sm font-medium", item.tone === "urgent" && "text-amber-700 dark:text-amber-400")}>
+                  <div
+                    key={item.id}
+                    className={cn(
+                      "flex min-w-0 items-center gap-3 border-l-2 px-4 py-4 sm:px-5",
+                      item.tone === "urgent"
+                        ? "border-amber-500/70 bg-amber-500/[0.04]"
+                        : "border-transparent"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "flex size-9 shrink-0 items-center justify-center rounded-full",
+                        item.tone === "urgent"
+                          ? "bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      <AlertCircle className="size-4" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className={cn("text-sm font-semibold", item.tone === "urgent" && "text-amber-700 dark:text-amber-400")}>
                         {item.label}
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{item.detail}</p>
                     </div>
-                    <Link href={item.href} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-primary underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-                      Open<ArrowRight className="size-3" aria-hidden="true" />
+                    <Link href={item.href} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border/70 px-3 py-2 text-xs font-semibold text-primary transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                      Review<ArrowRight className="size-3.5" aria-hidden="true" />
                     </Link>
                   </div>
                 ))}
