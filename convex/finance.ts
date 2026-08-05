@@ -176,10 +176,15 @@ export async function loadOrderAmountDueBreakdowns(
 
   await Promise.all(
     orders.map(async (order) => {
-      const selections = (await ctx.db
+      // Read every ticket selection for the order through bounded async
+      // iteration. A fixed `.take(100)` would silently truncate orders with
+      // more than 100 attendees/selections and undercount the amount due.
+      const selections: OrderSelectionDoc[] = []
+      for await (const row of ctx.db
         .query("orderTicketSelections")
-        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
-        .take(100)) as OrderSelectionDoc[]
+        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))) {
+        selections.push(row as OrderSelectionDoc)
+      }
 
       selectionsByOrderId.set(String(order._id), selections)
 
@@ -227,17 +232,21 @@ export async function loadOrderAmountDueBreakdowns(
     })
   )
 
-  // Batch-load accommodation selections by indexed orderId (bounded).
+  // Batch-load accommodation selections by indexed orderId. All rows are read
+  // through bounded async iteration — a fixed `.take(100)` would truncate
+  // large orders and silently drop accommodation charges.
   const accommodationSelectionsByOrderId = new Map<
     string,
     OrderAccommodationSelectionDoc[]
   >()
   await Promise.all(
     orders.map(async (order) => {
-      const rows = (await ctx.db
+      const rows: OrderAccommodationSelectionDoc[] = []
+      for await (const row of ctx.db
         .query("orderAccommodationSelections")
-        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
-        .take(100)) as OrderAccommodationSelectionDoc[]
+        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))) {
+        rows.push(row as OrderAccommodationSelectionDoc)
+      }
       accommodationSelectionsByOrderId.set(String(order._id), rows)
     })
   )
