@@ -64,6 +64,11 @@ export type AccommodationPricingInput = {
  * `confirmedAt`, `configVersion = eventAccommodationConfig.updatedAt` and this
  * snapshot atomically; the loader uses snapshot inputs instead of live rates
  * for confirmed rows so a later rate edit never re-prices them.
+ *
+ * The snapshot is self-contained: it also records every selection decision the
+ * formula depends on (`categoryIsSuperior`, `upgradeSelected`, `cotSelected`,
+ * `ageBandCode`), so editing a confirmed row's live selection flags or
+ * category can never add/remove an upgrade or cot charge after confirmation.
  */
 export type AccommodationPriceSnapshot = {
   baseRatePerNightMinor: number
@@ -71,6 +76,44 @@ export type AccommodationPriceSnapshot = {
   cotRatePerNightMinor: number
   totalNights: number
   coveredNights: number
+  /** Resolved at confirmation: the selected category was the superior rate. */
+  categoryIsSuperior: boolean
+  /** Resolved at confirmation: the buyer had selected the superior upgrade. */
+  upgradeSelected: boolean
+  /** Resolved at confirmation: the buyer had selected a cot. */
+  cotSelected: boolean
+  /** Resolved at confirmation: the attendee's age band code (lowercased). */
+  ageBandCode: string
+}
+
+/**
+ * Fail-closed completeness guard for a persisted snapshot. The canonical
+ * loader throws for any confirmed row whose `priceSnapshot` does not pass this
+ * check instead of silently re-pricing it from the current config.
+ */
+export function isCompleteAccommodationPriceSnapshot(
+  value: unknown
+): value is AccommodationPriceSnapshot {
+  if (!value || typeof value !== "object") {
+    return false
+  }
+  const snapshot = value as Record<string, unknown>
+  return (
+    typeof snapshot.baseRatePerNightMinor === "number" &&
+    Number.isFinite(snapshot.baseRatePerNightMinor) &&
+    typeof snapshot.upgradeRatePerNightMinor === "number" &&
+    Number.isFinite(snapshot.upgradeRatePerNightMinor) &&
+    typeof snapshot.cotRatePerNightMinor === "number" &&
+    Number.isFinite(snapshot.cotRatePerNightMinor) &&
+    typeof snapshot.totalNights === "number" &&
+    Number.isFinite(snapshot.totalNights) &&
+    typeof snapshot.coveredNights === "number" &&
+    Number.isFinite(snapshot.coveredNights) &&
+    typeof snapshot.categoryIsSuperior === "boolean" &&
+    typeof snapshot.upgradeSelected === "boolean" &&
+    typeof snapshot.cotSelected === "boolean" &&
+    typeof snapshot.ageBandCode === "string"
+  )
 }
 
 export type AccommodationReceiptLine = {
@@ -134,6 +177,13 @@ export function buildAccommodationPriceSnapshot(input: {
     cotRatePerNightMinor: normalizeMinorUnits(pricing.cotPriceMinor),
     totalNights: normalizeNights(selection.nightCount),
     coveredNights,
+    // Resolve every selection decision the formula depends on so a confirmed
+    // row is priced exclusively from the snapshot, never from live flags.
+    categoryIsSuperior:
+      (selection.categoryCode ?? "").toLowerCase() === "superior",
+    upgradeSelected: normalizeBoolean(selection.upgradeSelected),
+    cotSelected: normalizeBoolean(selection.cotSelected),
+    ageBandCode: (selection.ageBandCode ?? "").toLowerCase(),
   }
 }
 
@@ -152,23 +202,24 @@ export function deriveAccommodationAmount(input: {
 }): AccommodationAmountResult {
   const selection = input.selection ?? {}
   const pricing = input.pricing ?? {}
-  const usesSnapshot = Boolean(input.snapshot)
+  const snapshot = input.snapshot ?? null
+  const usesSnapshot = snapshot !== null
 
   const baseRatePerNightMinor = usesSnapshot
-    ? normalizeMinorUnits(input.snapshot?.baseRatePerNightMinor)
+    ? normalizeMinorUnits(snapshot.baseRatePerNightMinor)
     : normalizeMinorUnits(pricing.baseRatePerNightMinor)
   const upgradeRatePerNightMinor = usesSnapshot
-    ? normalizeMinorUnits(input.snapshot?.upgradeRatePerNightMinor)
+    ? normalizeMinorUnits(snapshot.upgradeRatePerNightMinor)
     : normalizeMinorUnits(pricing.superiorUpgradePriceMinor)
   const cotRatePerNightMinor = usesSnapshot
-    ? normalizeMinorUnits(input.snapshot?.cotRatePerNightMinor)
+    ? normalizeMinorUnits(snapshot.cotRatePerNightMinor)
     : normalizeMinorUnits(pricing.cotPriceMinor)
 
   const totalNights = usesSnapshot
-    ? normalizeNights(input.snapshot?.totalNights)
+    ? normalizeNights(snapshot.totalNights)
     : normalizeNights(selection.nightCount)
   const coveredNights = usesSnapshot
-    ? normalizeNights(input.snapshot?.coveredNights)
+    ? normalizeNights(snapshot.coveredNights)
     : normalizeBoolean(pricing.ticketAccommodationIncluded)
       ? normalizeNights(pricing.eventBaseNights)
       : 0
@@ -179,20 +230,28 @@ export function deriveAccommodationAmount(input: {
   // The superior-upgrade selection is one representation of the superior
   // rate: when the selected category/occupancy rate already is the superior
   // rate, the base charge includes it and no separate upgrade line applies.
-  const categoryIsSuperior =
-    (selection.categoryCode ?? "").toLowerCase() === "superior"
+  // For a confirmed row the decision comes from the persisted snapshot, so
+  // changing the live category/flags later cannot re-price the row.
+  const categoryIsSuperior = usesSnapshot
+    ? snapshot.categoryIsSuperior === true
+    : (selection.categoryCode ?? "").toLowerCase() === "superior"
+  const upgradeSelected = usesSnapshot
+    ? snapshot.upgradeSelected === true
+    : normalizeBoolean(selection.upgradeSelected)
   const upgradeChargeMinor =
-    normalizeBoolean(selection.upgradeSelected) && !categoryIsSuperior
+    upgradeSelected && !categoryIsSuperior
       ? totalNights * upgradeRatePerNightMinor
       : 0
 
   // Cot eligibility is locked to the under_3 age band.
-  const cotEligible =
-    (selection.ageBandCode ?? "").toLowerCase() === "under_3"
+  const cotEligible = usesSnapshot
+    ? snapshot.ageBandCode === "under_3"
+    : (selection.ageBandCode ?? "").toLowerCase() === "under_3"
+  const cotSelected = usesSnapshot
+    ? snapshot.cotSelected === true
+    : normalizeBoolean(selection.cotSelected)
   const cotChargeMinor =
-    normalizeBoolean(selection.cotSelected) && cotEligible
-      ? totalNights * cotRatePerNightMinor
-      : 0
+    cotSelected && cotEligible ? totalNights * cotRatePerNightMinor : 0
 
   const lines: AccommodationReceiptLine[] = []
 
@@ -229,9 +288,13 @@ export function deriveAccommodationAmount(input: {
   return {
     totalMinor: baseChargeMinor + upgradeChargeMinor + cotChargeMinor,
     lines,
-    snapshot: buildAccommodationPriceSnapshot({
-      selection,
-      pricing,
-    }),
+    // A confirmed row returns its persisted snapshot untouched — the snapshot
+    // is never rebuilt from live pricing inputs.
+    snapshot: usesSnapshot
+      ? snapshot
+      : buildAccommodationPriceSnapshot({
+          selection,
+          pricing,
+        }),
   }
 }

@@ -275,7 +275,11 @@ export default defineSchema({
       // assignment-confirm flow atomically writes confirmedAt,
       // configVersion = eventAccommodationConfig.updatedAt, and the pure
       // helper's immutable priceSnapshot. The Phase 40 loader fails closed
-      // when a row is confirmed without a complete snapshot.
+      // when a row is confirmed without a complete snapshot. The snapshot's
+      // decision fields (categoryIsSuperior/upgradeSelected/cotSelected/
+      // ageBandCode) are resolved at confirmation so a confirmed row is
+      // priced exclusively from the snapshot, never from live selection
+      // flags.
       confirmedAt: v.optional(v.number()),
       configVersion: v.optional(v.number()),
       priceSnapshot: v.optional(
@@ -285,6 +289,10 @@ export default defineSchema({
           cotRatePerNightMinor: v.number(),
           totalNights: v.number(),
           coveredNights: v.number(),
+          categoryIsSuperior: v.optional(v.boolean()),
+          upgradeSelected: v.optional(v.boolean()),
+          cotSelected: v.optional(v.boolean()),
+          ageBandCode: v.optional(v.string()),
         })
       ),
     })

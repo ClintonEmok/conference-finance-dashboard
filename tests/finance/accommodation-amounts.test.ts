@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   buildAccommodationPriceSnapshot,
   deriveAccommodationAmount,
+  isCompleteAccommodationPriceSnapshot,
   type AccommodationPriceSnapshot,
 } from "@/lib/domain/finance/accommodation-amounts"
 
@@ -230,6 +231,10 @@ describe("accommodation amounts - locked pricing formula", () => {
       cotRatePerNightMinor: 500,
       totalNights: 3,
       coveredNights: 2,
+      categoryIsSuperior: false,
+      upgradeSelected: false,
+      cotSelected: false,
+      ageBandCode: "18_plus",
     })
 
     const confirmed = deriveAccommodationAmount({
@@ -269,6 +274,103 @@ describe("accommodation amounts - locked pricing formula", () => {
       cotRatePerNightMinor: 500,
       totalNights: 4,
       coveredNights: 2,
+      categoryIsSuperior: false,
+      upgradeSelected: false,
+      cotSelected: false,
+      ageBandCode: "18_plus",
     })
+  })
+
+  it("keeps a confirmed snapshot fixed when live selection flags change", () => {
+    // Confirmed at €30 base with a cot for an under_3 attendee: base 6000 +
+    // cot 1000 = 7000. The snapshot must capture the selection decisions so a
+    // later edit of the live flags cannot re-price the row.
+    const snapshot: AccommodationPriceSnapshot =
+      buildAccommodationPriceSnapshot({
+        selection: {
+          ...BASE_SELECTION,
+          cotSelected: true,
+          ageBandCode: "under_3",
+        },
+        pricing: BASE_PRICING,
+      })
+
+    expect(snapshot).toEqual({
+      baseRatePerNightMinor: 3000,
+      upgradeRatePerNightMinor: 1500,
+      cotRatePerNightMinor: 500,
+      totalNights: 2,
+      coveredNights: 0,
+      categoryIsSuperior: false,
+      upgradeSelected: false,
+      cotSelected: true,
+      ageBandCode: "under_3",
+    })
+
+    // The live selection is edited after confirmation: upgrade now selected,
+    // cot deselected, category changed to superior, age band changed. None of
+    // this may change the confirmed amount.
+    const confirmed = deriveAccommodationAmount({
+      selection: {
+        ...BASE_SELECTION,
+        categoryCode: "superior",
+        upgradeSelected: true,
+        cotSelected: false,
+        ageBandCode: "18_plus",
+      },
+      pricing: BASE_PRICING,
+      snapshot,
+    })
+
+    expect(confirmed.totalMinor).toBe(7000) // base 6000 + cot 1000, unchanged
+    expect(confirmed.lines.map((line) => line.kind)).toEqual([
+      "accommodation",
+      "cot",
+    ])
+  })
+
+  it("returns the persisted snapshot untouched for a confirmed row", () => {
+    const snapshot: AccommodationPriceSnapshot =
+      buildAccommodationPriceSnapshot({
+        selection: { ...BASE_SELECTION, nightCount: 4 },
+        pricing: BASE_PRICING,
+      })
+
+    const confirmed = deriveAccommodationAmount({
+      selection: BASE_SELECTION,
+      pricing: {
+        // Live config changed after confirmation; it must not leak into the
+        // returned snapshot.
+        baseRatePerNightMinor: 9999,
+        superiorUpgradePriceMinor: 9999,
+        cotPriceMinor: 9999,
+        ticketAccommodationIncluded: false,
+        eventBaseNights: 9,
+      },
+      snapshot,
+    })
+
+    expect(confirmed.snapshot).toBe(snapshot)
+    expect(confirmed.snapshot).toEqual(snapshot)
+  })
+
+  it("rejects an incomplete persisted snapshot as not complete", () => {
+    const complete = buildAccommodationPriceSnapshot({
+      selection: BASE_SELECTION,
+      pricing: BASE_PRICING,
+    })
+    expect(isCompleteAccommodationPriceSnapshot(complete)).toBe(true)
+
+    expect(isCompleteAccommodationPriceSnapshot(null)).toBe(false)
+    expect(isCompleteAccommodationPriceSnapshot({})).toBe(false)
+
+    const missingDecisions = {
+      baseRatePerNightMinor: 3000,
+      upgradeRatePerNightMinor: 1500,
+      cotRatePerNightMinor: 500,
+      totalNights: 2,
+      coveredNights: 0,
+    }
+    expect(isCompleteAccommodationPriceSnapshot(missingDecisions)).toBe(false)
   })
 })
