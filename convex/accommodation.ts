@@ -3,6 +3,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server"
 import { v } from "convex/values"
 import type { Doc, Id } from "./_generated/dataModel"
 import { requireIdentity } from "./auth"
+import { requireAdmin } from "./admin-access"
 import {
   buildAccommodationPriceSnapshot,
   type AccommodationPriceSnapshot,
@@ -2506,7 +2507,7 @@ async function getAccommodationCatalogData(ctx: QueryCtx | MutationCtx) {
 export const getAccommodationCatalog = query({
   args: {},
   handler: async (ctx) => {
-    await requireIdentity(ctx)
+    await requireAdmin(ctx)
     const catalog = await getAccommodationCatalogData(ctx)
     return {
       categories: sortBySortOrder(catalog.categories),
@@ -2520,7 +2521,7 @@ export const getAccommodationCatalog = query({
 export const getEventAccommodationConfig = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    await requireIdentity(ctx)
+    await requireAdmin(ctx)
     const event = await ctx.db.get("events", args.eventId)
     if (!event) {
       throw new Error("Event not found")
@@ -2764,7 +2765,7 @@ export const updateAccommodationCategory = mutation({
     sortOrder: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireIdentity(ctx)
+    await requireAdmin(ctx)
     const category = await ctx.db.get("accommodationCategories", args.categoryId)
     if (!category) {
       throw new Error("Category not found")
@@ -2865,7 +2866,7 @@ export const updateAccommodationOption = mutation({
     description: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireIdentity(ctx)
+    await requireAdmin(ctx)
     const option = await ctx.db.get("accommodationOptions", args.optionId)
     if (!option) {
       throw new Error("Option not found")
@@ -2932,7 +2933,7 @@ export const updateAccommodationAgeBand = mutation({
     sortOrder: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireIdentity(ctx)
+    await requireAdmin(ctx)
     const band = await ctx.db.get("accommodationAgeBands", args.ageBandId)
     if (!band) {
       throw new Error("Age band not found")
@@ -3048,7 +3049,7 @@ export const upsertEventAccommodationConfig = mutation({
     breakfastIncluded: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    await requireIdentity(ctx)
+    await requireAdmin(ctx)
     const event = await getEventOrThrow(ctx, args.eventId)
     if (
       (args.baseCheckInAt === undefined) !== (args.baseCheckOutAt === undefined)
@@ -3138,7 +3139,7 @@ export const upsertEventAccommodationRate = mutation({
     pricePerPersonMinor: v.number(),
   },
   handler: async (ctx, args) => {
-    await requireIdentity(ctx)
+    await requireAdmin(ctx)
     await getEventOrThrow(ctx, args.eventId)
     const category = await ctx.db.get("accommodationCategories", args.categoryId)
     if (!category) {
@@ -3179,7 +3180,7 @@ export const upsertEventAccommodationOption = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireIdentity(ctx)
+    await requireAdmin(ctx)
     await getEventOrThrow(ctx, args.eventId)
     const option = await ctx.db.get("accommodationOptions", args.optionId)
     if (!option) {
@@ -3256,7 +3257,7 @@ export const upsertEventAccommodationResource = mutation({
     count: v.number(),
   },
   handler: async (ctx, args) => {
-    await requireIdentity(ctx)
+    await requireAdmin(ctx)
     await getEventOrThrow(ctx, args.eventId)
     if (!isNonNegativeInteger(args.count)) {
       throw new Error("count must be a non-negative integer")
@@ -3327,7 +3328,7 @@ export const upsertEventAccommodationAgePricing = mutation({
     sortOrder: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireIdentity(ctx)
+    await requireAdmin(ctx)
     await getEventOrThrow(ctx, args.eventId)
     const band = await ctx.db
       .query("accommodationAgeBands")
@@ -3592,7 +3593,7 @@ async function resolveOrderAccommodationConfirmation(
 export const confirmAccommodationOrderConfiguration = mutation({
   args: { orderId: v.id("orders") },
   handler: async (ctx, args) => {
-    await requireIdentity(ctx)
+    await requireAdmin(ctx)
     const { configVersion, patches } = await resolveOrderAccommodationConfirmation(
       ctx,
       args.orderId

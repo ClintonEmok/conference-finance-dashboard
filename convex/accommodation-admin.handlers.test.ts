@@ -20,6 +20,12 @@ const adminIdentity = {
   email: "admin@example.com",
 }
 
+const nonAdminIdentity = {
+  subject: "user_buyer",
+  name: "Buyer",
+  email: "buyer@example.com",
+}
+
 const BASE_EVENT_AT = 1_750_000_000_000
 
 async function createEvent(
@@ -248,6 +254,162 @@ test("admin config read rejects unauthenticated callers", async () => {
       orderId,
     })
   ).rejects.toThrow("Unauthorized")
+})
+
+// ---------------------------------------------------------------------------
+// Authorization: the Phase 41 admin surfaces require an administrator, not
+// just any authenticated identity. The check is token/email-identity based
+// server-side — a client-supplied user ID is never accepted.
+// ---------------------------------------------------------------------------
+
+test("authenticated non-admin callers are rejected from every admin surface", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await createEvent(t)
+  const categoryId = await t.mutation(api.accommodation.createAccommodationCategory, {
+    code: "standard",
+    label: "Standard",
+    sortOrder: 1,
+  })
+  const upgradeOptionId = await t.mutation(api.accommodation.createAccommodationOption, {
+    code: "superior_upgrade",
+    label: "Superior Upgrade",
+    kind: "upgrade",
+    unit: "per_night",
+  })
+  await t.mutation(api.accommodation.createAccommodationAgeBand, {
+    code: "under_3",
+    label: "Under 3",
+    minAge: 0,
+    maxAge: 3,
+    sortOrder: 1,
+  })
+  const roomTypeId = await t.mutation(api.accommodation.createRoomType, {
+    label: "Twin",
+    defaultCapacity: 2,
+  })
+  const orderId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("orders", {
+      eventId: eventId as never,
+      source: "internal",
+      bookingRef: "BK-NONADMIN-ORDER",
+      bookerName: "Buyer",
+      submittedAt: BASE_EVENT_AT,
+    })
+  })
+  const attendeeId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("orderAttendees", {
+      orderId: orderId as never,
+      attendeeKey: "nonadmin-a",
+      name: "Buyer",
+      gender: "unknown",
+      sortOrder: 0,
+    })
+  })
+  await t.mutation(async (ctx) => {
+    return await ctx.db.insert("orderAccommodationSelections", {
+      orderId: orderId as never,
+      attendeeId: attendeeId as never,
+      categoryId: categoryId as never,
+      occupancy: "shared",
+      upgradeSelected: false,
+      cotSelected: false,
+      ageBandCode: "18_plus",
+      nightCount: 2,
+    })
+  })
+
+  const caller = fresh().withIdentity(nonAdminIdentity)
+  // Reads are blocked.
+  await expect(
+    caller.query(api.accommodation.getEventAccommodationConfig, { eventId })
+  ).rejects.toThrow("Admin access required")
+  await expect(
+    caller.query(api.accommodation.getAccommodationCatalog, {})
+  ).rejects.toThrow("Admin access required")
+  // Event-scoped pricing/config writes are blocked.
+  await expect(
+    caller.mutation(api.accommodation.upsertEventAccommodationConfig, { eventId })
+  ).rejects.toThrow("Admin access required")
+  await expect(
+    caller.mutation(api.accommodation.upsertEventAccommodationRate, {
+      eventId,
+      categoryId,
+      occupancy: "shared",
+      pricePerPersonMinor: 3000,
+    })
+  ).rejects.toThrow("Admin access required")
+  await expect(
+    caller.mutation(api.accommodation.upsertEventAccommodationOption, {
+      eventId,
+      optionId: upgradeOptionId,
+      enabled: true,
+      priceMinor: 1500,
+    })
+  ).rejects.toThrow("Admin access required")
+  await expect(
+    caller.mutation(api.accommodation.upsertEventAccommodationResource, {
+      eventId,
+      kind: "room",
+      roomTypeId,
+      count: 3,
+    })
+  ).rejects.toThrow("Admin access required")
+  await expect(
+    caller.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
+      eventId,
+      ageBandCode: "under_3",
+      rateType: "percent",
+      value: 50,
+    })
+  ).rejects.toThrow("Admin access required")
+  // Global catalog edits are blocked.
+  await expect(
+    caller.mutation(api.accommodation.updateAccommodationCategory, {
+      categoryId,
+      label: "Hijacked",
+    })
+  ).rejects.toThrow("Admin access required")
+  // Confirming any order by ID is blocked for a non-admin.
+  await expect(
+    caller.mutation(api.accommodation.confirmAccommodationOrderConfiguration, {
+      orderId,
+    })
+  ).rejects.toThrow("Admin access required")
+})
+
+test("an admin confirming an order resolves that order's own event configuration", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  // Two fully configured events, each with its own order/selection. The
+  // confirmation mutation accepts only an order ID, so the event is always
+  // resolved server-side from the order — an admin acting on a different
+  // event's context can never cross-apply pricing.
+  const ctxA = await seedConfiguredEvent(t)
+  const ctxB = await seedConfiguredEvent(t)
+
+  // Read event B's config using event B's ID returns event B's data.
+  const responseB = await t.query(api.accommodation.getEventAccommodationConfig, {
+    eventId: ctxB.eventId,
+  })
+  expect(responseB.event.eventId).toBe(ctxB.eventId)
+  expect(responseB.event.eventId).not.toBe(ctxA.eventId)
+
+  // Confirming event B's order prices from event B's config version and rates.
+  const versionB = (await t.query(
+    api.accommodation.getEventAccommodationConfig,
+    { eventId: ctxB.eventId }
+  )).config?.updatedAt
+  const result = await t.mutation(
+    api.accommodation.confirmAccommodationOrderConfiguration,
+    { orderId: ctxB.orderId }
+  )
+  expect(result.configVersion).toBe(versionB)
+  expect(result.orderId).toBe(ctxB.orderId)
+
+  // Event A's order is untouched.
+  const responseA = await t.query(api.accommodation.getEventAccommodationConfig, {
+    eventId: ctxA.eventId,
+  })
+  expect(responseA.pendingOrderCount).toBe(1)
 })
 
 // ---------------------------------------------------------------------------
