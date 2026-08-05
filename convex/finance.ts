@@ -79,90 +79,139 @@ type EventAccommodationContext = {
   cotPriceMinor: number | null
 }
 
+type EventAccommodationConfigDoc = {
+  eventId: Id<"events">
+  nightCount: number
+  updatedAt?: number
+}
+
+type EventAccommodationRateDoc = {
+  eventId: Id<"events">
+  categoryId: Id<"accommodationCategories">
+  occupancy: string
+  pricePerPersonMinor: number
+}
+
+type EventAccommodationOptionDoc = {
+  eventId: Id<"events">
+  optionId: Id<"accommodationOptions">
+  enabled: boolean
+  priceMinor: number
+}
+
 async function loadEventAccommodationContexts(
   ctx: FinanceDbCtx,
   eventIds: Set<Id<"events">>
 ): Promise<Map<string, EventAccommodationContext>> {
   const contextByEventId = new Map<string, EventAccommodationContext>()
+  if (eventIds.size === 0) {
+    return contextByEventId
+  }
 
-  await Promise.all(
+  // Phase A: per-event indexed reads (config, rates, options). These are
+  // event-keyed so they cannot be shared across events; each is bounded via
+  // async iteration so a large event never silently truncates its rate rows.
+  const perEventRows = await Promise.all(
     Array.from(eventIds).map(async (eventId) => {
       const eventKey = String(eventId)
 
-      const [configRow, rateRows, eventOptionRows] = await Promise.all([
-        // Fail loudly on configuration corruption: `.unique()` returns null
-        // only for the legitimate no-row case and throws on duplicate config
-        // rows or database errors. Catching those here would convert an
-        // invalid/transient configuration into a €0 accommodation charge and
-        // silently undercharge the order.
-        ctx.db
-          .query("eventAccommodationConfig")
-          .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
-          .unique(),
-        ctx.db
-          .query("eventAccommodationRates")
-          .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
-          .take(200),
-        ctx.db
-          .query("eventAccommodationOptions")
-          .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
-          .take(100),
-      ])
+      // Fail loudly on configuration corruption: `.unique()` returns null only
+      // for the legitimate no-row case and throws on duplicate config rows or
+      // database errors. Catching those here would convert an invalid or
+      // transient configuration into a €0 accommodation charge and silently
+      // undercharge the order.
+      const configRow = (await ctx.db
+        .query("eventAccommodationConfig")
+        .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+        .unique()) as EventAccommodationConfigDoc | null
 
-      const enabledOptionRows = eventOptionRows.filter((row) => row.enabled)
-      const [optionDefinitions, categoryDefinitions] = await Promise.all([
-        Promise.all(
-          enabledOptionRows.map((row) =>
-            ctx.db.get("accommodationOptions", row.optionId)
-          )
-        ),
-        Promise.all(
-          Array.from(new Set(rateRows.map((row) => row.categoryId))).map(
-            (categoryId) =>
-              ctx.db.get("accommodationCategories", categoryId)
-          )
-        ),
-      ])
-
-      const optionCodeById = new Map<string, string | undefined>()
-      for (const definition of optionDefinitions) {
-        if (!definition) continue
-        optionCodeById.set(String(definition._id), definition.code)
+      const rateRows: EventAccommodationRateDoc[] = []
+      for await (const row of ctx.db
+        .query("eventAccommodationRates")
+        .withIndex("by_eventId", (q) => q.eq("eventId", eventId))) {
+        rateRows.push(row as EventAccommodationRateDoc)
       }
 
-      const categoryCodeById = new Map<string, string | undefined>()
-      for (const definition of categoryDefinitions) {
-        if (!definition) continue
-        categoryCodeById.set(String(definition._id), definition.code)
+      const eventOptionRows: EventAccommodationOptionDoc[] = []
+      for await (const row of ctx.db
+        .query("eventAccommodationOptions")
+        .withIndex("by_eventId", (q) => q.eq("eventId", eventId))) {
+        eventOptionRows.push(row as EventAccommodationOptionDoc)
       }
 
-      const ratesByKey = new Map<string, { pricePerPersonMinor: number }>()
-      for (const rate of rateRows) {
-        ratesByKey.set(`${String(rate.categoryId)}:${rate.occupancy}`, {
-          pricePerPersonMinor: rate.pricePerPersonMinor,
-        })
-      }
-
-      let superiorUpgradePriceMinor: number | null = null
-      let cotPriceMinor: number | null = null
-      for (const row of enabledOptionRows) {
-        const code = optionCodeById.get(String(row.optionId))
-        if (code === "superior_upgrade") {
-          superiorUpgradePriceMinor = row.priceMinor
-        } else if (code === "cot") {
-          cotPriceMinor = row.priceMinor
-        }
-      }
-
-      contextByEventId.set(eventKey, {
-        config: configRow ? { nightCount: configRow.nightCount } : null,
-        ratesByKey,
-        categoryCodeById,
-        superiorUpgradePriceMinor,
-        cotPriceMinor,
-      })
+      return { eventKey, configRow, rateRows, eventOptionRows }
     })
   )
+
+  // Phase B: resolve catalog references through a single bounded batch/cache.
+  // Every referenced option/category id across all events is fetched once
+  // (not once per event), so multi-event consumers do not multiply the
+  // catalog read count.
+  const optionIds = new Set<Id<"accommodationOptions">>()
+  const categoryIds = new Set<Id<"accommodationCategories">>()
+  for (const { rateRows, eventOptionRows } of perEventRows) {
+    for (const row of eventOptionRows) {
+      if (row.enabled) optionIds.add(row.optionId)
+    }
+    for (const row of rateRows) {
+      categoryIds.add(row.categoryId)
+    }
+  }
+  const [optionDefinitions, categoryDefinitions] = await Promise.all([
+    Promise.all(
+      Array.from(optionIds).map((optionId) =>
+        ctx.db.get("accommodationOptions", optionId)
+      )
+    ),
+    Promise.all(
+      Array.from(categoryIds).map((categoryId) =>
+        ctx.db.get("accommodationCategories", categoryId)
+      )
+    ),
+  ])
+
+  const optionCodeById = new Map<string, string | undefined>()
+  for (const definition of optionDefinitions) {
+    if (!definition) continue
+    optionCodeById.set(String(definition._id), definition.code)
+  }
+
+  const categoryCodeById = new Map<string, string | undefined>()
+  for (const definition of categoryDefinitions) {
+    if (!definition) continue
+    categoryCodeById.set(String(definition._id), definition.code)
+  }
+
+  // Phase C: build the per-event context from the shared catalog cache.
+  for (const { eventKey, configRow, rateRows, eventOptionRows } of perEventRows) {
+    const enabledOptionRows = eventOptionRows.filter((row) => row.enabled)
+
+    const ratesByKey = new Map<string, { pricePerPersonMinor: number }>()
+    for (const rate of rateRows) {
+      ratesByKey.set(`${String(rate.categoryId)}:${rate.occupancy}`, {
+        pricePerPersonMinor: rate.pricePerPersonMinor,
+      })
+    }
+
+    let superiorUpgradePriceMinor: number | null = null
+    let cotPriceMinor: number | null = null
+    for (const row of enabledOptionRows) {
+      const code = optionCodeById.get(String(row.optionId))
+      if (code === "superior_upgrade") {
+        superiorUpgradePriceMinor = row.priceMinor
+      } else if (code === "cot") {
+        cotPriceMinor = row.priceMinor
+      }
+    }
+
+    contextByEventId.set(eventKey, {
+      config: configRow ? { nightCount: configRow.nightCount } : null,
+      ratesByKey,
+      categoryCodeById,
+      superiorUpgradePriceMinor,
+      cotPriceMinor,
+    })
+  }
 
   return contextByEventId
 }

@@ -632,3 +632,135 @@ test("booking lookup exposes canonical accommodation lines for a live order", as
     chargeMinor: 1000,
   })
 })
+
+// ---------------------------------------------------------------------------
+// Multi-order loader: child rows are grouped per order and catalog references
+// are resolved once through a bounded cache, so a multi-order consumer keeps
+// a bounded read shape while every order derives its own total.
+// ---------------------------------------------------------------------------
+
+test("multi-order loader derives each order's total from grouped child rows", async () => {
+  const t = fresh()
+  const ctx = await seedEvent(t)
+
+  const firstOrderId = await t.mutation(async (db) => {
+    return await db.db.insert("orders", {
+      eventId: ctx.eventId as never,
+      source: "internal",
+      bookingRef: "BK-20260411-MULTI01",
+      bookerName: "First Buyer",
+      submittedAt: BASE_EVENT_AT,
+    })
+  })
+  const firstAttendeeId = await t.mutation(async (db) => {
+    return await db.db.insert("orderAttendees", {
+      orderId: firstOrderId as never,
+      attendeeKey: "multi-a",
+      name: "First Buyer",
+      gender: "unknown",
+      sortOrder: 0,
+    })
+  })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderTicketSelections", {
+      orderId: firstOrderId as never,
+      attendeeId: firstAttendeeId as never,
+      ticketTypeId: ctx.ticketNotIncludedId as never,
+      quantity: 1,
+      sortOrder: 0,
+    })
+  })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderAccommodationSelections", {
+      orderId: firstOrderId as never,
+      attendeeId: firstAttendeeId as never,
+      categoryId: ctx.categoryStandardId as never,
+      occupancy: "shared",
+      upgradeSelected: false,
+      cotSelected: false,
+      nightCount: 2,
+    })
+  })
+
+  const secondOrderId = await t.mutation(async (db) => {
+    return await db.db.insert("orders", {
+      eventId: ctx.eventId as never,
+      source: "internal",
+      bookingRef: "BK-20260411-MULTI02",
+      bookerName: "Second Buyer",
+      submittedAt: BASE_EVENT_AT,
+    })
+  })
+  const secondAttendeeId = await t.mutation(async (db) => {
+    return await db.db.insert("orderAttendees", {
+      orderId: secondOrderId as never,
+      attendeeKey: "multi-b",
+      name: "Second Buyer",
+      gender: "unknown",
+      sortOrder: 0,
+    })
+  })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderTicketSelections", {
+      orderId: secondOrderId as never,
+      attendeeId: secondAttendeeId as never,
+      ticketTypeId: ctx.ticketNotIncludedId as never,
+      quantity: 1,
+      sortOrder: 0,
+    })
+  })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderAccommodationSelections", {
+      orderId: secondOrderId as never,
+      attendeeId: secondAttendeeId as never,
+      categoryId: ctx.categoryStandardId as never,
+      occupancy: "shared",
+      upgradeSelected: true,
+      cotSelected: false,
+      nightCount: 2,
+    })
+  })
+
+  const breakdowns = await t.query(async (db) => {
+    const loaderCtx =
+      db as unknown as Parameters<typeof loadOrderAmountDueBreakdowns>[0]
+    const loaded = await loadOrderAmountDueBreakdowns(loaderCtx, [
+      { _id: firstOrderId as never },
+      { _id: secondOrderId as never },
+    ])
+    return Object.fromEntries(
+      Array.from(loaded.entries()).map(([key, value]) => [
+        key,
+        {
+          amountDueMinor: value.amountDueMinor,
+          amountDueByAttendeeId: Object.fromEntries(
+            value.amountDueByAttendeeId
+          ),
+          accommodationLines: value.accommodationLines,
+        },
+      ])
+    )
+  })
+
+  // Order 1: ticket 2000 + base 2×3000 = 8000
+  expect(breakdowns?.[String(firstOrderId)]?.amountDueMinor).toBe(8000)
+  expect(
+    breakdowns?.[String(firstOrderId)]?.amountDueByAttendeeId[
+      String(firstAttendeeId)
+    ]
+  ).toBe(8000)
+  expect(
+    breakdowns?.[String(firstOrderId)]?.accommodationLines
+  ).toHaveLength(1)
+
+  // Order 2: ticket 2000 + base 2×3000 + upgrade 2×1500 = 11000
+  expect(breakdowns?.[String(secondOrderId)]?.amountDueMinor).toBe(11000)
+  expect(
+    breakdowns?.[String(secondOrderId)]?.amountDueByAttendeeId[
+      String(secondAttendeeId)
+    ]
+  ).toBe(11000)
+  expect(
+    breakdowns?.[String(secondOrderId)]?.accommodationLines
+  ).toHaveLength(2)
+})
