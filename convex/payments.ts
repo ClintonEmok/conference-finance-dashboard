@@ -8,6 +8,7 @@ import {
   evaluateOrderPaymentMatch,
   type OrderPaymentMatchCandidate,
 } from "../lib/domain/finance/payment-matching"
+import { buildDonationClassification } from "../lib/domain/finance/amounts"
 import {
   paymentSourceValidator,
   paymentStatusValidator,
@@ -408,11 +409,13 @@ export const markPaymentAsDonation = mutation({
       throw new Error("Event not found for donation classification")
     }
 
-    await ctx.db.patch("payments", args.paymentId, {
-      orderId: undefined,
+    const donationClassification = buildDonationClassification({
+      orderId: payment.orderId,
       eventId,
-      donationKind: "overpayment",
-      status: "donation",
+    })
+
+    await ctx.db.patch("payments", args.paymentId, {
+      ...donationClassification,
       matchedAt: Date.now(),
       matchedBy: args.matchedBy,
     })
