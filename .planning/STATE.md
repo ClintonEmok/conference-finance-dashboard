@@ -1,15 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v4.0
-milestone_name: Event Dashboard UX Overhaul
-status: phase_complete
-stopped_at: Phase 37 shared dashboard quality execution complete
-last_updated: "2026-08-05T10:15:00Z"
+milestone: v5.0
+milestone_name: Accommodation Upgrades & Options
+status: planning
+last_updated: "2026-08-05T11:52:38.712Z"
+last_activity: 2026-08-05
 progress:
-  total_phases: 5
-  completed_phases: 4
-  total_plans: 23
-  completed_plans: 23
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -23,12 +24,10 @@ See: `.planning/PROJECT.md`.
 
 ## Current Position
 
-Phase: 37 of 5 (Shared Dashboard Quality)
-Plan: 8 of 8
-Status: Phase 37 complete; Phase 38 not started
-Last activity: 2026-08-05 — Manual verification of Phases 34–37 completed
-
-Progress: ████████████████████ 100% of known planned execution; 23/23 plans complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-08-05 — Milestone v5.0 started
 
 ## Accumulated Context
 

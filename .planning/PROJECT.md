@@ -8,16 +8,19 @@ Conference Finance Dashboard is the church's internal system for conference orde
 
 Give church finance admins one reliable place to track conference revenue, reconcile ticket sales with payment collections, and act on outstanding balances quickly.
 
-## Current Milestone: v4.0 Event Dashboard UX Overhaul
+## Current Milestone: v5.0 Accommodation Upgrades & Options
 
-**Goal:** Turn the event-scoped dashboard into a stats-led operational home with concise navigation and coherent Finance and Accommodation workspaces.
+**Goal:** Turn accommodation into a reusable, configurable catalog where buyers select options and upgrades, admins configure rates and availability, payment tracking becomes a booking-reference permalink, and allocation prioritizes paid attendees.
 
 **Target features:**
 
-- Event Overview with bounded stats and actionable exceptions.
-- One concise event navigation structure with clear event context.
-- Tabbed Finance and Accommodation workspaces that preserve existing workflows and deep links.
-- Shared loading/error/empty states, responsive layouts, accessibility, and settings/share placement.
+- Reusable accommodation catalog (categories, room types with descriptions, options, age bands) plus event-scoped configuration (rates, upgrade, cot, resources).
+- Admin "Upgrades & Options" tab for configuring rates, options, age bands, availability, and room-type descriptions.
+- Public signup: buyers select category/occupancy, superior upgrade, cot, and optional age band — options only, admin does final assignment.
+- Track payment becomes a booking-reference permalink (`/track-payment/[bookingRef]`) that allows configuration changes before admin confirmation and re-prices the order.
+- Accommodation option charges flow into order amount-due and finance totals.
+- Allocation prioritizes paid attendees: paid names highlighted, unpaid grayed out.
+- Ticket-driven room eligibility aligns ticket → room-type entitlement (SEED-002).
 
 ## Requirements
 
@@ -26,20 +29,26 @@ Give church finance admins one reliable place to track conference revenue, recon
 - ✓ Protected dashboard flows exist for finance, reconciliation, orders, payments, attendees, accommodation, settings, and event donations.
 - ✓ Event-scoped routing and a single-sidebar shell exist.
 - ✓ Canonical order totals, attendee payables, payment allocations, and shareable reporting contracts exist from prior milestones.
+- ✓ Public multi-step signup flow with ticket selection, attendee details, and room assignment exists.
+- ✓ Public payment tracking by booking reference exists.
+- ✓ Event accommodation workspace with Hotels and Allocation tabs exists.
 
 ### Active
 
-- [ ] Event-scoped dashboard home is a useful operational Overview.
-- [ ] Event navigation is concise and consistent.
-- [ ] Finance and Accommodation are coherent workspaces rather than fragmented primary routes.
-- [ ] Shared dashboard states and responsive/accessibility behavior are consistent.
+- [ ] Reusable accommodation catalog and event configuration model.
+- [ ] Admin Upgrades & Options configuration surface.
+- [ ] Buyers select accommodation options (category/occupancy, upgrade, cot, optional age band) during signup without booking rooms.
+- [ ] Track payment is a booking-reference permalink supporting configuration changes and re-pricing.
+- [ ] Accommodation option charges flow into order amount-due and finance totals.
+- [ ] Allocation highlights paid attendees and defers unpaid ones.
+- [ ] Ticket-driven room eligibility keeps signup and allocation rules aligned.
 
 ### Out Of Scope
 
-- New public signup UX features.
 - Full Ticket Tailor table/provider redesign.
 - Multi-tenant church/org support.
 - Cross-event analytics product.
+- QR-code event check-in (SEED-001 remains dormant).
 
 ## Context
 
@@ -59,11 +68,16 @@ Give church finance admins one reliable place to track conference revenue, recon
 
 | Decision | Rationale | Outcome |
 | --- | --- | --- |
-| Use the event Overview as the default event home | Admins need an operational starting point rather than a link directory | Pending |
-| Keep one concise event sidebar | Duplicate or overly broad navigation obscures event context | Pending |
-| Group Finance and Accommodation into workspaces | Related workflows should share context without adding sidebar noise | Pending |
-| Reuse Convex hooks and canonical contracts | Prevents UI-specific finance formulas and duplicate reads | Pending |
-| Keep share/configuration actions in Settings | Keeps primary navigation focused on daily operations | Pending |
+| Use the event Overview as the default event home | Admins need an operational starting point rather than a link directory | Done (v4.0) |
+| Keep one concise event sidebar | Duplicate or overly broad navigation obscures event context | Done (v4.0) |
+| Group Finance and Accommodation into workspaces | Related workflows should share context without adding sidebar noise | Done (v4.0) |
+| Reuse Convex hooks and canonical contracts | Prevents UI-specific finance formulas and duplicate reads | Done (v4.0) |
+| Keep share/configuration actions in Settings | Keeps primary navigation focused on daily operations | Done (v4.0) |
+| Separate reusable accommodation catalog from event configuration | Lets admin define categories/descriptions/options once and reuse across events | Pending |
+| Buyers choose options; admins assign rooms | Accommodation is preference-led; final placement stays operator-controlled | Pending |
+| Track payment becomes a booking-reference permalink with config changes | Gives buyers a durable link and lets them adjust options before admin confirmation | Pending |
+| Accommodation option charges feed canonical amount-due | Keeps finance totals and reconciliation correct when options are selected/changed | Pending |
+| Allocation prioritizes paid attendees | Prevents assigning unpaid attendees before they complete payment | Pending |
 
 ## Evolution
 
@@ -86,4 +100,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-_Last updated: 2026-07-29 — v4.0 milestone initialized_
+_Last updated: 2026-08-05 — v5.0 milestone initialized_
