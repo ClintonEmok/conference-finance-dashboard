@@ -2281,8 +2281,13 @@ function isNonNegativeInteger(value: number): boolean {
   return Number.isInteger(value) && value >= 0
 }
 
+/**
+ * Minor-unit money must always be a whole number of the smallest currency
+ * unit. Fractional values such as 1000.5 are not valid minor units and could
+ * produce non-currency amounts in downstream billing, so they are rejected.
+ */
 function isNonNegativePrice(value: number): boolean {
-  return Number.isFinite(value) && value >= 0
+  return Number.isInteger(value) && value >= 0
 }
 
 /**
