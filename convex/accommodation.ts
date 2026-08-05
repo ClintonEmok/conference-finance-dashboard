@@ -3407,6 +3407,14 @@ type SelectionConfirmationPatch = {
   priceSnapshot: AccommodationPriceSnapshot
 }
 
+/** The locked age-band codes a selection row may carry. */
+const VALID_AGE_BAND_CODES = new Set<string>([
+  "under_3",
+  "3_11",
+  "12_17",
+  "18_plus",
+])
+
 /**
  * Resolves every unconfirmed accommodation selection of an order into a
  * Phase 40 snapshot patch using current server-side configuration. Throws for
@@ -3463,7 +3471,10 @@ async function resolveOrderAccommodationConfirmation(
 
   // Attendee ticket selections: accommodationIncluded is resolved from the
   // attendee's ticket type (absent = false), exactly like the canonical
-  // loader's live derivation.
+  // loader's live derivation. Fail-closed ownership checks: every attendee
+  // must have at most one ticket selection row, and the referenced ticket
+  // type must exist and belong to the order's event — a ticket type from a
+  // different event must never influence this order's snapshot.
   const ticketTypeIdByAttendeeId = new Map<
     Id<"orderAttendees">,
     Id<"ticketTypes">
@@ -3471,25 +3482,45 @@ async function resolveOrderAccommodationConfirmation(
   for await (const ticketSelection of ctx.db
     .query("orderTicketSelections")
     .withIndex("by_orderId", (q) => q.eq("orderId", orderId))) {
-    if (!ticketTypeIdByAttendeeId.has(ticketSelection.attendeeId)) {
-      ticketTypeIdByAttendeeId.set(
-        ticketSelection.attendeeId,
-        ticketSelection.ticketTypeId
+    const previous = ticketTypeIdByAttendeeId.get(ticketSelection.attendeeId)
+    if (previous !== undefined && previous !== ticketSelection.ticketTypeId) {
+      throw new Error(
+        "Attendee has multiple ticket types and cannot be confirmed"
       )
     }
+    ticketTypeIdByAttendeeId.set(
+      ticketSelection.attendeeId,
+      ticketSelection.ticketTypeId
+    )
   }
   const ticketTypeIds = [...new Set(ticketTypeIdByAttendeeId.values())]
   const ticketTypes = await Promise.all(
     ticketTypeIds.map((ticketTypeId) => ctx.db.get("ticketTypes", ticketTypeId))
   )
+  const ticketTypeById = new Map<
+    string,
+    Doc<"ticketTypes">
+  >()
+  for (const ticketType of ticketTypes) {
+    if (!ticketType) continue
+    ticketTypeById.set(String(ticketType._id), ticketType)
+  }
   const ticketAccommodationIncludedByType = new Map<
     string,
     boolean
   >()
-  for (const ticketType of ticketTypes) {
-    if (!ticketType) continue
+  for (const [, ticketTypeId] of ticketTypeIdByAttendeeId) {
+    const ticketType = ticketTypeById.get(String(ticketTypeId))
+    if (!ticketType) {
+      throw new Error("Attendee references an unknown ticket type")
+    }
+    if (ticketType.eventId !== eventId) {
+      throw new Error(
+        "Attendee ticket type does not belong to the order's event"
+      )
+    }
     ticketAccommodationIncludedByType.set(
-      String(ticketType._id),
+      String(ticketTypeId),
       ticketType.accommodationIncluded === true
     )
   }
@@ -3542,8 +3573,39 @@ async function resolveOrderAccommodationConfirmation(
         "Selection is missing a category or occupancy and cannot be priced"
       )
     }
-    if (row.nightCount === undefined || row.nightCount === null) {
-      throw new Error("Selection is missing a night count and cannot be priced")
+    if (
+      row.nightCount === undefined ||
+      row.nightCount === null ||
+      !Number.isInteger(row.nightCount) ||
+      row.nightCount < 0
+    ) {
+      throw new Error(
+        "Selection night count must be a non-negative integer"
+      )
+    }
+    // Every attendee reference must resolve to a real attendee of this
+    // order — a cross-order attendee ID must never be priced or locked.
+    const attendee = await ctx.db.get("orderAttendees", row.attendeeId)
+    if (!attendee) {
+      throw new Error("Selection references an unknown attendee")
+    }
+    if (attendee.orderId !== orderId) {
+      throw new Error("Selection attendee does not belong to the order")
+    }
+    // Age-band data must be valid, and a selected cot is only eligible for
+    // an under-3 attendee. A confirmed snapshot must never record an
+    // ineligible cot as a zero-charge line — reject the row instead.
+    if (
+      row.ageBandCode !== undefined &&
+      row.ageBandCode !== null &&
+      !VALID_AGE_BAND_CODES.has(row.ageBandCode)
+    ) {
+      throw new Error("Selection has an invalid age band")
+    }
+    if (row.cotSelected && row.ageBandCode !== "under_3") {
+      throw new Error(
+        "Cot is only eligible for attendees in the under-3 age band"
+      )
     }
     const category = await ctx.db.get(
       "accommodationCategories",

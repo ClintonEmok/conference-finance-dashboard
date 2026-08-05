@@ -907,6 +907,134 @@ test("confirmation rejects selections that cannot be priced", async () => {
   ).rejects.toThrow(/No rate is configured/)
 })
 
+// ---------------------------------------------------------------------------
+// Confirmation fail-closed validation: malformed selection rows are rejected
+// before any snapshot is persisted (CR-03).
+// ---------------------------------------------------------------------------
+
+async function firstSelectionRow(
+  t: TestConvexForDataModel<GenericDataModel>,
+  orderId: string
+) {
+  return await t.mutation(async (db) => {
+    const row = await db.db
+      .query("orderAccommodationSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", orderId as never))
+      .first()
+    if (!row) throw new Error("expected a selection row")
+    return row._id
+  })
+}
+
+test("confirmation rejects a selection whose attendee belongs to another order", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const ctxA = await seedConfiguredEvent(t)
+  const ctxB = await seedConfiguredEvent(t)
+
+  // Point event A's selection at event B's attendee.
+  const rowA = await firstSelectionRow(t, ctxA.orderId)
+  await t.mutation(async (db) => {
+    await db.db.patch("orderAccommodationSelections", rowA, {
+      attendeeId: ctxB.attendeeId as never,
+    })
+  })
+
+  await expect(
+    t.mutation(api.accommodation.confirmAccommodationOrderConfiguration, {
+      orderId: ctxA.orderId,
+    })
+  ).rejects.toThrow(/does not belong to the order/)
+})
+
+test("confirmation rejects a selection whose attendee no longer exists", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const ctx = await seedConfiguredEvent(t)
+  await t.mutation(async (db) => {
+    await db.db.delete("orderAttendees", ctx.attendeeId as never)
+  })
+
+  await expect(
+    t.mutation(api.accommodation.confirmAccommodationOrderConfiguration, {
+      orderId: ctx.orderId,
+    })
+  ).rejects.toThrow(/unknown attendee/)
+})
+
+test("confirmation rejects a ticket type that belongs to another event", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const ctx = await seedConfiguredEvent(t)
+  const otherEventId = await createEvent(t, BASE_EVENT_AT + 1000)
+  const foreignTicketTypeId = await t.mutation(async (db) => {
+    return await db.db.insert("ticketTypes", {
+      eventId: otherEventId as never,
+      label: "Foreign ticket",
+      priceMinor: 1000,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      accommodationIncluded: true,
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+  await t.mutation(async (db) => {
+    const ticketSelection = await db.db
+      .query("orderTicketSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", ctx.orderId as never))
+      .first()
+    await db.db.patch("orderTicketSelections", ticketSelection._id, {
+      ticketTypeId: foreignTicketTypeId as never,
+    })
+  })
+
+  await expect(
+    t.mutation(api.accommodation.confirmAccommodationOrderConfiguration, {
+      orderId: ctx.orderId,
+    })
+  ).rejects.toThrow(/does not belong to the order's event/)
+})
+
+test("confirmation rejects fractional and negative night counts", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const ctx = await seedConfiguredEvent(t)
+  const row = await firstSelectionRow(t, ctx.orderId)
+
+  await t.mutation(async (db) => {
+    await db.db.patch("orderAccommodationSelections", row, { nightCount: 2.5 })
+  })
+  await expect(
+    t.mutation(api.accommodation.confirmAccommodationOrderConfiguration, {
+      orderId: ctx.orderId,
+    })
+  ).rejects.toThrow(/night count/)
+
+  await t.mutation(async (db) => {
+    await db.db.patch("orderAccommodationSelections", row, { nightCount: -1 })
+  })
+  await expect(
+    t.mutation(api.accommodation.confirmAccommodationOrderConfiguration, {
+      orderId: ctx.orderId,
+    })
+  ).rejects.toThrow(/night count/)
+})
+
+test("confirmation rejects a selected cot for an attendee outside the under-3 band", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const ctx = await seedConfiguredEvent(t)
+  const row = await firstSelectionRow(t, ctx.orderId)
+
+  await t.mutation(async (db) => {
+    await db.db.patch("orderAccommodationSelections", row, {
+      cotSelected: true,
+      ageBandCode: "18_plus",
+    })
+  })
+  await expect(
+    t.mutation(api.accommodation.confirmAccommodationOrderConfiguration, {
+      orderId: ctx.orderId,
+    })
+  ).rejects.toThrow(/under-3/)
+})
+
 test("confirmed order keeps its canonical amount after a later rate edit", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const ctx = await seedConfiguredEvent(t)
