@@ -129,6 +129,10 @@ export const createPaymentLink = mutation({
 
     const id = await ctx.db.insert("tikkiePaymentLinks", {
       ...args,
+      // Order links must carry the discriminator so order-link projections
+      // (publicTracking, dashboard) can select them; a link without it is
+      // ignored by order-link reads and tracking falls back to an event link.
+      linkType: "order",
       referenceId: formatPaymentReference(args.referenceId) ?? undefined,
       status: "created",
       statusSource: "create",
