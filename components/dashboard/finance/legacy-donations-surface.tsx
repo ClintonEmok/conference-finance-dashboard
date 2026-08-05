@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Plus } from "lucide-react"
 
 import { DonationForm } from "@/components/dashboard/donation-form"
@@ -27,13 +27,12 @@ type Donation = {
 }
 
 export default function EventDonationPage({
-  params,
+  slug,
   event,
 }: {
-  params: Promise<{ slug: string }>
+  slug: string
   event: EventDashboardEvent
 }) {
-  const { slug } = use(params)
   const [donations, setDonations] = useState<Donation[]>([])
   const [showForm, setShowForm] = useState(false)
   const [isLoading, setIsLoading] = useState(true)

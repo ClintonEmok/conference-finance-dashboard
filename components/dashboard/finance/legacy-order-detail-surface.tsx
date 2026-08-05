@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { use, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useAction, useQuery } from "convex/react"
 import {
   AlertCircle,
@@ -69,7 +69,8 @@ import { AssignPaymentSheet } from "@/app/dashboard/manage-orders/[orderId]/assi
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 
 type PageProps = {
-  params: Promise<{ slug: string; orderId: string }>
+  slug: string
+  orderId: string
   event: EventDashboardEvent
 }
 
@@ -214,8 +215,7 @@ function parseMinorUnitInput(value: string, field: string) {
   return parsed
 }
 
-export default function EventOrderDetailPage({ params, event }: PageProps) {
-  const { slug, orderId: rawOrderId } = use(params)
+export default function EventOrderDetailPage({ slug, orderId: rawOrderId, event }: PageProps) {
   const orderId = rawOrderId.trim()
   const { ticketTypes } = useTicketTypesForEvent(event?._id?.toString())
   const payload = useQuery(

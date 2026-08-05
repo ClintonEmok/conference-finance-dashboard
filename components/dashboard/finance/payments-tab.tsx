@@ -14,5 +14,5 @@ export function FinancePaymentsTab({
   event: EventDashboardEvent
   unassignedPayments: AttentionQueryState<ReadonlyArray<Doc<"payments">>>
 }) {
-  return <LegacyPaymentsPage params={Promise.resolve({ slug })} event={event} unassignedPayments={unassignedPayments} />
+  return <LegacyPaymentsPage slug={slug} event={event} unassignedPayments={unassignedPayments} />
 }

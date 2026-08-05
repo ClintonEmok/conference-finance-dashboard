@@ -17,5 +17,5 @@ export function FinanceReconciliationTab({
   reconciliation: AttentionQueryState<ReadonlyArray<ReconciliationOrderRow>>
   unassignedPayments: AttentionQueryState<ReadonlyArray<Doc<"payments">>>
 }) {
-  return <LegacyReconciliationPage params={Promise.resolve({ slug })} event={event} reconciliation={reconciliation} unassignedPayments={unassignedPayments} />
+  return <LegacyReconciliationPage slug={slug} event={event} reconciliation={reconciliation} unassignedPayments={unassignedPayments} />
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Fragment, use, useEffect, useMemo, useState, type FormEvent } from "react"
+import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react"
 import { useQuery } from "convex/react"
 import {
   Archive,
@@ -69,7 +69,7 @@ type OrdersPayload = {
 }
 
 type PageProps = {
-  params: Promise<{ slug: string }>
+  slug: string
   event: EventDashboardEvent
 }
 
@@ -154,8 +154,7 @@ function OrderAttendeeRows({ orderId }: { orderId: string }) {
   )
 }
 
-export default function EventOrdersPage({ params, event }: PageProps) {
-  const { slug } = use(params)
+export default function EventOrdersPage({ slug, event }: PageProps) {
   const eventLocations = useQuery(
     api.reports.getEventLocations,
     event?._id ? { eventId: event._id } : ("skip" as const)
@@ -416,13 +415,11 @@ export default function EventOrdersPage({ params, event }: PageProps) {
             </TableHeader>
             <TableBody className="divide-y divide-border/20">
               {isLoading ? (
-                Array.from({ length: 6 }).map((_, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="px-6 py-5" colSpan={7}>
-                      <Skeleton className="h-8 w-full rounded-xl" />
-                    </TableCell>
-                  </TableRow>
-                ))
+                <TableRow>
+                  <TableCell colSpan={7} className="px-6 py-12">
+                    <DashboardQueryState state="loading" message="Loading the canonical order ledger." className="text-center" />
+                  </TableCell>
+                </TableRow>
               ) : errorMessage ? (
                 <TableRow>
                   <TableCell colSpan={7} className="px-6 py-12">

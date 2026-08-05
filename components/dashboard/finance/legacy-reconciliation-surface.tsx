@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, use, useMemo, useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 import { useQuery } from "convex/react"
 import {
   Banknote,
@@ -11,6 +11,7 @@ import {
   Link as LinkIcon,
   Link2Off,
   Loader2,
+  MousePointerClick,
   Search,
 } from "lucide-react"
 
@@ -109,7 +110,9 @@ function PaymentAssignList({
         </p>
           <div className="relative min-w-0">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Label htmlFor="unassigned-payment-search" className="sr-only">Search unassigned payments</Label>
           <Input
+            id="unassigned-payment-search"
             placeholder="Search by name, reference, source..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -295,7 +298,7 @@ function OrderAttendeeRows({ orderId }: { orderId: string }) {
   if (data === undefined) {
     return (
       <TableRow className="border-border/10 bg-muted/10">
-        <TableCell colSpan={6} className="px-6 py-4">
+        <TableCell colSpan={7} className="px-6 py-4">
           <div className="space-y-2">
             <Skeleton className="h-4 w-1/3" />
             <Skeleton className="h-4 w-2/3" />
@@ -311,7 +314,7 @@ function OrderAttendeeRows({ orderId }: { orderId: string }) {
 
   return (
     <TableRow className="border-border/10 bg-muted/20">
-      <TableCell colSpan={6} className="px-6 py-4">
+        <TableCell colSpan={7} className="px-6 py-4">
         <div className="space-y-2 rounded-xl border border-border/30 bg-background/70 p-3">
           <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
             Attendees
@@ -366,20 +369,18 @@ function moneyDisplay(value: number | null | undefined) {
 }
 
 type PageProps = {
-  params: Promise<{ slug: string }>
+  slug: string
   event: EventDashboardEvent
   reconciliation?: AttentionQueryState<ReadonlyArray<ReconciliationOrderRow>>
   unassignedPayments?: AttentionQueryState<ReadonlyArray<Doc<"payments">>>
 }
 
 export default function EventReconciliationPage({
-  params,
+  slug,
   event,
   reconciliation: parentReconciliation,
   unassignedPayments: parentUnassignedPayments,
 }: PageProps) {
-  const { slug } = use(params)
-
   const ordersQuery = useQuery(
     api.orders.getOrdersForReconciliation,
     parentReconciliation ? "skip" : { eventId: event._id }
@@ -489,6 +490,21 @@ export default function EventReconciliationPage({
         </div>
       </div>
 
+      <div className="grid gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4 sm:grid-cols-3">
+        <div className="flex gap-3">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">1</span>
+          <div><p className="text-sm font-semibold">Choose an order</p><p className="mt-1 text-xs text-muted-foreground">Use Assign payment, or tap the row on a small screen.</p></div>
+        </div>
+        <div className="flex gap-3">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">2</span>
+          <div><p className="text-sm font-semibold">Link Existing</p><p className="mt-1 text-xs text-muted-foreground">Search the unmatched payment by name or reference.</p></div>
+        </div>
+        <div className="flex gap-3">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">3</span>
+          <div><p className="text-sm font-semibold">Assign to order</p><p className="mt-1 text-xs text-muted-foreground">The order balance updates after confirmation.</p></div>
+        </div>
+      </div>
+
       <article className="overflow-hidden rounded-xl border border-border/60 bg-card">
           <Table>
             <TableCaption>Outstanding event-scoped order reconciliation</TableCaption>
@@ -500,27 +516,44 @@ export default function EventReconciliationPage({
                 <TableHead className="px-6 py-4 text-right text-[10px] font-bold tracking-wider uppercase">Amount Paid</TableHead>
                 <TableHead className="px-6 py-4 text-right text-[10px] font-bold tracking-wider uppercase">Amount Left</TableHead>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Status</TableHead>
+                 <TableHead className="hidden px-6 py-4 text-right text-[10px] font-bold tracking-wider uppercase sm:table-cell">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody className="divide-y divide-border/20">
               {hasUnresolvedBalances ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="px-6 py-12">
+                  <TableCell colSpan={7} className="px-6 py-12">
                     <DashboardQueryState state="unavailable" message="Some outstanding balances are unavailable." className="text-center" />
                   </TableCell>
                 </TableRow>
               ) : pageRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="px-6 py-12">
+                  <TableCell colSpan={7} className="px-6 py-12">
                     <DashboardQueryState state="empty" message="No outstanding orders." className="text-center" />
                   </TableCell>
                 </TableRow>
               ) : (
                 pageRows.map((row) => (
                   <Fragment key={row.orderId}>
-                    <TableRow className="transition-colors hover:bg-muted/30">
-                      <TableCell className="px-6 py-5">
-                        <button type="button" onClick={() => handleRowClick(row.orderId)} className="rounded font-mono text-left text-[10px] font-bold text-primary/70 underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">{row.orderId}</button>
+                     <TableRow
+                       role="button"
+                       tabIndex={0}
+                       aria-label={`Assign a payment to ${row.buyerName || "this order"}`}
+                       onClick={(event) => {
+                         if ((event.target as HTMLElement).closest("a,button")) return
+                         handleRowClick(row.orderId)
+                       }}
+                       onKeyDown={(event) => {
+                         if (event.target !== event.currentTarget) return
+                         if (event.key === "Enter" || event.key === " ") {
+                           event.preventDefault()
+                           handleRowClick(row.orderId)
+                         }
+                       }}
+                       className="cursor-pointer transition-colors hover:bg-muted/30 focus-visible:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                     >
+                       <TableCell className="px-6 py-5">
+                         <button type="button" onClick={(event) => { event.stopPropagation(); handleRowClick(row.orderId) }} className="rounded font-mono text-left text-[10px] font-bold text-primary/70 underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">{row.orderId}</button>
                         <div className="mt-1 text-xs text-muted-foreground">
                           {row.orderedAt
                             ? new Date(row.orderedAt).toLocaleString("en-GB", {
@@ -550,7 +583,7 @@ export default function EventReconciliationPage({
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Badge
-                              aria-label={`Order status: ${row.normalizedStatus}. Activate the order to assign a payment.`}
+                               aria-label={`Order status: ${row.normalizedStatus}`}
                               variant={row.normalizedStatus === "paid" ? "secondary" : row.normalizedStatus === "cancelled" ? "destructive" : "outline"}
                               className={cn(
                                 "h-6 rounded-lg px-2 text-[10px] font-bold tracking-wider uppercase",
@@ -561,12 +594,24 @@ export default function EventReconciliationPage({
                               {row.normalizedStatus}
                             </Badge>
                           </TooltipTrigger>
-                           <TooltipContent side="top" className="text-[10px]">
-                             Activate the order to assign
-                          </TooltipContent>
+                            <TooltipContent side="top" className="text-[10px]">
+                              Use Assign payment to link an existing payment
+                           </TooltipContent>
                         </Tooltip>
-                      </TableCell>
-                    </TableRow>
+                       </TableCell>
+                       <TableCell className="hidden px-6 py-5 text-right sm:table-cell">
+                         <Button
+                           type="button"
+                           size="sm"
+                           variant="outline"
+                           onClick={(event) => { event.stopPropagation(); handleRowClick(row.orderId) }}
+                           className="h-8 rounded-lg text-[10px] font-bold uppercase tracking-wider"
+                         >
+                           <MousePointerClick className="mr-2 size-3.5" aria-hidden="true" />
+                           Assign payment
+                         </Button>
+                       </TableCell>
+                     </TableRow>
                     <OrderAttendeeRows orderId={row.orderId} />
                   </Fragment>
                 ))
@@ -668,9 +713,9 @@ export default function EventReconciliationPage({
                 <form onSubmit={handleLogNew} className="space-y-4">
                   {formError ? <p role="alert" aria-live="assertive" className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{formError}</p> : null}
                   <div className="space-y-2">
-                    <Label>Payment Source</Label>
+                    <Label htmlFor="reconciliation-payment-source">Payment Source</Label>
                     <Select value={source} onValueChange={(val: "cash" | "bank_transfer") => setSource(val)}>
-                      <SelectTrigger>
+                      <SelectTrigger id="reconciliation-payment-source">
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
                       <SelectContent>
@@ -684,16 +729,16 @@ export default function EventReconciliationPage({
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Amount (EUR)</Label>
-                    <Input type="number" step="0.01" value={amountString} onChange={(e) => setAmountString(e.target.value)} required className="font-mono" />
+                    <Label htmlFor="reconciliation-payment-amount">Amount (EUR)</Label>
+                    <Input id="reconciliation-payment-amount" type="number" step="0.01" value={amountString} onChange={(e) => setAmountString(e.target.value)} required className="font-mono" />
                   </div>
                   <div className="space-y-2">
-                    <Label>Payer Name</Label>
-                    <Input value={logPayerName} onChange={(e) => setLogPayerName(e.target.value)} placeholder="E.g. John Doe" required />
+                    <Label htmlFor="reconciliation-payer-name">Payer Name</Label>
+                    <Input id="reconciliation-payer-name" value={logPayerName} onChange={(e) => setLogPayerName(e.target.value)} placeholder="E.g. John Doe" required />
                   </div>
                   <div className="space-y-2">
-                    <Label>Reference Notes</Label>
-                    <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional details" />
+                    <Label htmlFor="reconciliation-reference-notes">Reference Notes</Label>
+                    <Input id="reconciliation-reference-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional details" />
                   </div>
                   <Button type="submit" disabled={isCreating} className="w-full font-bold uppercase tracking-wider text-[11px]">
                     {isCreating ? <Loader2 className="size-4 animate-spin" /> : "Log New Payment"}
