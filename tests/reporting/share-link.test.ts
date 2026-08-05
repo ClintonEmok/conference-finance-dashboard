@@ -135,7 +135,7 @@ describe("shareable reporting link", () => {
     expect(report.totals).toEqual({
       rows: 3,
       amountDueMinor: 3500,
-      paidMinor: 3250,
+      paidMinor: 3000,
       outstandingMinor: 500,
       overpaidMinor: 250,
     })

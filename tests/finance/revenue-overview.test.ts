@@ -78,10 +78,11 @@ describe("getRevenueOverview", () => {
 
     expect(result.donations).toEqual([
       expect.objectContaining({
-        orderId: "order_1",
-        providerOrderId: "ORD-1",
-        donationMinor: 300,
-      }),
+         orderId: "order_1",
+         providerOrderId: "ORD-1",
+         donationMinor: 300,
+         matchedAmountMinor: 7300,
+       }),
     ])
 
     expect(result.trend).toHaveLength(1)

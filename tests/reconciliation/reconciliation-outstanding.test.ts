@@ -46,7 +46,8 @@ describe("getReconciliationRows outstanding totals", () => {
         {
           amountMinor: 600,
           orderId: "order-1",
-          status: "auto_matched",
+          donationKind: "overpayment",
+          status: "donation",
         },
         {
           amountMinor: 100,

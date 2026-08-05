@@ -49,6 +49,7 @@ describe("money model", () => {
 
     expect(balance.amountDueMinor).toBe(0)
     expect(balance.paidAmountMinor).toBe(2000)
+    expect(balance.appliedAmountMinor).toBe(0)
     expect(balance.outstandingAmountMinor).toBe(0)
     expect(balance.overpaidAmountMinor).toBe(2000)
     expect(balance.donationAmountMinor).toBe(2000)
@@ -56,6 +57,7 @@ describe("money model", () => {
 
   it("derives donation amount from a single order balance", () => {
     expect(deriveDonationAmountMinor(1500, 2200)).toBe(700)
+    expect(deriveBalanceAmounts(1500, 2200).appliedAmountMinor).toBe(1500)
   })
 
   it("treats fully covered orders as paid", () => {
