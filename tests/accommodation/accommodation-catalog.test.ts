@@ -4,12 +4,14 @@ import schema from "@/convex/schema"
 import {
   DAY_MS,
   EVENT_OPTION_DEFAULT_PRICE_MINOR,
+  LOCKED_AGE_BAND_BOUNDS,
   deriveActiveCategoryIds,
   deriveInitialStayWindow,
   deriveNightCount,
   deriveResourceSellableBeds,
   isAccommodationIncluded,
   isCotEligibilityValid,
+  isValidAgeBandBounds,
   isValidAgeBandRange,
   resolveEventOptionPriceMinor,
 } from "@/convex/accommodation"
@@ -205,6 +207,30 @@ describe("isValidAgeBandRange", () => {
     expect(isValidAgeBandRange(5, 3)).toBe(false)
     expect(isValidAgeBandRange(1.5, 3)).toBe(false)
     expect(isValidAgeBandRange(0, 3.5)).toBe(false)
+  })
+})
+
+describe("isValidAgeBandBounds", () => {
+  it("accepts the exact locked tuple for every band code", () => {
+    for (const [code, { minAge, maxAge }] of Object.entries(
+      LOCKED_AGE_BAND_BOUNDS
+    )) {
+      expect(isValidAgeBandBounds(code, minAge, maxAge)).toBe(true)
+    }
+    expect(isValidAgeBandBounds("18_plus", 18, undefined)).toBe(true)
+  })
+
+  it("rejects a code whose numeric bounds do not match its locked tuple", () => {
+    // under_3 with an adult minAge must not pass even though it is a valid
+    // generic range — cot eligibility is derived from the code alone.
+    expect(isValidAgeBandBounds("under_3", 18, 3)).toBe(false)
+    expect(isValidAgeBandBounds("under_3", 0, 5)).toBe(false)
+    expect(isValidAgeBandBounds("3_11", 0, 3)).toBe(false)
+    expect(isValidAgeBandBounds("12_17", 12, 18)).toBe(false)
+    // 18+ may not carry a finite maximum.
+    expect(isValidAgeBandBounds("18_plus", 18, 21)).toBe(false)
+    // Unknown codes are rejected outright.
+    expect(isValidAgeBandBounds("unknown", 0, 3)).toBe(false)
   })
 })
 

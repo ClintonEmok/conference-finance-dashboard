@@ -2436,6 +2436,42 @@ export function isValidAgeBandRange(
   return Number.isInteger(maxAge) && maxAge >= minAge
 }
 
+/**
+ * The locked (code, minAge, maxAge) tuples for the built-in age bands. Cot
+ * eligibility is derived from the code alone (`under_3`), so the numeric
+ * bounds must always match the code or the catalog could claim cot
+ * eligibility for people outside the intended age range.
+ */
+export const LOCKED_AGE_BAND_BOUNDS: Record<
+  string,
+  { minAge: number; maxAge: number | null }
+> = {
+  under_3: { minAge: 0, maxAge: 3 },
+  "3_11": { minAge: 3, maxAge: 11 },
+  "12_17": { minAge: 12, maxAge: 17 },
+  "18_plus": { minAge: 18, maxAge: null },
+}
+
+/**
+ * Validates that (code, minAge, maxAge) matches the locked tuple for that
+ * code exactly: under_3 (0, 3), 3_11 (3, 11), 12_17 (12, 17), 18_plus (18, none).
+ */
+export function isValidAgeBandBounds(
+  code: string,
+  minAge: number,
+  maxAge: number | null | undefined
+): boolean {
+  const bounds = LOCKED_AGE_BAND_BOUNDS[code]
+  if (!bounds) {
+    return false
+  }
+  if (minAge !== bounds.minAge) {
+    return false
+  }
+  const normalizedMax = maxAge === null || maxAge === undefined ? null : maxAge
+  return normalizedMax === bounds.maxAge
+}
+
 function sortBySortOrder<T extends { sortOrder: number }>(
   rows: readonly T[]
 ): T[] {
@@ -2720,7 +2756,7 @@ export const createAccommodationAgeBand = mutation({
     if (!label) {
       throw new Error("Age band label is required")
     }
-    if (!isValidAgeBandRange(args.minAge, args.maxAge)) {
+    if (!isValidAgeBandBounds(args.code, args.minAge, args.maxAge)) {
       throw new Error("Invalid age band bounds")
     }
     if (!isNonNegativeInteger(args.sortOrder)) {
@@ -2773,7 +2809,7 @@ export const updateAccommodationAgeBand = mutation({
           ? null
           : band.maxAge
     if (args.minAge !== undefined || args.maxAge !== undefined) {
-      if (!isValidAgeBandRange(minAge, maxAge)) {
+      if (!isValidAgeBandBounds(band.code, minAge, maxAge)) {
         throw new Error("Invalid age band bounds")
       }
       patch.minAge = minAge
