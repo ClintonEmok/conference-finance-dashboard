@@ -17,6 +17,18 @@ describe("workspace route contracts", () => {
     expect(parseAccommodationTab("tab=nope")).toBe(defaultAccommodationTab)
   })
 
+  it("parses the three accommodation tabs including Upgrades & Options", () => {
+    expect(parseAccommodationTab("tab=hotels")).toBe("hotels")
+    expect(parseAccommodationTab("tab=allocation")).toBe("allocation")
+    expect(parseAccommodationTab("tab=upgrades-options")).toBe(
+      "upgrades-options"
+    )
+    expect(accommodationHref("event", "upgrades-options")).toBe(
+      "/dashboard/events/event/accommodation?tab=upgrades-options"
+    )
+    expect(accommodationHref("event")).toContain("tab=hotels")
+  })
+
   it("preserves the slug and encoded intent", () => {
     expect(financeHref("spring retreat", "reconciliation")).toBe(
       "/dashboard/events/spring%20retreat/finance?tab=reconciliation"
