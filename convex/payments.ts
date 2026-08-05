@@ -8,7 +8,11 @@ import {
   evaluateOrderPaymentMatch,
   type OrderPaymentMatchCandidate,
 } from "../lib/domain/finance/payment-matching"
-import { buildDonationClassification } from "../lib/domain/finance/amounts"
+import {
+  buildDonationClassification,
+  deriveBalanceAmounts,
+  isOrderAppliedPayment,
+} from "../lib/domain/finance/amounts"
 import {
   paymentSourceValidator,
   paymentStatusValidator,
@@ -676,9 +680,7 @@ export const getPaymentSummary = query({
       .take(100)
 
     const totalPaid = orderPayments
-      .filter(
-        (p) => p.status === "auto_matched" || p.status === "manual_assignment"
-      )
+      .filter((p) => isOrderAppliedPayment(p))
       .reduce((sum, p) => sum + p.amountMinor, 0)
 
     const orderId = ctx.db.normalizeId("orders", args.orderId)
@@ -691,11 +693,12 @@ export const getPaymentSummary = query({
         ?.amountDueMinor ??
       order?.totalAmountMinor ??
       0
+    const balance = deriveBalanceAmounts(orderTotal, totalPaid)
 
     return {
       totalPaid,
       orderTotal,
-      remaining: orderTotal - totalPaid,
+      remaining: balance.outstandingAmountMinor,
       paymentCount: orderPayments.length,
     }
   },

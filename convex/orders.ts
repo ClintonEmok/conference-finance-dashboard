@@ -8,7 +8,10 @@ import {
   orderLedgerRowValidator,
   orderSearchRowValidator,
 } from "../lib/types/order"
-import { deriveBalanceAmounts } from "../lib/domain/finance/amounts"
+import {
+  deriveBalanceAmounts,
+  isOrderAppliedPayment,
+} from "../lib/domain/finance/amounts"
 import { loadMatchedPaymentTotalsByOrderId, loadOrderAmountDueBreakdowns } from "./finance"
 import {
   loadOrderAttendeesWithExtensions,
@@ -784,10 +787,7 @@ async function loadPaymentTotalsByOrderKey(ctx: QueryCtx) {
   const totalsByOrderKey = new Map<string, number>()
 
   for (const payment of payments) {
-    if (
-      payment.status !== "manual_assignment" &&
-      payment.status !== "auto_matched"
-    ) {
+    if (!isOrderAppliedPayment(payment)) {
       continue
     }
 
@@ -895,7 +895,7 @@ export const getOrdersWithFilters = query({
         const balance = deriveBalanceAmounts(amountDueMinor, matchedAmountMinor)
 
         acc.amountDueMinor += amountDueMinor
-        acc.matchedAmountMinor += matchedAmountMinor
+        acc.matchedAmountMinor += balance.appliedAmountMinor
         acc.outstandingAmountMinor += balance.outstandingAmountMinor
         return acc
       },
@@ -1395,14 +1395,12 @@ export const getOrderPaymentStatus = query({
     )
 
     const payments = await ctx.db.query("payments").order("desc").take(1000)
-
-    const paymentsByOrder: Record<string, number> = {}
-    for (const payment of payments) {
-      if (payment.orderId) {
-        paymentsByOrder[payment.orderId] =
-          (paymentsByOrder[payment.orderId] ?? 0) + payment.amountMinor
-      }
-    }
+    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      canonicalVisibleOrders
+    )
+    const matchedPaymentTotalsByOrderId =
+      await loadMatchedPaymentTotalsByOrderId(ctx, canonicalVisibleOrders)
 
     const statusCounts = {
       unassigned: 0,
@@ -1414,16 +1412,20 @@ export const getOrderPaymentStatus = query({
     let totalPaidAmount = 0
 
     for (const order of canonicalVisibleOrders) {
-      const orderTotal = order.totalAmountMinor ?? 0
+      const orderTotal =
+        amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
+        order.totalAmountMinor ??
+        0
       if (orderTotal <= 0) continue
 
-      const paidAmount = paymentsByOrder[order._id] ?? 0
-      totalPaidAmount += paidAmount
+      const matchedAmount = matchedPaymentTotalsByOrderId.get(String(order._id)) ?? 0
+      const balance = deriveBalanceAmounts(orderTotal, matchedAmount)
+      totalPaidAmount += balance.appliedAmountMinor
 
-      if (paidAmount === 0) {
+      if (matchedAmount === 0) {
         statusCounts.unassigned++
-      } else if (paidAmount >= orderTotal) {
-        if (paidAmount > orderTotal) {
+      } else if (matchedAmount >= orderTotal) {
+        if (matchedAmount > orderTotal) {
           statusCounts.overpaid++
         } else {
           statusCounts.paid++

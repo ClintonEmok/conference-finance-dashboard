@@ -31,6 +31,10 @@ import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard
 import type { AttentionQueryState } from "@/lib/dashboard/workspace-attention"
 import { useAssignPaymentToOrder, useCreatePayment, usePayments, useUnassignedPayments, useUnassignPayment } from "@/lib/convex/hooks/payments"
 import { formatMoney } from "@/lib/format"
+import {
+  deriveBalanceAmounts,
+  isOrderAppliedPayment,
+} from "@/lib/domain/finance/amounts"
 import { cn } from "@/lib/utils"
 import type { Id, Doc } from "@/convex/_generated/dataModel"
 
@@ -194,7 +198,7 @@ function AssignedPaymentsList({
   const assignedPayments = useMemo(
     () =>
       (payments ?? []).filter(
-        (p) => p.status === "auto_matched" || p.status === "manual_assignment"
+        (p) => isOrderAppliedPayment(p)
       ),
     [payments]
   )
@@ -366,6 +370,19 @@ function knownOutstanding(row: ReconciliationOrderRow) {
 
 function moneyDisplay(value: number | null | undefined) {
   return typeof value === "number" ? formatMoney(value) : "Unavailable"
+}
+
+function appliedMoneyDisplay(
+  amountDueMinor: number | null,
+  matchedAmountMinor: number | undefined
+) {
+  if (typeof amountDueMinor !== "number" || typeof matchedAmountMinor !== "number") {
+    return "Unavailable"
+  }
+
+  return formatMoney(
+    deriveBalanceAmounts(amountDueMinor, matchedAmountMinor).appliedAmountMinor
+  )
 }
 
 type PageProps = {
@@ -574,7 +591,7 @@ export default function EventReconciliationPage({
                           {moneyDisplay(row.amountDueMinor)}
                       </TableCell>
                       <TableCell className="px-6 py-5 text-right font-bold tabular-nums text-emerald-600">
-                          {moneyDisplay(row.matchedAmountMinor)}
+                           {appliedMoneyDisplay(row.amountDueMinor, row.matchedAmountMinor)}
                       </TableCell>
                       <TableCell className="px-6 py-5 text-right font-bold tabular-nums text-orange-600">
                           {moneyDisplay(row.outstandingAmountMinor)}
@@ -683,7 +700,7 @@ export default function EventReconciliationPage({
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Amount Paid</span>
                   <span className="font-mono text-sm font-bold tabular-nums text-emerald-600">
-                     {moneyDisplay(selectedOrder.matchedAmountMinor)}
+                      {appliedMoneyDisplay(selectedOrder.amountDueMinor, selectedOrder.matchedAmountMinor)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">

@@ -61,7 +61,10 @@ import {
 import { api } from "@/lib/convex/api"
 import { useTicketTypesForEvent } from "@/lib/convex/hooks/events"
 import { useUnassignPayment } from "@/lib/convex/hooks/payments"
-import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
+import {
+  deriveBalanceAmounts,
+  isOrderAppliedPayment,
+} from "@/lib/domain/finance/amounts"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { Id } from "@/convex/_generated/dataModel"
@@ -146,6 +149,7 @@ type PaymentsPayload = {
     amountMinor: number
     paidAt: string
     status: PaymentStatus
+    donationKind: "overpayment" | "standalone" | null
     orderId: string | null
     reference: string | null
     notes: string | null
@@ -418,6 +422,7 @@ export default function EventOrderDetailPage({ slug, orderId: rawOrderId, event 
           amountMinor: payment.amountMinor,
           paidAt: new Date(payment.paidAt).toISOString(),
           status: payment.status ?? null,
+          donationKind: payment.donationKind ?? null,
           orderId: payment.orderId ?? null,
           reference: payment.reference ?? null,
           notes: payment.notes ?? null,
@@ -468,7 +473,7 @@ export default function EventOrderDetailPage({ slug, orderId: rawOrderId, event 
     const hasKnownDue = amountDueMinor !== null
     const matchedPayments = payments.filter(
       (payment) =>
-        payment.status === "auto_matched" || payment.status === "manual_assignment"
+        isOrderAppliedPayment(payment)
     )
     const paidAmountMinor = matchedPayments.reduce(
       (sum, payment) => sum + payment.amountMinor,
@@ -491,7 +496,7 @@ export default function EventOrderDetailPage({ slug, orderId: rawOrderId, event 
 
     return {
       amountDueMinor: hasKnownDue ? balance.amountDueMinor : null,
-      paidAmountMinor: balance.paidAmountMinor,
+       paidAmountMinor: balance.appliedAmountMinor,
       outstandingAmountMinor: hasKnownDue ? balance.outstandingAmountMinor : null,
       donationAmountMinor: hasKnownDue ? balance.donationAmountMinor : null,
       coverage,

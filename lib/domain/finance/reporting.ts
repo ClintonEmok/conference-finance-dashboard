@@ -428,7 +428,7 @@ function pushReportRow(
 
   existing.count += 1
   existing.amountDueMinor += balance.amountDueMinor
-  existing.paidMinor += balance.paidAmountMinor
+    existing.paidMinor += balance.appliedAmountMinor
   existing.outstandingMinor += balance.outstandingAmountMinor
   existing.overpaidMinor += balance.donationAmountMinor
 
@@ -479,7 +479,7 @@ export function buildStakeholderReport(params: {
 
     totals.rows += 1
     totals.amountDueMinor += balance.amountDueMinor
-    totals.paidMinor += balance.paidAmountMinor
+    totals.paidMinor += balance.appliedAmountMinor
     totals.outstandingMinor += balance.outstandingAmountMinor
     totals.overpaidMinor += balance.donationAmountMinor
 
@@ -494,7 +494,7 @@ export function buildStakeholderReport(params: {
     if (balanceSlice) {
       balanceSlice.count += 1
       balanceSlice.amountDueMinor += balance.amountDueMinor
-      balanceSlice.paidMinor += balance.paidAmountMinor
+      balanceSlice.paidMinor += balance.appliedAmountMinor
       balanceSlice.outstandingMinor += balance.outstandingAmountMinor
       balanceSlice.overpaidMinor += balance.donationAmountMinor
     }

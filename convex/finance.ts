@@ -1,7 +1,10 @@
 import type { Id } from "./_generated/dataModel"
 import type { MutationCtx, QueryCtx } from "./_generated/server"
 
-import { deriveOrderAmountBreakdown } from "../lib/domain/finance/amounts"
+import {
+  deriveOrderAmountBreakdown,
+  isOrderAppliedPayment,
+} from "../lib/domain/finance/amounts"
 
 type FinanceDbCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">
 
@@ -29,7 +32,14 @@ export type OrderAmountDueBreakdown = {
 type MatchedPaymentRecord = {
   amountMinor: number
   orderId?: string | null
-  status?: "auto_matched" | "manual_assignment" | "ambiguous" | "unassigned" | null
+  status?:
+    | "auto_matched"
+    | "manual_assignment"
+    | "ambiguous"
+    | "unassigned"
+    | "donation"
+    | null
+  donationKind?: "overpayment" | "standalone" | null
 }
 
 export async function loadOrderAmountDueBreakdowns(
@@ -110,7 +120,7 @@ export async function loadMatchedPaymentTotalsByOrderId(
   for (const payment of payments) {
     if (
       !payment ||
-      (payment.status !== "auto_matched" && payment.status !== "manual_assignment") ||
+      !isOrderAppliedPayment(payment) ||
       !Number.isFinite(payment.amountMinor) ||
       payment.amountMinor <= 0
     ) {

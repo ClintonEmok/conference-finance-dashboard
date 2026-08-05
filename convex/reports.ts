@@ -15,11 +15,12 @@ import {
   type ReportView,
   type StakeholderReport,
 } from "@/lib/domain/finance/stakeholder-report"
-import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
+import {
+  deriveBalanceAmounts,
+  isOrderAppliedPayment,
+} from "@/lib/domain/finance/amounts"
 import { lookupReportShareByToken, type ReportShareDoc } from "./reportShares"
 import { loadOrderAttendeesWithExtensions } from "./provider_boundary"
-
-const MATCHED_PAYMENT_STATUSES = new Set(["auto_matched", "manual_assignment"])
 
 function normalizeLabel(value: string | null | undefined) {
   const trimmed = typeof value === "string" ? value.trim() : ""
@@ -201,7 +202,7 @@ async function loadRegionOrderGroups(
     const ticketTypeResolution = await loadOrderTicketTypeResolution(ctx, order._id)
 
     const totalPaidMinor = payments
-      .filter((payment) => MATCHED_PAYMENT_STATUSES.has(payment.status ?? "unassigned"))
+      .filter((payment) => isOrderAppliedPayment(payment))
       .reduce((sum, payment) => sum + payment.amountMinor, 0)
 
     const paidByAttendeeId = allocateReportPaymentsByAttendee({
@@ -234,7 +235,7 @@ async function loadRegionOrderGroups(
         ticketTypeLabel,
         location: normalizeLocationLabel(attendee.location),
         amountDueMinor: balance.amountDueMinor,
-        paidMinor: balance.paidAmountMinor,
+        paidMinor: balance.appliedAmountMinor,
         outstandingMinor: balance.outstandingAmountMinor,
         overpaidMinor: balance.donationAmountMinor,
       })
@@ -291,7 +292,7 @@ async function buildSharedEventReportData(
     const payments = paymentsByOrderId.get(String(order._id)) ?? []
 
     const totalPaidMinor = payments
-      .filter((payment) => MATCHED_PAYMENT_STATUSES.has(payment.status ?? "unassigned"))
+       .filter((payment) => isOrderAppliedPayment(payment))
       .reduce((sum, payment) => sum + payment.amountMinor, 0)
 
     if (attendeesWithExtensions.length === 0) {
@@ -300,7 +301,10 @@ async function buildSharedEventReportData(
         genderType: null,
         ticketTypeLabel: null,
         amountDueMinor: amountDueBreakdown.amountDueMinor ?? 0,
-        paidAmountMinor: totalPaidMinor,
+         paidAmountMinor: deriveBalanceAmounts(
+           amountDueBreakdown.amountDueMinor,
+           totalPaidMinor
+         ).appliedAmountMinor,
         createdAt: new Date(order._creationTime).toISOString(),
       })
       continue
@@ -506,8 +510,8 @@ async function buildReportRows(
 
     const payments = paymentsByOrderId.get(String(order._id)) ?? []
 
-    const totalPaidMinor = payments
-      .filter((payment) => MATCHED_PAYMENT_STATUSES.has(payment.status ?? "unassigned"))
+     const totalPaidMinor = payments
+       .filter((payment) => isOrderAppliedPayment(payment))
       .reduce((sum, payment) => sum + payment.amountMinor, 0)
 
     if (attendeesWithExtensions.length === 0) {
@@ -516,7 +520,10 @@ async function buildReportRows(
         genderType: null,
         ticketTypeLabel: null,
         amountDueMinor: amountDueBreakdown.amountDueMinor ?? 0,
-        paidAmountMinor: totalPaidMinor,
+         paidAmountMinor: deriveBalanceAmounts(
+           amountDueBreakdown.amountDueMinor,
+           totalPaidMinor
+         ).appliedAmountMinor,
         createdAt: new Date(order._creationTime).toISOString(),
       })
       continue

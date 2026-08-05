@@ -1,7 +1,6 @@
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
-
-const MATCHED_PAYMENT_STATUSES = new Set(["manual_assignment", "auto_matched"])
+import { isOrderAppliedPayment } from "@/lib/domain/finance/amounts"
 
 type PaymentMatchStatus =
   | "auto_matched"
@@ -14,6 +13,7 @@ type PaymentForReconciliation = {
   amountMinor: number
   orderId?: string | null
   status?: PaymentMatchStatus | null
+  donationKind?: "overpayment" | "standalone" | null
 }
 
 async function resolveCanonicalOrderIdForLegacyPayment(
@@ -65,7 +65,7 @@ export async function buildMatchedTotalsByOrderId(
   for (const payment of payments ?? []) {
     if (
       !payment ||
-      !MATCHED_PAYMENT_STATUSES.has(payment.status ?? "unassigned") ||
+      !isOrderAppliedPayment(payment) ||
       !Number.isFinite(payment.amountMinor) ||
       payment.amountMinor <= 0
     ) {

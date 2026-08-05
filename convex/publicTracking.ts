@@ -2,6 +2,7 @@ import { query } from "./_generated/server"
 import { v } from "convex/values"
 
 import { loadOrderAmountDueBreakdowns } from "./finance"
+import { isOrderAppliedPayment } from "../lib/domain/finance/amounts"
 
 function normalizeBookingRef(bookingRef: string): string {
   return bookingRef.trim().toUpperCase()
@@ -86,10 +87,8 @@ export const getByBookingRef = query({
       .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))
       .take(100)
 
-    const matchedPayments = paymentRows.filter(
-      (payment) =>
-        payment.status === "auto_matched" ||
-        payment.status === "manual_assignment"
+    const matchedPayments = paymentRows.filter((payment) =>
+      isOrderAppliedPayment(payment)
     )
 
     const totalPaidMinor = matchedPayments.reduce(
@@ -196,9 +195,8 @@ async function loadTrackingByOrder(
     .withIndex("orderId", (q: any) => q.eq("orderId", String(order._id)))
     .take(100)
 
-  const matchedPayments = paymentRows.filter(
-    (payment: any) =>
-      payment.status === "auto_matched" || payment.status === "manual_assignment"
+  const matchedPayments = paymentRows.filter((payment: any) =>
+    isOrderAppliedPayment(payment)
   )
 
   const totalPaidMinor = matchedPayments.reduce(
