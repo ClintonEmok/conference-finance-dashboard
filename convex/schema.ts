@@ -271,6 +271,22 @@ export default defineSchema({
       checkInAt: v.optional(v.number()),
       checkOutAt: v.optional(v.number()),
       nightCount: v.optional(v.number()),
+      // Phase 44 confirmation contract (schema shape only): the
+      // assignment-confirm flow atomically writes confirmedAt,
+      // configVersion = eventAccommodationConfig.updatedAt, and the pure
+      // helper's immutable priceSnapshot. The Phase 40 loader fails closed
+      // when a row is confirmed without a complete snapshot.
+      confirmedAt: v.optional(v.number()),
+      configVersion: v.optional(v.number()),
+      priceSnapshot: v.optional(
+        v.object({
+          baseRatePerNightMinor: v.number(),
+          upgradeRatePerNightMinor: v.number(),
+          cotRatePerNightMinor: v.number(),
+          totalNights: v.number(),
+          coveredNights: v.number(),
+        })
+      ),
     })
   )
     .index("by_orderId", ["orderId"])

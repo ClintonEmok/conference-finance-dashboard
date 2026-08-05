@@ -548,10 +548,19 @@ export type DataModel = {
       categoryId?: Id<"accommodationCategories">;
       checkInAt?: number;
       checkOutAt?: number;
+      configVersion?: number;
+      confirmedAt?: number;
       cotSelected: boolean;
       nightCount?: number;
       occupancy?: "single" | "shared" | "family";
       orderId: Id<"orders">;
+      priceSnapshot?: {
+        baseRatePerNightMinor: number;
+        cotRatePerNightMinor: number;
+        coveredNights: number;
+        totalNights: number;
+        upgradeRatePerNightMinor: number;
+      };
       upgradeSelected: boolean;
       _id: Id<"orderAccommodationSelections">;
       _creationTime: number;
@@ -564,10 +573,18 @@ export type DataModel = {
       | "categoryId"
       | "checkInAt"
       | "checkOutAt"
+      | "configVersion"
+      | "confirmedAt"
       | "cotSelected"
       | "nightCount"
       | "occupancy"
       | "orderId"
+      | "priceSnapshot"
+      | "priceSnapshot.baseRatePerNightMinor"
+      | "priceSnapshot.cotRatePerNightMinor"
+      | "priceSnapshot.coveredNights"
+      | "priceSnapshot.totalNights"
+      | "priceSnapshot.upgradeRatePerNightMinor"
       | "upgradeSelected";
     indexes: {
       by_id: ["_id"];

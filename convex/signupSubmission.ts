@@ -791,6 +791,11 @@ export const getByBookingRef = query({
       totalAmountMinor: v.optional(v.number()),
       accommodationLines: v.array(
         v.object({
+          kind: v.union(
+            v.literal("accommodation"),
+            v.literal("superior_upgrade"),
+            v.literal("cot")
+          ),
           label: v.string(),
           nights: v.number(),
           ratePerNightMinor: v.number(),

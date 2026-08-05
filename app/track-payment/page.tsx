@@ -312,6 +312,19 @@ export default function TrackPaymentPage() {
                           </span>
                         </div>
                       ))}
+                      {result.submission.accommodationLines?.map((line) => (
+                        <div
+                          key={line.label}
+                          className="flex items-center justify-between rounded-xl border border-border/30 bg-background/50 px-4 py-3 text-sm shadow-sm"
+                        >
+                          <span className="font-medium text-foreground">
+                            {line.label}
+                          </span>
+                          <span className="text-muted-foreground tabular-nums">
+                            {line.nights} × {formatMoney(line.ratePerNightMinor)}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </article>
                 </div>
