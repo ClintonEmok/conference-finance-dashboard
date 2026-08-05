@@ -1,6 +1,18 @@
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
 
+/**
+ * The locked age-band code union shared by every table that references an
+ * age band by code: catalog rows, event option eligibility, event age pricing
+ * and the Phase 42 per-attendee selections.
+ */
+const ageBandCodeValidator = v.union(
+  v.literal("under_3"),
+  v.literal("3_11"),
+  v.literal("12_17"),
+  v.literal("18_plus")
+)
+
 export default defineSchema({
   users: defineTable(
     v.object({
@@ -255,7 +267,7 @@ export default defineSchema({
       ),
       upgradeSelected: v.boolean(),
       cotSelected: v.boolean(),
-      ageBandCode: v.optional(v.string()),
+      ageBandCode: v.optional(ageBandCodeValidator),
       checkInAt: v.optional(v.number()),
       checkOutAt: v.optional(v.number()),
       nightCount: v.optional(v.number()),
@@ -475,12 +487,7 @@ export default defineSchema({
 
   accommodationAgeBands: defineTable(
     v.object({
-      code: v.union(
-        v.literal("under_3"),
-        v.literal("3_11"),
-        v.literal("12_17"),
-        v.literal("18_plus")
-      ),
+      code: ageBandCodeValidator,
       label: v.string(),
       minAge: v.number(),
       maxAge: v.optional(v.number()),
@@ -545,7 +552,7 @@ export default defineSchema({
       optionId: v.id("accommodationOptions"),
       enabled: v.boolean(),
       priceMinor: v.number(),
-      eligibilityAgeBandCode: v.optional(v.string()),
+      eligibilityAgeBandCode: v.optional(ageBandCodeValidator),
       notes: v.optional(v.string()),
     })
   )
@@ -567,12 +574,7 @@ export default defineSchema({
   eventAccommodationAgePricing: defineTable(
     v.object({
       eventId: v.id("events"),
-      ageBandCode: v.union(
-        v.literal("under_3"),
-        v.literal("3_11"),
-        v.literal("12_17"),
-        v.literal("18_plus")
-      ),
+      ageBandCode: ageBandCodeValidator,
       rateType: v.union(
         v.literal("free"),
         v.literal("full"),
