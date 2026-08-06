@@ -1270,7 +1270,6 @@ export declare const api: {
         event: { slug: string; startsAt: number; title: string };
         order: {
           amountDueMinor: number | null;
-          buyerEmail: string | null;
           buyerName: string | null;
           buyerPhone: string | null;
           orderedAt: number | null;
@@ -1279,6 +1278,7 @@ export declare const api: {
           totalAmountMinor: number | null;
         };
         payment: {
+          overpaymentDeltaMinor: number;
           paymentCount: number;
           paymentStatus: "unpaid" | "partial" | "paid" | "overpaid";
           progressPercent: number;
@@ -1300,7 +1300,6 @@ export declare const api: {
         event: { slug: string; startsAt: number; title: string };
         order: {
           amountDueMinor: number | null;
-          buyerEmail: string | null;
           buyerName: string | null;
           buyerPhone: string | null;
           orderedAt: number | null;
@@ -1309,6 +1308,7 @@ export declare const api: {
           totalAmountMinor: number | null;
         };
         payment: {
+          overpaymentDeltaMinor: number;
           paymentCount: number;
           paymentStatus: "unpaid" | "partial" | "paid" | "overpaid";
           progressPercent: number;
@@ -1597,7 +1597,6 @@ export declare const api: {
           name: string;
           ticketType: string;
         }>;
-        bookerEmail?: string;
         bookerName?: string;
         bookerPhone?: string;
         bookingRef?: string;
@@ -2403,9 +2402,6 @@ export declare const internal: {
       },
       any
     >;
-  };
-  init: {
-    default: FunctionReference<"mutation", "internal", any, any>;
   };
   orders: {
     syncFullyPaidOrders: FunctionReference<
