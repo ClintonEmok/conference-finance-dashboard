@@ -1266,7 +1266,11 @@ test("CR-08: submissions cannot oversell a ticket past its maxQuantity", async (
   // The capacity-1 ticket's soldCount ended at exactly 1, and only the first
   // order exists.
   const capacityTicketRow = await t.query(async (ctx) => {
-    return await ctx.db.get(capacityOneTicketId as never)
+    const rows = await ctx.db
+      .query("ticketTypes")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId as never))
+      .take(100)
+    return rows.find((row) => row._id === capacityOneTicketId)
   })
   expect(capacityTicketRow?.soldCount).toBe(1)
   const orders = await t.query(async (ctx) => {
