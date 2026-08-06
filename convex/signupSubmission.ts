@@ -459,6 +459,7 @@ export const submitSignupEnvelope = mutation({
     )
     const soldCountIncrements = new Map<Id<"ticketTypes">, number>()
     const attendeeKeyToTicketTypeId = new Map<string, Id<"ticketTypes">>()
+    const seenTicketSelectionKeys = new Set<string>()
 
     for (const selection of args.ticketSelections) {
       if (!attendeeKeySet.has(selection.attendeeKey)) {
@@ -467,6 +468,17 @@ export const submitSignupEnvelope = mutation({
           `Ticket selection references unknown attendee '${selection.attendeeKey}'.`
         )
       }
+
+      // Cardinality (CR-04): each attendee has exactly one ticket row.
+      // Duplicate rows previously overwrote the map while every row was still
+      // inserted and counted toward soldCount.
+      if (seenTicketSelectionKeys.has(selection.attendeeKey)) {
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          `Duplicate ticket selection for attendee '${selection.attendeeKey}'.`
+        )
+      }
+      seenTicketSelectionKeys.add(selection.attendeeKey)
 
       if (selection.quantity !== 1) {
         throwSubmissionError(
@@ -497,6 +509,15 @@ export const submitSignupEnvelope = mutation({
       attendeeKeyToTicketTypeId.set(
         selection.attendeeKey,
         selection.ticketTypeId
+      )
+    }
+
+    // Every attendee must be ticketed exactly once (CR-04); otherwise a
+    // ticketless attendee row could be persisted without any ticket charge.
+    if (attendeeKeyToTicketTypeId.size !== attendeeKeySet.size) {
+      throwSubmissionError(
+        "SUBMISSION_CONFLICT",
+        "Every attendee must have exactly one ticket selection."
       )
     }
 

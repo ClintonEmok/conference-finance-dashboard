@@ -881,3 +881,73 @@ test("CR-03: an unconfigured event requires an empty preference list", async () 
     )
   ).rejects.toThrow("SUBMISSION_CONFLICT")
 })
+
+test("CR-04: duplicate ticket selections and ticketless attendees are rejected", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  // Duplicate ticket selection rows for the same attendee are rejected before
+  // any write, so soldCount can never double-count an attendee.
+  const duplicateEnvelope = buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: seed.unconstrainedTicketId,
+  })
+  duplicateEnvelope.ticketSelections = [
+    duplicateEnvelope.ticketSelections[0],
+    {
+      attendeeKey: "attendee-1",
+      ticketTypeId: seed.unconstrainedTicketId,
+      quantity: 1,
+    },
+  ]
+  duplicateEnvelope.accommodationSelections = [
+    {
+      attendeeKey: "attendee-1",
+      categoryId: seed.categoryStandardId,
+      occupancy: "shared",
+      upgradeSelected: false,
+      cotSelected: false,
+      ageBandCode: "18_plus",
+    },
+  ]
+  await expect(
+    t.mutation(api.signupSubmission.submitSignupEnvelope, duplicateEnvelope)
+  ).rejects.toThrow("SUBMISSION_CONFLICT")
+
+  // An attendee without a ticket selection is rejected (no ticketless rows).
+  const ticketlessEnvelope = buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: seed.unconstrainedTicketId,
+  })
+  ticketlessEnvelope.attendees = [
+    ticketlessEnvelope.attendees[0],
+    {
+      attendeeKey: "attendee-2",
+      name: "Attendee Two",
+      email: "two@example.com",
+      gender: "female" as const,
+    },
+  ]
+  ticketlessEnvelope.accommodationSelections = [
+    {
+      attendeeKey: "attendee-1",
+      categoryId: seed.categoryStandardId,
+      occupancy: "shared",
+      upgradeSelected: false,
+      cotSelected: false,
+      ageBandCode: "18_plus",
+    },
+  ]
+  await expect(
+    t.mutation(api.signupSubmission.submitSignupEnvelope, ticketlessEnvelope)
+  ).rejects.toThrow("SUBMISSION_CONFLICT")
+
+  // Nothing was persisted for the rejected submissions.
+  const orders = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId))
+      .take(10)
+  })
+  expect(orders).toHaveLength(0)
+})
