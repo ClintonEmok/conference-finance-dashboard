@@ -214,6 +214,26 @@ describe("POST /api/track-payment/[bookingRef]", () => {
     expect("honeypotSeen" in args).toBe(false)
   })
 
+  it("never trusts a client-supplied requestSignature and always mints its own", async () => {
+    const forgedSignature = "client-forged-signature.payload"
+    const response = await POST(
+      editRequest({ body: validBody({ requestSignature: forgedSignature }) }),
+      { params: Promise.resolve({ bookingRef: BOOKING_REF }) }
+    )
+    expect(response.status).toBe(200)
+    expect(mocks.convexMutation).toHaveBeenCalledTimes(1)
+    const args = mocks.convexMutation.mock.calls[0][1] as Record<
+      string,
+      unknown
+    >
+    // The client's signature is never forwarded: the route re-signs the
+    // normalized envelope server-side, so a caller cannot bypass signing or
+    // inject their own authority.
+    expect(args.requestSignature).toBeTypeOf("string")
+    expect(args.requestSignature).not.toBe(forgedSignature)
+    expect(args.requestSignature).toMatch(/\.[0-9]+$/)
+  })
+
   it("rejects a non-empty honeypot before touching Convex", async () => {
     const response = await POST(
       editRequest({ body: validBody({ website: "spam-site" }) }),

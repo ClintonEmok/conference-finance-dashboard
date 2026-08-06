@@ -1698,3 +1698,258 @@ test("a same-key replay returns the stored result even after the organizer confi
   expect(audits[0].progressPercent).toBe(0)
   expect(audits[0].overpaymentDeltaMinor).toBe(0)
 })
+
+// ---------------------------------------------------------------------------
+// Phase 45 security matrix: cross-order ownership, key-bound signatures,
+// duplicate attendee keys, and broken ticket entitlement all fail before
+// writes with typed non-leaky errors.
+// ---------------------------------------------------------------------------
+
+test("cross-order ownership fails without leaking editability and without writes", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  const order = await createOrderWithSelections(t, seed)
+  // A second order on the same event whose booker email is valid FOR THAT
+  // ORDER — but must never grant access to the first order.
+  const otherOrder = await createOrderWithSelections(t, seed, {
+    bookingRef: "BK-20260806-OTHER01",
+    bookerEmail: "other@example.com",
+  })
+
+  const selections = [
+    replacement({
+      attendeeKey: "a-1",
+      categoryId: seed.categorySuperiorId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+    replacement({
+      attendeeKey: "a-2",
+      categoryId: seed.categorySuperiorId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+  ]
+
+  // The other order's valid booker email against the first order.
+  const emailKey = uniqueIdempotencyKey()
+  const emailSignature = await signEditEnvelope({
+    bookingRef: BOOKING_REF,
+    bookerEmail: "other@example.com",
+    idempotencyKey: emailKey,
+    selections,
+  })
+  await expect(
+    t.mutation(api.publicTracking.updateAccommodation, {
+      bookingRef: BOOKING_REF,
+      bookerEmail: "other@example.com",
+      requestSignature: emailSignature,
+      idempotencyKey: emailKey,
+      selections,
+    })
+  ).rejects.toThrow("EDIT_OWNERSHIP")
+
+  // A genuine edit token minted for the OTHER booking reference must not
+  // unlock the first order either.
+  const otherToken = await mintTrackPaymentEditToken({
+    bookingRef: "BK-20260806-OTHER01",
+    bookerEmail: "other@example.com",
+    secret: TEST_TRACK_PAYMENT_SECRET,
+  })
+  const tokenKey = uniqueIdempotencyKey()
+  const tokenSignature = await signEditEnvelope({
+    bookingRef: BOOKING_REF,
+    editToken: otherToken,
+    idempotencyKey: tokenKey,
+    selections,
+  })
+  await expect(
+    t.mutation(api.publicTracking.updateAccommodation, {
+      bookingRef: BOOKING_REF,
+      editToken: otherToken,
+      requestSignature: tokenSignature,
+      idempotencyKey: tokenKey,
+      selections,
+    })
+  ).rejects.toThrow("EDIT_OWNERSHIP")
+
+  // Neither attempt wrote anything: amount stable, no audit rows, the other
+  // order's own preferences untouched.
+  expect(await loadAmountDue(t, String(order.orderId))).toBe(19500)
+  expect(await loadAmountDue(t, String(otherOrder.orderId))).toBe(19500)
+  const audits = await t.query(async (ctx) => {
+    const rows = []
+    for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
+      rows.push(row)
+    }
+    return rows
+  })
+  expect(audits).toHaveLength(0)
+})
+
+test("a signature is bound to its idempotency key and cannot be replayed under another key", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  const order = await createOrderWithSelections(t, seed)
+
+  const selections = [
+    replacement({
+      attendeeKey: "a-1",
+      categoryId: seed.categorySuperiorId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+    replacement({
+      attendeeKey: "a-2",
+      categoryId: seed.categorySuperiorId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+  ]
+  const appliedKey = uniqueIdempotencyKey()
+  const appliedSignature = await signEditEnvelope({
+    bookingRef: BOOKING_REF,
+    bookerEmail: "booker@example.com",
+    idempotencyKey: appliedKey,
+    selections,
+  })
+
+  const first = await t.mutation(api.publicTracking.updateAccommodation, {
+    bookingRef: BOOKING_REF,
+    bookerEmail: "booker@example.com",
+    requestSignature: appliedSignature,
+    idempotencyKey: appliedKey,
+    selections,
+  })
+  expect(first.status).toBe("applied")
+
+  // Replay the SAME signature under a DIFFERENT key: the mutation recomputes
+  // the signature over its own args, so the key mismatch fails verification —
+  // a captured signature can never be replayed with a fresh key.
+  const replayedKey = uniqueIdempotencyKey()
+  await expect(
+    t.mutation(api.publicTracking.updateAccommodation, {
+      bookingRef: BOOKING_REF,
+      bookerEmail: "booker@example.com",
+      requestSignature: appliedSignature,
+      idempotencyKey: replayedKey,
+      selections,
+    })
+  ).rejects.toThrow("SIGNATURE_REQUIRED")
+
+  const audits = await t.query(async (ctx) => {
+    const rows = []
+    for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
+      rows.push(row)
+    }
+    return rows
+  })
+  expect(audits).toHaveLength(1)
+  expect(await loadAmountDue(t, String(order.orderId))).toBe(22500)
+})
+
+test("a duplicate attendee key in the replacement is rejected before writes", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  const order = await createOrderWithSelections(t, seed)
+
+  const duplicateKeySelections = [
+    replacement({
+      attendeeKey: "a-1",
+      categoryId: seed.categoryStandardId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+    replacement({
+      attendeeKey: "a-1",
+      categoryId: seed.categorySuperiorId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+  ]
+  const idempotencyKey = uniqueIdempotencyKey()
+  const requestSignature = await signEditEnvelope({
+    bookingRef: BOOKING_REF,
+    bookerEmail: "booker@example.com",
+    idempotencyKey,
+    selections: duplicateKeySelections,
+  })
+
+  await expect(
+    t.mutation(api.publicTracking.updateAccommodation, {
+      bookingRef: BOOKING_REF,
+      bookerEmail: "booker@example.com",
+      requestSignature,
+      idempotencyKey,
+      selections: duplicateKeySelections,
+    })
+  ).rejects.toThrow("EDIT_INVALID")
+
+  expect(await loadAmountDue(t, String(order.orderId))).toBe(19500)
+  const audits = await t.query(async (ctx) => {
+    const rows = []
+    for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
+      rows.push(row)
+    }
+    return rows
+  })
+  expect(audits).toHaveLength(0)
+})
+
+test("a ticket whose room-type entitlement is broken rejects the edit before writes", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  const order = await createOrderWithSelections(t, seed)
+
+  // a-2 holds the superior-suite (constrained) ticket; deleting the room type
+  // the ticket points at breaks its entitlement resolution and must fail
+  // closed as an entitlement error.
+  await t.mutation(async (ctx) => {
+    const roomType = await ctx.db.query("accommodationRoomTypes").first()
+    if (roomType) {
+      await ctx.db.delete("accommodationRoomTypes", roomType._id)
+    }
+  })
+
+  const selections = [
+    replacement({
+      attendeeKey: "a-1",
+      categoryId: seed.categoryStandardId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+    replacement({
+      attendeeKey: "a-2",
+      categoryId: seed.categorySuperiorId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+  ]
+  const idempotencyKey = uniqueIdempotencyKey()
+  const requestSignature = await signEditEnvelope({
+    bookingRef: BOOKING_REF,
+    bookerEmail: "booker@example.com",
+    idempotencyKey,
+    selections,
+  })
+
+  await expect(
+    t.mutation(api.publicTracking.updateAccommodation, {
+      bookingRef: BOOKING_REF,
+      bookerEmail: "booker@example.com",
+      requestSignature,
+      idempotencyKey,
+      selections,
+    })
+  ).rejects.toThrow("EDIT_CONFLICT")
+
+  expect(await loadAmountDue(t, String(order.orderId))).toBe(19500)
+  const audits = await t.query(async (ctx) => {
+    const rows = []
+    for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
+      rows.push(row)
+    }
+    return rows
+  })
+  expect(audits).toHaveLength(0)
+})
