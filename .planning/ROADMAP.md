@@ -316,7 +316,13 @@ Plans:
 4. After admin confirmation, permalink edits are rejected server-side (not merely hidden in the UI) and the payment link reflects the confirmed amount.
 5. When a change reduces the amount due, the excess is surfaced as an overpayment with an explicit refund-vs-donation handling path rather than a silent donation, and stale Tikkie links are expired/superseded.
 
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+
+- [x] 43-01-PLAN.md — Establish the ownership-gated, audited server edit contract
+- [x] 43-02-PLAN.md — Add the rate-limited honeypot-protected edit API route
+- [x] 43-03-PLAN.md — Build the durable permalink UI and options editor
 
 ---
 
@@ -372,7 +378,7 @@ Plans:
 | 40 - Canonical Finance Derivation | Accommodation in canonical amount-due | FIN-01, FIN-02, FIN-03, FIN-04 | 1 plan | Not started |
 | 41 - Admin Upgrades & Options Tab | Config surface + explicit confirm | ADM-01, ADM-02, ADM-03, CAT-04 | 2 plans | Not started |
 | 42 - Public Signup Options | Options-only signup + ticket eligibility | SIG-01..04, TKT-01, TKT-02 | 2 plans | Complete |
-| 43 - Track Payment Permalink | Booking-ref permalink + re-price | TRK-01..06 | TBD | Not started |
+| 43 - Track Payment Permalink | Booking-ref permalink + re-price | TRK-01..06 | 3 plans | Complete |
 | 44 - Allocation Paid-Priority | Paid-priority allocation + lock | ALL-01, ALL-02, ALL-03 | TBD | Not started |
 | 45 - Verification & Cross-Surface Audit | Money/security/idempotency audit | — | TBD | Not started |
 

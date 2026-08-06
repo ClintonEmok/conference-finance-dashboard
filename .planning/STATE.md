@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: Accommodation Upgrades & Options
-current_phase: 42
-current_phase_name: Public Signup Options
+current_phase: 43
+current_phase_name: Track Payment Permalink
 status: in_progress
-stopped_at: Phase 42 plans 01-02 executed (options-only signup UI complete); Phase 43 permalink next
-last_updated: "2026-08-06T01:35:00.000Z"
+stopped_at: Phase 43 fully executed (plans 01-03 complete); Phase 44 paid-priority allocation next; Phase 40-42 human verification remains deferred to v5.0 milestone completion
+last_updated: "2026-08-06T06:10:00.000Z"
 last_activity: 2026-08-06
-last_activity_desc: Executed 42-02 (options-only signup UI: accommodation options step, quote-backed review/summary, options-only payload); Phase 40/41 human verification remains deferred to v5.0 milestone completion
+last_activity_desc: Executed all three Phase 43 plans (server edit contract, HTTP route, durable permalink UI); Phase 40-42 human verification remains deferred to v5.0 milestone completion
 progress:
   total_phases: 7
   completed_phases: 0
@@ -28,12 +28,12 @@ See: `.planning/PROJECT.md`.
 
 ## Current Position
 
-Phase: 42 — Public Signup Options
-Plan: 42-01 + 42-02 complete — all Phase 42 plans executed (options-only signup UI); Phase 43 permalink next
+Phase: 43 — Track Payment Permalink
+Plan: 43-01 + 43-02 + 43-03 complete — all Phase 43 plans executed (server edit contract, HTTP route, durable permalink UI); Phase 44 paid-priority allocation next
 Status: In progress (0/7 phases signed off; phase sign-off absorbed into v5.0 Phase 45)
-Last activity: 2026-08-06 — Executed 42-02; Phase 40/41 human items remain deferred until v5.0 milestone completion
+Last activity: 2026-08-06 — Executed 43-01 through 43-03; Phase 40/41/42 human items remain deferred until v5.0 milestone completion
 
-Progress: ████████ (6/6 plans executed across Phases 39-42; 0/7 phases signed off)
+Progress: ████████ (9/9 plans executed across Phases 39-43; 0/7 phases signed off)
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ Progress: ████████ (6/6 plans executed across Phases 39-42; 0/7 
 - **Phase 41 executed:** the Upgrades & Options admin contract is server-owned — `getEventAccommodationConfig` returns a bounded `pendingOrders` list, `pendingOrderCount`, and `hasAccommodationSelections`; every event-scoped pricing save (rates/options/resources/age pricing) advances the single `eventAccommodationConfig.updatedAt` version boundary (initializing the singleton when absent) without rewriting orders; `confirmAccommodationOrderConfiguration` takes only an order ID and atomically persists `confirmedAt` + `configVersion` + the pure-module `priceSnapshot` on every selection row (reusable by Phase 44). The third Accommodation workspace tab (`?tab=upgrades-options`) edits stay/rates/options/age pricing/availability and the reusable catalog, shows server-backed pending impact, and confirms buyer configurations with a locked state — no client-side money, night, capacity, or pending-count arithmetic; Hotels and Allocation unchanged.
 - **Phase 42 plan 01 executed:** the public signup contract is server-owned end-to-end. `getPublicSignupCatalog` exposes event-configured config (base stay/nightCount/breakfastIncluded), active category/rate rows, enabled options (with event-configured cot eligibility band), age bands, and ticket entitlement (`roomTypeCategoryId`/`roomTypeCategoryCode` from `ticketTypes.roomTypeId`) — legacy `slots` preserved for compatibility only. Public `getPublicSignupAccommodationQuote` accepts only eventId + per-attendee ticket/option choices and prices via `deriveAccommodationAmount`; quote and `submitSignupEnvelope` share one resolver (`loadPublicSignupAccommodationContext` + `resolvePublicSignupSelection`), so eligibility/cot/rate/category rules cannot diverge. New submissions reject any non-empty legacy `assignments` before a write, never create `orderAssignments`, and persist one unconfirmed `orderAccommodationSelections` row per preference with server-resolved stay fields (no `confirmedAt`/`configVersion`/`priceSnapshot`); category/occupancy may be absent only when the event has no configured accommodation; the quote prices the event base stay only (buyers never choose nights).
 - **Phase 42 plan 02 executed:** the public signup UI is options-only end-to-end. `SIGNUP_STEP_ORDER` is tickets/buyer/attendees/accommodation/review; `SignupDraft` holds per-attendee `AccommodationSelectionDraft` keyed by stable attendee keys (no `assignments`/`acknowledgeRandomFill`). `AccommodationOptionsStep` offers category/occupancy/upgrade/cot/age-band choices generated exclusively from the catalog response (cot gated on the server eligibility band; no hardcoded age bands). Review and summary render the server quote contract (ticket lines, per-person-per-night accommodation lines, breakfast copy, `totalDueMinor`) with no client money arithmetic; submission sends `accommodationSelections` + `assignments: []` only. `PublicSignupQuoteRenderState` (unconfigured/incomplete/loading/error/ready) blocks submit until a fresh valid quote matches the selection signature.
+- **Phase 43 executed (plans 01-03):** the `/track-payment/[bookingRef]` permalink is the app's first public write, protected at both boundaries. Plan 01: `lib/domain/track-payment/edit-token.ts` adds an HMAC edit token bound to `track-payment:{bookingRef}:{normalizedEmail}` and a short-lived route-to-Convex request signature bound to the normalized edit envelope, both reusing `SIGNUP_SUBMISSION_SECRET` (no new secret, no stored raw tokens); schema adds the append-only `orderAccommodationEditAudits` table (order/idempotency and order/request-digest indexes, server-valued fields only); confirmation/resend emails prefer `/track-payment/{bookingRef}?token=...` with a root-tracker fallback that fails closed. `getTrackPaymentEditContext` is a bounded public projection (current selections, locked state, event-configured category/rate/option/age-band choices, per-selection `ticketCategoryId` entitlement; never returns edit credentials). `updateAccommodation` is the atomic replace-style mutation: verifies the route-issued signature recomputed from its own validated args, re-checks ownership (email match or HMAC token) before loading any editable detail, enforces the `confirmedAt` lock and exact-match replacement cardinality, validates every preference through the Phase 42 shared resolver, re-prices via `loadOrderAmountDueBreakdowns`, treats identical replacements as true no-ops, replays used idempotency keys from stored results, inserts one server-valued audit row per applied edit, and never touches order totals, payments, assignments, or flexible-zero Tikkie links. Plan 02: `POST /api/track-payment/[bookingRef]` applies `enforceRateLimit` (track-payment-edit, 20/60s) before body work, reuses the signup `website` honeypot, rejects client authority fields (amounts/dates/nights/rooms/slots/snapshots) at the HTTP boundary, mints the request signature over the exact normalized envelope (honoring `x-idempotency-key` retries), and maps ownership/confirmed/stale/not-found/validation failures to stable JSON codes that never reveal other bookings. Plan 03: `TrackPaymentView` is the single server-backed presentation for root search (navigates to the permalink) and the durable permalink (back-link instead of a second shell); `TrackPaymentAccommodationEditor` renders per-attendee fieldsets with server-configured choices (ticket-constrained category filtering via `ticketCategoryId`, cot gated on the server band), collects ownership locally (email + optional edit link prefilled in memory), submits complete options-only replacements with a stable idempotency key, and shows accessible loading/error/confirmed-lock/overpayment/success states with zero client money math (overpayment is a server-provided panel).
 
 ### Carried From v4.0 (context preserved)
 
@@ -76,7 +77,10 @@ Progress: ████████ (6/6 plans executed across Phases 39-42; 0/7 
 - [x] Execute Phase 41 plan 02 (Upgrades & Options tab: config editor, catalog editor, pending confirmation UI)
 - [x] Execute Phase 42 plan 01 (public catalog/quote contract + options-only submission)
 - [x] Execute Phase 42 plan 02 (options-only signup UI: accommodation step, quote-backed review/summary, options-only client payload)
-- [ ] Resolve Phase 43 research flag: ownership-gate mechanism, rate limiting, honeypot reuse, edit audit rows, Tikkie regeneration timing (note: Tikkie links are now flexible-zero, so regeneration on re-price no longer applies)
+- [x] Resolve Phase 43 research flag: ownership-gate mechanism, rate limiting, honeypot reuse, edit audit rows, Tikkie regeneration timing (email/HMAC token ownership, route + mutation guards, reused `website` honeypot, append-only audit rows, flexible-zero links untouched)
+- [x] Execute Phase 43 plan 01 (server edit contract: token primitives, audit schema, permalink email links, edit-context projection, atomic replace mutation, handler coverage)
+- [x] Execute Phase 43 plan 02 (rate-limited honeypot-protected POST /api/track-payment/[bookingRef] + route tests)
+- [x] Execute Phase 43 plan 03 (durable permalink UI: shared view, dynamic route, accommodation editor, client contract tests)
 - [ ] Resolve Phase 42 research flag: legacy slot-based signup coexistence/migration window
 
 ### Blockers/Concerns
@@ -87,6 +91,9 @@ Progress: ████████ (6/6 plans executed across Phases 39-42; 0/7 
 - REQUIREMENTS.md earlier claimed 36 v5.0 requirements; the traceability table lists 31 — all 31 are mapped to a phase (100% coverage). Coverage note corrected in REQUIREMENTS.md.
 - Phase 41 execution added one additive contract field beyond the Plan 01 SUMMARY (`hasAccommodationSelections`) so the pending panel renders the honest pre-signup empty state; covered by tests and documented in the 41-02 SUMMARY.
 - Phase 42 plan 02 has two backstop-verified must_haves (no page overflow at 320px; long server-provided labels wrap without clipping). No backstop tooling is configured in the repo; the markup is UI-SPEC-compliant and source-inspected, and the visual checks are deferred to Phase 45 human verification alongside the Phase 40/41 deferred items.
+- Phase 43 plan 03 adds the same two backstop must_haves (no page overflow at 320px; long event-configured labels wrap without clipping) plus deep-link preservation for `/track-payment/[bookingRef]?token=...`; markup is UI-SPEC-compliant and source-inspected (min-w-0/flex-wrap contract asserted in component tests) and the visual walkthrough is deferred to Phase 45.
+- Phase 43 plan 03 extended `vitest.components.config.ts` include with `components/**/*.test.tsx` (the repo previously had no tsx component tests); documented in the 43-03 SUMMARY.
+- The pre-existing track-payment overpaid banner computes the donation amount client-side (`totalPaidMinor - totalDueMinor`) and is preserved unchanged as legacy behavior; the new Phase 43 editor/overpayment surfaces are strictly server-provided. Flagged for Phase 45 cross-surface money-agreement review.
 
 ### Quick Tasks Completed
 
@@ -96,9 +103,9 @@ Progress: ████████ (6/6 plans executed across Phases 39-42; 0/7 
 
 ## Session Continuity
 
-Last session: 2026-08-06T01:35:00.000Z
-Stopped at: Completed 42-02-PLAN.md (options-only signup UI)
-Resume file: None — next: Phase 43 planning (track-payment permalink; research flag: ownership-gate mechanism, rate limiting, honeypot reuse, edit audit rows)
+Last session: 2026-08-06T06:10:00.000Z
+Stopped at: Completed Phase 43 (plans 01-03 executed; server contract, HTTP route, and durable permalink UI committed)
+Resume file: .planning/phases/43-track-payment-permalink/43-03-SUMMARY.md — next: Phase 44 paid-priority allocation
 
 ## Deferred Verification
 
@@ -111,3 +118,4 @@ Resume file: None — next: Phase 43 planning (track-payment permalink; research
 | 38 | not_started | absorbed into v5.0 Phase 45 |
 | 40 | verification_deferred_human | /gsd-verify-work 40 (responsive receipt and external Tikkie flow deferred until v5.0 milestone completion) |
 | 41 | verification_deferred_human | /gsd-verify-work 41 (configured-event UI walkthrough, responsive layout, browser confirmation flow deferred until v5.0 milestone completion) |
+| 42 | verification_deferred_human | /gsd-verify-work 42 (320px/responsive signup walkthrough; production SIGNUP_SUBMISSION_SECRET + Turnstile provisioning) |
