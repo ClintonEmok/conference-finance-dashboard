@@ -636,6 +636,79 @@ test("assignment fails closed on malformed confirmation state", async () => {
   ).rejects.toThrow(/malformed accommodation confirmation state/)
 })
 
+test("assignment fails closed when only part of the selection set is confirmed", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const order = await createOrder(t, seed, {
+    attendeeKey: "a-partial",
+    name: "Partial Attendee",
+    bookingRef: "BK-PP-PARTIAL01",
+    ageBandCode: "18_plus",
+  })
+  const secondAttendeeId = await addAttendeeToOrder(t, seed, order.orderId, {
+    attendeeKey: "a-partial-2",
+    name: "Partial Attendee Two",
+    ageBandCode: "18_plus",
+  })
+
+  // Confirm ONLY the first attendee's row (with a complete snapshot, so the
+  // row is fully confirmed), leaving the second unconfirmed.
+  const rows = await loadSelectionRows(t, String(order.orderId))
+  expect(rows).toHaveLength(2)
+  const firstRow = rows.find(
+    (row) => String(row.attendeeId) === String(order.attendeeId)
+  )
+  expect(firstRow).toBeDefined()
+  await t.mutation(async (db) => {
+    await db.db.patch(
+      "orderAccommodationSelections",
+      firstRow!._id as Id<"orderAccommodationSelections">,
+      {
+        confirmedAt: BASE_EVENT_AT,
+        configVersion: BASE_EVENT_AT,
+        priceSnapshot: {
+          baseRatePerNightMinor: RATE_PER_NIGHT_MINOR,
+          upgradeRatePerNightMinor: 1500,
+          cotRatePerNightMinor: 500,
+          totalNights: NIGHT_COUNT,
+          coveredNights: 0,
+          categoryIsSuperior: false,
+          upgradeSelected: false,
+          cotSelected: false,
+          ageBandCode: "18_plus",
+          cotEligibilityAgeBandCode: "under_3",
+        },
+      }
+    )
+  })
+
+  // Assigning either attendee must fail closed: a partially confirmed set can
+  // never be assigned or silently completed.
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(order.attendeeId),
+      roomId: String(seed.roomId),
+    })
+  ).rejects.toThrow(/partially confirmed accommodation selections/)
+
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(secondAttendeeId),
+      roomId: String(seed.secondRoomId),
+    })
+  ).rejects.toThrow(/partially confirmed accommodation selections/)
+
+  // No room was written for either attendee.
+  const firstPlaced = await t.mutation(async (db) => {
+    return await db.db.get("orderAttendees", order.attendeeId)
+  })
+  const secondPlaced = await t.mutation(async (db) => {
+    return await db.db.get("orderAttendees", secondAttendeeId)
+  })
+  expect(firstPlaced?.assignedRoomId).toBeUndefined()
+  expect(secondPlaced?.assignedRoomId).toBeUndefined()
+})
+
 test("assignment rejects non-positive confirmedAt and configVersion", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await seedPaidPriorityEvent(t)
