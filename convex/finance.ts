@@ -454,7 +454,13 @@ export async function loadMatchedPaymentTotalsByOrderId(
   ctx: FinanceDbCtx,
   orders: OrderRef[]
 ): Promise<Map<string, number>> {
-  const payments = (await ctx.db.query("payments").take(2000)) as MatchedPaymentRecord[]
+  // Read the complete applied-payment set through bounded async iteration.
+  // A fixed `.take(2000)` would silently truncate payments beyond the page and
+  // make a paid/partial attendee render as unpaid/partial.
+  const payments: MatchedPaymentRecord[] = []
+  for await (const payment of ctx.db.query("payments")) {
+    payments.push(payment as MatchedPaymentRecord)
+  }
   const canonicalOrderIdsByAlias = new Map<string, string>()
 
   for (const order of orders) {

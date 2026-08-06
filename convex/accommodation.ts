@@ -5,6 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { requireIdentity } from "./auth"
 import {
   buildAccommodationPriceSnapshot,
+  isCompleteAccommodationPriceSnapshot,
   type AccommodationPriceSnapshot,
 } from "../lib/domain/finance/accommodation-amounts"
 import {
@@ -780,6 +781,7 @@ export const getRoomAllocationBoard = query({
         unresolvedReason,
         submittedAt: order?.submittedAt ?? null,
         sortOrder: attendee.sortOrder,
+        allocationPriority: attendee.allocationPriority ?? null,
         paymentState: payment?.paymentState ?? null,
         amountDueMinor: payment?.amountDueMinor ?? null,
         paidAmountMinor: payment?.paidAmountMinor ?? null,
@@ -812,12 +814,17 @@ export const getRoomAllocationBoard = query({
       }
     }
 
-    // Sort: payment state first (paid/partial/unpaid), then unresolved, then
-    // submittedAt, then attendeeId (stable existing tie-breakers preserved).
+    // Sort: payment state first (paid/partial/unpaid), then allocation
+    // priority (CRITICAL before LOW), then unresolved, then submittedAt,
+    // then attendeeId (stable existing tie-breakers preserved).
     submissionQueueRows.sort((a, b) => {
       const aPaymentRank = paymentStateRank(a.paymentState)
       const bPaymentRank = paymentStateRank(b.paymentState)
       if (aPaymentRank !== bPaymentRank) return aPaymentRank - bPaymentRank
+
+      const aPriorityRank = allocationPriorityRank(a.allocationPriority)
+      const bPriorityRank = allocationPriorityRank(b.allocationPriority)
+      if (aPriorityRank !== bPriorityRank) return aPriorityRank - bPriorityRank
 
       if (a.unresolved !== b.unresolved) return a.unresolved ? -1 : 1
       const aTime = a.submittedAt ?? 0
@@ -3869,10 +3876,44 @@ export async function persistOrderAccommodationConfirmation(
     return
   }
 
-  const confirmedCount = selectionRows.filter(
-    (row) => row.confirmedAt !== undefined && row.confirmedAt !== null
-  ).length
+  // Classify each row as completely unconfirmed, completely confirmed, or
+  // malformed. A confirmed row is only complete when it carries a valid
+  // `confirmedAt`, a positive finite `configVersion`, and a complete price
+  // snapshot — otherwise it is malformed and the order must fail closed
+  // (the canonical finance loader would reject it later anyway).
+  const isFullyConfirmed = (row: Doc<"orderAccommodationSelections">) =>
+    row.confirmedAt !== undefined &&
+    row.confirmedAt !== null &&
+    Number.isFinite(row.confirmedAt) &&
+    row.configVersion !== undefined &&
+    row.configVersion !== null &&
+    Number.isFinite(row.configVersion) &&
+    row.priceSnapshot !== undefined &&
+    row.priceSnapshot !== null &&
+    isCompleteAccommodationPriceSnapshot(row.priceSnapshot)
 
+  const isCompletelyUnconfirmed = (row: Doc<"orderAccommodationSelections">) =>
+    (row.confirmedAt === undefined || row.confirmedAt === null) &&
+    (row.configVersion === undefined || row.configVersion === null) &&
+    row.priceSnapshot === undefined
+
+  let confirmedCount = 0
+  let malformedCount = 0
+  for (const row of selectionRows) {
+    if (isFullyConfirmed(row)) {
+      confirmedCount += 1
+    } else if (!isCompletelyUnconfirmed(row)) {
+      // Partial fields (e.g. confirmedAt present without a complete
+      // snapshot, or a snapshot without confirmedAt) are malformed.
+      malformedCount += 1
+    }
+  }
+
+  if (malformedCount > 0) {
+    throw new Error(
+      "Order has malformed accommodation confirmation state and cannot be assigned"
+    )
+  }
   if (confirmedCount === selectionRows.length) {
     // Already fully confirmed: repeat assignment is an idempotent no-op.
     return

@@ -524,7 +524,6 @@ export const upsertAttendee = mutation({
 export const updateAttendee = mutation({
   args: {
     attendeeId: v.string(),
-    assignedRoomId: v.optional(v.string()),
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     location: v.optional(v.union(v.string(), v.null())),
@@ -558,7 +557,6 @@ export const updateAttendee = mutation({
     }
 
     const extensionUpdates: {
-      assignedRoomId?: string
       name?: string
       email?: string
       location?: string
@@ -570,7 +568,6 @@ export const updateAttendee = mutation({
     } = {}
 
     const coreUpdates: {
-      assignedRoomId?: string
       name?: string
       email?: string
       location?: string
@@ -578,11 +575,6 @@ export const updateAttendee = mutation({
       allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
       priorityReason?: string
     } = {}
-
-    if (args.assignedRoomId !== undefined) {
-      extensionUpdates.assignedRoomId = args.assignedRoomId
-      coreUpdates.assignedRoomId = args.assignedRoomId
-    }
 
     if (args.name !== undefined) {
       extensionUpdates.name = args.name

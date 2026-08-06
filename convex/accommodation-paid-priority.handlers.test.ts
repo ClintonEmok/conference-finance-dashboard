@@ -352,6 +352,8 @@ async function loadBoard(
     }>
     submissionQueueRows: Array<{
       attendeeId: string
+      attendeeName: string | null
+      allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
       paymentState: "paid" | "partial" | "unpaid" | null
       amountDueMinor: number | null
       paidAmountMinor: number | null
@@ -471,6 +473,32 @@ test("paid attendees sort before partial and unpaid regardless of allocationPrio
   expect(board.unassignedAttendees[2]?.paymentState).toBe("unpaid")
 })
 
+test("submission queue orders equal payment state by allocation priority", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  // Both unpaid: LOW must sort after CRITICAL on the server queue contract.
+  await createOrder(t, seed, {
+    attendeeKey: "q-low",
+    name: "Queue Low",
+    allocationPriority: "LOW",
+  })
+  await createOrder(t, seed, {
+    attendeeKey: "q-critical",
+    name: "Queue Critical",
+    allocationPriority: "CRITICAL",
+  })
+
+  const board = await loadBoard(t, seed.eventId)
+  const queueNames = board.submissionQueueRows.map((row) => row.attendeeName)
+  expect(queueNames.indexOf("Queue Critical")).toBeLessThan(
+    queueNames.indexOf("Queue Low")
+  )
+  const criticalRow = board.submissionQueueRows.find(
+    (row) => row.attendeeName === "Queue Critical"
+  )
+  expect(criticalRow?.allocationPriority).toBe("CRITICAL")
+})
+
 // ---------------------------------------------------------------------------
 // Assignment confirmation lock boundary
 // ---------------------------------------------------------------------------
@@ -573,6 +601,39 @@ test("repeat assignment of an already-confirmed order stays assignable and never
   expect(rows.every((row) => row.confirmedAt === confirmedAtAfterFirst)).toBe(
     true
   )
+})
+
+test("assignment fails closed on malformed confirmation state", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const order = await createOrder(t, seed, {
+    attendeeKey: "a-malformed",
+    name: "Malformed Attendee",
+    bookingRef: "BK-PP-MALF01",
+    ageBandCode: "18_plus",
+  })
+
+  // Corrupt the selection row: confirmedAt present but no complete snapshot.
+  const rows = await loadSelectionRows(t, String(order.orderId))
+  expect(rows).toHaveLength(1)
+  await t.mutation(async (db) => {
+    await db.db.patch(
+      "orderAccommodationSelections",
+      rows[0]._id as Id<"orderAccommodationSelections">,
+      {
+        confirmedAt: 123456,
+        configVersion: 1,
+        priceSnapshot: undefined,
+      }
+    )
+  })
+
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(order.attendeeId),
+      roomId: String(seed.roomId),
+    })
+  ).rejects.toThrow(/malformed accommodation confirmation state/)
 })
 
 test("legacy order with no accommodation selection rows still assigns", async () => {
