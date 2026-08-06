@@ -786,7 +786,6 @@ export const updateAccommodation = mutation({
     editToken: v.optional(v.string()),
     requestSignature: v.string(),
     idempotencyKey: v.string(),
-    honeypotSeen: v.boolean(),
     selections: v.array(editSelectionValidator),
   },
   returns: v.object({
@@ -829,7 +828,6 @@ export const updateAccommodation = mutation({
         bookerEmail,
         editToken: args.editToken ?? null,
         idempotencyKey,
-        honeypotSeen: args.honeypotSeen,
         selections: args.selections,
       }
     )
@@ -887,7 +885,6 @@ export const updateAccommodation = mutation({
       bookerEmail,
       editToken: args.editToken ?? null,
       idempotencyKey,
-      honeypotSeen: args.honeypotSeen,
       selections: args.selections,
     })
 

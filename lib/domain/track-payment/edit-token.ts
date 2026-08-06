@@ -63,14 +63,16 @@ export type EditAccommodationSelectionInput = {
  * The normalized edit envelope both sides sign. The route builds it from the
  * raw HTTP body/path; the mutation rebuilds it from its validated arguments
  * and recomputes the same digest, so a client-supplied fingerprint is never
- * trusted.
+ * trusted. Honeypot state is deliberately absent (WR-05): the server-side
+ * `website` check lives in the Next.js route and any trigger aborts before a
+ * signature is minted, so a client-claimed marker could only pollute the
+ * audit evidence.
  */
 export type TrackPaymentEditEnvelope = {
   bookingRef: string
   bookerEmail?: string | null
   editToken?: string | null
   idempotencyKey: string
-  honeypotSeen: boolean
   selections: EditAccommodationSelectionInput[]
 }
 
@@ -128,7 +130,6 @@ export function canonicalizeEditEnvelope(
       input.idempotencyKey,
       "idempotencyKey"
     ),
-    honeypotSeen: input.honeypotSeen === true,
     selections: input.selections.map(normalizeSelection),
   }
   return JSON.stringify(canonical)
@@ -311,7 +312,6 @@ export async function mintEditRequestSignature(input: {
   bookerEmail?: string | null
   editToken?: string | null
   idempotencyKey: string
-  honeypotSeen: boolean
   selections: EditAccommodationSelectionInput[]
   secret?: string
   now?: number
@@ -328,7 +328,6 @@ export async function mintEditRequestSignature(input: {
     bookerEmail: input.bookerEmail ?? null,
     editToken: input.editToken ?? null,
     idempotencyKey: input.idempotencyKey,
-    honeypotSeen: input.honeypotSeen,
     selections: input.selections,
   })
   const signature = await hmacSha256Hex(
@@ -354,7 +353,6 @@ export async function verifyEditRequestSignature(
     bookerEmail?: string | null
     editToken?: string | null
     idempotencyKey: string
-    honeypotSeen: boolean
     selections: EditAccommodationSelectionInput[]
     secret?: string
     now?: number
@@ -386,7 +384,6 @@ export async function verifyEditRequestSignature(
     bookerEmail: input.bookerEmail ?? null,
     editToken: input.editToken ?? null,
     idempotencyKey: input.idempotencyKey,
-    honeypotSeen: input.honeypotSeen,
     selections: input.selections,
   })
   const expected = await hmacSha256Hex(

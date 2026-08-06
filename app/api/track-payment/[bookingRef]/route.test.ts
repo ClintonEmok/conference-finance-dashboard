@@ -125,9 +125,11 @@ describe("POST /api/track-payment/[bookingRef]", () => {
     expect(args.bookingRef).toBe(BOOKING_REF)
     expect(args.bookerEmail).toBe("booker@example.com")
     expect(args.idempotencyKey).toBe("idem-route-1")
-    expect(args.honeypotSeen).toBe(false)
     expect(args.requestSignature).toMatch(/\.[0-9]+$/)
     expect(Array.isArray(args.selections)).toBe(true)
+    // The honeypot result is server-derived and never forwarded: a client
+    // field is not part of the route-to-Convex contract (WR-05).
+    expect("honeypotSeen" in args).toBe(false)
     // The mutation receives only options-only preference fields — never a
     // client amount, total, price, date, night, room, slot, or snapshot.
     const allowedSelectionKeys = new Set([
@@ -180,7 +182,6 @@ describe("POST /api/track-payment/[bookingRef]", () => {
         bookerEmail: "booker@example.com",
         editToken: null,
         idempotencyKey: "idem-retry",
-        honeypotSeen: false,
         selections: (body.selections ?? []) as never,
         secret: TEST_SECRET,
       })
@@ -191,11 +192,26 @@ describe("POST /api/track-payment/[bookingRef]", () => {
         bookerEmail: "booker@example.com",
         editToken: null,
         idempotencyKey: "idem-retry",
-        honeypotSeen: false,
         selections: (body.selections ?? []) as never,
         secret: TEST_SECRET,
       })
     ).toBe(true)
+  })
+
+  it("ignores a client-supplied honeypotSeen marker and forwards a clean envelope", async () => {
+    const response = await POST(
+      editRequest({ body: validBody({ honeypotSeen: true }) }),
+      { params: Promise.resolve({ bookingRef: BOOKING_REF }) }
+    )
+    expect(response.status).toBe(200)
+    expect(mocks.convexMutation).toHaveBeenCalledTimes(1)
+    const args = mocks.convexMutation.mock.calls[0][1] as Record<
+      string,
+      unknown
+    >
+    // The marker never reaches the mutation or the signed envelope; the
+    // honeypot state is derived solely from the server-side website check.
+    expect("honeypotSeen" in args).toBe(false)
   })
 
   it("rejects a non-empty honeypot before touching Convex", async () => {

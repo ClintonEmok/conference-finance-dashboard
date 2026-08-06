@@ -405,7 +405,6 @@ async function signEditEnvelope(input: {
   bookerEmail?: string | null
   editToken?: string | null
   idempotencyKey: string
-  honeypotSeen?: boolean
   selections: ReturnType<typeof replacement>[]
 }): Promise<string> {
   return mintEditRequestSignature({
@@ -413,7 +412,6 @@ async function signEditEnvelope(input: {
     bookerEmail: input.bookerEmail ?? null,
     editToken: input.editToken ?? null,
     idempotencyKey: input.idempotencyKey,
-    honeypotSeen: input.honeypotSeen ?? false,
     selections: input.selections,
     secret: TEST_TRACK_PAYMENT_SECRET,
   })
@@ -553,7 +551,6 @@ test("email ownership succeeds and returns an applied result with canonical re-p
     bookerEmail: "  BOOKER@example.com ",
     requestSignature,
     idempotencyKey,
-    honeypotSeen: false,
     selections,
   })
 
@@ -604,7 +601,6 @@ test("HMAC edit token ownership succeeds without email", async () => {
     editToken,
     requestSignature,
     idempotencyKey,
-    honeypotSeen: false,
     selections,
   })
 
@@ -652,8 +648,7 @@ test("unsigned and mis-signed direct calls are rejected before any write", async
       bookerEmail: "booker@example.com",
       requestSignature: "forged.signature",
       idempotencyKey,
-      honeypotSeen: false,
-      selections,
+        selections,
     })
   ).rejects.toThrow("SIGNATURE_REQUIRED")
 
@@ -684,8 +679,7 @@ test("unsigned and mis-signed direct calls are rejected before any write", async
       bookerEmail: "booker@example.com",
       requestSignature: wrongSignature,
       idempotencyKey,
-      honeypotSeen: false,
-      selections,
+        selections,
     })
   ).rejects.toThrow("SIGNATURE_REQUIRED")
 
@@ -733,8 +727,7 @@ test("wrong ownership fails without leaking editability and without writes", asy
       bookerEmail: "attacker@example.com",
       requestSignature,
       idempotencyKey: keyOne,
-      honeypotSeen: false,
-      selections,
+        selections,
     })
   ).rejects.toThrow("EDIT_OWNERSHIP")
 
@@ -753,8 +746,7 @@ test("wrong ownership fails without leaking editability and without writes", asy
       editToken: "forged-token",
       requestSignature: wrongTokenSignature,
       idempotencyKey: keyTwo,
-      honeypotSeen: false,
-      selections,
+        selections,
     })
   ).rejects.toThrow("EDIT_OWNERSHIP")
 
@@ -793,7 +785,6 @@ test("client price, stay, room, slot and snapshot fields are rejected at the mut
     bookerEmail: "booker@example.com",
     requestSignature,
     idempotencyKey: keyOne,
-    honeypotSeen: false,
     selections: baseSelections,
     // A client-supplied total the mutation must never accept.
     totalAmountMinor: 1,
@@ -819,7 +810,6 @@ test("client price, stay, room, slot and snapshot fields are rejected at the mut
       selections: [tamperedSelection, baseSelections[1]],
     }),
     idempotencyKey: keyTwo,
-    honeypotSeen: false,
     selections: [tamperedSelection, baseSelections[1]],
   }
   await expect(
@@ -871,8 +861,7 @@ test("stale and cross-event choices are rejected before writes", async () => {
       bookerEmail: "booker@example.com",
       requestSignature,
       idempotencyKey: keyOne,
-      honeypotSeen: false,
-      selections: crossEventSelections,
+        selections: crossEventSelections,
     })
   ).rejects.toThrow("EDIT_INVALID")
 
@@ -905,8 +894,7 @@ test("stale and cross-event choices are rejected before writes", async () => {
       bookerEmail: "booker@example.com",
       requestSignature: cotSignature,
       idempotencyKey: keyTwo,
-      honeypotSeen: false,
-      selections: invalidCotSelections,
+        selections: invalidCotSelections,
     })
   ).rejects.toThrow("EDIT_INVALID")
 
@@ -938,8 +926,7 @@ test("stale and cross-event choices are rejected before writes", async () => {
       bookerEmail: "booker@example.com",
       requestSignature: constrainedSignature,
       idempotencyKey: keyThree,
-      honeypotSeen: false,
-      selections: constrainedBreakSelections,
+        selections: constrainedBreakSelections,
     })
   ).rejects.toThrow("EDIT_INVALID")
 
@@ -965,8 +952,7 @@ test("stale and cross-event choices are rejected before writes", async () => {
       bookerEmail: "booker@example.com",
       requestSignature: partialSignature,
       idempotencyKey: keyFour,
-      honeypotSeen: false,
-      selections: partialSelections,
+        selections: partialSelections,
     })
   ).rejects.toThrow("EDIT_CONFLICT")
 
@@ -1013,8 +999,7 @@ test("confirmed orders reject edits atomically", async () => {
       bookerEmail: "booker@example.com",
       requestSignature,
       idempotencyKey,
-      honeypotSeen: false,
-      selections,
+        selections,
     })
   ).rejects.toThrow("EDIT_CONFIRMED")
 
@@ -1088,7 +1073,6 @@ test("applied edits persist server-resolved preferences and stay fields and leav
     bookerEmail: "booker@example.com",
     requestSignature,
     idempotencyKey,
-    honeypotSeen: false,
     selections,
   })
 
@@ -1191,7 +1175,6 @@ test("an identical replacement is a true no-op with no audit row", async () => {
     bookerEmail: "booker@example.com",
     requestSignature,
     idempotencyKey,
-    honeypotSeen: false,
     selections,
   })
 
@@ -1241,7 +1224,6 @@ test("an already-used idempotency key replays its stored result without duplicat
     bookerEmail: "booker@example.com",
     requestSignature,
     idempotencyKey,
-    honeypotSeen: false,
     selections,
   })
   expect(first.status).toBe("applied")
@@ -1253,7 +1235,6 @@ test("an already-used idempotency key replays its stored result without duplicat
     bookerEmail: "booker@example.com",
     requestSignature,
     idempotencyKey,
-    honeypotSeen: false,
     selections,
   })
   expect(second.status).toBe("replayed")
@@ -1300,7 +1281,6 @@ test("distinct applied edits produce distinct append-only server-valued audit ro
       selections: editOne,
     }),
     idempotencyKey: keyOne,
-    honeypotSeen: false,
     selections: editOne,
   })
   expect(resultOne.status).toBe("applied")
@@ -1330,7 +1310,6 @@ test("distinct applied edits produce distinct append-only server-valued audit ro
       selections: editTwo,
     }),
     idempotencyKey: keyTwo,
-    honeypotSeen: false,
     selections: editTwo,
   })
   expect(resultTwo.status).toBe("applied")
@@ -1398,7 +1377,6 @@ test("a downward re-price returns the server-computed overpayment while the flex
       selections: upSelections,
     }),
     idempotencyKey: upKey,
-    honeypotSeen: false,
     selections: upSelections,
   })
   expect(up.amountDueMinor).toBe(22500)
@@ -1429,7 +1407,6 @@ test("a downward re-price returns the server-computed overpayment while the flex
       selections: downSelections,
     }),
     idempotencyKey: downKey,
-    honeypotSeen: false,
     selections: downSelections,
   })
 
@@ -1500,7 +1477,6 @@ test("reusing an idempotency key with a different envelope rejects with EDIT_IDE
       selections: appliedSelections,
     }),
     idempotencyKey,
-    honeypotSeen: false,
     selections: appliedSelections,
   })
   expect(first.status).toBe("applied")
@@ -1533,8 +1509,7 @@ test("reusing an idempotency key with a different envelope rejects with EDIT_IDE
         selections: changedSelections,
       }),
       idempotencyKey,
-      honeypotSeen: false,
-      selections: changedSelections,
+        selections: changedSelections,
     }
   ).catch((err: unknown) => err)
   expect(error).toBeInstanceOf(Error)
@@ -1583,7 +1558,6 @@ test("a same-key replay returns the stored result even after the organizer confi
     bookerEmail: "booker@example.com",
     requestSignature,
     idempotencyKey,
-    honeypotSeen: false,
     selections,
   })
   expect(first.status).toBe("applied")
@@ -1609,7 +1583,6 @@ test("a same-key replay returns the stored result even after the organizer confi
     bookerEmail: "booker@example.com",
     requestSignature,
     idempotencyKey,
-    honeypotSeen: false,
     selections,
   })
   expect(second.status).toBe("replayed")

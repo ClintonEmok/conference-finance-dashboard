@@ -1391,7 +1391,6 @@ export declare const api: {
         bookerEmail?: string;
         bookingRef: string;
         editToken?: string;
-        honeypotSeen: boolean;
         idempotencyKey: string;
         requestSignature: string;
         selections: Array<{

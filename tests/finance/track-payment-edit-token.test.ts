@@ -23,7 +23,6 @@ function buildEnvelope(overrides: Partial<Parameters<typeof digestEditEnvelope>[
     bookerEmail: "booker@example.com",
     editToken: "abc123",
     idempotencyKey: "idem-1",
-    honeypotSeen: false,
     selections: [
       {
         attendeeKey: "a-1",

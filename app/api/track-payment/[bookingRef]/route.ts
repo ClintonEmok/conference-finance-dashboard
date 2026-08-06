@@ -135,7 +135,10 @@ export async function POST(
   }
 
   // Honeypot: a non-empty `website` field is rejected with the same generic
-  // public rejection style as the signup route.
+  // public rejection style as the signup route. The result is purely
+  // server-derived — a request that reaches this point was never marked as
+  // honeypot-seen, and no client-claimed marker is forwarded to the mutation
+  // or signature (WR-05).
   const website =
     typeof record.website === "string" ? record.website.trim() : ""
   if (website) {
@@ -168,7 +171,6 @@ export async function POST(
       record.idempotencyKey.trim()) ||
     idempotencyFromHeader ||
     undefined
-  const honeypotSeen = record.honeypotSeen === true
 
   if (!idempotencyKey) {
     return jsonError(
@@ -254,7 +256,6 @@ export async function POST(
       bookerEmail: bookerEmail ?? null,
       editToken: editToken ?? null,
       idempotencyKey,
-      honeypotSeen,
       selections,
     })
   } catch {
@@ -272,7 +273,6 @@ export async function POST(
       editToken,
       requestSignature,
       idempotencyKey,
-      honeypotSeen,
       selections,
     })
     return NextResponse.json({ data: result }, { status: 200 })
