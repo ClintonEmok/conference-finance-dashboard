@@ -27,11 +27,19 @@ const DEFAULT_CONFIG: RateLimitConfig = {
 /**
  * In-memory rate limiter keyed by arbitrary identifier.
  *
- * Suitable for single-instance deployments (Vercel serverless, local dev).
- * For multi-instance or edge deployments, swap the backing store for Redis
- * or a similar shared counter — the public surface stays the same. Without a
- * shared store, each instance keeps its own counter, which weakens the
- * limit under concurrency (WR-01).
+ * Single-process guarantee only: counters live in a process-local `Map`, so
+ * the limit is enforced exactly once per running instance. On a
+ * single-instance host this is a strict global limit; on Vercel serverless,
+ * edge, or any horizontally scaled deployment each instance keeps its own
+ * independent window, which lets a caller distribute requests across
+ * instances and exceed the intended limit (WR-07).
+ *
+ * This is an ACCEPTED limitation of the current deployment — documented as
+ * a known constraint, not fixed here. Enforcing a strict multi-instance
+ * limit requires backing `checkRateLimit` with a shared atomic store (e.g.
+ * Upstash/Redis) while keeping the same public surface. Do not treat this
+ * limiter as the sole abuse control once a multi-instance deployment is
+ * enabled.
  */
 export function checkRateLimit(
   key: string,

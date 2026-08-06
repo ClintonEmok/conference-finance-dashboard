@@ -103,6 +103,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
  * signature and ownership). Returns the mutation's server-derived canonical
  * result; ownership/validation/confirmed/rate-limit failures map to stable
  * JSON responses that never reveal whether another booking reference exists.
+ *
+ * Rate-limit scope (WR-07): `enforceRateLimit` is backed by an in-memory
+ * store, so the 20-request window is enforced per running instance only.
+ * This single-instance limitation is documented in lib/rate-limit.ts and is
+ * an accepted constraint of the current deployment; a shared atomic store is
+ * required before this route is served from a multi-instance deployment.
  */
 export async function POST(
   request: Request,
