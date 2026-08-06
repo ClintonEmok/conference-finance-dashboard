@@ -16,6 +16,36 @@ type SignupSummaryProps = {
 
 export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
   const selectedTickets = draft.ticketSelections.filter((t) => t.quantity > 0)
+  const quoteReady = quote.status === "ready"
+
+  // WR-02: whenever the live quote is ready, ticket rows and unit prices come
+  // from the server quote (quote.attendees[].ticketPriceMinor,
+  // quote.currency) so a catalog-price change can never disagree with the
+  // quoted total. The draft/catalog copy is only a pre-quote snapshot.
+  const ticketRows = quoteReady
+    ? Array.from(
+        quote.quote.attendees
+          .reduce((byTicket, attendee) => {
+            const existing = byTicket.get(attendee.ticketTypeId)
+            if (existing) {
+              existing.count += 1
+            } else {
+              byTicket.set(attendee.ticketTypeId, {
+                label: attendee.ticketLabel,
+                priceMinor: attendee.ticketPriceMinor,
+                count: 1,
+              })
+            }
+            return byTicket
+          }, new Map<string, { label: string; priceMinor: number; count: number }>())
+          .values()
+      )
+    : selectedTickets.map((ticket) => ({
+        label: ticket.label,
+        priceMinor: ticket.priceMinor,
+        count: ticket.quantity,
+      }))
+  const currency = quoteReady ? quote.quote.currency : event.currency
 
   return (
     <div className="space-y-6">
@@ -41,21 +71,21 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
           Selections
         </div>
 
-        {selectedTickets.length > 0 ? (
+        {ticketRows.length > 0 ? (
           <div className="space-y-3">
-            {selectedTickets.map((ticket) => (
+            {ticketRows.map((ticket) => (
               <div
-                key={ticket.ticketTypeId}
-                className="flex justify-between text-sm"
+                key={ticket.label}
+                className="flex justify-between gap-3 text-sm"
               >
-                <div className="flex flex-col">
-                  <span className="font-bold text-foreground">
-                    {ticket.quantity}x {ticket.label}
+                <div className="min-w-0">
+                  <span className="block break-words font-bold text-foreground">
+                    {ticket.count}x {ticket.label}
                   </span>
-                  {/* Server catalog unit price only — no client quantity
+                  {/* Server quote unit price only — no client quantity
                       multiplication; the total comes from the quote. */}
-                  <span className="font-mono text-xs text-foreground/60">
-                    {formatPrice(ticket.priceMinor, event.currency)} each
+                  <span className="block font-mono text-xs text-foreground/60">
+                    {formatPrice(ticket.priceMinor, currency)} each
                   </span>
                 </div>
               </div>
@@ -92,7 +122,7 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
                           : ""}
                       </span>
                       <span className="font-mono tabular-nums text-foreground/80">
-                        {formatPrice(line.chargeMinor, event.currency)}
+                        {formatPrice(line.chargeMinor, currency)}
                       </span>
                     </div>
                   ))
@@ -112,7 +142,7 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
                   Total Balance
                 </div>
                 <div className="text-2xl font-black tracking-tight text-foreground">
-                  {formatPrice(quote.quote.totalDueMinor, event.currency)}
+                  {formatPrice(quote.quote.totalDueMinor, currency)}
                 </div>
               </div>
               <p className="mt-1 text-[10px] leading-snug text-muted-foreground/70">
