@@ -22,6 +22,8 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
   // from the server quote (quote.attendees[].ticketPriceMinor,
   // quote.currency) so a catalog-price change can never disagree with the
   // quoted total. The draft/catalog copy is only a pre-quote snapshot.
+  // WR-08: every row carries its `ticketTypeId` so the rendered React key is
+  // unique even when two configured ticket types share a label.
   const ticketRows = quoteReady
     ? Array.from(
         quote.quote.attendees
@@ -31,16 +33,18 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
               existing.count += 1
             } else {
               byTicket.set(attendee.ticketTypeId, {
+                ticketTypeId: attendee.ticketTypeId,
                 label: attendee.ticketLabel,
                 priceMinor: attendee.ticketPriceMinor,
                 count: 1,
               })
             }
             return byTicket
-          }, new Map<string, { label: string; priceMinor: number; count: number }>())
+          }, new Map<string, { ticketTypeId: string; label: string; priceMinor: number; count: number }>())
           .values()
       )
     : selectedTickets.map((ticket) => ({
+        ticketTypeId: ticket.ticketTypeId,
         label: ticket.label,
         priceMinor: ticket.priceMinor,
         count: ticket.quantity,
@@ -75,7 +79,7 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
           <div className="space-y-3">
             {ticketRows.map((ticket) => (
               <div
-                key={ticket.label}
+                key={ticket.ticketTypeId}
                 className="flex justify-between gap-3 text-sm"
               >
                 <div className="min-w-0">
