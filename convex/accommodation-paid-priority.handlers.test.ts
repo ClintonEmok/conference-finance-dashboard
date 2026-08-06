@@ -648,6 +648,9 @@ test("assignment rejects non-positive confirmedAt and configVersion", async () =
 
   const rows = await loadSelectionRows(t, String(order.orderId))
   expect(rows).toHaveLength(1)
+  // Isolate the metadata check: provide a complete price snapshot with
+  // non-positive confirmedAt/configVersion. The row must still be rejected
+  // as malformed (matching the finance loader's > 0 requirement).
   await t.mutation(async (db) => {
     await db.db.patch(
       "orderAccommodationSelections",
@@ -655,7 +658,18 @@ test("assignment rejects non-positive confirmedAt and configVersion", async () =
       {
         confirmedAt: 0,
         configVersion: 0,
-        priceSnapshot: undefined,
+        priceSnapshot: {
+          baseRatePerNightMinor: RATE_PER_NIGHT_MINOR,
+          upgradeRatePerNightMinor: 1500,
+          cotRatePerNightMinor: 500,
+          totalNights: NIGHT_COUNT,
+          coveredNights: 0,
+          categoryIsSuperior: false,
+          upgradeSelected: false,
+          cotSelected: false,
+          ageBandCode: "18_plus",
+          cotEligibilityAgeBandCode: "under_3",
+        },
       }
     )
   })

@@ -486,7 +486,6 @@ export declare const api: {
       "public",
       {
         allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
-        assignedRoomId?: string;
         attendeeId: string;
         email?: string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
