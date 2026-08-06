@@ -6,6 +6,10 @@ import {
   isOrderAppliedPayment,
 } from "../lib/domain/finance/amounts"
 import {
+  deriveAllocationPaymentBreakdowns,
+  type AllocationPaymentState,
+} from "../lib/domain/finance/allocation-payment-state"
+import {
   deriveAccommodationAmount,
   isCompleteAccommodationPriceSnapshot,
   type AccommodationPriceSnapshot,
@@ -491,4 +495,66 @@ export async function loadMatchedPaymentTotalsByOrderId(
   }
 
   return totalsByOrderId
+}
+
+export type AllocationAttendeePaymentRow = {
+  attendeeId: string
+  amountDueMinor: number
+  paidAmountMinor: number
+  paymentState: AllocationPaymentState
+}
+
+/**
+ * Canonical per-attendee payment projection for the Allocation board (Phase
+ * 44). Accepts the already-scoped orders, their `loadOrderAmountDueBreakdowns`
+ * result, and the attendee IDs grouped by order; calls the matched-payment
+ * loader exactly once for the scoped set, then uses the pure due-weight
+ * allocation helper to produce an attendeeId-keyed tri-state map.
+ *
+ * The projection never reads `orders.status` or provider status as a payment
+ * authority — a pending internal order with a recorded applied payment renders
+ * as paid because the canonical matched balance says so. Attendees absent from
+ * the canonical due map (no ticket selection) are omitted; callers fall back
+ * to a neutral untyped row rather than fabricating an unpaid state.
+ */
+export async function loadOrderAttendeePaymentBreakdowns(input: {
+  ctx: FinanceDbCtx
+  orders: OrderRef[]
+  dueBreakdownsByOrderId: Map<string, OrderAmountDueBreakdown>
+  attendeeIdsByOrderId: Map<string, string[]>
+}): Promise<Map<string, AllocationAttendeePaymentRow>> {
+  const paidTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
+    input.ctx,
+    input.orders
+  )
+
+  const paymentById = new Map<string, AllocationAttendeePaymentRow>()
+
+  for (const order of input.orders) {
+    const orderKey = String(order._id)
+    const dueBreakdown = input.dueBreakdownsByOrderId.get(orderKey)
+    const attendeeIds = input.attendeeIdsByOrderId.get(orderKey) ?? []
+    if (!dueBreakdown || attendeeIds.length === 0) {
+      continue
+    }
+
+    const amountDueByAttendeeId = new Map<string, number>()
+    for (const attendeeId of attendeeIds) {
+      const dueMinor = dueBreakdown.amountDueByAttendeeId.get(attendeeId)
+      if (dueMinor !== undefined) {
+        amountDueByAttendeeId.set(attendeeId, dueMinor)
+      }
+    }
+
+    const breakdowns = deriveAllocationPaymentBreakdowns({
+      amountDueByAttendeeId,
+      paidTotalMinor: paidTotalsByOrderId.get(orderKey) ?? 0,
+    })
+
+    for (const [, breakdown] of breakdowns) {
+      paymentById.set(breakdown.attendeeId, breakdown)
+    }
+  }
+
+  return paymentById
 }

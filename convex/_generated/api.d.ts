@@ -2402,6 +2402,9 @@ export declare const internal: {
       any
     >;
   };
+  init: {
+    default: FunctionReference<"mutation", "internal", any, any>;
+  };
   orders: {
     syncFullyPaidOrders: FunctionReference<
       "mutation",

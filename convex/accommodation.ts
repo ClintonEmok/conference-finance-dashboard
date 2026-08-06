@@ -7,6 +7,10 @@ import {
   buildAccommodationPriceSnapshot,
   type AccommodationPriceSnapshot,
 } from "../lib/domain/finance/accommodation-amounts"
+import {
+  loadOrderAmountDueBreakdowns,
+  loadOrderAttendeePaymentBreakdowns,
+} from "./finance"
 
 type DocTables = {
   accommodationHotels: Doc<"accommodationHotels">
@@ -120,6 +124,22 @@ function allocationPriorityRank(
     LOW: 3,
   }
   return ranks[priority ?? "NORMAL"] ?? 2
+}
+
+/**
+ * Primary allocation rank (Phase 44): paid first, partial second, unpaid
+ * last. A missing/unknown projection sorts after unpaid so a neutral attendee
+ * is never silently promoted ahead of a real state.
+ */
+function paymentStateRank(
+  state: "paid" | "partial" | "unpaid" | null | undefined
+): number {
+  const ranks: Record<string, number> = {
+    paid: 0,
+    partial: 1,
+    unpaid: 2,
+  }
+  return state ? (ranks[state] ?? 3) : 3
 }
 
 export function attendeeMatchesSignalFilters(input: {
@@ -348,6 +368,30 @@ export const getRoomAllocationBoard = query({
       return true
     })
 
+    // --- Canonical payment-state projection (Phase 44) ---
+    // Group the scoped attendees by order once and load the canonical
+    // per-attendee payment breakdown exactly once for the scoped order set.
+    // The board never reads orders.status and never queries payments inside
+    // the attendee mapping loops below; rows consume the precomputed map.
+    const attendeeIdsByOrderId = new Map<string, string[]>()
+    for (const attendee of scopedAttendees) {
+      const orderKey = String(attendee.orderId)
+      const attendeeIds = attendeeIdsByOrderId.get(orderKey) ?? []
+      attendeeIds.push(String(attendee._id))
+      attendeeIdsByOrderId.set(orderKey, attendeeIds)
+    }
+
+    const dueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      scopedOrders
+    )
+    const paymentById = await loadOrderAttendeePaymentBreakdowns({
+      ctx,
+      orders: scopedOrders,
+      dueBreakdownsByOrderId,
+      attendeeIdsByOrderId,
+    })
+
     const attendeeFamilyGroupByAttendeeId = new Map<string, string>()
     for (const familyMember of familyMembers) {
       if (!attendeeFamilyGroupByAttendeeId.has(familyMember.attendeeId)) {
@@ -456,6 +500,7 @@ export const getRoomAllocationBoard = query({
         const canonicalEvent = order
           ? canonicalEventById.get(order.eventId as string)
           : null
+        const payment = paymentById.get(String(a._id))
         return {
           attendeeId: a._id,
           orderId: order?._id ?? null,
@@ -466,6 +511,9 @@ export const getRoomAllocationBoard = query({
           eventId: canonicalEvent?._id ?? null,
           eventName: canonicalEvent?.title ?? null,
           ticketTypeLabel: null,
+          paymentState: payment?.paymentState ?? null,
+          amountDueMinor: payment?.amountDueMinor ?? null,
+          paidAmountMinor: payment?.paidAmountMinor ?? null,
         }
       })
       const occupiedBeds = occupants.length
@@ -507,6 +555,7 @@ export const getRoomAllocationBoard = query({
         : null
       const attendeeFamilyGroupId =
         attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
+      const payment = paymentById.get(String(a._id))
       return {
         attendeeId: a._id,
         orderId: order?._id ?? null,
@@ -537,7 +586,32 @@ export const getRoomAllocationBoard = query({
           attendeeFamilyGroupId,
           attendeeCountByOrderId,
         }),
+        paymentState: payment?.paymentState ?? null,
+        amountDueMinor: payment?.amountDueMinor ?? null,
+        paidAmountMinor: payment?.paidAmountMinor ?? null,
       }
+    })
+
+    // Paid-first ordering (Phase 44): payment state is the primary rank, then
+    // the existing allocation priority, then stable group/name/id tie-breakers.
+    mappedUnassignedAttendees.sort((a, b) => {
+      const aPaymentRank = paymentStateRank(a.paymentState)
+      const bPaymentRank = paymentStateRank(b.paymentState)
+      if (aPaymentRank !== bPaymentRank) return aPaymentRank - bPaymentRank
+
+      const aPriorityRank = allocationPriorityRank(a.allocationPriority)
+      const bPriorityRank = allocationPriorityRank(b.allocationPriority)
+      if (aPriorityRank !== bPriorityRank) return aPriorityRank - bPriorityRank
+
+      const orderComparison = (a.orderId ?? "").localeCompare(b.orderId ?? "")
+      if (orderComparison !== 0) return orderComparison
+
+      const nameComparison = (a.attendeeName ?? "").localeCompare(
+        b.attendeeName ?? ""
+      )
+      if (nameComparison !== 0) return nameComparison
+
+      return a.attendeeId.localeCompare(b.attendeeId)
     })
 
     // --- Canonical submission queue rows ---
@@ -594,6 +668,7 @@ export const getRoomAllocationBoard = query({
         const room = roomId ? roomById.get(roomId) : null
         const hotel = room ? hotelMap.get(room.hotelId as string) : null
         const attendee = attendeeById.get(assignment.attendeeId as string)
+        const payment = paymentById.get(String(assignment.attendeeId))
 
         return {
           assignmentId: assignment._id as string,
@@ -605,6 +680,9 @@ export const getRoomAllocationBoard = query({
           hotelName: hotel?.name ?? null,
           assignmentIntent: assignment.assignmentIntent,
           sortOrder: assignment.sortOrder,
+          paymentState: payment?.paymentState ?? null,
+          amountDueMinor: payment?.amountDueMinor ?? null,
+          paidAmountMinor: payment?.paidAmountMinor ?? null,
         }
       })
       .sort((a, b) => {
@@ -661,6 +739,7 @@ export const getRoomAllocationBoard = query({
     const submissionQueueRows = orderAttendeesList.map((attendee) => {
       const order = orderById.get(attendee.orderId as string)
       const assignment = assignmentByAttendeeId.get(attendee._id as string)
+      const payment = paymentById.get(String(attendee._id))
 
       let unresolved = false
       let unresolvedReason: string | null = null
@@ -701,6 +780,9 @@ export const getRoomAllocationBoard = query({
         unresolvedReason,
         submittedAt: order?.submittedAt ?? null,
         sortOrder: attendee.sortOrder,
+        paymentState: payment?.paymentState ?? null,
+        amountDueMinor: payment?.amountDueMinor ?? null,
+        paidAmountMinor: payment?.paidAmountMinor ?? null,
       }
     })
 
@@ -730,8 +812,13 @@ export const getRoomAllocationBoard = query({
       }
     }
 
-    // Sort: unresolved first, then submittedAt, then attendeeId
+    // Sort: payment state first (paid/partial/unpaid), then unresolved, then
+    // submittedAt, then attendeeId (stable existing tie-breakers preserved).
     submissionQueueRows.sort((a, b) => {
+      const aPaymentRank = paymentStateRank(a.paymentState)
+      const bPaymentRank = paymentStateRank(b.paymentState)
+      if (aPaymentRank !== bPaymentRank) return aPaymentRank - bPaymentRank
+
       if (a.unresolved !== b.unresolved) return a.unresolved ? -1 : 1
       const aTime = a.submittedAt ?? 0
       const bTime = b.submittedAt ?? 0
@@ -1291,6 +1378,12 @@ export const assignRoomToAttendee = mutation({
       throw new Error("Room is already full")
     }
 
+    // Phase 44 lock boundary: the first assignment for an order with
+    // unconfirmed options-only selections persists the accommodation
+    // confirmation snapshot atomically with the assignment write. Legacy
+    // orders with no selection rows skip cleanly.
+    await persistOrderAccommodationConfirmation(ctx, attendee.orderId)
+
     await ctx.db.patch("orderAttendees", attendeeId, {
       assignedRoomId: args.roomId,
     })
@@ -1358,6 +1451,11 @@ export const assignAttendeeToRoom = mutation({
     if (occupiedCount.length >= room.capacity) {
       throw new Error("Room is already full")
     }
+
+    // Phase 44 lock boundary: first assignment for an order with unconfirmed
+    // options-only selections persists the confirmation snapshot atomically
+    // with the assignment write; legacy orders skip cleanly.
+    await persistOrderAccommodationConfirmation(ctx, attendee.orderId)
 
     await ctx.db.patch("orderAttendees", attendeeId, {
       assignedRoomId: args.roomId,
@@ -2167,6 +2265,12 @@ export const confirmBuyerAssignment = mutation({
         alternatives,
       }
     }
+
+    // Phase 44 lock boundary: persisting the accommodation confirmation
+    // happens after room/capacity validation but before the assignment write,
+    // so a full room never locks the buyer's configuration. A resolver
+    // failure aborts the whole transaction before any assignment patch.
+    await persistOrderAccommodationConfirmation(ctx, order._id)
 
     // Get current user identity for confirmedBy
     const identity = await ctx.auth.getUserIdentity()
@@ -3643,21 +3747,22 @@ export async function resolveOrderAccommodationConfirmation(
     if (attendee.orderId !== orderId) {
       throw new Error("Selection attendee does not belong to the order")
     }
-    // Age-band data must be present and configured for this event, and a
-    // selected cot is only eligible for the event-configured cot eligibility
-    // band. A confirmed snapshot must never record an ineligible or missing
-    // age band as a zero-charge line — reject the row instead of persisting
-    // an empty or unknown code.
-    if (
-      row.ageBandCode === undefined ||
-      row.ageBandCode === null ||
-      !eventAgeBandCodes.has(row.ageBandCode)
-    ) {
-      throw new Error("Selection has a missing or invalid age band")
+    // Phase 42 signup permits an optional age band: a missing band is valid
+    // whenever no cot is selected (the snapshot records an empty band and the
+    // formula charges no cot line). A provided band must still belong to this
+    // event's configured age-pricing rows, and a cot selection always requires
+    // the event-configured cot eligibility band — a confirmed snapshot must
+    // never record an ineligible or unknown band as a zero-charge line.
+    if (row.ageBandCode !== undefined && row.ageBandCode !== null) {
+      if (!eventAgeBandCodes.has(row.ageBandCode)) {
+        throw new Error("Selection has a missing or invalid age band")
+      }
     }
     if (
       row.cotSelected &&
-      (cotEligibilityAgeBandCode === null ||
+      (row.ageBandCode === undefined ||
+        row.ageBandCode === null ||
+        cotEligibilityAgeBandCode === null ||
         row.ageBandCode !== cotEligibilityAgeBandCode)
     ) {
       throw new Error(
@@ -3726,6 +3831,66 @@ export async function resolveOrderAccommodationConfirmation(
   }
 
   return { configVersion, patches }
+}
+
+/**
+ * Assignment-confirmation boundary (Phase 44, D-08/D-09): persists the Phase
+ * 41 `confirmedAt`/`configVersion`/`priceSnapshot` boundary through the shared
+ * `resolveOrderAccommodationConfirmation` resolver in the SAME Convex
+ * transaction as the assignment write that follows. Every admin assignment
+ * entry point that can finalize a room placement calls this before patching
+ * the attendee or assignment.
+ *
+ * Path decisions:
+ *   - No selection rows        -> legacy order, skip cleanly (nothing to lock)
+ *   - Every row already confirmed -> idempotent no-op; a repeat assignment is
+ *                                   allowed to proceed without re-confirming
+ *   - Mixed confirmed/unconfirmed -> fail closed; an order is never half-locked
+ *   - None confirmed           -> resolve + patch all rows atomically
+ *
+ * The resolver keeps every rate, night, timestamp, and snapshot
+ * server-resolved; this wrapper never accepts client money or confirmation
+ * fields and never duplicates the snapshot formula.
+ */
+export async function persistOrderAccommodationConfirmation(
+  ctx: MutationCtx,
+  orderId: Id<"orders">
+): Promise<void> {
+  const selectionRows: Array<Doc<"orderAccommodationSelections">> = []
+  for await (const row of ctx.db
+    .query("orderAccommodationSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", orderId))) {
+    selectionRows.push(row)
+  }
+
+  if (selectionRows.length === 0) {
+    // Legacy order with no options-only selection rows: existing assignment
+    // behavior is preserved and nothing is locked.
+    return
+  }
+
+  const confirmedCount = selectionRows.filter(
+    (row) => row.confirmedAt !== undefined && row.confirmedAt !== null
+  ).length
+
+  if (confirmedCount === selectionRows.length) {
+    // Already fully confirmed: repeat assignment is an idempotent no-op.
+    return
+  }
+  if (confirmedCount > 0) {
+    throw new Error(
+      "Order has partially confirmed accommodation selections and cannot be assigned"
+    )
+  }
+
+  const { patches } = await resolveOrderAccommodationConfirmation(ctx, orderId)
+  for (const patch of patches) {
+    await ctx.db.patch("orderAccommodationSelections", patch.selectionId, {
+      confirmedAt: patch.confirmedAt,
+      configVersion: patch.configVersion,
+      priceSnapshot: patch.priceSnapshot,
+    })
+  }
 }
 
 export const confirmAccommodationOrderConfiguration = mutation({
