@@ -21,6 +21,28 @@ const adminIdentity = {
   email: "admin@example.com",
 }
 
+// getRoomAllocationBoard has no `returns` validator, so convex-test types its
+// projection rows as `{}`. These local shapes pin the fields the matrix reads.
+type BoardAttendeeRow = {
+  attendeeId: string
+  orderId: string | null
+  attendeeName: string | null
+  paymentState: "paid" | "partial" | "unpaid" | null
+  amountDueMinor: number | null
+  paidAmountMinor: number | null
+}
+
+type AttendeeDetailRow = {
+  _id: string
+  amountDueMinor: number
+  orderAmountDueMinor: number | null
+}
+
+type SyncPaidOrderRow = {
+  _id: string
+  amountDueMinor: number | null
+}
+
 const BASE_EVENT_AT = 1_750_000_000_000
 
 type AuditSeed = {
@@ -481,9 +503,9 @@ test("one canonical amount-due and per-attendee breakdown across every consumer"
   expect(paymentSummary.remaining).toBe(9000)
 
   // 7. Attendee detail: per-attendee canonical due inside the order total.
-  const attendees = await t.query(api.attendees.getAttendeesWithTickets, {
+  const attendees = (await t.query(api.attendees.getAttendeesWithTickets, {
     eventId: seed.eventId,
-  })
+  })) as AttendeeDetailRow[]
   const attendeeA = attendees.find((a) => a._id === order.attendeeAId)
   const attendeeB = attendees.find((a) => a._id === order.attendeeBId)
   expect(attendeeA?.amountDueMinor).toBe(6000)
@@ -504,7 +526,7 @@ test("one canonical amount-due and per-attendee breakdown across every consumer"
   const board = await t.query(api.accommodation.getRoomAllocationBoard, {
     eventId: seed.eventId,
   })
-  const unassigned = board.unassignedAttendees.filter(
+  const unassigned = (board.unassignedAttendees as BoardAttendeeRow[]).filter(
     (row) => row.orderId === order.orderId
   )
   const unassignedA = unassigned.find(
@@ -522,7 +544,7 @@ test("one canonical amount-due and per-attendee breakdown across every consumer"
   expect(unassignedB?.paidAmountMinor).toBe(2857)
 
   // 10. Internal sync projection: amount-due authority for provider sync.
-  const paidOrders = await t.query(internal.sync.internalGetPaidOrders, {})
+  const paidOrders = (await t.query(internal.sync.internalGetPaidOrders, {})) as SyncPaidOrderRow[]
   const syncRow = paidOrders.find(
     (row) => row._id === order.orderId
   )
@@ -1061,7 +1083,7 @@ test("paid-state classification and auto-match use canonical due as authority", 
     eventId: seed.eventId,
   })
   const stateByBooking = new Map(
-    board.unassignedAttendees
+    (board.unassignedAttendees as BoardAttendeeRow[])
       .filter((row) => row.orderId !== null)
       .map((row) => [row.attendeeId, row])
   )
