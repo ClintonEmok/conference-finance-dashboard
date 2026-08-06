@@ -541,6 +541,49 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  orderAccommodationEditAudits: {
+    document: {
+      afterSelectionDigest: string;
+      amountDueAfterMinor: number;
+      amountDueBeforeMinor: number;
+      beforeSelectionDigest: string;
+      idempotencyKey: string;
+      orderId: Id<"orders">;
+      overpaymentDeltaMinor: number;
+      ownershipMethod: "email" | "token";
+      requestDigest: string;
+      _id: Id<"orderAccommodationEditAudits">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "afterSelectionDigest"
+      | "amountDueAfterMinor"
+      | "amountDueBeforeMinor"
+      | "beforeSelectionDigest"
+      | "idempotencyKey"
+      | "orderId"
+      | "overpaymentDeltaMinor"
+      | "ownershipMethod"
+      | "requestDigest";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_orderId_and_idempotencyKey: [
+        "orderId",
+        "idempotencyKey",
+        "_creationTime",
+      ];
+      by_orderId_and_requestDigest: [
+        "orderId",
+        "requestDigest",
+        "_creationTime",
+      ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   orderAccommodationSelections: {
     document: {
       ageBandCode?: "under_3" | "3_11" | "12_17" | "18_plus";

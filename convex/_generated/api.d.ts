@@ -1321,6 +1321,97 @@ export declare const api: {
         tikkieUrl: string | null;
       }
     >;
+    getTrackPaymentEditContext: FunctionReference<
+      "query",
+      "public",
+      { bookingRef: string },
+      null | {
+        accommodation: {
+          activeCategories: Array<{
+            categoryId: Id<"accommodationCategories">;
+            code: "standard" | "superior" | "family";
+            label: string;
+            rates: Array<{
+              occupancy: "single" | "shared" | "family";
+              pricePerPersonMinor: number;
+            }>;
+          }>;
+          ageBands: Array<{
+            code: "under_3" | "3_11" | "12_17" | "18_plus";
+            label: string;
+            maxAge: number | null;
+            minAge: number;
+          }>;
+          config: {
+            baseCheckInAt: number;
+            baseCheckOutAt: number;
+            breakfastIncluded: boolean;
+            nightCount: number;
+          } | null;
+          eligible: boolean;
+          options: Array<{
+            eligibilityAgeBandCode:
+              | "under_3"
+              | "3_11"
+              | "12_17"
+              | "18_plus"
+              | null;
+            label: string;
+            optionCode: "superior_upgrade" | "cot";
+            priceMinor: number;
+          }>;
+        };
+        bookingRef: string;
+        event: {
+          currency: string;
+          slug: string;
+          startsAt: number;
+          title: string;
+        };
+        hasSelections: boolean;
+        locked: boolean;
+        selections: Array<{
+          ageBandCode?: "under_3" | "3_11" | "12_17" | "18_plus";
+          attendeeKey: string;
+          attendeeName: string;
+          categoryId?: Id<"accommodationCategories">;
+          confirmed: boolean;
+          cotSelected: boolean;
+          occupancy?: "single" | "shared" | "family";
+          ticketLabel: string;
+          upgradeSelected: boolean;
+        }>;
+      }
+    >;
+    updateAccommodation: FunctionReference<
+      "mutation",
+      "public",
+      {
+        bookerEmail?: string;
+        bookingRef: string;
+        editToken?: string;
+        honeypotSeen: boolean;
+        idempotencyKey: string;
+        requestSignature: string;
+        selections: Array<{
+          ageBandCode?: "under_3" | "3_11" | "12_17" | "18_plus";
+          attendeeKey: string;
+          categoryId?: Id<"accommodationCategories">;
+          cotSelected: boolean;
+          occupancy?: "single" | "shared" | "family";
+          upgradeSelected: boolean;
+        }>;
+      },
+      {
+        amountDueMinor: number;
+        bookingRef: string;
+        overpaymentDeltaMinor: number;
+        progressPercent: number;
+        remainingMinor: number;
+        status: "applied" | "unchanged" | "replayed";
+        totalPaidMinor: number;
+      }
+    >;
   };
   reports: {
     getEventLocations: FunctionReference<
