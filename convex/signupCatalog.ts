@@ -235,6 +235,29 @@ function normalizeTicketUnavailableReason(
   return null
 }
 
+/**
+ * Shared aggregate capacity rule used by the public quote AND the submission
+ * mutation (CR-08/CR-10). A ticket is exceeded when the total number of
+ * places requested for it — repeated `ticketTypeId` values in one request
+ * count their full quantity — plus its current `soldCount` exceeds the
+ * configured `maxQuantity`. Tickets without a `maxQuantity` are never
+ * capacity-constrained. `soldCount ?? 0` is a capacity read (a ticket with no
+ * counter recorded has sold zero places), not a fabricated display zero.
+ */
+export function isTicketCapacityExceeded(input: {
+  ticket: {
+    soldCount?: number
+    maxQuantity?: number
+  }
+  requestedCount: number
+}): boolean {
+  const { ticket, requestedCount } = input
+  if (ticket.maxQuantity === undefined) {
+    return false
+  }
+  return (ticket.soldCount ?? 0) + requestedCount > ticket.maxQuantity
+}
+
 async function getAssignableSlotSummaries(
   ctx: QueryCtx,
   eventId: Doc<"events">["_id"]
@@ -1021,6 +1044,18 @@ export const getPublicSignupAccommodationQuote = query({
       args.eventId
     )
 
+    // CR-10: aggregate the number of attendees requesting each ticket so a
+    // ticket referenced by multiple attendees counts its full quantity
+    // against maxQuantity — not just whether its soldCount is already full.
+    const requestedCountByTicket = new Map<string, number>()
+    for (const attendee of args.attendees) {
+      const ticketTypeId = String(attendee.ticketTypeId)
+      requestedCountByTicket.set(
+        ticketTypeId,
+        (requestedCountByTicket.get(ticketTypeId) ?? 0) + 1
+      )
+    }
+
     let ticketTotalMinor = 0
     let accommodationTotalMinor = 0
 
@@ -1046,11 +1081,16 @@ export const getPublicSignupAccommodationQuote = query({
         )
       }
 
-      // CR-08: the quote uses the same capacity rule as the submission path,
-      // so a full ticket can never be quoted as if it were still available.
+      // CR-08/CR-10: the quote uses the same aggregate capacity rule as the
+      // submission path, so a ticket that is already full — or that would be
+      // oversold by the number of attendees requesting it in this quote —
+      // can never be quoted as if it were still available.
       if (
-        ticket.maxQuantity !== undefined &&
-        (ticket.soldCount ?? 0) >= ticket.maxQuantity
+        isTicketCapacityExceeded({
+          ticket,
+          requestedCount:
+            requestedCountByTicket.get(String(attendee.ticketTypeId)) ?? 1,
+        })
       ) {
         throw new Error(
           "QUOTE_INVALID: Selected ticket type has reached its maximum quantity."

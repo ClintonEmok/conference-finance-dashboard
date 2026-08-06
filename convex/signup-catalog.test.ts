@@ -736,3 +736,73 @@ test("CR-08: a ticket at maxQuantity is not advertised as selectable and cannot 
     })
   ).rejects.toThrow("maximum quantity")
 })
+
+test("CR-10: a quote with two attendees sharing one ticket with one remaining place is rejected", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  // One remaining place: maxQuantity 2, soldCount 1, still "selectable".
+  const nearlyFullTicketId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("ticketTypes", {
+      eventId: seed.eventId as never,
+      label: "Nearly-full ticket",
+      priceMinor: 1500,
+      maxQuantity: 2,
+      soldCount: 1,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+
+  // A single attendee requesting the ticket still fits (1 + 1 <= 2) and is
+  // quoted normally.
+  const single = await t.query(
+    api.signupCatalog.getPublicSignupAccommodationQuote,
+    {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: nearlyFullTicketId as Id<"ticketTypes">,
+          categoryId: seed.categoryStandardId,
+          occupancy: "shared",
+          upgradeSelected: false,
+          cotSelected: false,
+          ageBandCode: "18_plus",
+        },
+      ],
+    }
+  )
+  expect(single.attendees[0].ticketTypeId).toBe(nearlyFullTicketId)
+
+  // Two attendees sharing the ticket exceed the one remaining place (1 + 2 >
+  // 2): the quote must reject the request the submission path would reject,
+  // so the UI can never display a valid-looking quote that cannot submit.
+  await expect(
+    t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: nearlyFullTicketId as Id<"ticketTypes">,
+          categoryId: seed.categoryStandardId,
+          occupancy: "shared",
+          upgradeSelected: false,
+          cotSelected: false,
+          ageBandCode: "18_plus",
+        },
+        {
+          attendeeKey: "a2",
+          ticketTypeId: nearlyFullTicketId as Id<"ticketTypes">,
+          categoryId: seed.categoryStandardId,
+          occupancy: "shared",
+          upgradeSelected: false,
+          cotSelected: false,
+          ageBandCode: "18_plus",
+        },
+      ],
+    })
+  ).rejects.toThrow("maximum quantity")
+})
