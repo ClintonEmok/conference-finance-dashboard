@@ -481,6 +481,25 @@ describe("TrackPaymentView routing and states", () => {
     expect(html).toContain("Booking not found")
     expect(html).not.toContain("Save preferences")
   })
+
+  it("normalizes a lower/mixed-case permalink reference before querying", () => {
+    mockConvexData(undefined, undefined, undefined)
+    render(
+      createElement(TrackPaymentView, {
+        initialBookingRef: "  bk-20260806-test01  ",
+      })
+    )
+    expect(mocks.useQuery).toHaveBeenCalled()
+    const calls = mocks.useQuery.mock
+      .calls as Array<[unknown, { bookingRef: string } | "skip"]>
+    const queryArgs = calls
+      .map(([, args]) => args)
+      .filter((args): args is { bookingRef: string } => args !== "skip")
+    expect(queryArgs.length).toBeGreaterThan(0)
+    for (const args of queryArgs) {
+      expect(args.bookingRef).toBe(BOOKING_REF)
+    }
+  })
 })
 
 describe("TrackPaymentAccommodationEditor states", () => {

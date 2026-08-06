@@ -1073,9 +1073,12 @@ export const getByBookingRef = query({
     })
   ),
   handler: async (ctx, args) => {
+    // Normalize the reference the same way the public tracking queries do, so
+    // a lower/mixed-case permalink resolves to the canonical order (CR-07).
+    const bookingRef = args.bookingRef.trim().toUpperCase()
     const submission = await ctx.db
       .query("orders")
-      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", args.bookingRef))
+      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", bookingRef))
       .first()
 
     if (!submission || !submission.eventId) {

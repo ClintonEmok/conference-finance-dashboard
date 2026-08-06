@@ -64,8 +64,12 @@ export function TrackPaymentView({
 }) {
   const router = useRouter()
   const [draftBookingRef, setDraftBookingRef] = useState("")
+  // Normalize the permalink's initial reference the same way the tracking
+  // queries do, so `/track-payment/bk-20260411-abc123` resolves identically
+  // to the canonical `BK-20260411-ABC123` (CR-07). All three queries below
+  // share this normalized value.
   const [searchedBookingRef, setSearchedBookingRef] = useState<string | null>(
-    initialBookingRef ?? null
+    initialBookingRef ? initialBookingRef.trim().toUpperCase() : null
   )
 
   const bookingRef = searchedBookingRef
