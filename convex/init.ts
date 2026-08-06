@@ -1,8 +1,6 @@
 import { internalMutation } from "./_generated/server"
 import type { Id } from "./_generated/dataModel"
 
-const DAY_MS = 24 * 60 * 60 * 1000
-
 type CategorySeed = {
   code: "standard" | "superior" | "family"
   label: string
@@ -26,12 +24,6 @@ type RoomTypeSeed = {
   categoryCode: "standard" | "superior" | "family"
 }
 
-type RateSeed = {
-  categoryCode: "standard" | "superior"
-  occupancy: "single" | "shared"
-  pricePerPersonMinor: number
-}
-
 const CATEGORIES: CategorySeed[] = [
   {
     code: "standard",
@@ -44,7 +36,7 @@ const CATEGORIES: CategorySeed[] = [
     code: "superior",
     label: "Superior",
     description:
-      "Superior rooms with upgraded comfort and amenities. Available as a paid upgrade from Standard, or chosen directly.",
+      "Superior rooms with upgraded comfort and amenities. Chosen directly as a room category.",
     sortOrder: 1,
   },
   {
@@ -148,38 +140,13 @@ const ROOM_TYPES: RoomTypeSeed[] = [
   },
 ]
 
-const RATES: RateSeed[] = [
-  {
-    categoryCode: "standard",
-    occupancy: "single",
-    pricePerPersonMinor: 9000,
-  },
-  {
-    categoryCode: "standard",
-    occupancy: "shared",
-    pricePerPersonMinor: 6000,
-  },
-  {
-    categoryCode: "superior",
-    occupancy: "single",
-    pricePerPersonMinor: 10000,
-  },
-  {
-    categoryCode: "superior",
-    occupancy: "shared",
-    pricePerPersonMinor: 7000,
-  },
-]
-
 export default internalMutation({
   handler: async (ctx) => {
-    const [categoryRows, optionRows, roomTypeRows, eventRows] =
-      await Promise.all([
-        ctx.db.query("accommodationCategories").take(100),
-        ctx.db.query("accommodationOptions").take(100),
-        ctx.db.query("accommodationRoomTypes").take(200),
-        ctx.db.query("events").take(100),
-      ])
+    const [categoryRows, optionRows, roomTypeRows] = await Promise.all([
+      ctx.db.query("accommodationCategories").take(100),
+      ctx.db.query("accommodationOptions").take(100),
+      ctx.db.query("accommodationRoomTypes").take(200),
+    ])
 
     const existingCategoryByCode = new Map(
       categoryRows.map((row) => [row.code, row])
@@ -189,7 +156,7 @@ export default internalMutation({
       roomTypeRows.map((row) => [row.label, row])
     )
 
-    // 1. Categories
+    // 1. Reusable catalog: categories.
     const categoryIdByCode = new Map<string, Id<"accommodationCategories">>()
     for (const category of CATEGORIES) {
       const existing = existingCategoryByCode.get(category.code)
@@ -208,7 +175,9 @@ export default internalMutation({
       }
     }
 
-    // 2. Options
+    // 2. Reusable catalog: options. The only seeded option is the cot. The
+    //    obsolete `superior_upgrade` option is removed below (v6: superior is
+    //    a rate category, not an option).
     const optionIdByCode = new Map<string, Id<"accommodationOptions">>()
     for (const option of OPTIONS) {
       const existing = existingOptionByCode.get(option.code)
@@ -228,7 +197,7 @@ export default internalMutation({
       }
     }
 
-    // 3. Room types
+    // 3. Reusable catalog: room types (the physical inventory foundation).
     const roomTypeIdByLabel = new Map<string, Id<"accommodationRoomTypes">>()
     for (const roomType of ROOM_TYPES) {
       const categoryId = categoryIdByCode.get(roomType.categoryCode)
@@ -254,142 +223,75 @@ export default internalMutation({
       }
     }
 
-    // 5. Per-event configuration for every accommodation-enabled event
-    let configuredEvents = 0
-    for (const event of eventRows) {
-      if (!event.accommodationEnabled) {
-        continue
-      }
-      const standardId = categoryIdByCode.get("standard")!
-      const superiorId = categoryIdByCode.get("superior")!
-      const cotOptionId = optionIdByCode.get("cot")!
+    // 4. Reconciliation of data from the pre-v6 model. This seed does not
+    //    configure any event's accommodation (accommodation is optional and
+    //    event-owned). Re-running the seed removes rows that the v6 prune made
+    //    obsolete, so a deployment that previously ran the old seed converges
+    //    to the clean catalog:
+    //    - `superior_upgrade` catalog option and any event options referencing
+    //      it (v6: superior is a rate category, never an option).
+    //    - the legacy `eligibilityAgeBandCode` field on event options (the
+    //      age-band model was removed).
+    //    Existing orders, selections, snapshots, payments, assignments, and the
+    //    existing event's stay/rates/resources are never touched.
+    let removedSuperiorUpgradeCatalog = 0
+    let removedSuperiorUpgradeEventOptions = 0
+    let clearedEligibilityAgeBand = 0
 
-      // 5a. Event accommodation config: one night before the event, extended
-      // stays allowed before only. nightCount is derived server-side.
-      const existingConfig = await ctx.db
-        .query("eventAccommodationConfig")
-        .withIndex("by_eventId", (q) => q.eq("eventId", event._id))
-        .unique()
-      const configPayload = {
-        eventId: event._id,
-        baseCheckInAt: event.startsAt - DAY_MS,
-        baseCheckOutAt: event.startsAt,
-        allowExtendedStayBefore: true,
-        allowExtendedStayAfter: false,
-        allowExtendedStayBoth: false,
-        defaultCategoryId: standardId,
-        breakfastIncluded: true,
-        nightCount: 1,
-        updatedAt: Date.now(),
-      }
-      if (existingConfig) {
-        await ctx.db.patch(existingConfig._id, configPayload)
-      } else {
-        await ctx.db.insert("eventAccommodationConfig", configPayload)
-      }
+    const superiorUpgradeOptionId = optionRows.find(
+      (option) => option.code === "superior_upgrade"
+    )?._id
 
-      // 5b. Rates: full per-person-per-night prices for standard/superior ×
-      // single/shared. Family rates are intentionally omitted (undefined yet).
-      for (const rate of RATES) {
-        const categoryId =
-          rate.categoryCode === "superior" ? superiorId : standardId
-        const existingRate = await ctx.db
-          .query("eventAccommodationRates")
-          .withIndex("by_eventId_and_categoryId_and_occupancy", (q) =>
-            q
-              .eq("eventId", event._id)
-              .eq("categoryId", categoryId)
-              .eq("occupancy", rate.occupancy)
-          )
-          .first()
-        const ratePayload = {
-          eventId: event._id,
-          categoryId,
-          occupancy: rate.occupancy,
-          pricePerPersonMinor: rate.pricePerPersonMinor,
-        }
-        if (existingRate) {
-          await ctx.db.patch(existingRate._id, ratePayload)
-        } else {
-          await ctx.db.insert("eventAccommodationRates", ratePayload)
-        }
-      }
+    // Read the full event-option set once; event options are few per event and
+    // the whole set is small enough for bounded iteration.
+    const eventOptionRows: Array<{
+      _id: Id<"eventAccommodationOptions">
+      optionId: Id<"accommodationOptions">
+    }> = []
+    for await (const row of ctx.db.query("eventAccommodationOptions")) {
+      eventOptionRows.push({
+        _id: row._id,
+        optionId: row.optionId,
+      })
+    }
 
-      // 5c. Event options: cot (€10/night default). Additional options are
-      // created as data rows and render generically in signup.
-      const cotExisting = await ctx.db
-        .query("eventAccommodationOptions")
-        .withIndex("by_eventId_and_optionId", (q) =>
-          q.eq("eventId", event._id).eq("optionId", cotOptionId)
-        )
-        .first()
-      const cotPayload = {
-        eventId: event._id,
-        optionId: cotOptionId,
-        enabled: true,
-        priceMinor: 1000,
-        notes: "Per night, per cot.",
+    // Remove event options referencing the obsolete option first (child
+    // references before the catalog row).
+    for (const eventOption of eventOptionRows) {
+      if (
+        superiorUpgradeOptionId !== undefined &&
+        String(eventOption.optionId) === String(superiorUpgradeOptionId)
+      ) {
+        await ctx.db.delete("eventAccommodationOptions", eventOption._id)
+        removedSuperiorUpgradeEventOptions += 1
       }
-      if (cotExisting) {
-        await ctx.db.patch(cotExisting._id, cotPayload)
-      } else {
-        await ctx.db.insert("eventAccommodationOptions", cotPayload)
-      }
+    }
 
-      // 5d. Resources: physical room counts + cot count.
-      for (const roomType of ROOM_TYPES) {
-        const roomTypeId = roomTypeIdByLabel.get(roomType.label)!
-        const existingResource = await ctx.db
-          .query("eventAccommodationResources")
-          .withIndex("by_eventId_and_kind_and_roomTypeId", (q) =>
-            q
-              .eq("eventId", event._id)
-              .eq("kind", "room")
-              .eq("roomTypeId", roomTypeId)
-          )
-          .first()
-        const resourcePayload = {
-          eventId: event._id,
-          kind: "room" as const,
-          roomTypeId,
-          count: roomType.count,
-        }
-        if (existingResource) {
-          await ctx.db.patch(existingResource._id, resourcePayload)
-        } else {
-          await ctx.db.insert("eventAccommodationResources", resourcePayload)
-        }
-      }
+    if (superiorUpgradeOptionId !== undefined) {
+      await ctx.db.delete("accommodationOptions", superiorUpgradeOptionId)
+      removedSuperiorUpgradeCatalog += 1
+    }
 
-      const existingCotResource = await ctx.db
-        .query("eventAccommodationResources")
-        .withIndex("by_eventId_and_kind_and_roomTypeId", (q) =>
-          q
-            .eq("eventId", event._id)
-            .eq("kind", "cot")
-            .eq("roomTypeId", undefined)
-        )
-        .first()
-      const cotResourcePayload = {
-        eventId: event._id,
-        kind: "cot" as const,
-        roomTypeId: undefined,
-        count: 10,
+    for await (const eventOption of ctx.db.query("eventAccommodationOptions")) {
+      const legacy = eventOption as unknown as Record<string, unknown>
+      if (
+        legacy.eligibilityAgeBandCode !== undefined &&
+        legacy.eligibilityAgeBandCode !== null
+      ) {
+        await ctx.db.patch("eventAccommodationOptions", eventOption._id, {
+          eligibilityAgeBandCode: undefined,
+        })
+        clearedEligibilityAgeBand += 1
       }
-      if (existingCotResource) {
-        await ctx.db.patch(existingCotResource._id, cotResourcePayload)
-      } else {
-        await ctx.db.insert("eventAccommodationResources", cotResourcePayload)
-      }
-
-      configuredEvents += 1
     }
 
     return {
       categories: CATEGORIES.length,
       options: OPTIONS.length,
       roomTypes: ROOM_TYPES.length,
-      eventsConfigured: configuredEvents,
+      removedSuperiorUpgradeCatalog,
+      removedSuperiorUpgradeEventOptions,
+      clearedEligibilityAgeBand,
     }
   },
 })
