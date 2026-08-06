@@ -1,6 +1,7 @@
 "use client"
 
-import { useQuery } from "convex/react"
+import { useMemo } from "react"
+import { useQuery, useQueries, type RequestForQueries } from "convex/react"
 import { api } from "@/lib/convex/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { normalizePublicSignupCatalog } from "@/lib/domain/signup/catalog"
@@ -73,36 +74,53 @@ export type PublicSignupAccommodationQuote = {
  * never prices, dates, nights, room IDs, slot IDs or totals. When the event
  * has no configured accommodation or the selection set is not yet complete,
  * the caller passes `null` and no query is issued.
+ *
+ * Unlike `useQuery`, this wrapper reads through `useQueries`, so a stale or
+ * invalid selection surfaces as an `Error` value instead of throwing during
+ * render (CR-06). The caller converts that to the `{status: "error"}`
+ * render state, keeps the draft, and prompts the user to correct it — the
+ * QUOTE_INVALID failure can no longer replace the whole signup page with an
+ * error boundary.
  */
 export function usePublicSignupAccommodationQuote(
   eventId: string | undefined,
   attendees: PublicSignupQuoteAttendeeArg[] | null
-) {
-  return useQuery(
-    api.signupCatalog.getPublicSignupAccommodationQuote,
-    eventId && attendees
-      ? {
+): PublicSignupAccommodationQuote | undefined | Error {
+  const skip = !eventId || !attendees
+  const queries = useMemo<RequestForQueries>(() => {
+    if (skip) {
+      return {} as RequestForQueries
+    }
+    return {
+      quote: {
+        query: api.signupCatalog.getPublicSignupAccommodationQuote,
+        args: {
           eventId: eventId as Id<"events">,
-          attendees: attendees.map((attendee) => ({
-            attendeeKey: attendee.attendeeKey,
-            ticketTypeId: attendee.ticketTypeId as Id<"ticketTypes">,
-            ...(attendee.categoryId
-              ? {
-                  categoryId: attendee.categoryId as Id<"accommodationCategories">,
-                }
-              : {}),
-            ...(attendee.occupancy ? { occupancy: attendee.occupancy } : {}),
-            upgradeSelected: attendee.upgradeSelected ?? false,
-            cotSelected: attendee.cotSelected ?? false,
-            ...(attendee.ageBandCode
-              ? {
-                  ageBandCode: attendee.ageBandCode as PublicSignupQuoteAgeBandCode,
-                }
-              : {}),
-          })),
-        }
-      : "skip"
-  )
+          attendees: (attendees as PublicSignupQuoteAttendeeArg[]).map(
+            (attendee) => ({
+              attendeeKey: attendee.attendeeKey,
+              ticketTypeId: attendee.ticketTypeId as Id<"ticketTypes">,
+              ...(attendee.categoryId
+                ? {
+                    categoryId: attendee.categoryId as Id<"accommodationCategories">,
+                  }
+                : {}),
+              ...(attendee.occupancy ? { occupancy: attendee.occupancy } : {}),
+              upgradeSelected: attendee.upgradeSelected ?? false,
+              cotSelected: attendee.cotSelected ?? false,
+              ...(attendee.ageBandCode
+                ? {
+                    ageBandCode: attendee.ageBandCode as PublicSignupQuoteAgeBandCode,
+                  }
+                : {}),
+            })
+          ),
+        },
+      },
+    }
+  }, [skip, eventId, attendees])
+  const results = useQueries(queries)
+  return results["quote"] as PublicSignupAccommodationQuote | undefined | Error
 }
 
 /**

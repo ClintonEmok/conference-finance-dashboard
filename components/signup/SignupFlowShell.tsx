@@ -9,6 +9,7 @@ import { normalizePublicSignupCatalog } from "@/lib/domain/signup/catalog"
 import {
   usePublicSignupCatalogRaw,
   usePublicSignupAccommodationQuote,
+  type PublicSignupAccommodationQuote,
   type PublicSignupQuoteRenderState,
 } from "@/lib/convex/hooks/signup"
 import {
@@ -61,14 +62,12 @@ function emptyAccommodationSelection(): AccommodationSelectionDraft {
   }
 }
 
-function isQuoteResult(
-  value: unknown
-): value is Awaited<ReturnType<typeof usePublicSignupAccommodationQuote>> &
-  Record<string, unknown> {
+function isQuoteResult(value: unknown): value is PublicSignupAccommodationQuote {
   return (
     Boolean(value) &&
     typeof value === "object" &&
-    "totalDueMinor" in (value as Record<string, unknown>)
+    "totalDueMinor" in (value as Record<string, unknown>) &&
+    "attendees" in (value as Record<string, unknown>)
   )
 }
 
