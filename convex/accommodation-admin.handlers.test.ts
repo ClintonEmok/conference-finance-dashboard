@@ -1046,13 +1046,36 @@ test("confirmation rejects a selected cot for an attendee outside the configured
   ).rejects.toThrow(/configured for this event/)
 })
 
-test("confirmation rejects a selection with a missing age band", async () => {
+test("confirmation accepts a missing age band when no cot is selected", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const ctx = await seedConfiguredEvent(t)
   const row = await firstSelectionRow(t, ctx.orderId)
 
+  // Phase 42 signup permits an optional age band: a blank band with no cot is
+  // a valid confirmation (the snapshot records an empty band and charges no
+  // cot line).
   await t.mutation(async (db) => {
     await db.db.patch("orderAccommodationSelections", row, {
+      ageBandCode: undefined,
+    })
+  })
+  const result = await t.mutation(
+    api.accommodation.confirmAccommodationOrderConfiguration,
+    { orderId: ctx.orderId }
+  )
+  expect(result.confirmedSelectionCount).toBe(1)
+})
+
+test("confirmation rejects a selected cot whose age band is missing", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const ctx = await seedConfiguredEvent(t)
+  const row = await firstSelectionRow(t, ctx.orderId)
+
+  // A cot selection always requires the event-configured eligibility band;
+  // a missing band must never lock an ineligible cot as a zero-charge line.
+  await t.mutation(async (db) => {
+    await db.db.patch("orderAccommodationSelections", row, {
+      cotSelected: true,
       ageBandCode: undefined,
     })
   })
@@ -1060,7 +1083,7 @@ test("confirmation rejects a selection with a missing age band", async () => {
     t.mutation(api.accommodation.confirmAccommodationOrderConfiguration, {
       orderId: ctx.orderId,
     })
-  ).rejects.toThrow(/missing or invalid age band/)
+  ).rejects.toThrow(/configured for this event/)
 })
 
 test("confirmation rejects a selection attendee with no ticket selection", async () => {
