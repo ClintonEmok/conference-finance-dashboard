@@ -608,6 +608,36 @@ export const submitSignupEnvelope = mutation({
       })
     }
 
+    // Cardinality contract (CR-03): a configured event needs exactly one
+    // validated preference per ticketed attendee (the preference-key set must
+    // equal the ticketed attendee-key set), and an unconfigured event accepts
+    // no preferences at all. This prevents a direct mutation call or a stale
+    // HTTP payload from persisting an order without its accommodation rows.
+    const ticketedAttendeeKeys = new Set(attendeeKeyToTicketTypeId.keys())
+    if (accommodationContext.hasConfiguredAccommodation) {
+      for (const attendeeKey of ticketedAttendeeKeys) {
+        if (!resolvedAccommodationSelections.has(attendeeKey)) {
+          throwSubmissionError(
+            "SUBMISSION_CONFLICT",
+            `Attendee '${attendeeKey}' has a ticket but no accommodation preference.`
+          )
+        }
+      }
+      for (const attendeeKey of resolvedAccommodationSelections.keys()) {
+        if (!ticketedAttendeeKeys.has(attendeeKey)) {
+          throwSubmissionError(
+            "SUBMISSION_CONFLICT",
+            `Accommodation preference attendee '${attendeeKey}' has no ticket selection.`
+          )
+        }
+      }
+    } else if (args.accommodationSelections.length > 0) {
+      throwSubmissionError(
+        "SUBMISSION_CONFLICT",
+        "This event does not offer configured accommodation; no accommodation preferences may be submitted."
+      )
+    }
+
     const bookingRef = buildBookingRef({
       submittedAt: now,
       eventId: String(args.eventId),

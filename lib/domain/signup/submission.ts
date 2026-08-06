@@ -128,11 +128,14 @@ function normalizeEnvelope(
   const attendeesRaw = toArray(root.attendees, "attendees")
   const ticketSelectionsRaw = toArray(root.ticketSelections, "ticketSelections")
   const assignmentsRaw = Array.isArray(root.assignments) ? root.assignments : []
-  const accommodationSelectionsRaw = Array.isArray(
-    root.accommodationSelections
+  // Options-only contract (CR-03): `accommodationSelections` is a required
+  // array. A missing or non-array field is rejected instead of being silently
+  // defaulted to `[]`, so a payload can never bypass the per-attendee
+  // preference cardinality rules that the mutation enforces.
+  const accommodationSelectionsRaw = toArray(
+    root.accommodationSelections,
+    "accommodationSelections"
   )
-    ? root.accommodationSelections
-    : []
 
   if (attendeesRaw.length === 0) {
     throw new SignupSubmissionValidationError(

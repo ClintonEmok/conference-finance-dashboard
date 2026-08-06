@@ -753,3 +753,131 @@ test("CR-02: submission rejects a ticket whose constrained room type cannot be r
     )
   ).rejects.toThrow("SUBMISSION_CONFLICT")
 })
+
+test("CR-03: a configured event requires exactly one preference per ticketed attendee", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  // A ticketed attendee with no preference is rejected before any write.
+  await expect(
+    t.mutation(
+      api.signupSubmission.submitSignupEnvelope,
+      buildEnvelope({
+        eventId: seed.eventId,
+        ticketTypeId: seed.unconstrainedTicketId,
+      })
+    )
+  ).rejects.toThrow("SUBMISSION_CONFLICT")
+
+  // A preference for a non-ticketed attendee is rejected too: the preference
+  // set must equal the ticketed attendee set exactly.
+  const envelopeWithExtraPreference = buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: seed.unconstrainedTicketId,
+    accommodationSelections: [
+      {
+        attendeeKey: "attendee-1",
+        categoryId: seed.categoryStandardId,
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+        ageBandCode: "18_plus",
+      },
+      {
+        attendeeKey: "attendee-2",
+        categoryId: seed.categoryStandardId,
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+        ageBandCode: "18_plus",
+      },
+    ],
+  })
+  envelopeWithExtraPreference.attendees = [
+    ...envelopeWithExtraPreference.attendees,
+    {
+      attendeeKey: "attendee-2",
+      name: "Attendee Two",
+      email: "two@example.com",
+      gender: "female" as const,
+    },
+  ]
+  await expect(
+    t.mutation(api.signupSubmission.submitSignupEnvelope, envelopeWithExtraPreference)
+  ).rejects.toThrow("SUBMISSION_CONFLICT")
+
+  // Nothing was persisted for the rejected submissions.
+  const orders = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId))
+      .take(10)
+  })
+  expect(orders).toHaveLength(0)
+})
+
+test("CR-03: an unconfigured event requires an empty preference list", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("events", {
+      slug: "signup-no-accommodation",
+      title: "No Accommodation Event",
+      startsAt: BASE_EVENT_AT,
+      timezone: "Europe/Amsterdam",
+      currency: "EUR",
+      isPublished: true,
+      isSignupOpen: true,
+      accommodationEnabled: false,
+      primarySourceKind: "internal" as const,
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+  const ticketId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("ticketTypes", {
+      eventId: eventId as never,
+      label: "Plain ticket",
+      priceMinor: 1000,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+
+  // Ticket-only submission with no preferences succeeds.
+  const result = await t.mutation(
+    api.signupSubmission.submitSignupEnvelope,
+    buildEnvelope({
+      eventId: eventId as Id<"events">,
+      ticketTypeId: ticketId as Id<"ticketTypes">,
+    })
+  )
+  expect(result.submissionId).toBeDefined()
+
+  // A preference for the unconfigured event is rejected.
+  const categoryId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("accommodationCategories", {
+      code: "standard",
+      label: "Standard",
+      sortOrder: 1,
+    })
+  })
+  await expect(
+    t.mutation(
+      api.signupSubmission.submitSignupEnvelope,
+      buildEnvelope({
+        eventId: eventId as Id<"events">,
+        ticketTypeId: ticketId as Id<"ticketTypes">,
+        accommodationSelections: [
+          {
+            attendeeKey: "attendee-1",
+            categoryId: categoryId as Id<"accommodationCategories">,
+            occupancy: "shared",
+            upgradeSelected: false,
+            cotSelected: false,
+          },
+        ],
+      })
+    )
+  ).rejects.toThrow("SUBMISSION_CONFLICT")
+})
