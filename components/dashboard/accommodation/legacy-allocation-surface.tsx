@@ -13,6 +13,9 @@ import {
   X,
   Check,
   Sparkles,
+  CircleCheck,
+  CircleAlert,
+  CircleDashed,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -44,6 +47,57 @@ type Suggestion = {
   attendee: any
   roomId: string
   accepted: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Phase 44: server-owned payment state presentation. The browser NEVER
+// derives paid/partial/unpaid from amounts and never reads order status; it
+// only labels and styles the typed paymentState the board returned.
+// ---------------------------------------------------------------------------
+
+type PaymentState = "paid" | "partial" | "unpaid" | null | undefined
+
+const PAYMENT_LABEL: Record<"paid" | "partial" | "unpaid", string> = {
+  paid: "Paid",
+  partial: "Partially paid",
+  unpaid: "Unpaid",
+}
+
+const PAYMENT_ICON: Record<"paid" | "partial" | "unpaid", typeof CircleCheck> = {
+  paid: CircleCheck,
+  partial: CircleAlert,
+  unpaid: CircleDashed,
+}
+
+const PAYMENT_TREATMENT: Record<"paid" | "partial" | "unpaid", string> = {
+  paid: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-300",
+  partial:
+    "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-300",
+  unpaid:
+    "border-border/60 bg-muted/40 text-muted-foreground dark:text-muted-foreground",
+}
+
+function isKnownPaymentState(
+  state: PaymentState
+): state is "paid" | "partial" | "unpaid" {
+  return state === "paid" || state === "partial" || state === "unpaid"
+}
+
+/** Non-interactive, text-plus-icon payment badge (color is supplemental). */
+function PaymentBadge({ state }: { state: PaymentState }) {
+  if (!isKnownPaymentState(state)) {
+    return null
+  }
+  const Icon = PAYMENT_ICON[state]
+  return (
+    <span
+      aria-label={`Payment status: ${PAYMENT_LABEL[state]}`}
+      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${PAYMENT_TREATMENT[state]}`}
+    >
+      <Icon className="size-3" aria-hidden="true" />
+      {PAYMENT_LABEL[state]}
+    </span>
+  )
 }
 
 export type AccommodationBoard = {
@@ -370,6 +424,9 @@ export default function EventAllocationPage({
         <div className="min-w-0">
           <p className="font-semibold">Allocation inbox and room board</p>
           <p className="text-xs text-muted-foreground">Select a room, then assign waiting attendees or fulfill a compatible group.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Payment priority: paid first · partially paid · unpaid
+          </p>
         </div>
         {summary && (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -577,7 +634,10 @@ export default function EventAllocationPage({
                   </button>
 
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{s.attendee.attendeeName ?? "Unnamed"}</p>
+                    <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
+                      <span className="truncate">{s.attendee.attendeeName ?? "Unnamed"}</span>
+                      <PaymentBadge state={s.attendee.paymentState} />
+                    </p>
                     <p className="truncate text-xs text-muted-foreground">
                       {s.roomId && room ? `→ ${room.label} (${room.hotel?.name ?? ""})` : "No matching room"}
                     </p>
@@ -627,6 +687,9 @@ export default function EventAllocationPage({
               <Users className="size-4" />
             </div>
           </div>
+          <p className="border-b border-border/40 px-5 py-2 text-[11px] leading-snug text-muted-foreground">
+            Confirming an assignment confirms this buyer's accommodation configuration and closes further buyer changes.
+          </p>
 
           <div className="flex-1 space-y-2 overflow-y-auto p-3">
              {unassigned.length === 0 ? (
@@ -665,6 +728,7 @@ export default function EventAllocationPage({
                     </div>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
+                    <PaymentBadge state={attendee.paymentState} />
                     {attendee.genderType && attendee.genderType !== "UNKNOWN" && (
                       <span className="rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] capitalize text-muted-foreground/80">
                         {attendee.genderType.toLowerCase()}
@@ -775,8 +839,11 @@ export default function EventAllocationPage({
                       {room.occupants && room.occupants.length > 0 && (
                         <div className="mt-3 space-y-1 border-t border-border/30 pt-3">
                           {room.occupants.slice(0, 3).map((occ: any) => (
-                            <div key={occ.attendeeId} className="group/occ flex items-center justify-between rounded-lg bg-muted/30 px-2 py-1">
-                              <span className="truncate text-xs text-muted-foreground">{occ.attendeeName ?? "Unnamed"}</span>
+                            <div key={occ.attendeeId} className="group/occ flex items-center justify-between gap-2 rounded-lg bg-muted/30 px-2 py-1">
+                              <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                <span className="truncate text-xs text-muted-foreground">{occ.attendeeName ?? "Unnamed"}</span>
+                                <PaymentBadge state={occ.paymentState} />
+                              </span>
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); handleUnassign(occ.attendeeId) }}
