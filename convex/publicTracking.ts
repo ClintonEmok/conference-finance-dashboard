@@ -54,6 +54,135 @@ async function loadAppliedPaymentRowsForOrder(
   return rows.filter((payment) => isOrderAppliedPayment(payment))
 }
 
+type TrackPaymentProjection = {
+  bookingRef: string
+  event: { slug: string; title: string; startsAt: number }
+  order: {
+    buyerName: string | null
+    buyerPhone: string | null
+    submittedAt: number | null
+    orderedAt: number | null
+    totalAmountMinor: number | null
+    amountDueMinor: number
+    status: string | null
+  }
+  payment: {
+    totalDueMinor: number
+    totalPaidMinor: number
+    remainingMinor: number
+    progressPercent: number
+    overpaymentDeltaMinor: number
+    paymentCount: number
+    paymentStatus: "unpaid" | "partial" | "paid" | "overpaid"
+  }
+  tikkieUrl: string | null
+  tikkieAmountMinor: number | null
+  tikkieDescription: string | null
+}
+
+/**
+ * Typed tracking projection shared by the booking-reference query and the
+ * email-or-reference query (WR-02). Reads only the order, its event, its
+ * full applied payment set (CR-06), and the latest order/event Tikkie link —
+ * never the ownership email.
+ */
+async function loadTrackingByOrder(
+  ctx: QueryCtx,
+  order: Doc<"orders">
+): Promise<TrackPaymentProjection | null> {
+  if (!order.eventId) {
+    return null
+  }
+
+  const event = await ctx.db.get(order.eventId)
+  if (!event) {
+    return null
+  }
+
+  const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(ctx, [
+    { _id: order._id },
+  ])
+  const amountDueBreakdown = amountDueBreakdownsByOrderId.get(String(order._id))
+
+  const matchedPayments = await loadAppliedPaymentRowsForOrder(ctx, order._id)
+
+  const totalPaidMinor = matchedPayments.reduce(
+    (sum, payment) => sum + payment.amountMinor,
+    0
+  )
+
+  const totalDueMinor =
+    amountDueBreakdown?.amountDueMinor ?? order.totalAmountMinor ?? 0
+  const remainingMinor = Math.max(0, totalDueMinor - totalPaidMinor)
+  const overpaymentDeltaMinor = Math.max(0, totalPaidMinor - totalDueMinor)
+  const paymentStatus: "unpaid" | "partial" | "paid" | "overpaid" =
+    totalPaidMinor === 0
+      ? "unpaid"
+      : totalPaidMinor < totalDueMinor
+        ? "partial"
+        : totalPaidMinor === totalDueMinor
+          ? "paid"
+          : "overpaid"
+
+  const orderLinks = await ctx.db
+    .query("tikkiePaymentLinks")
+    .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))
+    .take(20)
+
+  const latestOrderLink = orderLinks
+    .filter((link) => link.linkType === "order")
+    .sort((a, b) => {
+      const timeDiff = (b._creationTime ?? 0) - (a._creationTime ?? 0)
+      if (timeDiff !== 0) return timeDiff
+      return b._id.localeCompare(a._id)
+    })[0]
+
+  const eventLinks = await ctx.db
+    .query("tikkiePaymentLinks")
+    .withIndex("eventId", (q) => q.eq("eventId", String(order.eventId)))
+    .take(20)
+
+  const latestEventLink = eventLinks
+    .filter((link) => link.linkType === "event")
+    .sort((a, b) => {
+      const timeDiff = (b._creationTime ?? 0) - (a._creationTime ?? 0)
+      if (timeDiff !== 0) return timeDiff
+      return b._id.localeCompare(a._id)
+    })[0]
+
+  const selectedLink = latestOrderLink ?? latestEventLink ?? null
+
+  return {
+    bookingRef: order.bookingRef ?? "",
+    event: {
+      slug: event.slug,
+      title: event.title,
+      startsAt: event.startsAt,
+    },
+    order: {
+      buyerName: order.bookerName ?? null,
+      buyerPhone: order.bookerPhone ?? null,
+      submittedAt: order.submittedAt ?? null,
+      orderedAt: order.orderedAt ?? null,
+      totalAmountMinor: order.totalAmountMinor ?? null,
+      amountDueMinor: totalDueMinor,
+      status: order.status ?? null,
+    },
+    payment: {
+      totalDueMinor,
+      totalPaidMinor,
+      remainingMinor,
+      progressPercent: computeProgress(totalPaidMinor, totalDueMinor),
+      overpaymentDeltaMinor,
+      paymentCount: matchedPayments.length,
+      paymentStatus,
+    },
+    tikkieUrl: selectedLink?.paymentRequestUrl ?? null,
+    tikkieAmountMinor: selectedLink?.amountMinor ?? null,
+    tikkieDescription: selectedLink?.description ?? null,
+  }
+}
+
 export const getByBookingRef = query({
   args: {
     bookingRef: v.string(),
@@ -107,201 +236,12 @@ export const getByBookingRef = query({
       return null
     }
 
-    const event = await ctx.db.get(order.eventId)
-    if (!event) {
-      return null
-    }
-
-    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
-      ctx,
-      [{ _id: order._id }]
-    )
-    const amountDueBreakdown = amountDueBreakdownsByOrderId.get(
-      String(order._id)
-    )
-
-    const matchedPayments = await loadAppliedPaymentRowsForOrder(
-      ctx,
-      order._id
-    )
-
-    const totalPaidMinor = matchedPayments.reduce(
-      (sum, payment) => sum + payment.amountMinor,
-      0
-    )
-
-    const totalDueMinor =
-      amountDueBreakdown?.amountDueMinor ?? order.totalAmountMinor ?? 0
-    const remainingMinor = Math.max(0, totalDueMinor - totalPaidMinor)
-    const overpaymentDeltaMinor = Math.max(0, totalPaidMinor - totalDueMinor)
-    const paymentStatus: "unpaid" | "partial" | "paid" | "overpaid" =
-      totalPaidMinor === 0
-        ? "unpaid"
-        : totalPaidMinor < totalDueMinor
-          ? "partial"
-          : totalPaidMinor === totalDueMinor
-            ? "paid"
-            : "overpaid"
-
-    const orderLinks = await ctx.db
-      .query("tikkiePaymentLinks")
-      .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))
-      .take(20)
-
-    const latestOrderLink = orderLinks
-      .filter((link) => link.linkType === "order")
-      .sort((a, b) => {
-        const timeDiff = (b._creationTime ?? 0) - (a._creationTime ?? 0)
-        if (timeDiff !== 0) return timeDiff
-        return b._id.localeCompare(a._id)
-      })[0]
-
-    const eventLinks = await ctx.db
-      .query("tikkiePaymentLinks")
-      .withIndex("eventId", (q) => q.eq("eventId", String(order.eventId)))
-      .take(20)
-
-    const latestEventLink = eventLinks
-      .filter((link) => link.linkType === "event")
-      .sort((a, b) => {
-        const timeDiff = (b._creationTime ?? 0) - (a._creationTime ?? 0)
-        if (timeDiff !== 0) return timeDiff
-        return b._id.localeCompare(a._id)
-      })[0]
-
-    const selectedLink = latestOrderLink ?? latestEventLink ?? null
-
-    return {
-      bookingRef,
-      event: {
-        slug: event.slug,
-        title: event.title,
-        startsAt: event.startsAt,
-      },
-      order: {
-        buyerName: order.bookerName ?? null,
-        buyerPhone: order.bookerPhone ?? null,
-        submittedAt: order.submittedAt ?? null,
-        orderedAt: order.orderedAt ?? null,
-        totalAmountMinor: order.totalAmountMinor ?? null,
-        amountDueMinor: totalDueMinor,
-        status: order.status ?? null,
-      },
-      payment: {
-        totalDueMinor,
-        totalPaidMinor,
-        remainingMinor,
-        progressPercent: computeProgress(totalPaidMinor, totalDueMinor),
-        overpaymentDeltaMinor,
-        paymentCount: matchedPayments.length,
-        paymentStatus,
-      },
-      tikkieUrl: selectedLink?.paymentRequestUrl ?? null,
-      tikkieAmountMinor: selectedLink?.amountMinor ?? null,
-      tikkieDescription: selectedLink?.description ?? null,
-    }
+    return await loadTrackingByOrder(ctx, order)
   },
 })
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
-}
-
-async function loadTrackingByOrder(
-  ctx: any,
-  order: any
-): Promise<any | null> {
-  if (!order || !order.eventId) {
-    return null
-  }
-
-  const event = await ctx.db.get(order.eventId)
-  if (!event) {
-    return null
-  }
-
-  const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(ctx, [
-    { _id: order._id },
-  ])
-  const amountDueBreakdown = amountDueBreakdownsByOrderId.get(String(order._id))
-
-  const matchedPayments = await loadAppliedPaymentRowsForOrder(ctx, order._id)
-
-  const totalPaidMinor = matchedPayments.reduce(
-    (sum: number, payment: any) => sum + payment.amountMinor,
-    0
-  )
-
-  const totalDueMinor =
-    amountDueBreakdown?.amountDueMinor ?? order.totalAmountMinor ?? 0
-  const remainingMinor = Math.max(0, totalDueMinor - totalPaidMinor)
-  const overpaymentDeltaMinor = Math.max(0, totalPaidMinor - totalDueMinor)
-  const paymentStatus: "unpaid" | "partial" | "paid" | "overpaid" =
-    totalPaidMinor === 0
-      ? "unpaid"
-      : totalPaidMinor < totalDueMinor
-        ? "partial"
-        : totalPaidMinor === totalDueMinor
-          ? "paid"
-          : "overpaid"
-
-  const orderLinks = await ctx.db
-    .query("tikkiePaymentLinks")
-    .withIndex("orderId", (q: any) => q.eq("orderId", String(order._id)))
-    .take(20)
-
-  const latestOrderLink = orderLinks
-    .filter((link: any) => link.linkType === "order")
-    .sort((a: any, b: any) => {
-      const timeDiff = (b._creationTime ?? 0) - (a._creationTime ?? 0)
-      if (timeDiff !== 0) return timeDiff
-      return b._id.localeCompare(a._id)
-    })[0]
-
-  const eventLinks = await ctx.db
-    .query("tikkiePaymentLinks")
-    .withIndex("eventId", (q: any) => q.eq("eventId", String(order.eventId)))
-    .take(20)
-
-  const latestEventLink = eventLinks
-    .filter((link: any) => link.linkType === "event")
-    .sort((a: any, b: any) => {
-      const timeDiff = (b._creationTime ?? 0) - (a._creationTime ?? 0)
-      if (timeDiff !== 0) return timeDiff
-      return b._id.localeCompare(a._id)
-    })[0]
-
-  const selectedLink = latestOrderLink ?? latestEventLink ?? null
-
-  return {
-    bookingRef: order.bookingRef ?? "",
-    event: {
-      slug: event.slug,
-      title: event.title,
-      startsAt: event.startsAt,
-    },
-    order: {
-      buyerName: order.bookerName ?? null,
-      buyerPhone: order.bookerPhone ?? null,
-      submittedAt: order.submittedAt ?? null,
-      orderedAt: order.orderedAt ?? null,
-      totalAmountMinor: order.totalAmountMinor ?? null,
-      amountDueMinor: totalDueMinor,
-      status: order.status ?? null,
-    },
-    payment: {
-      totalDueMinor,
-      totalPaidMinor,
-      remainingMinor,
-      progressPercent: computeProgress(totalPaidMinor, totalDueMinor),
-      overpaymentDeltaMinor,
-      paymentCount: matchedPayments.length,
-      paymentStatus,
-    },
-    tikkieUrl: selectedLink?.paymentRequestUrl ?? null,
-    tikkieAmountMinor: selectedLink?.amountMinor ?? null,
-    tikkieDescription: selectedLink?.description ?? null,
-  }
 }
 
 export const getByEmailOrBookingRef = query({
