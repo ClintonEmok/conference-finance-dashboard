@@ -55,6 +55,13 @@ function QuoteContent({
   draft: SignupDraft
   currency: string
 }) {
+  // WR-07: every server amount below is formatted with the LIVE quote
+  // currency, never the catalog event currency — if the event currency
+  // changed after catalog load (or the two reactive reads momentarily
+  // disagree), the review must still show the amount under the currency the
+  // quote was actually priced in. The event currency is retained only as a
+  // fallback for pre-quote copy.
+  const displayCurrency = quote.currency || currency
   const attendeeNameByKey = new Map(
     draft.attendees.map((attendee) => [attendee.attendeeKey, attendee.name])
   )
@@ -63,7 +70,7 @@ function QuoteContent({
     <div className="space-y-4">
       <ReviewSection
         title="Tickets"
-        subtitle={`Total: ${formatPrice(quote.ticketTotalMinor, currency)}`}
+        subtitle={`Total: ${formatPrice(quote.ticketTotalMinor, displayCurrency)}`}
         badge={quote.attendees.length}
         defaultExpanded={true}
       >
@@ -83,7 +90,7 @@ function QuoteContent({
                 </p>
               </div>
               <span className="shrink-0 font-mono text-sm font-medium tabular-nums text-foreground/80">
-                {formatPrice(attendee.ticketPriceMinor, currency)}
+                {formatPrice(attendee.ticketPriceMinor, displayCurrency)}
               </span>
             </div>
           ))}
@@ -92,7 +99,7 @@ function QuoteContent({
 
       <ReviewSection
         title="Accommodation"
-        subtitle={`Total: ${formatPrice(quote.accommodationTotalMinor, currency)}`}
+        subtitle={`Total: ${formatPrice(quote.accommodationTotalMinor, displayCurrency)}`}
         badge={quote.attendees.filter((attendee) => attendee.lines.length > 0).length}
         defaultExpanded={true}
       >
@@ -122,7 +129,7 @@ function QuoteContent({
                             {line.label}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {formatPrice(line.ratePerNightMinor, currency)}{" "}
+                            {formatPrice(line.ratePerNightMinor, displayCurrency)}{" "}
                             / person / night
                             {line.nights > 1
                               ? ` · ${line.nights} nights`
@@ -130,7 +137,7 @@ function QuoteContent({
                           </p>
                         </div>
                         <span className="shrink-0 font-mono text-sm font-medium tabular-nums text-foreground/80">
-                          {formatPrice(line.chargeMinor, currency)}
+                          {formatPrice(line.chargeMinor, displayCurrency)}
                         </span>
                       </div>
                     ))}
@@ -151,19 +158,19 @@ function QuoteContent({
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium text-foreground">Tickets</span>
           <span className="font-mono tabular-nums text-foreground/80">
-            {formatPrice(quote.ticketTotalMinor, currency)}
+            {formatPrice(quote.ticketTotalMinor, displayCurrency)}
           </span>
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium text-foreground">Accommodation</span>
           <span className="font-mono tabular-nums text-foreground/80">
-            {formatPrice(quote.accommodationTotalMinor, currency)}
+            {formatPrice(quote.accommodationTotalMinor, displayCurrency)}
           </span>
         </div>
         <div className="flex items-center justify-between border-t border-border/50 pt-2">
           <span className="font-bold text-foreground">Total due</span>
           <span className="font-mono text-lg font-bold tabular-nums text-foreground">
-            {formatPrice(quote.totalDueMinor, currency)}
+            {formatPrice(quote.totalDueMinor, displayCurrency)}
           </span>
         </div>
         <div className="flex items-start gap-2 pt-1 text-xs text-muted-foreground">
