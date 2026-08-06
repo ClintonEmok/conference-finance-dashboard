@@ -951,3 +951,72 @@ test("CR-04: duplicate ticket selections and ticketless attendees are rejected",
   })
   expect(orders).toHaveLength(0)
 })
+
+test("WR-05: legacy allocatedRoomTypeId is only set for explicitly constrained tickets", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  // Unconstrained ticket: the attendee must NOT get a legacy placement hint,
+  // even though the event exposes a default room type in a real deployment.
+  const unconstrained = await t.mutation(
+    api.signupSubmission.submitSignupEnvelope,
+    buildEnvelope({
+      eventId: seed.eventId,
+      ticketTypeId: seed.unconstrainedTicketId,
+      accommodationSelections: [
+        {
+          attendeeKey: "attendee-1",
+          categoryId: seed.categoryStandardId,
+          occupancy: "shared",
+          upgradeSelected: false,
+          cotSelected: false,
+          ageBandCode: "18_plus",
+        },
+      ],
+    })
+  )
+  const unconstrainedAttendee = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) =>
+        q.eq("orderId", unconstrained.submissionId as never)
+      )
+      .first()
+  })
+  expect(unconstrainedAttendee?.allocatedRoomTypeId).toBeUndefined()
+
+  // Constrained ticket: the ticket's roomTypeId is stored as entitlement
+  // metadata (never the event default, never the buyer's category).
+  const constrained = await t.mutation(
+    api.signupSubmission.submitSignupEnvelope,
+    buildEnvelope({
+      eventId: seed.eventId,
+      ticketTypeId: seed.constrainedTicketId,
+      accommodationSelections: [
+        {
+          attendeeKey: "attendee-1",
+          categoryId: seed.categorySuperiorId,
+          occupancy: "shared",
+          upgradeSelected: false,
+          cotSelected: false,
+          ageBandCode: "18_plus",
+        },
+      ],
+    })
+  )
+  const constrainedTicketRow = await t.query(async (ctx) => {
+    return await ctx.db.get(seed.constrainedTicketId as never)
+  })
+  const constrainedAttendee = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) =>
+        q.eq("orderId", constrained.submissionId as never)
+      )
+      .first()
+  })
+  expect(constrainedTicketRow?.roomTypeId).toBeDefined()
+  expect(constrainedAttendee?.allocatedRoomTypeId).toBe(
+    constrainedTicketRow?.roomTypeId
+  )
+})

@@ -734,11 +734,20 @@ export const submitSignupEnvelope = mutation({
       if (!ticketTypeId) continue
 
       const ticketType = ticketTypeById.get(ticketTypeId)
-      const effectiveRoomTypeId =
-        ticketType?.roomTypeId ?? (event as any).defaultRoomTypeId
-      if (effectiveRoomTypeId) {
+      // Legacy entitlement metadata only for explicitly constrained tickets:
+      // `ticketTypes.roomTypeId` is the authoritative room entitlement. An
+      // unconstrained ticket has no physical-room entitlement — the validated
+      // category preference (orderAccommodationSelections.categoryId) carries
+      // that for allocation. Writing event.defaultRoomTypeId here made the
+      // dashboard suggest the event default for a buyer who picked a
+      // superior/family category (WR-05), so the event default must never be
+      // stored as if it were a placement hint.
+      const ticketEntitlement = ticketType
+        ? selectionTicketCategoryById.get(String(ticketType._id))
+        : undefined
+      if (ticketType?.roomTypeId && ticketEntitlement) {
         await ctx.db.patch(attendeeId, {
-          allocatedRoomTypeId: effectiveRoomTypeId,
+          allocatedRoomTypeId: ticketType.roomTypeId,
         })
       }
     }
