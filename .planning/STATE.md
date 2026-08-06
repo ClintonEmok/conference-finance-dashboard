@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: Accommodation Upgrades & Options
-current_phase: 43
-current_phase_name: Track Payment Permalink
+current_phase: 44
+current_phase_name: Allocation Paid-Priority
 status: in_progress
-stopped_at: Phase 43 fully executed (plans 01-03 complete); Phase 44 paid-priority allocation next; Phase 40-42 human verification remains deferred to v5.0 milestone completion
-last_updated: "2026-08-06T06:10:00.000Z"
+stopped_at: Phase 44 fully executed (plans 01-03 complete); Phase 45 verification next; Phase 40-43 human items remain deferred to v5.0 milestone completion
+last_updated: "2026-08-06T08:45:00.000Z"
 last_activity: 2026-08-06
-last_activity_desc: Executed all three Phase 43 plans (server edit contract, HTTP route, durable permalink UI); Phase 40-42 human verification remains deferred to v5.0 milestone completion
+last_activity_desc: Executed 44-01 through 44-03 (pure payment-state contract, paid-priority board + assignment lock, accessible paid-first Allocation UI); Phase 40-43 human items remain deferred until v5.0 milestone completion
 progress:
   total_phases: 7
   completed_phases: 0
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 12
+  completed_plans: 12
   percent: 100
 ---
 
@@ -28,12 +28,12 @@ See: `.planning/PROJECT.md`.
 
 ## Current Position
 
-Phase: 43 — Track Payment Permalink
-Plan: 43-01 + 43-02 + 43-03 complete — all Phase 43 plans executed (server edit contract, HTTP route, durable permalink UI); Phase 44 paid-priority allocation next
+Phase: 44 — Allocation Paid-Priority
+Plan: 44-01 + 44-02 + 44-03 complete — all Phase 44 plans executed (pure payment-state contract, paid-priority board + assignment lock, accessible paid-first Allocation UI); Phase 45 verification next
 Status: In progress (0/7 phases signed off; phase sign-off absorbed into v5.0 Phase 45)
-Last activity: 2026-08-06 — Executed 43-01 through 43-03; Phase 40/41/42 human items remain deferred until v5.0 milestone completion
+Last activity: 2026-08-06 — Executed 44-01 through 44-03; Phase 40/41/42/43 human items remain deferred until v5.0 milestone completion
 
-Progress: ████████ (9/9 plans executed across Phases 39-43; 0/7 phases signed off)
+Progress: ████████████ (12/12 plans executed across Phases 39-44; 0/7 phases signed off)
 
 ## Performance Metrics
 
@@ -63,6 +63,8 @@ Progress: ████████ (9/9 plans executed across Phases 39-43; 0/7 
 - **Phase 42 plan 02 executed:** the public signup UI is options-only end-to-end. `SIGNUP_STEP_ORDER` is tickets/buyer/attendees/accommodation/review; `SignupDraft` holds per-attendee `AccommodationSelectionDraft` keyed by stable attendee keys (no `assignments`/`acknowledgeRandomFill`). `AccommodationOptionsStep` offers category/occupancy/upgrade/cot/age-band choices generated exclusively from the catalog response (cot gated on the server eligibility band; no hardcoded age bands). Review and summary render the server quote contract (ticket lines, per-person-per-night accommodation lines, breakfast copy, `totalDueMinor`) with no client money arithmetic; submission sends `accommodationSelections` + `assignments: []` only. `PublicSignupQuoteRenderState` (unconfigured/incomplete/loading/error/ready) blocks submit until a fresh valid quote matches the selection signature.
 - **Phase 43 executed (plans 01-03):** the `/track-payment/[bookingRef]` permalink is the app's first public write, protected at both boundaries. Plan 01: `lib/domain/track-payment/edit-token.ts` adds an HMAC edit token bound to `track-payment:{bookingRef}:{normalizedEmail}` and a short-lived route-to-Convex request signature bound to the normalized edit envelope, both reusing `SIGNUP_SUBMISSION_SECRET` (no new secret, no stored raw tokens); schema adds the append-only `orderAccommodationEditAudits` table (order/idempotency and order/request-digest indexes, server-valued fields only); confirmation/resend emails prefer `/track-payment/{bookingRef}?token=...` with a root-tracker fallback that fails closed. `getTrackPaymentEditContext` is a bounded public projection (current selections, locked state, event-configured category/rate/option/age-band choices, per-selection `ticketCategoryId` entitlement; never returns edit credentials). `updateAccommodation` is the atomic replace-style mutation: verifies the route-issued signature recomputed from its own validated args, re-checks ownership (email match or HMAC token) before loading any editable detail, enforces the `confirmedAt` lock and exact-match replacement cardinality, validates every preference through the Phase 42 shared resolver, re-prices via `loadOrderAmountDueBreakdowns`, treats identical replacements as true no-ops, replays used idempotency keys from stored results, inserts one server-valued audit row per applied edit, and never touches order totals, payments, assignments, or flexible-zero Tikkie links. Plan 02: `POST /api/track-payment/[bookingRef]` applies `enforceRateLimit` (track-payment-edit, 20/60s) before body work, reuses the signup `website` honeypot, rejects client authority fields (amounts/dates/nights/rooms/slots/snapshots) at the HTTP boundary, mints the request signature over the exact normalized envelope (honoring `x-idempotency-key` retries), and maps ownership/confirmed/stale/not-found/validation failures to stable JSON codes that never reveal other bookings. Plan 03: `TrackPaymentView` is the single server-backed presentation for root search (navigates to the permalink) and the durable permalink (back-link instead of a second shell); `TrackPaymentAccommodationEditor` renders per-attendee fieldsets with server-configured choices (ticket-constrained category filtering via `ticketCategoryId`, cot gated on the server band), collects ownership locally (email + optional edit link prefilled in memory), submits complete options-only replacements with a stable idempotency key, and shows accessible loading/error/confirmed-lock/overpayment/success states with zero client money math (overpayment is a server-provided panel).
 
+- **Phase 44 executed (plans 01-03):** Allocation is now paid-priority end-to-end. Plan 01: the pure `lib/domain/finance/allocation-payment-state.ts` contract (`deriveAllocationPaymentState` + `deriveAllocationPaymentBreakdowns`) classifies every canonical due-map attendee as paid/partial/unpaid from server-supplied due/paid minor units (zero-due = paid, paid ≥ due = paid, positive below due = partial, else unpaid), allocates matched payment totals by due weight via the existing `allocateMinorAmountByWeight` (deterministic remainder), and never reads order status/DB/UI state. Plan 02: `convex/finance.ts` adds `loadOrderAttendeePaymentBreakdowns` (one matched-payment load per scoped order set); `getRoomAllocationBoard` loads the canonical projection once per board read, attaches typed `paymentState`/`amountDueMinor`/`paidAmountMinor` to unassigned rows, room occupants, buyer suggestions, and submission queue rows, and sorts unassigned + queue paid-first then by allocation priority and stable ties; `persistOrderAccommodationConfirmation` reuses the Phase 41 `resolveOrderAccommodationConfirmation` in `assignRoomToAttendee`/`assignAttendeeToRoom`/`confirmBuyerAssignment` to persist `confirmedAt`+`configVersion`+`priceSnapshot` atomically with the assignment write — legacy orders (no selection rows) skip cleanly, fully-confirmed orders are idempotent no-ops, partially-confirmed sets fail closed; the shared resolver's age-band guard now accepts an optional blank band without cot (Phase 42 optional-age-band rule) while cot still requires the event-configured eligibility band. Plan 03: the Allocation workspace renders server-owned `Paid`/`Partially paid`/`Unpaid` badges (explicit text + icon + aria-label, emerald/amber/muted treatments, unpaid never hidden), a payment-priority legend, and the lock-boundary helper copy (`Confirming an assignment confirms this buyer's accommodation configuration and closes further buyer changes.`); `generateAllocationProposal` keeps payment state as the primary rank then allocationPriority and the existing stable tie-breakers, with `paymentState` propagated onto suggestion/unplaced rows. Internal events with recorded payments render as paid even when order/provider status stays pending.
+
 ### Carried From v4.0 (context preserved)
 
 - Event-scoped shell, single concise sidebar, shared dashboard query-state vocabulary, canonical finance/accommodation contracts, workspace tab pattern (`lib/dashboard/workspace-routes.ts`), event Overview as operational home.
@@ -81,6 +83,9 @@ Progress: ████████ (9/9 plans executed across Phases 39-43; 0/7 
 - [x] Execute Phase 43 plan 01 (server edit contract: token primitives, audit schema, permalink email links, edit-context projection, atomic replace mutation, handler coverage)
 - [x] Execute Phase 43 plan 02 (rate-limited honeypot-protected POST /api/track-payment/[bookingRef] + route tests)
 - [x] Execute Phase 43 plan 03 (durable permalink UI: shared view, dynamic route, accommodation editor, client contract tests)
+- [x] Execute Phase 44 plan 01 (pure allocation payment-state contract: tri-state classification + due-weight allocation)
+- [x] Execute Phase 44 plan 02 (paid-priority board projection + assignment-confirmation lock via Phase 41 resolver)
+- [x] Execute Phase 44 plan 03 (accessible paid-first Allocation UI + payment-first proposal ordering)
 - [ ] Resolve Phase 42 research flag: legacy slot-based signup coexistence/migration window
 
 ### Blockers/Concerns
@@ -93,6 +98,8 @@ Progress: ████████ (9/9 plans executed across Phases 39-43; 0/7 
 - Phase 42 plan 02 has two backstop-verified must_haves (no page overflow at 320px; long server-provided labels wrap without clipping). No backstop tooling is configured in the repo; the markup is UI-SPEC-compliant and source-inspected, and the visual checks are deferred to Phase 45 human verification alongside the Phase 40/41 deferred items.
 - Phase 43 plan 03 adds the same two backstop must_haves (no page overflow at 320px; long event-configured labels wrap without clipping) plus deep-link preservation for `/track-payment/[bookingRef]?token=...`; markup is UI-SPEC-compliant and source-inspected (min-w-0/flex-wrap contract asserted in component tests) and the visual walkthrough is deferred to Phase 45.
 - Phase 43 plan 03 extended `vitest.components.config.ts` include with `components/**/*.test.tsx` (the repo previously had no tsx component tests); documented in the 43-03 SUMMARY.
+- Phase 44 plan 03 carries the same two backstop must_haves (no page overflow at 320px; long labels/badges wrap without clipping) plus the lock-boundary helper copy; markup is UI-SPEC-compliant and source-inspected (min-w-0/flex-wrap badge and legend contract) and the visual walkthrough is deferred to Phase 45 alongside the Phase 40/41/42/43 deferred items.
+- Phase 44 execution had no autonomous deviations requiring user choice; the only plan adjustment was committing Plan 02 Tasks 1+2 as one atomic backend unit (shared file, neither typechecks without the other) and updating the existing `app/api/dashboard/accommodation/assignments/route.test.ts` fixtures for the typed board rows — both documented in the 44-02/44-03 SUMMARIES.
 - The pre-existing track-payment overpaid banner computes the donation amount client-side (`totalPaidMinor - totalDueMinor`) and is preserved unchanged as legacy behavior; the new Phase 43 editor/overpayment surfaces are strictly server-provided. Flagged for Phase 45 cross-surface money-agreement review.
 
 ### Quick Tasks Completed
@@ -103,9 +110,9 @@ Progress: ████████ (9/9 plans executed across Phases 39-43; 0/7 
 
 ## Session Continuity
 
-Last session: 2026-08-06T06:10:00.000Z
-Stopped at: Completed Phase 43 (plans 01-03 executed; server contract, HTTP route, and durable permalink UI committed)
-Resume file: .planning/phases/43-track-payment-permalink/43-03-SUMMARY.md — next: Phase 44 paid-priority allocation
+Last session: 2026-08-06T08:45:00.000Z
+Stopped at: Phase 44 fully executed (plans 01-03 complete); Phase 45 verification next
+Resume file: .planning/phases/44-allocation-paid-priority/44-03-SUMMARY.md
 
 ## Deferred Verification
 
@@ -119,3 +126,5 @@ Resume file: .planning/phases/43-track-payment-permalink/43-03-SUMMARY.md — ne
 | 40 | verification_deferred_human | /gsd-verify-work 40 (responsive receipt and external Tikkie flow deferred until v5.0 milestone completion) |
 | 41 | verification_deferred_human | /gsd-verify-work 41 (configured-event UI walkthrough, responsive layout, browser confirmation flow deferred until v5.0 milestone completion) |
 | 42 | verification_deferred_human | /gsd-verify-work 42 (320px/responsive signup walkthrough; production SIGNUP_SUBMISSION_SECRET + Turnstile provisioning) |
+| 43 | verification_deferred_human | /gsd-verify-work 43 (responsive permalink walkthrough; production SIGNUP_SUBMISSION_SECRET provisioning) |
+| 44 | verification_deferred_human | /gsd-verify-work 44 (320px/responsive Allocation walkthrough; browser assignment-confirm lock flow) |

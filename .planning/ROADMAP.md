@@ -341,7 +341,13 @@ Plans:
 3. An internal event with recorded payments correctly shows paid attendees as paid (not everyone grayed).
 4. Admin assignment confirmation sets the confirmedAt boundary that locks buyer configuration changes; subsequent edit attempts are rejected server-side.
 
-**Plans:** TBD
+**Plans:** 3/3 plans complete
+
+Plans:
+
+- [x] 44-01-PLAN.md — Define the pure canonical allocation payment-state contract
+- [x] 44-02-PLAN.md — Wire paid-priority board data and assignment confirmation locking
+- [x] 44-03-PLAN.md — Render accessible paid-first Allocation states and preserve proposal ordering
 
 ---
 
@@ -379,7 +385,7 @@ Plans:
 | 41 - Admin Upgrades & Options Tab | Config surface + explicit confirm | ADM-01, ADM-02, ADM-03, CAT-04 | 2 plans | Not started |
 | 42 - Public Signup Options | Options-only signup + ticket eligibility | SIG-01..04, TKT-01, TKT-02 | 2 plans | Complete |
 | 43 - Track Payment Permalink | Booking-ref permalink + re-price | TRK-01..06 | 3 plans | Complete |
-| 44 - Allocation Paid-Priority | Paid-priority allocation + lock | ALL-01, ALL-02, ALL-03 | TBD | Not started |
+| 44 - Allocation Paid-Priority | Paid-priority allocation + lock | ALL-01, ALL-02, ALL-03 | 3 plans | Not started |
 | 45 - Verification & Cross-Surface Audit | Money/security/idempotency audit | — | TBD | Not started |
 
 **Totals:** v4.0: 5 phases, 14 requirements mapped, 23 known plans complete across Phases 34-37 (Phase 38 not started, carried into v5.0 verification). v5.0: 7 phases (39-45), 31 requirements mapped, plans TBD.
