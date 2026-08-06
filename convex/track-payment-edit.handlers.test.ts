@@ -1260,6 +1260,55 @@ test("an already-used idempotency key replays its stored result without duplicat
   expect(audits[0].progressPercent).toBe(0)
   expect(audits[0].overpaymentDeltaMinor).toBe(0)
   expect(await loadAmountDue(t, String(order.orderId))).toBe(22500)
+
+  // Persisted rows prove the write path: the replacement exactly matches the
+  // stored server-resolved preferences and is stable across the replay.
+  const persistedRows = await t.query(async (ctx) => {
+    const rows = []
+    for await (const row of ctx.db
+      .query("orderAccommodationSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", order.orderId as never))) {
+      rows.push({
+        attendeeId: String(row.attendeeId),
+        categoryId: row.categoryId ? String(row.categoryId) : null,
+        occupancy: row.occupancy ?? null,
+        upgradeSelected: row.upgradeSelected,
+        cotSelected: row.cotSelected,
+        ageBandCode: row.ageBandCode ?? null,
+        nightCount: row.nightCount ?? null,
+        confirmedAt: row.confirmedAt ?? null,
+        priceSnapshot: row.priceSnapshot ?? null,
+      })
+    }
+    return rows
+  })
+  expect(persistedRows).toHaveLength(2)
+  const persistedOne = persistedRows.find(
+    (row) => row.attendeeId === String(order.attendeeOneId)
+  )
+  const persistedTwo = persistedRows.find(
+    (row) => row.attendeeId === String(order.attendeeTwoId)
+  )
+  expect(persistedOne).toMatchObject({
+    categoryId: String(seed.categorySuperiorId),
+    occupancy: "shared",
+    upgradeSelected: false,
+    cotSelected: false,
+    ageBandCode: "18_plus",
+    nightCount: 2,
+    confirmedAt: null,
+    priceSnapshot: null,
+  })
+  expect(persistedTwo).toMatchObject({
+    categoryId: String(seed.categorySuperiorId),
+    occupancy: "shared",
+    upgradeSelected: false,
+    cotSelected: false,
+    ageBandCode: "18_plus",
+    nightCount: 2,
+    confirmedAt: null,
+    priceSnapshot: null,
+  })
 })
 
 test("a replay returns the originally stored money result even when a payment is posted between attempts", async () => {
