@@ -40,19 +40,23 @@ export type AttendeeDraft = {
 
 export type AccommodationOccupancy = "single" | "shared" | "family"
 
+export type AccommodationOptionSelectionDraft = {
+  optionKey: string
+  quantity: number
+  nights: number
+}
+
 /**
  * One attendee's options-only accommodation preference, keyed by the stable
  * attendee key in `SignupDraft.accommodationSelections`. The buyer picks a
- * category, an occupancy literal, optional superior/cot flags and an optional
- * event-configured age band. It never holds a room/slot ID, date, night
- * count, price, or total — those are server-resolved.
+ * category, an occupancy literal and zero or more configured options (each
+ * with a quantity and nights). It never holds a room/slot ID, date, price, or
+ * total — those are server-resolved.
  */
 export type AccommodationSelectionDraft = {
   categoryId: string
   occupancy: AccommodationOccupancy | ""
-  upgradeSelected: boolean
-  cotSelected: boolean
-  ageBandCode: string
+  optionSelections: AccommodationOptionSelectionDraft[]
 }
 
 export type SignupDraft = {

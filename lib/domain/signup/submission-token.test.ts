@@ -231,8 +231,7 @@ describe("signup submission envelope digest (CR-09)", () => {
           attendeeKey: "a-1",
           categoryId: "cat_1",
           occupancy: "shared" as const,
-          upgradeSelected: true,
-          cotSelected: false,
+          optionSelections: [{ optionKey: "cot", quantity: 2, nights: 2 }],
         },
       ],
     })

@@ -74,37 +74,12 @@ async function createConfiguredEvent(
       sortOrder: 2,
     })
   })
-  const upgradeOptionId = await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationOptions", {
-      code: "superior_upgrade",
-      label: "Superior Upgrade",
-      kind: "upgrade",
-      unit: "per_night",
-    })
-  })
   const cotOptionId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("accommodationOptions", {
       code: "cot",
       label: "Cot",
       kind: "addon",
       unit: "per_night",
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationAgeBands", {
-      code: "under_3",
-      label: "Under 3",
-      minAge: 0,
-      maxAge: 3,
-      sortOrder: 1,
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationAgeBands", {
-      code: "18_plus",
-      label: "18 and over",
-      minAge: 18,
-      sortOrder: 4,
     })
   })
 
@@ -128,28 +103,9 @@ async function createConfiguredEvent(
   })
   await t.mutation(api.accommodation.upsertEventAccommodationOption, {
     eventId,
-    optionId: upgradeOptionId,
-    enabled: true,
-    priceMinor: 1500,
-  })
-  await t.mutation(api.accommodation.upsertEventAccommodationOption, {
-    eventId,
     optionId: cotOptionId,
     enabled: true,
     priceMinor: 500,
-    eligibilityAgeBandCode: "under_3",
-  })
-  await t.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
-    eventId,
-    ageBandCode: "18_plus",
-    rateType: "full",
-    value: 0,
-  })
-  await t.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
-    eventId,
-    ageBandCode: "under_3",
-    rateType: "free",
-    value: 0,
   })
 
   const constrainedRoomTypeId = await t.mutation(async (ctx) => {
@@ -233,9 +189,11 @@ async function envelopeDigest(envelope: {
     attendeeKey: string
     categoryId: Id<"accommodationCategories"> | string
     occupancy: "single" | "shared" | "family"
-    upgradeSelected: boolean
-    cotSelected: boolean
-    ageBandCode?: string
+    optionSelections: Array<{
+      optionKey: string
+      quantity: number
+      nights: number
+    }>
   }>
 }): Promise<string> {
   return digestSubmissionEnvelope({
@@ -255,9 +213,7 @@ async function envelopeDigest(envelope: {
         attendeeKey: preference.attendeeKey,
         categoryId: String(preference.categoryId),
         occupancy: preference.occupancy,
-        upgradeSelected: preference.upgradeSelected,
-        cotSelected: preference.cotSelected,
-        ageBandCode: preference.ageBandCode,
+        optionSelections: preference.optionSelections,
       })
     ),
   })
@@ -271,9 +227,11 @@ async function buildEnvelope(input: {
     attendeeKey: string
     categoryId: Id<"accommodationCategories">
     occupancy: "single" | "shared" | "family"
-    upgradeSelected: boolean
-    cotSelected: boolean
-    ageBandCode?: "under_3" | "3_11" | "12_17" | "18_plus"
+    optionSelections: Array<{
+      optionKey: string
+      quantity: number
+      nights: number
+    }>
   }>
   assignments?: Array<{
     attendeeKey: string
@@ -354,9 +312,7 @@ test("valid options-only submission persists one selection row per preference wi
           attendeeKey: "attendee-1",
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     })
@@ -374,9 +330,6 @@ test("valid options-only submission persists one selection row per preference wi
   expect(rows[0]).toMatchObject({
     categoryId: seed.categoryStandardId,
     occupancy: "shared",
-    upgradeSelected: false,
-    cotSelected: false,
-    ageBandCode: "18_plus",
     checkInAt: BASE_EVENT_AT - 2 * DAY_MS,
     checkOutAt: BASE_EVENT_AT,
     nightCount: 2,
@@ -401,9 +354,7 @@ test("valid options-only submission persists one selection row per preference wi
       attendeeKey: "attendee-1",
       categoryId: String(seed.categoryStandardId),
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
+      optionSelections: [],
     },
   ])
 })
@@ -422,9 +373,7 @@ test("the canonical amount-due loader prices newly inserted unconfirmed selectio
           attendeeKey: "attendee-1",
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     })
@@ -471,8 +420,7 @@ test("submission accepts an optional blank age band", async () => {
           attendeeKey: "attendee-1",
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
+          optionSelections: [],
         },
       ],
     })
@@ -485,7 +433,7 @@ test("submission accepts an optional blank age band", async () => {
       .take(10)
   })
   expect(rows).toHaveLength(1)
-  expect(rows[0].ageBandCode).toBeUndefined()
+  expect(rows[0].nightCount).toBe(2)
 })
 
 test("submission enforces ticket-constrained categories", async () => {
@@ -504,9 +452,7 @@ test("submission enforces ticket-constrained categories", async () => {
             attendeeKey: "attendee-1",
             categoryId: seed.categoryStandardId,
             occupancy: "shared",
-            upgradeSelected: false,
-            cotSelected: false,
-            ageBandCode: "18_plus",
+            optionSelections: [],
           },
         ],
       })
@@ -524,9 +470,7 @@ test("submission enforces ticket-constrained categories", async () => {
           attendeeKey: "attendee-1",
           categoryId: seed.categorySuperiorId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     })
@@ -534,7 +478,7 @@ test("submission enforces ticket-constrained categories", async () => {
   expect(accepted.submissionId).toBeDefined()
 })
 
-test("submission enforces the event-configured cot eligibility band", async () => {
+test("submission rejects an unknown accommodation option and persists selected options", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await createConfiguredEvent(t)
 
@@ -549,9 +493,9 @@ test("submission enforces the event-configured cot eligibility band", async () =
             attendeeKey: "attendee-1",
             categoryId: seed.categoryStandardId,
             occupancy: "shared",
-            upgradeSelected: false,
-            cotSelected: true,
-            ageBandCode: "18_plus",
+            optionSelections: [
+              { optionKey: "does_not_exist", quantity: 1, nights: 2 },
+            ],
           },
         ],
       })
@@ -568,14 +512,26 @@ test("submission enforces the event-configured cot eligibility band", async () =
           attendeeKey: "attendee-1",
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: true,
-          ageBandCode: "under_3",
+          optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
         },
       ],
     })
   )
   expect(accepted.submissionId).toBeDefined()
+
+  // The option selection persists as a child row linked to the base row.
+  const childRows = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orderAccommodationOptionSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", accepted.submissionId as never))
+      .take(10)
+  })
+  expect(childRows).toHaveLength(1)
+  expect(childRows[0]).toMatchObject({
+    optionKey: "cot",
+    quantity: 1,
+    nights: 2,
+  })
 })
 
 test("submission rejects stale rate combinations, duplicates, and unknown attendees", async () => {
@@ -594,9 +550,7 @@ test("submission rejects stale rate combinations, duplicates, and unknown attend
             attendeeKey: "attendee-1",
             categoryId: seed.categoryStandardId,
             occupancy: "family",
-            upgradeSelected: false,
-            cotSelected: false,
-            ageBandCode: "18_plus",
+            optionSelections: [],
           },
         ],
       })
@@ -615,17 +569,13 @@ test("submission rejects stale rate combinations, duplicates, and unknown attend
             attendeeKey: "attendee-1",
             categoryId: seed.categoryStandardId,
             occupancy: "shared",
-            upgradeSelected: false,
-            cotSelected: false,
-            ageBandCode: "18_plus",
+            optionSelections: [],
           },
           {
             attendeeKey: "attendee-1",
             categoryId: seed.categoryStandardId,
             occupancy: "single",
-            upgradeSelected: false,
-            cotSelected: false,
-            ageBandCode: "18_plus",
+            optionSelections: [],
           },
         ],
       })
@@ -658,9 +608,7 @@ test("submission rejects stale rate combinations, duplicates, and unknown attend
       attendeeKey: "attendee-2",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
+      optionSelections: [],
     },
   ]
   // The payload changed after minting, so re-mint the token over the final
@@ -804,9 +752,7 @@ test("submission rejects cross-event ticket and category IDs", async () => {
             attendeeKey: "attendee-1",
             categoryId: otherCategoryId as Id<"accommodationCategories">,
             occupancy: "shared",
-            upgradeSelected: false,
-            cotSelected: false,
-            ageBandCode: "18_plus",
+            optionSelections: [],
           },
         ],
       })
@@ -853,9 +799,7 @@ test("CR-02: submission rejects a ticket whose constrained room type cannot be r
             attendeeKey: "attendee-1",
             categoryId: seed.categorySuperiorId,
             occupancy: "shared",
-            upgradeSelected: false,
-            cotSelected: false,
-            ageBandCode: "18_plus",
+            optionSelections: [],
           },
         ],
       })
@@ -888,17 +832,13 @@ test("CR-03: a configured event requires exactly one preference per ticketed att
         attendeeKey: "attendee-1",
         categoryId: seed.categoryStandardId,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
       {
         attendeeKey: "attendee-2",
         categoryId: seed.categoryStandardId,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
     ],
   })
@@ -985,8 +925,7 @@ test("CR-03: an unconfigured event requires an empty preference list", async () 
             attendeeKey: "attendee-1",
             categoryId: categoryId as Id<"accommodationCategories">,
             occupancy: "shared",
-            upgradeSelected: false,
-            cotSelected: false,
+            optionSelections: [],
           },
         ],
       })
@@ -1017,9 +956,7 @@ test("CR-04: duplicate ticket selections and ticketless attendees are rejected",
       attendeeKey: "attendee-1",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
+      optionSelections: [],
     },
   ]
   // The payload changed after minting, so re-mint the token over the final
@@ -1048,9 +985,7 @@ test("CR-04: duplicate ticket selections and ticketless attendees are rejected",
       attendeeKey: "attendee-1",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
+      optionSelections: [],
     },
   ]
   // The payload changed after minting, so re-mint the token over the final
@@ -1086,9 +1021,7 @@ test("WR-05: legacy allocatedRoomTypeId is only set for explicitly constrained t
           attendeeKey: "attendee-1",
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     })
@@ -1115,9 +1048,7 @@ test("WR-05: legacy allocatedRoomTypeId is only set for explicitly constrained t
           attendeeKey: "attendee-1",
           categoryId: seed.categorySuperiorId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     })
@@ -1157,9 +1088,7 @@ test("CR-07: the public mutation rejects envelopes without a valid server-issued
         attendeeKey: "attendee-1",
         categoryId: seed.categoryStandardId,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
     ],
   })
@@ -1192,9 +1121,7 @@ test("CR-07: forged, expired, and mis-bound submission tokens are rejected befor
         attendeeKey: "attendee-1",
         categoryId: seed.categoryStandardId,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
     ],
   })
@@ -1218,9 +1145,7 @@ test("CR-07: forged, expired, and mis-bound submission tokens are rejected befor
         attendeeKey: "attendee-1",
         categoryId: seed.categoryStandardId,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
     ],
   })
@@ -1246,9 +1171,7 @@ test("CR-07: forged, expired, and mis-bound submission tokens are rejected befor
         attendeeKey: "attendee-1",
         categoryId: seed.categoryStandardId,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
     ],
   })
@@ -1308,9 +1231,7 @@ test("CR-08: submissions cannot oversell a ticket past its maxQuantity", async (
             attendeeKey: "attendee-1",
             categoryId: seed.categoryStandardId,
             occupancy: "shared",
-            upgradeSelected: false,
-            cotSelected: false,
-            ageBandCode: "18_plus",
+            optionSelections: [],
           },
         ],
       })
@@ -1344,9 +1265,7 @@ test("CR-08: submissions cannot oversell a ticket past its maxQuantity", async (
           attendeeKey: "attendee-1",
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     })
@@ -1365,9 +1284,7 @@ test("CR-08: submissions cannot oversell a ticket past its maxQuantity", async (
             attendeeKey: "attendee-2",
             categoryId: seed.categoryStandardId,
             occupancy: "shared",
-            upgradeSelected: false,
-            cotSelected: false,
-            ageBandCode: "18_plus",
+            optionSelections: [],
           },
         ],
       })
@@ -1405,9 +1322,7 @@ test("CR-09: a captured token cannot be replayed with a different payload", asyn
         attendeeKey: "attendee-1",
         categoryId: seed.categoryStandardId,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
     ],
   })
@@ -1442,9 +1357,7 @@ test("CR-09: a captured token cannot be replayed with a new idempotency key", as
         attendeeKey: "attendee-1",
         categoryId: seed.categoryStandardId,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
     ],
   })
@@ -1477,9 +1390,7 @@ test("CR-09: an exact retry (same payload, key, and token) returns the existing 
         attendeeKey: "attendee-1",
         categoryId: seed.categoryStandardId,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
     ],
   })
@@ -1532,17 +1443,13 @@ test("CR-10: a submission with two attendees sharing one ticket with one remaini
         attendeeKey: "attendee-1",
         categoryId: seed.categoryStandardId,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
       {
         attendeeKey: "attendee-2",
         categoryId: seed.categoryStandardId,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
     ],
   })

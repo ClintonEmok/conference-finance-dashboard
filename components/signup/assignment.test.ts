@@ -30,7 +30,6 @@ const eventFixture: PublicSignupCatalogEvent = {
     config: null,
     activeCategories: [],
     options: [],
-    ageBands: [],
     slots: [
       {
         slotId: "slot-a",

@@ -77,9 +77,11 @@ export type SignupEnvelopeCanonicalInput = {
     attendeeKey: string
     categoryId: string
     occupancy: "single" | "shared" | "family"
-    upgradeSelected: boolean
-    cotSelected: boolean
-    ageBandCode?: string
+    optionSelections: Array<{
+      optionKey: string
+      quantity: number
+      nights: number
+    }>
   }>
 }
 
@@ -140,9 +142,11 @@ export function canonicalizeSignupEnvelope(
         attendeeKey: normalizeRequiredString(preference.attendeeKey),
         categoryId: normalizeRequiredString(String(preference.categoryId)),
         occupancy: preference.occupancy,
-        upgradeSelected: preference.upgradeSelected,
-        cotSelected: preference.cotSelected,
-        ageBandCode: normalizeOptionalString(preference.ageBandCode),
+        optionSelections: preference.optionSelections.map((option) => ({
+          optionKey: normalizeRequiredString(option.optionKey),
+          quantity: Number(option.quantity),
+          nights: Number(option.nights),
+        })),
       })
     ),
   }

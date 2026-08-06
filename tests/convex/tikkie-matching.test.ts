@@ -229,14 +229,6 @@ async function seedTikkieEvent(t: TestConvexForDataModel<GenericDataModel>): Pro
     })
   })
 
-  const upgradeOptionId = await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationOptions", {
-      code: "superior_upgrade",
-      label: "Superior Upgrade",
-      kind: "upgrade",
-      unit: "per_night",
-    })
-  })
   const cotOptionId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("accommodationOptions", {
       code: "cot",
@@ -284,18 +276,9 @@ async function seedTikkieEvent(t: TestConvexForDataModel<GenericDataModel>): Pro
   await t.mutation(async (ctx) => {
     return await ctx.db.insert("eventAccommodationOptions", {
       eventId: eventId as never,
-      optionId: upgradeOptionId as never,
-      enabled: true,
-      priceMinor: 1500,
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("eventAccommodationOptions", {
-      eventId: eventId as never,
       optionId: cotOptionId as never,
       enabled: true,
       priceMinor: 500,
-      eligibilityAgeBandCode: "under_3",
     })
   })
 
@@ -333,8 +316,6 @@ async function seedTikkieEvent(t: TestConvexForDataModel<GenericDataModel>): Pro
       attendeeId: attendeeId as never,
       categoryId: categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
       nightCount: 2,
     })
   })

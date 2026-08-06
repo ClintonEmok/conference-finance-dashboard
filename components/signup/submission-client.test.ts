@@ -51,16 +51,12 @@ const draftFixture: SignupDraft = {
     "ticket_1-1": {
       categoryId: "cat_1",
       occupancy: "shared",
-      upgradeSelected: true,
-      cotSelected: false,
-      ageBandCode: "18_plus",
+      optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
     },
     "ticket_1-2": {
       categoryId: "cat_1",
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: true,
-      ageBandCode: "under_3",
+      optionSelections: [],
     },
   },
   notes: "Near entrance please",
@@ -160,17 +156,15 @@ describe("signup-flow submission client", () => {
               attendeeKey: "ticket_1-1",
               categoryId: "cat_1",
               occupancy: "shared",
-              upgradeSelected: true,
-              cotSelected: false,
-              ageBandCode: "18_plus",
+              optionSelections: [
+                { optionKey: "cot", quantity: 1, nights: 2 },
+              ],
             },
             {
               attendeeKey: "ticket_1-2",
               categoryId: "cat_1",
               occupancy: "shared",
-              upgradeSelected: false,
-              cotSelected: true,
-              ageBandCode: "under_3",
+              optionSelections: [],
             },
           ],
           captchaToken: "turnstile-token",
@@ -188,17 +182,13 @@ describe("signup-flow submission client", () => {
         attendeeKey: "ticket_1-1",
         categoryId: "cat_1",
         occupancy: "shared",
-        upgradeSelected: true,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
       },
       {
         attendeeKey: "ticket_1-2",
         categoryId: "cat_1",
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: true,
-        ageBandCode: "under_3",
+        optionSelections: [],
       },
     ])
 
@@ -219,9 +209,7 @@ describe("signup-flow submission client", () => {
         "ticket_1-1": {
           categoryId: "cat_1",
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "",
+          optionSelections: [],
         },
         // ticket_1-2 has no selection at all.
       },
@@ -232,8 +220,7 @@ describe("signup-flow submission client", () => {
         attendeeKey: "ticket_1-1",
         categoryId: "cat_1",
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
+        optionSelections: [],
       },
     ])
   })

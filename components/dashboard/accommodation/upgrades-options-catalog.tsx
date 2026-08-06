@@ -17,7 +17,6 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import type { Id } from "@/convex/_generated/dataModel"
 import {
-  useUpdateAccommodationAgeBand,
   useUpdateAccommodationCategory,
   useUpdateAccommodationOption,
   useUpdateRoomType,
@@ -45,15 +44,6 @@ type CatalogOption = {
   unit: string
 }
 
-type CatalogAgeBand = {
-  _id: Id<"accommodationAgeBands">
-  code: string
-  label: string
-  minAge: number
-  maxAge?: number
-  sortOrder: number
-}
-
 type CatalogRoomType = {
   _id: Id<"accommodationRoomTypes">
   label: string
@@ -67,7 +57,6 @@ type CatalogRoomType = {
 type CatalogData = {
   categories: CatalogCategory[]
   options: CatalogOption[]
-  ageBands: CatalogAgeBand[]
   roomTypes: CatalogRoomType[]
 }
 
@@ -148,7 +137,6 @@ export function UpgradesOptionsCatalog({
   const catalog = (catalogResult ?? {
     categories: [],
     options: [],
-    ageBands: [],
     roomTypes: [],
   }) as CatalogData
 
@@ -157,14 +145,13 @@ export function UpgradesOptionsCatalog({
       <CardHeader>
         <CardTitle>Reusable catalog</CardTitle>
         <CardDescription>
-          Shared catalog used by every event. Codes and age-band bounds are locked;
-          labels and descriptions can be edited to inform room allocation.
+          Shared catalog used by every event. Codes are locked; labels and
+          descriptions can be edited to inform room allocation.
         </CardDescription>
       </CardHeader>
       <CardContent className="min-w-0 space-y-6">
         <CategoryList categories={catalog.categories} />
         <OptionList options={catalog.options} />
-        <AgeBandList ageBands={catalog.ageBands} />
         <RoomTypeList roomTypes={catalog.roomTypes} />
       </CardContent>
     </Card>
@@ -403,130 +390,6 @@ function OptionRow({
         <Button type="button" size="sm" onClick={save} disabled={isPending}>
           {isPending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
           Save option
-        </Button>
-        <Feedback error={error} success={success} />
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Age bands
-// ---------------------------------------------------------------------------
-
-function AgeBandList({ ageBands }: { ageBands: CatalogAgeBand[] }) {
-  const update = useUpdateAccommodationAgeBand()
-
-  if (ageBands.length === 0) {
-    return (
-      <section className="min-w-0 space-y-2">
-        <h3 className="text-base font-semibold">Age bands</h3>
-        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          No age bands seeded yet.
-        </p>
-      </section>
-    )
-  }
-
-  return (
-    <section className="min-w-0 space-y-3">
-      <h3 className="text-base font-semibold">Age bands</h3>
-      <div className="grid min-w-0 gap-3 lg:grid-cols-2">
-        {ageBands.map((band) => (
-          <AgeBandRow key={band._id} band={band} update={update} />
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function AgeBandRow({
-  band,
-  update,
-}: {
-  band: CatalogAgeBand
-  update: ReturnType<typeof useUpdateAccommodationAgeBand>
-}) {
-  const [label, setLabel] = useState(band.label)
-  const [sortOrder, setSortOrder] = useState(String(band.sortOrder))
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-  const [isPending, setIsPending] = useState(false)
-
-  useEffect(() => {
-    setLabel(band.label)
-    setSortOrder(String(band.sortOrder))
-    setError(null)
-    setSuccess(null)
-  }, [band._id, band.label, band.sortOrder])
-
-  const bounds = `${band.minAge}${band.maxAge !== undefined ? `–${band.maxAge}` : "+"} years`
-
-  const save = async () => {
-    setError(null)
-    setSuccess(null)
-    const order = Number(sortOrder)
-    if (!Number.isInteger(order) || order < 0) {
-      setError("Sort order must be a whole number.")
-      return
-    }
-    setIsPending(true)
-    try {
-      await update({
-        ageBandId: band._id,
-        label: label.trim() || undefined,
-        sortOrder: order,
-      })
-      setSuccess("Age band saved.")
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save age band.")
-    } finally {
-      setIsPending(false)
-    }
-  }
-
-  return (
-    <div className="min-w-0 space-y-3 rounded-lg border border-border/60 p-4">
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-semibold">
-          {label || band.label}{" "}
-          <Badge variant="outline" className="ml-1 font-mono">
-            {band.code}
-          </Badge>
-        </p>
-        <div className="min-w-0 space-y-1">
-          <Label htmlFor={`uo-band-order-${band._id}`} className="sr-only">
-            Sort order
-          </Label>
-          <Input
-            id={`uo-band-order-${band._id}`}
-            type="number"
-            inputMode="numeric"
-            min={0}
-            step={1}
-            value={sortOrder}
-            onChange={(event) => setSortOrder(event.target.value)}
-            className="w-20 font-mono tabular-nums"
-            aria-label={`${label || band.label} sort order`}
-          />
-        </div>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        {bounds} · locked age bounds (read-only)
-      </p>
-      <div className="min-w-0 space-y-2">
-        <Label htmlFor={`uo-band-label-${band._id}`}>Label</Label>
-        <Input
-          id={`uo-band-label-${band._id}`}
-          value={label}
-          onChange={(event) => setLabel(event.target.value)}
-        />
-      </div>
-      <Separator />
-      <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" size="sm" onClick={save} disabled={isPending}>
-          {isPending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-          Save age band
         </Button>
         <Feedback error={error} success={success} />
       </div>

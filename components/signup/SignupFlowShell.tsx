@@ -56,9 +56,7 @@ function emptyAccommodationSelection(): AccommodationSelectionDraft {
   return {
     categoryId: "",
     occupancy: "",
-    upgradeSelected: false,
-    cotSelected: false,
-    ageBandCode: "",
+    optionSelections: [],
   }
 }
 
@@ -188,9 +186,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
         ticketTypeId: attendee.ticketTypeId,
         categoryId: selection?.categoryId || undefined,
         occupancy: selection?.occupancy || undefined,
-        upgradeSelected: selection?.upgradeSelected ?? false,
-        cotSelected: selection?.cotSelected ?? false,
-        ageBandCode: selection?.ageBandCode || undefined,
+        optionSelections: selection?.optionSelections ?? [],
       }
     })
   }, [draft?.attendees, draft?.accommodationSelections])

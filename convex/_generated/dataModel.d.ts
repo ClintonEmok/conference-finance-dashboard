@@ -27,33 +27,6 @@ import type { GenericId } from "convex/values";
  */
 
 export type DataModel = {
-  accommodationAgeBands: {
-    document: {
-      code: "under_3" | "3_11" | "12_17" | "18_plus";
-      label: string;
-      maxAge?: number;
-      minAge: number;
-      sortOrder: number;
-      _id: Id<"accommodationAgeBands">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "code"
-      | "label"
-      | "maxAge"
-      | "minAge"
-      | "sortOrder";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_code: ["code", "_creationTime"];
-      by_sortOrder: ["sortOrder", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
   accommodationCategories: {
     document: {
       code: "standard" | "superior" | "family";
@@ -115,7 +88,7 @@ export type DataModel = {
   };
   accommodationOptions: {
     document: {
-      code: "superior_upgrade" | "cot";
+      code: string;
       description?: string;
       kind: "addon" | "upgrade" | "eligibility";
       label: string;
@@ -306,33 +279,6 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
-  eventAccommodationAgePricing: {
-    document: {
-      ageBandCode: "under_3" | "3_11" | "12_17" | "18_plus";
-      eventId: Id<"events">;
-      rateType: "free" | "full" | "percent" | "flat";
-      sortOrder: number;
-      value: number;
-      _id: Id<"eventAccommodationAgePricing">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "ageBandCode"
-      | "eventId"
-      | "rateType"
-      | "sortOrder"
-      | "value";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_eventId: ["eventId", "_creationTime"];
-      by_eventId_and_ageBandCode: ["eventId", "ageBandCode", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
   eventAccommodationConfig: {
     document: {
       allowExtendedStayAfter: boolean;
@@ -371,7 +317,7 @@ export type DataModel = {
   };
   eventAccommodationOptions: {
     document: {
-      eligibilityAgeBandCode?: "under_3" | "3_11" | "12_17" | "18_plus";
+      eligibilityAgeBandCode?: string;
       enabled: boolean;
       eventId: Id<"events">;
       notes?: string;
@@ -590,32 +536,68 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  orderAccommodationOptionSelections: {
+    document: {
+      attendeeId: Id<"orderAttendees">;
+      nights: number;
+      optionKey: string;
+      orderId: Id<"orders">;
+      quantity: number;
+      selectionId: Id<"orderAccommodationSelections">;
+      sortOrder: number;
+      _id: Id<"orderAccommodationOptionSelections">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "attendeeId"
+      | "nights"
+      | "optionKey"
+      | "orderId"
+      | "quantity"
+      | "selectionId"
+      | "sortOrder";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_orderId: ["orderId", "_creationTime"];
+      by_orderId_and_attendeeId: ["orderId", "attendeeId", "_creationTime"];
+      by_selectionId: ["selectionId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   orderAccommodationSelections: {
     document: {
-      ageBandCode?: "under_3" | "3_11" | "12_17" | "18_plus";
+      ageBandCode?: string;
       attendeeId: Id<"orderAttendees">;
       categoryId?: Id<"accommodationCategories">;
       checkInAt?: number;
       checkOutAt?: number;
       configVersion?: number;
       confirmedAt?: number;
-      cotSelected: boolean;
+      cotSelected?: boolean;
       nightCount?: number;
       occupancy?: "single" | "shared" | "family";
       orderId: Id<"orders">;
       priceSnapshot?: {
-        ageBandCode?: string;
         baseRatePerNightMinor: number;
         categoryIsSuperior?: boolean;
-        cotEligibilityAgeBandCode?: string | null;
-        cotRatePerNightMinor: number;
         cotSelected?: boolean;
         coveredNights: number;
+        optionLines?: Array<{
+          chargeMinor: number;
+          label: string;
+          nights: number;
+          optionKey: string;
+          pricePerUnitMinor: number;
+          quantity: number;
+        }>;
         totalNights: number;
-        upgradeRatePerNightMinor: number;
         upgradeSelected?: boolean;
       };
-      upgradeSelected: boolean;
+      upgradeSelected?: boolean;
       _id: Id<"orderAccommodationSelections">;
       _creationTime: number;
     };
@@ -634,15 +616,12 @@ export type DataModel = {
       | "occupancy"
       | "orderId"
       | "priceSnapshot"
-      | "priceSnapshot.ageBandCode"
       | "priceSnapshot.baseRatePerNightMinor"
       | "priceSnapshot.categoryIsSuperior"
-      | "priceSnapshot.cotEligibilityAgeBandCode"
-      | "priceSnapshot.cotRatePerNightMinor"
       | "priceSnapshot.cotSelected"
       | "priceSnapshot.coveredNights"
+      | "priceSnapshot.optionLines"
       | "priceSnapshot.totalNights"
-      | "priceSnapshot.upgradeRatePerNightMinor"
       | "priceSnapshot.upgradeSelected"
       | "upgradeSelected";
     indexes: {

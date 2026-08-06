@@ -230,20 +230,12 @@ export function useUpsertEventAccommodationResource() {
   return useMutation(api.accommodation.upsertEventAccommodationResource)
 }
 
-export function useUpsertEventAccommodationAgePricing() {
-  return useMutation(api.accommodation.upsertEventAccommodationAgePricing)
-}
-
 export function useUpdateAccommodationCategory() {
   return useMutation(api.accommodation.updateAccommodationCategory)
 }
 
 export function useUpdateAccommodationOption() {
   return useMutation(api.accommodation.updateAccommodationOption)
-}
-
-export function useUpdateAccommodationAgeBand() {
-  return useMutation(api.accommodation.updateAccommodationAgeBand)
 }
 
 export function useConfirmAccommodationOrderConfiguration() {

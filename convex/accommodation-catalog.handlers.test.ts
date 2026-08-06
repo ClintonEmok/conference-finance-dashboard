@@ -87,7 +87,6 @@ test("authenticated callers can read the empty catalog", async () => {
   const catalog = await t.query(api.accommodation.getAccommodationCatalog)
   expect(catalog.categories).toEqual([])
   expect(catalog.options).toEqual([])
-  expect(catalog.ageBands).toEqual([])
 })
 
 // ---------------------------------------------------------------------------
@@ -111,24 +110,8 @@ test("category create persists rows and rejects duplicate codes", async () => {
   ).rejects.toThrow(/already exists/)
 })
 
-test("option create enforces the locked built-in pricing semantics", async () => {
+test("option create persists arbitrary codes with their kind/unit", async () => {
   const t = fresh().withIdentity(adminIdentity)
-  await expect(
-    t.mutation(api.accommodation.createAccommodationOption, {
-      code: "cot",
-      label: "Cot",
-      kind: "addon",
-      unit: "per_person",
-    })
-  ).rejects.toThrow(/requires kind "addon" and unit "per_night"/)
-  await expect(
-    t.mutation(api.accommodation.createAccommodationOption, {
-      code: "superior_upgrade",
-      label: "Upgrade",
-      kind: "addon",
-      unit: "per_night",
-    })
-  ).rejects.toThrow(/requires kind "upgrade" and unit "per_night"/)
   const cotId = await t.mutation(api.accommodation.createAccommodationOption, {
     code: "cot",
     label: "Cot",
@@ -136,36 +119,6 @@ test("option create enforces the locked built-in pricing semantics", async () =>
     unit: "per_night",
   })
   expect(cotId).toBeTruthy()
-})
-
-test("age band create enforces the locked numeric tuple per code", async () => {
-  const t = fresh().withIdentity(adminIdentity)
-  await expect(
-    t.mutation(api.accommodation.createAccommodationAgeBand, {
-      code: "under_3",
-      label: "Under 3",
-      minAge: 18,
-      maxAge: 3,
-      sortOrder: 1,
-    })
-  ).rejects.toThrow("Invalid age band bounds")
-  await expect(
-    t.mutation(api.accommodation.createAccommodationAgeBand, {
-      code: "18_plus",
-      label: "18+",
-      minAge: 18,
-      maxAge: 21,
-      sortOrder: 2,
-    })
-  ).rejects.toThrow("Invalid age band bounds")
-  const id = await t.mutation(api.accommodation.createAccommodationAgeBand, {
-    code: "under_3",
-    label: "Under 3",
-    minAge: 0,
-    maxAge: 3,
-    sortOrder: 1,
-  })
-  expect(id).toBeTruthy()
 })
 
 test("room type create rejects negative and fractional defaultCapacity", async () => {
@@ -357,33 +310,25 @@ test("rate upsert patches the keyed row instead of duplicating", async () => {
 test("event option upsert defaults omitted prices to €10 and keeps explicit €0", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const eventId = await createEvent(t)
-  await t.mutation(api.accommodation.createAccommodationAgeBand, {
-    code: "under_3",
-    label: "Under 3",
-    minAge: 0,
-    maxAge: 3,
-    sortOrder: 1,
-  })
   const cotId = await t.mutation(api.accommodation.createAccommodationOption, {
     code: "cot",
     label: "Cot",
     kind: "addon",
     unit: "per_night",
   })
-  const upgradeId = await t.mutation(api.accommodation.createAccommodationOption, {
-    code: "superior_upgrade",
-    label: "Superior Upgrade",
-    kind: "upgrade",
+  const parkingId = await t.mutation(api.accommodation.createAccommodationOption, {
+    code: "parking",
+    label: "Parking pass",
+    kind: "addon",
     unit: "per_night",
   })
   await t.mutation(api.accommodation.upsertEventAccommodationOption, {
     eventId,
     optionId: cotId,
-    eligibilityAgeBandCode: "under_3",
   })
   await t.mutation(api.accommodation.upsertEventAccommodationOption, {
     eventId,
-    optionId: upgradeId,
+    optionId: parkingId,
     priceMinor: 0,
   })
   const { options } = (await t.query(
@@ -398,7 +343,7 @@ test("event option upsert defaults omitted prices to €10 and keeps explicit �
   }
   const byOptionId = new Map(options.map((option) => [option.optionId, option]))
   expect(byOptionId.get(cotId)?.priceMinor).toBe(1000)
-  expect(byOptionId.get(upgradeId)?.priceMinor).toBe(0)
+  expect(byOptionId.get(parkingId)?.priceMinor).toBe(0)
   expect(byOptionId.get(cotId)?.optionCode).toBe("cot")
 })
 
@@ -420,7 +365,7 @@ test("event option upsert rejects fractional prices", async () => {
   ).rejects.toThrow(/non-negative number/)
 })
 
-test("event option upsert enforces cot eligibility through the handler", async () => {
+test("event option upsert persists enable/price/notes and preserves on update", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const eventId = await createEvent(t)
   const cotId = await t.mutation(api.accommodation.createAccommodationOption, {
@@ -429,48 +374,13 @@ test("event option upsert enforces cot eligibility through the handler", async (
     kind: "addon",
     unit: "per_night",
   })
-  const upgradeId = await t.mutation(api.accommodation.createAccommodationOption, {
-    code: "superior_upgrade",
-    label: "Superior Upgrade",
-    kind: "upgrade",
-    unit: "per_night",
+  await t.mutation(api.accommodation.upsertEventAccommodationOption, {
+    eventId,
+    optionId: cotId,
+    enabled: true,
+    priceMinor: 700,
+    notes: "Per night, per cot.",
   })
-  await t.mutation(api.accommodation.createAccommodationAgeBand, {
-    code: "under_3",
-    label: "Under 3",
-    minAge: 0,
-    maxAge: 3,
-    sortOrder: 1,
-  })
-  // The cot option accepts any configured catalog age band (eligibility is
-  // event-scoped, not locked to a single band).
-  const saved = await t.mutation(
-    api.accommodation.upsertEventAccommodationOption,
-    {
-      eventId,
-      optionId: cotId,
-      eligibilityAgeBandCode: "under_3",
-    }
-  )
-  expect(saved.eligibilityAgeBandCode).toBe("under_3")
-  // An unknown band code is rejected even when the shape is right.
-  await expect(
-    t.mutation(api.accommodation.upsertEventAccommodationOption, {
-      eventId,
-      optionId: cotId,
-      eligibilityAgeBandCode: "3_11" as never,
-    })
-  ).rejects.toThrow(/Age band not found/)
-  // A cot option cannot be inserted without an eligibility band.
-  const bareCotEventId = await createEvent(t)
-  await expect(
-    t.mutation(api.accommodation.upsertEventAccommodationOption, {
-      eventId: bareCotEventId,
-      optionId: cotId,
-    })
-  ).rejects.toThrow(/requires an eligibility age band/)
-  // An update that omits the band preserves the existing configured band
-  // (never silently clears it).
   const preserved = await t.mutation(
     api.accommodation.upsertEventAccommodationOption,
     {
@@ -479,15 +389,7 @@ test("event option upsert enforces cot eligibility through the handler", async (
       enabled: true,
     }
   )
-  expect(preserved.eligibilityAgeBandCode).toBe("under_3")
-  // Non-cot options must not carry an eligibility age band.
-  await expect(
-    t.mutation(api.accommodation.upsertEventAccommodationOption, {
-      eventId,
-      optionId: upgradeId,
-      eligibilityAgeBandCode: "under_3",
-    })
-  ).rejects.toThrow(/requires an eligibility age band/)
+  expect(preserved.priceMinor).toBe(700)
 })
 
 // ---------------------------------------------------------------------------
@@ -580,57 +482,6 @@ test("cot resources derive one sellable bed per item", async () => {
   expect(resources).toHaveLength(1)
   expect(resources[0].sellableBeds).toBe(5)
   expect(resources[0].roomTypeLabel).toBe(null)
-})
-
-// ---------------------------------------------------------------------------
-// Age pricing: percent domain and flat minor units through the handler.
-// ---------------------------------------------------------------------------
-
-test("age pricing upsert validates value by rate type", async () => {
-  const t = fresh().withIdentity(adminIdentity)
-  const eventId = await createEvent(t)
-  await t.mutation(api.accommodation.createAccommodationAgeBand, {
-    code: "under_3",
-    label: "Under 3",
-    minAge: 0,
-    maxAge: 3,
-    sortOrder: 1,
-  })
-  await expect(
-    t.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
-      eventId,
-      ageBandCode: "under_3",
-      rateType: "percent",
-      value: 150,
-    })
-  ).rejects.toThrow(/valid percent age-pricing amount/)
-  await expect(
-    t.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
-      eventId,
-      ageBandCode: "under_3",
-      rateType: "flat",
-      value: 12.5,
-    })
-  ).rejects.toThrow(/valid flat age-pricing amount/)
-  await t.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
-    eventId,
-    ageBandCode: "under_3",
-    rateType: "percent",
-    value: 50,
-  })
-  await t.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
-    eventId,
-    ageBandCode: "under_3",
-    rateType: "flat",
-    value: 500,
-  })
-  const { agePricing } = await t.query(api.accommodation.getEventAccommodationConfig, {
-    eventId,
-  })
-  // Repeated upserts of the same (event, band) keyed row stay single.
-  expect(agePricing).toHaveLength(1)
-  expect(agePricing[0].rateType).toBe("flat")
-  expect(agePricing[0].value).toBe(500)
 })
 
 // ---------------------------------------------------------------------------

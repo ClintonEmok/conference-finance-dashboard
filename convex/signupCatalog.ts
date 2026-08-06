@@ -4,8 +4,8 @@ import type { Doc, Id } from "./_generated/dataModel"
 import {
   accommodationIneligibilityReasonValidator,
   ticketUnavailableReasonValidator,
-  signupAgeBandCodeValidator,
   signupAccommodationOccupancyValidator,
+  signupAccommodationOptionSelectionValidator,
 } from "../lib/types/signup"
 import type { TicketUnavailableReason } from "../lib/types/signup"
 import { deriveAccommodationAmount } from "../lib/domain/finance/accommodation-amounts"
@@ -16,18 +16,12 @@ const EVENT_ASSIGNABLE_SLOT_LIMIT = 200
 const EVENT_SOURCE_LIMIT = 5
 const EVENT_RATE_LIMIT = 200
 const EVENT_OPTION_LIMIT = 100
-const EVENT_AGE_PRICING_LIMIT = 50
 
 const categoryCodeValidator = v.union(
   v.literal("standard"),
   v.literal("superior"),
   v.literal("family")
 )
-const optionCodeValidator = v.union(
-  v.literal("superior_upgrade"),
-  v.literal("cot")
-)
-const ageBandCodeValidator = signupAgeBandCodeValidator
 const occupancyValidator = signupAccommodationOccupancyValidator
 
 const publicSignupTicketValidator = v.object({
@@ -68,17 +62,9 @@ const publicSignupActiveCategoryValidator = v.object({
 })
 
 const publicSignupOptionValidator = v.object({
-  optionCode: optionCodeValidator,
+  optionKey: v.string(),
   label: v.string(),
   priceMinor: v.number(),
-  eligibilityAgeBandCode: v.union(ageBandCodeValidator, v.null()),
-})
-
-const publicSignupAgeBandValidator = v.object({
-  code: ageBandCodeValidator,
-  label: v.string(),
-  minAge: v.number(),
-  maxAge: v.union(v.number(), v.null()),
 })
 
 const publicSignupCatalogEventValidator = v.object({
@@ -105,18 +91,15 @@ const publicSignupCatalogEventValidator = v.object({
     config: v.union(publicSignupAccommodationConfigValidator, v.null()),
     activeCategories: v.array(publicSignupActiveCategoryValidator),
     options: v.array(publicSignupOptionValidator),
-    ageBands: v.array(publicSignupAgeBandValidator),
   }),
 })
 
 const publicSignupReceiptLineValidator = v.object({
-  kind: v.union(
-    v.literal("accommodation"),
-    v.literal("superior_upgrade"),
-    v.literal("cot")
-  ),
+  kind: v.union(v.literal("accommodation"), v.literal("option")),
+  optionKey: v.optional(v.string()),
   label: v.string(),
   nights: v.number(),
+  quantity: v.optional(v.number()),
   ratePerNightMinor: v.number(),
   chargeMinor: v.number(),
 })
@@ -126,9 +109,7 @@ const publicSignupQuoteAttendeeValidator = v.object({
   ticketTypeId: v.id("ticketTypes"),
   categoryId: v.optional(v.id("accommodationCategories")),
   occupancy: v.optional(occupancyValidator),
-  upgradeSelected: v.optional(v.boolean()),
-  cotSelected: v.optional(v.boolean()),
-  ageBandCode: v.optional(ageBandCodeValidator),
+  optionSelections: v.array(signupAccommodationOptionSelectionValidator),
 })
 
 const publicSignupQuoteAttendeeResultValidator = v.object({
@@ -140,9 +121,6 @@ const publicSignupQuoteAttendeeResultValidator = v.object({
   categoryCode: v.optional(categoryCodeValidator),
   categoryLabel: v.optional(v.string()),
   occupancy: v.optional(occupancyValidator),
-  upgradeSelected: v.boolean(),
-  cotSelected: v.boolean(),
-  ageBandCode: v.optional(ageBandCodeValidator),
   accommodationTotalMinor: v.number(),
   amountDueMinor: v.number(),
   lines: v.array(publicSignupReceiptLineValidator),
@@ -371,35 +349,30 @@ async function getAssignableSlotSummaries(
  * Resolves the event-scoped accommodation configuration for a public signup
  * consumer (catalog or quote). Event-configured choices are derived from the
  * same rows the canonical finance loader and the admin confirmation use:
- * eventAccommodationConfig, eventAccommodationRates,
- * eventAccommodationOptions (enabled only) and eventAccommodationAgePricing.
- * Catalog labels/codes are resolved through per-ID reads so a category/option
- * beyond a catalog listing limit never silently drops.
+ * eventAccommodationConfig, eventAccommodationRates and the enabled
+ * eventAccommodationOptions. Catalog labels/codes are resolved through
+ * per-ID reads so a category/option beyond a catalog listing limit never
+ * silently drops.
  */
 export async function loadPublicSignupAccommodationContext(
   ctx: QueryCtx | MutationCtx,
   eventId: Id<"events">
 ): Promise<PublicSignupAccommodationContext> {
-  const [event, configRow, rateRows, eventOptionRows, agePricingRows] =
-    await Promise.all([
-      ctx.db.get(eventId),
-      ctx.db
-        .query("eventAccommodationConfig")
-        .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
-        .unique(),
-      ctx.db
-        .query("eventAccommodationRates")
-        .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
-        .take(EVENT_RATE_LIMIT),
-      ctx.db
-        .query("eventAccommodationOptions")
-        .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
-        .take(EVENT_OPTION_LIMIT),
-      ctx.db
-        .query("eventAccommodationAgePricing")
-        .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
-        .take(EVENT_AGE_PRICING_LIMIT),
-    ])
+  const [event, configRow, rateRows, eventOptionRows] = await Promise.all([
+    ctx.db.get(eventId),
+    ctx.db
+      .query("eventAccommodationConfig")
+      .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+      .unique(),
+    ctx.db
+      .query("eventAccommodationRates")
+      .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+      .take(EVENT_RATE_LIMIT),
+    ctx.db
+      .query("eventAccommodationOptions")
+      .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+      .take(EVENT_OPTION_LIMIT),
+  ])
 
   const ratesByKey = new Map<string, number>()
   const activeCategoryIds = new Set<string>()
@@ -420,26 +393,25 @@ export async function loadPublicSignupAccommodationContext(
       ctx.db.get("accommodationOptions", optionId as Id<"accommodationOptions">)
     )
   )
-  const optionCodeById = new Map<string, string>()
-  const optionLabelByCode = new Map<string, string>()
+  const optionKeyById = new Map<string, string>()
+  const optionLabelByKey = new Map<string, string>()
   for (const definition of optionDefinitions) {
     if (definition) {
-      optionCodeById.set(String(definition._id), definition.code)
-      optionLabelByCode.set(definition.code, definition.label)
+      optionKeyById.set(String(definition._id), definition.code)
+      optionLabelByKey.set(definition.code, definition.label)
     }
   }
 
-  let superiorUpgradePriceMinor: number | null = null
-  let cotPriceMinor: number | null = null
-  let cotEligibilityAgeBandCode: string | null = null
+  const optionsByKey = new Map<string, { label: string; priceMinor: number }>()
   for (const row of enabledOptionRows) {
-    const code = optionCodeById.get(String(row.optionId))
-    if (code === "superior_upgrade") {
-      superiorUpgradePriceMinor = row.priceMinor
-    } else if (code === "cot") {
-      cotPriceMinor = row.priceMinor
-      cotEligibilityAgeBandCode = row.eligibilityAgeBandCode ?? null
+    const key = optionKeyById.get(String(row.optionId))
+    if (!key) {
+      continue
     }
+    optionsByKey.set(key, {
+      label: optionLabelByKey.get(key) ?? key,
+      priceMinor: row.priceMinor,
+    })
   }
 
   const categoryDocs = await Promise.all(
@@ -463,37 +435,6 @@ export async function loadPublicSignupAccommodationContext(
     }
   }
 
-  // The set of age bands valid for THIS event comes from its configured
-  // age-pricing rows — bands are event-scoped catalog data, never constants.
-  const eventAgeBandCodes = new Set(
-    agePricingRows.map((row) => row.ageBandCode)
-  )
-  // Resolve every event-configured code by its indexed catalog lookup and
-  // fail closed when any definition is missing (WR-03). A partial age-band
-  // set would silently hide an event-configured band from the edit UI while
-  // the resolver still accepts the code.
-  const ageBandDocs: Array<Doc<"accommodationAgeBands">> = []
-  for (const code of Array.from(eventAgeBandCodes)) {
-    const band = await ctx.db
-      .query("accommodationAgeBands")
-      .withIndex("by_code", (q) => q.eq("code", code))
-      .first()
-    if (!band) {
-      throw new Error(
-        `Event age band '${code}' is configured by age pricing but missing from the age-band catalog.`
-      )
-    }
-    ageBandDocs.push(band)
-  }
-  const ageBands = ageBandDocs
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((band) => ({
-      code: band.code,
-      label: band.label,
-      minAge: band.minAge,
-      maxAge: band.maxAge ?? null,
-    }))
-
   // An event only exposes configured accommodation when it is enabled at the
   // event level AND has a stay config AND at least one active rate category.
   // The event flag is authoritative: stale config/rate rows must never make a
@@ -516,12 +457,7 @@ export async function loadPublicSignupAccommodationContext(
     ratesByKey,
     categoryById,
     activeCategoryIds,
-    eventAgeBandCodes,
-    ageBands,
-    optionLabelByCode,
-    superiorUpgradePriceMinor,
-    cotPriceMinor,
-    cotEligibilityAgeBandCode,
+    optionsByKey,
   }
 }
 
@@ -536,17 +472,7 @@ export type PublicSignupAccommodationContext = {
   ratesByKey: Map<string, number>
   categoryById: Map<string, { code: string; label: string }>
   activeCategoryIds: Set<string>
-  eventAgeBandCodes: Set<string>
-  ageBands: Array<{
-    code: "under_3" | "3_11" | "12_17" | "18_plus"
-    label: string
-    minAge: number
-    maxAge: number | null
-  }>
-  optionLabelByCode: Map<string, string>
-  superiorUpgradePriceMinor: number | null
-  cotPriceMinor: number | null
-  cotEligibilityAgeBandCode: string | null
+  optionsByKey: Map<string, { label: string; priceMinor: number }>
 }
 
 export type PublicSignupSelectionResolved = {
@@ -554,13 +480,14 @@ export type PublicSignupSelectionResolved = {
   categoryCode: string | null
   categoryLabel: string | null
   occupancy: "single" | "shared" | "family" | null
-  upgradeSelected: boolean
-  cotSelected: boolean
-  ageBandCode: string | null
   baseRatePerNightMinor: number | null
-  superiorUpgradePriceMinor: number | null
-  cotPriceMinor: number | null
-  cotEligibilityAgeBandCode: string | null
+  options: Array<{
+    optionKey: string
+    label: string
+    pricePerUnitMinor: number
+    quantity: number
+    nights: number
+  }>
   nightCount: number | null
   breakfastIncluded: boolean
 }
@@ -579,9 +506,11 @@ export function resolvePublicSignupSelection(input: {
   selection: {
     categoryId?: string | null
     occupancy?: string | null
-    upgradeSelected?: boolean | null
-    cotSelected?: boolean | null
-    ageBandCode?: string | null
+    optionSelections?: Array<{
+      optionKey: string
+      quantity: number
+      nights: number
+    }> | null
   }
   /**
    * The category of `ticketTypes.roomTypeId` for the attendee's ticket, or
@@ -590,17 +519,17 @@ export function resolvePublicSignupSelection(input: {
   ticketCategoryId: string | null
 }): PublicSignupSelectionResolved {
   const { context, selection, ticketCategoryId } = input
-  const upgradeSelected = selection.upgradeSelected === true
-  const cotSelected = selection.cotSelected === true
-  const ageBandCode = selection.ageBandCode?.trim() || null
+  const optionSelections = Array.isArray(selection.optionSelections)
+    ? selection.optionSelections
+    : []
 
   if (!context.hasConfiguredAccommodation) {
-    if (selection.categoryId || selection.occupancy || ageBandCode) {
+    if (selection.categoryId || selection.occupancy) {
       throw new Error(
         "QUOTE_INVALID: This event does not offer configured accommodation options."
       )
     }
-    if (upgradeSelected || cotSelected) {
+    if (optionSelections.length > 0) {
       throw new Error(
         "QUOTE_INVALID: This event does not offer configured accommodation options."
       )
@@ -610,13 +539,8 @@ export function resolvePublicSignupSelection(input: {
       categoryCode: null,
       categoryLabel: null,
       occupancy: null,
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: null,
       baseRatePerNightMinor: null,
-      superiorUpgradePriceMinor: null,
-      cotPriceMinor: null,
-      cotEligibilityAgeBandCode: null,
+      options: [],
       nightCount: null,
       breakfastIncluded: false,
     }
@@ -664,29 +588,31 @@ export function resolvePublicSignupSelection(input: {
     )
   }
 
-  if (ageBandCode && !context.eventAgeBandCodes.has(ageBandCode)) {
-    throw new Error(
-      "QUOTE_INVALID: The selected age band is not configured for this event."
-    )
-  }
-  if (upgradeSelected && context.superiorUpgradePriceMinor === null) {
-    throw new Error(
-      "QUOTE_INVALID: The superior upgrade is not enabled for this event."
-    )
-  }
-  if (cotSelected) {
-    if (context.cotPriceMinor === null) {
-      throw new Error("QUOTE_INVALID: Cots are not enabled for this event.")
-    }
-    if (
-      !ageBandCode ||
-      context.cotEligibilityAgeBandCode === null ||
-      ageBandCode !== context.cotEligibilityAgeBandCode
-    ) {
+  // Every selected option must be a key in the event's enabled option set.
+  // Unknown/disabled/duplicate keys fail closed; quantity and nights are
+  // normalized by the pricing engine.
+  const resolvedOptions: PublicSignupSelectionResolved["options"] = []
+  const seenKeys = new Set<string>()
+  for (const selected of optionSelections) {
+    const option = context.optionsByKey.get(selected.optionKey)
+    if (!option) {
       throw new Error(
-        "QUOTE_INVALID: A cot is only available for the age band configured for this event."
+        `QUOTE_INVALID: The selected accommodation option '${selected.optionKey}' is not enabled for this event.`
       )
     }
+    if (seenKeys.has(selected.optionKey)) {
+      throw new Error(
+        `QUOTE_INVALID: The accommodation option '${selected.optionKey}' was selected more than once.`
+      )
+    }
+    seenKeys.add(selected.optionKey)
+    resolvedOptions.push({
+      optionKey: selected.optionKey,
+      label: option.label,
+      pricePerUnitMinor: option.priceMinor,
+      quantity: Math.max(0, Math.floor(selected.quantity ?? 0)),
+      nights: Math.max(0, Math.floor(selected.nights ?? 0)),
+    })
   }
 
   return {
@@ -694,13 +620,8 @@ export function resolvePublicSignupSelection(input: {
     categoryCode: category.code,
     categoryLabel: category.label,
     occupancy: occupancy as "single" | "shared" | "family",
-    upgradeSelected,
-    cotSelected,
-    ageBandCode,
     baseRatePerNightMinor,
-    superiorUpgradePriceMinor: context.superiorUpgradePriceMinor,
-    cotPriceMinor: context.cotPriceMinor,
-    cotEligibilityAgeBandCode: context.cotEligibilityAgeBandCode,
+    options: resolvedOptions,
     nightCount: context.config?.nightCount ?? null,
     breakfastIncluded: context.config?.breakfastIncluded ?? false,
   }
@@ -931,47 +852,21 @@ export const getPublicSignupCatalog = query({
           : []
 
         const options: Array<{
-          optionCode: "superior_upgrade" | "cot"
+          optionKey: string
           label: string
           priceMinor: number
-          eligibilityAgeBandCode:
-            | "under_3"
-            | "3_11"
-            | "12_17"
-            | "18_plus"
-            | null
         }> = []
-        if (
-          hasConfiguredChoices &&
-          accommodationContract.superiorUpgradePriceMinor !== null
-        ) {
-          options.push({
-            optionCode: "superior_upgrade",
-            label:
-              accommodationContract.optionLabelByCode.get(
-                "superior_upgrade"
-              ) ?? "Superior upgrade",
-            priceMinor: accommodationContract.superiorUpgradePriceMinor,
-            eligibilityAgeBandCode: null,
-          })
-        }
-        if (
-          hasConfiguredChoices &&
-          accommodationContract.cotPriceMinor !== null
-        ) {
-          options.push({
-            optionCode: "cot",
-            label:
-              accommodationContract.optionLabelByCode.get("cot") ?? "Cot",
-            priceMinor: accommodationContract.cotPriceMinor,
-            eligibilityAgeBandCode:
-              (accommodationContract.cotEligibilityAgeBandCode ?? null) as
-                | "under_3"
-                | "3_11"
-                | "12_17"
-                | "18_plus"
-                | null,
-          })
+        if (hasConfiguredChoices) {
+          for (const [optionKey, option] of accommodationContract.optionsByKey) {
+            options.push({
+              optionKey,
+              label: option.label,
+              priceMinor: option.priceMinor,
+            })
+          }
+          options.sort((left, right) =>
+            left.label.localeCompare(right.label)
+          )
         }
 
         return {
@@ -995,7 +890,6 @@ export const getPublicSignupCatalog = query({
             config: hasConfiguredChoices ? accommodationContract.config : null,
             activeCategories,
             options,
-            ageBands: hasConfiguredChoices ? accommodationContract.ageBands : [],
           },
         }
       })
@@ -1127,9 +1021,7 @@ export const getPublicSignupAccommodationQuote = query({
             ? String(attendee.categoryId)
             : null,
           occupancy: attendee.occupancy ?? null,
-          upgradeSelected: attendee.upgradeSelected ?? false,
-          cotSelected: attendee.cotSelected ?? false,
-          ageBandCode: attendee.ageBandCode ?? null,
+          optionSelections: attendee.optionSelections,
         },
         ticketCategoryId,
       })
@@ -1142,16 +1034,16 @@ export const getPublicSignupAccommodationQuote = query({
           attendeeId: attendee.attendeeKey,
           categoryCode: resolved.categoryCode,
           occupancy: resolved.occupancy,
-          upgradeSelected: resolved.upgradeSelected,
-          cotSelected: resolved.cotSelected,
-          ageBandCode: resolved.ageBandCode,
           nightCount,
+          optionSelections: resolved.options,
         },
         pricing: {
           baseRatePerNightMinor: resolved.baseRatePerNightMinor,
-          superiorUpgradePriceMinor: resolved.superiorUpgradePriceMinor,
-          cotPriceMinor: resolved.cotPriceMinor,
-          cotEligibilityAgeBandCode: resolved.cotEligibilityAgeBandCode,
+          options: resolved.options.map((option) => ({
+            optionKey: option.optionKey,
+            label: option.label,
+            pricePerUnitMinor: option.pricePerUnitMinor,
+          })),
           ticketAccommodationIncluded: ticket.accommodationIncluded === true,
           eventBaseNights: nightCount,
         },
@@ -1176,15 +1068,6 @@ export const getPublicSignupAccommodationQuote = query({
           : undefined,
         categoryLabel: resolved.categoryLabel ?? undefined,
         occupancy: resolved.occupancy ?? undefined,
-        upgradeSelected: resolved.upgradeSelected,
-        cotSelected: resolved.cotSelected,
-        ageBandCode: resolved.ageBandCode
-          ? (resolved.ageBandCode as
-              | "under_3"
-              | "3_11"
-              | "12_17"
-              | "18_plus")
-          : undefined,
         accommodationTotalMinor: result.totalMinor,
         amountDueMinor: ticket.priceMinor + result.totalMinor,
         lines: result.lines,

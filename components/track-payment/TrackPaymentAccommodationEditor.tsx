@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   Info,
   Loader2,
+  Minus,
+  Plus,
   Save,
   ShieldAlert,
 } from "lucide-react"
@@ -22,9 +24,11 @@ export type TrackPaymentEditSelection = {
   attendeeKey: string
   categoryId: string
   occupancy: "single" | "shared" | "family"
-  upgradeSelected: boolean
-  cotSelected: boolean
-  ageBandCode?: string
+  optionSelections: Array<{
+    optionKey: string
+    quantity: number
+    nights: number
+  }>
 }
 
 export type TrackPaymentEditResult = {
@@ -49,9 +53,11 @@ export type TrackPaymentEditContext = {
     ticketCategoryId?: string
     categoryId?: string
     occupancy?: "single" | "shared" | "family"
-    upgradeSelected: boolean
-    cotSelected: boolean
-    ageBandCode?: string
+    optionSelections: Array<{
+      optionKey: string
+      quantity: number
+      nights: number
+    }>
     confirmed: boolean
   }>
   accommodation: {
@@ -72,16 +78,9 @@ export type TrackPaymentEditContext = {
       }>
     }>
     options: Array<{
-      optionCode: "superior_upgrade" | "cot"
+      optionKey: string
       label: string
       priceMinor: number
-      eligibilityAgeBandCode: string | null
-    }>
-    ageBands: Array<{
-      code: string
-      label: string
-      minAge: number
-      maxAge: number | null
     }>
   }
 }
@@ -89,9 +88,11 @@ export type TrackPaymentEditContext = {
 type Draft = {
   categoryId: string
   occupancy: string
-  upgradeSelected: boolean
-  cotSelected: boolean
-  ageBandCode: string
+  optionSelections: Array<{
+    optionKey: string
+    quantity: number
+    nights: number
+  }>
 }
 
 type SubmitStatus =
@@ -124,9 +125,7 @@ export function buildTrackPaymentEditBody(input: {
       attendeeKey: selection.attendeeKey,
       categoryId: selection.categoryId,
       occupancy: selection.occupancy,
-      upgradeSelected: selection.upgradeSelected,
-      cotSelected: selection.cotSelected,
-      ageBandCode: selection.ageBandCode || undefined,
+      optionSelections: selection.optionSelections,
     })),
   }
 }
@@ -159,122 +158,14 @@ function messageForEditError(code: string): string {
 
 export { messageForEditError }
 
-export type TrackPaymentEditSubmitResult =
-  | { ok: true; result: TrackPaymentEditResult }
-  | { ok: false; code: string }
-
-/**
- * Submit a complete options-only replacement through the rate-limited API
- * route and normalize the outcome. Returns the server's canonical result on
- * success, or a stable error code on failure (ownership, confirmed lock,
- * stale options, rate limit, validation, or a generic failure). The browser
- * never derives money — the amount due and overpayment come from the route's
- * server response.
- */
-export async function submitTrackPaymentEdit(input: {
-  bookingRef: string
-  bookerEmail: string
-  editToken: string
-  idempotencyKey: string
-  selections: TrackPaymentEditSelection[]
-}): Promise<TrackPaymentEditSubmitResult> {
-  try {
-    const response = await fetch(
-      `/api/track-payment/${encodeURIComponent(input.bookingRef)}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-idempotency-key": input.idempotencyKey,
-        },
-        body: JSON.stringify(
-          buildTrackPaymentEditBody({
-            bookingRef: input.bookingRef,
-            bookerEmail: input.bookerEmail,
-            editToken: input.editToken,
-            idempotencyKey: input.idempotencyKey,
-            selections: input.selections,
-          })
-        ),
-      }
-    )
-    const payload = (await response.json().catch(() => null)) as {
-      data?: TrackPaymentEditResult
-      error?: { code?: string; message?: string }
-    } | null
-    if (!response.ok || !payload?.data) {
-      return { ok: false, code: payload?.error?.code ?? "EDIT_FAILED" }
-    }
-    return { ok: true, result: payload.data }
-  } catch {
-    return { ok: false, code: "EDIT_FAILED" }
+function emptyDraft(): Draft {
+  return {
+    categoryId: "",
+    occupancy: "",
+    optionSelections: [],
   }
 }
 
-/**
- * Presentational success panel: announces the saved preferences and, when the
- * server reports a downward re-price, shows the exact server-provided
- * overpayment with explicit donation-vs-refund-support handling. The client
- * never computes the overpayment.
- */
-export function TrackPaymentEditResultPanel({
-  result,
-  currency = "EUR",
-}: {
-  result: TrackPaymentEditResult
-  currency?: string
-}) {
-  const hasOverpayment = result.overpaymentDeltaMinor > 0
-  return (
-    <div className="space-y-4">
-      <div
-        aria-live="polite"
-        className="flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-800 dark:text-emerald-200"
-      >
-        <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
-        <p>
-          Your accommodation preferences were saved. The balance shown is the
-          latest server calculation.
-        </p>
-      </div>
-      {hasOverpayment ? (
-        <div
-          className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200"
-          role="status"
-        >
-          <Info className="mt-0.5 size-4 shrink-0" />
-          <div>
-            <p className="font-semibold">
-              Your payments exceed the new amount due by{" "}
-              {formatMoney(result.overpaymentDeltaMinor, currency)}.
-            </p>
-            <p className="mt-1 text-amber-700/80 dark:text-amber-200/80">
-              Unless you contact the organizers to request a refund, the excess
-              will be treated as a donation to the conference.
-            </p>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function newIdempotencyKey(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `track-edit-${crypto.randomUUID()}`
-  }
-  return `track-edit-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-}
-
-/**
- * Accessible, server-configured replace-style accommodation preference
- * editor for the durable permalink. Choices (categories, rates, options,
- * age bands) come exclusively from the server edit context; every displayed
- * money value is server-provided. Submits a complete options-only replacement
- * through the rate-limited API route with a stable idempotency key, and
- * renders ownership, validation, confirmed-lock, rate-limit, overpayment and
- * success states without any client money arithmetic.
- */
 export function TrackPaymentAccommodationEditor({
   bookingRef,
   currency,
@@ -299,9 +190,7 @@ export function TrackPaymentAccommodationEditor({
         selection.attendeeKey,
         selection.categoryId ?? "",
         selection.occupancy ?? "",
-        selection.upgradeSelected,
-        selection.cotSelected,
-        selection.ageBandCode ?? "",
+        selection.optionSelections,
       ])
     )
   }, [editContext])
@@ -317,9 +206,7 @@ export function TrackPaymentAccommodationEditor({
       next[selection.attendeeKey] = {
         categoryId: selection.categoryId ?? "",
         occupancy: selection.occupancy ?? "",
-        upgradeSelected: selection.upgradeSelected,
-        cotSelected: selection.cotSelected,
-        ageBandCode: selection.ageBandCode ?? "",
+        optionSelections: selection.optionSelections,
       }
     }
     setDrafts(next)
@@ -394,22 +281,6 @@ export function TrackPaymentAccommodationEditor({
     )
   }
 
-  const cotOption = editContext.accommodation.options.find(
-    (option) => option.optionCode === "cot"
-  ) as
-    | { optionCode: "cot"; label: string; priceMinor: number; eligibilityAgeBandCode: string | null }
-    | null
-  const superiorOption = editContext.accommodation.options.find(
-    (option) => option.optionCode === "superior_upgrade"
-  ) as
-    | {
-        optionCode: "superior_upgrade"
-        label: string
-        priceMinor: number
-        eligibilityAgeBandCode: string | null
-      }
-    | null
-
   const allComplete =
     editContext.selections.length > 0 &&
     editContext.selections.every((selection) => {
@@ -441,9 +312,7 @@ export function TrackPaymentAccommodationEditor({
             | "single"
             | "shared"
             | "family",
-          upgradeSelected: draft?.upgradeSelected ?? false,
-          cotSelected: draft?.cotSelected ?? false,
-          ageBandCode: draft?.ageBandCode || undefined,
+          optionSelections: draft?.optionSelections ?? [],
         }
       }
     )
@@ -487,26 +356,12 @@ export function TrackPaymentAccommodationEditor({
             attendee={selection}
             index={index}
             editContext={editContext}
-            draft={drafts[selection.attendeeKey] ?? {
-              categoryId: "",
-              occupancy: "",
-              upgradeSelected: false,
-              cotSelected: false,
-              ageBandCode: "",
-            }}
-            superiorOption={superiorOption ?? null}
-            cotOption={cotOption ?? null}
+            draft={drafts[selection.attendeeKey] ?? emptyDraft()}
             onChange={(patch) => {
               setDrafts((current) => ({
                 ...current,
                 [selection.attendeeKey]: {
-                  ...(current[selection.attendeeKey] ?? {
-                    categoryId: "",
-                    occupancy: "",
-                    upgradeSelected: false,
-                    cotSelected: false,
-                    ageBandCode: "",
-                  }),
+                  ...(current[selection.attendeeKey] ?? emptyDraft()),
                   ...patch,
                 },
               }))
@@ -629,26 +484,12 @@ function AttendeePreferenceFieldset({
   index,
   editContext,
   draft,
-  superiorOption,
-  cotOption,
   onChange,
 }: {
   attendee: TrackPaymentEditContext["selections"][number]
   index: number
   editContext: TrackPaymentEditContext
   draft: Draft
-  superiorOption: {
-    optionCode: "superior_upgrade"
-    label: string
-    priceMinor: number
-    eligibilityAgeBandCode: string | null
-  } | null
-  cotOption: {
-    optionCode: "cot"
-    label: string
-    priceMinor: number
-    eligibilityAgeBandCode: string | null
-  } | null
   onChange: (patch: Partial<Draft>) => void
 }) {
   const ticketCategoryId = attendee.ticketCategoryId
@@ -659,15 +500,17 @@ function AttendeePreferenceFieldset({
   const selectedCategory = eligibleCategories.find(
     (category) => category.categoryId === draft.categoryId
   )
-  const cotEligibilityLabel = cotOption?.eligibilityAgeBandCode
-    ? editContext.accommodation.ageBands.find(
-        (band) => band.code === cotOption.eligibilityAgeBandCode
-      )?.label
-    : null
-  const cotEligible =
-    Boolean(draft.ageBandCode) &&
-    Boolean(cotOption?.eligibilityAgeBandCode) &&
-    draft.ageBandCode === cotOption?.eligibilityAgeBandCode
+
+  function updateOption(optionKey: string, quantity: number, nights: number) {
+    const others = draft.optionSelections.filter(
+      (optionSelection) => optionSelection.optionKey !== optionKey
+    )
+    const next: Draft["optionSelections"] = [...others]
+    if (quantity > 0 && nights > 0) {
+      next.push({ optionKey, quantity, nights })
+    }
+    onChange({ optionSelections: next })
+  }
 
   return (
     <fieldset className="min-w-0 rounded-xl border border-border/50 bg-card p-4 shadow-sm sm:p-6">
@@ -814,134 +657,149 @@ function AttendeePreferenceFieldset({
               </div>
             ) : null}
 
-            {editContext.accommodation.ageBands.length > 0 ? (
+            {editContext.accommodation.options.length > 0 ? (
               <div className="space-y-2">
-                <Label
-                  htmlFor={`edit-age-band-${attendee.attendeeKey}`}
-                  className="text-sm font-medium"
-                >
-                  Age band{" "}
-                  <span className="font-normal text-muted-foreground">
-                    (optional)
-                  </span>
-                </Label>
-                <select
-                  id={`edit-age-band-${attendee.attendeeKey}`}
-                  value={draft.ageBandCode}
-                  onChange={(eventValue) => {
-                    const nextAgeBandCode = eventValue.target.value
-                    const patch: Partial<Draft> = {
-                      ageBandCode: nextAgeBandCode,
-                    }
-                    if (
-                      draft.cotSelected &&
-                      cotOption?.eligibilityAgeBandCode &&
-                      nextAgeBandCode !== cotOption.eligibilityAgeBandCode
-                    ) {
-                      patch.cotSelected = false
-                    }
-                    onChange(patch)
-                  }}
-                  className="min-h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 sm:w-auto"
-                >
-                  <option value="">Prefer not to say</option>
-                  {editContext.accommodation.ageBands.map((band) => (
-                    <option key={band.code} value={band.code}>
-                      {band.label}
-                    </option>
-                  ))}
-                </select>
+                <span className="block text-sm font-medium text-foreground">
+                  Add-ons
+                </span>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {editContext.accommodation.options.map((option) => {
+                    const selectedOption = draft.optionSelections.find(
+                      (optionSelection) =>
+                        optionSelection.optionKey === option.optionKey
+                    )
+                    const quantity = selectedOption?.quantity ?? 0
+                    const nights = selectedOption?.nights ?? 0
+                    const isSelected = quantity > 0 && nights > 0
+                    return (
+                      <div
+                        key={option.optionKey}
+                        className={`flex min-w-0 flex-col gap-2 rounded-lg border p-3 transition-colors ${
+                          isSelected
+                            ? "border-primary bg-primary/5"
+                            : "border-border/60"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="min-w-0">
+                            <span className="block text-sm font-medium text-foreground">
+                              {option.label}
+                            </span>
+                            <span className="block text-xs text-muted-foreground">
+                              {formatPrice(
+                                option.priceMinor,
+                                editContext.event.currency
+                              )}{" "}
+                              / unit / night
+                            </span>
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            aria-pressed={isSelected}
+                            onClick={() => {
+                              if (isSelected) {
+                                updateOption(option.optionKey, 0, 0)
+                              } else {
+                                updateOption(
+                                  option.optionKey,
+                                  1,
+                                  editContext.accommodation.config?.nightCount ?? 1
+                                )
+                              }
+                            }}
+                            className="shrink-0"
+                          >
+                            {isSelected ? "Remove" : "Add"}
+                          </Button>
+                        </div>
+                        {isSelected ? (
+                          <div className="flex items-center justify-between gap-2">
+                            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>How many</span>
+                              <span className="flex items-center gap-1">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon-sm"
+                                  aria-label={`Decrease quantity of ${option.label}`}
+                                  onClick={() =>
+                                    updateOption(
+                                      option.optionKey,
+                                      Math.max(0, quantity - 1),
+                                      nights
+                                    )
+                                  }
+                                >
+                                  <Minus className="size-3" aria-hidden="true" />
+                                </Button>
+                                <span className="w-8 text-center font-mono text-sm tabular-nums text-foreground">
+                                  {quantity}
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon-sm"
+                                  aria-label={`Increase quantity of ${option.label}`}
+                                  onClick={() =>
+                                    updateOption(
+                                      option.optionKey,
+                                      quantity + 1,
+                                      nights
+                                    )
+                                  }
+                                >
+                                  <Plus className="size-3" aria-hidden="true" />
+                                </Button>
+                              </span>
+                            </label>
+                            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>Nights</span>
+                              <span className="flex items-center gap-1">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon-sm"
+                                  aria-label={`Decrease nights for ${option.label}`}
+                                  onClick={() =>
+                                    updateOption(
+                                      option.optionKey,
+                                      quantity,
+                                      Math.max(0, nights - 1)
+                                    )
+                                  }
+                                >
+                                  <Minus className="size-3" aria-hidden="true" />
+                                </Button>
+                                <span className="w-8 text-center font-mono text-sm tabular-nums text-foreground">
+                                  {nights}
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon-sm"
+                                  aria-label={`Increase nights for ${option.label}`}
+                                  onClick={() =>
+                                    updateOption(
+                                      option.optionKey,
+                                      quantity,
+                                      nights + 1
+                                    )
+                                  }
+                                >
+                                  <Plus className="size-3" aria-hidden="true" />
+                                </Button>
+                              </span>
+                            </label>
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             ) : null}
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-              {superiorOption ? (
-                <label
-                  className={`flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
-                    draft.upgradeSelected
-                      ? "border-primary bg-primary/5"
-                      : "border-border/60 hover:border-primary/40"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={draft.upgradeSelected}
-                    onChange={(eventValue) =>
-                      onChange({
-                        upgradeSelected: eventValue.target.checked,
-                      })
-                    }
-                    className="mt-0.5 size-4 shrink-0 accent-primary"
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium text-foreground">
-                      {superiorOption.label}
-                    </span>
-                    <span className="block text-xs text-muted-foreground">
-                      {formatPrice(
-                        superiorOption.priceMinor,
-                        editContext.event.currency
-                      )}{" "}
-                      / person / night
-                    </span>
-                  </span>
-                </label>
-              ) : null}
-
-              {cotOption ? (
-                <label
-                  aria-disabled={!cotEligible}
-                  className={`flex min-w-0 items-start gap-3 rounded-lg border p-3 transition-colors ${
-                    draft.cotSelected
-                      ? "border-primary bg-primary/5"
-                      : "border-border/60 hover:border-primary/40"
-                  } ${
-                    cotEligible
-                      ? "cursor-pointer"
-                      : "cursor-not-allowed opacity-50"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    disabled={!cotEligible}
-                    checked={draft.cotSelected}
-                    onChange={(eventValue) =>
-                      onChange({ cotSelected: eventValue.target.checked })
-                    }
-                    className="mt-0.5 size-4 shrink-0 accent-primary"
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium text-foreground">
-                      {cotOption.label}
-                    </span>
-                    <span className="block text-xs text-muted-foreground">
-                      {formatPrice(
-                        cotOption.priceMinor,
-                        editContext.event.currency
-                      )}{" "}
-                      / person / night
-                    </span>
-                    {cotEligibilityLabel ? (
-                      <span className="block text-xs text-muted-foreground">
-                        Available for attendees in the {cotEligibilityLabel}{" "}
-                        age band
-                      </span>
-                    ) : null}
-                    {draft.ageBandCode && !cotEligible ? (
-                      <span className="block text-xs text-muted-foreground">
-                        A cot is only available for attendees in the{" "}
-                        {cotEligibilityLabel} age band.
-                      </span>
-                    ) : null}
-                    {!draft.ageBandCode ? (
-                      <span className="block text-xs text-muted-foreground">
-                        Select an age band above to add a cot.
-                      </span>
-                    ) : null}
-                  </span>
-                </label>
-              ) : null}
-            </div>
           </>
         )}
 
@@ -954,5 +812,106 @@ function AttendeePreferenceFieldset({
         </div>
       </div>
     </fieldset>
+  )
+}
+
+function newIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+  return `edit-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+type SubmitEditOutcome =
+  | { ok: true; result: TrackPaymentEditResult }
+  | { ok: false; code: string }
+
+export async function submitTrackPaymentEdit(input: {
+  bookingRef: string
+  bookerEmail: string
+  editToken: string
+  idempotencyKey: string
+  selections: TrackPaymentEditSelection[]
+}): Promise<SubmitEditOutcome> {
+  try {
+    const response = await fetch(
+      `/api/track-payment/${encodeURIComponent(input.bookingRef)}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-idempotency-key": input.idempotencyKey,
+        },
+        body: JSON.stringify(buildTrackPaymentEditBody(input)),
+      }
+    )
+    const body = (await response.json()) as Record<string, unknown>
+    if (!response.ok) {
+      const error = body?.error as Record<string, unknown> | undefined
+      const code =
+        typeof error?.code === "string" ? error.code : "EDIT_FAILED"
+      return { ok: false, code }
+    }
+    const data = body?.data as Record<string, unknown> | undefined
+    if (!data || typeof data.status !== "string") {
+      return { ok: false, code: "EDIT_FAILED" }
+    }
+    return {
+      ok: true,
+      result: data as unknown as TrackPaymentEditResult,
+    }
+  } catch (error) {
+    void error
+    return { ok: false, code: "EDIT_FAILED" }
+  }
+}
+
+export function TrackPaymentEditResultPanel({
+  result,
+  currency,
+}: {
+  result: TrackPaymentEditResult
+  currency: string
+}) {
+  return (
+    <div className="space-y-2 rounded-xl border border-border/50 bg-background/50 p-4 text-sm">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-muted-foreground">Amount due</span>
+        <span className="font-mono font-semibold tabular-nums text-foreground">
+          {formatMoney(result.amountDueMinor, currency)}
+        </span>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-muted-foreground">Paid</span>
+        <span className="font-mono tabular-nums text-foreground">
+          {formatMoney(result.totalPaidMinor, currency)}
+        </span>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-muted-foreground">Remaining</span>
+        <span className="font-mono tabular-nums text-foreground">
+          {formatMoney(result.remainingMinor, currency)}
+        </span>
+      </div>
+      {result.overpaymentDeltaMinor > 0 ? (
+        <div
+          role="status"
+          className="mt-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-800 dark:text-amber-200"
+        >
+          <p className="font-medium">
+            Your payments exceed the new amount due by{" "}
+            {formatMoney(result.overpaymentDeltaMinor, currency)}.
+          </p>
+          <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-200/80">
+            The excess will be treated as a donation. If you prefer, request a
+            refund from the organizers.
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Your balance reflects the latest server calculation.
+        </p>
+      )}
+    </div>
   )
 }

@@ -77,15 +77,6 @@ export function AccommodationUpgradesOptionsTab({
       catalogResult instanceof Error
         ? null
         : (catalogResult ?? null)
-    const catalogAgeBands = (catalogData as {
-      ageBands?: Array<{
-        _id: Id<"accommodationAgeBands">
-        code: string
-        label: string
-        minAge: number
-        maxAge?: number
-      }>
-    } | null)?.ageBands ?? []
     content = (
       <div className="min-w-0 space-y-5">
         <UpgradesOptionsPendingOrders
@@ -93,7 +84,7 @@ export function AccommodationUpgradesOptionsTab({
           pendingOrderCount={data.pendingOrderCount}
           hasAccommodationSelections={data.hasAccommodationSelections}
         />
-        <UpgradesOptionsConfigForm eventId={eventId} config={data} catalogAgeBands={catalogAgeBands} />
+        <UpgradesOptionsConfigForm eventId={eventId} config={data} />
         <UpgradesOptionsCatalog
           catalogState={
             catalogState.status === "error"

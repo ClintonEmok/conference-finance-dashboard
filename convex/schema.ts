@@ -1,18 +1,6 @@
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
 
-/**
- * The locked age-band code union shared by every table that references an
- * age band by code: catalog rows, event option eligibility, event age pricing
- * and the Phase 42 per-attendee selections.
- */
-const ageBandCodeValidator = v.union(
-  v.literal("under_3"),
-  v.literal("3_11"),
-  v.literal("12_17"),
-  v.literal("18_plus")
-)
-
 export default defineSchema({
   users: defineTable(
     v.object({
@@ -265,9 +253,12 @@ export default defineSchema({
           v.literal("family")
         )
       ),
-      upgradeSelected: v.boolean(),
-      cotSelected: v.boolean(),
-      ageBandCode: v.optional(ageBandCodeValidator),
+      // Legacy dual-read fields from v5. New selections are persisted as
+      // `orderAccommodationOptionSelections` child rows instead; the booleans
+      // and age-band code remain readable for historical rows.
+      upgradeSelected: v.optional(v.boolean()),
+      cotSelected: v.optional(v.boolean()),
+      ageBandCode: v.optional(v.string()),
       checkInAt: v.optional(v.number()),
       checkOutAt: v.optional(v.number()),
       nightCount: v.optional(v.number()),
@@ -276,8 +267,7 @@ export default defineSchema({
       // configVersion = eventAccommodationConfig.updatedAt, and the pure
       // helper's immutable priceSnapshot. The Phase 40 loader fails closed
       // when a row is confirmed without a complete snapshot. The snapshot's
-      // decision fields (categoryIsSuperior/upgradeSelected/cotSelected/
-      // ageBandCode) are resolved at confirmation so a confirmed row is
+      // decision fields are resolved at confirmation so a confirmed row is
       // priced exclusively from the snapshot, never from live selection
       // flags.
       confirmedAt: v.optional(v.number()),
@@ -285,16 +275,22 @@ export default defineSchema({
       priceSnapshot: v.optional(
         v.object({
           baseRatePerNightMinor: v.number(),
-          upgradeRatePerNightMinor: v.number(),
-          cotRatePerNightMinor: v.number(),
           totalNights: v.number(),
           coveredNights: v.number(),
           categoryIsSuperior: v.optional(v.boolean()),
           upgradeSelected: v.optional(v.boolean()),
           cotSelected: v.optional(v.boolean()),
-          ageBandCode: v.optional(v.string()),
-          cotEligibilityAgeBandCode: v.optional(
-            v.union(v.string(), v.null())
+          optionLines: v.optional(
+            v.array(
+              v.object({
+                optionKey: v.string(),
+                label: v.string(),
+                pricePerUnitMinor: v.number(),
+                quantity: v.number(),
+                nights: v.number(),
+                chargeMinor: v.number(),
+              })
+            )
           ),
         })
       ),
@@ -302,6 +298,21 @@ export default defineSchema({
   )
     .index("by_orderId", ["orderId"])
     .index("by_attendeeId", ["attendeeId"])
+    .index("by_orderId_and_attendeeId", ["orderId", "attendeeId"]),
+
+  orderAccommodationOptionSelections: defineTable(
+    v.object({
+      orderId: v.id("orders"),
+      attendeeId: v.id("orderAttendees"),
+      selectionId: v.id("orderAccommodationSelections"),
+      optionKey: v.string(),
+      quantity: v.number(),
+      nights: v.number(),
+      sortOrder: v.number(),
+    })
+  )
+    .index("by_selectionId", ["selectionId"])
+    .index("by_orderId", ["orderId"])
     .index("by_orderId_and_attendeeId", ["orderId", "attendeeId"]),
 
   /**
@@ -532,7 +543,7 @@ export default defineSchema({
 
   accommodationOptions: defineTable(
     v.object({
-      code: v.union(v.literal("superior_upgrade"), v.literal("cot")),
+      code: v.string(),
       label: v.string(),
       description: v.optional(v.string()),
       kind: v.union(
@@ -543,18 +554,6 @@ export default defineSchema({
       unit: v.union(v.literal("per_night"), v.literal("per_person")),
     })
   ).index("by_code", ["code"]),
-
-  accommodationAgeBands: defineTable(
-    v.object({
-      code: ageBandCodeValidator,
-      label: v.string(),
-      minAge: v.number(),
-      maxAge: v.optional(v.number()),
-      sortOrder: v.number(),
-    })
-  )
-    .index("by_code", ["code"])
-    .index("by_sortOrder", ["sortOrder"]),
 
   accommodationRooms: defineTable(
     v.object({
@@ -611,7 +610,8 @@ export default defineSchema({
       optionId: v.id("accommodationOptions"),
       enabled: v.boolean(),
       priceMinor: v.number(),
-      eligibilityAgeBandCode: v.optional(ageBandCodeValidator),
+      // Legacy field retained for historical rows; no longer used by any flow.
+      eligibilityAgeBandCode: v.optional(v.string()),
       notes: v.optional(v.string()),
     })
   )
@@ -634,23 +634,6 @@ export default defineSchema({
       "kind",
       "roomTypeId",
     ]),
-
-  eventAccommodationAgePricing: defineTable(
-    v.object({
-      eventId: v.id("events"),
-      ageBandCode: ageBandCodeValidator,
-      rateType: v.union(
-        v.literal("free"),
-        v.literal("full"),
-        v.literal("percent"),
-        v.literal("flat")
-      ),
-      value: v.number(),
-      sortOrder: v.number(),
-    })
-  )
-    .index("by_eventId", ["eventId"])
-    .index("by_eventId_and_ageBandCode", ["eventId", "ageBandCode"]),
 
   tikkiePaymentLinks: defineTable(
     v.object({

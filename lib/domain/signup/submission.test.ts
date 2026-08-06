@@ -41,9 +41,7 @@ const validEnvelope = {
       attendeeKey: "ticket_1-1",
       categoryId: "cat_1",
       occupancy: "shared",
-      upgradeSelected: true,
-      cotSelected: false,
-      ageBandCode: "18_plus",
+      optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
     },
   ],
 }
@@ -68,7 +66,7 @@ afterEach(() => {
 })
 
 describe("submitSignup envelope normalization", () => {
-  it("forwards valid boolean option flags without coercion", async () => {
+  it("forwards valid option selections without coercion", async () => {
     mocks.convexMutation.mockResolvedValueOnce(submissionResult)
 
     const result = await submitSignup(validEnvelope)
@@ -77,8 +75,7 @@ describe("submitSignup envelope normalization", () => {
     expect(mocks.convexMutation).toHaveBeenCalledTimes(1)
     const args = mocks.convexMutation.mock.calls[0][1]
     expect(args.accommodationSelections[0]).toMatchObject({
-      upgradeSelected: true,
-      cotSelected: false,
+      optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
     })
     // CR-07: every server-side submission carries a minted token bound to the
     // event + payload digest + idempotency key.
@@ -133,38 +130,42 @@ describe("submitSignup envelope normalization", () => {
     ).resolves.toBe(false)
   })
 
-  it("rejects a non-boolean upgradeSelected instead of coercing it (WR-06)", async () => {
+  it("rejects a non-positive quantity in an option selection instead of coercing it", async () => {
     await expect(
       submitSignup({
         ...validEnvelope,
         accommodationSelections: [
           {
             ...validEnvelope.accommodationSelections[0],
-            upgradeSelected: "false",
+            optionSelections: [{ optionKey: "cot", quantity: 0, nights: 2 }],
           },
         ],
       })
     ).rejects.toMatchObject({
       code: "INVALID_SUBMISSION",
-      message: "Invalid 'accommodationSelections[0].upgradeSelected'. Expected a boolean.",
+      message:
+        "Invalid 'accommodationSelections[0].optionSelections[0].quantity'. Expected a positive number.",
     })
     expect(mocks.convexMutation).not.toHaveBeenCalled()
   })
 
-  it("rejects a non-boolean cotSelected instead of coercing it (WR-06)", async () => {
+  it("rejects a duplicate option selection for the same attendee", async () => {
     await expect(
       submitSignup({
         ...validEnvelope,
         accommodationSelections: [
           {
             ...validEnvelope.accommodationSelections[0],
-            cotSelected: 1,
+            optionSelections: [
+              { optionKey: "cot", quantity: 1, nights: 2 },
+              { optionKey: "cot", quantity: 1, nights: 1 },
+            ],
           },
         ],
       })
     ).rejects.toMatchObject({
       code: "INVALID_SUBMISSION",
-      message: "Invalid 'accommodationSelections[0].cotSelected'. Expected a boolean.",
+      message: "Invalid 'accommodationSelections[0].optionSelections[1].optionKey'. Duplicate option 'cot'.",
     })
     expect(mocks.convexMutation).not.toHaveBeenCalled()
   })

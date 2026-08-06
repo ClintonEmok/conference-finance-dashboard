@@ -55,7 +55,6 @@ const baseEvent: PublicSignupCatalogEvent = {
       },
     ],
     options: [],
-    ageBands: [],
     slots: [],
   },
 }
@@ -84,9 +83,7 @@ function makeSelection(
   return {
     categoryId: "cat_1",
     occupancy: "shared",
-    upgradeSelected: false,
-    cotSelected: false,
-    ageBandCode: "",
+    optionSelections: [],
     ...overrides,
   }
 }

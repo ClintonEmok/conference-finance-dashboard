@@ -43,13 +43,13 @@ type TicketTypeDoc = {
  * keeps the loader typed against the snapshot contract before/after codegen.
  */
 type OrderAccommodationSelectionDoc = {
+  _id: Id<"orderAccommodationSelections">
   orderId: Id<"orders">
   attendeeId: Id<"orderAttendees">
   categoryId?: Id<"accommodationCategories"> | null
   occupancy?: "single" | "shared" | "family" | null
-  upgradeSelected: boolean
-  cotSelected: boolean
-  ageBandCode?: string | null
+  upgradeSelected?: boolean | null
+  cotSelected?: boolean | null
   nightCount?: number | null
   confirmedAt?: number | null
   configVersion?: number | null
@@ -80,9 +80,7 @@ type EventAccommodationContext = {
   config: { nightCount: number } | null
   ratesByKey: Map<string, { pricePerPersonMinor: number }>
   categoryCodeById: Map<string, string | undefined>
-  superiorUpgradePriceMinor: number | null
-  cotPriceMinor: number | null
-  cotEligibilityAgeBandCode: string | null
+  optionsByKey: Map<string, { label: string; priceMinor: number }>
 }
 
 type EventAccommodationConfigDoc = {
@@ -103,7 +101,6 @@ type EventAccommodationOptionDoc = {
   optionId: Id<"accommodationOptions">
   enabled: boolean
   priceMinor: number
-  eligibilityAgeBandCode?: string | null
 }
 
 async function loadEventAccommodationContexts(
@@ -178,9 +175,11 @@ async function loadEventAccommodationContexts(
   ])
 
   const optionCodeById = new Map<string, string | undefined>()
+  const optionLabelById = new Map<string, string | undefined>()
   for (const definition of optionDefinitions) {
     if (!definition) continue
     optionCodeById.set(String(definition._id), definition.code)
+    optionLabelById.set(String(definition._id), definition.label)
   }
 
   const categoryCodeById = new Map<string, string | undefined>()
@@ -200,26 +199,23 @@ async function loadEventAccommodationContexts(
       })
     }
 
-    let superiorUpgradePriceMinor: number | null = null
-    let cotPriceMinor: number | null = null
-    let cotEligibilityAgeBandCode: string | null = null
+    const optionsByKey = new Map<string, { label: string; priceMinor: number }>()
     for (const row of enabledOptionRows) {
       const code = optionCodeById.get(String(row.optionId))
-      if (code === "superior_upgrade") {
-        superiorUpgradePriceMinor = row.priceMinor
-      } else if (code === "cot") {
-        cotPriceMinor = row.priceMinor
-        cotEligibilityAgeBandCode = row.eligibilityAgeBandCode ?? null
+      if (!code) {
+        continue
       }
+      optionsByKey.set(code, {
+        label: optionLabelById.get(String(row.optionId)) ?? code,
+        priceMinor: row.priceMinor,
+      })
     }
 
     contextByEventId.set(eventKey, {
       config: configRow ? { nightCount: configRow.nightCount } : null,
       ratesByKey,
       categoryCodeById,
-      superiorUpgradePriceMinor,
-      cotPriceMinor,
-      cotEligibilityAgeBandCode,
+      optionsByKey,
     })
   }
 
@@ -307,6 +303,34 @@ export async function loadOrderAmountDueBreakdowns(
         rows.push(row as OrderAccommodationSelectionDoc)
       }
       accommodationSelectionsByOrderId.set(String(order._id), rows)
+    })
+  )
+
+  // Batch-load generic option child rows per order (optionKey + quantity +
+  // nights) and group them by their base selection id.
+  const optionSelectionsByOrderId = new Map<
+    string,
+    Map<string, Array<{ optionKey: string; quantity: number; nights: number }>>
+  >()
+  await Promise.all(
+    orders.map(async (order) => {
+      const bySelectionId = new Map<
+        string,
+        Array<{ optionKey: string; quantity: number; nights: number }>
+      >()
+      for await (const row of ctx.db
+        .query("orderAccommodationOptionSelections")
+        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))) {
+        const selectionKey = String(row.selectionId)
+        const existing = bySelectionId.get(selectionKey) ?? []
+        existing.push({
+          optionKey: row.optionKey,
+          quantity: row.quantity,
+          nights: row.nights,
+        })
+        bySelectionId.set(selectionKey, existing)
+      }
+      optionSelectionsByOrderId.set(String(order._id), bySelectionId)
     })
   )
 
@@ -404,23 +428,86 @@ export async function loadOrderAmountDueBreakdowns(
         ? accommodationContext?.categoryCodeById.get(String(row.categoryId))
         : undefined
 
+      // Resolve the attendee's selected option rows (child rows) into the
+      // event's enabled option definitions. Legacy boolean selections without
+      // child rows map to synthetic option rows through the shared loader for
+      // unconfirmed rows; confirmed rows price from their snapshot instead.
+      const childOptionSelections =
+        optionSelectionsByOrderId.get(orderKey)?.get(String(row._id)) ?? []
+      const resolvedOptionSelections = childOptionSelections.map(
+        (optionSelection) => {
+          const option = accommodationContext?.optionsByKey.get(
+            optionSelection.optionKey
+          )
+          if (!option) {
+            return null
+          }
+          return {
+            optionKey: optionSelection.optionKey,
+            label: option.label,
+            pricePerUnitMinor: option.priceMinor,
+            quantity: optionSelection.quantity,
+            nights: optionSelection.nights,
+          }
+        }
+      ).filter((option): option is NonNullable<typeof option> => option !== null)
+
+      // Legacy v5 selection rows carried booleans. Bridge them into the
+      // resolved-option shape so unconfirmed legacy rows price identically to
+      // how the v5 formula priced them (upgrade per night across the stay;
+      // cot per night when selected).
+      const legacyOptionSelections: Array<{
+        optionKey: string
+        label: string
+        pricePerUnitMinor: number
+        quantity: number
+        nights: number
+      }> = []
+      if (childOptionSelections.length === 0) {
+        if (row.upgradeSelected === true) {
+          const option = accommodationContext?.optionsByKey.get(
+            "superior_upgrade"
+          )
+          if (option) {
+            legacyOptionSelections.push({
+              optionKey: "superior_upgrade",
+              label: option.label,
+              pricePerUnitMinor: option.priceMinor,
+              quantity: 1,
+              nights: row.nightCount ?? accommodationContext?.config?.nightCount ?? 0,
+            })
+          }
+        }
+        if (row.cotSelected === true) {
+          const option = accommodationContext?.optionsByKey.get("cot")
+          if (option) {
+            legacyOptionSelections.push({
+              optionKey: "cot",
+              label: option.label,
+              pricePerUnitMinor: option.priceMinor,
+              quantity: 1,
+              nights: row.nightCount ?? accommodationContext?.config?.nightCount ?? 0,
+            })
+          }
+        }
+      }
+
+      const optionSelectionsForPricing =
+        resolvedOptionSelections.length > 0
+          ? resolvedOptionSelections
+          : legacyOptionSelections
+
       const result = deriveAccommodationAmount({
         selection: {
           attendeeId: attendeeKey,
           categoryCode,
           occupancy: row.occupancy,
-          upgradeSelected: row.upgradeSelected,
-          cotSelected: row.cotSelected,
-          ageBandCode: row.ageBandCode,
           nightCount: row.nightCount,
+          optionSelections: optionSelectionsForPricing,
         },
         pricing: {
           baseRatePerNightMinor: rate?.pricePerPersonMinor,
-          superiorUpgradePriceMinor:
-            accommodationContext?.superiorUpgradePriceMinor ?? null,
-          cotPriceMinor: accommodationContext?.cotPriceMinor ?? null,
-          cotEligibilityAgeBandCode:
-            accommodationContext?.cotEligibilityAgeBandCode ?? null,
+          options: optionSelectionsForPricing,
           ticketAccommodationIncluded: ticketInfo?.accommodationIncluded,
           eventBaseNights: accommodationContext?.config?.nightCount,
         },

@@ -72,37 +72,12 @@ async function seedPaidPriorityEvent(
       sortOrder: 1,
     })
   })
-  const upgradeOptionId = await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationOptions", {
-      code: "superior_upgrade",
-      label: "Superior Upgrade",
-      kind: "upgrade",
-      unit: "per_night",
-    })
-  })
   const cotOptionId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("accommodationOptions", {
       code: "cot",
       label: "Cot",
       kind: "addon",
       unit: "per_night",
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationAgeBands", {
-      code: "under_3",
-      label: "Under 3",
-      minAge: 0,
-      maxAge: 3,
-      sortOrder: 1,
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationAgeBands", {
-      code: "18_plus",
-      label: "18 and over",
-      minAge: 18,
-      sortOrder: 4,
     })
   })
 
@@ -120,28 +95,9 @@ async function seedPaidPriorityEvent(
   })
   await t.mutation(api.accommodation.upsertEventAccommodationOption, {
     eventId,
-    optionId: upgradeOptionId,
-    enabled: true,
-    priceMinor: 1500,
-  })
-  await t.mutation(api.accommodation.upsertEventAccommodationOption, {
-    eventId,
     optionId: cotOptionId,
     enabled: true,
     priceMinor: 500,
-    eligibilityAgeBandCode: "under_3",
-  })
-  await t.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
-    eventId,
-    ageBandCode: "18_plus",
-    rateType: "full",
-    value: 0,
-  })
-  await t.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
-    eventId,
-    ageBandCode: "under_3",
-    rateType: "free",
-    value: 0,
   })
 
   const ticketTypeId = await t.mutation(async (ctx) => {
@@ -258,11 +214,7 @@ async function createOrder(
         attendeeId: attendeeId as never,
         categoryId: seed.categoryStandardId as never,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ...(input.ageBandCode !== undefined && input.ageBandCode !== null
-          ? { ageBandCode: input.ageBandCode }
-          : {}),
+        
         nightCount: NIGHT_COUNT,
       })
     })
@@ -324,11 +276,7 @@ async function addAttendeeToOrder(
       attendeeId: attendeeId as never,
       categoryId: seed.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ...(input.ageBandCode !== undefined && input.ageBandCode !== null
-        ? { ageBandCode: input.ageBandCode }
-        : {}),
+      
       nightCount: NIGHT_COUNT,
     })
   })
@@ -524,15 +472,9 @@ test("first assignment persists confirmedAt/configVersion/complete priceSnapshot
   expect(rows[0].configVersion).toEqual(expect.any(Number))
   expect(rows[0].priceSnapshot).toEqual({
     baseRatePerNightMinor: RATE_PER_NIGHT_MINOR,
-    upgradeRatePerNightMinor: 1500,
-    cotRatePerNightMinor: 500,
     totalNights: NIGHT_COUNT,
     coveredNights: 0,
-    categoryIsSuperior: false,
-    upgradeSelected: false,
-    cotSelected: false,
-    ageBandCode: "18_plus",
-    cotEligibilityAgeBandCode: "under_3",
+    optionLines: [],
   })
 
   // The attendee is now placed in the room.
@@ -542,14 +484,13 @@ test("first assignment persists confirmedAt/configVersion/complete priceSnapshot
   expect(placed?.assignedRoomId).toBe(String(seed.roomId))
 })
 
-test("optional age band with no cot confirms successfully through assignment", async () => {
+test("a selection with no selected options confirms successfully through assignment", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await seedPaidPriorityEvent(t)
   const order = await createOrder(t, seed, {
     attendeeKey: "a-blankband",
     name: "Blank Band Attendee",
     bookingRef: "BK-PP-BLANK01",
-    // ageBandCode intentionally undefined: Phase 42 optional band, no cot.
   })
 
   await t.mutation(api.accommodation.assignAttendeeToRoom, {
@@ -560,11 +501,10 @@ test("optional age band with no cot confirms successfully through assignment", a
   const rows = await loadSelectionRows(t, String(order.orderId))
   expect(rows).toHaveLength(1)
   expect(rows[0].confirmedAt).toEqual(expect.any(Number))
-  const snapshot = rows[0].priceSnapshot as
-    | { ageBandCode?: string; cotSelected?: boolean }
-    | null
-  expect(snapshot?.ageBandCode).toBe("")
-  expect(snapshot?.cotSelected).toBe(false)
+  expect(rows[0].priceSnapshot).toMatchObject({
+    baseRatePerNightMinor: RATE_PER_NIGHT_MINOR,
+    optionLines: [],
+  })
 })
 
 test("repeat assignment of an already-confirmed order stays assignable and never re-confirms", async () => {
@@ -668,15 +608,9 @@ test("assignment fails closed when only part of the selection set is confirmed",
         configVersion: BASE_EVENT_AT,
         priceSnapshot: {
           baseRatePerNightMinor: RATE_PER_NIGHT_MINOR,
-          upgradeRatePerNightMinor: 1500,
-          cotRatePerNightMinor: 500,
           totalNights: NIGHT_COUNT,
           coveredNights: 0,
-          categoryIsSuperior: false,
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
-          cotEligibilityAgeBandCode: "under_3",
+          optionLines: [],
         },
       }
     )
@@ -733,15 +667,9 @@ test("assignment rejects non-positive confirmedAt and configVersion", async () =
         configVersion: 0,
         priceSnapshot: {
           baseRatePerNightMinor: RATE_PER_NIGHT_MINOR,
-          upgradeRatePerNightMinor: 1500,
-          cotRatePerNightMinor: 500,
           totalNights: NIGHT_COUNT,
           coveredNights: 0,
-          categoryIsSuperior: false,
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
-          cotEligibilityAgeBandCode: "under_3",
+          optionLines: [],
         },
       }
     )
@@ -802,9 +730,7 @@ test("assignment confirmation locks the buyer configuration: permalink edits are
       attendeeKey: "a-locked",
       categoryId: seed.categoryStandardId,
       occupancy: "shared" as const,
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus" as const,
+      optionSelections: [],
     },
   ]
   const idempotencyKey = `edit-idem-${Math.random().toString(36).slice(2)}`

@@ -11,8 +11,8 @@ import {
   type PublicSignupAccommodationContext,
 } from "./signupCatalog"
 import {
-  signupAgeBandCodeValidator,
   signupAccommodationOccupancyValidator,
+  signupAccommodationOptionSelectionValidator,
 } from "../lib/types/signup"
 import {
   digestAccommodationSelections,
@@ -339,12 +339,7 @@ const editCategoryCodeValidator = v.union(
   v.literal("superior"),
   v.literal("family")
 )
-const editOptionCodeValidator = v.union(
-  v.literal("superior_upgrade"),
-  v.literal("cot")
-)
 const editOccupancyValidator = signupAccommodationOccupancyValidator
-const editAgeBandCodeValidator = signupAgeBandCodeValidator
 
 const editChoiceRateValidator = v.object({
   occupancy: editOccupancyValidator,
@@ -359,17 +354,9 @@ const editChoiceCategoryValidator = v.object({
 })
 
 const editChoiceOptionValidator = v.object({
-  optionCode: editOptionCodeValidator,
+  optionKey: v.string(),
   label: v.string(),
   priceMinor: v.number(),
-  eligibilityAgeBandCode: v.union(editAgeBandCodeValidator, v.null()),
-})
-
-const editChoiceAgeBandValidator = v.object({
-  code: editAgeBandCodeValidator,
-  label: v.string(),
-  minAge: v.number(),
-  maxAge: v.union(v.number(), v.null()),
 })
 
 const editAccommodationConfigValidator = v.object({
@@ -383,9 +370,7 @@ const editSelectionValidator = v.object({
   attendeeKey: v.string(),
   categoryId: v.optional(v.id("accommodationCategories")),
   occupancy: v.optional(editOccupancyValidator),
-  upgradeSelected: v.boolean(),
-  cotSelected: v.boolean(),
-  ageBandCode: v.optional(editAgeBandCodeValidator),
+  optionSelections: v.array(signupAccommodationOptionSelectionValidator),
 })
 
 /**
@@ -414,16 +399,9 @@ function buildEditChoices(
     }>
   }>
   options: Array<{
-    optionCode: "superior_upgrade" | "cot"
+    optionKey: string
     label: string
     priceMinor: number
-    eligibilityAgeBandCode: "under_3" | "3_11" | "12_17" | "18_plus" | null
-  }>
-  ageBands: Array<{
-    code: "under_3" | "3_11" | "12_17" | "18_plus"
-    label: string
-    minAge: number
-    maxAge: number | null
   }>
 } {
   const hasConfiguredChoices = context.hasConfiguredAccommodation
@@ -450,36 +428,19 @@ function buildEditChoices(
     : []
 
   const options: Array<{
-    optionCode: "superior_upgrade" | "cot"
+    optionKey: string
     label: string
     priceMinor: number
-    eligibilityAgeBandCode: "under_3" | "3_11" | "12_17" | "18_plus" | null
   }> = []
-  if (
-    hasConfiguredChoices &&
-    context.superiorUpgradePriceMinor !== null
-  ) {
-    options.push({
-      optionCode: "superior_upgrade",
-      label:
-        context.optionLabelByCode.get("superior_upgrade") ??
-        "Superior upgrade",
-      priceMinor: context.superiorUpgradePriceMinor,
-      eligibilityAgeBandCode: null,
-    })
-  }
-  if (hasConfiguredChoices && context.cotPriceMinor !== null) {
-    options.push({
-      optionCode: "cot",
-      label: context.optionLabelByCode.get("cot") ?? "Cot",
-      priceMinor: context.cotPriceMinor,
-      eligibilityAgeBandCode: (context.cotEligibilityAgeBandCode ?? null) as
-        | "under_3"
-        | "3_11"
-        | "12_17"
-        | "18_plus"
-        | null,
-    })
+  if (hasConfiguredChoices) {
+    for (const [optionKey, option] of context.optionsByKey) {
+      options.push({
+        optionKey,
+        label: option.label,
+        priceMinor: option.priceMinor,
+      })
+    }
+    options.sort((left, right) => left.label.localeCompare(right.label))
   }
 
   return {
@@ -487,7 +448,6 @@ function buildEditChoices(
     config: hasConfiguredChoices ? context.config : null,
     activeCategories,
     options,
-    ageBands: hasConfiguredChoices ? context.ageBands : [],
   }
 }
 
@@ -577,9 +537,7 @@ export const getTrackPaymentEditContext = query({
           ticketCategoryId: v.optional(v.id("accommodationCategories")),
           categoryId: v.optional(v.id("accommodationCategories")),
           occupancy: v.optional(editOccupancyValidator),
-          upgradeSelected: v.boolean(),
-          cotSelected: v.boolean(),
-          ageBandCode: v.optional(editAgeBandCodeValidator),
+          optionSelections: v.array(signupAccommodationOptionSelectionValidator),
           confirmed: v.boolean(),
         })
       ),
@@ -588,7 +546,6 @@ export const getTrackPaymentEditContext = query({
         config: v.union(editAccommodationConfigValidator, v.null()),
         activeCategories: v.array(editChoiceCategoryValidator),
         options: v.array(editChoiceOptionValidator),
-        ageBands: v.array(editChoiceAgeBandValidator),
       }),
     })
   ),
@@ -609,7 +566,7 @@ export const getTrackPaymentEditContext = query({
       return null
     }
 
-    const [attendeeRows, ticketSelectionRows, selectionRows, context] =
+    const [attendeeRows, ticketSelectionRows, selectionRows, optionSelectionRows, context] =
       await Promise.all([
         ctx.db
           .query("orderAttendees")
@@ -620,8 +577,28 @@ export const getTrackPaymentEditContext = query({
           .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
           .take(500),
         loadAccommodationSelectionsForOrder(ctx, order._id),
+        ctx.db
+          .query("orderAccommodationOptionSelections")
+          .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+          .take(500),
         loadPublicSignupAccommodationContext(ctx, order.eventId),
       ])
+
+    const optionSelectionsBySelectionId = new Map<
+      string,
+      Array<{ optionKey: string; quantity: number; nights: number }>
+    >()
+    for (const optionRow of optionSelectionRows) {
+      const selectionId = String(optionRow.selectionId)
+      const existing =
+        optionSelectionsBySelectionId.get(selectionId) ?? []
+      existing.push({
+        optionKey: optionRow.optionKey,
+        quantity: optionRow.quantity,
+        nights: optionRow.nights,
+      })
+      optionSelectionsBySelectionId.set(selectionId, existing)
+    }
 
     const attendeeById = new Map(
       attendeeRows.map((attendee) => [String(attendee._id), attendee])
@@ -682,9 +659,13 @@ export const getTrackPaymentEditContext = query({
               : (ticketEntitlement.categoryId as Id<"accommodationCategories">),
           categoryId: row.categoryId ?? undefined,
           occupancy: row.occupancy ?? undefined,
-          upgradeSelected: row.upgradeSelected,
-          cotSelected: row.cotSelected,
-          ageBandCode: row.ageBandCode ?? undefined,
+          optionSelections: (optionSelectionsBySelectionId.get(String(row._id)) ?? [])
+            .sort((left, right) => left.optionKey.localeCompare(right.optionKey))
+            .map((optionSelection) => ({
+              optionKey: optionSelection.optionKey,
+              quantity: optionSelection.quantity,
+              nights: optionSelection.nights,
+            })),
           confirmed:
             row.confirmedAt !== undefined && row.confirmedAt !== null,
         }
@@ -967,9 +948,11 @@ export const updateAccommodation = mutation({
       {
         categoryId: string
         occupancy: "single" | "shared" | "family"
-        upgradeSelected: boolean
-        cotSelected: boolean
-        ageBandCode: string | null
+        optionSelections: Array<{
+          optionKey: string
+          quantity: number
+          nights: number
+        }>
       }
     >()
     for (const preference of args.selections) {
@@ -1007,9 +990,7 @@ export const updateAccommodation = mutation({
               ? String(preference.categoryId)
               : null,
             occupancy: preference.occupancy ?? null,
-            upgradeSelected: preference.upgradeSelected,
-            cotSelected: preference.cotSelected,
-            ageBandCode: preference.ageBandCode ?? null,
+            optionSelections: preference.optionSelections,
           },
           ticketCategoryId,
         })
@@ -1034,10 +1015,30 @@ export const updateAccommodation = mutation({
       resolvedByAttendeeKey.set(attendeeKey, {
         categoryId: String(resolved.categoryId),
         occupancy: resolved.occupancy,
-        upgradeSelected: resolved.upgradeSelected,
-        cotSelected: resolved.cotSelected,
-        ageBandCode: resolved.ageBandCode ?? null,
+        optionSelections: resolved.options,
       })
+    }
+
+    const beforeOptionRows: Array<Doc<"orderAccommodationOptionSelections">> = []
+    for await (const optionRow of ctx.db
+      .query("orderAccommodationOptionSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", order._id))) {
+      beforeOptionRows.push(optionRow)
+    }
+    const beforeOptionSelectionsBySelectionId = new Map<
+      string,
+      Array<{ optionKey: string; quantity: number; nights: number }>
+    >()
+    for (const optionRow of beforeOptionRows) {
+      const selectionId = String(optionRow.selectionId)
+      const existing =
+        beforeOptionSelectionsBySelectionId.get(selectionId) ?? []
+      existing.push({
+        optionKey: optionRow.optionKey,
+        quantity: optionRow.quantity,
+        nights: optionRow.nights,
+      })
+      beforeOptionSelectionsBySelectionId.set(selectionId, existing)
     }
 
     const beforeSelectionDigest = await digestAccommodationSelections(
@@ -1046,9 +1047,8 @@ export const updateAccommodation = mutation({
           attendeeKeyById.get(String(row.attendeeId)) ?? String(row.attendeeId),
         categoryId: row.categoryId ? String(row.categoryId) : null,
         occupancy: row.occupancy ?? null,
-        upgradeSelected: row.upgradeSelected,
-        cotSelected: row.cotSelected,
-        ageBandCode: row.ageBandCode ?? null,
+        optionSelections:
+          beforeOptionSelectionsBySelectionId.get(String(row._id)) ?? [],
       }))
     )
     const afterSelectionDigest = await digestAccommodationSelections(
@@ -1057,9 +1057,7 @@ export const updateAccommodation = mutation({
           attendeeKey,
           categoryId: resolved.categoryId,
           occupancy: resolved.occupancy,
-          upgradeSelected: resolved.upgradeSelected,
-          cotSelected: resolved.cotSelected,
-          ageBandCode: resolved.ageBandCode,
+          optionSelections: resolved.optionSelections,
         })
       )
     )
@@ -1082,8 +1080,10 @@ export const updateAccommodation = mutation({
       beforeBreakdown.get(String(order._id))?.amountDueMinor ?? 0
 
     // Patch every unconfirmed selection with the server-resolved preference
-    // and the current event configuration's stay timestamps/night count.
-    // No order total, payment, assignment, or Tikkie link is touched.
+    // and the current event configuration's stay timestamps/night count, and
+    // atomically replace the generic option child rows (delete-then-insert
+    // under the same base selection). No order total, payment, assignment, or
+    // Tikkie link is touched.
     for (const row of selectionRows) {
       const attendeeKey =
         attendeeKeyById.get(String(row.attendeeId)) ?? String(row.attendeeId)
@@ -1097,19 +1097,26 @@ export const updateAccommodation = mutation({
       await ctx.db.patch("orderAccommodationSelections", row._id, {
         categoryId: resolved.categoryId as Id<"accommodationCategories">,
         occupancy: resolved.occupancy,
-        upgradeSelected: resolved.upgradeSelected,
-        cotSelected: resolved.cotSelected,
-        ageBandCode: resolved.ageBandCode
-          ? (resolved.ageBandCode as
-              | "under_3"
-              | "3_11"
-              | "12_17"
-              | "18_plus")
-          : undefined,
         checkInAt: context.config?.baseCheckInAt,
         checkOutAt: context.config?.baseCheckOutAt,
         nightCount: context.config?.nightCount,
       })
+      for await (const optionRow of ctx.db
+        .query("orderAccommodationOptionSelections")
+        .withIndex("by_selectionId", (q) => q.eq("selectionId", row._id))) {
+        await ctx.db.delete("orderAccommodationOptionSelections", optionRow._id)
+      }
+      for (const [sortOrder, optionSelection] of resolved.optionSelections.entries()) {
+        await ctx.db.insert("orderAccommodationOptionSelections", {
+          orderId: order._id,
+          attendeeId: row.attendeeId,
+          selectionId: row._id,
+          optionKey: optionSelection.optionKey,
+          quantity: optionSelection.quantity,
+          nights: optionSelection.nights,
+          sortOrder,
+        })
+      }
     }
 
     const afterBreakdown = await loadOrderAmountDueBreakdowns(ctx, [

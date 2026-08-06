@@ -47,7 +47,6 @@ type SeedContext = {
   eventId: Id<"events">
   categoryStandardId: Id<"accommodationCategories">
   categorySuperiorId: Id<"accommodationCategories">
-  upgradeOptionId: Id<"accommodationOptions">
   cotOptionId: Id<"accommodationOptions">
   orderId: Id<"orders">
   attendeeId: Id<"orderAttendees">
@@ -78,37 +77,12 @@ async function seedConfiguredEvent(
       sortOrder: 2,
     })
   })
-  const upgradeOptionId = await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationOptions", {
-      code: "superior_upgrade",
-      label: "Superior Upgrade",
-      kind: "upgrade",
-      unit: "per_night",
-    })
-  })
   const cotOptionId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("accommodationOptions", {
       code: "cot",
       label: "Cot",
       kind: "addon",
       unit: "per_night",
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationAgeBands", {
-      code: "under_3",
-      label: "Under 3",
-      minAge: 0,
-      maxAge: 3,
-      sortOrder: 1,
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationAgeBands", {
-      code: "18_plus",
-      label: "18 and over",
-      minAge: 18,
-      sortOrder: 4,
     })
   })
 
@@ -132,34 +106,12 @@ async function seedConfiguredEvent(
     occupancy: "shared",
     pricePerPersonMinor: 4500,
   })
-  // Options: superior upgrade €15/night, cot €5/night, both enabled.
-  await t.mutation(api.accommodation.upsertEventAccommodationOption, {
-    eventId,
-    optionId: upgradeOptionId,
-    enabled: true,
-    priceMinor: 1500,
-  })
+  // Options: cot €5/unit/night, enabled.
   await t.mutation(api.accommodation.upsertEventAccommodationOption, {
     eventId,
     optionId: cotOptionId,
     enabled: true,
     priceMinor: 500,
-    eligibilityAgeBandCode: "under_3",
-  })
-  // Age pricing: 18+ pays full price, under-3 pays nothing. The confirmation
-  // boundary derives valid bands from these event rows, so the seed must
-  // configure the bands the tests reference.
-  await t.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
-    eventId,
-    ageBandCode: "18_plus",
-    rateType: "full",
-    value: 0,
-  })
-  await t.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
-    eventId,
-    ageBandCode: "under_3",
-    rateType: "free",
-    value: 0,
   })
 
   const ticketTypeId = await t.mutation(async (ctx) => {
@@ -208,9 +160,6 @@ async function seedConfiguredEvent(
       attendeeId: attendeeId as never,
       categoryId: categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
       nightCount: 2,
     })
   })
@@ -219,7 +168,6 @@ async function seedConfiguredEvent(
     eventId: eventId as Id<"events">,
     categoryStandardId: categoryStandardId as Id<"accommodationCategories">,
     categorySuperiorId: categorySuperiorId as Id<"accommodationCategories">,
-    upgradeOptionId: upgradeOptionId as Id<"accommodationOptions">,
     cotOptionId: cotOptionId as Id<"accommodationOptions">,
     orderId: orderId as Id<"orders">,
     attendeeId: attendeeId as Id<"orderAttendees">,
@@ -426,8 +374,7 @@ test("pending orders count distinct orders with unconfirmed selection rows only"
         attendeeId: attendeeId as never,
         categoryId: categoryId as never,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
+        
         nightCount: 2,
       })
     })
@@ -456,8 +403,7 @@ test("pending orders count distinct orders with unconfirmed selection rows only"
       attendeeId: attendeeId as never,
       categoryId: categoryId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
+      
       nightCount: 2,
       confirmedAt: BASE_EVENT_AT,
       configVersion: BASE_EVENT_AT,
@@ -522,8 +468,7 @@ test("pending order count stays exact beyond the first 200 orders", async () => 
         attendeeId: attendeeId as never,
         categoryId: categoryId as never,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
+        
         nightCount: 2,
       })
     })
@@ -545,7 +490,7 @@ test("pending order count stays exact beyond the first 200 orders", async () => 
 // eventAccommodationConfig.updatedAt; catalog label edits do not.
 // ---------------------------------------------------------------------------
 
-test("rate, option, resource and age-pricing writes advance the config version", async () => {
+test("rate, option, resource and config writes advance the config version", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const eventId = await createEvent(t)
   const categoryId = await t.mutation(api.accommodation.createAccommodationCategory, {
@@ -553,18 +498,11 @@ test("rate, option, resource and age-pricing writes advance the config version",
     label: "Standard",
     sortOrder: 1,
   })
-  const upgradeOptionId = await t.mutation(api.accommodation.createAccommodationOption, {
-    code: "superior_upgrade",
-    label: "Superior Upgrade",
-    kind: "upgrade",
+  const cotOptionId = await t.mutation(api.accommodation.createAccommodationOption, {
+    code: "cot",
+    label: "Cot",
+    kind: "addon",
     unit: "per_night",
-  })
-  await t.mutation(api.accommodation.createAccommodationAgeBand, {
-    code: "under_3",
-    label: "Under 3",
-    minAge: 0,
-    maxAge: 3,
-    sortOrder: 1,
   })
   const roomTypeId = await t.mutation(api.accommodation.createRoomType, {
     label: "Twin",
@@ -598,9 +536,9 @@ test("rate, option, resource and age-pricing writes advance the config version",
 
   await t.mutation(api.accommodation.upsertEventAccommodationOption, {
     eventId,
-    optionId: upgradeOptionId,
+    optionId: cotOptionId,
     enabled: true,
-    priceMinor: 1500,
+    priceMinor: 500,
   })
   const afterOption = await readVersion()
   expect(afterOption).not.toBe(afterConfig)
@@ -613,15 +551,6 @@ test("rate, option, resource and age-pricing writes advance the config version",
   })
   const afterResource = await readVersion()
   expect(afterResource).not.toBe(afterOption)
-
-  await t.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
-    eventId,
-    ageBandCode: "under_3",
-    rateType: "percent",
-    value: 50,
-  })
-  const afterAgePricing = await readVersion()
-  expect(afterAgePricing).not.toBe(afterResource)
 })
 
 test("config versions strictly advance even for writes in the same millisecond", async () => {
@@ -715,7 +644,6 @@ test("a rate save leaves order selection rows untouched", async () => {
       confirmedAt: row.confirmedAt ?? null,
       configVersion: row.configVersion ?? null,
       priceSnapshot: row.priceSnapshot ?? null,
-      upgradeSelected: row.upgradeSelected,
     }))
   })
 
@@ -737,7 +665,6 @@ test("a rate save leaves order selection rows untouched", async () => {
       confirmedAt: row.confirmedAt ?? null,
       configVersion: row.configVersion ?? null,
       priceSnapshot: row.priceSnapshot ?? null,
-      upgradeSelected: row.upgradeSelected,
     }))
   })
 
@@ -799,15 +726,9 @@ test("confirmation persists a complete snapshot boundary on every selection", as
   expect(rows[0].configVersion).toBe(configVersion)
   expect(rows[0].priceSnapshot).toEqual({
     baseRatePerNightMinor: 3000,
-    upgradeRatePerNightMinor: 1500,
-    cotRatePerNightMinor: 500,
     totalNights: 2,
     coveredNights: 0,
-    categoryIsSuperior: false,
-    upgradeSelected: false,
-    cotSelected: false,
-    ageBandCode: "18_plus",
-    cotEligibilityAgeBandCode: "under_3",
+    optionLines: [],
   })
 
   // The order is no longer pending after confirmation.
@@ -879,8 +800,7 @@ test("confirmation rejects orders without selections, missing config, and repeat
       attendeeId: attendeeId as never,
       categoryId: ctx.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
+      
       nightCount: 2,
     })
   })
@@ -1028,62 +948,27 @@ test("confirmation rejects fractional and negative night counts", async () => {
   ).rejects.toThrow(/night count/)
 })
 
-test("confirmation rejects a selected cot for an attendee outside the configured cot band", async () => {
+test("confirmation rejects a selected option that is not enabled for the event", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const ctx = await seedConfiguredEvent(t)
   const row = await firstSelectionRow(t, ctx.orderId)
 
   await t.mutation(async (db) => {
-    await db.db.patch("orderAccommodationSelections", row, {
-      cotSelected: true,
-      ageBandCode: "18_plus",
+    await db.db.insert("orderAccommodationOptionSelections", {
+      orderId: ctx.orderId as never,
+      attendeeId: ctx.attendeeId as never,
+      selectionId: row as never,
+      optionKey: "does_not_exist",
+      quantity: 1,
+      nights: 2,
+      sortOrder: 0,
     })
   })
   await expect(
     t.mutation(api.accommodation.confirmAccommodationOrderConfiguration, {
       orderId: ctx.orderId,
     })
-  ).rejects.toThrow(/configured for this event/)
-})
-
-test("confirmation accepts a missing age band when no cot is selected", async () => {
-  const t = fresh().withIdentity(adminIdentity)
-  const ctx = await seedConfiguredEvent(t)
-  const row = await firstSelectionRow(t, ctx.orderId)
-
-  // Phase 42 signup permits an optional age band: a blank band with no cot is
-  // a valid confirmation (the snapshot records an empty band and charges no
-  // cot line).
-  await t.mutation(async (db) => {
-    await db.db.patch("orderAccommodationSelections", row, {
-      ageBandCode: undefined,
-    })
-  })
-  const result = await t.mutation(
-    api.accommodation.confirmAccommodationOrderConfiguration,
-    { orderId: ctx.orderId }
-  )
-  expect(result.confirmedSelectionCount).toBe(1)
-})
-
-test("confirmation rejects a selected cot whose age band is missing", async () => {
-  const t = fresh().withIdentity(adminIdentity)
-  const ctx = await seedConfiguredEvent(t)
-  const row = await firstSelectionRow(t, ctx.orderId)
-
-  // A cot selection always requires the event-configured eligibility band;
-  // a missing band must never lock an ineligible cot as a zero-charge line.
-  await t.mutation(async (db) => {
-    await db.db.patch("orderAccommodationSelections", row, {
-      cotSelected: true,
-      ageBandCode: undefined,
-    })
-  })
-  await expect(
-    t.mutation(api.accommodation.confirmAccommodationOrderConfiguration, {
-      orderId: ctx.orderId,
-    })
-  ).rejects.toThrow(/configured for this event/)
+  ).rejects.toThrow(/not enabled for this event/)
 })
 
 test("confirmation rejects a selection attendee with no ticket selection", async () => {

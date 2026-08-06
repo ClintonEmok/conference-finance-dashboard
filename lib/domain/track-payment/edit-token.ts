@@ -54,9 +54,11 @@ export type EditAccommodationSelectionInput = {
   attendeeKey: string
   categoryId?: string | null
   occupancy?: "single" | "shared" | "family" | null
-  upgradeSelected?: boolean
-  cotSelected?: boolean
-  ageBandCode?: string | null
+  optionSelections?: Array<{
+    optionKey: string
+    quantity: number
+    nights: number
+  }>
 }
 
 /**
@@ -95,19 +97,30 @@ function normalizeSelection(
   attendeeKey: string
   categoryId: string | null
   occupancy: "single" | "shared" | "family" | null
-  upgradeSelected: boolean
-  cotSelected: boolean
-  ageBandCode: string | null
+  optionSelections: Array<{
+    optionKey: string
+    quantity: number
+    nights: number
+  }>
 } {
+  const optionSelections = (Array.isArray(selection.optionSelections)
+    ? selection.optionSelections
+    : []
+  )
+    .slice()
+    .sort((a, b) => a.optionKey.localeCompare(b.optionKey))
+    .map((option) => ({
+      optionKey: normalizeRequiredString(option.optionKey, "optionKey"),
+      quantity: Number(option.quantity),
+      nights: Number(option.nights),
+    }))
   return {
     attendeeKey: normalizeRequiredString(selection.attendeeKey, "attendeeKey"),
     categoryId: selection.categoryId
       ? String(selection.categoryId).trim()
       : null,
     occupancy: selection.occupancy ?? null,
-    upgradeSelected: selection.upgradeSelected === true,
-    cotSelected: selection.cotSelected === true,
-    ageBandCode: normalizeOptionalString(selection.ageBandCode),
+    optionSelections,
   }
 }
 
@@ -145,9 +158,11 @@ export async function digestAccommodationSelections(
     attendeeKey: string
     categoryId?: string | null
     occupancy?: "single" | "shared" | "family" | null
-    upgradeSelected?: boolean
-    cotSelected?: boolean
-    ageBandCode?: string | null
+    optionSelections?: Array<{
+      optionKey: string
+      quantity: number
+      nights: number
+    }>
   }>
 ): Promise<string> {
   const canonical = selections

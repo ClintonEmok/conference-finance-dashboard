@@ -138,9 +138,7 @@ function buildEditContext(
         ticketCategoryId: undefined,
         categoryId: "cat-standard",
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
         confirmed: false,
       },
       {
@@ -150,9 +148,7 @@ function buildEditContext(
         ticketCategoryId: "cat-superior",
         categoryId: "cat-superior",
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
         confirmed: false,
       },
     ],
@@ -183,21 +179,15 @@ function buildEditContext(
       ],
       options: [
         {
-          optionCode: "superior_upgrade",
-          label: "Superior Upgrade",
-          priceMinor: 1500,
-          eligibilityAgeBandCode: null,
+          optionKey: "parking",
+          label: "Parking pass",
+          priceMinor: 2000,
         },
         {
-          optionCode: "cot",
+          optionKey: "cot",
           label: "Cot",
           priceMinor: 500,
-          eligibilityAgeBandCode: "under_3",
         },
-      ],
-      ageBands: [
-        { code: "under_3", label: "Under 3", minAge: 0, maxAge: 3 },
-        { code: "18_plus", label: "18 and over", minAge: 18, maxAge: null },
       ],
     },
     ...overrides,
@@ -267,9 +257,7 @@ describe("buildTrackPaymentEditBody", () => {
           attendeeKey: "a-1",
           categoryId: "cat-standard",
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
         },
       ],
     })
@@ -284,9 +272,9 @@ describe("buildTrackPaymentEditBody", () => {
     expect(selection.attendeeKey).toBe("a-1")
     expect(selection.categoryId).toBe("cat-standard")
     expect(selection.occupancy).toBe("shared")
-    expect(selection.upgradeSelected).toBe(false)
-    expect(selection.cotSelected).toBe(false)
-    expect(selection.ageBandCode).toBe("18_plus")
+    expect(selection.optionSelections).toEqual([
+      { optionKey: "cot", quantity: 1, nights: 2 },
+    ])
 
     // Negative contract: no client money, stay, room, slot, or snapshot
     // field can leak into the request body (top level or inside selections).
@@ -345,8 +333,7 @@ describe("submitTrackPaymentEdit", () => {
           attendeeKey: "a-1",
           categoryId: "cat-standard",
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
+          optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
         },
       ],
     })
@@ -522,9 +509,9 @@ describe("TrackPaymentAccommodationEditor states", () => {
     expect(html).toContain("Accommodation preferences")
     expect(html).toContain("Attendee One")
     expect(html).toContain("Attendee Two")
-    // Long server-configured labels render verbatim.
-    expect(html).toContain("Superior Upgrade")
-    expect(html).toContain("Available for attendees in the Under 3 age band")
+    // Long server-configured option labels render verbatim.
+    expect(html).toContain("Parking pass")
+    expect(html).toContain("Cot")
     // a-1 (unconstrained) sees Standard + Superior; a-2 (superior ticket)
     // sees only Superior — Standard appears exactly once.
     expect(html.match(/Standard/g)?.length).toBe(1)
@@ -576,7 +563,10 @@ describe("TrackPaymentAccommodationEditor states", () => {
 describe("TrackPaymentEditResultPanel", () => {
   it("renders the server-provided overpayment with donation/refund-support copy", () => {
     const html = render(
-      createElement(TrackPaymentEditResultPanel, { result: serverResult })
+      createElement(TrackPaymentEditResultPanel, {
+        result: serverResult,
+        currency: "EUR",
+      })
     )
     expect(html).toContain("Your payments exceed the new amount due by €105.00")
     expect(html).toContain("treated as a donation")
@@ -587,6 +577,7 @@ describe("TrackPaymentEditResultPanel", () => {
     const html = render(
       createElement(TrackPaymentEditResultPanel, {
         result: { ...serverResult, overpaymentDeltaMinor: 0 },
+        currency: "EUR",
       })
     )
     expect(html).toContain("latest server calculation")

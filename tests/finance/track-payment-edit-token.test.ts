@@ -28,9 +28,7 @@ function buildEnvelope(overrides: Partial<Parameters<typeof digestEditEnvelope>[
         attendeeKey: "a-1",
         categoryId: "category-1",
         occupancy: "shared" as const,
-        upgradeSelected: true,
-        cotSelected: false,
-        ageBandCode: null,
+        optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
       },
     ],
     ...overrides,
@@ -41,25 +39,19 @@ const baseSelections = (): Array<{
   attendeeKey: string
   categoryId: string
   occupancy: "shared" | "single" | "family"
-  upgradeSelected: boolean
-  cotSelected: boolean
-  ageBandCode: string | null
+  optionSelections: Array<{ optionKey: string; quantity: number; nights: number }>
 }> => [
   {
     attendeeKey: "b-ob",
     categoryId: "cat-2",
     occupancy: "single",
-    upgradeSelected: false,
-    cotSelected: true,
-    ageBandCode: "under_3",
+    optionSelections: [{ optionKey: "cot", quantity: 1, nights: 3 }],
   },
   {
     attendeeKey: "a-1",
     categoryId: "cat-1",
     occupancy: "shared",
-    upgradeSelected: true,
-    cotSelected: false,
-    ageBandCode: null,
+    optionSelections: [{ optionKey: "parking", quantity: 2, nights: 2 }],
   },
 ]
 
@@ -187,9 +179,7 @@ describe("request signature (route-to-Convex gate)", () => {
         attendeeKey: "a-1",
         categoryId: "category-9",
         occupancy: "single" as const,
-        upgradeSelected: false,
-        cotSelected: true,
-        ageBandCode: "under_3",
+        optionSelections: [{ optionKey: "parking", quantity: 1, nights: 1 }],
       },
     ]
     expect(
@@ -272,9 +262,7 @@ describe("canonical envelope and selection digests", () => {
           attendeeKey: " a-1 ",
           categoryId: "category-1",
           occupancy: "shared" as const,
-          upgradeSelected: true,
-          cotSelected: false,
-          ageBandCode: null,
+          optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
         },
       ],
     })
@@ -296,9 +284,7 @@ describe("canonical envelope and selection digests", () => {
         attendeeKey: "c-3",
         categoryId: "cat-3",
         occupancy: "family",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: null,
+        optionSelections: [],
       },
     ])
     expect(changed).not.toBe(first)

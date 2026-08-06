@@ -1,6 +1,5 @@
 import type {
   SignupAccommodationSelection,
-  SignupAgeBandCode,
   SignupSubmissionEnvelope,
   SignupSubmissionRestorePayload,
   SignupSubmissionResult,
@@ -82,11 +81,7 @@ export function buildSubmissionBodyFromDraft(
           attendeeKey: attendee.attendeeKey,
           categoryId: selection.categoryId,
           occupancy: selection.occupancy,
-          upgradeSelected: selection.upgradeSelected,
-          cotSelected: selection.cotSelected,
-          ...(selection.ageBandCode
-            ? { ageBandCode: selection.ageBandCode as SignupAgeBandCode }
-            : {}),
+          optionSelections: selection.optionSelections,
         }
       })
       .filter(

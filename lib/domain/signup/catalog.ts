@@ -1,7 +1,6 @@
 import type {
   AccommodationIneligibilityReason,
   SignupAccommodationOccupancy,
-  SignupAgeBandCode,
   TicketUnavailableReason,
 } from "@/lib/types/signup"
 
@@ -30,17 +29,9 @@ export type PublicSignupCatalogActiveCategory = {
 }
 
 export type PublicSignupCatalogOption = {
-  optionCode: "superior_upgrade" | "cot"
+  optionKey: string
   label: string
   priceMinor: number
-  eligibilityAgeBandCode: SignupAgeBandCode | null
-}
-
-export type PublicSignupCatalogAgeBand = {
-  code: SignupAgeBandCode
-  label: string
-  minAge: number
-  maxAge: number | null
 }
 
 export type PublicSignupCatalogAccommodation = {
@@ -55,7 +46,6 @@ export type PublicSignupCatalogAccommodation = {
   config: PublicSignupCatalogAccommodationConfig | null
   activeCategories: PublicSignupCatalogActiveCategory[]
   options: PublicSignupCatalogOption[]
-  ageBands: PublicSignupCatalogAgeBand[]
 }
 
 export type PublicSignupCatalogTicket = {
@@ -129,12 +119,6 @@ export function normalizePublicSignupCatalog(
       options: event.accommodation.options.map((option) => ({
         ...option,
         priceMinor: Number(option.priceMinor) || 0,
-        eligibilityAgeBandCode: option.eligibilityAgeBandCode ?? null,
-      })),
-      ageBands: event.accommodation.ageBands.map((band) => ({
-        ...band,
-        minAge: Number(band.minAge) || 0,
-        maxAge: band.maxAge ?? null,
       })),
     },
   }))

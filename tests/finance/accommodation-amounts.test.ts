@@ -11,19 +11,25 @@ const BASE_SELECTION = {
   attendeeId: "attendee_1",
   categoryCode: "standard",
   occupancy: "shared",
-  upgradeSelected: false,
-  cotSelected: false,
-  ageBandCode: "18_plus",
   nightCount: 2,
 }
 
 const BASE_PRICING = {
   baseRatePerNightMinor: 3000, // €30/night
-  superiorUpgradePriceMinor: 1500, // €15/night
-  cotPriceMinor: 500, // €5/night
-  cotEligibilityAgeBandCode: "under_3",
+  options: [
+    { optionKey: "cot", label: "Cot", pricePerUnitMinor: 500 }, // €5/unit/night
+    { optionKey: "parking", label: "Parking pass", pricePerUnitMinor: 2000 }, // €20/unit/night
+  ],
   ticketAccommodationIncluded: false,
   eventBaseNights: 2,
+}
+
+const COT_SELECTION = {
+  attendeeId: "attendee_1",
+  categoryCode: "standard",
+  occupancy: "shared",
+  nightCount: 2,
+  optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
 }
 
 describe("accommodation amounts - locked pricing formula", () => {
@@ -73,13 +79,13 @@ describe("accommodation amounts - locked pricing formula", () => {
     expect(result.lines).toEqual([])
   })
 
-  it("adds the superior-upgrade charge on top of the standard base rate", () => {
+  it("prices a per-night option by unit × quantity × nights", () => {
     const result = deriveAccommodationAmount({
-      selection: { ...BASE_SELECTION, upgradeSelected: true },
+      selection: COT_SELECTION,
       pricing: BASE_PRICING,
     })
 
-    expect(result.totalMinor).toBe(9000) // base 6000 + upgrade 2 × €15
+    expect(result.totalMinor).toBe(7000) // base 6000 + cot 2 × 1 × €5
     expect(result.lines).toEqual([
       {
         kind: "accommodation",
@@ -89,69 +95,64 @@ describe("accommodation amounts - locked pricing formula", () => {
         chargeMinor: 6000,
       },
       {
-        kind: "superior_upgrade",
-        label: "Superior upgrade",
+        kind: "option",
+        optionKey: "cot",
+        label: "Cot",
         nights: 2,
-        ratePerNightMinor: 1500,
-        chargeMinor: 3000,
+        quantity: 1,
+        ratePerNightMinor: 500,
+        chargeMinor: 1000,
       },
     ])
   })
 
-  it("never double-charges the superior rate when the selected rate already is superior", () => {
+  it("prices multiple units and multiple options independently", () => {
     const result = deriveAccommodationAmount({
       selection: {
         ...BASE_SELECTION,
-        categoryCode: "superior",
-        upgradeSelected: true,
+        optionSelections: [
+          { optionKey: "cot", quantity: 2, nights: 3 },
+          { optionKey: "parking", quantity: 1, nights: 2 },
+        ],
       },
       pricing: BASE_PRICING,
     })
 
-    expect(result.totalMinor).toBe(6000) // only the superior base rate
-    expect(result.lines).toEqual([
-      {
-        kind: "accommodation",
-        label: "Accommodation",
-        nights: 2,
-        ratePerNightMinor: 3000,
-        chargeMinor: 6000,
-      },
+    expect(result.totalMinor).toBe(
+      6000 + // base 2 × €30
+        3000 + // cot 2 units × 3 nights × €5
+        4000 // parking 1 × 2 nights × €20
+    )
+    expect(result.lines.map((line) => line.optionKey)).toEqual([
+      undefined,
+      "cot",
+      "parking",
     ])
   })
 
-  it("charges the cot only when selected and the attendee is under 3", () => {
-    const withCot = deriveAccommodationAmount({
-      selection: { ...BASE_SELECTION, cotSelected: true, ageBandCode: "under_3" },
-      pricing: BASE_PRICING,
+  it("ignores an option that is no longer enabled in the live event config", () => {
+    const result = deriveAccommodationAmount({
+      selection: COT_SELECTION,
+      pricing: {
+        ...BASE_PRICING,
+        options: [{ optionKey: "parking", label: "Parking pass", pricePerUnitMinor: 2000 }],
+      },
     })
 
-    expect(withCot.totalMinor).toBe(7000) // base 6000 + cot 2 × €5
-    expect(withCot.lines).toHaveLength(2)
-    expect(withCot.lines[1]).toMatchObject({
-      kind: "cot",
-      label: "Cot",
-      nights: 2,
-      ratePerNightMinor: 500,
-      chargeMinor: 1000,
-    })
-
-    const ineligibleBand = deriveAccommodationAmount({
-      selection: { ...BASE_SELECTION, cotSelected: true, ageBandCode: "3_11" },
-      pricing: BASE_PRICING,
-    })
-
-    expect(ineligibleBand.totalMinor).toBe(6000)
-    expect(ineligibleBand.lines.some((line) => line.kind === "cot")).toBe(false)
+    expect(result.totalMinor).toBe(6000)
+    expect(result.lines).toHaveLength(1)
+    expect(result.lines[0].kind).toBe("accommodation")
   })
 
-  it("supports explicit €0 base, upgrade and cot rates", () => {
+  it("supports explicit €0 base and option rates", () => {
     const result = deriveAccommodationAmount({
-      selection: { ...BASE_SELECTION, upgradeSelected: true, cotSelected: true, ageBandCode: "under_3" },
+      selection: {
+        ...BASE_SELECTION,
+        optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
+      },
       pricing: {
         baseRatePerNightMinor: 0,
-        superiorUpgradePriceMinor: 0,
-        cotPriceMinor: 0,
+        options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 0 }],
         ticketAccommodationIncluded: false,
         eventBaseNights: 2,
       },
@@ -189,21 +190,24 @@ describe("accommodation amounts - locked pricing formula", () => {
       selection: {
         ...BASE_SELECTION,
         nightCount: -2,
-        upgradeSelected: true,
-        cotSelected: true,
-        ageBandCode: "under_3",
+        optionSelections: [
+          { optionKey: "cot", quantity: -1, nights: 2 },
+          { optionKey: "parking", quantity: 1.5, nights: 1.5 },
+        ],
       },
       pricing: {
         baseRatePerNightMinor: -5000,
-        superiorUpgradePriceMinor: 15.5,
-        cotPriceMinor: Number.NaN,
+        options: [
+          { optionKey: "cot", label: "Cot", pricePerUnitMinor: Number.NaN },
+          { optionKey: "parking", label: "Parking pass", pricePerUnitMinor: 2000 },
+        ],
         ticketAccommodationIncluded: false,
         eventBaseNights: 1.5,
       },
     })
 
-    // base -5000 → 0; upgrade 15.5 → 15 × 0 nights = 0; cot NaN → 0
-    expect(result.totalMinor).toBe(0)
+    // base -5000 → 0; cot NaN → 0; parking quantity 1.5 → 1 × nights 1.5 → 1 × 2000 = 2000
+    expect(result.totalMinor).toBe(2000)
   })
 
   it("accumulates per-attendee contributions", () => {
@@ -222,21 +226,28 @@ describe("accommodation amounts - locked pricing formula", () => {
   it("keeps a confirmed snapshot fixed when live config values change", () => {
     const snapshot: AccommodationPriceSnapshot =
       buildAccommodationPriceSnapshot({
-        selection: { ...BASE_SELECTION, nightCount: 3 },
+        selection: {
+          ...BASE_SELECTION,
+          nightCount: 3,
+          optionSelections: [{ optionKey: "cot", quantity: 1, nights: 3 }],
+        },
         pricing: { ...BASE_PRICING, ticketAccommodationIncluded: true },
       })
 
     expect(snapshot).toEqual({
       baseRatePerNightMinor: 3000,
-      upgradeRatePerNightMinor: 1500,
-      cotRatePerNightMinor: 500,
       totalNights: 3,
       coveredNights: 2,
-      categoryIsSuperior: false,
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
-      cotEligibilityAgeBandCode: "under_3",
+      optionLines: [
+        {
+          optionKey: "cot",
+          label: "Cot",
+          pricePerUnitMinor: 500,
+          quantity: 1,
+          nights: 3,
+          chargeMinor: 1500,
+        },
+      ],
     })
 
     const confirmed = deriveAccommodationAmount({
@@ -244,25 +255,37 @@ describe("accommodation amounts - locked pricing formula", () => {
       pricing: {
         // Live config changed after confirmation: rate doubled, nights changed.
         baseRatePerNightMinor: 6000,
-        superiorUpgradePriceMinor: 3000,
-        cotPriceMinor: 1000,
+        options: [
+          { optionKey: "cot", label: "Cot", pricePerUnitMinor: 1000 },
+        ],
         ticketAccommodationIncluded: false,
         eventBaseNights: 1,
       },
       snapshot,
     })
 
-    expect(confirmed.totalMinor).toBe(3000) // (3 − 2) × €30 snapshot rate
+    expect(confirmed.totalMinor).toBe(4500) // (3 − 2) × €30 + cot 3 × €5
     expect(confirmed.lines[0]).toMatchObject({
       nights: 1,
       ratePerNightMinor: 3000,
       chargeMinor: 3000,
     })
+    expect(confirmed.lines[1]).toMatchObject({
+      optionKey: "cot",
+      nights: 3,
+      quantity: 1,
+      ratePerNightMinor: 500,
+      chargeMinor: 1500,
+    })
   })
 
   it("builds a snapshot with the exact resolved rates and nights", () => {
     const snapshot = buildAccommodationPriceSnapshot({
-      selection: { ...BASE_SELECTION, nightCount: 4 },
+      selection: {
+        ...BASE_SELECTION,
+        nightCount: 4,
+        optionSelections: [{ optionKey: "parking", quantity: 1, nights: 4 }],
+      },
       pricing: {
         ...BASE_PRICING,
         ticketAccommodationIncluded: true,
@@ -272,55 +295,51 @@ describe("accommodation amounts - locked pricing formula", () => {
 
     expect(snapshot).toEqual({
       baseRatePerNightMinor: 2500,
-      upgradeRatePerNightMinor: 1500,
-      cotRatePerNightMinor: 500,
       totalNights: 4,
       coveredNights: 2,
-      categoryIsSuperior: false,
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
-      cotEligibilityAgeBandCode: "under_3",
+      optionLines: [
+        {
+          optionKey: "parking",
+          label: "Parking pass",
+          pricePerUnitMinor: 2000,
+          quantity: 1,
+          nights: 4,
+          chargeMinor: 8000,
+        },
+      ],
     })
   })
 
   it("keeps a confirmed snapshot fixed when live selection flags change", () => {
-    // Confirmed at €30 base with a cot for an under_3 attendee: base 6000 +
-    // cot 1000 = 7000. The snapshot must capture the selection decisions so a
-    // later edit of the live flags cannot re-price the row.
     const snapshot: AccommodationPriceSnapshot =
       buildAccommodationPriceSnapshot({
-        selection: {
-          ...BASE_SELECTION,
-          cotSelected: true,
-          ageBandCode: "under_3",
-        },
+        selection: COT_SELECTION,
         pricing: BASE_PRICING,
       })
 
     expect(snapshot).toEqual({
       baseRatePerNightMinor: 3000,
-      upgradeRatePerNightMinor: 1500,
-      cotRatePerNightMinor: 500,
       totalNights: 2,
       coveredNights: 0,
-      categoryIsSuperior: false,
-      upgradeSelected: false,
-      cotSelected: true,
-      ageBandCode: "under_3",
-      cotEligibilityAgeBandCode: "under_3",
+      optionLines: [
+        {
+          optionKey: "cot",
+          label: "Cot",
+          pricePerUnitMinor: 500,
+          quantity: 1,
+          nights: 2,
+          chargeMinor: 1000,
+        },
+      ],
     })
 
-    // The live selection is edited after confirmation: upgrade now selected,
-    // cot deselected, category changed to superior, age band changed. None of
-    // this may change the confirmed amount.
+    // The live selection is edited after confirmation: cot removed, category
+    // changed. None of this may change the confirmed amount.
     const confirmed = deriveAccommodationAmount({
       selection: {
         ...BASE_SELECTION,
         categoryCode: "superior",
-        upgradeSelected: true,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
       pricing: BASE_PRICING,
       snapshot,
@@ -329,7 +348,7 @@ describe("accommodation amounts - locked pricing formula", () => {
     expect(confirmed.totalMinor).toBe(7000) // base 6000 + cot 1000, unchanged
     expect(confirmed.lines.map((line) => line.kind)).toEqual([
       "accommodation",
-      "cot",
+      "option",
     ])
   })
 
@@ -346,8 +365,9 @@ describe("accommodation amounts - locked pricing formula", () => {
         // Live config changed after confirmation; it must not leak into the
         // returned snapshot.
         baseRatePerNightMinor: 9999,
-        superiorUpgradePriceMinor: 9999,
-        cotPriceMinor: 9999,
+        options: [
+          { optionKey: "cot", label: "Cot", pricePerUnitMinor: 9999 },
+        ],
         ticketAccommodationIncluded: false,
         eventBaseNights: 9,
       },
@@ -368,13 +388,40 @@ describe("accommodation amounts - locked pricing formula", () => {
     expect(isCompleteAccommodationPriceSnapshot(null)).toBe(false)
     expect(isCompleteAccommodationPriceSnapshot({})).toBe(false)
 
-    const missingDecisions = {
+    const incompleteOptionLines = {
+      baseRatePerNightMinor: 3000,
+      totalNights: 2,
+      coveredNights: 0,
+      optionLines: [
+        {
+          optionKey: "cot",
+          // missing label / price / quantity / nights / charge
+        },
+      ],
+    }
+    expect(isCompleteAccommodationPriceSnapshot(incompleteOptionLines)).toBe(false)
+  })
+
+  it("accepts a legacy v5 boolean snapshot as complete and prices it via the legacy branch", () => {
+    const legacySnapshot = {
       baseRatePerNightMinor: 3000,
       upgradeRatePerNightMinor: 1500,
       cotRatePerNightMinor: 500,
       totalNights: 2,
       coveredNights: 0,
+      categoryIsSuperior: false,
+      upgradeSelected: true,
+      cotSelected: true,
     }
-    expect(isCompleteAccommodationPriceSnapshot(missingDecisions)).toBe(false)
+    expect(isCompleteAccommodationPriceSnapshot(legacySnapshot)).toBe(true)
+
+    const confirmed = deriveAccommodationAmount({
+      selection: BASE_SELECTION,
+      pricing: BASE_PRICING,
+      snapshot: legacySnapshot as AccommodationPriceSnapshot,
+    })
+
+    // base 6000 + upgrade 2 × €15 + cot 2 × €5
+    expect(confirmed.totalMinor).toBe(10000)
   })
 })

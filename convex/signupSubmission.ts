@@ -77,9 +77,13 @@ const restorePayloadValidator = v.object({
       attendeeKey: v.string(),
       categoryId: v.string(),
       occupancy: signupAccommodationOccupancyValidator,
-      upgradeSelected: v.boolean(),
-      cotSelected: v.boolean(),
-      ageBandCode: v.optional(v.string()),
+      optionSelections: v.array(
+        v.object({
+          optionKey: v.string(),
+          quantity: v.number(),
+          nights: v.number(),
+        })
+      ),
     })
   ),
 })
@@ -207,9 +211,11 @@ async function buildRestorePayload(
     attendeeKey: string
     categoryId: string
     occupancy: "single" | "shared" | "family"
-    upgradeSelected: boolean
-    cotSelected: boolean
-    ageBandCode?: string
+    optionSelections: Array<{
+      optionKey: string
+      quantity: number
+      nights: number
+    }>
   }>
 } | null> {
   const submission = await ctx.db.get(submissionId)
@@ -239,6 +245,18 @@ async function buildRestorePayload(
     .query("orderAccommodationSelections")
     .withIndex("by_orderId", (q) => q.eq("orderId", submissionId))
     .take(500)
+
+  const optionSelectionRows = await ctx.db
+    .query("orderAccommodationOptionSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", submissionId))
+    .take(500)
+  const optionSelectionsBySelectionId = new Map<string, typeof optionSelectionRows>()
+  for (const row of optionSelectionRows) {
+    const selectionId = String(row.selectionId)
+    const existing = optionSelectionsBySelectionId.get(selectionId) ?? []
+    existing.push(row)
+    optionSelectionsBySelectionId.set(selectionId, existing)
+  }
 
   return {
     eventId: String(submission.eventId),
@@ -299,9 +317,13 @@ async function buildRestorePayload(
           attendeeKey: attendee.attendeeKey,
           categoryId: String(row.categoryId),
           occupancy: row.occupancy,
-          upgradeSelected: row.upgradeSelected,
-          cotSelected: row.cotSelected,
-          ageBandCode: row.ageBandCode ?? undefined,
+          optionSelections: (optionSelectionsBySelectionId.get(String(row._id)) ?? [])
+            .sort((left, right) => left.sortOrder - right.sortOrder)
+            .map((optionRow) => ({
+              optionKey: optionRow.optionKey,
+              quantity: optionRow.quantity,
+              nights: optionRow.nights,
+            })),
         }
       })
       .filter((item): item is NonNullable<typeof item> => item !== null),
@@ -371,9 +393,7 @@ export const submitSignupEnvelope = mutation({
           attendeeKey: preference.attendeeKey,
           categoryId: String(preference.categoryId),
           occupancy: preference.occupancy,
-          upgradeSelected: preference.upgradeSelected,
-          cotSelected: preference.cotSelected,
-          ageBandCode: preference.ageBandCode,
+          optionSelections: preference.optionSelections,
         })
       ),
     })
@@ -636,9 +656,11 @@ export const submitSignupEnvelope = mutation({
     const resolvedAccommodationSelections = new Map<string, {
       categoryId: Id<"accommodationCategories">
       occupancy: "single" | "shared" | "family"
-      upgradeSelected: boolean
-      cotSelected: boolean
-      ageBandCode?: string
+      optionSelections: Array<{
+        optionKey: string
+        quantity: number
+        nights: number
+      }>
     }>()
     for (const preference of args.accommodationSelections) {
       if (!attendeeKeySet.has(preference.attendeeKey)) {
@@ -684,9 +706,7 @@ export const submitSignupEnvelope = mutation({
           selection: {
             categoryId: String(preference.categoryId),
             occupancy: preference.occupancy,
-            upgradeSelected: preference.upgradeSelected,
-            cotSelected: preference.cotSelected,
-            ageBandCode: preference.ageBandCode ?? null,
+            optionSelections: preference.optionSelections,
           },
           ticketCategoryId,
         })
@@ -709,9 +729,7 @@ export const submitSignupEnvelope = mutation({
       resolvedAccommodationSelections.set(preference.attendeeKey, {
         categoryId: resolved.categoryId as Id<"accommodationCategories">,
         occupancy: resolved.occupancy,
-        upgradeSelected: resolved.upgradeSelected,
-        cotSelected: resolved.cotSelected,
-        ageBandCode: resolved.ageBandCode ?? undefined,
+        optionSelections: resolved.options,
       })
     }
 
@@ -875,23 +893,29 @@ export const submitSignupEnvelope = mutation({
         )
       }
 
-      await ctx.db.insert("orderAccommodationSelections", {
+      const selectionId = await ctx.db.insert("orderAccommodationSelections", {
         orderId: submissionId,
         attendeeId,
         categoryId: resolved.categoryId,
         occupancy: resolved.occupancy,
-        upgradeSelected: resolved.upgradeSelected,
-        cotSelected: resolved.cotSelected,
-        ageBandCode: (resolved.ageBandCode ?? undefined) as
-          | "under_3"
-          | "3_11"
-          | "12_17"
-          | "18_plus"
-          | undefined,
         checkInAt: eventConfig?.baseCheckInAt,
         checkOutAt: eventConfig?.baseCheckOutAt,
         nightCount: eventConfig?.nightCount,
       })
+
+      // Persist one child row per selected option (optionKey + quantity +
+      // nights). The base selection row stores category/occupancy only.
+      for (const [sortOrder, optionSelection] of resolved.optionSelections.entries()) {
+        await ctx.db.insert("orderAccommodationOptionSelections", {
+          orderId: submissionId,
+          attendeeId,
+          selectionId,
+          optionKey: optionSelection.optionKey,
+          quantity: optionSelection.quantity,
+          nights: optionSelection.nights,
+          sortOrder,
+        })
+      }
     }
 
     const expiredRecordByKey = idempotencyRecords.find(
@@ -1008,9 +1032,7 @@ export const submitSignupEnvelope = mutation({
             attendeeKey: preference.attendeeKey,
             categoryId: String(preference.categoryId),
             occupancy: preference.occupancy,
-            upgradeSelected: preference.upgradeSelected,
-            cotSelected: preference.cotSelected,
-            ageBandCode: preference.ageBandCode,
+            optionSelections: preference.optionSelections,
           })
         ),
       },
@@ -1050,13 +1072,11 @@ export const getByBookingRef = query({
       totalAmountMinor: v.optional(v.number()),
       accommodationLines: v.array(
         v.object({
-          kind: v.union(
-            v.literal("accommodation"),
-            v.literal("superior_upgrade"),
-            v.literal("cot")
-          ),
+          kind: v.union(v.literal("accommodation"), v.literal("option")),
+          optionKey: v.optional(v.string()),
           label: v.string(),
           nights: v.number(),
+          quantity: v.optional(v.number()),
           ratePerNightMinor: v.number(),
           chargeMinor: v.number(),
         })

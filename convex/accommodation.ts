@@ -2375,16 +2375,7 @@ export const categoryCodeValidator = v.union(
   v.literal("superior"),
   v.literal("family")
 )
-export const optionCodeValidator = v.union(
-  v.literal("superior_upgrade"),
-  v.literal("cot")
-)
-export const ageBandCodeValidator = v.union(
-  v.literal("under_3"),
-  v.literal("3_11"),
-  v.literal("12_17"),
-  v.literal("18_plus")
-)
+export const optionCodeValidator = v.string()
 export const occupancyValidator = v.union(
   v.literal("single"),
   v.literal("shared"),
@@ -2393,12 +2384,6 @@ export const occupancyValidator = v.union(
 export const resourceKindValidator = v.union(
   v.literal("room"),
   v.literal("cot")
-)
-export const agePricingRateTypeValidator = v.union(
-  v.literal("free"),
-  v.literal("full"),
-  v.literal("percent"),
-  v.literal("flat")
 )
 export const optionKindValidator = v.union(
   v.literal("addon"),
@@ -2526,23 +2511,6 @@ export function isAccommodationIncluded(ticket: {
 }
 
 /**
- * The cot option must carry an eligibility age-band code (which band is
- * event-configured via `eventAccommodationOptions.eligibilityAgeBandCode` —
- * bands differ per event); non-cot options must not carry one. Existence is
- * the contract here; the referenced band's validity is checked separately
- * against the catalog when the upsert runs.
- */
-export function isCotEligibilityValid(input: {
-  optionCode: string
-  eligibilityAgeBandCode?: string | null
-}): boolean {
-  if (input.optionCode === "cot") {
-    return Boolean(input.eligibilityAgeBandCode)
-  }
-  return !input.eligibilityAgeBandCode
-}
-
-/**
  * Age-band bounds must be non-negative integers with maxAge (when defined)
  * greater than or equal to minAge. 18+ bands may omit maxAge.
  */
@@ -2557,41 +2525,6 @@ export function isValidAgeBandRange(
     return true
   }
   return Number.isInteger(maxAge) && maxAge >= minAge
-}
-
-/**
- * The locked (code, minAge, maxAge) tuples for the built-in age bands. The
- * numeric bounds must always match the code or the catalog could claim an age
- * range that contradicts the band's meaning.
- */
-export const LOCKED_AGE_BAND_BOUNDS: Record<
-  string,
-  { minAge: number; maxAge: number | null }
-> = {
-  under_3: { minAge: 0, maxAge: 3 },
-  "3_11": { minAge: 3, maxAge: 11 },
-  "12_17": { minAge: 12, maxAge: 17 },
-  "18_plus": { minAge: 18, maxAge: null },
-}
-
-/**
- * Validates that (code, minAge, maxAge) matches the locked tuple for that
- * code exactly: under_3 (0, 3), 3_11 (3, 11), 12_17 (12, 17), 18_plus (18, none).
- */
-export function isValidAgeBandBounds(
-  code: string,
-  minAge: number,
-  maxAge: number | null | undefined
-): boolean {
-  const bounds = LOCKED_AGE_BAND_BOUNDS[code]
-  if (!bounds) {
-    return false
-  }
-  if (minAge !== bounds.minAge) {
-    return false
-  }
-  const normalizedMax = maxAge === null || maxAge === undefined ? null : maxAge
-  return normalizedMax === bounds.maxAge
 }
 
 function sortBySortOrder<T extends { sortOrder: number }>(
@@ -2612,13 +2545,12 @@ async function getEventOrThrow(
 }
 
 async function getAccommodationCatalogData(ctx: QueryCtx | MutationCtx) {
-  const [categories, options, ageBands, roomTypes] = await Promise.all([
+  const [categories, options, roomTypes] = await Promise.all([
     ctx.db.query("accommodationCategories").take(50),
     ctx.db.query("accommodationOptions").take(50),
-    ctx.db.query("accommodationAgeBands").take(50),
     ctx.db.query("accommodationRoomTypes").take(100),
   ])
-  return { categories, options, ageBands, roomTypes }
+  return { categories, options, roomTypes }
 }
 
 export const getAccommodationCatalog = query({
@@ -2629,7 +2561,6 @@ export const getAccommodationCatalog = query({
     return {
       categories: sortBySortOrder(catalog.categories),
       options: catalog.options,
-      ageBands: sortBySortOrder(catalog.ageBands),
       roomTypes: catalog.roomTypes,
     }
   },
@@ -2649,7 +2580,6 @@ export const getEventAccommodationConfig = query({
       rateRows,
       eventOptionRows,
       resourceRows,
-      agePricingRows,
     ] = await Promise.all([
       ctx.db
         .query("eventAccommodationConfig")
@@ -2667,10 +2597,6 @@ export const getEventAccommodationConfig = query({
         .query("eventAccommodationResources")
         .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
         .take(100),
-      ctx.db
-        .query("eventAccommodationAgePricing")
-        .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
-        .take(50),
     ])
 
     // Fetch every referenced catalog row by ID instead of relying on the
@@ -2850,7 +2776,6 @@ export const getEventAccommodationConfig = query({
       rates,
       options,
       resources,
-      agePricing: sortBySortOrder(agePricingRows),
       pendingOrders,
       pendingOrderCount,
       hasAccommodationSelections,
@@ -2930,10 +2855,9 @@ export const updateAccommodationCategory = mutation({
 
 /**
  * Locked catalog semantics for the built-in option codes. The event option
- * mutation always stores a per-night price, so both built-in codes must be
- * `per_night` with their appropriate kind or the catalog would describe an
- * option whose unit disagrees with the pricing contract. Custom option codes
- * are not yet supported, so unknown codes are left free-form for now.
+ * mutation always stores a per-unit price, so the cot code must be `per_night`
+ * with the addon kind or the catalog would describe an option whose unit
+ * disagrees with the pricing contract. Custom option codes are free-form.
  */
 export const LOCKED_OPTION_SEMANTICS: Record<
   string,
@@ -2943,7 +2867,6 @@ export const LOCKED_OPTION_SEMANTICS: Record<
   }
 > = {
   cot: { kind: "addon", unit: "per_night" },
-  superior_upgrade: { kind: "upgrade", unit: "per_night" },
 }
 
 export function isValidOptionSemantics(input: {
@@ -3020,90 +2943,6 @@ export const updateAccommodationOption = mutation({
     }
     await ctx.db.patch("accommodationOptions", args.optionId, patch)
     return await ctx.db.get("accommodationOptions", args.optionId)
-  },
-})
-
-export const createAccommodationAgeBand = mutation({
-  args: {
-    code: ageBandCodeValidator,
-    label: v.string(),
-    minAge: v.number(),
-    maxAge: v.optional(v.number()),
-    sortOrder: v.number(),
-  },
-  handler: async (ctx, args) => {
-    await requireIdentity(ctx)
-    const label = args.label.trim()
-    if (!label) {
-      throw new Error("Age band label is required")
-    }
-    if (!isValidAgeBandBounds(args.code, args.minAge, args.maxAge)) {
-      throw new Error("Invalid age band bounds")
-    }
-    if (!isNonNegativeInteger(args.sortOrder)) {
-      throw new Error("sortOrder must be a non-negative integer")
-    }
-    const existing = await ctx.db
-      .query("accommodationAgeBands")
-      .withIndex("by_code", (q) => q.eq("code", args.code))
-      .first()
-    if (existing) {
-      throw new Error(`Age band code "${args.code}" already exists`)
-    }
-    return await ctx.db.insert("accommodationAgeBands", {
-      code: args.code,
-      label,
-      minAge: args.minAge,
-      maxAge: args.maxAge,
-      sortOrder: args.sortOrder,
-    })
-  },
-})
-
-export const updateAccommodationAgeBand = mutation({
-  args: {
-    ageBandId: v.id("accommodationAgeBands"),
-    label: v.optional(v.string()),
-    minAge: v.optional(v.number()),
-    maxAge: v.optional(v.number()),
-    sortOrder: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    await requireIdentity(ctx)
-    const band = await ctx.db.get("accommodationAgeBands", args.ageBandId)
-    if (!band) {
-      throw new Error("Age band not found")
-    }
-    const patch: Partial<Doc<"accommodationAgeBands">> = {}
-    if (args.label !== undefined) {
-      const label = args.label.trim()
-      if (!label) {
-        throw new Error("Age band label is required")
-      }
-      patch.label = label
-    }
-    const minAge = args.minAge ?? band.minAge
-    const maxAge =
-      args.maxAge !== undefined
-        ? args.maxAge
-        : band.maxAge === undefined
-          ? null
-          : band.maxAge
-    if (args.minAge !== undefined || args.maxAge !== undefined) {
-      if (!isValidAgeBandBounds(band.code, minAge, maxAge)) {
-        throw new Error("Invalid age band bounds")
-      }
-      patch.minAge = minAge
-      patch.maxAge = args.maxAge !== undefined ? args.maxAge : band.maxAge
-    }
-    if (args.sortOrder !== undefined) {
-      if (!isNonNegativeInteger(args.sortOrder)) {
-        throw new Error("sortOrder must be a non-negative integer")
-      }
-      patch.sortOrder = args.sortOrder
-    }
-    await ctx.db.patch("accommodationAgeBands", args.ageBandId, patch)
-    return await ctx.db.get("accommodationAgeBands", args.ageBandId)
   },
 })
 
@@ -3325,7 +3164,6 @@ export const upsertEventAccommodationOption = mutation({
     optionId: v.id("accommodationOptions"),
     enabled: v.optional(v.boolean()),
     priceMinor: v.optional(v.number()),
-    eligibilityAgeBandCode: v.optional(ageBandCodeValidator),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -3346,42 +3184,10 @@ export const upsertEventAccommodationOption = mutation({
       )
       .first()
 
-    // Validate the EFFECTIVE persisted eligibility band, not just the arg: a
-    // cot option must end up with a configured band (update keeps the existing
-    // value when omitted) and a non-cot option must end up with none. This
-    // prevents a cot option from being persisted without an eligibility band
-    // when the caller omits the field.
-    const effectiveEligibilityAgeBandCode =
-      existing && args.eligibilityAgeBandCode === undefined
-        ? existing.eligibilityAgeBandCode
-        : args.eligibilityAgeBandCode
-    if (
-      !isCotEligibilityValid({
-        optionCode: option.code,
-        eligibilityAgeBandCode: effectiveEligibilityAgeBandCode,
-      })
-    ) {
-      throw new Error(
-        `Option "${option.code}" requires an eligibility age band`
-      )
-    }
-    if (effectiveEligibilityAgeBandCode !== undefined) {
-      const band = await ctx.db
-        .query("accommodationAgeBands")
-        .withIndex("by_code", (q) =>
-          q.eq("code", effectiveEligibilityAgeBandCode as "under_3" | "3_11" | "12_17" | "18_plus")
-        )
-        .first()
-      if (!band) {
-        throw new Error("Age band not found")
-      }
-    }
-
     if (existing) {
       await ctx.db.patch("eventAccommodationOptions", existing._id, {
         enabled: args.enabled ?? existing.enabled,
         priceMinor: args.priceMinor ?? existing.priceMinor,
-        eligibilityAgeBandCode: effectiveEligibilityAgeBandCode,
         notes:
           args.notes === undefined
             ? existing.notes
@@ -3396,7 +3202,6 @@ export const upsertEventAccommodationOption = mutation({
       optionId: args.optionId,
       enabled: args.enabled ?? false,
       priceMinor: resolveEventOptionPriceMinor(args.priceMinor),
-      eligibilityAgeBandCode: effectiveEligibilityAgeBandCode,
       notes: normalizeOptionalString(args.notes) ?? undefined,
     })
     await touchEventAccommodationConfigVersion(ctx, args.eventId)
@@ -3451,83 +3256,6 @@ export const upsertEventAccommodationResource = mutation({
   },
 })
 
-/**
- * Age-pricing values are rateType-dependent: `percent` must stay in the
- * percentage domain (0..100), `flat` must be whole minor units, and
- * `free`/`full` must be finite and non-negative (their values are not yet
- * consumed by any calculation). A percent value of 150 or a flat value of
- * 12.5 would produce invalid amounts downstream, so both are rejected.
- */
-export function isValidAgePricingValue(
-  rateType: string,
-  value: number
-): boolean {
-  if (!Number.isFinite(value) || value < 0) {
-    return false
-  }
-  if (rateType === "percent") {
-    return value <= 100
-  }
-  if (rateType === "flat") {
-    return Number.isInteger(value)
-  }
-  return true
-}
-
-export const upsertEventAccommodationAgePricing = mutation({
-  args: {
-    eventId: v.id("events"),
-    ageBandCode: ageBandCodeValidator,
-    rateType: agePricingRateTypeValidator,
-    value: v.number(),
-    sortOrder: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    await requireIdentity(ctx)
-    await getEventOrThrow(ctx, args.eventId)
-    const band = await ctx.db
-      .query("accommodationAgeBands")
-      .withIndex("by_code", (q) => q.eq("code", args.ageBandCode))
-      .first()
-    if (!band) {
-      throw new Error("Age band not found")
-    }
-    if (!isValidAgePricingValue(args.rateType, args.value)) {
-      throw new Error(
-        `value must be a valid ${args.rateType} age-pricing amount`
-      )
-    }
-    const sortOrder = args.sortOrder ?? 0
-    if (!isNonNegativeInteger(sortOrder)) {
-      throw new Error("sortOrder must be a non-negative integer")
-    }
-    const existing = await ctx.db
-      .query("eventAccommodationAgePricing")
-      .withIndex("by_eventId_and_ageBandCode", (q) =>
-        q.eq("eventId", args.eventId).eq("ageBandCode", args.ageBandCode)
-      )
-      .first()
-    if (existing) {
-      await ctx.db.patch("eventAccommodationAgePricing", existing._id, {
-        rateType: args.rateType,
-        value: args.value,
-        sortOrder,
-      })
-      await touchEventAccommodationConfigVersion(ctx, args.eventId)
-      return await ctx.db.get("eventAccommodationAgePricing", existing._id)
-    }
-    const id = await ctx.db.insert("eventAccommodationAgePricing", {
-      eventId: args.eventId,
-      ageBandCode: args.ageBandCode,
-      rateType: args.rateType,
-      value: args.value,
-      sortOrder,
-    })
-    await touchEventAccommodationConfigVersion(ctx, args.eventId)
-    return await ctx.db.get("eventAccommodationAgePricing", id)
-  },
-})
-
 // ---------------------------------------------------------------------------
 // Phase 41: Per-order accommodation configuration confirmation
 //
@@ -3555,11 +3283,6 @@ type SelectionConfirmationPatch = {
  * unknown selection references, or rows that cannot be priced from a complete
  * event configuration. Exported so Phase 44 assignment confirmation reuses
  * the exact snapshot-boundary code path instead of inventing a second one.
- *
- * Valid age bands and cot eligibility are resolved from the event's own
- * configuration (age-pricing rows and the enabled cot option's eligibility
- * band) — never from hardcoded catalog constants, since bands may differ per
- * event.
  */
 export async function resolveOrderAccommodationConfirmation(
   ctx: MutationCtx,
@@ -3702,28 +3425,35 @@ export async function resolveOrderAccommodationConfirmation(
       optionDefinitionById.set(String(optionRow.optionId), definition)
     }
   }
-  let superiorUpgradePriceMinor: number | null = null
-  let cotPriceMinor: number | null = null
-  let cotEligibilityAgeBandCode: string | null = null
+  // Enabled event options resolved to typed per-unit prices keyed by option
+  // code — the same resolution the canonical loader uses, so a confirmed
+  // snapshot always matches live pricing at confirmation.
+  const optionsByKey = new Map<string, { label: string; priceMinor: number }>()
   for (const optionRow of eventOptionRows) {
     if (!optionRow.enabled) continue
     const definition = optionDefinitionById.get(String(optionRow.optionId))
     if (!definition) continue
-    if (definition.code === "superior_upgrade") {
-      superiorUpgradePriceMinor = optionRow.priceMinor
-    } else if (definition.code === "cot") {
-      cotPriceMinor = optionRow.priceMinor
-      cotEligibilityAgeBandCode = optionRow.eligibilityAgeBandCode ?? null
-    }
+    optionsByKey.set(definition.code, {
+      label: definition.label,
+      priceMinor: optionRow.priceMinor,
+    })
   }
 
-  // The set of age bands valid for THIS event comes from its configured
-  // age-pricing rows — bands are event-scoped catalog data, not constants.
-  const eventAgeBandCodes = new Set<string>()
-  for await (const agePricingRow of ctx.db
-    .query("eventAccommodationAgePricing")
-    .withIndex("by_eventId", (q) => q.eq("eventId", eventId))) {
-    eventAgeBandCodes.add(agePricingRow.ageBandCode)
+  const optionSelectionsBySelectionId = new Map<
+    string,
+    Array<{ optionKey: string; quantity: number; nights: number }>
+  >()
+  for await (const optionRow of ctx.db
+    .query("orderAccommodationOptionSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", orderId))) {
+    const selectionId = String(optionRow.selectionId)
+    const existing = optionSelectionsBySelectionId.get(selectionId) ?? []
+    existing.push({
+      optionKey: optionRow.optionKey,
+      quantity: optionRow.quantity,
+      nights: optionRow.nights,
+    })
+    optionSelectionsBySelectionId.set(selectionId, existing)
   }
 
   const patches: SelectionConfirmationPatch[] = []
@@ -3754,28 +3484,6 @@ export async function resolveOrderAccommodationConfirmation(
     if (attendee.orderId !== orderId) {
       throw new Error("Selection attendee does not belong to the order")
     }
-    // Phase 42 signup permits an optional age band: a missing band is valid
-    // whenever no cot is selected (the snapshot records an empty band and the
-    // formula charges no cot line). A provided band must still belong to this
-    // event's configured age-pricing rows, and a cot selection always requires
-    // the event-configured cot eligibility band — a confirmed snapshot must
-    // never record an ineligible or unknown band as a zero-charge line.
-    if (row.ageBandCode !== undefined && row.ageBandCode !== null) {
-      if (!eventAgeBandCodes.has(row.ageBandCode)) {
-        throw new Error("Selection has a missing or invalid age band")
-      }
-    }
-    if (
-      row.cotSelected &&
-      (row.ageBandCode === undefined ||
-        row.ageBandCode === null ||
-        cotEligibilityAgeBandCode === null ||
-        row.ageBandCode !== cotEligibilityAgeBandCode)
-    ) {
-      throw new Error(
-        "Cot is only eligible for the age band configured for this event"
-      )
-    }
     const category = await ctx.db.get(
       "accommodationCategories",
       row.categoryId
@@ -3790,13 +3498,48 @@ export async function resolveOrderAccommodationConfirmation(
         "No rate is configured for the selected category and occupancy"
       )
     }
-    if (row.upgradeSelected && superiorUpgradePriceMinor === null) {
-      throw new Error(
-        "Superior upgrade is selected but not enabled for this event"
-      )
-    }
-    if (row.cotSelected && cotPriceMinor === null) {
-      throw new Error("Cot is selected but not enabled for this event")
+
+    // Every selected option must be a key in the event's enabled option set.
+    // Unknown/disabled keys fail closed; quantity and nights are normalized.
+    const selectedOptionKeys = optionSelectionsBySelectionId.get(String(row._id)) ?? []
+    const seenKeys = new Set<string>()
+    const resolvedOptions: Array<{
+      optionKey: string
+      label: string
+      pricePerUnitMinor: number
+      quantity: number
+      nights: number
+    }> = []
+    for (const selected of selectedOptionKeys) {
+      if (seenKeys.has(selected.optionKey)) {
+        throw new Error(
+          `Selection selects option '${selected.optionKey}' more than once`
+        )
+      }
+      seenKeys.add(selected.optionKey)
+      const option = optionsByKey.get(selected.optionKey)
+      if (!option) {
+        throw new Error(
+          `Selected option '${selected.optionKey}' is not enabled for this event`
+        )
+      }
+      if (!Number.isInteger(selected.quantity) || selected.quantity <= 0) {
+        throw new Error(
+          `Selected option '${selected.optionKey}' has an invalid quantity`
+        )
+      }
+      if (!Number.isInteger(selected.nights) || selected.nights <= 0) {
+        throw new Error(
+          `Selected option '${selected.optionKey}' has an invalid night count`
+        )
+      }
+      resolvedOptions.push({
+        optionKey: selected.optionKey,
+        label: option.label,
+        pricePerUnitMinor: option.priceMinor,
+        quantity: selected.quantity,
+        nights: selected.nights,
+      })
     }
 
     const attendeeTicketTypeId = ticketTypeIdByAttendeeId.get(row.attendeeId)
@@ -3814,16 +3557,12 @@ export async function resolveOrderAccommodationConfirmation(
         attendeeId: String(row.attendeeId),
         categoryCode: category.code,
         occupancy: row.occupancy,
-        upgradeSelected: row.upgradeSelected,
-        cotSelected: row.cotSelected,
-        ageBandCode: row.ageBandCode ?? null,
         nightCount: row.nightCount,
+        optionSelections: resolvedOptions,
       },
       pricing: {
         baseRatePerNightMinor,
-        superiorUpgradePriceMinor,
-        cotPriceMinor,
-        cotEligibilityAgeBandCode,
+        options: resolvedOptions,
         ticketAccommodationIncluded,
         eventBaseNights: config.nightCount,
       },

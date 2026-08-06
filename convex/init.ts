@@ -11,19 +11,11 @@ type CategorySeed = {
 }
 
 type OptionSeed = {
-  code: "superior_upgrade" | "cot"
+  code: string
   label: string
   description: string
   kind: "addon" | "upgrade" | "eligibility"
   unit: "per_night" | "per_person"
-}
-
-type AgeBandSeed = {
-  code: "under_3" | "3_11" | "12_17" | "18_plus"
-  label: string
-  minAge: number
-  maxAge: number | null
-  sortOrder: number
 }
 
 type RoomTypeSeed = {
@@ -66,28 +58,13 @@ const CATEGORIES: CategorySeed[] = [
 
 const OPTIONS: OptionSeed[] = [
   {
-    code: "superior_upgrade",
-    label: "Superior upgrade",
-    description:
-      "Upgrade from a Standard room to a Superior room for the whole stay, charged per person per night.",
-    kind: "upgrade",
-    unit: "per_night",
-  },
-  {
     code: "cot",
     label: "Cot",
     description:
-      "Add a cot for a child under 3 years old, charged per night. Only available for the under-3 age band.",
+      "Add a cot for a child, charged per night. Choose how many cots and how many nights.",
     kind: "addon",
     unit: "per_night",
   },
-]
-
-const AGE_BANDS: AgeBandSeed[] = [
-  { code: "under_3", label: "Under 3", minAge: 0, maxAge: 3, sortOrder: 0 },
-  { code: "3_11", label: "3 to 11", minAge: 3, maxAge: 11, sortOrder: 1 },
-  { code: "12_17", label: "12 to 17", minAge: 12, maxAge: 17, sortOrder: 2 },
-  { code: "18_plus", label: "18 and over", minAge: 18, maxAge: null, sortOrder: 3 },
 ]
 
 const ROOM_TYPES: RoomTypeSeed[] = [
@@ -196,11 +173,10 @@ const RATES: RateSeed[] = [
 
 export default internalMutation({
   handler: async (ctx) => {
-    const [categoryRows, optionRows, ageBandRows, roomTypeRows, eventRows] =
+    const [categoryRows, optionRows, roomTypeRows, eventRows] =
       await Promise.all([
         ctx.db.query("accommodationCategories").take(100),
         ctx.db.query("accommodationOptions").take(100),
-        ctx.db.query("accommodationAgeBands").take(100),
         ctx.db.query("accommodationRoomTypes").take(200),
         ctx.db.query("events").take(100),
       ])
@@ -209,7 +185,6 @@ export default internalMutation({
       categoryRows.map((row) => [row.code, row])
     )
     const existingOptionByCode = new Map(optionRows.map((row) => [row.code, row]))
-    const existingAgeBandByCode = new Map(ageBandRows.map((row) => [row.code, row]))
     const existingRoomTypeByLabel = new Map(
       roomTypeRows.map((row) => [row.label, row])
     )
@@ -253,27 +228,7 @@ export default internalMutation({
       }
     }
 
-    // 3. Age bands
-    const ageBandIdByCode = new Map<string, Id<"accommodationAgeBands">>()
-    for (const band of AGE_BANDS) {
-      const existing = existingAgeBandByCode.get(band.code)
-      const insert = {
-        code: band.code,
-        label: band.label,
-        minAge: band.minAge,
-        maxAge: band.maxAge ?? undefined,
-        sortOrder: band.sortOrder,
-      }
-      if (existing) {
-        await ctx.db.patch(existing._id, insert)
-        ageBandIdByCode.set(band.code, existing._id)
-      } else {
-        const id = await ctx.db.insert("accommodationAgeBands", insert)
-        ageBandIdByCode.set(band.code, id)
-      }
-    }
-
-    // 4. Room types
+    // 3. Room types
     const roomTypeIdByLabel = new Map<string, Id<"accommodationRoomTypes">>()
     for (const roomType of ROOM_TYPES) {
       const categoryId = categoryIdByCode.get(roomType.categoryCode)
@@ -307,7 +262,6 @@ export default internalMutation({
       }
       const standardId = categoryIdByCode.get("standard")!
       const superiorId = categoryIdByCode.get("superior")!
-      const upgradeOptionId = optionIdByCode.get("superior_upgrade")!
       const cotOptionId = optionIdByCode.get("cot")!
 
       // 5a. Event accommodation config: one night before the event, extended
@@ -361,28 +315,8 @@ export default internalMutation({
         }
       }
 
-      // 5c. Event options: superior upgrade (€10/night default) and cot
-      // (€10/night, under-3 only).
-      const upgradeExisting = await ctx.db
-        .query("eventAccommodationOptions")
-        .withIndex("by_eventId_and_optionId", (q) =>
-          q.eq("eventId", event._id).eq("optionId", upgradeOptionId)
-        )
-        .first()
-      const upgradePayload = {
-        eventId: event._id,
-        optionId: upgradeOptionId,
-        enabled: true,
-        priceMinor: 1000,
-        eligibilityAgeBandCode: undefined,
-        notes: "Standard to Superior, per person per night.",
-      }
-      if (upgradeExisting) {
-        await ctx.db.patch(upgradeExisting._id, upgradePayload)
-      } else {
-        await ctx.db.insert("eventAccommodationOptions", upgradePayload)
-      }
-
+      // 5c. Event options: cot (€10/night default). Additional options are
+      // created as data rows and render generically in signup.
       const cotExisting = await ctx.db
         .query("eventAccommodationOptions")
         .withIndex("by_eventId_and_optionId", (q) =>
@@ -394,8 +328,7 @@ export default internalMutation({
         optionId: cotOptionId,
         enabled: true,
         priceMinor: 1000,
-        eligibilityAgeBandCode: "under_3" as const,
-        notes: "Per night, children under 3 only.",
+        notes: "Per night, per cot.",
       }
       if (cotExisting) {
         await ctx.db.patch(cotExisting._id, cotPayload)
@@ -449,35 +382,12 @@ export default internalMutation({
         await ctx.db.insert("eventAccommodationResources", cotResourcePayload)
       }
 
-      // 5e. Age pricing: seedable rows, left as free/full placeholders.
-      for (const band of AGE_BANDS) {
-        const existingAgePricing = await ctx.db
-          .query("eventAccommodationAgePricing")
-          .withIndex("by_eventId_and_ageBandCode", (q) =>
-            q.eq("eventId", event._id).eq("ageBandCode", band.code)
-          )
-          .first()
-        const agePricingPayload = {
-          eventId: event._id,
-          ageBandCode: band.code,
-          rateType: "full" as const,
-          value: 0,
-          sortOrder: band.sortOrder,
-        }
-        if (existingAgePricing) {
-          await ctx.db.patch(existingAgePricing._id, agePricingPayload)
-        } else {
-          await ctx.db.insert("eventAccommodationAgePricing", agePricingPayload)
-        }
-      }
-
       configuredEvents += 1
     }
 
     return {
       categories: CATEGORIES.length,
       options: OPTIONS.length,
-      ageBands: AGE_BANDS.length,
       roomTypes: ROOM_TYPES.length,
       eventsConfigured: configuredEvents,
     }

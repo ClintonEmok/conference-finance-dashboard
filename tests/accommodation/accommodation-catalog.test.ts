@@ -4,16 +4,11 @@ import schema from "@/convex/schema"
 import {
   DAY_MS,
   EVENT_OPTION_DEFAULT_PRICE_MINOR,
-  LOCKED_AGE_BAND_BOUNDS,
   deriveActiveCategoryIds,
   deriveInitialStayWindow,
   deriveNightCount,
   deriveResourceSellableBeds,
   isAccommodationIncluded,
-  isCotEligibilityValid,
-  isValidAgeBandBounds,
-  isValidAgeBandRange,
-  isValidAgePricingValue,
   isValidOptionSemantics,
   normalizeExtendedStayFlags,
   resolveEventOptionPriceMinor,
@@ -161,113 +156,8 @@ describe("isAccommodationIncluded", () => {
   })
 })
 
-describe("isCotEligibilityValid", () => {
-  it("requires a configured age band for the cot option", () => {
-    expect(
-      isCotEligibilityValid({
-        optionCode: "cot",
-        eligibilityAgeBandCode: "under_3",
-      })
-    ).toBe(true)
-    expect(
-      isCotEligibilityValid({
-        optionCode: "cot",
-        eligibilityAgeBandCode: "3_11",
-      })
-    ).toBe(true)
-    expect(
-      isCotEligibilityValid({ optionCode: "cot", eligibilityAgeBandCode: null })
-    ).toBe(false)
-    expect(
-      isCotEligibilityValid({ optionCode: "cot", eligibilityAgeBandCode: "" })
-    ).toBe(false)
-  })
-
-  it("rejects age-band eligibility on non-cot options", () => {
-    expect(
-      isCotEligibilityValid({
-        optionCode: "superior_upgrade",
-        eligibilityAgeBandCode: "under_3",
-      })
-    ).toBe(false)
-    expect(
-      isCotEligibilityValid({
-        optionCode: "superior_upgrade",
-        eligibilityAgeBandCode: null,
-      })
-    ).toBe(true)
-  })
-})
-
-describe("isValidAgeBandRange", () => {
-  it("accepts the locked age-band boundaries", () => {
-    expect(isValidAgeBandRange(0, 3)).toBe(true)
-    expect(isValidAgeBandRange(3, 11)).toBe(true)
-    expect(isValidAgeBandRange(12, 17)).toBe(true)
-    expect(isValidAgeBandRange(18, null)).toBe(true)
-    expect(isValidAgeBandRange(18, undefined)).toBe(true)
-  })
-
-  it("rejects negative ages, inverted bounds, and non-integers", () => {
-    expect(isValidAgeBandRange(-1, 3)).toBe(false)
-    expect(isValidAgeBandRange(5, 3)).toBe(false)
-    expect(isValidAgeBandRange(1.5, 3)).toBe(false)
-    expect(isValidAgeBandRange(0, 3.5)).toBe(false)
-  })
-})
-
-describe("isValidAgeBandBounds", () => {
-  it("accepts the exact locked tuple for every band code", () => {
-    for (const [code, { minAge, maxAge }] of Object.entries(
-      LOCKED_AGE_BAND_BOUNDS
-    )) {
-      expect(isValidAgeBandBounds(code, minAge, maxAge)).toBe(true)
-    }
-    expect(isValidAgeBandBounds("18_plus", 18, undefined)).toBe(true)
-  })
-
-  it("rejects a code whose numeric bounds do not match its locked tuple", () => {
-    // under_3 with an adult minAge must not pass even though it is a valid
-    // generic range — cot eligibility is derived from the code alone.
-    expect(isValidAgeBandBounds("under_3", 18, 3)).toBe(false)
-    expect(isValidAgeBandBounds("under_3", 0, 5)).toBe(false)
-    expect(isValidAgeBandBounds("3_11", 0, 3)).toBe(false)
-    expect(isValidAgeBandBounds("12_17", 12, 18)).toBe(false)
-    // 18+ may not carry a finite maximum.
-    expect(isValidAgeBandBounds("18_plus", 18, 21)).toBe(false)
-    // Unknown codes are rejected outright.
-    expect(isValidAgeBandBounds("unknown", 0, 3)).toBe(false)
-  })
-})
-
-describe("isValidAgePricingValue", () => {
-  it("keeps percent values inside the percentage domain", () => {
-    expect(isValidAgePricingValue("percent", 0)).toBe(true)
-    expect(isValidAgePricingValue("percent", 100)).toBe(true)
-    expect(isValidAgePricingValue("percent", 12.5)).toBe(true)
-    expect(isValidAgePricingValue("percent", 150)).toBe(false)
-    expect(isValidAgePricingValue("percent", Number.POSITIVE_INFINITY)).toBe(
-      false
-    )
-    expect(isValidAgePricingValue("percent", -1)).toBe(false)
-  })
-
-  it("requires flat values to be whole minor units", () => {
-    expect(isValidAgePricingValue("flat", 0)).toBe(true)
-    expect(isValidAgePricingValue("flat", 1500)).toBe(true)
-    expect(isValidAgePricingValue("flat", 12.5)).toBe(false)
-  })
-
-  it("requires free/full values to be finite and non-negative", () => {
-    expect(isValidAgePricingValue("free", 0)).toBe(true)
-    expect(isValidAgePricingValue("full", 1)).toBe(true)
-    expect(isValidAgePricingValue("full", -1)).toBe(false)
-    expect(isValidAgePricingValue("free", Number.NaN)).toBe(false)
-  })
-})
-
 describe("isValidOptionSemantics", () => {
-  it("accepts the locked per-night combinations for built-in codes", () => {
+  it("accepts arbitrary codes with any kind/unit", () => {
     expect(
       isValidOptionSemantics({
         code: "cot",
@@ -277,31 +167,11 @@ describe("isValidOptionSemantics", () => {
     ).toBe(true)
     expect(
       isValidOptionSemantics({
-        code: "superior_upgrade",
-        kind: "upgrade",
-        unit: "per_night",
-      })
-    ).toBe(true)
-  })
-
-  it("rejects built-in codes whose kind or unit disagrees with the contract", () => {
-    expect(
-      isValidOptionSemantics({ code: "cot", kind: "addon", unit: "per_person" })
-    ).toBe(false)
-    expect(
-      isValidOptionSemantics({
-        code: "cot",
-        kind: "eligibility",
-        unit: "per_night",
-      })
-    ).toBe(false)
-    expect(
-      isValidOptionSemantics({
-        code: "superior_upgrade",
+        code: "parking",
         kind: "addon",
         unit: "per_night",
       })
-    ).toBe(false)
+    ).toBe(true)
   })
 })
 
@@ -351,13 +221,12 @@ describe("Phase 39 schema contract", () => {
     for (const name of [
       "accommodationCategories",
       "accommodationOptions",
-      "accommodationAgeBands",
       "eventAccommodationConfig",
       "eventAccommodationRates",
       "eventAccommodationOptions",
       "eventAccommodationResources",
-      "eventAccommodationAgePricing",
       "orderAccommodationSelections",
+      "orderAccommodationOptionSelections",
     ]) {
       expect(() => table(name)).not.toThrow()
     }
@@ -399,8 +268,6 @@ describe("Phase 39 schema contract", () => {
     const selectionFields = table("orderAccommodationSelections").validator.fields
     expect(selectionFields.orderId).toBeDefined()
     expect(selectionFields.attendeeId).toBeDefined()
-    expect(selectionFields.upgradeSelected).toBeDefined()
-    expect(selectionFields.cotSelected).toBeDefined()
     expect(selectionFields.nightCount).toBeDefined()
 
     expect(selectionFields.priceMinor).toBeUndefined()
@@ -430,11 +297,8 @@ describe("Phase 39 schema contract", () => {
     expect(indexNames(table("eventAccommodationResources"))).toEqual(
       expect.arrayContaining(["by_eventId", "by_eventId_and_kind"])
     )
-    expect(indexNames(table("eventAccommodationAgePricing"))).toEqual(
-      expect.arrayContaining([
-        "by_eventId",
-        "by_eventId_and_ageBandCode",
-      ])
+    expect(indexNames(table("orderAccommodationOptionSelections"))).toEqual(
+      expect.arrayContaining(["by_selectionId", "by_orderId"])
     )
     expect(indexNames(table("orderAccommodationSelections"))).toEqual(
       expect.arrayContaining([

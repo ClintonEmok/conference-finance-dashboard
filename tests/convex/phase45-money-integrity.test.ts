@@ -51,24 +51,23 @@ type AuditSeed = {
   categorySuperiorId: string
   ticketIncludedId: string
   ticketNotIncludedId: string
-  upgradeOptionId: string
   cotOptionId: string
 }
 
 /**
  * Seeds one internal event with a complete accommodation configuration:
- * 2 base nights, standard €30 and superior €45 per person per night,
- * superior upgrade €15/night and cot €5/night (eligible under_3). The
- * `ticketIncludedId` ticket carries accommodationIncluded=true; the
- * `ticketNotIncludedId` ticket is accommodation-free (both €20 tickets).
+ * 2 base nights, standard €30 and superior €45 per person per night, and a
+ * cot €5/unit/night option. The `ticketIncludedId` ticket carries
+ * accommodationIncluded=true; the `ticketNotIncludedId` ticket is
+ * accommodation-free (both €20 tickets).
  *
  * The locked formula makes this fixture deterministic:
- *  - Attendee A (included ticket + standard + upgrade + cot, under_3, 2
- *    nights): coveredNights = 2 → base charge 0; upgrade 2×1500 = 3000;
- *    cot 2×500 = 1000; total accommodation 4000 + ticket 2000 = 6000.
+ *  - Attendee A (included ticket + standard + 1 cot for 2 nights):
+ *    coveredNights = 2 → base charge 0; cot 2×500 = 1000; total accommodation
+ *    1000 + ticket 2000 = 3000.
  *  - Attendee B (not-included ticket + standard, 2 nights): base 2×3000 =
  *    6000 + ticket 2000 = 8000.
- *  - Representative order total = 14000.
+ *  - Representative order total = 11000.
  */
 async function seedAuditEvent(
   t: TestConvexForDataModel<GenericDataModel>
@@ -102,37 +101,12 @@ async function seedAuditEvent(
       sortOrder: 2,
     })
   })
-  const upgradeOptionId = await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationOptions", {
-      code: "superior_upgrade",
-      label: "Superior Upgrade",
-      kind: "upgrade",
-      unit: "per_night",
-    })
-  })
   const cotOptionId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("accommodationOptions", {
       code: "cot",
       label: "Cot",
       kind: "addon",
       unit: "per_night",
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationAgeBands", {
-      code: "under_3",
-      label: "Under 3",
-      minAge: 0,
-      maxAge: 3,
-      sortOrder: 1,
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationAgeBands", {
-      code: "18_plus",
-      label: "18 and over",
-      minAge: 18,
-      sortOrder: 4,
     })
   })
 
@@ -194,18 +168,9 @@ async function seedAuditEvent(
   await t.mutation(async (ctx) => {
     return await ctx.db.insert("eventAccommodationOptions", {
       eventId: eventId as never,
-      optionId: upgradeOptionId as never,
-      enabled: true,
-      priceMinor: 1500,
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("eventAccommodationOptions", {
-      eventId: eventId as never,
       optionId: cotOptionId as never,
       enabled: true,
       priceMinor: 500,
-      eligibilityAgeBandCode: "under_3",
     })
   })
 
@@ -215,7 +180,6 @@ async function seedAuditEvent(
     categorySuperiorId: String(categorySuperiorId),
     ticketIncludedId: String(ticketIncludedId),
     ticketNotIncludedId: String(ticketNotIncludedId),
-    upgradeOptionId: String(upgradeOptionId),
     cotOptionId: String(cotOptionId),
   }
 }
@@ -285,22 +249,30 @@ async function seedOrder(
   }
 }
 
-/** Inserts the representative accommodation selections (A = upgrade+cot, B = base). */
+/** Inserts the representative accommodation selections (A = cot child row, B = base). */
 async function seedRepresentativeSelections(
   t: TestConvexForDataModel<GenericDataModel>,
   seed: AuditSeed,
   order: OrderSeed
 ) {
-  await t.mutation(async (ctx) => {
+  const selectionAId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("orderAccommodationSelections", {
       orderId: order.orderId as never,
       attendeeId: order.attendeeAId as never,
       categoryId: seed.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: true,
-      cotSelected: true,
-      ageBandCode: "under_3",
       nightCount: 2,
+    })
+  })
+  await t.mutation(async (ctx) => {
+    return await ctx.db.insert("orderAccommodationOptionSelections", {
+      orderId: order.orderId as never,
+      attendeeId: order.attendeeAId as never,
+      selectionId: selectionAId as never,
+      optionKey: "cot",
+      quantity: 1,
+      nights: 2,
+      sortOrder: 0,
     })
   })
   await t.mutation(async (ctx) => {
@@ -309,9 +281,6 @@ async function seedRepresentativeSelections(
       attendeeId: order.attendeeBId as never,
       categoryId: seed.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
       nightCount: 2,
     })
   })
@@ -431,14 +400,13 @@ test("one canonical amount-due and per-attendee breakdown across every consumer"
   })
   await insertReportShare(t, seed, "report-rep01")
 
-  // 1. Canonical loader: 14000, A = 6000, B = 8000.
+  // 1. Canonical loader: 11000, A = 3000, B = 8000.
   const breakdown = await loadOrderAmountDue(t, order.orderId)
-  expect(breakdown?.amountDueMinor).toBe(14000)
-  expect(breakdown?.amountDueByAttendeeId[order.attendeeAId]).toBe(6000)
+  expect(breakdown?.amountDueMinor).toBe(11000)
+  expect(breakdown?.amountDueByAttendeeId[order.attendeeAId]).toBe(3000)
   expect(breakdown?.amountDueByAttendeeId[order.attendeeBId]).toBe(8000)
   expect(breakdown?.accommodationLines.map((line) => line.kind)).toEqual([
-    "superior_upgrade",
-    "cot",
+    "option",
     "accommodation",
   ])
 
@@ -446,17 +414,17 @@ test("one canonical amount-due and per-attendee breakdown across every consumer"
   const booking = await t.query(api.signupSubmission.getByBookingRef, {
     bookingRef: "BK-45-REP01",
   })
-  expect(booking?.totalAmountMinor).toBe(14000)
-  expect(booking?.accommodationLines).toHaveLength(3)
+  expect(booking?.totalAmountMinor).toBe(11000)
+  expect(booking?.accommodationLines).toHaveLength(2)
 
   // 3. Public tracking (permalink): canonical due/paid/remaining/status.
   const tracking = await t.query(api.publicTracking.getByBookingRef, {
     bookingRef: "BK-45-REP01",
   })
-  expect(tracking?.order.amountDueMinor).toBe(14000)
-  expect(tracking?.payment.totalDueMinor).toBe(14000)
+  expect(tracking?.order.amountDueMinor).toBe(11000)
+  expect(tracking?.payment.totalDueMinor).toBe(11000)
   expect(tracking?.payment.totalPaidMinor).toBe(5000)
-  expect(tracking?.payment.remainingMinor).toBe(9000)
+  expect(tracking?.payment.remainingMinor).toBe(6000)
   expect(tracking?.payment.overpaymentDeltaMinor).toBe(0)
   expect(tracking?.payment.paymentStatus).toBe("partial")
   // The flexible link stays amount 0 — canonical due drives balance, not the
@@ -475,9 +443,9 @@ test("one canonical amount-due and per-attendee breakdown across every consumer"
   const repRow = reconciliation.find(
     (row) => row.orderId === order.orderId
   )
-  expect(repRow?.amountDueMinor).toBe(14000)
+  expect(repRow?.amountDueMinor).toBe(11000)
   expect(repRow?.matchedAmountMinor).toBe(5000)
-  expect(repRow?.outstandingAmountMinor).toBe(9000)
+  expect(repRow?.outstandingAmountMinor).toBe(6000)
 
   // 5. Order ledger (filters + totals): same totals authority.
   const ledger = await t.query(api.orders.getOrdersWithFilters, {
@@ -485,22 +453,22 @@ test("one canonical amount-due and per-attendee breakdown across every consumer"
     page: 1,
     pageSize: 100,
   })
-  expect(ledger.totals.amountDueMinor).toBe(14000)
+  expect(ledger.totals.amountDueMinor).toBe(11000)
   expect(ledger.totals.matchedAmountMinor).toBe(5000)
-  expect(ledger.totals.outstandingAmountMinor).toBe(9000)
+  expect(ledger.totals.outstandingAmountMinor).toBe(6000)
   const ledgerRow = ledger.orders.find(
     (row) => row.orderId === order.orderId
   )
-  expect(ledgerRow?.amountDueMinor).toBe(14000)
-  expect(ledgerRow?.outstandingAmountMinor).toBe(9000)
+  expect(ledgerRow?.amountDueMinor).toBe(11000)
+  expect(ledgerRow?.outstandingAmountMinor).toBe(6000)
 
   // 6. Payment summary: order total is canonical due, not provider total.
   const paymentSummary = await t.query(api.payments.getPaymentSummary, {
     orderId: order.orderId,
   })
-  expect(paymentSummary.orderTotal).toBe(14000)
+  expect(paymentSummary.orderTotal).toBe(11000)
   expect(paymentSummary.totalPaid).toBe(5000)
-  expect(paymentSummary.remaining).toBe(9000)
+  expect(paymentSummary.remaining).toBe(6000)
 
   // 7. Attendee detail: per-attendee canonical due inside the order total.
   const attendees = (await t.query(api.attendees.getAttendeesWithTickets, {
@@ -508,18 +476,18 @@ test("one canonical amount-due and per-attendee breakdown across every consumer"
   })) as AttendeeDetailRow[]
   const attendeeA = attendees.find((a) => a._id === order.attendeeAId)
   const attendeeB = attendees.find((a) => a._id === order.attendeeBId)
-  expect(attendeeA?.amountDueMinor).toBe(6000)
-  expect(attendeeA?.orderAmountDueMinor).toBe(14000)
+  expect(attendeeA?.amountDueMinor).toBe(3000)
+  expect(attendeeA?.orderAmountDueMinor).toBe(11000)
   expect(attendeeB?.amountDueMinor).toBe(8000)
-  expect(attendeeB?.orderAmountDueMinor).toBe(14000)
+  expect(attendeeB?.orderAmountDueMinor).toBe(11000)
 
   // 8. Revenue/reporting share: aggregate totals equal the canonical order.
   const fullReport = await t.query(api.reports.getFullReportByToken, {
     token: "report-rep01",
   })
-  expect(fullReport?.aggregate?.totals.amountDueMinor).toBe(14000)
+  expect(fullReport?.aggregate?.totals.amountDueMinor).toBe(11000)
   expect(fullReport?.aggregate?.totals.paidMinor).toBe(5000)
-  expect(fullReport?.aggregate?.totals.outstandingMinor).toBe(9000)
+  expect(fullReport?.aggregate?.totals.outstandingMinor).toBe(6000)
   expect(fullReport?.aggregate?.totals.overpaidMinor).toBe(0)
 
   // 9. Allocation board inputs: tri-state paid projection from canonical due.
@@ -536,19 +504,19 @@ test("one canonical amount-due and per-attendee breakdown across every consumer"
     (row) => row.attendeeId === order.attendeeBId
   )
   expect(unassignedA?.paymentState).toBe("partial")
-  expect(unassignedA?.amountDueMinor).toBe(6000)
-  // 5000 paid split by due weight: A gets 2143, B gets 2857.
-  expect(unassignedA?.paidAmountMinor).toBe(2143)
+  expect(unassignedA?.amountDueMinor).toBe(3000)
+  // 5000 paid split by due weight: A gets 1364, B gets 3636.
+  expect(unassignedA?.paidAmountMinor).toBe(1364)
   expect(unassignedB?.paymentState).toBe("partial")
   expect(unassignedB?.amountDueMinor).toBe(8000)
-  expect(unassignedB?.paidAmountMinor).toBe(2857)
+  expect(unassignedB?.paidAmountMinor).toBe(3636)
 
   // 10. Internal sync projection: amount-due authority for provider sync.
   const paidOrders = (await t.query(internal.sync.internalGetPaidOrders, {})) as SyncPaidOrderRow[]
   const syncRow = paidOrders.find(
     (row) => row._id === order.orderId
   )
-  expect(syncRow?.amountDueMinor).toBe(14000)
+  expect(syncRow?.amountDueMinor).toBe(11000)
 })
 
 // ---------------------------------------------------------------------------
@@ -583,7 +551,7 @@ test("stored provider total, paid total, and flexible link amount stay distinct 
   })
 
   const breakdown = await loadOrderAmountDue(t, order.orderId)
-  expect(breakdown?.amountDueMinor).toBe(14000)
+  expect(breakdown?.amountDueMinor).toBe(11000)
 
   const tracking = await t.query(api.publicTracking.getByBookingRef, {
     bookingRef: "BK-45-REP02",
@@ -591,8 +559,8 @@ test("stored provider total, paid total, and flexible link amount stay distinct 
   // order.totalAmountMinor is exposed verbatim as the stored provider total…
   expect(tracking?.order.totalAmountMinor).toBe(4000)
   // …while canonical due (amountDueMinor/totalDueMinor) is the loader result.
-  expect(tracking?.order.amountDueMinor).toBe(14000)
-  expect(tracking?.payment.totalDueMinor).toBe(14000)
+  expect(tracking?.order.amountDueMinor).toBe(11000)
+  expect(tracking?.payment.totalDueMinor).toBe(11000)
   expect(tracking?.payment.totalPaidMinor).toBe(5000)
 
   // The link amount is the flexible installment amount, never derived from due.
@@ -648,9 +616,7 @@ test("unconfirmed order re-prices live, confirmed order stays fixed, flexible li
       attendeeId: liveAttendeeId as never,
       categoryId: seed.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
+      
       nightCount: 2,
     })
   })
@@ -666,15 +632,12 @@ test("unconfirmed order re-prices live, confirmed order stays fixed, flexible li
       attendeeId: "conf-a",
       categoryCode: "standard",
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
+      
       nightCount: 2,
     },
     pricing: {
       baseRatePerNightMinor: 3000,
-      superiorUpgradePriceMinor: 1500,
-      cotPriceMinor: 500,
+      options: [],
       ticketAccommodationIncluded: false,
       eventBaseNights: 2,
     },
@@ -712,9 +675,7 @@ test("unconfirmed order re-prices live, confirmed order stays fixed, flexible li
       attendeeId: confirmedAttendeeId as never,
       categoryId: seed.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
+      
       nightCount: 2,
       confirmedAt: BASE_EVENT_AT,
       configVersion: BASE_EVENT_AT,
@@ -866,9 +827,7 @@ test("legacy no-selection and missing-config orders retain safe ticket-only beha
       attendeeId: noConfigAttendeeId as never,
       categoryId: seed.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
+      
       nightCount: 2,
     })
   })
@@ -879,15 +838,12 @@ test("legacy no-selection and missing-config orders retain safe ticket-only beha
       attendeeId: "noconfig-conf",
       categoryCode: "standard",
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
+      
       nightCount: 2,
     },
     pricing: {
       baseRatePerNightMinor: 3000,
-      superiorUpgradePriceMinor: 1500,
-      cotPriceMinor: 500,
+      options: [],
       ticketAccommodationIncluded: false,
       eventBaseNights: 2,
     },
@@ -925,9 +881,7 @@ test("legacy no-selection and missing-config orders retain safe ticket-only beha
       attendeeId: confirmedAttendeeId as never,
       categoryId: seed.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
+      
       nightCount: 2,
       confirmedAt: BASE_EVENT_AT,
       configVersion: BASE_EVENT_AT,
@@ -1033,9 +987,7 @@ test("paid-state classification and auto-match use canonical due as authority", 
         attendeeId: attendeeId as never,
         categoryId: seed.categoryStandardId as never,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        
         nightCount: 2,
       })
     })

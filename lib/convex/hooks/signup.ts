@@ -20,25 +20,19 @@ export type PublicSignupQuoteAttendeeArg = {
   ticketTypeId: string
   categoryId?: string
   occupancy?: "single" | "shared" | "family"
-  upgradeSelected?: boolean
-  cotSelected?: boolean
-  ageBandCode?: string
+  optionSelections?: Array<{
+    optionKey: string
+    quantity: number
+    nights: number
+  }>
 }
 
-const signupAgeBandCodeValues = [
-  "under_3",
-  "3_11",
-  "12_17",
-  "18_plus",
-] as const
-
-export type PublicSignupQuoteAgeBandCode =
-  (typeof signupAgeBandCodeValues)[number]
-
 export type PublicSignupQuoteLine = {
-  kind: "accommodation" | "superior_upgrade" | "cot"
+  kind: "accommodation" | "option"
+  optionKey?: string
   label: string
   nights: number
+  quantity?: number
   ratePerNightMinor: number
   chargeMinor: number
 }
@@ -59,9 +53,6 @@ export type PublicSignupAccommodationQuote = {
     categoryCode?: string
     categoryLabel?: string
     occupancy?: "single" | "shared" | "family"
-    upgradeSelected: boolean
-    cotSelected: boolean
-    ageBandCode?: string
     accommodationTotalMinor: number
     amountDueMinor: number
     lines: PublicSignupQuoteLine[]
@@ -106,13 +97,7 @@ export function usePublicSignupAccommodationQuote(
                   }
                 : {}),
               ...(attendee.occupancy ? { occupancy: attendee.occupancy } : {}),
-              upgradeSelected: attendee.upgradeSelected ?? false,
-              cotSelected: attendee.cotSelected ?? false,
-              ...(attendee.ageBandCode
-                ? {
-                    ageBandCode: attendee.ageBandCode as PublicSignupQuoteAgeBandCode,
-                  }
-                : {}),
+              optionSelections: attendee.optionSelections ?? [],
             })
           ),
         },

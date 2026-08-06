@@ -63,37 +63,12 @@ async function createConfiguredEvent(
       sortOrder: 2,
     })
   })
-  const upgradeOptionId = await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationOptions", {
-      code: "superior_upgrade",
-      label: "Superior Upgrade",
-      kind: "upgrade",
-      unit: "per_night",
-    })
-  })
   const cotOptionId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("accommodationOptions", {
       code: "cot",
       label: "Cot",
       kind: "addon",
       unit: "per_night",
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationAgeBands", {
-      code: "under_3",
-      label: "Under 3",
-      minAge: 0,
-      maxAge: 3,
-      sortOrder: 1,
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationAgeBands", {
-      code: "18_plus",
-      label: "18 and over",
-      minAge: 18,
-      sortOrder: 4,
     })
   })
 
@@ -123,31 +98,12 @@ async function createConfiguredEvent(
     occupancy: "shared",
     pricePerPersonMinor: 4500,
   })
-  // Options: superior upgrade €15/night, cot €5/night with under_3 eligibility.
-  await t.mutation(api.accommodation.upsertEventAccommodationOption, {
-    eventId,
-    optionId: upgradeOptionId,
-    enabled: true,
-    priceMinor: 1500,
-  })
+  // Options: cot €5/unit/night (no age-band eligibility).
   await t.mutation(api.accommodation.upsertEventAccommodationOption, {
     eventId,
     optionId: cotOptionId,
     enabled: true,
     priceMinor: 500,
-    eligibilityAgeBandCode: "under_3",
-  })
-  await t.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
-    eventId,
-    ageBandCode: "18_plus",
-    rateType: "full",
-    value: 0,
-  })
-  await t.mutation(api.accommodation.upsertEventAccommodationAgePricing, {
-    eventId,
-    ageBandCode: "under_3",
-    rateType: "free",
-    value: 0,
   })
 
   const constrainedRoomTypeId = await t.mutation(async (ctx) => {
@@ -221,15 +177,7 @@ test("public catalog exposes event-configured accommodation choices and ticket e
 
   expect(event?.accommodation.options).toEqual(
     expect.arrayContaining([
-      { optionCode: "superior_upgrade", label: "Superior Upgrade", priceMinor: 1500, eligibilityAgeBandCode: null },
-      { optionCode: "cot", label: "Cot", priceMinor: 500, eligibilityAgeBandCode: "under_3" },
-    ])
-  )
-
-  expect(event?.accommodation.ageBands).toEqual(
-    expect.arrayContaining([
-      { code: "under_3", label: "Under 3", minAge: 0, maxAge: 3 },
-      { code: "18_plus", label: "18 and over", minAge: 18, maxAge: null },
+      { optionKey: "cot", label: "Cot", priceMinor: 500 },
     ])
   )
 
@@ -258,9 +206,7 @@ test("quote returns canonical ticket and accommodation lines and totals", async 
         ticketTypeId: seed.unconstrainedTicketId,
         categoryId: seed.categoryStandardId,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
     ],
   })
@@ -308,9 +254,7 @@ test("quote rejects a ticket/category mismatch and accepts the constrained categ
           ticketTypeId: seed.constrainedTicketId,
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     }
@@ -328,9 +272,7 @@ test("quote rejects a ticket/category mismatch and accepts the constrained categ
           ticketTypeId: seed.constrainedTicketId,
           categoryId: seed.categorySuperiorId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     }
@@ -339,11 +281,11 @@ test("quote rejects a ticket/category mismatch and accepts the constrained categ
   expect(accepted.accommodationTotalMinor).toBe(9000) // 2 × €45
 })
 
-test("quote enforces the event-configured cot eligibility age band", async () => {
+test("quote rejects an unknown accommodation option and prices a selected option", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await createConfiguredEvent(t)
 
-  const ineligible = t.query(
+  const unknownOption = t.query(
     api.signupCatalog.getPublicSignupAccommodationQuote,
     {
       eventId: seed.eventId,
@@ -353,15 +295,15 @@ test("quote enforces the event-configured cot eligibility age band", async () =>
           ticketTypeId: seed.unconstrainedTicketId,
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: true,
-          ageBandCode: "18_plus",
+          optionSelections: [
+            { optionKey: "does_not_exist", quantity: 1, nights: 2 },
+          ],
         },
       ],
     }
   )
-  await expect(ineligible).rejects.toThrow("QUOTE_INVALID")
-  await expect(ineligible).rejects.toThrow("age band")
+  await expect(unknownOption).rejects.toThrow("QUOTE_INVALID")
+  await expect(unknownOption).rejects.toThrow("not enabled")
 
   const eligible = await t.query(
     api.signupCatalog.getPublicSignupAccommodationQuote,
@@ -373,9 +315,7 @@ test("quote enforces the event-configured cot eligibility age band", async () =>
           ticketTypeId: seed.unconstrainedTicketId,
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: true,
-          ageBandCode: "under_3",
+          optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
         },
       ],
     }
@@ -383,9 +323,11 @@ test("quote enforces the event-configured cot eligibility age band", async () =>
   expect(eligible.attendees[0].lines).toEqual(
     expect.arrayContaining([
       {
-        kind: "cot",
+        kind: "option",
+        optionKey: "cot",
         label: "Cot",
         nights: 2,
+        quantity: 1,
         ratePerNightMinor: 500,
         chargeMinor: 1000,
       },
@@ -407,9 +349,7 @@ test("quote rejects an unconfigured rate/occupancy combination and unknown categ
         ticketTypeId: seed.unconstrainedTicketId,
         categoryId: seed.categoryStandardId,
         occupancy: "family",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
+        optionSelections: [],
       },
     ],
   })
@@ -433,9 +373,7 @@ test("quote rejects an unconfigured rate/occupancy combination and unknown categ
           ticketTypeId: seed.unconstrainedTicketId,
           categoryId: orphanCategoryId as Id<"accommodationCategories">,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     }
@@ -480,8 +418,7 @@ test("quote keeps an unconfigured event at an honest zero accommodation contribu
         {
           attendeeKey: "a1",
           ticketTypeId: ticketId as Id<"ticketTypes">,
-          upgradeSelected: false,
-          cotSelected: false,
+          optionSelections: [],
         },
       ],
     }
@@ -512,8 +449,7 @@ test("quote keeps an unconfigured event at an honest zero accommodation contribu
           ticketTypeId: ticketId as Id<"ticketTypes">,
           categoryId: orphanCategoryId as Id<"accommodationCategories">,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
+          optionSelections: [],
         },
       ],
     })
@@ -574,7 +510,6 @@ test("CR-01: a disabled event with stale config/rate rows exposes no choices and
   expect(event?.accommodation.config).toBeNull()
   expect(event?.accommodation.activeCategories).toEqual([])
   expect(event?.accommodation.options).toEqual([])
-  expect(event?.accommodation.ageBands).toEqual([])
   expect(event?.accommodation.eligible).toBe(false)
 
   // Quote: a supplied preference is rejected even though stale rows exist.
@@ -587,8 +522,7 @@ test("CR-01: a disabled event with stale config/rate rows exposes no choices and
           ticketTypeId: ticketId as Id<"ticketTypes">,
           categoryId: categoryId as Id<"accommodationCategories">,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
+          optionSelections: [],
         },
       ],
     })
@@ -603,8 +537,7 @@ test("CR-01: a disabled event with stale config/rate rows exposes no choices and
         {
           attendeeKey: "a1",
           ticketTypeId: ticketId as Id<"ticketTypes">,
-          upgradeSelected: false,
-          cotSelected: false,
+          optionSelections: [],
         },
       ],
     }
@@ -664,9 +597,7 @@ test("CR-02: a dangling constrained room type fails closed instead of becoming u
           ticketTypeId: danglingTicketId as Id<"ticketTypes">,
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     })
@@ -680,9 +611,7 @@ test("CR-02: a dangling constrained room type fails closed instead of becoming u
           ticketTypeId: danglingTicketId as Id<"ticketTypes">,
           categoryId: seed.categorySuperiorId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     })
@@ -728,9 +657,7 @@ test("CR-08: a ticket at maxQuantity is not advertised as selectable and cannot 
           ticketTypeId: soldOutTicketId as Id<"ticketTypes">,
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     })
@@ -768,9 +695,7 @@ test("CR-10: a quote with two attendees sharing one ticket with one remaining pl
           ticketTypeId: nearlyFullTicketId as Id<"ticketTypes">,
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     }
@@ -789,18 +714,14 @@ test("CR-10: a quote with two attendees sharing one ticket with one remaining pl
           ticketTypeId: nearlyFullTicketId as Id<"ticketTypes">,
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
         {
           attendeeKey: "a2",
           ticketTypeId: nearlyFullTicketId as Id<"ticketTypes">,
           categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          upgradeSelected: false,
-          cotSelected: false,
-          ageBandCode: "18_plus",
+          optionSelections: [],
         },
       ],
     })

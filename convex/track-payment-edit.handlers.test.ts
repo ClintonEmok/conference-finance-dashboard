@@ -74,37 +74,12 @@ async function createConfiguredEvent(
       sortOrder: 2,
     })
   })
-  const upgradeOptionId = await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationOptions", {
-      code: "superior_upgrade",
-      label: "Superior Upgrade",
-      kind: "upgrade",
-      unit: "per_night",
-    })
-  })
   const cotOptionId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("accommodationOptions", {
       code: "cot",
       label: "Cot",
       kind: "addon",
       unit: "per_night",
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationAgeBands", {
-      code: "under_3",
-      label: "Under 3",
-      minAge: 0,
-      maxAge: 3,
-      sortOrder: 1,
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationAgeBands", {
-      code: "18_plus",
-      label: "18 and over",
-      minAge: 18,
-      sortOrder: 4,
     })
   })
 
@@ -141,35 +116,11 @@ async function createConfiguredEvent(
   await t.mutation(async (ctx) => {
     return await ctx.db.insert("eventAccommodationOptions", {
       eventId: eventId as never,
-      optionId: upgradeOptionId as never,
-      enabled: true,
-      priceMinor: 1500,
-    })
-  })
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("eventAccommodationOptions", {
-      eventId: eventId as never,
       optionId: cotOptionId as never,
       enabled: true,
       priceMinor: 500,
-      eligibilityAgeBandCode: "under_3" as never,
     })
   })
-
-  for (const agePricing of [
-    { ageBandCode: "18_plus", rateType: "full", value: 0, sortOrder: 1 },
-    { ageBandCode: "under_3", rateType: "free", value: 0, sortOrder: 2 },
-  ]) {
-    await t.mutation(async (ctx) => {
-      return await ctx.db.insert("eventAccommodationAgePricing", {
-        eventId: eventId as never,
-        ageBandCode: agePricing.ageBandCode as never,
-        rateType: agePricing.rateType as "free" | "full" | "percent" | "flat",
-        value: agePricing.value,
-        sortOrder: agePricing.sortOrder,
-      })
-    })
-  }
 
   const constrainedRoomTypeId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("accommodationRoomTypes", {
@@ -294,15 +245,9 @@ async function createOrderWithSelections(
   const priceSnapshot = input.confirmed
     ? {
         baseRatePerNightMinor: 3000,
-        upgradeRatePerNightMinor: 1500,
-        cotRatePerNightMinor: 500,
         totalNights: 2,
         coveredNights: 0,
-        categoryIsSuperior: false,
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus",
-        cotEligibilityAgeBandCode: null,
+        optionLines: [],
       }
     : undefined
 
@@ -316,9 +261,6 @@ async function createOrderWithSelections(
         attendeeId: attendeeId as never,
         categoryId: categoryId as never,
         occupancy: occupancy as "single" | "shared" | "family",
-        upgradeSelected: false,
-        cotSelected: false,
-        ageBandCode: "18_plus" as never,
         checkInAt: BASE_EVENT_AT - 2 * DAY_MS,
         checkOutAt: BASE_EVENT_AT,
         nightCount: 2,
@@ -373,30 +315,30 @@ async function createOrderWithSelections(
   }
 }
 
-type EditAgeBandCode = "under_3" | "3_11" | "12_17" | "18_plus"
-
 function replacement(input: {
   attendeeKey: string
   categoryId: Id<"accommodationCategories">
   occupancy: "single" | "shared" | "family"
-  upgradeSelected?: boolean
-  cotSelected?: boolean
-  ageBandCode?: EditAgeBandCode | null
+  optionSelections?: Array<{
+    optionKey: string
+    quantity: number
+    nights: number
+  }>
 }): {
   attendeeKey: string
   categoryId: Id<"accommodationCategories">
   occupancy: "single" | "shared" | "family"
-  upgradeSelected: boolean
-  cotSelected: boolean
-  ageBandCode?: EditAgeBandCode
+  optionSelections: Array<{
+    optionKey: string
+    quantity: number
+    nights: number
+  }>
 } {
   return {
     attendeeKey: input.attendeeKey,
     categoryId: input.categoryId,
     occupancy: input.occupancy,
-    upgradeSelected: input.upgradeSelected ?? false,
-    cotSelected: input.cotSelected ?? false,
-    ageBandCode: input.ageBandCode ?? undefined,
+    optionSelections: input.optionSelections ?? [],
   }
 }
 
@@ -477,13 +419,9 @@ test("edit-context projection returns bounded selections, choices, and lock stat
     occupancy: "shared",
     pricePerPersonMinor: 3000,
   })
-  expect(context?.accommodation.options.map((o) => o.optionCode).sort()).toEqual(
-    ["cot", "superior_upgrade"]
+  expect(context?.accommodation.options.map((o) => o.optionKey).sort()).toEqual(
+    ["cot"]
   )
-  expect(context?.accommodation.ageBands.map((b) => b.code).sort()).toEqual([
-    "18_plus",
-    "under_3",
-  ])
   expect(context?.accommodation.config?.nightCount).toBe(2)
 
   // No raw credential is ever returned by a public query.
@@ -529,13 +467,13 @@ test("email ownership succeeds and returns an applied result with canonical re-p
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -578,13 +516,13 @@ test("HMAC edit token ownership succeeds without email", async () => {
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -631,13 +569,13 @@ test("unsigned and mis-signed direct calls are rejected before any write", async
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -663,13 +601,13 @@ test("unsigned and mis-signed direct calls are rejected before any write", async
         attendeeKey: "a-1",
         categoryId: seed.categoryStandardId,
         occupancy: "single",
-        ageBandCode: "18_plus",
+        
       }),
       replacement({
         attendeeKey: "a-2",
         categoryId: seed.categorySuperiorId,
         occupancy: "shared",
-        ageBandCode: "18_plus",
+        
       }),
     ],
   })
@@ -704,13 +642,13 @@ test("wrong ownership fails without leaking editability and without writes", asy
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const keyOne = uniqueIdempotencyKey()
@@ -763,13 +701,13 @@ test("client price, stay, room, slot and snapshot fields are rejected at the mut
       attendeeKey: "a-1",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const keyOne = uniqueIdempotencyKey()
@@ -839,13 +777,13 @@ test("stale and cross-event choices are rejected before writes", async () => {
       attendeeKey: "a-1",
       categoryId: otherEvent.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const keyOne = uniqueIdempotencyKey()
@@ -865,20 +803,20 @@ test("stale and cross-event choices are rejected before writes", async () => {
     })
   ).rejects.toThrow("EDIT_INVALID")
 
-  // An invalid age/cot combination fails the shared resolver.
+  // An unknown option key fails the shared resolver.
   const invalidCotSelections = [
     replacement({
       attendeeKey: "a-1",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
-      cotSelected: true,
+      optionSelections: [
+        { optionKey: "does_not_exist", quantity: 1, nights: 2 },
+      ],
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
     }),
   ]
   const keyTwo = uniqueIdempotencyKey()
@@ -904,13 +842,13 @@ test("stale and cross-event choices are rejected before writes", async () => {
       attendeeKey: "a-1",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const keyThree = uniqueIdempotencyKey()
@@ -936,7 +874,7 @@ test("stale and cross-event choices are rejected before writes", async () => {
       attendeeKey: "a-1",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const keyFour = uniqueIdempotencyKey()
@@ -976,13 +914,13 @@ test("confirmed orders reject edits atomically", async () => {
       attendeeKey: "a-1",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -1050,14 +988,12 @@ test("applied edits persist server-resolved preferences and stay fields and leav
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
-      upgradeSelected: true,
+      optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -1077,9 +1013,8 @@ test("applied edits persist server-resolved preferences and stay fields and leav
   })
 
   expect(result.status).toBe("applied")
-  // a-1: 2000 + 2×4500 = 11000 (superior base; upgrade flag is redundant for
-  // the superior category so no separate upgrade line); a-2: 11500 → 22500.
-  expect(result.amountDueMinor).toBe(22500)
+  // a-1: 2000 + 2×4500 (superior) + cot 2×500 = 12000; a-2: 11500 → 23500.
+  expect(result.amountDueMinor).toBe(23500)
 
   // The persisted selection rows carry the server-resolved stay fields.
   const rows = await t.query(async (ctx) => {
@@ -1153,13 +1088,13 @@ test("an identical replacement is a true no-op with no audit row", async () => {
       attendeeKey: "a-1",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -1202,13 +1137,13 @@ test("an already-used idempotency key replays its stored result without duplicat
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -1272,9 +1207,6 @@ test("an already-used idempotency key replays its stored result without duplicat
         attendeeId: String(row.attendeeId),
         categoryId: row.categoryId ? String(row.categoryId) : null,
         occupancy: row.occupancy ?? null,
-        upgradeSelected: row.upgradeSelected,
-        cotSelected: row.cotSelected,
-        ageBandCode: row.ageBandCode ?? null,
         nightCount: row.nightCount ?? null,
         confirmedAt: row.confirmedAt ?? null,
         priceSnapshot: row.priceSnapshot ?? null,
@@ -1292,9 +1224,6 @@ test("an already-used idempotency key replays its stored result without duplicat
   expect(persistedOne).toMatchObject({
     categoryId: String(seed.categorySuperiorId),
     occupancy: "shared",
-    upgradeSelected: false,
-    cotSelected: false,
-    ageBandCode: "18_plus",
     nightCount: 2,
     confirmedAt: null,
     priceSnapshot: null,
@@ -1302,9 +1231,6 @@ test("an already-used idempotency key replays its stored result without duplicat
   expect(persistedTwo).toMatchObject({
     categoryId: String(seed.categorySuperiorId),
     occupancy: "shared",
-    upgradeSelected: false,
-    cotSelected: false,
-    ageBandCode: "18_plus",
     nightCount: 2,
     confirmedAt: null,
     priceSnapshot: null,
@@ -1321,13 +1247,13 @@ test("a replay returns the originally stored money result even when a payment is
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -1405,13 +1331,13 @@ test("distinct applied edits produce distinct append-only server-valued audit ro
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const keyOne = uniqueIdempotencyKey()
@@ -1434,13 +1360,13 @@ test("distinct applied edits produce distinct append-only server-valued audit ro
       attendeeKey: "a-1",
       categoryId: seed.categoryStandardId,
       occupancy: "single",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const keyTwo = uniqueIdempotencyKey()
@@ -1501,13 +1427,13 @@ test("a downward re-price returns the server-computed overpayment while the flex
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const upKey = uniqueIdempotencyKey()
@@ -1531,13 +1457,13 @@ test("a downward re-price returns the server-computed overpayment while the flex
       attendeeKey: "a-1",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const downKey = uniqueIdempotencyKey()
@@ -1601,13 +1527,13 @@ test("reusing an idempotency key with a different envelope rejects with EDIT_IDE
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -1632,13 +1558,13 @@ test("reusing an idempotency key with a different envelope rejects with EDIT_IDE
       attendeeKey: "a-1",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const error = await t.mutation(
@@ -1680,13 +1606,13 @@ test("a same-key replay returns the stored result even after the organizer confi
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -1770,13 +1696,13 @@ test("cross-order ownership fails without leaking editability and without writes
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
 
@@ -1846,13 +1772,13 @@ test("a signature is bound to its idempotency key and cannot be replayed under a
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const appliedKey = uniqueIdempotencyKey()
@@ -1907,13 +1833,13 @@ test("a duplicate attendee key in the replacement is rejected before writes", as
       attendeeKey: "a-1",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-1",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -1965,13 +1891,13 @@ test("a ticket whose room-type entitlement is broken rejects the edit before wri
       attendeeKey: "a-1",
       categoryId: seed.categoryStandardId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
     replacement({
       attendeeKey: "a-2",
       categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      ageBandCode: "18_plus",
+      
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()

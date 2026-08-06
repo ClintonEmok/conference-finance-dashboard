@@ -3,7 +3,6 @@ import { convexMutation } from "@/lib/convex/server"
 import type { Id } from "@/convex/_generated/dataModel"
 import type {
   SignupAccommodationOccupancy,
-  SignupAgeBandCode,
   SignupGender,
   SignupSource,
   SignupSubmissionEnvelope,
@@ -100,15 +99,6 @@ function isSignupAccommodationOccupancy(
   value: string
 ): value is SignupAccommodationOccupancy {
   return value === "single" || value === "shared" || value === "family"
-}
-
-function isSignupAgeBandCode(value: string): boolean {
-  return (
-    value === "under_3" ||
-    value === "3_11" ||
-    value === "12_17" ||
-    value === "18_plus"
-  )
 }
 
 function normalizeEnvelope(
@@ -244,29 +234,49 @@ function normalizeEnvelope(
         )
       }
 
-      const ageBandCode = normalizeOptionalString(preference.ageBandCode)
-      if (ageBandCode !== undefined && !isSignupAgeBandCode(ageBandCode)) {
-        throw new SignupSubmissionValidationError(
-          `Invalid 'accommodationSelections[${index}].ageBandCode'.`
+      // Data-driven option selections: each entry carries the event option
+      // key plus a quantity and nights. Prices/eligibility are never accepted
+      // here — they are resolved server-side against the event configuration.
+      const optionSelectionsRaw = toArray(
+        preference.optionSelections ?? [],
+        `accommodationSelections[${index}].optionSelections`
+      )
+      const seenOptionKeys = new Set<string>()
+      const optionSelections = optionSelectionsRaw.map((optionValue, optionIndex) => {
+        const option = toObject(
+          optionValue,
+          `accommodationSelections[${index}].optionSelections[${optionIndex}]`
         )
-      }
+        const optionKey = normalizeRequiredString(
+          option.optionKey,
+          `accommodationSelections[${index}].optionSelections[${optionIndex}].optionKey`
+        )
+        if (seenOptionKeys.has(optionKey)) {
+          throw new SignupSubmissionValidationError(
+            `Invalid 'accommodationSelections[${index}].optionSelections[${optionIndex}].optionKey'. Duplicate option '${optionKey}'.`
+          )
+        }
+        seenOptionKeys.add(optionKey)
 
-      // Option decisions are user-supplied booleans: strict type checks
-      // preserve the exact options-only payload contract (WR-06). Coercing
-      // with Boolean() turned the string "false" into true and could
-      // unexpectedly enable a chargeable option.
-      const upgradeSelected = preference.upgradeSelected
-      if (typeof upgradeSelected !== "boolean") {
-        throw new SignupSubmissionValidationError(
-          `Invalid 'accommodationSelections[${index}].upgradeSelected'. Expected a boolean.`
-        )
-      }
-      const cotSelected = preference.cotSelected
-      if (typeof cotSelected !== "boolean") {
-        throw new SignupSubmissionValidationError(
-          `Invalid 'accommodationSelections[${index}].cotSelected'. Expected a boolean.`
-        )
-      }
+        const quantity = Number(option.quantity)
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          throw new SignupSubmissionValidationError(
+            `Invalid 'accommodationSelections[${index}].optionSelections[${optionIndex}].quantity'. Expected a positive number.`
+          )
+        }
+        const nights = Number(option.nights)
+        if (!Number.isFinite(nights) || nights <= 0) {
+          throw new SignupSubmissionValidationError(
+            `Invalid 'accommodationSelections[${index}].optionSelections[${optionIndex}].nights'. Expected a positive number.`
+          )
+        }
+
+        return {
+          optionKey,
+          quantity: Math.floor(quantity),
+          nights: Math.floor(nights),
+        }
+      })
 
       return {
         attendeeKey: normalizeRequiredString(
@@ -278,9 +288,7 @@ function normalizeEnvelope(
           `accommodationSelections[${index}].categoryId`
         ),
         occupancy: occupancy as SignupAccommodationOccupancy,
-        upgradeSelected,
-        cotSelected,
-        ageBandCode: ageBandCode as SignupAgeBandCode | undefined,
+        optionSelections,
       }
     }
   )
@@ -377,9 +385,7 @@ export async function submitSignup(
           attendeeKey: preference.attendeeKey,
           categoryId: preference.categoryId as Id<"accommodationCategories">,
           occupancy: preference.occupancy,
-          upgradeSelected: preference.upgradeSelected,
-          cotSelected: preference.cotSelected,
-          ageBandCode: preference.ageBandCode,
+          optionSelections: preference.optionSelections,
         })
       ),
     }
@@ -417,9 +423,7 @@ export async function submitSignup(
               attendeeKey: preference.attendeeKey,
               categoryId: String(preference.categoryId),
               occupancy: preference.occupancy,
-              upgradeSelected: preference.upgradeSelected,
-              cotSelected: preference.cotSelected,
-              ageBandCode: preference.ageBandCode,
+              optionSelections: preference.optionSelections,
             }))
             .filter(
               (preference): preference is NonNullable<typeof preference> =>

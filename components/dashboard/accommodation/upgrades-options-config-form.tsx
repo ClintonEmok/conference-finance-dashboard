@@ -14,21 +14,11 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { formatMoney } from "@/lib/format"
 import { fromDateInputValue, toDateInputValue } from "@/lib/dashboard/accommodation-dates"
 import type { Id } from "@/convex/_generated/dataModel"
 import {
-  useUpsertEventAccommodationAgePricing,
   useUpsertEventAccommodationConfig,
   useUpsertEventAccommodationOption,
   useUpsertEventAccommodationRate,
@@ -61,7 +51,6 @@ type ConfigOption = {
   optionId: Id<"accommodationOptions">
   enabled: boolean
   priceMinor: number
-  eligibilityAgeBandCode: string | null
   optionCode: string | null
   optionLabel: string | null
   kind: string | null
@@ -75,14 +64,6 @@ type ConfigResource = {
   count: number
   roomTypeLabel: string | null
   sellableBeds: number
-}
-
-type ConfigAgePricing = {
-  _id: Id<"eventAccommodationAgePricing">
-  ageBandCode: "under_3" | "3_11" | "12_17" | "18_plus"
-  rateType: "free" | "full" | "percent" | "flat"
-  value: number
-  sortOrder: number
 }
 
 type CatalogOption = {
@@ -123,34 +104,16 @@ type EventConfigResponse = {
   rates: ConfigRate[]
   options: ConfigOption[]
   resources: ConfigResource[]
-  agePricing: ConfigAgePricing[]
   catalogCategories: ConfigCategory[]
   catalogOptions: CatalogOption[]
   catalogRoomTypes: CatalogRoomType[]
 }
-
-type CatalogAgeBand = {
-  _id: Id<"accommodationAgeBands">
-  code: string
-  label: string
-  minAge: number
-  maxAge?: number
-}
-
-type AgeBandCode = "under_3" | "3_11" | "12_17" | "18_plus"
 
 const OCCUPANCIES = [
   { value: "single", label: "Single" },
   { value: "shared", label: "Shared" },
   { value: "family", label: "Family" },
 ] as const
-
-const RATE_TYPES: Array<{ value: ConfigAgePricing["rateType"]; label: string }> = [
-  { value: "free", label: "Free" },
-  { value: "full", label: "Full price" },
-  { value: "percent", label: "Percent of rate" },
-  { value: "flat", label: "Flat minor units" },
-]
 
 function Feedback({
   error,
@@ -183,18 +146,15 @@ function Feedback({
 export function UpgradesOptionsConfigForm({
   eventId,
   config,
-  catalogAgeBands = [],
 }: {
   eventId: Id<"events">
   config: EventConfigResponse
-  catalogAgeBands?: CatalogAgeBand[]
 }) {
   return (
     <div className="min-w-0 space-y-5">
       <StayConfigSection eventId={eventId} config={config} />
       <RateGridSection eventId={eventId} config={config} />
-      <OptionSection eventId={eventId} config={config} catalogAgeBands={catalogAgeBands} />
-      <AgePricingSection eventId={eventId} config={config} catalogAgeBands={catalogAgeBands} />
+      <OptionSection eventId={eventId} config={config} />
       <AvailabilitySection eventId={eventId} config={config} />
     </div>
   )
@@ -588,11 +548,9 @@ function RateGridSection({
 function OptionSection({
   eventId,
   config,
-  catalogAgeBands = [],
 }: {
   eventId: Id<"events">
   config: EventConfigResponse
-  catalogAgeBands?: CatalogAgeBand[]
 }) {
   const upsert = useUpsertEventAccommodationOption()
   const options = config.options ?? []
@@ -607,9 +565,8 @@ function OptionSection({
       <CardHeader>
         <CardTitle>Upgrades &amp; options</CardTitle>
         <CardDescription>
-          Optional per-night add-ons. The superior upgrade moves a buyer to the superior
-          category rate; the cot is available to the age band configured for this event.
-          Explicit €0 prices are preserved.
+          Optional per-unit add-ons shown at signup. Buyers choose how many
+          units and how many nights. Explicit €0 prices are preserved.
         </CardDescription>
       </CardHeader>
       <CardContent className="min-w-0 space-y-4">
@@ -630,7 +587,6 @@ function OptionSection({
                   eventId={eventId}
                   option={configured}
                   upsert={upsert}
-                  catalogAgeBands={catalogAgeBands}
                 />
               ) : (
                 <UnconfiguredOptionCard
@@ -638,7 +594,6 @@ function OptionSection({
                   eventId={eventId}
                   option={catalogOption}
                   upsert={upsert}
-                  catalogAgeBands={catalogAgeBands}
                 />
               )
             })}
@@ -653,32 +608,23 @@ function OptionCard({
   eventId,
   option,
   upsert,
-  catalogAgeBands = [],
 }: {
   eventId: Id<"events">
   option: ConfigOption
   upsert: ReturnType<typeof useUpsertEventAccommodationOption>
-  catalogAgeBands?: CatalogAgeBand[]
 }) {
   const [enabled, setEnabled] = useState(option.enabled)
   const [price, setPrice] = useState(String(option.priceMinor))
-  const [cotBand, setCotBand] = useState<AgeBandCode | "">(
-    (option.eligibilityAgeBandCode ?? "") as AgeBandCode | ""
-  )
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [isPending, setIsPending] = useState(false)
 
-  const isCot = option.optionCode === "cot"
-  const isSuperiorUpgrade = option.optionCode === "superior_upgrade"
-
   useEffect(() => {
     setEnabled(option.enabled)
     setPrice(String(option.priceMinor))
-    setCotBand((option.eligibilityAgeBandCode ?? "") as AgeBandCode | "")
     setError(null)
     setSuccess(null)
-  }, [option._id, option.enabled, option.priceMinor, option.eligibilityAgeBandCode])
+  }, [option._id, option.enabled, option.priceMinor])
 
   const save = async () => {
     setError(null)
@@ -688,10 +634,6 @@ function OptionCard({
       setError("Price must be a whole number of cents (minor units).")
       return
     }
-    if (isCot && !cotBand) {
-      setError("Select an age band the cot applies to.")
-      return
-    }
     setIsPending(true)
     try {
       await upsert({
@@ -699,7 +641,6 @@ function OptionCard({
         optionId: option.optionId,
         enabled,
         priceMinor: value,
-        ...(isCot ? { eligibilityAgeBandCode: cotBand as AgeBandCode } : {}),
       })
       setSuccess(
         `${option.optionLabel ?? "Option"} ${enabled ? "enabled" : "disabled"}.`
@@ -720,14 +661,10 @@ function OptionCard({
           </p>
           <p className="text-xs text-muted-foreground">
             {option.kind === "upgrade"
-              ? "Upgrade · per night"
+              ? "Upgrade · per unit"
               : option.kind === "addon"
-                ? "Add-on · per night"
-                : "Per night"}
-            {isCot &&
-              (option.eligibilityAgeBandCode
-                ? ` · ${option.eligibilityAgeBandCode.replace(/_/g, "-")} only`
-                : " · age band not configured")}
+                ? "Add-on · per unit"
+                : "Per unit"}
           </p>
         </div>
         <Badge variant={enabled ? "secondary" : "outline"}>
@@ -746,9 +683,7 @@ function OptionCard({
       </label>
 
       <div className="min-w-0 space-y-2">
-        <Label htmlFor={`uo-option-${option.optionId}`}>
-          Price per night in cents{isSuperiorUpgrade ? " (per person)" : ""}
-        </Label>
+        <Label htmlFor={`uo-option-${option.optionId}`}>Price per unit in cents</Label>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Input
             id={`uo-option-${option.optionId}`}
@@ -761,39 +696,10 @@ function OptionCard({
             className="w-40 font-mono tabular-nums"
           />
           <span className="text-sm text-muted-foreground">
-            Current: {formatMoney(option.priceMinor)} / night
+            Current: {formatMoney(option.priceMinor)} / unit
           </span>
         </div>
       </div>
-
-      {isCot && (
-        <div className="min-w-0 space-y-2">
-          <Label htmlFor={`uo-cot-band-${option.optionId}`}>
-            Age band the cot applies to
-          </Label>
-          <Select
-            value={cotBand}
-            onValueChange={(value) => setCotBand(value as AgeBandCode)}
-          >
-            <SelectTrigger
-              id={`uo-cot-band-${option.optionId}`}
-              className="w-56"
-            >
-              <SelectValue placeholder="Select an age band" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectLabel>Age bands</SelectLabel>
-                {catalogAgeBands.map((band) => (
-                  <SelectItem key={band._id} value={band.code}>
-                    {band.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </div>
-      )}
 
       <Separator />
       <div className="flex flex-wrap items-center gap-3">
@@ -817,22 +723,16 @@ function UnconfiguredOptionCard({
   eventId,
   option,
   upsert,
-  catalogAgeBands = [],
 }: {
   eventId: Id<"events">
   option: CatalogOption
   upsert: ReturnType<typeof useUpsertEventAccommodationOption>
-  catalogAgeBands?: CatalogAgeBand[]
 }) {
   const [enabled, setEnabled] = useState(false)
   const [price, setPrice] = useState("0")
-  const [cotBand, setCotBand] = useState<AgeBandCode | "">("")
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [isPending, setIsPending] = useState(false)
-
-  const isCot = option.code === "cot"
-  const isSuperiorUpgrade = option.code === "superior_upgrade"
 
   const save = async () => {
     setError(null)
@@ -842,10 +742,6 @@ function UnconfiguredOptionCard({
       setError("Price must be a whole number of cents (minor units).")
       return
     }
-    if (isCot && !cotBand) {
-      setError("Select an age band the cot applies to.")
-      return
-    }
     setIsPending(true)
     try {
       await upsert({
@@ -853,7 +749,6 @@ function UnconfiguredOptionCard({
         optionId: option._id,
         enabled,
         priceMinor: value,
-        ...(isCot ? { eligibilityAgeBandCode: cotBand as AgeBandCode } : {}),
       })
       setSuccess(`${option.label} configured for this event.`)
     } catch (err) {
@@ -875,11 +770,11 @@ function UnconfiguredOptionCard({
           </p>
           <p className="text-xs text-muted-foreground">
             {option.kind === "upgrade"
-              ? "Upgrade · per night"
+              ? "Upgrade · per unit"
               : option.kind === "addon"
-                ? "Add-on · per night"
-                : "Per night"}
-            {isCot && " · age band to be configured"} · not configured for this event yet
+                ? "Add-on · per unit"
+                : "Per unit"}{" "}
+            · not configured for this event yet
           </p>
         </div>
         <Badge variant="outline">Not configured</Badge>
@@ -897,7 +792,7 @@ function UnconfiguredOptionCard({
 
       <div className="min-w-0 space-y-2">
         <Label htmlFor={`uo-new-option-${option._id}`}>
-          Price per night in cents{isSuperiorUpgrade ? " (per person)" : ""}
+          Price per unit in cents
         </Label>
         <Input
           id={`uo-new-option-${option._id}`}
@@ -911,208 +806,11 @@ function UnconfiguredOptionCard({
         />
       </div>
 
-      {isCot && (
-        <div className="min-w-0 space-y-2">
-          <Label htmlFor={`uo-new-cot-band-${option._id}`}>
-            Age band the cot applies to
-          </Label>
-          <Select
-            value={cotBand}
-            onValueChange={(value) => setCotBand(value as AgeBandCode)}
-          >
-            <SelectTrigger id={`uo-new-cot-band-${option._id}`} className="w-56">
-              <SelectValue placeholder="Select an age band" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectLabel>Age bands</SelectLabel>
-                {catalogAgeBands.map((band) => (
-                  <SelectItem key={band._id} value={band.code}>
-                    {band.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
       <Separator />
       <div className="flex flex-wrap items-center gap-3">
         <Button type="button" size="sm" onClick={save} disabled={isPending}>
           {isPending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
           Configure for this event
-        </Button>
-        <Feedback error={error} success={success} />
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Age-band pricing
-// ---------------------------------------------------------------------------
-
-function AgePricingSection({
-  eventId,
-  config,
-  catalogAgeBands,
-}: {
-  eventId: Id<"events">
-  config: EventConfigResponse
-  catalogAgeBands: CatalogAgeBand[]
-}) {
-  const agePricing = useMemo(() => config.agePricing ?? [], [config.agePricing])
-  const bandLabelByCode = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const band of catalogAgeBands) {
-      map.set(band.code, band.label)
-    }
-    for (const row of agePricing) {
-      if (!map.has(row.ageBandCode)) {
-        map.set(row.ageBandCode, row.ageBandCode)
-      }
-    }
-    return map
-  }, [catalogAgeBands, agePricing])
-
-  return (
-    <Card className="border-border/60 bg-card shadow-none">
-      <CardHeader>
-        <CardTitle>Age-band pricing</CardTitle>
-        <CardDescription>
-          Optional per-age-band pricing rules. Rules may be left empty and seeded later;
-          breakfast is included for every attendee.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="min-w-0 space-y-4">
-        {agePricing.length === 0 ? (
-          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            No age-band pricing rules configured. You can leave this empty — age pricing
-            can be seeded later.
-          </p>
-        ) : (
-          <div className="min-w-0 space-y-3">
-            {agePricing.map((row) => (
-              <AgePricingRow
-                key={row._id}
-                eventId={eventId}
-                row={row}
-                bandLabel={bandLabelByCode.get(row.ageBandCode) ?? row.ageBandCode}
-              />
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function AgePricingRow({
-  eventId,
-  row,
-  bandLabel,
-}: {
-  eventId: Id<"events">
-  row: ConfigAgePricing
-  bandLabel: string
-}) {
-  const upsert = useUpsertEventAccommodationAgePricing()
-  const [rateType, setRateType] = useState(row.rateType)
-  const [value, setValue] = useState(String(row.value))
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-  const [isPending, setIsPending] = useState(false)
-
-  useEffect(() => {
-    setRateType(row.rateType)
-    setValue(String(row.value))
-    setError(null)
-    setSuccess(null)
-  }, [row._id, row.rateType, row.value])
-
-  const valueDisabled = rateType === "free" || rateType === "full"
-
-  const save = async () => {
-    setError(null)
-    setSuccess(null)
-    const numeric = valueDisabled ? 0 : Number(value)
-    if (!Number.isFinite(numeric) || numeric < 0) {
-      setError("Value must be a non-negative number.")
-      return
-    }
-    if (rateType === "percent" && numeric > 100) {
-      setError("Percent values must be between 0 and 100.")
-      return
-    }
-    if (rateType === "flat" && !Number.isInteger(numeric)) {
-      setError("Flat values must be whole minor units.")
-      return
-    }
-    setIsPending(true)
-    try {
-      await upsert({
-        eventId,
-        ageBandCode: row.ageBandCode as ConfigAgePricing["ageBandCode"],
-        rateType,
-        value: numeric,
-        sortOrder: row.sortOrder,
-      })
-      setSuccess("Age-pricing rule saved.")
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save age-pricing rule.")
-    } finally {
-      setIsPending(false)
-    }
-  }
-
-  return (
-    <div className="grid min-w-0 gap-3 rounded-lg border border-border/60 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-end">
-      <div className="min-w-0">
-        <p className="text-sm font-medium">{bandLabel}</p>
-        <p className="font-mono text-xs text-muted-foreground">
-          {row.ageBandCode} · locked age bounds
-        </p>
-      </div>
-      <div className="min-w-0 space-y-1.5">
-        <Label htmlFor={`uo-age-type-${row.ageBandCode}`} className="sr-only">
-          Rule type
-        </Label>
-        <select
-          id={`uo-age-type-${row.ageBandCode}`}
-          className="h-9 w-full min-w-32 rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-          value={rateType}
-          onChange={(event) =>
-            setRateType(event.target.value as ConfigAgePricing["rateType"])
-          }
-        >
-          {RATE_TYPES.map((type) => (
-            <option key={type.value} value={type.value}>
-              {type.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="min-w-0 space-y-1.5">
-        <Label htmlFor={`uo-age-value-${row.ageBandCode}`}>
-          {rateType === "percent" ? "Percent" : rateType === "flat" ? "Cents" : "Value"}
-        </Label>
-        <Input
-          id={`uo-age-value-${row.ageBandCode}`}
-          type="number"
-          inputMode="numeric"
-          min={0}
-          step={1}
-          disabled={valueDisabled}
-          value={valueDisabled ? "0" : value}
-          onChange={(event) => setValue(event.target.value)}
-          className="w-full min-w-28 font-mono tabular-nums sm:w-32"
-        />
-      </div>
-      <div className="flex flex-wrap items-center gap-2 sm:col-span-3">
-        <Button type="button" size="sm" onClick={save} disabled={isPending}>
-          {isPending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-          Save rule
         </Button>
         <Feedback error={error} success={success} />
       </div>

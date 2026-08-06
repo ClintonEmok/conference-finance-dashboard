@@ -60,14 +60,6 @@ async function seedEvent(
     })
   })
 
-  const upgradeOptionId = await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationOptions", {
-      code: "superior_upgrade",
-      label: "Superior Upgrade",
-      kind: "upgrade",
-      unit: "per_night",
-    })
-  })
   const cotOptionId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("accommodationOptions", {
       code: "cot",
@@ -136,22 +128,13 @@ async function seedEvent(
     })
   })
 
-  // Options: superior upgrade €15/night, cot €5/night (enabled).
-  await t.mutation(async (ctx) => {
-    return await ctx.db.insert("eventAccommodationOptions", {
-      eventId: eventId as never,
-      optionId: upgradeOptionId as never,
-      enabled: true,
-      priceMinor: 1500,
-    })
-  })
+  // Options: cot €5/unit/night (enabled).
   await t.mutation(async (ctx) => {
     return await ctx.db.insert("eventAccommodationOptions", {
       eventId: eventId as never,
       optionId: cotOptionId as never,
       enabled: true,
       priceMinor: 500,
-      eligibilityAgeBandCode: "under_3",
     })
   })
 
@@ -324,21 +307,31 @@ test("live-config order re-prices when the event rate changes", async () => {
       sortOrder: 0,
     })
   })
-  await t.mutation(async (db) => {
+  const selectionId = await t.mutation(async (db) => {
     return await db.db.insert("orderAccommodationSelections", {
       orderId: order as never,
       attendeeId: attendeeId as never,
       categoryId: ctx.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: true,
-      cotSelected: false,
       nightCount: 3,
+    })
+  })
+  // One selected cot child row: 1 unit × 3 nights × €5.
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderAccommodationOptionSelections", {
+      orderId: order as never,
+      attendeeId: attendeeId as never,
+      selectionId: selectionId as never,
+      optionKey: "cot",
+      quantity: 1,
+      nights: 3,
+      sortOrder: 0,
     })
   })
 
   const before = await loadOrderAmountDue(t, String(order))
-  // ticket 2000 + base 3×3000 (no covered nights) + upgrade 3×1500 = 15500
-  expect(before?.amountDueMinor).toBe(15500)
+  // ticket 2000 + base 3×3000 (no covered nights) + cot 3×500 = 12500
+  expect(before?.amountDueMinor).toBe(12500)
   expect(before?.accommodationLines).toHaveLength(2)
   expect(before?.accommodationLines[0]).toMatchObject({
     kind: "accommodation",
@@ -348,11 +341,13 @@ test("live-config order re-prices when the event rate changes", async () => {
     chargeMinor: 9000,
   })
   expect(before?.accommodationLines[1]).toMatchObject({
-    kind: "superior_upgrade",
-    label: "Superior upgrade",
+    kind: "option",
+    optionKey: "cot",
+    label: "Cot",
     nights: 3,
-    ratePerNightMinor: 1500,
-    chargeMinor: 4500,
+    quantity: 1,
+    ratePerNightMinor: 500,
+    chargeMinor: 1500,
   })
 
   // Admin edits the standard rate from €30 to €40.
@@ -374,23 +369,23 @@ test("live-config order re-prices when the event rate changes", async () => {
   })
 
   const after = await loadOrderAmountDue(t, String(order))
-  // ticket 2000 + base 3×4000 + upgrade 3×1500 = 18500
-  expect(after?.amountDueMinor).toBe(18500)
+  // ticket 2000 + base 3×4000 + cot 3×500 = 15500
+  expect(after?.amountDueMinor).toBe(15500)
   expect(after?.accommodationLines[0]?.ratePerNightMinor).toBe(4000)
 
   // Booking lookup and public tracking agree on the live canonical total.
   const booking = await t.query(api.signupSubmission.getByBookingRef, {
     bookingRef: "BK-20260411-LIVE01",
   })
-  expect(booking?.totalAmountMinor).toBe(18500)
+  expect(booking?.totalAmountMinor).toBe(15500)
   expect(booking?.accommodationLines).toHaveLength(2)
   expect(booking?.accommodationLines[0]?.chargeMinor).toBe(12000)
 
   const tracking = await t.query(api.publicTracking.getByBookingRef, {
     bookingRef: "BK-20260411-LIVE01",
   })
-  expect(tracking?.payment.totalDueMinor).toBe(18500)
-  expect(tracking?.order.amountDueMinor).toBe(18500)
+  expect(tracking?.payment.totalDueMinor).toBe(15500)
+  expect(tracking?.order.amountDueMinor).toBe(15500)
 })
 
 // ---------------------------------------------------------------------------
@@ -409,30 +404,21 @@ test("confirmed order stays fixed after a rate edit using its snapshot", async (
       attendeeId: ctx.attendeeNotIncludedId,
       categoryCode: "standard",
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
       nightCount: 2,
+      optionSelections: [],
     },
     pricing: {
       baseRatePerNightMinor: 3000,
-      superiorUpgradePriceMinor: 1500,
-      cotPriceMinor: 500,
+      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500 }],
       ticketAccommodationIncluded: false,
       eventBaseNights: 2,
     },
   })
   expect(snapshot).toEqual({
     baseRatePerNightMinor: 3000,
-    upgradeRatePerNightMinor: 1500,
-    cotRatePerNightMinor: 500,
     totalNights: 2,
     coveredNights: 0,
-    categoryIsSuperior: false,
-    upgradeSelected: false,
-    cotSelected: false,
-    ageBandCode: "18_plus",
-    cotEligibilityAgeBandCode: null,
+    optionLines: [],
   })
 
   const order = await t.mutation(async (db) => {
@@ -468,8 +454,7 @@ test("confirmed order stays fixed after a rate edit using its snapshot", async (
       attendeeId: attendeeId as never,
       categoryId: ctx.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
+      
       nightCount: 2,
       confirmedAt: BASE_EVENT_AT,
       configVersion: BASE_EVENT_AT,
@@ -555,8 +540,7 @@ test("loader fails closed when a confirmed selection lacks a priceSnapshot", asy
       attendeeId: attendeeId as never,
       categoryId: ctx.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
+      
       nightCount: 2,
       confirmedAt: BASE_EVENT_AT,
       configVersion: BASE_EVENT_AT,
@@ -605,15 +589,12 @@ test("loader fails closed when confirmedAt is a malformed epoch timestamp", asyn
       attendeeId: ctx.attendeeNotIncludedId,
       categoryCode: "standard",
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
       nightCount: 2,
+      optionSelections: [],
     },
     pricing: {
       baseRatePerNightMinor: 3000,
-      superiorUpgradePriceMinor: 1500,
-      cotPriceMinor: 500,
+      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500 }],
       ticketAccommodationIncluded: false,
       eventBaseNights: 2,
     },
@@ -624,8 +605,7 @@ test("loader fails closed when confirmedAt is a malformed epoch timestamp", asyn
       attendeeId: attendeeId as never,
       categoryId: ctx.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
+      
       nightCount: 2,
       // Epoch `confirmedAt` must still count as confirmed (field presence) —
       // never silently re-priced as a live row.
@@ -676,15 +656,12 @@ test("loader fails closed when a confirmed row lacks configVersion", async () =>
       attendeeId: ctx.attendeeNotIncludedId,
       categoryCode: "standard",
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
       nightCount: 2,
+      optionSelections: [],
     },
     pricing: {
       baseRatePerNightMinor: 3000,
-      superiorUpgradePriceMinor: 1500,
-      cotPriceMinor: 500,
+      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500 }],
       ticketAccommodationIncluded: false,
       eventBaseNights: 2,
     },
@@ -695,8 +672,7 @@ test("loader fails closed when a confirmed row lacks configVersion", async () =>
       attendeeId: attendeeId as never,
       categoryId: ctx.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
+      
       nightCount: 2,
       confirmedAt: BASE_EVENT_AT,
       configVersion: undefined,
@@ -718,15 +694,12 @@ test("confirmed row prices from its snapshot even when event config is missing",
       attendeeId: ctx.attendeeNotIncludedId,
       categoryCode: "standard",
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
-      ageBandCode: "18_plus",
       nightCount: 2,
+      optionSelections: [],
     },
     pricing: {
       baseRatePerNightMinor: 3000,
-      superiorUpgradePriceMinor: 1500,
-      cotPriceMinor: 500,
+      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500 }],
       ticketAccommodationIncluded: false,
       eventBaseNights: 2,
     },
@@ -765,8 +738,7 @@ test("confirmed row prices from its snapshot even when event config is missing",
       attendeeId: attendeeId as never,
       categoryId: ctx.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
+      
       nightCount: 2,
       confirmedAt: BASE_EVENT_AT,
       configVersion: BASE_EVENT_AT,
@@ -827,16 +799,24 @@ test("booking lookup exposes canonical accommodation lines for a live order", as
       sortOrder: 0,
     })
   })
-  await t.mutation(async (db) => {
+  const selectionId = await t.mutation(async (db) => {
     return await db.db.insert("orderAccommodationSelections", {
       orderId: order as never,
       attendeeId: attendeeId as never,
       categoryId: ctx.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: true,
-      ageBandCode: "under_3",
       nightCount: 2,
+    })
+  })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderAccommodationOptionSelections", {
+      orderId: order as never,
+      attendeeId: attendeeId as never,
+      selectionId: selectionId as never,
+      optionKey: "cot",
+      quantity: 1,
+      nights: 2,
+      sortOrder: 0,
     })
   })
 
@@ -845,7 +825,7 @@ test("booking lookup exposes canonical accommodation lines for a live order", as
   expect(breakdown?.amountDueMinor).toBe(9000)
   expect(breakdown?.accommodationLines.map((line) => line.kind)).toEqual([
     "accommodation",
-    "cot",
+    "option",
   ])
 
   const booking = await t.query(api.signupSubmission.getByBookingRef, {
@@ -856,6 +836,7 @@ test("booking lookup exposes canonical accommodation lines for a live order", as
   expect(booking?.accommodationLines[1]).toMatchObject({
     label: "Cot",
     nights: 2,
+    quantity: 1,
     ratePerNightMinor: 500,
     chargeMinor: 1000,
   })
@@ -904,8 +885,7 @@ test("multi-order loader derives each order's total from grouped child rows", as
       attendeeId: firstAttendeeId as never,
       categoryId: ctx.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: false,
-      cotSelected: false,
+      
       nightCount: 2,
     })
   })
@@ -937,15 +917,24 @@ test("multi-order loader derives each order's total from grouped child rows", as
       sortOrder: 0,
     })
   })
-  await t.mutation(async (db) => {
+  const secondSelectionId = await t.mutation(async (db) => {
     return await db.db.insert("orderAccommodationSelections", {
       orderId: secondOrderId as never,
       attendeeId: secondAttendeeId as never,
       categoryId: ctx.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: true,
-      cotSelected: false,
       nightCount: 2,
+    })
+  })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderAccommodationOptionSelections", {
+      orderId: secondOrderId as never,
+      attendeeId: secondAttendeeId as never,
+      selectionId: secondSelectionId as never,
+      optionKey: "cot",
+      quantity: 1,
+      nights: 2,
+      sortOrder: 0,
     })
   })
 
@@ -981,13 +970,13 @@ test("multi-order loader derives each order's total from grouped child rows", as
     breakdowns?.[String(firstOrderId)]?.accommodationLines
   ).toHaveLength(1)
 
-  // Order 2: ticket 2000 + base 2×3000 + upgrade 2×1500 = 11000
-  expect(breakdowns?.[String(secondOrderId)]?.amountDueMinor).toBe(11000)
+  // Order 2: ticket 2000 + base 2×3000 + cot 2×500 = 9000
+  expect(breakdowns?.[String(secondOrderId)]?.amountDueMinor).toBe(9000)
   expect(
     breakdowns?.[String(secondOrderId)]?.amountDueByAttendeeId[
       String(secondAttendeeId)
     ]
-  ).toBe(11000)
+  ).toBe(9000)
   expect(
     breakdowns?.[String(secondOrderId)]?.accommodationLines
   ).toHaveLength(2)
@@ -1033,8 +1022,7 @@ test("prices orders with more than 100 selections without truncation", async () 
         attendeeId: attendeeId as never,
         categoryId: ctx.categoryStandardId as never,
         occupancy: "shared",
-        upgradeSelected: false,
-        cotSelected: false,
+        
         nightCount: 2,
       })
     }
@@ -1057,22 +1045,19 @@ test("confirmed order is not re-priced when live selection flags are edited", as
   const t = fresh()
   const ctx = await seedEvent(t)
 
-  // Confirm with upgrade selected: ticket 2000 + base 2×3000 + upgrade 2×1500
-  // = 11000.
+  // Confirm with a selected cot: ticket 2000 + base 2×3000 + cot 2×500
+  // = 9000.
   const snapshot = buildAccommodationPriceSnapshot({
     selection: {
       attendeeId: ctx.attendeeNotIncludedId,
       categoryCode: "standard",
       occupancy: "shared",
-      upgradeSelected: true,
-      cotSelected: false,
-      ageBandCode: "18_plus",
       nightCount: 2,
+      optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
     },
     pricing: {
       baseRatePerNightMinor: 3000,
-      superiorUpgradePriceMinor: 1500,
-      cotPriceMinor: 500,
+      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500 }],
       ticketAccommodationIncluded: false,
       eventBaseNights: 2,
     },
@@ -1111,8 +1096,6 @@ test("confirmed order is not re-priced when live selection flags are edited", as
       attendeeId: attendeeId as never,
       categoryId: ctx.categoryStandardId as never,
       occupancy: "shared",
-      upgradeSelected: true,
-      cotSelected: false,
       nightCount: 2,
       confirmedAt: BASE_EVENT_AT,
       configVersion: BASE_EVENT_AT,
@@ -1121,28 +1104,36 @@ test("confirmed order is not re-priced when live selection flags are edited", as
   })
 
   const before = await loadOrderAmountDue(t, String(order))
-  expect(before?.amountDueMinor).toBe(11000)
+  expect(before?.amountDueMinor).toBe(9000)
 
-  // Live selection edited after confirmation: upgrade deselected, cot
-  // selected, category moved to superior. The confirmed amount must stay
-  // fixed at 11000 — never re-derived from the mutated flags.
+  // Live selection edited after confirmation: category moved to superior and
+  // a new child option row added. The confirmed amount must stay fixed at
+  // 9000 — never re-derived from the mutated row or child selections.
   await t.mutation(async (db) => {
     return await db.db.patch(
       "orderAccommodationSelections",
       selectionId as never,
       {
         categoryId: ctx.categorySuperiorId as never,
-        upgradeSelected: false,
-        cotSelected: true,
-        ageBandCode: "under_3",
       }
     )
   })
+  await t.mutation(async (db) => {
+    return await db.db.insert("orderAccommodationOptionSelections", {
+      orderId: order as never,
+      attendeeId: attendeeId as never,
+      selectionId: selectionId as never,
+      optionKey: "cot",
+      quantity: 2,
+      nights: 2,
+      sortOrder: 0,
+    })
+  })
 
   const after = await loadOrderAmountDue(t, String(order))
-  expect(after?.amountDueMinor).toBe(11000)
+  expect(after?.amountDueMinor).toBe(9000)
   expect(after?.accommodationLines.map((line) => line.kind)).toEqual([
     "accommodation",
-    "superior_upgrade",
+    "option",
   ])
 })

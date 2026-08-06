@@ -1,106 +1,116 @@
 /**
- * Pure accommodation pricing contract (Phase 40).
+ * Pure accommodation pricing contract.
  *
  * This module is the single source of accommodation money math. It never
  * imports Convex, never reads the database, and never formats display
  * values. The canonical finance loader (`convex/finance.ts`) resolves event
  * config/rates/options into the typed inputs below and calls
- * `deriveAccommodationAmount` per selection; Phase 44 persists the snapshot
- * produced by `buildAccommodationPriceSnapshot` when confirming a selection.
+ * `deriveAccommodationAmount` per selection; the confirmation flow persists
+ * the snapshot produced by `buildAccommodationPriceSnapshot` when confirming
+ * a selection.
  *
  * Locked formula (per attendee, minor units):
  *   coveredNights  = ticket.accommodationIncluded ? eventBaseNights : 0
  *   totalNights    = buyer-chosen nights
  *   baseCharge     = max(0, totalNights - coveredNights) * baseRate
- *   upgradeCharge  = upgradePrice * totalNights   (only when the selected
- *                   rate is not already the superior rate)
- *   cotCharge      = cotPrice * totalNights       (only when cot is selected
- *                   and the attendee is in the under_3 age band)
- *   amountDue      = tickets + baseCharge + upgradeCharge + cotCharge
+ *   optionCharge   = Σ per selected option: pricePerUnit × quantity × nights
+ *   amountDue      = tickets + baseCharge + optionCharge
+ *
+ * Options are data-driven: every enabled event option is a priced, per-unit
+ * line. There is no hardcoded option code (no superior_upgrade/cot branches)
+ * and no age-band eligibility gate. `kind`/`unit` remain typed at the schema
+ * boundary; the charge math here is unit × quantity × nights for the supported
+ * per_night unit and price × quantity for per_person.
  *
  * Breakfast is always included and carries no charge. Zero rates are valid
  * (€0 prices stay €0 and simply produce no receipt line). Malformed,
  * negative, fractional or missing money/night inputs normalize to safe
  * non-negative values so a broken selection contributes €0 rather than NaN.
+ *
+ * Legacy compatibility: confirmed rows persisted before the option-line model
+ * carried boolean decision fields (`upgradeSelected`, `cotSelected`,
+ * `categoryIsSuperior`, and the resolved upgrade/cot per-night rates). Those
+ * snapshots remain valid historical data and are priced through the legacy
+ * branch below; new confirmations always write the option-lines shape.
  */
 
 export const ACCOMMODATION_LINE_LABELS = {
   accommodation: "Accommodation",
-  superiorUpgrade: "Superior upgrade",
-  cot: "Cot",
 } as const
 
-export type AccommodationAgeBandCode =
-  | "under_3"
-  | "3_11"
-  | "12_17"
-  | "18_plus"
+export type AccommodationOptionSelection = {
+  optionKey: string
+  quantity: number
+  nights: number
+}
+
+export type ResolvedAccommodationOption = {
+  optionKey: string
+  label: string
+  pricePerUnitMinor: number
+}
 
 export type AccommodationSelectionInput = {
   attendeeId: string
   categoryCode?: string | null
   occupancy?: string | null
-  upgradeSelected?: boolean | null
-  cotSelected?: boolean | null
-  ageBandCode?: AccommodationAgeBandCode | string | null
   nightCount?: number | null
+  /** Data-driven option selections (optionKey + quantity + nights). */
+  optionSelections?: AccommodationOptionSelection[] | null
 }
 
 export type AccommodationPricingInput = {
   /** Resolved per-person-per-night rate for the selected category/occupancy. */
   baseRatePerNightMinor?: number | null
-  /** Resolved per-night price of the enabled superior_upgrade option. */
-  superiorUpgradePriceMinor?: number | null
-  /** Resolved per-night price of the enabled cot option. */
-  cotPriceMinor?: number | null
-  /**
-   * The age band eligible for the cot option, from the event's cot option
-   * configuration (`eventAccommodationOptions.eligibilityAgeBandCode`).
-   * Absent/null means cot is not eligible for this event.
-   */
-  cotEligibilityAgeBandCode?: string | null
+  /** All enabled event options resolved to typed per-unit prices. */
+  options?: ResolvedAccommodationOption[] | null
   /** The attendee's ticket type `accommodationIncluded` flag (absent = false). */
   ticketAccommodationIncluded?: boolean | null
   /** The event's base night count (`eventAccommodationConfig.nightCount`). */
   eventBaseNights?: number | null
 }
 
+export type AccommodationOptionLine = {
+  optionKey: string
+  label: string
+  pricePerUnitMinor: number
+  quantity: number
+  nights: number
+  chargeMinor: number
+}
+
 /**
- * Immutable pricing state persisted on a confirmed selection. Phase 44 writes
- * `confirmedAt`, `configVersion = eventAccommodationConfig.updatedAt` and this
- * snapshot atomically; the loader uses snapshot inputs instead of live rates
- * for confirmed rows so a later rate edit never re-prices them.
+ * Immutable pricing state persisted on a confirmed selection. The loader uses
+ * snapshot inputs instead of live rates for confirmed rows so a later rate
+ * edit never re-prices them.
  *
- * The snapshot is self-contained: it also records every selection decision the
- * formula depends on (`categoryIsSuperior`, `upgradeSelected`, `cotSelected`,
- * `ageBandCode`), so editing a confirmed row's live selection flags or
- * category can never add/remove an upgrade or cot charge after confirmation.
+ * New confirmations persist `optionLines` — a self-contained list of resolved
+ * option charges — plus the base rate and nights. Legacy confirmed rows carry
+ * the older boolean decision fields instead and remain readable through the
+ * compatibility branch in `deriveAccommodationAmount`.
  */
 export type AccommodationPriceSnapshot = {
   baseRatePerNightMinor: number
-  upgradeRatePerNightMinor: number
-  cotRatePerNightMinor: number
   totalNights: number
   coveredNights: number
-  /** Resolved at confirmation: the selected category was the superior rate. */
-  categoryIsSuperior: boolean
-  /** Resolved at confirmation: the buyer had selected the superior upgrade. */
-  upgradeSelected: boolean
-  /** Resolved at confirmation: the buyer had selected a cot. */
-  cotSelected: boolean
-  /** Resolved at confirmation: the attendee's age band code (lowercased). */
-  ageBandCode: string
-  /**
-   * The event's cot-eligibility age band resolved at confirmation. Cot
-   * charges only apply when the attendee's age band matches this band.
-   */
-  cotEligibilityAgeBandCode: string | null
+  /** New shape: resolved per-option charges (fully self-contained). */
+  optionLines?: AccommodationOptionLine[]
+  /** Legacy shape (v5 confirmed rows only): resolved decision fields. */
+  upgradeRatePerNightMinor?: number
+  cotRatePerNightMinor?: number
+  categoryIsSuperior?: boolean
+  upgradeSelected?: boolean
+  cotSelected?: boolean
 }
 
 /**
  * Fail-closed completeness guard for a persisted snapshot. The canonical
  * loader throws for any confirmed row whose `priceSnapshot` does not pass this
  * check instead of silently re-pricing it from the current config.
+ *
+ * A snapshot is complete when it is either a complete legacy v5 shape (base
+ * rate + nights + the resolved boolean decision fields) or a complete
+ * option-line shape whose every line is fully resolved.
  */
 export function isCompleteAccommodationPriceSnapshot(
   value: unknown
@@ -109,30 +119,57 @@ export function isCompleteAccommodationPriceSnapshot(
     return false
   }
   const snapshot = value as Record<string, unknown>
-  return (
+  const baseComplete =
     typeof snapshot.baseRatePerNightMinor === "number" &&
     Number.isFinite(snapshot.baseRatePerNightMinor) &&
+    typeof snapshot.totalNights === "number" &&
+    Number.isFinite(snapshot.totalNights) &&
+    typeof snapshot.coveredNights === "number" &&
+    Number.isFinite(snapshot.coveredNights)
+
+  if (!baseComplete) {
+    return false
+  }
+
+  if (Array.isArray(snapshot.optionLines)) {
+    return snapshot.optionLines.every((line) => {
+      if (!line || typeof line !== "object") {
+        return false
+      }
+      const resolved = line as Record<string, unknown>
+      return (
+        typeof resolved.optionKey === "string" &&
+        typeof resolved.label === "string" &&
+        typeof resolved.pricePerUnitMinor === "number" &&
+        Number.isFinite(resolved.pricePerUnitMinor) &&
+        typeof resolved.quantity === "number" &&
+        Number.isFinite(resolved.quantity) &&
+        typeof resolved.nights === "number" &&
+        Number.isFinite(resolved.nights) &&
+        typeof resolved.chargeMinor === "number" &&
+        Number.isFinite(resolved.chargeMinor)
+      )
+    })
+  }
+
+  // Legacy v5 shape: the resolved decision fields are present.
+  return (
     typeof snapshot.upgradeRatePerNightMinor === "number" &&
     Number.isFinite(snapshot.upgradeRatePerNightMinor) &&
     typeof snapshot.cotRatePerNightMinor === "number" &&
     Number.isFinite(snapshot.cotRatePerNightMinor) &&
-    typeof snapshot.totalNights === "number" &&
-    Number.isFinite(snapshot.totalNights) &&
-    typeof snapshot.coveredNights === "number" &&
-    Number.isFinite(snapshot.coveredNights) &&
     typeof snapshot.categoryIsSuperior === "boolean" &&
     typeof snapshot.upgradeSelected === "boolean" &&
-    typeof snapshot.cotSelected === "boolean" &&
-    typeof snapshot.ageBandCode === "string" &&
-    (snapshot.cotEligibilityAgeBandCode === null ||
-      typeof snapshot.cotEligibilityAgeBandCode === "string")
+    typeof snapshot.cotSelected === "boolean"
   )
 }
 
 export type AccommodationReceiptLine = {
-  kind: "accommodation" | "superior_upgrade" | "cot"
+  kind: "accommodation" | "option"
+  optionKey?: string
   label: string
   nights: number
+  quantity?: number
   ratePerNightMinor: number
   chargeMinor: number
 }
@@ -140,9 +177,9 @@ export type AccommodationReceiptLine = {
 export type AccommodationAmountResult = {
   /** Total accommodation due for the attendee selection, in minor units. */
   totalMinor: number
-  /** Non-zero receipt lines only (`Accommodation`, `Superior upgrade`, `Cot`). */
+  /** Non-zero receipt lines only (base accommodation + selected options). */
   lines: AccommodationReceiptLine[]
-  /** Live-derived snapshot for the same selection (Phase 44 persistence). */
+  /** Live-derived snapshot for the same selection (confirmation persistence). */
   snapshot: AccommodationPriceSnapshot
 }
 
@@ -166,8 +203,8 @@ function normalizeBoolean(value: boolean | null | undefined): boolean {
 
 /**
  * Builds the immutable price snapshot for a selection using the exact same
- * live-resolution rules as `deriveAccommodationAmount`, so Phase 44 can
- * persist the resolved rates/nights without duplicating money math.
+ * live-resolution rules as `deriveAccommodationAmount`, so the confirmation
+ * flow can persist the resolved rates/nights without duplicating money math.
  */
 export function buildAccommodationPriceSnapshot(input: {
   selection: AccommodationSelectionInput
@@ -180,27 +217,84 @@ export function buildAccommodationPriceSnapshot(input: {
     ? normalizeNights(pricing.eventBaseNights)
     : 0
 
+  const resolvedOptions = resolveSelectedOptions(selection, pricing)
+
   return {
     baseRatePerNightMinor: normalizeMinorUnits(
       pricing.baseRatePerNightMinor
     ),
-    upgradeRatePerNightMinor: normalizeMinorUnits(
-      pricing.superiorUpgradePriceMinor
-    ),
-    cotRatePerNightMinor: normalizeMinorUnits(pricing.cotPriceMinor),
     totalNights: normalizeNights(selection.nightCount),
     coveredNights,
-    // Resolve every selection decision the formula depends on so a confirmed
-    // row is priced exclusively from the snapshot, never from live flags.
-    categoryIsSuperior:
-      (selection.categoryCode ?? "").toLowerCase() === "superior",
-    upgradeSelected: normalizeBoolean(selection.upgradeSelected),
-    cotSelected: normalizeBoolean(selection.cotSelected),
-    ageBandCode: (selection.ageBandCode ?? "").toLowerCase(),
-    cotEligibilityAgeBandCode: pricing.cotEligibilityAgeBandCode
-      ? String(pricing.cotEligibilityAgeBandCode).toLowerCase()
-      : null,
+    optionLines: resolvedOptions.map((resolved) => ({
+      optionKey: resolved.optionKey,
+      label: resolved.label,
+      pricePerUnitMinor: resolved.pricePerUnitMinor,
+      quantity: resolved.quantity,
+      nights: resolved.nights,
+      chargeMinor: deriveOptionChargeMinor(resolved),
+    })),
   }
+}
+
+type ResolvedSelectedOption = {
+  optionKey: string
+  label: string
+  pricePerUnitMinor: number
+  quantity: number
+  nights: number
+  unit: "per_night" | "per_person"
+}
+
+function resolveSelectedOptions(
+  selection: AccommodationSelectionInput,
+  pricing: AccommodationPricingInput
+): ResolvedSelectedOption[] {
+  const selections = Array.isArray(selection.optionSelections)
+    ? selection.optionSelections
+    : []
+  const optionByKey = new Map<string, ResolvedAccommodationOption>()
+  for (const option of Array.isArray(pricing.options) ? pricing.options : []) {
+    optionByKey.set(option.optionKey, option)
+  }
+
+  const resolved: ResolvedSelectedOption[] = []
+  for (const selected of selections) {
+    const option = optionByKey.get(selected.optionKey)
+    if (!option) {
+      continue
+    }
+    resolved.push({
+      optionKey: selected.optionKey,
+      label: option.label,
+      pricePerUnitMinor: normalizeMinorUnits(option.pricePerUnitMinor),
+      quantity: Math.max(0, Math.floor(selected.quantity ?? 0)),
+      nights: normalizeNights(selected.nights),
+      // All supported options are per_night in this model; the unit is
+      // resolved at the schema boundary.
+      unit: "per_night",
+    })
+  }
+  return resolved
+}
+
+/**
+ * Charges one resolved option by its unit semantics. `per_night` is price ×
+ * quantity × nights; `per_person` is price × quantity. The charge is always a
+ * non-negative integer in minor units.
+ */
+export function deriveOptionChargeMinor(option: {
+  pricePerUnitMinor: number
+  quantity: number
+  nights: number
+  unit?: "per_night" | "per_person"
+}): number {
+  const pricePerUnitMinor = normalizeMinorUnits(option.pricePerUnitMinor)
+  const quantity = Math.max(0, Math.floor(option.quantity ?? 0))
+  if (option.unit === "per_person") {
+    return pricePerUnitMinor * quantity
+  }
+  const nights = normalizeNights(option.nights)
+  return pricePerUnitMinor * quantity * nights
 }
 
 /**
@@ -224,12 +318,6 @@ export function deriveAccommodationAmount(input: {
   const baseRatePerNightMinor = usesSnapshot
     ? normalizeMinorUnits(snapshot.baseRatePerNightMinor)
     : normalizeMinorUnits(pricing.baseRatePerNightMinor)
-  const upgradeRatePerNightMinor = usesSnapshot
-    ? normalizeMinorUnits(snapshot.upgradeRatePerNightMinor)
-    : normalizeMinorUnits(pricing.superiorUpgradePriceMinor)
-  const cotRatePerNightMinor = usesSnapshot
-    ? normalizeMinorUnits(snapshot.cotRatePerNightMinor)
-    : normalizeMinorUnits(pricing.cotPriceMinor)
 
   const totalNights = usesSnapshot
     ? normalizeNights(snapshot.totalNights)
@@ -243,43 +331,6 @@ export function deriveAccommodationAmount(input: {
   const chargedNights = Math.max(0, totalNights - coveredNights)
   const baseChargeMinor = chargedNights * baseRatePerNightMinor
 
-  // The superior-upgrade selection is one representation of the superior
-  // rate: when the selected category/occupancy rate already is the superior
-  // rate, the base charge includes it and no separate upgrade line applies.
-  // For a confirmed row the decision comes from the persisted snapshot, so
-  // changing the live category/flags later cannot re-price the row.
-  const categoryIsSuperior = usesSnapshot
-    ? snapshot.categoryIsSuperior === true
-    : (selection.categoryCode ?? "").toLowerCase() === "superior"
-  const upgradeSelected = usesSnapshot
-    ? snapshot.upgradeSelected === true
-    : normalizeBoolean(selection.upgradeSelected)
-  const upgradeChargeMinor =
-    upgradeSelected && !categoryIsSuperior
-      ? totalNights * upgradeRatePerNightMinor
-      : 0
-
-  // Cot eligibility is resolved from the event's configured cot-eligibility
-  // age band, never hardcoded — bands differ per event. A confirmed row uses
-  // the band resolved at confirmation; an unconfirmed row uses the current
-  // event config. When no band is configured, cot is not eligible.
-  const cotEligibilityAgeBandCode = usesSnapshot
-    ? snapshot.cotEligibilityAgeBandCode ?? null
-    : pricing.cotEligibilityAgeBandCode
-      ? String(pricing.cotEligibilityAgeBandCode).toLowerCase()
-      : null
-  const cotEligible =
-    cotEligibilityAgeBandCode !== null &&
-    (usesSnapshot
-      ? snapshot.ageBandCode.toLowerCase()
-      : (selection.ageBandCode ?? "").toLowerCase()) ===
-      cotEligibilityAgeBandCode
-  const cotSelected = usesSnapshot
-    ? snapshot.cotSelected === true
-    : normalizeBoolean(selection.cotSelected)
-  const cotChargeMinor =
-    cotSelected && cotEligible ? totalNights * cotRatePerNightMinor : 0
-
   const lines: AccommodationReceiptLine[] = []
 
   if (baseChargeMinor > 0) {
@@ -292,28 +343,79 @@ export function deriveAccommodationAmount(input: {
     })
   }
 
-  if (upgradeChargeMinor > 0) {
-    lines.push({
-      kind: "superior_upgrade",
-      label: ACCOMMODATION_LINE_LABELS.superiorUpgrade,
-      nights: totalNights,
-      ratePerNightMinor: upgradeRatePerNightMinor,
-      chargeMinor: upgradeChargeMinor,
-    })
-  }
+  let optionChargeMinor = 0
 
-  if (cotChargeMinor > 0) {
-    lines.push({
-      kind: "cot",
-      label: ACCOMMODATION_LINE_LABELS.cot,
-      nights: totalNights,
-      ratePerNightMinor: cotRatePerNightMinor,
-      chargeMinor: cotChargeMinor,
-    })
+  if (usesSnapshot && Array.isArray(snapshot.optionLines)) {
+    // New snapshot shape: price exclusively from the persisted option lines.
+    for (const line of snapshot.optionLines) {
+      const chargeMinor = normalizeMinorUnits(line.chargeMinor)
+      optionChargeMinor += chargeMinor
+      if (chargeMinor > 0) {
+        lines.push({
+          kind: "option",
+          optionKey: line.optionKey,
+          label: line.label,
+          nights: normalizeNights(line.nights),
+          quantity: Math.max(0, Math.floor(line.quantity ?? 0)),
+          ratePerNightMinor: normalizeMinorUnits(line.pricePerUnitMinor),
+          chargeMinor,
+        })
+      }
+    }
+  } else if (usesSnapshot) {
+    // Legacy v5 snapshot shape: reproduce the resolved upgrade/cot charges
+    // from the persisted decision fields (never from live config).
+    const upgradeSelected =
+      snapshot.upgradeSelected === true && !(snapshot.categoryIsSuperior === true)
+    const upgradeChargeMinor = upgradeSelected
+      ? totalNights * normalizeMinorUnits(snapshot.upgradeRatePerNightMinor)
+      : 0
+    const cotChargeMinor = snapshot.cotSelected === true
+      ? totalNights * normalizeMinorUnits(snapshot.cotRatePerNightMinor)
+      : 0
+    optionChargeMinor += upgradeChargeMinor + cotChargeMinor
+    if (upgradeChargeMinor > 0) {
+      lines.push({
+        kind: "option",
+        optionKey: "superior_upgrade",
+        label: "Superior upgrade",
+        nights: totalNights,
+        ratePerNightMinor: normalizeMinorUnits(snapshot.upgradeRatePerNightMinor),
+        chargeMinor: upgradeChargeMinor,
+      })
+    }
+    if (cotChargeMinor > 0) {
+      lines.push({
+        kind: "option",
+        optionKey: "cot",
+        label: "Cot",
+        nights: totalNights,
+        ratePerNightMinor: normalizeMinorUnits(snapshot.cotRatePerNightMinor),
+        chargeMinor: cotChargeMinor,
+      })
+    }
+  } else {
+    // Live resolution: price each selected option against the event-owned
+    // option set, ignoring any option that is no longer enabled.
+    for (const resolved of resolveSelectedOptions(selection, pricing)) {
+      const chargeMinor = deriveOptionChargeMinor(resolved)
+      optionChargeMinor += chargeMinor
+      if (chargeMinor > 0) {
+        lines.push({
+          kind: "option",
+          optionKey: resolved.optionKey,
+          label: resolved.label,
+          nights: resolved.nights,
+          quantity: resolved.quantity,
+          ratePerNightMinor: resolved.pricePerUnitMinor,
+          chargeMinor,
+        })
+      }
+    }
   }
 
   return {
-    totalMinor: baseChargeMinor + upgradeChargeMinor + cotChargeMinor,
+    totalMinor: baseChargeMinor + optionChargeMinor,
     lines,
     // A confirmed row returns its persisted snapshot untouched — the snapshot
     // is never rebuilt from live pricing inputs.

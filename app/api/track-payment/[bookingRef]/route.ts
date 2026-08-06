@@ -10,7 +10,6 @@ import {
 } from "@/lib/domain/track-payment/edit-token"
 import { parseTrackPaymentEditGuardError } from "@/lib/types/track-payment"
 
-type EditAgeBandCode = "under_3" | "3_11" | "12_17" | "18_plus"
 type EditOccupancy = "single" | "shared" | "family"
 
 /**
@@ -22,17 +21,13 @@ type ParsedEditSelection = {
   attendeeKey: string
   categoryId?: Id<"accommodationCategories">
   occupancy?: EditOccupancy
-  upgradeSelected: boolean
-  cotSelected: boolean
-  ageBandCode?: EditAgeBandCode
+  optionSelections: Array<{
+    optionKey: string
+    quantity: number
+    nights: number
+  }>
 }
 
-const editAgeBandCodes: ReadonlyArray<EditAgeBandCode> = [
-  "under_3",
-  "3_11",
-  "12_17",
-  "18_plus",
-]
 const editOccupancies: ReadonlyArray<EditOccupancy> = [
   "single",
   "shared",
@@ -215,21 +210,61 @@ export async function POST(
       return jsonError("INVALID_EDIT", "Each preference needs an attendee key.", 400)
     }
     if (
-      typeof selectionRecord.upgradeSelected !== "boolean" ||
-      typeof selectionRecord.cotSelected !== "boolean"
+      !Array.isArray(selectionRecord.optionSelections)
     ) {
-      return jsonError("INVALID_EDIT", "Each preference needs its option flags.", 400)
+      return jsonError("INVALID_EDIT", "Each preference needs its option selections.", 400)
+    }
+
+    const optionSelections: ParsedEditSelection["optionSelections"] = []
+    const seenOptionKeys = new Set<string>()
+    for (const optionSelectionRecord of selectionRecord.optionSelections) {
+      const optionSelection = asRecord(optionSelectionRecord)
+      if (
+        !optionSelection ||
+        typeof optionSelection.optionKey !== "string" ||
+        !optionSelection.optionKey.trim()
+      ) {
+        return jsonError(
+          "INVALID_EDIT",
+          "Each option selection needs an option key.",
+          400
+        )
+      }
+      if (seenOptionKeys.has(optionSelection.optionKey)) {
+        return jsonError(
+          "INVALID_EDIT",
+          `Option '${optionSelection.optionKey}' was selected more than once.`,
+          400
+        )
+      }
+      seenOptionKeys.add(optionSelection.optionKey)
+      const quantity = Number(optionSelection.quantity)
+      const nights = Number(optionSelection.nights)
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        return jsonError(
+          "INVALID_EDIT",
+          "Each option selection needs a positive quantity.",
+          400
+        )
+      }
+      if (!Number.isFinite(nights) || nights <= 0) {
+        return jsonError(
+          "INVALID_EDIT",
+          "Each option selection needs a positive night count.",
+          400
+        )
+      }
+      optionSelections.push({
+        optionKey: optionSelection.optionKey.trim(),
+        quantity: Math.floor(quantity),
+        nights: Math.floor(nights),
+      })
     }
 
     const occupancy = editOccupancies.includes(
       selectionRecord.occupancy as EditOccupancy
     )
       ? (selectionRecord.occupancy as EditOccupancy)
-      : undefined
-    const ageBandCode = editAgeBandCodes.includes(
-      selectionRecord.ageBandCode as EditAgeBandCode
-    )
-      ? (selectionRecord.ageBandCode as EditAgeBandCode)
       : undefined
     const categoryIdValue = selectionRecord.categoryId
     const categoryId =
@@ -241,9 +276,7 @@ export async function POST(
       attendeeKey: selectionRecord.attendeeKey.trim(),
       categoryId,
       occupancy,
-      upgradeSelected: selectionRecord.upgradeSelected === true,
-      cotSelected: selectionRecord.cotSelected === true,
-      ageBandCode,
+      optionSelections,
     })
   }
 
