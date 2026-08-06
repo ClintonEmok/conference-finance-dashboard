@@ -1,4 +1,6 @@
 import { createElement, type ReactElement } from "react"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { getFunctionName } from "convex/server"
@@ -13,6 +15,12 @@ import {
   submitTrackPaymentEdit,
   type TrackPaymentEditContext,
 } from "@/components/track-payment/TrackPaymentAccommodationEditor"
+
+const ROOT = resolve(import.meta.dirname, "../..")
+
+function readSource(relativePath: string): string {
+  return readFileSync(resolve(ROOT, relativePath), "utf8")
+}
 
 const mocks = vi.hoisted(() => ({
   useQuery: vi.fn(),
@@ -583,5 +591,67 @@ describe("TrackPaymentEditResultPanel", () => {
     )
     expect(html).toContain("latest server calculation")
     expect(html).not.toContain("exceed")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Phase 45 deep-link and single-shell source contracts: the permalink is the
+// canonical URL, root search navigates to it, the token query survives, and
+// no route introduces a duplicate shell or drops the reference/token.
+// ---------------------------------------------------------------------------
+
+describe("deep-link and single-shell source contracts (Phase 45)", () => {
+  it("root search page is a thin TrackPaymentView wrapper with no second shell", () => {
+    const rootPage = readSource("app/track-payment/page.tsx")
+    expect(rootPage).toContain("<TrackPaymentView />")
+    expect(rootPage).not.toContain("initialBookingRef")
+    expect(rootPage).not.toContain("Track Booking")
+  })
+
+  it("permalink page normalizes the reference and preserves the edit-token query", () => {
+    const permalink = readSource("app/track-payment/[bookingRef]/page.tsx")
+    expect(permalink).toContain("normalizeBookingRefForEdit")
+    expect(permalink).toContain("initialBookingRef={bookingRef}")
+    expect(permalink).toContain("initialEditToken={token}")
+    expect(permalink).toContain("Promise<{ token?: string }>")
+    // The permalink is a thin wrapper — it never renders search/hero markup
+    // or a second shell.
+    expect(permalink).not.toContain("Track Booking")
+    expect(permalink).not.toContain("Search another booking")
+  })
+
+  it("shared view pushes a normalized permalink and back-links without a second shell", () => {
+    const view = readSource("components/track-payment/TrackPaymentView.tsx")
+    // Root search navigates to the canonical normalized permalink.
+    expect(view).toContain(
+      "router.push(`/track-payment/${encodeURIComponent(normalized)}`)"
+    )
+    // The permalink provides a safe path back to search.
+    expect(view).toContain('href="/track-payment"')
+    // The search hero renders only on the root entry, so the permalink never
+    // shows a duplicate shell.
+    expect(view).toContain("{!initialBookingRef ? (")
+    // The token handed to the view is consumed locally (edit-link prefill),
+    // never serialized into query data or rendered twice.
+    expect(view).toContain("initialEditToken")
+  })
+
+  it("confirmation email links prefer the token permalink and fail closed to the root tracker", () => {
+    const email = readSource("convex/emailActions.ts")
+    const permalinkBuilder = readSource(
+      "lib/domain/track-payment/edit-token.ts"
+    )
+    const template = readSource("lib/email/templates/signup-confirmation.tsx")
+
+    expect(permalinkBuilder).toContain("/track-payment/${encodeURIComponent(")
+    expect(permalinkBuilder).toContain("?token=${encodeURIComponent(token)}")
+    // Resend/signup confirmation prefers the durable token permalink.
+    expect(email).toContain("buildTrackPaymentPermalink")
+    // Missing secret fails closed to the plain root tracker (email-match
+    // ownership) — never a forgeable token link.
+    expect(email).toContain("?? `${appUrl}/track-payment`")
+    // The email template renders the server-built link target.
+    expect(template).toContain("trackPaymentUrl")
+    expect(template).toContain("href={trackPaymentUrl}")
   })
 })

@@ -4,6 +4,8 @@ import {
   defaultAccommodationTab,
   defaultFinanceTab,
   financeHref,
+  legacyAccommodationHref,
+  legacyFinanceHref,
   parseAccommodationTab,
   parseFinanceTab,
   readWorkspaceIntent,
@@ -40,5 +42,21 @@ describe("workspace route contracts", () => {
       "roomId=room%2F7"
     )
     expect(readWorkspaceIntent("orderId=o1&roomId=r1")).toEqual({ orderId: "o1", roomId: "r1" })
+  })
+
+  it("legacy redirect helpers keep the tab and intent so old deep links survive", () => {
+    expect(legacyFinanceHref("event", "donations")).toBe(
+      "/dashboard/events/event/finance?tab=donations"
+    )
+    // The v4.0 accommodation legacy link must keep resolving to the Phase 41
+    // Upgrades & Options tab.
+    expect(legacyAccommodationHref("event", "upgrades-options")).toBe(
+      "/dashboard/events/event/accommodation?tab=upgrades-options"
+    )
+    expect(
+      legacyAccommodationHref("event", "allocation", { roomId: "room/9" })
+    ).toBe(
+      "/dashboard/events/event/accommodation?tab=allocation&roomId=room%2F9"
+    )
   })
 })
