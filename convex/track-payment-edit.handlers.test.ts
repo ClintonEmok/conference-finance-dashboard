@@ -464,6 +464,14 @@ test("edit-context projection returns bounded selections, choices, and lock stat
   expect(context?.selections[0].ticketLabel).toBeTruthy()
   expect(context?.selections.every((s) => s.confirmed === false)).toBe(true)
 
+  // Ticket entitlement: a-1 holds the unconstrained ticket (no category
+  // restriction), a-2 holds the superior-suite ticket (resolved to the
+  // superior category).
+  const a1 = context?.selections.find((s) => s.attendeeKey === "a-1")
+  const a2 = context?.selections.find((s) => s.attendeeKey === "a-2")
+  expect(a1?.ticketCategoryId).toBeUndefined()
+  expect(a2?.ticketCategoryId).toBe(seed.categorySuperiorId)
+
   const categories = context?.accommodation.activeCategories ?? []
   expect(categories.map((c) => c.code).sort()).toEqual(["standard", "superior"])
   const standard = categories.find((c) => c.code === "standard")

@@ -611,6 +611,7 @@ export const getTrackPaymentEditContext = query({
           attendeeKey: v.string(),
           attendeeName: v.string(),
           ticketLabel: v.string(),
+          ticketCategoryId: v.optional(v.id("accommodationCategories")),
           categoryId: v.optional(v.id("accommodationCategories")),
           occupancy: v.optional(editOccupancyValidator),
           upgradeSelected: v.boolean(),
@@ -675,12 +676,17 @@ export const getTrackPaymentEditContext = query({
         ctx.db.get("ticketTypes", ticketTypeId)
       )
     )
+    const ticketById = new Map<string, Doc<"ticketTypes">>()
     const ticketLabelById = new Map<string, string>()
     for (const ticket of ticketDocs) {
       if (ticket) {
+        ticketById.set(String(ticket._id), ticket)
         ticketLabelById.set(String(ticket._id), ticket.label)
       }
     }
+    // Ticket entitlement (ticketTypes.roomTypeId → room type → category) so
+    // the editor can offer only the category a constrained ticket allows.
+    const ticketCategoryById = await resolveTicketCategoryById(ctx, ticketById)
 
     const locked = selectionRows.some(
       (row) => row.confirmedAt !== undefined && row.confirmedAt !== null
@@ -699,12 +705,21 @@ export const getTrackPaymentEditContext = query({
       selections: selectionRows.map((row) => {
         const attendee = attendeeById.get(String(row.attendeeId))
         const ticketTypeId = ticketByAttendeeId.get(String(row.attendeeId))
+        const ticketEntitlement = ticketTypeId
+          ? ticketCategoryById.get(String(ticketTypeId))
+          : undefined
         return {
           attendeeKey: attendee?.attendeeKey ?? String(row.attendeeId),
           attendeeName: attendee?.name ?? "Attendee",
           ticketLabel: ticketTypeId
             ? (ticketLabelById.get(String(ticketTypeId)) ?? "Ticket")
             : "Ticket",
+          // undefined = unconstrained ticket (any active category); a
+          // resolved category restricts the offered choices.
+          ticketCategoryId:
+            ticketEntitlement === null || ticketEntitlement === undefined
+              ? undefined
+              : (ticketEntitlement.categoryId as Id<"accommodationCategories">),
           categoryId: row.categoryId ?? undefined,
           occupancy: row.occupancy ?? undefined,
           upgradeSelected: row.upgradeSelected,

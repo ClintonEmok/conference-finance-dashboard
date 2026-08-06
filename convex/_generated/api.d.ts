@@ -1378,6 +1378,7 @@ export declare const api: {
           confirmed: boolean;
           cotSelected: boolean;
           occupancy?: "single" | "shared" | "family";
+          ticketCategoryId?: Id<"accommodationCategories">;
           ticketLabel: string;
           upgradeSelected: boolean;
         }>;
