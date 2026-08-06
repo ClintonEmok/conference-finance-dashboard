@@ -859,6 +859,47 @@ export const updateAccommodation = mutation({
       throwEditError("EDIT_NOT_FOUND", "Booking not found.")
     }
 
+    // Request digest bound to the exact normalized envelope. Computed BEFORE
+    // any mutable-state guard so the replay lookup never depends on the
+    // current selection/configuration state (CR-03): a retry after the
+    // organizer confirms, removes a choice, or changes configuration still
+    // returns the stored replay result instead of a stale guard failure.
+    const requestDigest = await digestEditEnvelope({
+      bookingRef,
+      bookerEmail,
+      editToken: args.editToken ?? null,
+      idempotencyKey,
+      honeypotSeen: args.honeypotSeen,
+      selections: args.selections,
+    })
+
+    // Idempotency (CR-03/CR-04): an already-used key returns its stored
+    // result only when the retry carries the EXACT same envelope digest. A
+    // reuse of the key with a different payload is an idempotency conflict —
+    // the caller must mint a fresh key — never a misleading "replayed" for a
+    // replacement that was not applied.
+    const replayAuditRow = await ctx.db
+      .query("orderAccommodationEditAudits")
+      .withIndex("by_orderId_and_idempotencyKey", (q) =>
+        q.eq("orderId", order._id).eq("idempotencyKey", idempotencyKey)
+      )
+      .first()
+    if (replayAuditRow) {
+      if (replayAuditRow.requestDigest !== requestDigest) {
+        throwEditError(
+          "EDIT_IDEMPOTENCY_CONFLICT",
+          "This idempotency key was already used for a different edit. Retry with a fresh key."
+        )
+      }
+      const totalPaid = await loadPaidTotalForOrder(ctx, order._id)
+      return buildEditResult(
+        bookingRef,
+        "replayed",
+        replayAuditRow.amountDueAfterMinor,
+        totalPaid
+      )
+    }
+
     const selectionRows = await ctx.db
       .query("orderAccommodationSelections")
       .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
@@ -1058,25 +1099,6 @@ export const updateAccommodation = mutation({
       )
     )
 
-    // Idempotency: an already-used key returns its stored result without
-    // repeating writes (checked before the no-op comparison so a retry of an
-    // applied edit reports the original stored result).
-    const replayAuditRow = await ctx.db
-      .query("orderAccommodationEditAudits")
-      .withIndex("by_orderId_and_idempotencyKey", (q) =>
-        q.eq("orderId", order._id).eq("idempotencyKey", idempotencyKey)
-      )
-      .first()
-    if (replayAuditRow) {
-      const totalPaid = await loadPaidTotalForOrder(ctx, order._id)
-      return buildEditResult(
-        bookingRef,
-        "replayed",
-        replayAuditRow.amountDueAfterMinor,
-        totalPaid
-      )
-    }
-
     // A replacement identical to the current preferences is a true no-op:
     // no selection or audit writes, and the canonical amount is returned.
     if (beforeSelectionDigest === afterSelectionDigest) {
@@ -1138,14 +1160,7 @@ export const updateAccommodation = mutation({
     await ctx.db.insert("orderAccommodationEditAudits", {
       orderId: order._id,
       idempotencyKey,
-      requestDigest: await digestEditEnvelope({
-        bookingRef,
-        bookerEmail,
-        editToken: args.editToken ?? null,
-        idempotencyKey,
-        honeypotSeen: args.honeypotSeen,
-        selections: args.selections,
-      }),
+      requestDigest,
       ownershipMethod,
       beforeSelectionDigest,
       afterSelectionDigest,

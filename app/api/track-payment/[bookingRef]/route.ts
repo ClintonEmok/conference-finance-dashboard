@@ -287,7 +287,8 @@ export async function POST(
             ? 403
             : guardError.code === "EDIT_CONFIRMED" ||
                 guardError.code === "EDIT_INVALID" ||
-                guardError.code === "EDIT_CONFLICT"
+                guardError.code === "EDIT_CONFLICT" ||
+                guardError.code === "EDIT_IDEMPOTENCY_CONFLICT"
               ? 409
               : 500
       return NextResponse.json(

@@ -1469,3 +1469,158 @@ test("a route-issued edit token verifies against the canonical permalink binding
     })
   ).toBe(true)
 })
+
+test("reusing an idempotency key with a different envelope rejects with EDIT_IDEMPOTENCY_CONFLICT", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  await createOrderWithSelections(t, seed)
+
+  const appliedSelections = [
+    replacement({
+      attendeeKey: "a-1",
+      categoryId: seed.categorySuperiorId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+    replacement({
+      attendeeKey: "a-2",
+      categoryId: seed.categorySuperiorId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+  ]
+  const idempotencyKey = uniqueIdempotencyKey()
+  const first = await t.mutation(api.publicTracking.updateAccommodation, {
+    bookingRef: BOOKING_REF,
+    bookerEmail: "booker@example.com",
+    requestSignature: await signEditEnvelope({
+      bookingRef: BOOKING_REF,
+      bookerEmail: "booker@example.com",
+      idempotencyKey,
+      selections: appliedSelections,
+    }),
+    idempotencyKey,
+    honeypotSeen: false,
+    selections: appliedSelections,
+  })
+  expect(first.status).toBe("applied")
+
+  // Same key, DIFFERENT replacement payload: the stored request digest does
+  // not match, so the retry must fail closed instead of claiming "replayed".
+  const changedSelections = [
+    replacement({
+      attendeeKey: "a-1",
+      categoryId: seed.categoryStandardId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+    replacement({
+      attendeeKey: "a-2",
+      categoryId: seed.categorySuperiorId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+  ]
+  const error = await t.mutation(
+    api.publicTracking.updateAccommodation,
+    {
+      bookingRef: BOOKING_REF,
+      bookerEmail: "booker@example.com",
+      requestSignature: await signEditEnvelope({
+        bookingRef: BOOKING_REF,
+        bookerEmail: "booker@example.com",
+        idempotencyKey,
+        selections: changedSelections,
+      }),
+      idempotencyKey,
+      honeypotSeen: false,
+      selections: changedSelections,
+    }
+  ).catch((err: unknown) => err)
+  expect(error).toBeInstanceOf(Error)
+  expect((error as Error).message).toContain("EDIT_IDEMPOTENCY_CONFLICT")
+
+  // The conflicting retry wrote nothing.
+  const audits = await t.query(async (ctx) => {
+    const rows = []
+    for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
+      rows.push(row)
+    }
+    return rows
+  })
+  expect(audits).toHaveLength(1)
+})
+
+test("a same-key replay returns the stored result even after the organizer confirms the configuration", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  const order = await createOrderWithSelections(t, seed)
+
+  const selections = [
+    replacement({
+      attendeeKey: "a-1",
+      categoryId: seed.categorySuperiorId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+    replacement({
+      attendeeKey: "a-2",
+      categoryId: seed.categorySuperiorId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+  ]
+  const idempotencyKey = uniqueIdempotencyKey()
+  const requestSignature = await signEditEnvelope({
+    bookingRef: BOOKING_REF,
+    bookerEmail: "booker@example.com",
+    idempotencyKey,
+    selections,
+  })
+
+  const first = await t.mutation(api.publicTracking.updateAccommodation, {
+    bookingRef: BOOKING_REF,
+    bookerEmail: "booker@example.com",
+    requestSignature,
+    idempotencyKey,
+    honeypotSeen: false,
+    selections,
+  })
+  expect(first.status).toBe("applied")
+
+  // The organizer now confirms the configuration — the confirmedAt guard
+  // would reject a fresh edit, but the replay check runs BEFORE that guard,
+  // so the retry still returns the stored result (CR-03).
+  await t.mutation(async (ctx) => {
+    const rows = await ctx.db
+      .query("orderAccommodationSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", order.orderId as never))
+      .take(10)
+    for (const row of rows) {
+      await ctx.db.patch("orderAccommodationSelections", row._id, {
+        confirmedAt: BASE_EVENT_AT,
+        configVersion: BASE_EVENT_AT,
+      })
+    }
+  })
+
+  const second = await t.mutation(api.publicTracking.updateAccommodation, {
+    bookingRef: BOOKING_REF,
+    bookerEmail: "booker@example.com",
+    requestSignature,
+    idempotencyKey,
+    honeypotSeen: false,
+    selections,
+  })
+  expect(second.status).toBe("replayed")
+  expect(second.amountDueMinor).toBe(22500)
+
+  const audits = await t.query(async (ctx) => {
+    const rows = []
+    for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
+      rows.push(row)
+    }
+    return rows
+  })
+  expect(audits).toHaveLength(1)
+})

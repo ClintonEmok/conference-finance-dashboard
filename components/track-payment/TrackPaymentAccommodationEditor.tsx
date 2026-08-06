@@ -140,6 +140,8 @@ function messageForEditError(code: string): string {
     case "EDIT_INVALID":
     case "EDIT_CONFLICT":
       return "Some of your preferences are no longer available. Review your choices and try again."
+    case "EDIT_IDEMPOTENCY_CONFLICT":
+      return "This change was already submitted. If it did not save, reload the page and try again with a fresh attempt."
     case "EDIT_NOT_FOUND":
       return "We couldn't locate that booking."
     case "RATE_LIMITED":

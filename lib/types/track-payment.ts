@@ -11,6 +11,7 @@ export const trackPaymentEditErrorCodeValues = [
   "EDIT_CONFIRMED",
   "EDIT_INVALID",
   "EDIT_CONFLICT",
+  "EDIT_IDEMPOTENCY_CONFLICT",
   "SIGNATURE_REQUIRED",
   "EDIT_REJECTED",
 ] as const
