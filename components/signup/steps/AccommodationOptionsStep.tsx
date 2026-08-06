@@ -158,9 +158,25 @@ export function AccommodationOptionsStep({
                               name={`category-${attendee.attendeeKey}`}
                               value={category.categoryId}
                               checked={selected}
-                              onChange={() =>
-                                patch({ categoryId: category.categoryId })
-                              }
+                              onChange={() => {
+                                // WR-01: a category change clears an
+                                // occupancy that is not offered by the new
+                                // category's configured rate rows, so the
+                                // draft can never hold an invalid
+                                // category/occupancy combination.
+                                const rateOccupancies = new Set(
+                                  category.rates.map((rate) => rate.occupancy)
+                                )
+                                const patchValue: Partial<AccommodationSelectionDraft> =
+                                  { categoryId: category.categoryId }
+                                if (
+                                  current.occupancy &&
+                                  !rateOccupancies.has(current.occupancy)
+                                ) {
+                                  patchValue.occupancy = ""
+                                }
+                                patch(patchValue)
+                              }}
                               className="mt-0.5 size-4 shrink-0 accent-primary"
                             />
                             <span className="min-w-0">
@@ -252,9 +268,23 @@ export function AccommodationOptionsStep({
                       <select
                         id={`age-band-${attendee.attendeeKey}`}
                         value={current.ageBandCode}
-                        onChange={(eventValue) =>
-                          patch({ ageBandCode: eventValue.target.value })
-                        }
+                        onChange={(eventValue) => {
+                          const nextAgeBandCode = eventValue.target.value
+                          // WR-01: moving away from the event-configured cot
+                          // eligibility band clears a selected cot, so the
+                          // cot checkbox never stays checked while disabled.
+                          const patchValue: Partial<AccommodationSelectionDraft> =
+                            { ageBandCode: nextAgeBandCode }
+                          if (
+                            current.cotSelected &&
+                            cotOption?.eligibilityAgeBandCode &&
+                            nextAgeBandCode !==
+                              cotOption.eligibilityAgeBandCode
+                          ) {
+                            patchValue.cotSelected = false
+                          }
+                          patch(patchValue)
+                        }}
                         className="min-h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 sm:w-auto"
                       >
                         <option value="">Prefer not to say</option>
