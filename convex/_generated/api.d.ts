@@ -1563,6 +1563,7 @@ export declare const api: {
         notes?: string;
         payloadFingerprint: string;
         source: "integration" | "internal";
+        submissionToken: string;
         ticketSelections: Array<{
           attendeeKey: string;
           quantity: number;
