@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: Accommodation Upgrades & Options
-current_phase: 44
-current_phase_name: Allocation Paid-Priority
+current_phase: 45
+current_phase_name: Verification & Cross-Surface Audit
 status: in_progress
-stopped_at: Phase 44 fully executed (plans 01-03 complete); Phase 45 verification next; Phase 40-43 human items remain deferred to v5.0 milestone completion
-last_updated: "2026-08-06T08:45:00.000Z"
+stopped_at: Phase 45 plans 01-02 executed (canonical money matrix + security/idempotency/immutability gate); plan 03 paused at the human UAT checkpoint (v4.0 Phase 38 + Phase 40-44 deferred browser/provider/secret walkthrough)
+last_updated: "2026-08-06T12:45:00.000Z"
 last_activity: 2026-08-06
-last_activity_desc: Executed 44-01 through 44-03 (pure payment-state contract, paid-priority board + assignment lock, accessible paid-first Allocation UI); Phase 40-43 human items remain deferred until v5.0 milestone completion
+last_activity_desc: Executed 45-01 (cross-consumer canonical money matrix, zero divergence) and 45-02 (public-edit security/idempotency/confirmation gate, zero defects); 45-03 automated gates green, awaiting the final human walkthrough
 progress:
   total_phases: 7
   completed_phases: 0
-  total_plans: 12
-  completed_plans: 12
-  percent: 100
+  total_plans: 15
+  completed_plans: 14
+  percent: 93
 ---
 
 # Project State
@@ -28,12 +28,12 @@ See: `.planning/PROJECT.md`.
 
 ## Current Position
 
-Phase: 44 — Allocation Paid-Priority
-Plan: 44-01 + 44-02 + 44-03 complete — all Phase 44 plans executed (pure payment-state contract, paid-priority board + assignment lock, accessible paid-first Allocation UI); Phase 45 verification next
-Status: In progress (0/7 phases signed off; phase sign-off absorbed into v5.0 Phase 45)
-Last activity: 2026-08-06 — Executed 44-01 through 44-03; Phase 40/41/42/43 human items remain deferred until v5.0 milestone completion
+Phase: 45 — Verification & Cross-Surface Audit
+Plan: 45-01 + 45-02 complete (money matrix + security gate); 45-03 automated gates green, paused at Task 3 human UAT checkpoint
+Status: In progress (0/7 phases signed off; phase sign-off is the v5.0 Phase 45 human walkthrough)
+Last activity: 2026-08-06 — Executed 45-01 and 45-02; ran the full 45-03 automated validation matrix green; awaiting representative-event browser/operational walkthrough
 
-Progress: ████████████ (12/12 plans executed across Phases 39-44; 0/7 phases signed off)
+Progress: ██████████████░ (14/15 plans executed across Phases 39-45; 0/7 phases signed off)
 
 ## Performance Metrics
 
@@ -65,6 +65,10 @@ Progress: ████████████ (12/12 plans executed across Phas
 
 - **Phase 44 executed (plans 01-03):** Allocation is now paid-priority end-to-end. Plan 01: the pure `lib/domain/finance/allocation-payment-state.ts` contract (`deriveAllocationPaymentState` + `deriveAllocationPaymentBreakdowns`) classifies every canonical due-map attendee as paid/partial/unpaid from server-supplied due/paid minor units (zero-due = paid, paid ≥ due = paid, positive below due = partial, else unpaid), allocates matched payment totals by due weight via the existing `allocateMinorAmountByWeight` (deterministic remainder), and never reads order status/DB/UI state. Plan 02: `convex/finance.ts` adds `loadOrderAttendeePaymentBreakdowns` (one matched-payment load per scoped order set); `getRoomAllocationBoard` loads the canonical projection once per board read, attaches typed `paymentState`/`amountDueMinor`/`paidAmountMinor` to unassigned rows, room occupants, buyer suggestions, and submission queue rows, and sorts unassigned + queue paid-first then by allocation priority and stable ties; `persistOrderAccommodationConfirmation` reuses the Phase 41 `resolveOrderAccommodationConfirmation` in `assignRoomToAttendee`/`assignAttendeeToRoom`/`confirmBuyerAssignment` to persist `confirmedAt`+`configVersion`+`priceSnapshot` atomically with the assignment write — legacy orders (no selection rows) skip cleanly, fully-confirmed orders are idempotent no-ops, partially-confirmed sets fail closed; the shared resolver's age-band guard now accepts an optional blank band without cot (Phase 42 optional-age-band rule) while cot still requires the event-configured eligibility band. Plan 03: the Allocation workspace renders server-owned `Paid`/`Partially paid`/`Unpaid` badges (explicit text + icon + aria-label, emerald/amber/muted treatments, unpaid never hidden), a payment-priority legend, and the lock-boundary helper copy (`Confirming an assignment confirms this buyer's accommodation configuration and closes further buyer changes.`); `generateAllocationProposal` keeps payment state as the primary rank then allocationPriority and the existing stable tie-breakers, with `paymentState` propagated onto suggestion/unplaced rows. Internal events with recorded payments render as paid even when order/provider status stays pending.
 
+- **Phase 45 plan 01 executed:** cross-consumer canonical money matrix. `tests/convex/phase45-money-integrity.test.ts` proves one server-owned amount-due and per-attendee map across the loader, booking lookup, public tracking, reconciliation, order ledger, payment summary, attendee detail, revenue/reporting share, Allocation board, and internal sync (representative order = 14000; A 6000/B 8000; due-weight paid split A 2143/B 2857), plus live-vs-snapshot, legacy/missing-config safety, paid/partial/unpaid/overpaid classification, auto-match amount authority, and flexible-zero link immutability. `tests/finance/phase45-money-integrity.test.ts` is a static source audit (loader-only authority, no second formula, totalAmountMinor fallback-only, flexible-zero creation guard). Zero consumer divergence — evidence-only, no production changes.
+- **Phase 45 plan 02 executed:** public-edit security/idempotency/confirmation gate. Added cross-order ownership (another order's email/token fail `EDIT_OWNERSHIP` with no writes), signature-key binding (captured signature under a fresh key fails `SIGNATURE_REQUIRED`), duplicate attendee key, broken ticket entitlement, route-level client-signature rejection, persisted selection-row idempotency, and partially-confirmed assignment fail-closed. Zero guard/atomicity defects — test-only.
+- **Phase 45 plan 03 tasks 1-2 executed:** deep-link/single-shell/cross-surface UI contracts (root search → normalized permalink, token query preservation, no duplicate shell, email token-permalink with root fallback, legacy workspace redirects, no client money arithmetic, options-only signup, Allocation server payment-state badges) and the full automated validation matrix (component 483, convex 113, default 439, typecheck, build, codegen, dev --once, diff-check all green).
+
 ### Carried From v4.0 (context preserved)
 
 - Event-scoped shell, single concise sidebar, shared dashboard query-state vocabulary, canonical finance/accommodation contracts, workspace tab pattern (`lib/dashboard/workspace-routes.ts`), event Overview as operational home.
@@ -86,6 +90,10 @@ Progress: ████████████ (12/12 plans executed across Phas
 - [x] Execute Phase 44 plan 01 (pure allocation payment-state contract: tri-state classification + due-weight allocation)
 - [x] Execute Phase 44 plan 02 (paid-priority board projection + assignment-confirmation lock via Phase 41 resolver)
 - [x] Execute Phase 44 plan 03 (accessible paid-first Allocation UI + payment-first proposal ordering)
+- [x] Execute Phase 45 plan 01 (cross-consumer canonical money matrix + source audit; zero divergence — evidence-only)
+- [x] Execute Phase 45 plan 02 (public-edit security/idempotency/confirmation regression gate; zero defects — test-only)
+- [x] Execute Phase 45 plan 03 tasks 1-2 (deep-link/single-shell/cross-surface UI contracts + full automated validation matrix green)
+- [ ] Complete Phase 45 plan 03 task 3 (human UAT walkthrough: v4.0 Phase 38 routes + Phase 40-44 deferred browser/provider/secret checks) — paused at checkpoint
 - [ ] Resolve Phase 42 research flag: legacy slot-based signup coexistence/migration window
 
 ### Blockers/Concerns
@@ -101,6 +109,8 @@ Progress: ████████████ (12/12 plans executed across Phas
 - Phase 44 plan 03 carries the same two backstop must_haves (no page overflow at 320px; long labels/badges wrap without clipping) plus the lock-boundary helper copy; markup is UI-SPEC-compliant and source-inspected (min-w-0/flex-wrap badge and legend contract) and the visual walkthrough is deferred to Phase 45 alongside the Phase 40/41/42/43 deferred items.
 - Phase 44 execution had no autonomous deviations requiring user choice; the only plan adjustment was committing Plan 02 Tasks 1+2 as one atomic backend unit (shared file, neither typechecks without the other) and updating the existing `app/api/dashboard/accommodation/assignments/route.test.ts` fixtures for the typed board rows — both documented in the 44-02/44-03 SUMMARIES.
 - The pre-existing track-payment overpaid banner computes the donation amount client-side (`totalPaidMinor - totalDueMinor`) and is preserved unchanged as legacy behavior; the new Phase 43 editor/overpayment surfaces are strictly server-provided. Flagged for Phase 45 cross-surface money-agreement review.
+- Phase 45 plan 01 documented the REQUIREMENTS FIN-04 / ROADMAP "stale links are expired/superseded/regenerated" wording conflict with the locked flexible-zero decision; `STATE.md` flexible-zero remains authoritative and the conflict is recorded in the 45-01 SUMMARY.
+- Phase 45 plans 01-02 found zero production defects: every money consumer already consumes `loadOrderAmountDueBreakdowns` (no second formula), and every security/idempotency/confirmation guard held under the extended matrix. All changes were regression evidence (test files only).
 
 ### Quick Tasks Completed
 
@@ -110,9 +120,9 @@ Progress: ████████████ (12/12 plans executed across Phas
 
 ## Session Continuity
 
-Last session: 2026-08-06T08:45:00.000Z
-Stopped at: Phase 44 fully executed (plans 01-03 complete); Phase 45 verification next
-Resume file: .planning/phases/44-allocation-paid-priority/44-03-SUMMARY.md
+Last session: 2026-08-06T12:45:00.000Z
+Stopped at: Phase 45 plans 01-02 complete; plan 03 automated gates green — paused at the human UAT checkpoint (Task 3)
+Resume file: .planning/phases/45-verification-cross-surface-audit/45-03-PLAN.md
 
 ## Deferred Verification
 
@@ -127,4 +137,5 @@ Resume file: .planning/phases/44-allocation-paid-priority/44-03-SUMMARY.md
 | 41 | verification_deferred_human | /gsd-verify-work 41 (configured-event UI walkthrough, responsive layout, browser confirmation flow deferred until v5.0 milestone completion) |
 | 42 | verification_deferred_human | /gsd-verify-work 42 (320px/responsive signup walkthrough; production SIGNUP_SUBMISSION_SECRET + Turnstile provisioning) |
 | 43 | verification_deferred_human | /gsd-verify-work 43 (responsive permalink walkthrough; production SIGNUP_SUBMISSION_SECRET provisioning) |
+| 44 | verification_deferred_human | /gsd-verify-work 44 (Allocation paid-priority 320px/desktop visual walkthrough, inbox/suggestions/assignment accessibility) |
 | 44 | verification_deferred_human | /gsd-verify-work 44 (320px/responsive Allocation walkthrough; browser assignment-confirm lock flow) |

@@ -367,7 +367,13 @@ Plans:
 4. Confirmed orders do not re-price after an admin rate edit; stale Tikkie links are expired post-re-price; downward re-price after payment surfaces the overpayment decision instead of silently donating.
 5. Convex codegen and development deploy, typecheck, tests, and production build pass, and human UAT confirms options-only signup, permalink re-pricing, and paid-priority allocation on representative events.
 
-**Plans:** TBD
+**Plans:** 3 plans in 2 waves
+
+Plans:
+
+- [ ] 45-01-PLAN.md — Prove canonical money integrity across every consumer
+- [ ] 45-02-PLAN.md — Close edit security, idempotency, and confirmation immutability gaps
+- [ ] 45-03-PLAN.md — Verify deep links, cross-surface UX, full automation, and deferred UAT
 
 ---
 
