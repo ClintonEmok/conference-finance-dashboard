@@ -1,22 +1,24 @@
 "use client"
 
-import { useMemo } from "react"
+import { AlertTriangle, Info } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import type { SignupDraft, AttendeeDraft } from "@/components/signup/state"
+import type { SignupDraft } from "@/components/signup/state"
 import type { SignupClientErrorCode } from "@/components/signup/submission-client"
 import type { SignupSubmissionResult } from "@/lib/types/signup"
+import type { PublicSignupQuoteRenderState } from "@/lib/convex/hooks/signup"
 import { ReviewSection } from "@/components/signup/ReviewSection"
 import { TurnstileCaptcha } from "@/components/signup/TurnstileCaptcha"
-import { formatMoney } from "@/lib/format"
+import { formatPrice } from "@/lib/utils"
 
 type ReviewSubmitStepProps = {
   draft: SignupDraft
+  currency: string
+  quote: PublicSignupQuoteRenderState
   submitResult: SignupSubmissionResult | null
   submitError: { code: SignupClientErrorCode; message: string } | null
   isSubmitting: boolean
   captchaToken: string | null
   onCaptchaTokenChange: (token: string | null) => void
-  skipRooms?: boolean
 }
 
 function formatAttendeeGender(gender: string): string {
@@ -44,23 +46,149 @@ function AttendeeDetailRow({
   )
 }
 
+function QuoteContent({
+  quote,
+  draft,
+  currency,
+}: {
+  quote: NonNullable<Extract<PublicSignupQuoteRenderState, { status: "ready" }>["quote"]>
+  draft: SignupDraft
+  currency: string
+}) {
+  const attendeeNameByKey = new Map(
+    draft.attendees.map((attendee) => [attendee.attendeeKey, attendee.name])
+  )
+
+  return (
+    <div className="space-y-4">
+      <ReviewSection
+        title="Tickets"
+        subtitle={`Total: ${formatPrice(quote.ticketTotalMinor, currency)}`}
+        badge={quote.attendees.length}
+        defaultExpanded={true}
+      >
+        <div className="space-y-2">
+          {quote.attendees.map((attendee) => (
+            <div
+              key={attendee.attendeeKey}
+              className="flex items-center justify-between rounded-md border border-border/50 p-3"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium text-foreground">
+                  {attendeeNameByKey.get(attendee.attendeeKey) ||
+                    `Attendee ${attendee.attendeeKey}`}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {attendee.ticketLabel}
+                </p>
+              </div>
+              <span className="font-mono text-sm font-medium tabular-nums text-foreground/80">
+                {formatPrice(attendee.ticketPriceMinor, currency)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </ReviewSection>
+
+      <ReviewSection
+        title="Accommodation"
+        subtitle={`Total: ${formatPrice(quote.accommodationTotalMinor, currency)}`}
+        badge={quote.attendees.filter((attendee) => attendee.lines.length > 0).length}
+        defaultExpanded={true}
+      >
+        {quote.accommodationTotalMinor === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No accommodation is configured for this event.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {quote.attendees.map((attendee) => {
+              if (attendee.lines.length === 0) return null
+              return (
+                <div key={attendee.attendeeKey}>
+                  <p className="mb-2 text-sm font-medium text-foreground">
+                    {attendeeNameByKey.get(attendee.attendeeKey) ||
+                      `Attendee ${attendee.attendeeKey}`}
+                    {attendee.categoryLabel ? ` — ${attendee.categoryLabel}` : ""}
+                  </p>
+                  <div className="space-y-2">
+                    {attendee.lines.map((line, index) => (
+                      <div
+                        key={`${attendee.attendeeKey}-${line.kind}-${index}`}
+                        className="flex items-center justify-between rounded-md border border-border/50 p-3 text-sm"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground">
+                            {line.label}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatPrice(line.ratePerNightMinor, currency)}{" "}
+                            / person / night
+                            {line.nights > 1
+                              ? ` · ${line.nights} nights`
+                              : ""}
+                          </p>
+                        </div>
+                        <span className="font-mono text-sm font-medium tabular-nums text-foreground/80">
+                          {formatPrice(line.chargeMinor, currency)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+            {quote.breakfastIncluded ? (
+              <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                Breakfast is included.
+              </p>
+            ) : null}
+          </div>
+        )}
+      </ReviewSection>
+
+      <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-4">
+        <div className="flex items-center justify-between text-sm">
+          <span className="font-medium text-foreground">Tickets</span>
+          <span className="font-mono tabular-nums text-foreground/80">
+            {formatPrice(quote.ticketTotalMinor, currency)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="font-medium text-foreground">Accommodation</span>
+          <span className="font-mono tabular-nums text-foreground/80">
+            {formatPrice(quote.accommodationTotalMinor, currency)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between border-t border-border/50 pt-2">
+          <span className="font-bold text-foreground">Total due</span>
+          <span className="font-mono text-lg font-bold tabular-nums text-foreground">
+            {formatPrice(quote.totalDueMinor, currency)}
+          </span>
+        </div>
+        <div className="flex items-start gap-2 pt-1 text-xs text-muted-foreground">
+          <Info className="mt-0.5 size-3.5 shrink-0" />
+          <p>
+            Prices are live and provisional: they may change if the event
+            configuration changes before you submit. Final room placement will
+            be confirmed by the organizer.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ReviewSubmitStep({
   draft,
+  currency,
+  quote,
   submitResult,
   submitError,
   isSubmitting,
   captchaToken,
   onCaptchaTokenChange,
-  skipRooms = false,
 }: ReviewSubmitStepProps) {
-  const totalPrice = useMemo(() => {
-    return draft.ticketSelections.reduce((sum, ticket) => {
-      return sum + ticket.priceMinor * ticket.quantity
-    }, 0)
-  }, [draft.ticketSelections])
-
-  const showAccommodationPreferences = draft.attendees.length > 1
-
   if (submitResult) {
     return null
   }
@@ -90,51 +218,61 @@ export function ReviewSubmitStep({
         </CardContent>
       </Card>
 
-      {/* Tickets Section */}
-      <ReviewSection
-        title="Tickets"
-        subtitle={`Total: ${formatMoney(totalPrice)}`}
-        badge={draft.ticketSelections.reduce((sum, t) => sum + t.quantity, 0)}
-        defaultExpanded={true}
-      >
-        {draft.ticketSelections.length === 0 ? (
-          <p className="text-muted-foreground">No tickets selected.</p>
-        ) : (
-          <div className="space-y-2">
-            {draft.ticketSelections
-              .filter((ticket) => ticket.quantity > 0)
-              .map((ticket) => (
-                <div
-                  key={ticket.ticketTypeId}
-                  className="flex items-center justify-between rounded-md border border-border/50 p-3"
-                >
-                  <div>
-                    <p className="font-medium text-foreground">
-                      {ticket.label}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatMoney(ticket.priceMinor)} each
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium text-foreground">
-                      × {ticket.quantity}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatMoney(ticket.priceMinor * ticket.quantity)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            <div className="flex items-center justify-between border-t border-border/50 pt-3">
-              <span className="font-medium text-foreground">Total</span>
-              <span className="font-semibold text-foreground">
-                {formatMoney(totalPrice)}
-              </span>
+      {/* Quote-backed tickets + accommodation */}
+      {quote.status === "loading" || quote.status === "incomplete" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Your live quote</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div
+              aria-live="polite"
+              className="flex items-center gap-2 text-sm text-muted-foreground"
+            >
+              <span className="size-4 animate-spin rounded-full border-2 border-border border-t-primary" />
+              {quote.status === "incomplete"
+                ? "Complete the accommodation selections to see your live quote."
+                : "Loading your live quote..."}
             </div>
-          </div>
-        )}
-      </ReviewSection>
+          </CardContent>
+        </Card>
+      ) : quote.status === "error" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Your live quote</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+            >
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <div>
+                <p className="font-medium">Quote unavailable</p>
+                <p>{quote.message}</p>
+                <p className="mt-1 text-xs">
+                  Please review your accommodation selections before
+                  submitting.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : quote.status === "unconfigured" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Your live quote</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              No accommodation is configured for this event; you will be
+              charged for your selected tickets only.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <QuoteContent quote={quote.quote} draft={draft} currency={currency} />
+      )}
 
       {/* Attendee Details Section */}
       <ReviewSection
@@ -195,26 +333,6 @@ export function ReviewSubmitStep({
           </div>
         )}
       </ReviewSection>
-
-      {showAccommodationPreferences ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              Accommodation Preferences
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>
-              Room preferences have been captured for {draft.attendees.length}{" "}
-              attendees.
-            </p>
-            <p>
-              Final room allocation will be completed by the organizer after
-              submission.
-            </p>
-          </CardContent>
-        </Card>
-      ) : null}
 
       {draft.notes.trim() ? (
         <Card>

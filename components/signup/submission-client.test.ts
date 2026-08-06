@@ -18,6 +18,7 @@ const draftFixture: SignupDraft = {
       quantity: 1,
       selectable: true,
       reason: null,
+      roomTypeCategoryId: "cat_1",
     },
   ],
   attendees: [
@@ -33,11 +34,35 @@ const draftFixture: SignupDraft = {
       dietaryRestrictions: "none",
       roommatePreference: "Sarah",
     },
+    {
+      attendeeKey: "ticket_1-2",
+      ticketTypeId: "ticket_1",
+      ticketLabel: "Main ticket",
+      name: "John Doe",
+      email: "",
+      phone: "",
+      gender: "male",
+      location: "",
+      dietaryRestrictions: "",
+      roommatePreference: "",
+    },
   ],
-  assignments: {
-    "ticket_1-1": "slot_1",
+  accommodationSelections: {
+    "ticket_1-1": {
+      categoryId: "cat_1",
+      occupancy: "shared",
+      upgradeSelected: true,
+      cotSelected: false,
+      ageBandCode: "18_plus",
+    },
+    "ticket_1-2": {
+      categoryId: "cat_1",
+      occupancy: "shared",
+      upgradeSelected: false,
+      cotSelected: true,
+      ageBandCode: "under_3",
+    },
   },
-  acknowledgeRandomFill: false,
   notes: "Near entrance please",
   booker: {
     name: "Booker",
@@ -107,6 +132,15 @@ describe("signup-flow submission client", () => {
               dietaryRestrictions: "none",
               roommatePreference: "Sarah",
             },
+            {
+              attendeeKey: "ticket_1-2",
+              name: "John Doe",
+              phone: "",
+              gender: "male",
+              location: "",
+              dietaryRestrictions: "",
+              roommatePreference: "",
+            },
           ],
           ticketSelections: [
             {
@@ -114,19 +148,94 @@ describe("signup-flow submission client", () => {
               ticketTypeId: "ticket_1",
               quantity: 1,
             },
-          ],
-          assignments: [
             {
-              attendeeKey: "ticket_1-1",
-              slotId: "slot_1",
-              assignmentIntent: "assign",
+              attendeeKey: "ticket_1-2",
+              ticketTypeId: "ticket_1",
+              quantity: 1,
             },
           ],
-          accommodationSelections: [],
+          assignments: [],
+          accommodationSelections: [
+            {
+              attendeeKey: "ticket_1-1",
+              categoryId: "cat_1",
+              occupancy: "shared",
+              upgradeSelected: true,
+              cotSelected: false,
+              ageBandCode: "18_plus",
+            },
+            {
+              attendeeKey: "ticket_1-2",
+              categoryId: "cat_1",
+              occupancy: "shared",
+              upgradeSelected: false,
+              cotSelected: true,
+              ageBandCode: "under_3",
+            },
+          ],
           captchaToken: "turnstile-token",
         }),
       })
     )
+  })
+
+  it("builds an options-only payload with preferences and an empty assignment list", () => {
+    const payload = buildSubmissionBodyFromDraft(draftFixture)
+
+    expect(payload.assignments).toEqual([])
+    expect(payload.accommodationSelections).toEqual([
+      {
+        attendeeKey: "ticket_1-1",
+        categoryId: "cat_1",
+        occupancy: "shared",
+        upgradeSelected: true,
+        cotSelected: false,
+        ageBandCode: "18_plus",
+      },
+      {
+        attendeeKey: "ticket_1-2",
+        categoryId: "cat_1",
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: true,
+        ageBandCode: "under_3",
+      },
+    ])
+
+    // Negative assertions: no client amount, room, slot, date, night count,
+    // or stay field may leak into the accommodation preferences.
+    const serialized = JSON.stringify(payload)
+    expect(serialized).not.toMatch(/priceMinor/)
+    expect(serialized).not.toMatch(/totalMinor|totalDue/)
+    expect(serialized).not.toMatch(/slotId|roomId|roomType/)
+    expect(serialized).not.toMatch(/checkInAt|checkOutAt|nightCount/)
+    expect(serialized).not.toMatch(/confirmedAt|configVersion|priceSnapshot/)
+  })
+
+  it("omits incomplete accommodation preferences from the payload", () => {
+    const payload = buildSubmissionBodyFromDraft({
+      ...draftFixture,
+      accommodationSelections: {
+        "ticket_1-1": {
+          categoryId: "cat_1",
+          occupancy: "shared",
+          upgradeSelected: false,
+          cotSelected: false,
+          ageBandCode: "",
+        },
+        // ticket_1-2 has no selection at all.
+      },
+    })
+
+    expect(payload.accommodationSelections).toEqual([
+      {
+        attendeeKey: "ticket_1-1",
+        categoryId: "cat_1",
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+      },
+    ])
   })
 
   it("surfaces restore payload metadata when present", async () => {
@@ -147,6 +256,7 @@ describe("signup-flow submission client", () => {
               attendees: [],
               ticketSelections: [],
               assignments: [],
+              accommodationSelections: [],
             },
           },
         }),
@@ -249,17 +359,5 @@ describe("signup-flow submission client", () => {
         message: "Unexpected",
       },
     })
-  })
-
-  it("builds submission payload with attendee-level ticket rows", () => {
-    const payload = buildSubmissionBodyFromDraft(draftFixture)
-
-    expect(payload.ticketSelections).toEqual([
-      {
-        attendeeKey: "ticket_1-1",
-        ticketTypeId: "ticket_1",
-        quantity: 1,
-      },
-    ])
   })
 })

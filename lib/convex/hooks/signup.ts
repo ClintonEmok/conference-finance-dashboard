@@ -104,3 +104,17 @@ export function usePublicSignupAccommodationQuote(
       : "skip"
   )
 }
+
+/**
+ * Render state for the live quote in the review step and the signup summary.
+ * `incomplete` means accommodation is configured but not every attendee has a
+ * category+occupancy yet; `loading` covers in-flight refreshes (a previous
+ * quote is never rendered as if current); `error` carries the server message
+ * and blocks submission until a fresh valid quote exists.
+ */
+export type PublicSignupQuoteRenderState =
+  | { status: "unconfigured" }
+  | { status: "incomplete" }
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; quote: PublicSignupAccommodationQuote }

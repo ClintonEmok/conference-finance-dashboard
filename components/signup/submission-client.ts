@@ -1,4 +1,6 @@
 import type {
+  SignupAccommodationSelection,
+  SignupAgeBandCode,
   SignupSubmissionEnvelope,
   SignupSubmissionRestorePayload,
   SignupSubmissionResult,
@@ -64,18 +66,33 @@ export function buildSubmissionBodyFromDraft(
       ticketTypeId: attendee.ticketTypeId,
       quantity: 1 as const,
     })),
-    assignments: draft.attendees
-      .map((attendee) => ({
-        attendeeKey: attendee.attendeeKey,
-        slotId: draft.assignments[attendee.attendeeKey],
-      }))
-      .filter((assignment) => Boolean(assignment.slotId))
-      .map((assignment) => ({
-        attendeeKey: assignment.attendeeKey,
-        slotId: String(assignment.slotId),
-        assignmentIntent: "assign" as const,
-      })),
-    accommodationSelections: [],
+    // Options-only contract: the client always submits an empty assignment
+    // list (room placement is admin-owned) plus per-attendee accommodation
+    // preferences. No client amount, price, date, night count, room ID, or
+    // slot ID is ever included.
+    assignments: [],
+    accommodationSelections: draft.attendees
+      .map((attendee): SignupAccommodationSelection | null => {
+        const selection = draft.accommodationSelections[attendee.attendeeKey]
+        if (!selection?.categoryId || !selection.occupancy) {
+          return null
+        }
+
+        return {
+          attendeeKey: attendee.attendeeKey,
+          categoryId: selection.categoryId,
+          occupancy: selection.occupancy,
+          upgradeSelected: selection.upgradeSelected,
+          cotSelected: selection.cotSelected,
+          ...(selection.ageBandCode
+            ? { ageBandCode: selection.ageBandCode as SignupAgeBandCode }
+            : {}),
+        }
+      })
+      .filter(
+        (selection): selection is SignupAccommodationSelection =>
+          selection !== null
+      ),
   }
 }
 
