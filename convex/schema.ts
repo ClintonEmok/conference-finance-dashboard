@@ -304,6 +304,30 @@ export default defineSchema({
     .index("by_attendeeId", ["attendeeId"])
     .index("by_orderId_and_attendeeId", ["orderId", "attendeeId"]),
 
+  /**
+   * Append-only audit trail for public track-payment accommodation edits
+   * (Phase 43). One immutable row is written per applied replace-style edit;
+   * an idempotent replay of an already-applied key returns the stored result
+   * and never writes a second row. Every value is server-derived — the
+   * mutation never accepts a client amount, digest, or money figure. Audit
+   * rows are evidence of accepted edits, not a second pricing source.
+   */
+  orderAccommodationEditAudits: defineTable(
+    v.object({
+      orderId: v.id("orders"),
+      idempotencyKey: v.string(),
+      requestDigest: v.string(),
+      ownershipMethod: v.union(v.literal("email"), v.literal("token")),
+      beforeSelectionDigest: v.string(),
+      afterSelectionDigest: v.string(),
+      amountDueBeforeMinor: v.number(),
+      amountDueAfterMinor: v.number(),
+      overpaymentDeltaMinor: v.number(),
+    })
+  )
+    .index("by_orderId_and_idempotencyKey", ["orderId", "idempotencyKey"])
+    .index("by_orderId_and_requestDigest", ["orderId", "requestDigest"]),
+
   orderIdempotency: defineTable(
     v.object({
       eventId: v.id("events"),

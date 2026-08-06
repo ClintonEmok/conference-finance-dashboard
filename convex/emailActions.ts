@@ -7,6 +7,7 @@ import { api, components, internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import { render } from "@react-email/render"
 import SignupConfirmationEmail from "../lib/email/templates/signup-confirmation"
+import { buildTrackPaymentPermalink } from "../lib/domain/track-payment/edit-token"
 
 const resend = new Resend(components.resend, {
   testMode: false,
@@ -107,8 +108,8 @@ Attendees: ${args.attendeeCount}
 
 ${args.tikkieUrl ? `Please complete your payment: ${args.tikkieUrl}` : ""}
 
-Track your payment progress: ${args.trackPaymentUrl}
-Just enter your booking reference: ${args.bookingRef}
+Track your payment progress and update your accommodation preferences: ${args.trackPaymentUrl}
+Keep your booking reference handy: ${args.bookingRef}
 
 View your booking: ${args.successPageUrl}
 
@@ -180,6 +181,17 @@ async function sendOrderConfirmationResendEmail(
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
 
+  // Phase 43: prefer the durable booking-reference permalink with an HMAC
+  // edit token when the shared secret is available; fall back to the plain
+  // root tracker (email ownership) when it is not so a resend is never
+  // emitted with a forgeable token.
+  const trackPaymentUrl =
+    (await buildTrackPaymentPermalink({
+      bookingRef: order.order.bookingRef,
+      bookerEmail: order.order.bookerEmail,
+      appUrl,
+    })) ?? `${appUrl}/track-payment`
+
   const result = await sendSignupConfirmationEmail(ctx, {
     to: order.order.bookerEmail,
     bookerName: order.order.bookerName ?? "Guest",
@@ -194,7 +206,7 @@ async function sendOrderConfirmationResendEmail(
     tikkieCurrency: event?.currency,
     attendeeCount: order.attendees.length,
     roomAssignments: [],
-    trackPaymentUrl: `${appUrl}/track-payment`,
+    trackPaymentUrl,
     successPageUrl: `${appUrl}/signup/success/${order.order.bookingRef}`,
   })
 

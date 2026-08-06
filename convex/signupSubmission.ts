@@ -20,6 +20,7 @@ import {
   digestSubmissionEnvelope,
   verifySignupSubmissionToken,
 } from "../lib/domain/signup/submission-token"
+import { buildTrackPaymentPermalink } from "../lib/domain/track-payment/edit-token"
 
 const IDEMPOTENCY_WINDOW_MS = 2 * 60 * 60 * 1000
 
@@ -931,6 +932,18 @@ export const submitSignupEnvelope = mutation({
         args.assignments
       )
 
+      // Phase 43: prefer the durable booking-reference permalink with an
+      // HMAC edit token when the shared secret is available; fall back to the
+      // plain root tracker (email ownership) when it is not so an email is
+      // never emitted with a forgeable token. The root tracker remains a
+      // compatibility link for public event surfaces.
+      const trackPaymentUrl =
+        (await buildTrackPaymentPermalink({
+          bookingRef,
+          bookerEmail,
+          appUrl,
+        })) ?? `${appUrl}/track-payment`
+
       await ctx.scheduler.runAfter(
         0,
         internal.emailActions.sendSignupConfirmation,
@@ -948,7 +961,7 @@ export const submitSignupEnvelope = mutation({
           tikkieCurrency: event?.currency,
           attendeeCount: args.attendees.length,
           roomAssignments,
-          trackPaymentUrl: `${appUrl}/track-payment`,
+          trackPaymentUrl,
           successPageUrl: `${appUrl}/signup/success/${bookingRef}`,
         }
       )

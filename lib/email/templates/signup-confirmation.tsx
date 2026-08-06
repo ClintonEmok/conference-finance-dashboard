@@ -188,14 +188,16 @@ export default function SignupConfirmationEmail({
               color: "#334155",
             }}
           >
-            You can also check your payment progress at{" "}
+            You can check your payment progress and update your accommodation
+            preferences anytime at{" "}
             <a
               href={trackPaymentUrl}
               style={{ color: "#3b82f6", textDecoration: "none" }}
             >
-              /track-payment
-            </a>{" "}
-            and enter your booking reference: <strong>{bookingRef}</strong>.
+              {trackPaymentUrl}
+            </a>
+            . Keep your booking reference <strong>{bookingRef}</strong> at
+            hand.
           </Text>
 
           <Text
