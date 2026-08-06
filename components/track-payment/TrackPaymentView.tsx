@@ -203,12 +203,19 @@ export function TrackPaymentView({
                     </h3>
                     <p className="text-sm text-emerald-700/80 dark:text-emerald-200/80">
                       You have paid{" "}
-                      {formatMoney(result.tracking.payment.totalPaidMinor)}{" "}
-                      against a due amount of{" "}
-                      {formatMoney(result.tracking.payment.totalDueMinor)}.
-                      Your donation is{" "}
                       {formatMoney(
-                        result.tracking.payment.overpaymentDeltaMinor
+                        result.tracking.payment.totalPaidMinor,
+                        currency
+                      )}{" "}
+                      against a due amount of{" "}
+                      {formatMoney(
+                        result.tracking.payment.totalDueMinor,
+                        currency
+                      )}
+                      . Your donation is{" "}
+                      {formatMoney(
+                        result.tracking.payment.overpaymentDeltaMinor,
+                        currency
                       )}
                       .
                     </p>
@@ -264,13 +271,15 @@ export function TrackPaymentView({
                         <div className="text-right text-sm text-muted-foreground">
                           <p className="font-medium text-foreground">
                             {formatMoney(
-                              result.tracking.payment.totalPaidMinor
+                              result.tracking.payment.totalPaidMinor,
+                              currency
                             )}{" "}
                             paid
                           </p>
                           <p className="opacity-80">
                             {formatMoney(
-                              result.tracking.payment.remainingMinor
+                              result.tracking.payment.remainingMinor,
+                              currency
                             )}{" "}
                             remaining
                           </p>
@@ -293,21 +302,24 @@ export function TrackPaymentView({
                       <MetricCard
                         label="Total"
                         value={formatMoney(
-                          result.tracking.payment.totalDueMinor
+                          result.tracking.payment.totalDueMinor,
+                          currency
                         )}
                         icon={CreditCard}
                       />
                       <MetricCard
                         label="Paid"
                         value={formatMoney(
-                          result.tracking.payment.totalPaidMinor
+                          result.tracking.payment.totalPaidMinor,
+                          currency
                         )}
                         icon={CheckCircle2}
                       />
                       <MetricCard
                         label="Owed"
                         value={formatMoney(
-                          result.tracking.payment.remainingMinor
+                          result.tracking.payment.remainingMinor,
+                          currency
                         )}
                         icon={Wallet}
                       />
@@ -320,7 +332,8 @@ export function TrackPaymentView({
                         <MetricCard
                           label="Donation"
                           value={formatMoney(
-                            result.tracking.payment.overpaymentDeltaMinor
+                            result.tracking.payment.overpaymentDeltaMinor,
+                            currency
                           )}
                           icon={Wallet}
                         />

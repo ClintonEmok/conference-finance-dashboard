@@ -219,8 +219,10 @@ export async function submitTrackPaymentEdit(input: {
  */
 export function TrackPaymentEditResultPanel({
   result,
+  currency = "EUR",
 }: {
   result: TrackPaymentEditResult
+  currency?: string
 }) {
   const hasOverpayment = result.overpaymentDeltaMinor > 0
   return (
@@ -244,7 +246,7 @@ export function TrackPaymentEditResultPanel({
           <div>
             <p className="font-semibold">
               Your payments exceed the new amount due by{" "}
-              {formatMoney(result.overpaymentDeltaMinor)}.
+              {formatMoney(result.overpaymentDeltaMinor, currency)}.
             </p>
             <p className="mt-1 text-amber-700/80 dark:text-amber-200/80">
               Unless you contact the organizers to request a refund, the excess
@@ -600,7 +602,10 @@ export function TrackPaymentAccommodationEditor({
 
       {successResult ? (
         <div className="mt-4">
-          <TrackPaymentEditResultPanel result={successResult} />
+          <TrackPaymentEditResultPanel
+            result={successResult}
+            currency={currency}
+          />
         </div>
       ) : null}
     </article>
