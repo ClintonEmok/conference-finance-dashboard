@@ -1,8 +1,29 @@
-import { query } from "./_generated/server"
+import { mutation, query, type MutationCtx } from "./_generated/server"
 import { v } from "convex/values"
+import type { Doc, Id } from "./_generated/dataModel"
 
 import { loadOrderAmountDueBreakdowns } from "./finance"
 import { isOrderAppliedPayment } from "../lib/domain/finance/amounts"
+import {
+  loadPublicSignupAccommodationContext,
+  resolvePublicSignupSelection,
+  resolveTicketCategoryById,
+  type PublicSignupAccommodationContext,
+} from "./signupCatalog"
+import {
+  signupAgeBandCodeValidator,
+  signupAccommodationOccupancyValidator,
+} from "../lib/types/signup"
+import {
+  digestAccommodationSelections,
+  digestEditEnvelope,
+  normalizeBookerEmail,
+  normalizeBookingRefForEdit,
+  verifyEditRequestSignature,
+  verifyTrackPaymentEditToken,
+} from "../lib/domain/track-payment/edit-token"
+
+const EDIT_SELECTION_LIMIT = 200
 
 function normalizeBookingRef(bookingRef: string): string {
   return bookingRef.trim().toUpperCase()
@@ -348,5 +369,774 @@ export const getByEmailOrBookingRef = query({
     }
 
     return null
+  },
+})
+
+// ---------------------------------------------------------------------------
+// Phase 43: durable permalink accommodation edit contract
+//
+// The permalink is the application's first public write. Two surfaces guard
+// it: the Next.js API route (rate limit + honeypot + request signing) and
+// this Convex contract, which remains independently secure against direct
+// invocation. The mutation re-checks ownership, verifies the route-issued
+// request signature, validates every preference through the Phase 42 shared
+// resolver, enforces the confirmedAt lock, and prices canonically before and
+// after the atomic replace. It never accepts a client amount, date, night
+// count, room, slot, payment or snapshot, and never patches order totals,
+// payments, assignments or Tikkie links.
+// ---------------------------------------------------------------------------
+
+const editCategoryCodeValidator = v.union(
+  v.literal("standard"),
+  v.literal("superior"),
+  v.literal("family")
+)
+const editOptionCodeValidator = v.union(
+  v.literal("superior_upgrade"),
+  v.literal("cot")
+)
+const editOccupancyValidator = signupAccommodationOccupancyValidator
+const editAgeBandCodeValidator = signupAgeBandCodeValidator
+
+const editChoiceRateValidator = v.object({
+  occupancy: editOccupancyValidator,
+  pricePerPersonMinor: v.number(),
+})
+
+const editChoiceCategoryValidator = v.object({
+  categoryId: v.id("accommodationCategories"),
+  code: editCategoryCodeValidator,
+  label: v.string(),
+  rates: v.array(editChoiceRateValidator),
+})
+
+const editChoiceOptionValidator = v.object({
+  optionCode: editOptionCodeValidator,
+  label: v.string(),
+  priceMinor: v.number(),
+  eligibilityAgeBandCode: v.union(editAgeBandCodeValidator, v.null()),
+})
+
+const editChoiceAgeBandValidator = v.object({
+  code: editAgeBandCodeValidator,
+  label: v.string(),
+  minAge: v.number(),
+  maxAge: v.union(v.number(), v.null()),
+})
+
+const editAccommodationConfigValidator = v.object({
+  baseCheckInAt: v.number(),
+  baseCheckOutAt: v.number(),
+  nightCount: v.number(),
+  breakfastIncluded: v.boolean(),
+})
+
+const editSelectionValidator = v.object({
+  attendeeKey: v.string(),
+  categoryId: v.optional(v.id("accommodationCategories")),
+  occupancy: v.optional(editOccupancyValidator),
+  upgradeSelected: v.boolean(),
+  cotSelected: v.boolean(),
+  ageBandCode: v.optional(editAgeBandCodeValidator),
+})
+
+/**
+ * Event-configured choice sets derived exclusively from the same rows the
+ * quote, submission and canonical loader use. No room, slot, hotel, bed,
+ * inventory or physical placement data is ever exposed to the public edit
+ * surface.
+ */
+function buildEditChoices(
+  context: PublicSignupAccommodationContext
+): {
+  eligible: boolean
+  config: {
+    baseCheckInAt: number
+    baseCheckOutAt: number
+    nightCount: number
+    breakfastIncluded: boolean
+  } | null
+  activeCategories: Array<{
+    categoryId: Id<"accommodationCategories">
+    code: "standard" | "superior" | "family"
+    label: string
+    rates: Array<{
+      occupancy: "single" | "shared" | "family"
+      pricePerPersonMinor: number
+    }>
+  }>
+  options: Array<{
+    optionCode: "superior_upgrade" | "cot"
+    label: string
+    priceMinor: number
+    eligibilityAgeBandCode: "under_3" | "3_11" | "12_17" | "18_plus" | null
+  }>
+  ageBands: Array<{
+    code: "under_3" | "3_11" | "12_17" | "18_plus"
+    label: string
+    minAge: number
+    maxAge: number | null
+  }>
+} {
+  const hasConfiguredChoices = context.hasConfiguredAccommodation
+
+  const activeCategories = hasConfiguredChoices
+    ? Array.from(context.activeCategoryIds).map((categoryId) => {
+        const category = context.categoryById.get(categoryId)
+        const rates = Array.from(context.ratesByKey.entries())
+          .filter(([key]) => key.startsWith(`${categoryId}:`))
+          .map(([key, pricePerPersonMinor]) => ({
+            occupancy: key.split(":")[1] as "single" | "shared" | "family",
+            pricePerPersonMinor,
+          }))
+        return {
+          categoryId: categoryId as Id<"accommodationCategories">,
+          code: (category?.code ?? "standard") as
+            | "standard"
+            | "superior"
+            | "family",
+          label: category?.label ?? "Unknown category",
+          rates,
+        }
+      })
+    : []
+
+  const options: Array<{
+    optionCode: "superior_upgrade" | "cot"
+    label: string
+    priceMinor: number
+    eligibilityAgeBandCode: "under_3" | "3_11" | "12_17" | "18_plus" | null
+  }> = []
+  if (
+    hasConfiguredChoices &&
+    context.superiorUpgradePriceMinor !== null
+  ) {
+    options.push({
+      optionCode: "superior_upgrade",
+      label:
+        context.optionLabelByCode.get("superior_upgrade") ??
+        "Superior upgrade",
+      priceMinor: context.superiorUpgradePriceMinor,
+      eligibilityAgeBandCode: null,
+    })
+  }
+  if (hasConfiguredChoices && context.cotPriceMinor !== null) {
+    options.push({
+      optionCode: "cot",
+      label: context.optionLabelByCode.get("cot") ?? "Cot",
+      priceMinor: context.cotPriceMinor,
+      eligibilityAgeBandCode: (context.cotEligibilityAgeBandCode ?? null) as
+        | "under_3"
+        | "3_11"
+        | "12_17"
+        | "18_plus"
+        | null,
+    })
+  }
+
+  return {
+    eligible: hasConfiguredChoices,
+    config: hasConfiguredChoices ? context.config : null,
+    activeCategories,
+    options,
+    ageBands: hasConfiguredChoices ? context.ageBands : [],
+  }
+}
+
+function throwEditError(code: string, message: string): never {
+  throw new Error(`${code}: ${message}`)
+}
+
+async function loadPaidTotalForOrder(
+  ctx: MutationCtx,
+  orderId: Id<"orders">
+): Promise<number> {
+  const paymentRows = await ctx.db
+    .query("payments")
+    .withIndex("orderId", (q) => q.eq("orderId", String(orderId)))
+    .take(100)
+  return paymentRows
+    .filter((payment) => isOrderAppliedPayment(payment))
+    .reduce((sum, payment) => sum + payment.amountMinor, 0)
+}
+
+function buildEditResult(
+  bookingRef: string,
+  status: "applied" | "unchanged" | "replayed",
+  amountDueMinor: number,
+  totalPaidMinor: number
+) {
+  const remainingMinor = Math.max(0, amountDueMinor - totalPaidMinor)
+  const progressPercent =
+    amountDueMinor <= 0
+      ? 100
+      : Math.min(100, Math.round((totalPaidMinor / amountDueMinor) * 100))
+  const overpaymentDeltaMinor = Math.max(0, totalPaidMinor - amountDueMinor)
+  return {
+    bookingRef,
+    status,
+    amountDueMinor,
+    totalPaidMinor,
+    remainingMinor,
+    progressPercent,
+    overpaymentDeltaMinor,
+  }
+}
+
+/**
+ * Bounded, public, read-only projection for the durable permalink. Returns
+ * the event's configured edit choices, the order's current options-only
+ * selections, and whether any selection is confirmed (locked). Never returns
+ * the edit token, request signature, payment link secrets, or raw ownership
+ * credentials.
+ */
+export const getTrackPaymentEditContext = query({
+  args: {
+    bookingRef: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      bookingRef: v.string(),
+      event: v.object({
+        slug: v.string(),
+        title: v.string(),
+        startsAt: v.number(),
+        currency: v.string(),
+      }),
+      locked: v.boolean(),
+      hasSelections: v.boolean(),
+      selections: v.array(
+        v.object({
+          attendeeKey: v.string(),
+          attendeeName: v.string(),
+          ticketLabel: v.string(),
+          categoryId: v.optional(v.id("accommodationCategories")),
+          occupancy: v.optional(editOccupancyValidator),
+          upgradeSelected: v.boolean(),
+          cotSelected: v.boolean(),
+          ageBandCode: v.optional(editAgeBandCodeValidator),
+          confirmed: v.boolean(),
+        })
+      ),
+      accommodation: v.object({
+        eligible: v.boolean(),
+        config: v.union(editAccommodationConfigValidator, v.null()),
+        activeCategories: v.array(editChoiceCategoryValidator),
+        options: v.array(editChoiceOptionValidator),
+        ageBands: v.array(editChoiceAgeBandValidator),
+      }),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const bookingRef = normalizeBookingRefForEdit(args.bookingRef)
+
+    const order = await ctx.db
+      .query("orders")
+      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", bookingRef))
+      .first()
+
+    if (!order || !order.eventId) {
+      return null
+    }
+
+    const event = await ctx.db.get(order.eventId)
+    if (!event) {
+      return null
+    }
+
+    const [attendeeRows, ticketSelectionRows, selectionRows, context] =
+      await Promise.all([
+        ctx.db
+          .query("orderAttendees")
+          .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+          .take(500),
+        ctx.db
+          .query("orderTicketSelections")
+          .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+          .take(500),
+        ctx.db
+          .query("orderAccommodationSelections")
+          .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+          .take(EDIT_SELECTION_LIMIT),
+        loadPublicSignupAccommodationContext(ctx, order.eventId),
+      ])
+
+    const attendeeById = new Map(
+      attendeeRows.map((attendee) => [String(attendee._id), attendee])
+    )
+    const ticketByAttendeeId = new Map<string, Id<"ticketTypes">>()
+    for (const selection of ticketSelectionRows) {
+      ticketByAttendeeId.set(String(selection.attendeeId), selection.ticketTypeId)
+    }
+    const ticketTypeIds = new Set(ticketSelectionRows.map((row) => row.ticketTypeId))
+    const ticketDocs = await Promise.all(
+      Array.from(ticketTypeIds).map((ticketTypeId) =>
+        ctx.db.get("ticketTypes", ticketTypeId)
+      )
+    )
+    const ticketLabelById = new Map<string, string>()
+    for (const ticket of ticketDocs) {
+      if (ticket) {
+        ticketLabelById.set(String(ticket._id), ticket.label)
+      }
+    }
+
+    const locked = selectionRows.some(
+      (row) => row.confirmedAt !== undefined && row.confirmedAt !== null
+    )
+
+    return {
+      bookingRef,
+      event: {
+        slug: event.slug,
+        title: event.title,
+        startsAt: event.startsAt,
+        currency: event.currency,
+      },
+      locked,
+      hasSelections: selectionRows.length > 0,
+      selections: selectionRows.map((row) => {
+        const attendee = attendeeById.get(String(row.attendeeId))
+        const ticketTypeId = ticketByAttendeeId.get(String(row.attendeeId))
+        return {
+          attendeeKey: attendee?.attendeeKey ?? String(row.attendeeId),
+          attendeeName: attendee?.name ?? "Attendee",
+          ticketLabel: ticketTypeId
+            ? (ticketLabelById.get(String(ticketTypeId)) ?? "Ticket")
+            : "Ticket",
+          categoryId: row.categoryId ?? undefined,
+          occupancy: row.occupancy ?? undefined,
+          upgradeSelected: row.upgradeSelected,
+          cotSelected: row.cotSelected,
+          ageBandCode: row.ageBandCode ?? undefined,
+          confirmed:
+            row.confirmedAt !== undefined && row.confirmedAt !== null,
+        }
+      }),
+      accommodation: buildEditChoices(context),
+    }
+  },
+})
+
+/**
+ * Atomic replace-style accommodation edit for the public permalink.
+ *
+ * Guards (each before any write):
+ * 1. A valid route-issued request signature over the exact normalized
+ *    envelope (booking ref, ownership fields, idempotency key, honeypot
+ *    marker, complete selections) — direct invocation fails closed.
+ * 2. Ownership: normalized booker-email match OR an HMAC edit token bound to
+ *    the booking ref and booker email; re-checked here, never trusted from
+ *    the route or the UI.
+ * 3. The order must have selection rows and none may be confirmed; any
+ *    confirmed/malformed/missing row rejects the whole request atomically.
+ * 4. The replacement set must match the existing selection rows exactly and
+ *    every preference must resolve through the Phase 42 shared server
+ *    resolver (ticket entitlement, active categories, rates, options, age
+ *    bands, cot eligibility).
+ *
+ * A replacement identical to the current selections is a true no-op (no row
+ * or audit writes). An already-used idempotency key returns its stored
+ * result without repeating writes. Applied edits persist server-resolved
+ * stay timestamps/night count, insert one append-only audit row with
+ * server-derived amount-due before/after and overpayment delta, and never
+ * touch orders.totalAmountMinor, payments, orderAssignments, or Tikkie
+ * links (flexible-zero links are never regenerated/superseded/expired).
+ */
+export const updateAccommodation = mutation({
+  args: {
+    bookingRef: v.string(),
+    bookerEmail: v.optional(v.string()),
+    editToken: v.optional(v.string()),
+    requestSignature: v.string(),
+    idempotencyKey: v.string(),
+    honeypotSeen: v.boolean(),
+    selections: v.array(editSelectionValidator),
+  },
+  returns: v.object({
+    bookingRef: v.string(),
+    status: v.union(
+      v.literal("applied"),
+      v.literal("unchanged"),
+      v.literal("replayed")
+    ),
+    amountDueMinor: v.number(),
+    totalPaidMinor: v.number(),
+    remainingMinor: v.number(),
+    progressPercent: v.number(),
+    overpaymentDeltaMinor: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const bookingRef = normalizeBookingRefForEdit(args.bookingRef)
+    const bookerEmail = args.bookerEmail
+      ? normalizeBookerEmail(args.bookerEmail)
+      : null
+    const idempotencyKey = args.idempotencyKey.trim()
+    if (!idempotencyKey) {
+      throwEditError("EDIT_INVALID", "An idempotency key is required.")
+    }
+    if (args.selections.length === 0) {
+      throwEditError(
+        "EDIT_INVALID",
+        "A complete accommodation preference replacement is required."
+      )
+    }
+
+    // Route-issued request signature: recomputed from the mutation's own
+    // validated arguments so a captured signature cannot be replayed against
+    // a different envelope, and a direct call without a signature fails
+    // before any database read of editable detail.
+    const requestSignatureValid = await verifyEditRequestSignature(
+      args.requestSignature,
+      {
+        bookingRef,
+        bookerEmail,
+        editToken: args.editToken ?? null,
+        idempotencyKey,
+        honeypotSeen: args.honeypotSeen,
+        selections: args.selections,
+      }
+    )
+    if (!requestSignatureValid) {
+      throwEditError(
+        "SIGNATURE_REQUIRED",
+        "A valid server-issued request signature is required before editing."
+      )
+    }
+
+    const order = await ctx.db
+      .query("orders")
+      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", bookingRef))
+      .first()
+    if (!order || !order.eventId) {
+      throwEditError("EDIT_NOT_FOUND", "Booking not found.")
+    }
+
+    // Ownership is re-checked here, before any editable detail is loaded, so
+    // a failed ownership check never reveals editability or selection data.
+    let ownershipMethod: "email" | "token" | null = null
+    const normalizedOrderEmail = order.bookerEmail
+      ? normalizeBookerEmail(order.bookerEmail)
+      : null
+    if (bookerEmail && normalizedOrderEmail && bookerEmail === normalizedOrderEmail) {
+      ownershipMethod = "email"
+    } else if (args.editToken) {
+      const tokenValid = await verifyTrackPaymentEditToken(args.editToken, {
+        bookingRef,
+        bookerEmail: normalizedOrderEmail ?? bookerEmail ?? "",
+      })
+      if (tokenValid) {
+        ownershipMethod = "token"
+      }
+    }
+    if (!ownershipMethod) {
+      throwEditError(
+        "EDIT_OWNERSHIP",
+        "Ownership of this booking could not be verified."
+      )
+    }
+
+    const event = await ctx.db.get(order.eventId)
+    if (!event) {
+      throwEditError("EDIT_NOT_FOUND", "Booking not found.")
+    }
+
+    const selectionRows = await ctx.db
+      .query("orderAccommodationSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+      .take(EDIT_SELECTION_LIMIT)
+
+    // Missing rows and the confirmedAt lock reject the whole request
+    // atomically before any write.
+    if (selectionRows.length === 0) {
+      throwEditError(
+        "EDIT_CONFLICT",
+        "This booking has no accommodation preferences to edit."
+      )
+    }
+    for (const row of selectionRows) {
+      if (row.confirmedAt !== undefined && row.confirmedAt !== null) {
+        throwEditError(
+          "EDIT_CONFIRMED",
+          "Accommodation preferences are locked because the organizer has confirmed this configuration."
+        )
+      }
+    }
+
+    const [attendeeRows, ticketSelectionRows] = await Promise.all([
+      ctx.db
+        .query("orderAttendees")
+        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+        .take(500),
+      ctx.db
+        .query("orderTicketSelections")
+        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+        .take(500),
+    ])
+    const attendeeById = new Map(
+      attendeeRows.map((attendee) => [String(attendee._id), attendee])
+    )
+    const attendeeKeyById = new Map<string, string>()
+    for (const attendee of attendeeRows) {
+      attendeeKeyById.set(String(attendee._id), attendee.attendeeKey)
+    }
+    const ticketByAttendeeId = new Map<string, Id<"ticketTypes">>()
+    for (const selection of ticketSelectionRows) {
+      ticketByAttendeeId.set(String(selection.attendeeId), selection.ticketTypeId)
+    }
+    const rowByAttendeeKey = new Map<string, (typeof selectionRows)[number]>()
+    const existingAttendeeKeys = new Set<string>()
+    for (const row of selectionRows) {
+      const attendeeKey =
+        attendeeKeyById.get(String(row.attendeeId)) ?? String(row.attendeeId)
+      existingAttendeeKeys.add(attendeeKey)
+      rowByAttendeeKey.set(attendeeKey, row)
+    }
+
+    // Cardinality contract: the replacement must contain exactly one
+    // preference for every existing selection row.
+    const incomingAttendeeKeys = new Set<string>()
+    for (const preference of args.selections) {
+      const attendeeKey = preference.attendeeKey.trim()
+      if (!attendeeKey) {
+        throwEditError("EDIT_INVALID", "An attendee key is required.")
+      }
+      if (incomingAttendeeKeys.has(attendeeKey)) {
+        throwEditError(
+          "EDIT_INVALID",
+          `Duplicate attendee key '${attendeeKey}' in the replacement.`
+        )
+      }
+      incomingAttendeeKeys.add(attendeeKey)
+    }
+    if (
+      incomingAttendeeKeys.size !== existingAttendeeKeys.size ||
+      !Array.from(existingAttendeeKeys).every((key) =>
+        incomingAttendeeKeys.has(key)
+      )
+    ) {
+      throwEditError(
+        "EDIT_CONFLICT",
+        "The replacement must contain exactly one preference for every existing attendee."
+      )
+    }
+
+    // Resolve ticket entitlement and every preference through the Phase 42
+    // shared resolver so quote, signup, and permalink can never disagree.
+    const ticketTypeIds = new Set(ticketSelectionRows.map((row) => row.ticketTypeId))
+    const ticketDocs = await Promise.all(
+      Array.from(ticketTypeIds).map((ticketTypeId) =>
+        ctx.db.get("ticketTypes", ticketTypeId)
+      )
+    )
+    const ticketById = new Map<string, Doc<"ticketTypes">>()
+    for (const ticket of ticketDocs) {
+      if (ticket) {
+        ticketById.set(String(ticket._id), ticket)
+      }
+    }
+    const ticketCategoryById = await resolveTicketCategoryById(ctx, ticketById)
+    const context = await loadPublicSignupAccommodationContext(ctx, order.eventId)
+
+    const resolvedByAttendeeKey = new Map<
+      string,
+      {
+        categoryId: string
+        occupancy: "single" | "shared" | "family"
+        upgradeSelected: boolean
+        cotSelected: boolean
+        ageBandCode: string | null
+      }
+    >()
+    for (const preference of args.selections) {
+      const attendeeKey = preference.attendeeKey.trim()
+      const row = rowByAttendeeKey.get(attendeeKey)
+      if (!row) {
+        throwEditError(
+          "EDIT_CONFLICT",
+          `Attendee '${attendeeKey}' has no existing accommodation preference.`
+        )
+      }
+      const ticketTypeId = ticketByAttendeeId.get(String(row.attendeeId))
+      const ticket = ticketTypeId ? ticketById.get(String(ticketTypeId)) : null
+      if (!ticket) {
+        throwEditError(
+          "EDIT_CONFLICT",
+          `Attendee '${attendeeKey}' has no resolvable ticket selection.`
+        )
+      }
+      const ticketEntitlement = ticketCategoryById.get(String(ticketTypeId))
+      if (ticketEntitlement === null) {
+        throwEditError(
+          "EDIT_CONFLICT",
+          "The selected ticket's room type is no longer available."
+        )
+      }
+      const ticketCategoryId = ticketEntitlement?.categoryId ?? null
+
+      let resolved: ReturnType<typeof resolvePublicSignupSelection>
+      try {
+        resolved = resolvePublicSignupSelection({
+          context,
+          selection: {
+            categoryId: preference.categoryId
+              ? String(preference.categoryId)
+              : null,
+            occupancy: preference.occupancy ?? null,
+            upgradeSelected: preference.upgradeSelected,
+            cotSelected: preference.cotSelected,
+            ageBandCode: preference.ageBandCode ?? null,
+          },
+          ticketCategoryId,
+        })
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Invalid accommodation selection"
+        throwEditError(
+          "EDIT_INVALID",
+          message.replace(/^QUOTE_INVALID:\s*/, "")
+        )
+      }
+
+      if (!resolved.categoryId || !resolved.occupancy) {
+        throwEditError(
+          "EDIT_INVALID",
+          "A category and occupancy are required when the event offers configured accommodation."
+        )
+      }
+
+      resolvedByAttendeeKey.set(attendeeKey, {
+        categoryId: String(resolved.categoryId),
+        occupancy: resolved.occupancy,
+        upgradeSelected: resolved.upgradeSelected,
+        cotSelected: resolved.cotSelected,
+        ageBandCode: resolved.ageBandCode ?? null,
+      })
+    }
+
+    const beforeSelectionDigest = await digestAccommodationSelections(
+      selectionRows.map((row) => ({
+        attendeeKey:
+          attendeeKeyById.get(String(row.attendeeId)) ?? String(row.attendeeId),
+        categoryId: row.categoryId ? String(row.categoryId) : null,
+        occupancy: row.occupancy ?? null,
+        upgradeSelected: row.upgradeSelected,
+        cotSelected: row.cotSelected,
+        ageBandCode: row.ageBandCode ?? null,
+      }))
+    )
+    const afterSelectionDigest = await digestAccommodationSelections(
+      Array.from(resolvedByAttendeeKey.entries()).map(
+        ([attendeeKey, resolved]) => ({
+          attendeeKey,
+          categoryId: resolved.categoryId,
+          occupancy: resolved.occupancy,
+          upgradeSelected: resolved.upgradeSelected,
+          cotSelected: resolved.cotSelected,
+          ageBandCode: resolved.ageBandCode,
+        })
+      )
+    )
+
+    // Idempotency: an already-used key returns its stored result without
+    // repeating writes (checked before the no-op comparison so a retry of an
+    // applied edit reports the original stored result).
+    const replayAuditRow = await ctx.db
+      .query("orderAccommodationEditAudits")
+      .withIndex("by_orderId_and_idempotencyKey", (q) =>
+        q.eq("orderId", order._id).eq("idempotencyKey", idempotencyKey)
+      )
+      .first()
+    if (replayAuditRow) {
+      const totalPaid = await loadPaidTotalForOrder(ctx, order._id)
+      return buildEditResult(
+        bookingRef,
+        "replayed",
+        replayAuditRow.amountDueAfterMinor,
+        totalPaid
+      )
+    }
+
+    // A replacement identical to the current preferences is a true no-op:
+    // no selection or audit writes, and the canonical amount is returned.
+    if (beforeSelectionDigest === afterSelectionDigest) {
+      const breakdown = await loadOrderAmountDueBreakdowns(ctx, [
+        { _id: order._id },
+      ])
+      const amountDue = breakdown.get(String(order._id))?.amountDueMinor ?? 0
+      const totalPaid = await loadPaidTotalForOrder(ctx, order._id)
+      return buildEditResult(bookingRef, "unchanged", amountDue, totalPaid)
+    }
+
+    const beforeBreakdown = await loadOrderAmountDueBreakdowns(ctx, [
+      { _id: order._id },
+    ])
+    const amountDueBefore =
+      beforeBreakdown.get(String(order._id))?.amountDueMinor ?? 0
+
+    // Patch every unconfirmed selection with the server-resolved preference
+    // and the current event configuration's stay timestamps/night count.
+    // No order total, payment, assignment, or Tikkie link is touched.
+    for (const row of selectionRows) {
+      const attendeeKey =
+        attendeeKeyById.get(String(row.attendeeId)) ?? String(row.attendeeId)
+      const resolved = resolvedByAttendeeKey.get(attendeeKey)
+      if (!resolved) {
+        throwEditError(
+          "EDIT_CONFLICT",
+          `Attendee '${attendeeKey}' could not be resolved for replacement.`
+        )
+      }
+      await ctx.db.patch("orderAccommodationSelections", row._id, {
+        categoryId: resolved.categoryId as Id<"accommodationCategories">,
+        occupancy: resolved.occupancy,
+        upgradeSelected: resolved.upgradeSelected,
+        cotSelected: resolved.cotSelected,
+        ageBandCode: resolved.ageBandCode
+          ? (resolved.ageBandCode as
+              | "under_3"
+              | "3_11"
+              | "12_17"
+              | "18_plus")
+          : undefined,
+        checkInAt: context.config?.baseCheckInAt,
+        checkOutAt: context.config?.baseCheckOutAt,
+        nightCount: context.config?.nightCount,
+      })
+    }
+
+    const afterBreakdown = await loadOrderAmountDueBreakdowns(ctx, [
+      { _id: order._id },
+    ])
+    const amountDueAfter =
+      afterBreakdown.get(String(order._id))?.amountDueMinor ?? 0
+
+    const totalPaid = await loadPaidTotalForOrder(ctx, order._id)
+    const overpaymentDeltaMinor = Math.max(0, totalPaid - amountDueAfter)
+
+    // One immutable, server-valued audit row per applied edit.
+    await ctx.db.insert("orderAccommodationEditAudits", {
+      orderId: order._id,
+      idempotencyKey,
+      requestDigest: await digestEditEnvelope({
+        bookingRef,
+        bookerEmail,
+        editToken: args.editToken ?? null,
+        idempotencyKey,
+        honeypotSeen: args.honeypotSeen,
+        selections: args.selections,
+      }),
+      ownershipMethod,
+      beforeSelectionDigest,
+      afterSelectionDigest,
+      amountDueBeforeMinor: amountDueBefore,
+      amountDueAfterMinor: amountDueAfter,
+      overpaymentDeltaMinor,
+    })
+
+    return buildEditResult(bookingRef, "applied", amountDueAfter, totalPaid)
   },
 })
