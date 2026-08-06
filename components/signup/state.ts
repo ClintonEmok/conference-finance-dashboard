@@ -8,7 +8,7 @@ export const SIGNUP_STEP_ORDER = [
   "tickets",
   "buyer",
   "attendees",
-  "rooms",
+  "accommodation",
   "review",
 ] as const
 
@@ -22,6 +22,7 @@ export type TicketSelectionDraft = {
   selectable: boolean
   reason: TicketUnavailableReason | null
   roomTypeId?: string
+  roomTypeCategoryId?: string
 }
 
 export type AttendeeDraft = {
@@ -37,14 +38,30 @@ export type AttendeeDraft = {
   roommatePreference: string
 }
 
+export type AccommodationOccupancy = "single" | "shared" | "family"
+
+/**
+ * One attendee's options-only accommodation preference, keyed by the stable
+ * attendee key in `SignupDraft.accommodationSelections`. The buyer picks a
+ * category, an occupancy literal, optional superior/cot flags and an optional
+ * event-configured age band. It never holds a room/slot ID, date, night
+ * count, price, or total — those are server-resolved.
+ */
+export type AccommodationSelectionDraft = {
+  categoryId: string
+  occupancy: AccommodationOccupancy | ""
+  upgradeSelected: boolean
+  cotSelected: boolean
+  ageBandCode: string
+}
+
 export type SignupDraft = {
   eventId: string
   source: SignupSource
   step: SignupStep
   ticketSelections: TicketSelectionDraft[]
   attendees: AttendeeDraft[]
-  assignments: Record<string, string>
-  acknowledgeRandomFill: boolean
+  accommodationSelections: Record<string, AccommodationSelectionDraft>
   notes: string
   booker: {
     name: string
@@ -63,8 +80,7 @@ export function createInitialSignupDraft(
     step: "tickets",
     ticketSelections: [],
     attendees: [],
-    assignments: {},
-    acknowledgeRandomFill: false,
+    accommodationSelections: {},
     notes: "",
     booker: {
       name: "",
@@ -108,30 +124,44 @@ export function deriveAttendeeDraftsFromTicketSelections(
   return next
 }
 
+/**
+ * Keeps only the accommodation selections whose stable attendee key survives
+ * a ticket-quantity change. Attendee keys embed the ticket type
+ * (`${ticketTypeId}-${index + 1}`), so a changed ticket type produces new
+ * keys and the old attendee's incompatible category/occupancy/options are
+ * dropped automatically, while surviving attendees keep their selections.
+ */
+export function pruneAccommodationSelectionsForAttendees(
+  previous: Record<string, AccommodationSelectionDraft>,
+  nextAttendees: AttendeeDraft[]
+): Record<string, AccommodationSelectionDraft> {
+  const next: Record<string, AccommodationSelectionDraft> = {}
+  for (const attendee of nextAttendees) {
+    const prior = previous[attendee.attendeeKey]
+    if (prior) {
+      next[attendee.attendeeKey] = prior
+    }
+  }
+  return next
+}
+
 export function invalidateDownstreamForTicketChange(
   draft: SignupDraft,
   nextTicketSelections: TicketSelectionDraft[]
 ): SignupDraft {
+  const nextAttendees = deriveAttendeeDraftsFromTicketSelections(
+    nextTicketSelections,
+    draft.attendees
+  )
+
   return {
     ...draft,
     step: "tickets",
     ticketSelections: nextTicketSelections,
-    attendees: deriveAttendeeDraftsFromTicketSelections(
-      nextTicketSelections,
-      draft.attendees
+    attendees: nextAttendees,
+    accommodationSelections: pruneAccommodationSelectionsForAttendees(
+      draft.accommodationSelections,
+      nextAttendees
     ),
-    assignments: {},
-    acknowledgeRandomFill: false,
-  }
-}
-
-export function invalidateDownstreamForRoomChange(
-  draft: SignupDraft,
-  nextAssignments: Record<string, string>
-): SignupDraft {
-  return {
-    ...draft,
-    assignments: nextAssignments,
-    acknowledgeRandomFill: false,
   }
 }
