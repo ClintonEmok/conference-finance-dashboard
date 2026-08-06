@@ -86,11 +86,11 @@ describe("allocation payment-state - weighted payment allocation", () => {
       0
     )
     expect(allocatedTotal).toBe(1000)
-    // Largest-remainder tie-breaking distributes one whole unit deterministically.
-    const paidIds = [...result.values()]
-      .filter((breakdown) => breakdown.paidAmountMinor === 1)
-      .map((breakdown) => breakdown.attendeeId)
-    expect(paidIds).toEqual(["a-1"])
+    // Largest-remainder tie-breaking gives the first equal-weight attendee the
+    // extra whole unit: 334/333/333, never fractional or non-deterministic.
+    expect(result.get("a-1")?.paidAmountMinor).toBe(334)
+    expect(result.get("a-2")?.paidAmountMinor).toBe(333)
+    expect(result.get("a-3")?.paidAmountMinor).toBe(333)
   })
 
   it("keeps zero-due attendees paid and unallocated from an overpayment total", () => {
@@ -154,18 +154,42 @@ describe("allocation payment-state - weighted payment allocation", () => {
     expect(zeroPaid.get("a-1")?.paymentState).toBe("unpaid")
   })
 
-  it("produces a full tri-state mix when partial payment is allocated", () => {
+  it("classifies every attendee as paid when the payment covers the full order", () => {
     const result = deriveAllocationPaymentBreakdowns({
       amountDueByAttendeeId: dueMap([
-        ["a-paid", 1000],
-        ["a-partial", 2000],
-        ["a-unpaid", 3000],
+        ["a-1", 1000],
+        ["a-2", 2000],
+        ["a-3", 3000],
       ]),
-      paidTotalMinor: 2000,
+      paidTotalMinor: 6000,
     })
 
-    expect(result.get("a-paid")?.paymentState).toBe("paid")
-    expect(result.get("a-partial")?.paymentState).toBe("partial")
-    expect(result.get("a-unpaid")?.paymentState).toBe("unpaid")
+    expect(result.get("a-1")?.paymentState).toBe("paid")
+    expect(result.get("a-2")?.paymentState).toBe("paid")
+    expect(result.get("a-3")?.paymentState).toBe("paid")
+    expect(result.get("a-3")?.paidAmountMinor).toBe(3000)
+  })
+
+  it("composes per-order breakdowns into a board-level tri-state set", () => {
+    // The board merges one helper call per scoped order, so a paid order, a
+    // partial order, and an unpaid order produce the full tri-state set even
+    // though a single order's proportional allocation cannot yield all three.
+    const paidOrder = deriveAllocationPaymentBreakdowns({
+      amountDueByAttendeeId: dueMap([["a-paid", 1000]]),
+      paidTotalMinor: 1000,
+    })
+    const partialOrder = deriveAllocationPaymentBreakdowns({
+      amountDueByAttendeeId: dueMap([["a-partial", 2000]]),
+      paidTotalMinor: 1000,
+    })
+    const unpaidOrder = deriveAllocationPaymentBreakdowns({
+      amountDueByAttendeeId: dueMap([["a-unpaid", 3000]]),
+      paidTotalMinor: 0,
+    })
+
+    const merged = new Map([...paidOrder, ...partialOrder, ...unpaidOrder])
+    expect(merged.get("a-paid")?.paymentState).toBe("paid")
+    expect(merged.get("a-partial")?.paymentState).toBe("partial")
+    expect(merged.get("a-unpaid")?.paymentState).toBe("unpaid")
   })
 })
