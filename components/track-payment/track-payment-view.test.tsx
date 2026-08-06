@@ -88,7 +88,6 @@ const mockTracking = {
   },
   order: {
     buyerName: "Booker",
-    buyerEmail: "booker@example.com",
     buyerPhone: "+31612345678",
     submittedAt: 1_750_000_000_000,
     orderedAt: null,
@@ -461,7 +460,9 @@ describe("TrackPaymentView routing and states", () => {
     // Receipt rows come from the server payload.
     expect(html).toContain("Unconstrained ticket")
     expect(html).toContain("Accommodation")
-    expect(html).toContain("booker@example.com")
+    // The ownership email is never rendered — it is input-only proof, and
+    // returning it from a public query would defeat the email ownership gate.
+    expect(html).not.toContain("booker@example.com")
     // The edit token from the email link is consumed locally only — it is
     // prefilled into the edit-link input (in-memory state from the URL),
     // never returned by a public query or rendered outside that input.

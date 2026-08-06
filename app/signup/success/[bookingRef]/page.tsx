@@ -49,7 +49,6 @@ export default async function SignupSuccessPage({ params }: SuccessPageProps) {
         submission={{
           bookingRef: submission.bookingRef,
           bookerName: submission.bookerName,
-          bookerEmail: submission.bookerEmail,
           bookerPhone: submission.bookerPhone,
           submittedAt: submission.submittedAt,
           attendees: submission.attendees,

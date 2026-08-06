@@ -400,11 +400,6 @@ export function TrackPaymentView({
                       />
                       <Separator className="opacity-50" />
                       <KeyValue
-                        label="Email"
-                        value={result.tracking.order.buyerEmail ?? "—"}
-                      />
-                      <Separator className="opacity-50" />
-                      <KeyValue
                         label="Phone"
                         value={result.tracking.order.buyerPhone ?? "—"}
                       />

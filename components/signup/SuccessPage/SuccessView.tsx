@@ -182,9 +182,15 @@ export function SuccessView({
                     {event.name}
                   </span>{" "}
                   is successfully registered. We&apos;ve sent a confirmation to{" "}
-                  <span className="font-bold text-foreground">
-                    {submission.bookerEmail}
-                  </span>
+                  {submission.bookerEmail ? (
+                    <span className="font-bold text-foreground">
+                      {submission.bookerEmail}
+                    </span>
+                  ) : (
+                    <span className="font-bold text-foreground">
+                      the email address you provided
+                    </span>
+                  )}
                   .
                 </p>
               </div>

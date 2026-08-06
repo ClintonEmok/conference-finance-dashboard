@@ -52,7 +52,6 @@ export const getByBookingRef = query({
       }),
       order: v.object({
         buyerName: v.union(v.string(), v.null()),
-        buyerEmail: v.union(v.string(), v.null()),
         buyerPhone: v.union(v.string(), v.null()),
         submittedAt: v.union(v.number(), v.null()),
         orderedAt: v.union(v.number(), v.null()),
@@ -166,7 +165,6 @@ export const getByBookingRef = query({
       },
       order: {
         buyerName: order.bookerName ?? null,
-        buyerEmail: order.bookerEmail ?? null,
         buyerPhone: order.bookerPhone ?? null,
         submittedAt: order.submittedAt ?? null,
         orderedAt: order.orderedAt ?? null,
@@ -274,7 +272,6 @@ async function loadTrackingByOrder(
     },
     order: {
       buyerName: order.bookerName ?? null,
-      buyerEmail: order.bookerEmail ?? null,
       buyerPhone: order.bookerPhone ?? null,
       submittedAt: order.submittedAt ?? null,
       orderedAt: order.orderedAt ?? null,
@@ -311,7 +308,6 @@ export const getByEmailOrBookingRef = query({
       }),
       order: v.object({
         buyerName: v.union(v.string(), v.null()),
-        buyerEmail: v.union(v.string(), v.null()),
         buyerPhone: v.union(v.string(), v.null()),
         submittedAt: v.union(v.number(), v.null()),
         orderedAt: v.union(v.number(), v.null()),
