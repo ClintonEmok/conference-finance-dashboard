@@ -40,6 +40,7 @@ export type RevenuePayload = {
     refundedMinor: number
     netMinor: number
     standaloneDonationMinor: number
+    overpaidMinor: number
   }
   statusCounts: {
     paid: number
@@ -107,8 +108,8 @@ const stateOnly = (domain: OverviewDomain<unknown>): OverviewDomainState => ({
 function moneyState(input: OverviewInputs): OverviewDomainState {
   if (input.revenue.status !== "ready") return stateOnly(input.revenue)
   if (!input.revenue.data) return { status: "unavailable", message: "Revenue totals are unavailable." }
-  if (input.reconciliation.status !== "ready") return stateOnly(input.reconciliation)
-  if (!input.reconciliation.data) return { status: "unavailable", message: "Reconciliation totals are unavailable." }
+  if (input.orders.status !== "ready") return stateOnly(input.orders)
+  if (!input.orders.data?.totals) return { status: "unavailable", message: "Order totals are unavailable." }
   return { status: "ready" }
 }
 
@@ -157,17 +158,17 @@ export function projectEventOverview(input: OverviewInputs): EventOverviewProjec
     },
     {
       key: "money",
-      label: "Money status",
+      label: "Order value",
       scope: scopeLabel,
       state: moneyState(input),
-      values: input.revenue.status === "ready" && input.revenue.data && input.reconciliation.status === "ready" && input.reconciliation.data
+      values: input.revenue.status === "ready" && input.revenue.data && input.orders.status === "ready" && input.orders.data?.totals
         ? {
             orderValueMinor: input.revenue.data.totals.orderValueMinor,
-            paidMinor: input.revenue.data.totals.paidMinor,
-            outstandingMinor: input.reconciliation.data.totals.outstandingMinor,
+            paidMinor: input.orders.data.totals.matchedAmountMinor,
+            outstandingMinor: input.orders.data.totals.outstandingAmountMinor,
           }
         : null,
-      href: eventHref(event.slug, "reconciliation"),
+      href: eventHref(event.slug, "orders"),
     },
     {
       key: "accommodation",

@@ -24,7 +24,7 @@ function input(overrides: Partial<OverviewInputs> = {}): OverviewInputs {
     event,
     scope,
     revenue: domain({
-      totals: { orderValueMinor: 12345, paidMinor: 9000, refundedMinor: 100, netMinor: 8900, standaloneDonationMinor: 400 },
+      totals: { orderValueMinor: 12345, paidMinor: 9000, refundedMinor: 100, netMinor: 8900, overpaidMinor: 0, standaloneDonationMinor: 400 },
       statusCounts: { paid: 2, refunded: 0, cancelled: 0, pending: 1 },
     }),
     orders: domain({ page: { totalRows: 3 }, totals: { amountDueMinor: 12345, matchedAmountMinor: 9000, outstandingAmountMinor: 3345 } }),
@@ -58,7 +58,10 @@ describe("event overview projection", () => {
 
   it("preserves canonical money values without presentation arithmetic", () => {
     const result = projectEventOverview(input())
-    expect(result.metrics.find((metric) => metric.key === "money")?.values).toEqual({
+    const money = result.metrics.find((metric) => metric.key === "money")
+    expect(money?.label).toBe("Order value")
+    expect(money?.href).toBe("/dashboard/events/spring-conference/orders")
+    expect(money?.values).toEqual({
       orderValueMinor: 12345,
       paidMinor: 9000,
       outstandingMinor: 3345,
@@ -67,7 +70,7 @@ describe("event overview projection", () => {
 
   it("preserves a confirmed canonical outstanding zero", () => {
     const result = projectEventOverview(input({
-      reconciliation: domain({ totals: { rows: 0, outstandingMinor: 0 } }),
+      orders: domain({ page: { totalRows: 3 }, totals: { amountDueMinor: 12345, matchedAmountMinor: 12345, outstandingAmountMinor: 0 } }),
     }))
     const money = result.metrics.find((metric) => metric.key === "money")
     expect(money?.state).toEqual({ status: "ready" })
@@ -76,23 +79,32 @@ describe("event overview projection", () => {
 
   it("keeps money unavailable when a ready domain has no payload", () => {
     const result = projectEventOverview(input({
-      reconciliation: { status: "ready" },
+      orders: { status: "ready" },
     }))
     const money = result.metrics.find((metric) => metric.key === "money")
-    expect(money?.state).toEqual({ status: "unavailable", message: "Reconciliation totals are unavailable." })
+    expect(money?.state).toEqual({ status: "unavailable", message: "Order totals are unavailable." })
     expect(money?.values).toBeNull()
   })
 
   it.each([
     ["loading", { status: "loading" as const }],
-    ["error", { status: "error" as const, message: "Reconciliation failed." }],
-    ["unavailable", { status: "unavailable" as const, message: "No reconciliation response." }],
+    ["error", { status: "error" as const, message: "Orders failed." }],
+    ["unavailable", { status: "unavailable" as const, message: "No orders response." }],
     ["empty", { status: "empty" as const }],
-  ])("does not fabricate outstanding money while reconciliation is %s", (_label, reconciliation) => {
-    const result = projectEventOverview(input({ reconciliation }))
+  ])("does not fabricate outstanding money while order totals are %s", (_label, orders) => {
+    const result = projectEventOverview(input({ orders }))
     const money = result.metrics.find((metric) => metric.key === "money")
     expect(money?.values).toBeNull()
-    expect(money?.state).toEqual(reconciliation)
+    expect(money?.state).toEqual(orders)
+  })
+
+  it("uses order-ledger outstanding totals instead of reconciliation exception totals", () => {
+    const result = projectEventOverview(input({
+      orders: domain({ page: { totalRows: 3 }, totals: { amountDueMinor: 12345, matchedAmountMinor: 9000, outstandingAmountMinor: 3345 } }),
+      reconciliation: domain({ totals: { rows: 0, outstandingMinor: 0 } }),
+    }))
+
+    expect(result.metrics.find((metric) => metric.key === "money")?.values?.outstandingMinor).toBe(3345)
   })
 
   it("maps supported exceptions to one slug-scoped destination each", () => {
@@ -111,7 +123,7 @@ describe("event overview projection", () => {
     const allocation = projectEventOverview(input({ accommodation: domain({ summary: { hotelsLinked: 1, totalSlots: 10, assignableSlots: 8, submissionsCount: 2, unassignedAttendeesCount: 2 } }) }))
     expect(allocation.exceptions.at(-1)).toMatchObject({ key: "unassigned-attendees", href: "/dashboard/events/spring-conference/accommodation/allocation" })
 
-    const clear = projectEventOverview(input({ revenue: domain({ totals: { orderValueMinor: 12345, paidMinor: 9000, refundedMinor: 100, netMinor: 8900, standaloneDonationMinor: 400 }, statusCounts: { paid: 2, refunded: 0, cancelled: 0, pending: 0 } }), reconciliation: domain({ totals: { rows: 0, outstandingMinor: 0 } }) }))
+    const clear = projectEventOverview(input({ revenue: domain({ totals: { orderValueMinor: 12345, paidMinor: 9000, refundedMinor: 100, netMinor: 8900, overpaidMinor: 0, standaloneDonationMinor: 400 }, statusCounts: { paid: 2, refunded: 0, cancelled: 0, pending: 0 } }), reconciliation: domain({ totals: { rows: 0, outstandingMinor: 0 } }) }))
     expect(clear.exceptions).toEqual([])
   })
 
