@@ -117,10 +117,12 @@ Progress: ██████████████░ (14/15 plans executed ac
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260805-fvk | Fix donation accounting so linked overpayments preserve settlement and standalone donations count once | 2026-08-05 | 288873d | [260805-fvk-fix-donation-accounting-so-overpayment-d](./quick/260805-fvk-fix-donation-accounting-so-overpayment-d/) |
+| 260806-i3c | Add real Clerk JWT → Convex auth integration test + config smoke tests | 2026-08-06 | 0a8f5f1 | [260806-i3c-add-real-clerk-jwt-convex-auth-integrati](./quick/260806-i3c-add-real-clerk-jwt-convex-auth-integrati/) |
 
 ## Session Continuity
 
 Last session: 2026-08-06T12:45:00.000Z
+Last activity: 2026-08-06 - Completed quick task 260806-i3c: real Clerk JWT → Convex auth integration + config smoke tests
 Stopped at: Phase 45 plans 01-02 complete; plan 03 automated gates green — paused at the human UAT checkpoint (Task 3)
 Resume file: .planning/phases/45-verification-cross-surface-audit/45-03-PLAN.md
 
