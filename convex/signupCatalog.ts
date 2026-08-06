@@ -468,13 +468,24 @@ export async function loadPublicSignupAccommodationContext(
   const eventAgeBandCodes = new Set(
     agePricingRows.map((row) => row.ageBandCode)
   )
-  const catalogAgeBands = await ctx.db.query("accommodationAgeBands").take(50)
-  const bandByCode = new Map(
-    catalogAgeBands.map((band) => [band.code, band])
-  )
-  const ageBands = Array.from(eventAgeBandCodes)
-    .map((code) => bandByCode.get(code))
-    .filter((band): band is NonNullable<typeof band> => band !== undefined)
+  // Resolve every event-configured code by its indexed catalog lookup and
+  // fail closed when any definition is missing (WR-03). A partial age-band
+  // set would silently hide an event-configured band from the edit UI while
+  // the resolver still accepts the code.
+  const ageBandDocs: Array<Doc<"accommodationAgeBands">> = []
+  for (const code of Array.from(eventAgeBandCodes)) {
+    const band = await ctx.db
+      .query("accommodationAgeBands")
+      .withIndex("by_code", (q) => q.eq("code", code))
+      .first()
+    if (!band) {
+      throw new Error(
+        `Event age band '${code}' is configured by age pricing but missing from the age-band catalog.`
+      )
+    }
+    ageBandDocs.push(band)
+  }
+  const ageBands = ageBandDocs
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((band) => ({
       code: band.code,
