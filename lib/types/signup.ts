@@ -104,7 +104,6 @@ export type SignupSubmissionEnvelope = {
   eventId: string
   source: SignupSource
   idempotencyKey: string
-  payloadFingerprint: string
   honeypotSeen: boolean
   notes?: string
   booker: {

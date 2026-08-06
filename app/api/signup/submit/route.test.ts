@@ -198,7 +198,6 @@ describe("POST /api/signup/submit", () => {
       expect.any(Object),
       expect.objectContaining({
         idempotencyKey: expect.stringMatching(/^derived-/),
-        payloadFingerprint: expect.any(String),
         honeypotSeen: false,
       })
     )

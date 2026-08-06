@@ -7,7 +7,10 @@ import { api } from "./_generated/api"
 import schema from "./schema"
 import type { Id } from "./_generated/dataModel"
 import { loadOrderAmountDueBreakdowns } from "./finance"
-import { mintSignupSubmissionToken } from "../lib/domain/signup/submission-token"
+import {
+  digestSubmissionEnvelope,
+  mintSignupSubmissionToken,
+} from "../lib/domain/signup/submission-token"
 
 const modules = import.meta.glob("./**/*.ts")
 
@@ -192,6 +195,74 @@ async function createConfiguredEvent(
   }
 }
 
+/**
+ * Recompute the CR-09 payload digest exactly the way the mutation does: from
+ * the envelope's payload fields (never from a caller-supplied fingerprint).
+ */
+async function envelopeDigest(envelope: {
+  eventId: Id<"events">
+  source: "integration" | "internal"
+  notes?: string
+  booker: {
+    name: string
+    email: string
+    phone?: string
+  }
+  attendees: Array<{
+    attendeeKey: string
+    name: string
+    email?: string
+    phone?: string
+    gender: "male" | "female" | "mixed" | "unknown"
+    location?: string
+    dietaryRestrictions?: string
+    roommatePreference?: string
+    roommateAvoid?: string
+  }>
+  ticketSelections: Array<{
+    attendeeKey: string
+    ticketTypeId: Id<"ticketTypes"> | string
+    quantity: number
+  }>
+  assignments: Array<{
+    attendeeKey: string
+    slotId: Id<"accommodationSlots"> | string
+    assignmentIntent: "assign" | "skip"
+  }>
+  accommodationSelections: Array<{
+    attendeeKey: string
+    categoryId: Id<"accommodationCategories"> | string
+    occupancy: "single" | "shared" | "family"
+    upgradeSelected: boolean
+    cotSelected: boolean
+    ageBandCode?: string
+  }>
+}): Promise<string> {
+  return digestSubmissionEnvelope({
+    eventId: String(envelope.eventId),
+    source: envelope.source,
+    notes: envelope.notes,
+    booker: envelope.booker,
+    attendees: envelope.attendees,
+    ticketSelections: envelope.ticketSelections.map((selection) => ({
+      attendeeKey: selection.attendeeKey,
+      ticketTypeId: String(selection.ticketTypeId),
+      quantity: selection.quantity,
+    })),
+    assignments: envelope.assignments,
+    accommodationSelections: envelope.accommodationSelections.map(
+      (preference) => ({
+        attendeeKey: preference.attendeeKey,
+        categoryId: String(preference.categoryId),
+        occupancy: preference.occupancy,
+        upgradeSelected: preference.upgradeSelected,
+        cotSelected: preference.cotSelected,
+        ageBandCode: preference.ageBandCode,
+      })
+    ),
+  })
+}
+
 async function buildEnvelope(input: {
   eventId: Id<"events">
   ticketTypeId: Id<"ticketTypes">
@@ -211,20 +282,10 @@ async function buildEnvelope(input: {
   }>
 }) {
   const attendeeKey = input.attendeeKey ?? "attendee-1"
-  const payloadFingerprint = `fp-${Math.random().toString(36).slice(2)}`
-  // Every envelope mints its own token bound to its own fingerprint, exactly
-  // like the Next.js route does after CAPTCHA verification (CR-07).
-  const submissionToken = await mintSignupSubmissionToken({
-    eventId: String(input.eventId),
-    payloadFingerprint,
-    secret: TEST_SIGNUP_SUBMISSION_SECRET,
-  })
-  return {
+  const envelope = {
     eventId: input.eventId,
     source: "internal" as const,
     idempotencyKey: `idem-${Math.random().toString(36).slice(2)}`,
-    payloadFingerprint,
-    submissionToken,
     honeypotSeen: false,
     booker: {
       name: "Booker",
@@ -249,6 +310,34 @@ async function buildEnvelope(input: {
     assignments: input.assignments ?? [],
     accommodationSelections: input.accommodationSelections ?? [],
   }
+  // CR-09: the token binds the SHA-256 digest of the exact envelope payload
+  // plus the idempotency key — the mutation recomputes the same digest from
+  // its own arguments, exactly like the Next.js route mints after CAPTCHA.
+  const payloadDigest = await envelopeDigest(envelope)
+  const submissionToken = await mintSignupSubmissionToken({
+    eventId: String(envelope.eventId),
+    payloadDigest,
+    idempotencyKey: envelope.idempotencyKey,
+    secret: TEST_SIGNUP_SUBMISSION_SECRET,
+  })
+  return { ...envelope, submissionToken }
+}
+
+/**
+ * Re-mint a token for an envelope whose payload was mutated after
+ * `buildEnvelope`, so the signed digest covers the final payload.
+ */
+async function reMintSubmissionToken(
+  envelope: Awaited<ReturnType<typeof buildEnvelope>>
+): Promise<typeof envelope> {
+  const payloadDigest = await envelopeDigest(envelope)
+  envelope.submissionToken = await mintSignupSubmissionToken({
+    eventId: String(envelope.eventId),
+    payloadDigest,
+    idempotencyKey: envelope.idempotencyKey,
+    secret: TEST_SIGNUP_SUBMISSION_SECRET,
+  })
+  return envelope
 }
 
 test("valid options-only submission persists one selection row per preference with server-derived stay fields", async () => {
@@ -574,6 +663,9 @@ test("submission rejects stale rate combinations, duplicates, and unknown attend
       ageBandCode: "18_plus",
     },
   ]
+  // The payload changed after minting, so re-mint the token over the final
+  // envelope (CR-09) — the mutation recomputes the digest from its args.
+  await reMintSubmissionToken(envelopeWithUnseatedAttendee)
   await expect(
     t.mutation(
       api.signupSubmission.submitSignupEnvelope,
@@ -819,6 +911,9 @@ test("CR-03: a configured event requires exactly one preference per ticketed att
       gender: "female" as const,
     },
   ]
+  // The payload changed after minting, so re-mint the token over the final
+  // envelope (CR-09) — the mutation recomputes the digest from its args.
+  await reMintSubmissionToken(envelopeWithExtraPreference)
   await expect(
     t.mutation(api.signupSubmission.submitSignupEnvelope, envelopeWithExtraPreference)
   ).rejects.toThrow("SUBMISSION_CONFLICT")
@@ -927,6 +1022,9 @@ test("CR-04: duplicate ticket selections and ticketless attendees are rejected",
       ageBandCode: "18_plus",
     },
   ]
+  // The payload changed after minting, so re-mint the token over the final
+  // envelope (CR-09) — the mutation recomputes the digest from its args.
+  await reMintSubmissionToken(duplicateEnvelope)
   await expect(
     t.mutation(api.signupSubmission.submitSignupEnvelope, duplicateEnvelope)
   ).rejects.toThrow("SUBMISSION_CONFLICT")
@@ -955,6 +1053,9 @@ test("CR-04: duplicate ticket selections and ticketless attendees are rejected",
       ageBandCode: "18_plus",
     },
   ]
+  // The payload changed after minting, so re-mint the token over the final
+  // envelope (CR-09) — the mutation recomputes the digest from its args.
+  await reMintSubmissionToken(ticketlessEnvelope)
   await expect(
     t.mutation(api.signupSubmission.submitSignupEnvelope, ticketlessEnvelope)
   ).rejects.toThrow("SUBMISSION_CONFLICT")
@@ -1125,7 +1226,8 @@ test("CR-07: forged, expired, and mis-bound submission tokens are rejected befor
   })
   expired.submissionToken = await mintSignupSubmissionToken({
     eventId: String(seed.eventId),
-    payloadFingerprint: expired.payloadFingerprint,
+    payloadDigest: await envelopeDigest(expired),
+    idempotencyKey: expired.idempotencyKey,
     secret: TEST_SIGNUP_SUBMISSION_SECRET,
     now: Date.now() - 10 * 60 * 1000,
   })
@@ -1133,8 +1235,9 @@ test("CR-07: forged, expired, and mis-bound submission tokens are rejected befor
     t.mutation(api.signupSubmission.submitSignupEnvelope, expired)
   ).rejects.toThrow("CAPTCHA_REQUIRED")
 
-  // Mis-bound token: validly signed but for a different payload fingerprint,
-  // so presenting it against this envelope must fail.
+  // Mis-bound token: validly signed but for a different payload (a different
+  // attendee name), so the digest the mutation recomputes from this envelope
+  // differs and the token must fail.
   const misBound = await buildEnvelope({
     eventId: seed.eventId,
     ticketTypeId: seed.unconstrainedTicketId,
@@ -1149,10 +1252,15 @@ test("CR-07: forged, expired, and mis-bound submission tokens are rejected befor
       },
     ],
   })
-  const otherFingerprint = `fp-${Math.random().toString(36).slice(2)}`
+  const envelopeForOtherPayload = {
+    ...misBound,
+    attendees: [{ ...misBound.attendees[0], name: "Different Name" }],
+  }
+  const otherDigest = await envelopeDigest(envelopeForOtherPayload)
   misBound.submissionToken = await mintSignupSubmissionToken({
     eventId: String(seed.eventId),
-    payloadFingerprint: otherFingerprint,
+    payloadDigest: otherDigest,
+    idempotencyKey: misBound.idempotencyKey,
     secret: TEST_SIGNUP_SUBMISSION_SECRET,
   })
   await expect(
@@ -1209,9 +1317,11 @@ test("CR-08: submissions cannot oversell a ticket past its maxQuantity", async (
     )
   ).rejects.toThrow("TICKET_UNAVAILABLE")
 
-  // A capacity-1 ticket accepts exactly one submission; the next one is
-  // rejected inside the transaction before any soldCount/order write, so the
-  // counter can never overshoot the configured maximum.
+  // A capacity-1 ticket accepts exactly one submission; a SECOND buyer with a
+  // different envelope is rejected inside the transaction before any
+  // soldCount/order write, so the counter can never overshoot the configured
+  // maximum. (The second envelope differs in attendee — an identical payload
+  // would be served as an idempotent replay of the first submission.)
   const capacityOneTicketId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("ticketTypes", {
       eventId: seed.eventId as never,
@@ -1249,9 +1359,10 @@ test("CR-08: submissions cannot oversell a ticket past its maxQuantity", async (
       await buildEnvelope({
         eventId: seed.eventId,
         ticketTypeId: capacityOneTicketId as Id<"ticketTypes">,
+        attendeeKey: "attendee-2",
         accommodationSelections: [
           {
-            attendeeKey: "attendee-1",
+            attendeeKey: "attendee-2",
             categoryId: seed.categoryStandardId,
             occupancy: "shared",
             upgradeSelected: false,
@@ -1280,4 +1391,191 @@ test("CR-08: submissions cannot oversell a ticket past its maxQuantity", async (
       .take(10)
   })
   expect(orders).toHaveLength(1)
+})
+
+test("CR-09: a captured token cannot be replayed with a different payload", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  const envelope = await buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: seed.unconstrainedTicketId,
+    accommodationSelections: [
+      {
+        attendeeKey: "attendee-1",
+        categoryId: seed.categoryStandardId,
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+        ageBandCode: "18_plus",
+      },
+    ],
+  })
+
+  // Replay the SAME token + idempotency key with a changed booker name: the
+  // mutation recomputes the digest from the actual args, which no longer
+  // matches the signed digest, so it fails closed before any read/write.
+  const replayed = { ...envelope }
+  replayed.booker = { ...envelope.booker, name: "Attacker Booker" }
+  await expect(
+    t.mutation(api.signupSubmission.submitSignupEnvelope, replayed)
+  ).rejects.toThrow("CAPTCHA_REQUIRED")
+
+  const orders = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId))
+      .take(10)
+  })
+  expect(orders).toHaveLength(0)
+})
+
+test("CR-09: a captured token cannot be replayed with a new idempotency key", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  const envelope = await buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: seed.unconstrainedTicketId,
+    accommodationSelections: [
+      {
+        attendeeKey: "attendee-1",
+        categoryId: seed.categoryStandardId,
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+        ageBandCode: "18_plus",
+      },
+    ],
+  })
+
+  // Same token + same payload but a fresh idempotency key: the signed key is
+  // part of the token message, so verification fails before any write.
+  const replayed = { ...envelope, idempotencyKey: "attacker-key-2" }
+  await expect(
+    t.mutation(api.signupSubmission.submitSignupEnvelope, replayed)
+  ).rejects.toThrow("CAPTCHA_REQUIRED")
+
+  const orders = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId))
+      .take(10)
+  })
+  expect(orders).toHaveLength(0)
+})
+
+test("CR-09: an exact retry (same payload, key, and token) returns the existing submission", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  const envelope = await buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: seed.unconstrainedTicketId,
+    accommodationSelections: [
+      {
+        attendeeKey: "attendee-1",
+        categoryId: seed.categoryStandardId,
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+        ageBandCode: "18_plus",
+      },
+    ],
+  })
+
+  const first = await t.mutation(
+    api.signupSubmission.submitSignupEnvelope,
+    envelope
+  )
+  // A legitimate retry of the identical envelope reuses the idempotency
+  // record instead of creating a second order or re-incrementing soldCount.
+  const second = await t.mutation(
+    api.signupSubmission.submitSignupEnvelope,
+    { ...envelope }
+  )
+  expect(second.submissionId).toBe(first.submissionId)
+
+  const orders = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId))
+      .take(10)
+  })
+  expect(orders).toHaveLength(1)
+})
+
+test("CR-10: a submission with two attendees sharing one ticket with one remaining place is rejected", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  // One remaining place: maxQuantity 2, soldCount 1, still "selectable".
+  const nearlyFullTicketId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("ticketTypes", {
+      eventId: seed.eventId as never,
+      label: "Nearly-full ticket",
+      priceMinor: 1500,
+      maxQuantity: 2,
+      soldCount: 1,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+
+  const envelope = await buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: nearlyFullTicketId as Id<"ticketTypes">,
+    accommodationSelections: [
+      {
+        attendeeKey: "attendee-1",
+        categoryId: seed.categoryStandardId,
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+        ageBandCode: "18_plus",
+      },
+      {
+        attendeeKey: "attendee-2",
+        categoryId: seed.categoryStandardId,
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+        ageBandCode: "18_plus",
+      },
+    ],
+  })
+  envelope.attendees = [
+    envelope.attendees[0],
+    {
+      attendeeKey: "attendee-2",
+      name: "Attendee Two",
+      email: "two@example.com",
+      gender: "female" as const,
+    },
+  ]
+  envelope.ticketSelections = [
+    envelope.ticketSelections[0],
+    {
+      attendeeKey: "attendee-2",
+      ticketTypeId: nearlyFullTicketId as Id<"ticketTypes">,
+      quantity: 1,
+    },
+  ]
+  // The payload changed after minting, so re-mint the token over the final
+  // envelope (CR-09) — the mutation recomputes the digest from its args.
+  await reMintSubmissionToken(envelope)
+
+  await expect(
+    t.mutation(api.signupSubmission.submitSignupEnvelope, envelope)
+  ).rejects.toThrow("TICKET_UNAVAILABLE")
+
+  const orders = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId))
+      .take(10)
+  })
+  expect(orders).toHaveLength(0)
 })

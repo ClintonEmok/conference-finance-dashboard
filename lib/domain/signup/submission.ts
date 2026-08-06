@@ -9,7 +9,10 @@ import type {
   SignupSubmissionEnvelope,
   SignupSubmissionResult,
 } from "@/lib/types/signup"
-import { mintSignupSubmissionToken } from "@/lib/domain/signup/submission-token"
+import {
+  digestSubmissionEnvelope,
+  mintSignupSubmissionToken,
+} from "@/lib/domain/signup/submission-token"
 
 export class SignupSubmissionValidationError extends Error {
   readonly code = "INVALID_SUBMISSION"
@@ -113,7 +116,6 @@ function normalizeEnvelope(
   options?: {
     idempotencyKey?: string
     honeypotSeen?: boolean
-    payloadFingerprint?: string
   }
 ): SignupSubmissionEnvelope {
   const root = toObject(input, "submission")
@@ -298,16 +300,21 @@ function normalizeEnvelope(
     accommodationSelections,
   }
 
-  const payloadFingerprint =
-    options?.payloadFingerprint ??
-    hashString(JSON.stringify(deterministicPayload))
+  // Deterministic payload hash — used only to derive a stable default
+  // idempotency key when the caller did not supply one. The token binding
+  // (CR-09) uses a SHA-256 digest recomputed inside the mutation, never this
+  // weak hash, so no caller-controlled fingerprint is ever trusted.
+  const deterministicPayloadHash = hashString(
+    JSON.stringify(deterministicPayload)
+  )
 
   return {
     ...deterministicPayload,
     idempotencyKey:
       options?.idempotencyKey ??
-      `derived-${hashString(`${deterministicPayload.eventId}:${payloadFingerprint}`)}`,
-    payloadFingerprint,
+      `derived-${hashString(
+        `${deterministicPayload.eventId}:${deterministicPayloadHash}`
+      )}`,
     honeypotSeen: Boolean(options?.honeypotSeen),
   }
 }
@@ -317,18 +324,31 @@ export async function submitSignup(
   options?: {
     idempotencyKey?: string
     honeypotSeen?: boolean
-    payloadFingerprint?: string
   }
 ): Promise<SignupSubmissionResult> {
   const envelope = normalizeEnvelope(input, options)
 
-  // CR-07: only this server-side path may mint the post-CAPTCHA token. It is
-  // called exclusively from the Next.js route after Turnstile verification
-  // and IP rate limiting, and the token is what stops direct calls to the
-  // public Convex mutation from bypassing those controls.
+  // CR-07/CR-09: only this server-side path may mint the post-CAPTCHA token.
+  // It is called exclusively from the Next.js route after Turnstile
+  // verification and IP rate limiting. The token signs a SHA-256 digest of
+  // the normalized envelope plus the idempotency key, so the public mutation
+  // can recompute the same digest from its own arguments and reject any
+  // replay that changes the payload or the key.
+  const payloadDigest = await digestSubmissionEnvelope({
+    eventId: envelope.eventId,
+    source: envelope.source,
+    notes: envelope.notes,
+    booker: envelope.booker,
+    attendees: envelope.attendees,
+    ticketSelections: envelope.ticketSelections,
+    assignments: envelope.assignments,
+    accommodationSelections: envelope.accommodationSelections,
+  })
+
   const submissionToken = await mintSignupSubmissionToken({
     eventId: envelope.eventId,
-    payloadFingerprint: envelope.payloadFingerprint,
+    payloadDigest,
+    idempotencyKey: envelope.idempotencyKey,
   })
 
   const result = await convexMutation(
@@ -337,7 +357,6 @@ export async function submitSignup(
       eventId: envelope.eventId as Id<"events">,
       source: envelope.source,
       idempotencyKey: envelope.idempotencyKey,
-      payloadFingerprint: envelope.payloadFingerprint,
       submissionToken,
       honeypotSeen: envelope.honeypotSeen,
       notes: envelope.notes,

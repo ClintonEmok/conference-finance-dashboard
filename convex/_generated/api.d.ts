@@ -1561,7 +1561,6 @@ export declare const api: {
         honeypotSeen: boolean;
         idempotencyKey: string;
         notes?: string;
-        payloadFingerprint: string;
         source: "integration" | "internal";
         submissionToken: string;
         ticketSelections: Array<{

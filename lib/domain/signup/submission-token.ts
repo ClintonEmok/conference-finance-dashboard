@@ -9,17 +9,26 @@
  *
  * 1. The Next.js route performs rate limiting, the honeypot check and
  *    Turnstile verification, then mints a short-lived token bound to the
- *    exact `eventId` + `payloadFingerprint` about to be submitted.
+ *    exact `eventId` + canonical payload digest + `idempotencyKey` about to
+ *    be submitted.
  * 2. The mutation refuses to do any work unless the token verifies
- *    (HMAC-SHA256 signature, expiry, and event/payload binding).
+ *    (HMAC-SHA256 signature, expiry, and event/digest/key binding).
+ *
+ * CR-09: the token is bound to a SHA-256 digest that the mutation recomputes
+ * from the actual submission arguments (never from a caller-supplied
+ * fingerprint), and the idempotency key is part of the signed message. A
+ * captured token therefore cannot be replayed with a different booker,
+ * attendee, ticket/accommodation payload, or a new idempotency key — every
+ * such change makes the recomputed digest or signed key differ and fails
+ * closed before any database read or write.
  *
  * An attacker calling the generated Convex mutation directly cannot mint a
  * token — the signing secret (`SIGNUP_SUBMISSION_SECRET`) exists only in the
  * Next server env and the Convex backend env — so every public submission is
  * effectively gated by the same CAPTCHA and rate-limit controls as the API
- * route. The token is single-submission-scoped (bound to the payload
- * fingerprint) and short-lived (5 minutes), so a leaked token cannot be
- * replayed against a different envelope.
+ * route. The token is single-submission-scoped (bound to the payload digest
+ * and idempotency key) and short-lived (5 minutes), so a leaked token cannot
+ * be replayed against a different envelope.
  *
  * The module is deliberately dependency-free (Web Crypto only) so both the
  * Next.js server runtime and the default Convex function runtime can share
@@ -34,12 +43,142 @@ export function getSignupSubmissionSecret(): string | undefined {
   return process.env[SECRET_ENV_VAR]
 }
 
+export type SignupEnvelopeCanonicalInput = {
+  eventId: string
+  source: "integration" | "internal"
+  notes?: string
+  booker: {
+    name: string
+    email: string
+    phone?: string
+  }
+  attendees: Array<{
+    attendeeKey: string
+    name: string
+    email?: string
+    phone?: string
+    gender: "male" | "female" | "mixed" | "unknown"
+    location?: string
+    dietaryRestrictions?: string
+    roommatePreference?: string
+    roommateAvoid?: string
+  }>
+  ticketSelections: Array<{
+    attendeeKey: string
+    ticketTypeId: string
+    quantity: number
+  }>
+  assignments: Array<{
+    attendeeKey: string
+    slotId: string
+    assignmentIntent: "assign" | "skip"
+  }>
+  accommodationSelections: Array<{
+    attendeeKey: string
+    categoryId: string
+    occupancy: "single" | "shared" | "family"
+    upgradeSelected: boolean
+    cotSelected: boolean
+    ageBandCode?: string
+  }>
+}
+
+function normalizeRequiredString(value: string): string {
+  return value.trim()
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : undefined
+}
+
+/**
+ * Build the canonical, deterministic JSON representation of a signup envelope
+ * that both the Next.js route (via `submitSignup`) and the Convex mutation
+ * use as the digest input. String fields are normalized (required fields
+ * trimmed, optional fields trimmed-or-undefined) so the two sides agree even
+ * when a caller sends stray whitespace, and the object shape is fixed so
+ * `JSON.stringify` output is stable across runtimes.
+ */
+export function canonicalizeSignupEnvelope(
+  input: SignupEnvelopeCanonicalInput
+): string {
+  const canonical = {
+    eventId: normalizeRequiredString(input.eventId),
+    source: input.source,
+    notes: normalizeOptionalString(input.notes),
+    booker: {
+      name: normalizeRequiredString(input.booker.name),
+      email: normalizeRequiredString(input.booker.email),
+      phone: normalizeOptionalString(input.booker.phone),
+    },
+    attendees: input.attendees.map((attendee) => ({
+      attendeeKey: normalizeRequiredString(attendee.attendeeKey),
+      name: normalizeRequiredString(attendee.name),
+      email: normalizeOptionalString(attendee.email),
+      phone: normalizeOptionalString(attendee.phone),
+      gender: attendee.gender,
+      location: normalizeOptionalString(attendee.location),
+      dietaryRestrictions: normalizeOptionalString(
+        attendee.dietaryRestrictions
+      ),
+      roommatePreference: normalizeOptionalString(attendee.roommatePreference),
+      roommateAvoid: normalizeOptionalString(attendee.roommateAvoid),
+    })),
+    ticketSelections: input.ticketSelections.map((selection) => ({
+      attendeeKey: normalizeRequiredString(selection.attendeeKey),
+      ticketTypeId: normalizeRequiredString(String(selection.ticketTypeId)),
+      quantity: Number(selection.quantity),
+    })),
+    assignments: input.assignments.map((assignment) => ({
+      attendeeKey: normalizeRequiredString(assignment.attendeeKey),
+      slotId: normalizeRequiredString(String(assignment.slotId)),
+      assignmentIntent: assignment.assignmentIntent,
+    })),
+    accommodationSelections: input.accommodationSelections.map(
+      (preference) => ({
+        attendeeKey: normalizeRequiredString(preference.attendeeKey),
+        categoryId: normalizeRequiredString(String(preference.categoryId)),
+        occupancy: preference.occupancy,
+        upgradeSelected: preference.upgradeSelected,
+        cotSelected: preference.cotSelected,
+        ageBandCode: normalizeOptionalString(preference.ageBandCode),
+      })
+    ),
+  }
+  return JSON.stringify(canonical)
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+}
+
+/**
+ * SHA-256 hex digest of the canonicalized envelope. The mutation recomputes
+ * this from its own (validated) arguments and the token only verifies when
+ * the digest matches what the route signed — a client-supplied fingerprint
+ * is never trusted (CR-09).
+ */
+export async function digestSubmissionEnvelope(
+  input: SignupEnvelopeCanonicalInput
+): Promise<string> {
+  const encoder = new TextEncoder()
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    encoder.encode(canonicalizeSignupEnvelope(input))
+  )
+  return bytesToHex(new Uint8Array(digest))
+}
+
 function signupSubmissionTokenMessage(input: {
   eventId: string
-  payloadFingerprint: string
+  payloadDigest: string
+  idempotencyKey: string
   expiresAt: number
 }): string {
-  return `${input.eventId}:${input.payloadFingerprint}:${input.expiresAt}`
+  return `${input.eventId}:${input.payloadDigest}:${input.idempotencyKey}:${input.expiresAt}`
 }
 
 async function hmacSha256Hex(secret: string, message: string): Promise<string> {
@@ -56,9 +195,7 @@ async function hmacSha256Hex(secret: string, message: string): Promise<string> {
     key,
     encoder.encode(message)
   )
-  return Array.from(new Uint8Array(signature))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("")
+  return bytesToHex(new Uint8Array(signature))
 }
 
 /**
@@ -83,7 +220,8 @@ function timingSafeEqualHex(left: string, right: string): boolean {
  */
 export async function mintSignupSubmissionToken(input: {
   eventId: string
-  payloadFingerprint: string
+  payloadDigest: string
+  idempotencyKey: string
   secret?: string
   now?: number
   ttlMs?: number
@@ -99,7 +237,8 @@ export async function mintSignupSubmissionToken(input: {
     secret,
     signupSubmissionTokenMessage({
       eventId: input.eventId,
-      payloadFingerprint: input.payloadFingerprint,
+      payloadDigest: input.payloadDigest,
+      idempotencyKey: input.idempotencyKey,
       expiresAt,
     })
   )
@@ -107,15 +246,17 @@ export async function mintSignupSubmissionToken(input: {
 }
 
 /**
- * Verify a signed token against the exact event/payload pair it was issued
- * for. Returns false (never throws) for missing, expired, tampered, or
- * wrong-binding tokens and when the signing secret is not configured.
+ * Verify a signed token against the exact event/payload-digest/idempotency
+ * triple it was issued for. Returns false (never throws) for missing,
+ * expired, tampered, or wrong-binding tokens and when the signing secret is
+ * not configured.
  */
 export async function verifySignupSubmissionToken(
   token: string | null | undefined,
   input: {
     eventId: string
-    payloadFingerprint: string
+    payloadDigest: string
+    idempotencyKey: string
     secret?: string
     now?: number
   }
@@ -146,7 +287,8 @@ export async function verifySignupSubmissionToken(
     secret,
     signupSubmissionTokenMessage({
       eventId: input.eventId,
-      payloadFingerprint: input.payloadFingerprint,
+      payloadDigest: input.payloadDigest,
+      idempotencyKey: input.idempotencyKey,
       expiresAt,
     })
   )

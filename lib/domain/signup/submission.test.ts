@@ -11,6 +11,10 @@ vi.mock("@/lib/convex/server", () => ({
 }))
 
 import { submitSignup } from "@/lib/domain/signup/submission"
+import {
+  digestSubmissionEnvelope,
+  verifySignupSubmissionToken,
+} from "@/lib/domain/signup/submission-token"
 
 // CR-07: submitSignup mints the server-issued submission token before calling
 // the public Convex mutation; the mint requires the shared signing secret.
@@ -77,9 +81,56 @@ describe("submitSignup envelope normalization", () => {
       cotSelected: false,
     })
     // CR-07: every server-side submission carries a minted token bound to the
-    // event + payload fingerprint so the public mutation can verify it.
+    // event + payload digest + idempotency key.
     expect(typeof args.submissionToken).toBe("string")
     expect(args.submissionToken.length).toBeGreaterThan(0)
+    // CR-09: no caller-controlled fingerprint is forwarded to the mutation —
+    // it recomputes the digest from its own arguments.
+    expect(args.payloadFingerprint).toBeUndefined()
+  })
+
+  it("mints a token that verifies only against the exact forwarded payload and idempotency key (CR-09)", async () => {
+    mocks.convexMutation.mockResolvedValueOnce(submissionResult)
+
+    await submitSignup(validEnvelope)
+
+    const args = mocks.convexMutation.mock.calls[0][1]
+    const payloadDigest = await digestSubmissionEnvelope({
+      eventId: args.eventId,
+      source: args.source,
+      notes: args.notes,
+      booker: args.booker,
+      attendees: args.attendees,
+      ticketSelections: args.ticketSelections,
+      assignments: args.assignments,
+      accommodationSelections: args.accommodationSelections,
+    })
+
+    // The token verifies for the exact envelope + idempotency key it was
+    // minted for (secret comes from the env set below the imports)...
+    await expect(
+      verifySignupSubmissionToken(args.submissionToken, {
+        eventId: args.eventId,
+        payloadDigest,
+        idempotencyKey: args.idempotencyKey,
+      })
+    ).resolves.toBe(true)
+
+    // ...and fails for a different payload digest or a different key.
+    await expect(
+      verifySignupSubmissionToken(args.submissionToken, {
+        eventId: args.eventId,
+        payloadDigest: "0".repeat(64),
+        idempotencyKey: args.idempotencyKey,
+      })
+    ).resolves.toBe(false)
+    await expect(
+      verifySignupSubmissionToken(args.submissionToken, {
+        eventId: args.eventId,
+        payloadDigest,
+        idempotencyKey: "other-key",
+      })
+    ).resolves.toBe(false)
   })
 
   it("rejects a non-boolean upgradeSelected instead of coercing it (WR-06)", async () => {

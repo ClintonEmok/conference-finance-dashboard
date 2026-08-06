@@ -34,7 +34,7 @@ export type SignupClientSubmitResult =
 
 export type SignupSubmissionBody = Omit<
   SignupSubmissionEnvelope,
-  "idempotencyKey" | "payloadFingerprint" | "honeypotSeen"
+  "idempotencyKey" | "honeypotSeen"
 > & {
   captchaToken?: string
 }

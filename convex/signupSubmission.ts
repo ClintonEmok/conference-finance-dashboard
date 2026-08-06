@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { api, internal } from "./_generated/api"
 import { loadOrderAmountDueBreakdowns } from "./finance"
 import {
+  isTicketCapacityExceeded,
   loadPublicSignupAccommodationContext,
   resolvePublicSignupSelection,
   resolveTicketCategoryById,
@@ -15,7 +16,10 @@ import {
   signupAccommodationOccupancyValidator,
   type SignupSubmissionErrorCode,
 } from "../lib/types/signup"
-import { verifySignupSubmissionToken } from "../lib/domain/signup/submission-token"
+import {
+  digestSubmissionEnvelope,
+  verifySignupSubmissionToken,
+} from "../lib/domain/signup/submission-token"
 
 const IDEMPOTENCY_WINDOW_MS = 2 * 60 * 60 * 1000
 
@@ -308,7 +312,6 @@ export const submitSignupEnvelope = mutation({
     eventId: v.id("events"),
     source: signupSourceValidator,
     idempotencyKey: v.string(),
-    payloadFingerprint: v.string(),
     // CR-07: server-issued post-CAPTCHA token. Required and verified below —
     // this public mutation must never be directly callable with only a
     // client-supplied envelope.
@@ -336,15 +339,50 @@ export const submitSignupEnvelope = mutation({
     // (app/api/signup/submit/route.ts) is the only CAPTCHA + rate-limit
     // gate, but an attacker can call the generated Convex endpoint directly,
     // so the mutation itself must refuse to persist anything without a
-    // server-issued token minted only after the route's checks pass. The
-    // token is an HMAC over `eventId:payloadFingerprint:expiresAt`, so a
-    // forged, expired, replayed, or cross-payload token fails closed here,
-    // before any database read or write.
+    // server-issued token minted only after the route's checks pass.
+    //
+    // CR-09: the token is verified against a SHA-256 digest recomputed here
+    // from the actual mutation arguments (never from a caller-supplied
+    // fingerprint) plus the normalized idempotency key. Changing any booker,
+    // attendee, ticket, accommodation, or assignment field — or replaying a
+    // captured token under a new idempotency key — changes the recomputed
+    // digest or signed key and fails closed before any database read or
+    // write.
+    const idempotencyKey = normalizeRequiredString(
+      args.idempotencyKey,
+      "idempotencyKey"
+    )
+
+    const payloadDigest = await digestSubmissionEnvelope({
+      eventId: String(args.eventId),
+      source: args.source,
+      notes: args.notes,
+      booker: args.booker,
+      attendees: args.attendees,
+      ticketSelections: args.ticketSelections.map((selection) => ({
+        attendeeKey: selection.attendeeKey,
+        ticketTypeId: String(selection.ticketTypeId),
+        quantity: selection.quantity,
+      })),
+      assignments: args.assignments,
+      accommodationSelections: args.accommodationSelections.map(
+        (preference) => ({
+          attendeeKey: preference.attendeeKey,
+          categoryId: String(preference.categoryId),
+          occupancy: preference.occupancy,
+          upgradeSelected: preference.upgradeSelected,
+          cotSelected: preference.cotSelected,
+          ageBandCode: preference.ageBandCode,
+        })
+      ),
+    })
+
     const tokenValid = await verifySignupSubmissionToken(
       args.submissionToken,
       {
         eventId: String(args.eventId),
-        payloadFingerprint: args.payloadFingerprint,
+        payloadDigest,
+        idempotencyKey,
       }
     )
     if (!tokenValid) {
@@ -355,14 +393,6 @@ export const submitSignupEnvelope = mutation({
     }
 
     const now = Date.now()
-    const idempotencyKey = normalizeRequiredString(
-      args.idempotencyKey,
-      "idempotencyKey"
-    )
-    const payloadFingerprint = normalizeRequiredString(
-      args.payloadFingerprint,
-      "payloadFingerprint"
-    )
 
     const bookerName = normalizeRequiredString(args.booker.name, "booker.name")
     const bookerEmail = normalizeRequiredString(
@@ -375,7 +405,7 @@ export const submitSignupEnvelope = mutation({
     const replayByFingerprint = await ctx.db
       .query("orderIdempotency")
       .withIndex("by_eventId_and_fingerprint", (q) =>
-        q.eq("eventId", args.eventId).eq("fingerprint", payloadFingerprint)
+        q.eq("eventId", args.eventId).eq("fingerprint", payloadDigest)
       )
       .first()
 
@@ -408,7 +438,7 @@ export const submitSignupEnvelope = mutation({
 
     const replayByKey = idempotencyRecords.find(
       (record) =>
-        record.expiresAt >= now && record.fingerprint === payloadFingerprint
+        record.expiresAt >= now && record.fingerprint === payloadDigest
     )
 
     if (replayByKey) {
@@ -533,24 +563,33 @@ export const submitSignupEnvelope = mutation({
         )
       }
 
-      // CR-08: enforce the configured capacity before any write. The
-      // increment for this ticket is accumulated across the whole selection
-      // list (each row is quantity = 1), so a single envelope can never
-      // oversell a `maxQuantity` ticket even if its state was not separately
-      // flipped to unavailable. The check runs inside the mutation's
-      // transaction before any insert, so concurrent submissions are also
-      // serialized against it — `soldCount` can never exceed `maxQuantity`.
-      const incrementForTicket = soldCountIncrements.get(selection.ticketTypeId) ?? 0
+      // CR-08/CR-10: enforce the configured capacity before any write using
+      // the exact same aggregate rule as the public quote. The increment for
+      // this ticket is accumulated across the whole selection list (each row
+      // is quantity = 1), so repeated ticketTypeId values count their full
+      // quantity against maxQuantity and a single envelope can never oversell
+      // a `maxQuantity` ticket even if its state was not separately flipped
+      // to unavailable. The check runs inside the mutation's transaction
+      // before any insert, so concurrent submissions are also serialized
+      // against it — `soldCount` can never exceed `maxQuantity`.
+      const incrementForTicket =
+        soldCountIncrements.get(selection.ticketTypeId) ?? 0
+      const requestedCountForTicket = incrementForTicket + 1
       if (
-        ticketType.maxQuantity !== undefined &&
-        (ticketType.soldCount ?? 0) + incrementForTicket + 1 > ticketType.maxQuantity
+        isTicketCapacityExceeded({
+          ticket: ticketType,
+          requestedCount: requestedCountForTicket,
+        })
       ) {
         throwSubmissionError(
           "TICKET_UNAVAILABLE",
           "Selected ticket type has reached its maximum quantity"
         )
       }
-      soldCountIncrements.set(selection.ticketTypeId, incrementForTicket + 1)
+      soldCountIncrements.set(
+        selection.ticketTypeId,
+        requestedCountForTicket
+      )
 
       attendeeKeyToTicketTypeId.set(
         selection.attendeeKey,
@@ -860,7 +899,7 @@ export const submitSignupEnvelope = mutation({
 
     if (expiredRecordByKey) {
       await ctx.db.patch(expiredRecordByKey._id, {
-        fingerprint: payloadFingerprint,
+        fingerprint: payloadDigest,
         orderId: submissionId,
         expiresAt: now + IDEMPOTENCY_WINDOW_MS,
       })
@@ -868,7 +907,7 @@ export const submitSignupEnvelope = mutation({
       await ctx.db.insert("orderIdempotency", {
         eventId: args.eventId,
         idempotencyKey,
-        fingerprint: payloadFingerprint,
+        fingerprint: payloadDigest,
         orderId: submissionId,
         expiresAt: now + IDEMPOTENCY_WINDOW_MS,
       })
