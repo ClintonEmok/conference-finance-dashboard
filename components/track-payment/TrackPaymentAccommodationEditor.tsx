@@ -113,9 +113,11 @@ export function buildTrackPaymentEditBody(input: {
   idempotencyKey: string
   selections: TrackPaymentEditSelection[]
 }): Record<string, unknown> {
+  const bookerEmail = input.bookerEmail.trim().toLowerCase()
+  const editToken = input.editToken.trim()
   return {
-    bookerEmail: input.bookerEmail.trim() || undefined,
-    editToken: input.editToken.trim() || undefined,
+    bookerEmail: bookerEmail || undefined,
+    editToken: editToken || undefined,
     idempotencyKey: input.idempotencyKey,
     website: "",
     selections: input.selections.map((selection) => ({
@@ -151,6 +153,106 @@ function messageForEditError(code: string): string {
     default:
       return "Something went wrong while saving. Please try again."
   }
+}
+
+export { messageForEditError }
+
+export type TrackPaymentEditSubmitResult =
+  | { ok: true; result: TrackPaymentEditResult }
+  | { ok: false; code: string }
+
+/**
+ * Submit a complete options-only replacement through the rate-limited API
+ * route and normalize the outcome. Returns the server's canonical result on
+ * success, or a stable error code on failure (ownership, confirmed lock,
+ * stale options, rate limit, validation, or a generic failure). The browser
+ * never derives money — the amount due and overpayment come from the route's
+ * server response.
+ */
+export async function submitTrackPaymentEdit(input: {
+  bookingRef: string
+  bookerEmail: string
+  editToken: string
+  idempotencyKey: string
+  selections: TrackPaymentEditSelection[]
+}): Promise<TrackPaymentEditSubmitResult> {
+  try {
+    const response = await fetch(
+      `/api/track-payment/${encodeURIComponent(input.bookingRef)}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-idempotency-key": input.idempotencyKey,
+        },
+        body: JSON.stringify(
+          buildTrackPaymentEditBody({
+            bookingRef: input.bookingRef,
+            bookerEmail: input.bookerEmail,
+            editToken: input.editToken,
+            idempotencyKey: input.idempotencyKey,
+            selections: input.selections,
+          })
+        ),
+      }
+    )
+    const payload = (await response.json().catch(() => null)) as {
+      data?: TrackPaymentEditResult
+      error?: { code?: string; message?: string }
+    } | null
+    if (!response.ok || !payload?.data) {
+      return { ok: false, code: payload?.error?.code ?? "EDIT_FAILED" }
+    }
+    return { ok: true, result: payload.data }
+  } catch {
+    return { ok: false, code: "EDIT_FAILED" }
+  }
+}
+
+/**
+ * Presentational success panel: announces the saved preferences and, when the
+ * server reports a downward re-price, shows the exact server-provided
+ * overpayment with explicit donation-vs-refund-support handling. The client
+ * never computes the overpayment.
+ */
+export function TrackPaymentEditResultPanel({
+  result,
+}: {
+  result: TrackPaymentEditResult
+}) {
+  const hasOverpayment = result.overpaymentDeltaMinor > 0
+  return (
+    <div className="space-y-4">
+      <div
+        aria-live="polite"
+        className="flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-800 dark:text-emerald-200"
+      >
+        <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+        <p>
+          Your accommodation preferences were saved. The balance shown is the
+          latest server calculation.
+        </p>
+      </div>
+      {hasOverpayment ? (
+        <div
+          className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200"
+          role="status"
+        >
+          <Info className="mt-0.5 size-4 shrink-0" />
+          <div>
+            <p className="font-semibold">
+              Your payments exceed the new amount due by{" "}
+              {formatMoney(result.overpaymentDeltaMinor)}.
+            </p>
+            <p className="mt-1 text-amber-700/80 dark:text-amber-200/80">
+              Unless you contact the organizers to request a refund, the excess
+              will be treated as a donation to the conference.
+            </p>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function newIdempotencyKey(): string {
@@ -343,51 +445,25 @@ export function TrackPaymentAccommodationEditor({
     )
 
     setStatus({ kind: "saving" })
-    try {
-      const response = await fetch(
-        `/api/track-payment/${encodeURIComponent(bookingRef)}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-idempotency-key": idempotencyKey(),
-          },
-          body: JSON.stringify(
-            buildTrackPaymentEditBody({
-              bookingRef,
-              bookerEmail,
-              editToken,
-              idempotencyKey: idempotencyKey(),
-              selections,
-            })
-          ),
-        }
-      )
-      const payload = (await response.json().catch(() => null)) as {
-        data?: TrackPaymentEditResult
-        error?: { code?: string; message?: string }
-      } | null
-      if (!response.ok || !payload?.data) {
-        const code = payload?.error?.code ?? "EDIT_FAILED"
-        setStatus({
-          kind: "error",
-          code,
-          message: messageForEditError(code),
-        })
-        return
-      }
-      setStatus({ kind: "success", result: payload.data })
-    } catch {
+    const outcome = await submitTrackPaymentEdit({
+      bookingRef,
+      bookerEmail,
+      editToken,
+      idempotencyKey: idempotencyKey(),
+      selections,
+    })
+    if (!outcome.ok) {
       setStatus({
         kind: "error",
-        code: "EDIT_FAILED",
-        message: messageForEditError("EDIT_FAILED"),
+        code: outcome.code,
+        message: messageForEditError(outcome.code),
       })
+      return
     }
+    setStatus({ kind: "success", result: outcome.result })
   }
 
   const successResult = status.kind === "success" ? status.result : null
-  const hasOverpayment = (successResult?.overpaymentDeltaMinor ?? 0) > 0
 
   return (
     <article className="rounded-3xl border border-border/40 bg-card/40 p-6 shadow-sm backdrop-blur-xl sm:p-8">
@@ -520,22 +596,9 @@ export function TrackPaymentAccommodationEditor({
         </div>
       ) : null}
 
-      {hasOverpayment && successResult ? (
-        <div
-          className="mt-4 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200"
-          role="status"
-        >
-          <Info className="mt-0.5 size-4 shrink-0" />
-          <div>
-            <p className="font-semibold">
-              Your payments exceed the new amount due by{" "}
-              {formatMoney(successResult.overpaymentDeltaMinor)}.
-            </p>
-            <p className="mt-1 text-amber-700/80 dark:text-amber-200/80">
-              Unless you contact the organizers to request a refund, the excess
-              will be treated as a donation to the conference.
-            </p>
-          </div>
+      {successResult ? (
+        <div className="mt-4">
+          <TrackPaymentEditResultPanel result={successResult} />
         </div>
       ) : null}
     </article>
