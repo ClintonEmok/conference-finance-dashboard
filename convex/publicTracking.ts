@@ -35,6 +35,25 @@ function computeProgress(
   return Math.min(100, Math.round((totalPaidMinor / totalDueMinor) * 100))
 }
 
+/**
+ * Every applied payment row for an order, read through bounded async
+ * iteration. A fixed `.take(100)` would silently undercount paid totals,
+ * progress, remaining balance and the overpayment delta for orders with more
+ * than 100 payments (CR-06).
+ */
+async function loadAppliedPaymentRowsForOrder(
+  ctx: QueryCtx | MutationCtx,
+  orderId: Id<"orders">
+): Promise<Array<Doc<"payments">>> {
+  const rows: Array<Doc<"payments">> = []
+  for await (const payment of ctx.db
+    .query("payments")
+    .withIndex("orderId", (q) => q.eq("orderId", String(orderId)))) {
+    rows.push(payment)
+  }
+  return rows.filter((payment) => isOrderAppliedPayment(payment))
+}
+
 export const getByBookingRef = query({
   args: {
     bookingRef: v.string(),
@@ -101,13 +120,9 @@ export const getByBookingRef = query({
       String(order._id)
     )
 
-    const paymentRows = await ctx.db
-      .query("payments")
-      .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))
-      .take(100)
-
-    const matchedPayments = paymentRows.filter((payment) =>
-      isOrderAppliedPayment(payment)
+    const matchedPayments = await loadAppliedPaymentRowsForOrder(
+      ctx,
+      order._id
     )
 
     const totalPaidMinor = matchedPayments.reduce(
@@ -210,14 +225,7 @@ async function loadTrackingByOrder(
   ])
   const amountDueBreakdown = amountDueBreakdownsByOrderId.get(String(order._id))
 
-  const paymentRows = await ctx.db
-    .query("payments")
-    .withIndex("orderId", (q: any) => q.eq("orderId", String(order._id)))
-    .take(100)
-
-  const matchedPayments = paymentRows.filter((payment: any) =>
-    isOrderAppliedPayment(payment)
-  )
+  const matchedPayments = await loadAppliedPaymentRowsForOrder(ctx, order._id)
 
   const totalPaidMinor = matchedPayments.reduce(
     (sum: number, payment: any) => sum + payment.amountMinor,
@@ -571,13 +579,8 @@ async function loadPaidTotalForOrder(
   ctx: MutationCtx,
   orderId: Id<"orders">
 ): Promise<number> {
-  const paymentRows = await ctx.db
-    .query("payments")
-    .withIndex("orderId", (q) => q.eq("orderId", String(orderId)))
-    .take(100)
-  return paymentRows
-    .filter((payment) => isOrderAppliedPayment(payment))
-    .reduce((sum, payment) => sum + payment.amountMinor, 0)
+  const matchedPayments = await loadAppliedPaymentRowsForOrder(ctx, orderId)
+  return matchedPayments.reduce((sum, payment) => sum + payment.amountMinor, 0)
 }
 
 function buildEditResult(
