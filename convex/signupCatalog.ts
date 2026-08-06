@@ -663,14 +663,19 @@ export function resolvePublicSignupSelection(input: {
 
 /**
  * Resolves the ticket entitlement category for every ticket referenced by a
- * public quote request: `ticketTypes.roomTypeId` → room type → category. A
- * dangling constrained room type fails closed (null) so the caller rejects
- * the selection instead of guessing.
+ * public quote request: `ticketTypes.roomTypeId` → room type → category.
+ *
+ * The result is a three-state map so a dangling constrained room type can be
+ * distinguished from a genuinely unconstrained ticket (CR-02):
+ * - `{ categoryId }` — the ticket's room type resolved to a catalog category;
+ * - `undefined` — the ticket has no roomTypeId and is truly unconstrained;
+ * - `null` — the ticket has a roomTypeId that cannot be resolved (missing
+ *   room type or missing category); callers MUST reject this state.
  */
 export async function resolveTicketCategoryById(
   ctx: QueryCtx | MutationCtx,
   ticketById: Map<string, Doc<"ticketTypes">>
-): Promise<Map<string, { categoryId: string } | null>> {
+): Promise<Map<string, { categoryId: string } | null | undefined>> {
   const roomTypeIds = new Set<string>()
   for (const ticket of ticketById.values()) {
     if (ticket.roomTypeId) {
@@ -685,27 +690,31 @@ export async function resolveTicketCategoryById(
       )
     )
   )
-  const roomTypeCategoryById = new Map<string, { categoryId: string } | null>()
+  const roomTypeCategoryById = new Map<string, { categoryId: string }>()
   for (const roomType of roomTypes) {
-    if (roomType) {
+    if (roomType?.categoryId) {
       roomTypeCategoryById.set(String(roomType._id), {
-        categoryId: roomType.categoryId ? String(roomType.categoryId) : "",
+        categoryId: String(roomType.categoryId),
       })
     }
   }
   const ticketCategoryById = new Map<
     string,
-    { categoryId: string } | null
+    { categoryId: string } | null | undefined
   >()
   for (const [ticketId, ticket] of ticketById) {
     if (!ticket.roomTypeId) {
-      ticketCategoryById.set(ticketId, null)
+      // Intentionally unconstrained: any active event category is allowed.
+      ticketCategoryById.set(ticketId, undefined)
       continue
     }
     const resolved = roomTypeCategoryById.get(String(ticket.roomTypeId))
+    // A present roomTypeId that does not resolve fails closed (null) so the
+    // caller rejects the selection instead of silently treating it as
+    // unconstrained.
     ticketCategoryById.set(
       ticketId,
-      resolved && resolved.categoryId ? resolved : null
+      resolved ? { categoryId: resolved.categoryId } : null
     )
   }
   return ticketCategoryById
@@ -1026,9 +1035,17 @@ export const getPublicSignupAccommodationQuote = query({
         )
       }
 
-      const ticketCategoryId =
-        ticketCategoryById.get(String(attendee.ticketTypeId))?.categoryId ??
-        null
+      // A present but unresolvable ticketTypes.roomTypeId fails closed
+      // (CR-02): the ticket must never be treated as unconstrained.
+      const ticketEntitlement = ticketCategoryById.get(
+        String(attendee.ticketTypeId)
+      )
+      if (ticketEntitlement === null) {
+        throw new Error(
+          "QUOTE_INVALID: The selected ticket's room type is no longer available."
+        )
+      }
+      const ticketCategoryId = ticketEntitlement?.categoryId ?? null
 
       const resolved = resolvePublicSignupSelection({
         context,

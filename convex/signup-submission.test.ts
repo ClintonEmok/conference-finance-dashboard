@@ -704,3 +704,52 @@ test("submission rejects cross-event ticket and category IDs", async () => {
     )
   ).rejects.toThrow("SUBMISSION_CONFLICT")
 })
+
+test("CR-02: submission rejects a ticket whose constrained room type cannot be resolved", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  const danglingRoomTypeId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("accommodationRoomTypes", {
+      label: "Deleted Suite",
+      defaultCapacity: 2,
+      categoryId: seed.categorySuperiorId as never,
+    })
+  })
+  const danglingTicketId = await t.mutation(async (ctx) => {
+    const ticketId = await ctx.db.insert("ticketTypes", {
+      eventId: seed.eventId as never,
+      label: "Dangling-suite ticket",
+      priceMinor: 2500,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      accommodationIncluded: false,
+      roomTypeId: danglingRoomTypeId as never,
+      updatedAt: BASE_EVENT_AT,
+    })
+    await ctx.db.delete(danglingRoomTypeId as never)
+    return ticketId
+  })
+
+  // The dangling ticket is rejected even for the room type's former category.
+  await expect(
+    t.mutation(
+      api.signupSubmission.submitSignupEnvelope,
+      buildEnvelope({
+        eventId: seed.eventId,
+        ticketTypeId: danglingTicketId as Id<"ticketTypes">,
+        accommodationSelections: [
+          {
+            attendeeKey: "attendee-1",
+            categoryId: seed.categorySuperiorId,
+            occupancy: "shared",
+            upgradeSelected: false,
+            cotSelected: false,
+            ageBandCode: "18_plus",
+          },
+        ],
+      })
+    )
+  ).rejects.toThrow("SUBMISSION_CONFLICT")
+})

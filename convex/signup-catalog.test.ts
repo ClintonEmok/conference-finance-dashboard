@@ -614,3 +614,77 @@ test("CR-01: a disabled event with stale config/rate rows exposes no choices and
     totalDueMinor: 1000,
   })
 })
+
+test("CR-02: a dangling constrained room type fails closed instead of becoming unconstrained", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  // Create a room type, attach it to a ticket, then delete the room type so
+  // ticketTypes.roomTypeId dangles exactly like a stale admin change would.
+  const danglingRoomTypeId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("accommodationRoomTypes", {
+      label: "Deleted Suite",
+      defaultCapacity: 2,
+      categoryId: seed.categorySuperiorId as never,
+    })
+  })
+  const danglingTicketId = await t.mutation(async (ctx) => {
+    const ticketId = await ctx.db.insert("ticketTypes", {
+      eventId: seed.eventId as never,
+      label: "Dangling-suite ticket",
+      priceMinor: 2500,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      accommodationIncluded: false,
+      roomTypeId: danglingRoomTypeId as never,
+      updatedAt: BASE_EVENT_AT,
+    })
+    await ctx.db.delete(danglingRoomTypeId as never)
+    return ticketId
+  })
+
+  // The catalog must not advertise a room-type category for the dangling
+  // ticket (no resolvable entitlement).
+  const catalog = await t.query(api.signupCatalog.getPublicSignupCatalog, {})
+  const event = catalog.find((entry) => entry.eventId === seed.eventId)
+  const danglingTicket = event?.tickets.find(
+    (ticket) => ticket.ticketTypeId === danglingTicketId
+  )
+  expect(danglingTicket?.roomTypeCategoryId).toBeUndefined()
+
+  // The quote must reject the dangling ticket rather than treat it as
+  // unconstrained and accept any active category.
+  await expect(
+    t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: danglingTicketId as Id<"ticketTypes">,
+          categoryId: seed.categoryStandardId,
+          occupancy: "shared",
+          upgradeSelected: false,
+          cotSelected: false,
+          ageBandCode: "18_plus",
+        },
+      ],
+    })
+  ).rejects.toThrow("QUOTE_INVALID")
+  await expect(
+    t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: danglingTicketId as Id<"ticketTypes">,
+          categoryId: seed.categorySuperiorId,
+          occupancy: "shared",
+          upgradeSelected: false,
+          cotSelected: false,
+          ageBandCode: "18_plus",
+        },
+      ],
+    })
+  ).rejects.toThrow("room type is no longer available")
+})

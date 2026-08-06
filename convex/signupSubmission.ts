@@ -557,9 +557,18 @@ export const submitSignupEnvelope = mutation({
         )
       }
 
-      const ticketCategoryId =
-        selectionTicketCategoryById.get(String(ticketTypeId))?.categoryId ??
-        null
+      // A present but unresolvable ticketTypes.roomTypeId fails closed
+      // (CR-02): the ticket must never be treated as unconstrained.
+      const ticketEntitlement = selectionTicketCategoryById.get(
+        String(ticketTypeId)
+      )
+      if (ticketEntitlement === null) {
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          "The selected ticket's room type is no longer available."
+        )
+      }
+      const ticketCategoryId = ticketEntitlement?.categoryId ?? null
 
       let resolved: ReturnType<typeof resolvePublicSignupSelection>
       try {
