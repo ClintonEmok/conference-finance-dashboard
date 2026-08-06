@@ -636,6 +636,38 @@ test("assignment fails closed on malformed confirmation state", async () => {
   ).rejects.toThrow(/malformed accommodation confirmation state/)
 })
 
+test("assignment rejects non-positive confirmedAt and configVersion", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const order = await createOrder(t, seed, {
+    attendeeKey: "a-nonpositive",
+    name: "Non-Positive Attendee",
+    bookingRef: "BK-PP-NONPOS01",
+    ageBandCode: "18_plus",
+  })
+
+  const rows = await loadSelectionRows(t, String(order.orderId))
+  expect(rows).toHaveLength(1)
+  await t.mutation(async (db) => {
+    await db.db.patch(
+      "orderAccommodationSelections",
+      rows[0]._id as Id<"orderAccommodationSelections">,
+      {
+        confirmedAt: 0,
+        configVersion: 0,
+        priceSnapshot: undefined,
+      }
+    )
+  })
+
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(order.attendeeId),
+      roomId: String(seed.roomId),
+    })
+  ).rejects.toThrow(/malformed accommodation confirmation state/)
+})
+
 test("legacy order with no accommodation selection rows still assigns", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await seedPaidPriorityEvent(t)

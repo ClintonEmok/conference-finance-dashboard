@@ -3878,16 +3878,16 @@ export async function persistOrderAccommodationConfirmation(
 
   // Classify each row as completely unconfirmed, completely confirmed, or
   // malformed. A confirmed row is only complete when it carries a valid
-  // `confirmedAt`, a positive finite `configVersion`, and a complete price
-  // snapshot — otherwise it is malformed and the order must fail closed
-  // (the canonical finance loader would reject it later anyway).
+  // positive `confirmedAt`, a positive finite `configVersion`, and a complete
+  // price snapshot — matching the canonical finance loader's fail-closed
+  // checks exactly (any `<= 0`/non-finite value is malformed).
   const isFullyConfirmed = (row: Doc<"orderAccommodationSelections">) =>
-    row.confirmedAt !== undefined &&
-    row.confirmedAt !== null &&
+    typeof row.confirmedAt === "number" &&
     Number.isFinite(row.confirmedAt) &&
-    row.configVersion !== undefined &&
-    row.configVersion !== null &&
+    row.confirmedAt > 0 &&
+    typeof row.configVersion === "number" &&
     Number.isFinite(row.configVersion) &&
+    row.configVersion > 0 &&
     row.priceSnapshot !== undefined &&
     row.priceSnapshot !== null &&
     isCompleteAccommodationPriceSnapshot(row.priceSnapshot)
