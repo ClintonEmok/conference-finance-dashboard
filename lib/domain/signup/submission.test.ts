@@ -12,6 +12,10 @@ vi.mock("@/lib/convex/server", () => ({
 
 import { submitSignup } from "@/lib/domain/signup/submission"
 
+// CR-07: submitSignup mints the server-issued submission token before calling
+// the public Convex mutation; the mint requires the shared signing secret.
+process.env.SIGNUP_SUBMISSION_SECRET = "test-submission-secret"
+
 const validEnvelope = {
   eventId: "j57a0f4n13n3m6v3kz5z2n6sh7mew4p2",
   source: "internal",
@@ -72,6 +76,10 @@ describe("submitSignup envelope normalization", () => {
       upgradeSelected: true,
       cotSelected: false,
     })
+    // CR-07: every server-side submission carries a minted token bound to the
+    // event + payload fingerprint so the public mutation can verify it.
+    expect(typeof args.submissionToken).toBe("string")
+    expect(args.submissionToken.length).toBeGreaterThan(0)
   })
 
   it("rejects a non-boolean upgradeSelected instead of coercing it (WR-06)", async () => {
