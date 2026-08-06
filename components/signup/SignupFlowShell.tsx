@@ -729,7 +729,10 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                     />
                     {configuredAccommodation &&
                       !allAccommodationSelected && (
-                        <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
+                        <div
+                          role="alert"
+                          className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive"
+                        >
                           Select a category and room type for every attendee to
                           continue.
                         </div>
@@ -757,7 +760,14 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                   totalSteps={SIGNUP_STEP_ORDER.length}
                   canProceed={
                     completedByStep[activeDraft.step] ||
-                    (activeDraft.step === "review" && Boolean(captchaToken))
+                    (activeDraft.step === "review" &&
+                      captchaToken !== null &&
+                      // The review button stays gated on a fresh server quote
+                      // (WR-03): an incomplete/loading/invalid quote must not
+                      // offer an apparently valid submit action. Unconfigured
+                      // events flip to ready once their ticket-only quote
+                      // arrives (CR-05).
+                      quoteRenderState.status === "ready")
                   }
                   onBack={moveBack}
                   onNext={

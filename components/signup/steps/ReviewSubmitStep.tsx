@@ -359,7 +359,10 @@ export function ReviewSubmitStep({
       </Card>
 
       {submitError ? (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+        >
           <p className="font-medium">{submitError.code}</p>
           <p>{submitError.message}</p>
         </div>
