@@ -1168,3 +1168,112 @@ test("CR-07: forged, expired, and mis-bound submission tokens are rejected befor
   })
   expect(orders).toHaveLength(0)
 })
+
+test("CR-08: submissions cannot oversell a ticket past its maxQuantity", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  // A ticket whose soldCount already equals maxQuantity is rejected with
+  // TICKET_UNAVAILABLE even though its availability state is still
+  // "selectable" — capacity alone makes it unsellable.
+  const soldOutTicketId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("ticketTypes", {
+      eventId: seed.eventId as never,
+      label: "Sold-out-by-capacity ticket",
+      priceMinor: 1500,
+      maxQuantity: 1,
+      soldCount: 1,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+  await expect(
+    t.mutation(
+      api.signupSubmission.submitSignupEnvelope,
+      await buildEnvelope({
+        eventId: seed.eventId,
+        ticketTypeId: soldOutTicketId as Id<"ticketTypes">,
+        accommodationSelections: [
+          {
+            attendeeKey: "attendee-1",
+            categoryId: seed.categoryStandardId,
+            occupancy: "shared",
+            upgradeSelected: false,
+            cotSelected: false,
+            ageBandCode: "18_plus",
+          },
+        ],
+      })
+    )
+  ).rejects.toThrow("TICKET_UNAVAILABLE")
+
+  // A capacity-1 ticket accepts exactly one submission; the next one is
+  // rejected inside the transaction before any soldCount/order write, so the
+  // counter can never overshoot the configured maximum.
+  const capacityOneTicketId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("ticketTypes", {
+      eventId: seed.eventId as never,
+      label: "Capacity-one ticket",
+      priceMinor: 1500,
+      maxQuantity: 1,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+  const first = await t.mutation(
+    api.signupSubmission.submitSignupEnvelope,
+    await buildEnvelope({
+      eventId: seed.eventId,
+      ticketTypeId: capacityOneTicketId as Id<"ticketTypes">,
+      accommodationSelections: [
+        {
+          attendeeKey: "attendee-1",
+          categoryId: seed.categoryStandardId,
+          occupancy: "shared",
+          upgradeSelected: false,
+          cotSelected: false,
+          ageBandCode: "18_plus",
+        },
+      ],
+    })
+  )
+  expect(first.submissionId).toBeDefined()
+
+  await expect(
+    t.mutation(
+      api.signupSubmission.submitSignupEnvelope,
+      await buildEnvelope({
+        eventId: seed.eventId,
+        ticketTypeId: capacityOneTicketId as Id<"ticketTypes">,
+        accommodationSelections: [
+          {
+            attendeeKey: "attendee-1",
+            categoryId: seed.categoryStandardId,
+            occupancy: "shared",
+            upgradeSelected: false,
+            cotSelected: false,
+            ageBandCode: "18_plus",
+          },
+        ],
+      })
+    )
+  ).rejects.toThrow("TICKET_UNAVAILABLE")
+
+  // The capacity-1 ticket's soldCount ended at exactly 1, and only the first
+  // order exists.
+  const capacityTicketRow = await t.query(async (ctx) => {
+    return await ctx.db.get(capacityOneTicketId as never)
+  })
+  expect(capacityTicketRow?.soldCount).toBe(1)
+  const orders = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId))
+      .take(10)
+  })
+  expect(orders).toHaveLength(1)
+})

@@ -533,6 +533,25 @@ export const submitSignupEnvelope = mutation({
         )
       }
 
+      // CR-08: enforce the configured capacity before any write. The
+      // increment for this ticket is accumulated across the whole selection
+      // list (each row is quantity = 1), so a single envelope can never
+      // oversell a `maxQuantity` ticket even if its state was not separately
+      // flipped to unavailable. The check runs inside the mutation's
+      // transaction before any insert, so concurrent submissions are also
+      // serialized against it — `soldCount` can never exceed `maxQuantity`.
+      const incrementForTicket = soldCountIncrements.get(selection.ticketTypeId) ?? 0
+      if (
+        ticketType.maxQuantity !== undefined &&
+        (ticketType.soldCount ?? 0) + incrementForTicket + 1 > ticketType.maxQuantity
+      ) {
+        throwSubmissionError(
+          "TICKET_UNAVAILABLE",
+          "Selected ticket type has reached its maximum quantity"
+        )
+      }
+      soldCountIncrements.set(selection.ticketTypeId, incrementForTicket + 1)
+
       attendeeKeyToTicketTypeId.set(
         selection.attendeeKey,
         selection.ticketTypeId
@@ -746,10 +765,9 @@ export const submitSignupEnvelope = mutation({
         sortOrder,
       })
 
-      soldCountIncrements.set(
-        selection.ticketTypeId,
-        (soldCountIncrements.get(selection.ticketTypeId) ?? 0) + 1
-      )
+      // soldCountIncrements was fully precomputed during the CR-08 capacity
+      // validation pass above — it must not be mutated again here, or the
+      // capacity check and the persisted increments could disagree.
       attendeeKeyToTicketTypeId.set(
         selection.attendeeKey,
         selection.ticketTypeId

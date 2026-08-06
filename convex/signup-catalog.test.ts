@@ -688,3 +688,51 @@ test("CR-02: a dangling constrained room type fails closed instead of becoming u
     })
   ).rejects.toThrow("room type is no longer available")
 })
+
+test("CR-08: a ticket at maxQuantity is not advertised as selectable and cannot be quoted", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  const soldOutTicketId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("ticketTypes", {
+      eventId: seed.eventId as never,
+      label: "Sold-out-by-capacity ticket",
+      priceMinor: 1500,
+      maxQuantity: 2,
+      soldCount: 2,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+
+  // Catalog: the capacity-full ticket is exposed as non-selectable with the
+  // sold_out reason, so the UI can never present it as a purchase option.
+  const catalog = await t.query(api.signupCatalog.getPublicSignupCatalog, {})
+  const event = catalog.find((entry) => entry.eventId === seed.eventId)
+  const soldOutTicket = event?.tickets.find(
+    (ticket) => ticket.ticketTypeId === soldOutTicketId
+  )
+  expect(soldOutTicket?.selectable).toBe(false)
+  expect(soldOutTicket?.reason).toBe("sold_out")
+
+  // Quote: the same capacity rule rejects the ticket so a buyer can never
+  // reach the review step with a ticket the submission path would reject.
+  await expect(
+    t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: soldOutTicketId as Id<"ticketTypes">,
+          categoryId: seed.categoryStandardId,
+          occupancy: "shared",
+          upgradeSelected: false,
+          cotSelected: false,
+          ageBandCode: "18_plus",
+        },
+      ],
+    })
+  ).rejects.toThrow("maximum quantity")
+})

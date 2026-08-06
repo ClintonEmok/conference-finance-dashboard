@@ -169,8 +169,17 @@ function mapTicket(
   >
 ) {
   const selectableByState = ticket.availabilityState === "selectable"
+  // CR-08: a ticket whose soldCount has reached its configured maxQuantity is
+  // sold out regardless of its availability state — the UI must never
+  // advertise a ticket the submission path will reject.
+  const soldOutByCapacity =
+    ticket.maxQuantity !== undefined &&
+    (ticket.soldCount ?? 0) >= ticket.maxQuantity
   const selectable =
-    selectableByState && ticket.isActive && ticket.visibility === "public"
+    selectableByState &&
+    ticket.isActive &&
+    ticket.visibility === "public" &&
+    !soldOutByCapacity
 
   const roomTypeCategory = ticket.roomTypeId
     ? roomTypeCategoryById.get(String(ticket.roomTypeId)) ?? null
@@ -191,11 +200,13 @@ function mapTicket(
 
   const reason =
     normalizeTicketUnavailableReason(ticket.unavailableReason) ??
-    (ticket.visibility === "hidden"
-      ? "hidden"
-      : ticket.isActive
-        ? "not_on_sale"
-        : "disabled")
+    (soldOutByCapacity
+      ? "sold_out"
+      : ticket.visibility === "hidden"
+        ? "hidden"
+        : ticket.isActive
+          ? "not_on_sale"
+          : "disabled")
 
   return {
     ticketTypeId: ticket._id,
@@ -1032,6 +1043,17 @@ export const getPublicSignupAccommodationQuote = query({
       ) {
         throw new Error(
           "QUOTE_INVALID: Selected ticket type is no longer selectable."
+        )
+      }
+
+      // CR-08: the quote uses the same capacity rule as the submission path,
+      // so a full ticket can never be quoted as if it were still available.
+      if (
+        ticket.maxQuantity !== undefined &&
+        (ticket.soldCount ?? 0) >= ticket.maxQuantity
+      ) {
+        throw new Error(
+          "QUOTE_INVALID: Selected ticket type has reached its maximum quantity."
         )
       }
 
