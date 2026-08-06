@@ -309,8 +309,12 @@ export default defineSchema({
    * (Phase 43). One immutable row is written per applied replace-style edit;
    * an idempotent replay of an already-applied key returns the stored result
    * and never writes a second row. Every value is server-derived — the
-   * mutation never accepts a client amount, digest, or money figure. Audit
-   * rows are evidence of accepted edits, not a second pricing source.
+   * mutation never accepts a client amount, digest, or money figure. The row
+   * persists the COMPLETE canonical response (amount due, paid, remaining,
+   * progress, overpayment) so a replay returns the exact originally stored
+   * money result (CR-08) instead of re-reading mutable payment rows that may
+   * have drifted since the edit was applied. Audit rows are evidence of
+   * accepted edits, not a second pricing source.
    */
   orderAccommodationEditAudits: defineTable(
     v.object({
@@ -322,6 +326,9 @@ export default defineSchema({
       afterSelectionDigest: v.string(),
       amountDueBeforeMinor: v.number(),
       amountDueAfterMinor: v.number(),
+      totalPaidMinor: v.number(),
+      remainingMinor: v.number(),
+      progressPercent: v.number(),
       overpaymentDeltaMinor: v.number(),
     })
   )

@@ -551,7 +551,10 @@ export type DataModel = {
       orderId: Id<"orders">;
       overpaymentDeltaMinor: number;
       ownershipMethod: "email" | "token";
+      progressPercent: number;
+      remainingMinor: number;
       requestDigest: string;
+      totalPaidMinor: number;
       _id: Id<"orderAccommodationEditAudits">;
       _creationTime: number;
     };
@@ -566,7 +569,10 @@ export type DataModel = {
       | "orderId"
       | "overpaymentDeltaMinor"
       | "ownershipMethod"
-      | "requestDigest";
+      | "progressPercent"
+      | "remainingMinor"
+      | "requestDigest"
+      | "totalPaidMinor";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];

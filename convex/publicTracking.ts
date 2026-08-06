@@ -713,11 +713,14 @@ export const getTrackPaymentEditContext = query({
  *
  * A replacement identical to the current selections is a true no-op (no row
  * or audit writes). An already-used idempotency key returns its stored
- * result without repeating writes. Applied edits persist server-resolved
- * stay timestamps/night count, insert one append-only audit row with
- * server-derived amount-due before/after and overpayment delta, and never
- * touch orders.totalAmountMinor, payments, orderAssignments, or Tikkie
- * links (flexible-zero links are never regenerated/superseded/expired).
+ * result without repeating writes — the complete canonical response is
+ * persisted on the audit row at apply time, so a replay never recomputes
+ * money from mutable payment state (CR-08). Applied edits persist
+ * server-resolved stay timestamps/night count, insert one append-only audit
+ * row with server-derived amount-due before/after and the frozen response,
+ * and never touch orders.totalAmountMinor, payments, orderAssignments, or
+ * Tikkie links (flexible-zero links are never
+ * regenerated/superseded/expired).
  */
 export const updateAccommodation = mutation({
   args: {
@@ -846,13 +849,20 @@ export const updateAccommodation = mutation({
           "This idempotency key was already used for a different edit. Retry with a fresh key."
         )
       }
-      const totalPaid = await loadPaidTotalForOrder(ctx, order._id)
-      return buildEditResult(
+      // CR-08: return the COMPLETE canonical response persisted when the edit
+      // was applied — never recompute money from the current payment rows,
+      // which can drift (a payment posted or reclassified between attempts)
+      // and would break the idempotent-replay contract that the retry returns
+      // the exact originally stored server result.
+      return {
         bookingRef,
-        "replayed",
-        replayAuditRow.amountDueAfterMinor,
-        totalPaid
-      )
+        status: "replayed" as const,
+        amountDueMinor: replayAuditRow.amountDueAfterMinor,
+        totalPaidMinor: replayAuditRow.totalPaidMinor,
+        remainingMinor: replayAuditRow.remainingMinor,
+        progressPercent: replayAuditRow.progressPercent,
+        overpaymentDeltaMinor: replayAuditRow.overpaymentDeltaMinor,
+      }
     }
 
     const selectionRows = await loadAccommodationSelectionsForOrder(
@@ -1109,9 +1119,13 @@ export const updateAccommodation = mutation({
       afterBreakdown.get(String(order._id))?.amountDueMinor ?? 0
 
     const totalPaid = await loadPaidTotalForOrder(ctx, order._id)
-    const overpaymentDeltaMinor = Math.max(0, totalPaid - amountDueAfter)
+    const result = buildEditResult(bookingRef, "applied", amountDueAfter, totalPaid)
 
-    // One immutable, server-valued audit row per applied edit.
+    // One immutable, server-valued audit row per applied edit. The COMPLETE
+    // canonical response is persisted (CR-08) so an idempotent replay of the
+    // same key returns the exact originally stored money result — the
+    // derived fields are frozen here and never recomputed from mutable
+    // payment state on replay.
     await ctx.db.insert("orderAccommodationEditAudits", {
       orderId: order._id,
       idempotencyKey,
@@ -1121,9 +1135,12 @@ export const updateAccommodation = mutation({
       afterSelectionDigest,
       amountDueBeforeMinor: amountDueBefore,
       amountDueAfterMinor: amountDueAfter,
-      overpaymentDeltaMinor,
+      totalPaidMinor: result.totalPaidMinor,
+      remainingMinor: result.remainingMinor,
+      progressPercent: result.progressPercent,
+      overpaymentDeltaMinor: result.overpaymentDeltaMinor,
     })
 
-    return buildEditResult(bookingRef, "applied", amountDueAfter, totalPaid)
+    return result
   },
 })

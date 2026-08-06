@@ -1228,8 +1228,14 @@ test("an already-used idempotency key replays its stored result without duplicat
   })
   expect(first.status).toBe("applied")
   expect(first.amountDueMinor).toBe(22500)
+  expect(first.totalPaidMinor).toBe(0)
+  expect(first.remainingMinor).toBe(22500)
+  expect(first.progressPercent).toBe(0)
+  expect(first.overpaymentDeltaMinor).toBe(0)
 
-  // Retry with the same key and identical envelope: replayed, same result.
+  // Retry with the same key and identical envelope: replayed, same result —
+  // the complete canonical response is returned from the stored audit row,
+  // never recomputed from mutable payment state (CR-08).
   const second = await t.mutation(api.publicTracking.updateAccommodation, {
     bookingRef: BOOKING_REF,
     bookerEmail: "booker@example.com",
@@ -1238,7 +1244,7 @@ test("an already-used idempotency key replays its stored result without duplicat
     selections,
   })
   expect(second.status).toBe("replayed")
-  expect(second.amountDueMinor).toBe(22500)
+  expect(second).toEqual({ ...first, status: "replayed" })
 
   const audits = await t.query(async (ctx) => {
     const rows = []
@@ -1248,7 +1254,96 @@ test("an already-used idempotency key replays its stored result without duplicat
     return rows
   })
   expect(audits).toHaveLength(1)
+  expect(audits[0].amountDueAfterMinor).toBe(22500)
+  expect(audits[0].totalPaidMinor).toBe(0)
+  expect(audits[0].remainingMinor).toBe(22500)
+  expect(audits[0].progressPercent).toBe(0)
+  expect(audits[0].overpaymentDeltaMinor).toBe(0)
   expect(await loadAmountDue(t, String(order.orderId))).toBe(22500)
+})
+
+test("a replay returns the originally stored money result even when a payment is posted between attempts", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  const order = await createOrderWithSelections(t, seed)
+
+  const selections = [
+    replacement({
+      attendeeKey: "a-1",
+      categoryId: seed.categorySuperiorId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+    replacement({
+      attendeeKey: "a-2",
+      categoryId: seed.categorySuperiorId,
+      occupancy: "shared",
+      ageBandCode: "18_plus",
+    }),
+  ]
+  const idempotencyKey = uniqueIdempotencyKey()
+  const requestSignature = await signEditEnvelope({
+    bookingRef: BOOKING_REF,
+    bookerEmail: "booker@example.com",
+    idempotencyKey,
+    selections,
+  })
+
+  const first = await t.mutation(api.publicTracking.updateAccommodation, {
+    bookingRef: BOOKING_REF,
+    bookerEmail: "booker@example.com",
+    requestSignature,
+    idempotencyKey,
+    selections,
+  })
+  expect(first.status).toBe("applied")
+  expect(first.totalPaidMinor).toBe(0)
+  expect(first.remainingMinor).toBe(22500)
+  expect(first.progressPercent).toBe(0)
+  expect(first.overpaymentDeltaMinor).toBe(0)
+
+  // A payment arrives between the first attempt and the retry. A replay that
+  // recomputed money from the current payment rows would now report paid =
+  // 30000 / remaining = 0 / progress = 100 / overpayment = 7500; the stored
+  // result must win so the same idempotency key never returns different money.
+  await t.mutation(async (ctx) => {
+    return await ctx.db.insert("payments", {
+      source: "tikkie" as const,
+      sourceId: "tikkie-payment-posted-after-edit",
+      payerName: "Booker",
+      amountMinor: 30000,
+      paidAt: BASE_EVENT_AT - DAY_MS,
+      eventId: seed.eventId as never,
+      orderId: String(order.orderId),
+      status: "auto_matched" as const,
+      matchedAt: BASE_EVENT_AT - DAY_MS,
+    })
+  })
+
+  const second = await t.mutation(api.publicTracking.updateAccommodation, {
+    bookingRef: BOOKING_REF,
+    bookerEmail: "booker@example.com",
+    requestSignature,
+    idempotencyKey,
+    selections,
+  })
+  expect(second.status).toBe("replayed")
+  // The replay returns the exact originally stored server result (CR-08) —
+  // no recompute against the newly posted payment.
+  expect(second).toEqual({ ...first, status: "replayed" })
+  expect(second.totalPaidMinor).toBe(0)
+  expect(second.remainingMinor).toBe(22500)
+  expect(second.progressPercent).toBe(0)
+  expect(second.overpaymentDeltaMinor).toBe(0)
+
+  const audits = await t.query(async (ctx) => {
+    const rows = []
+    for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
+      rows.push(row)
+    }
+    return rows
+  })
+  expect(audits).toHaveLength(1)
 })
 
 test("distinct applied edits produce distinct append-only server-valued audit rows", async () => {
@@ -1561,6 +1656,7 @@ test("a same-key replay returns the stored result even after the organizer confi
     selections,
   })
   expect(first.status).toBe("applied")
+  expect(first.totalPaidMinor).toBe(0)
 
   // The organizer now confirms the configuration — the confirmedAt guard
   // would reject a fresh edit, but the replay check runs BEFORE that guard,
@@ -1586,7 +1682,8 @@ test("a same-key replay returns the stored result even after the organizer confi
     selections,
   })
   expect(second.status).toBe("replayed")
-  expect(second.amountDueMinor).toBe(22500)
+  // The replay returns the full originally stored canonical response (CR-08).
+  expect(second).toEqual({ ...first, status: "replayed" })
 
   const audits = await t.query(async (ctx) => {
     const rows = []
@@ -1596,4 +1693,8 @@ test("a same-key replay returns the stored result even after the organizer confi
     return rows
   })
   expect(audits).toHaveLength(1)
+  expect(audits[0].totalPaidMinor).toBe(0)
+  expect(audits[0].remainingMinor).toBe(22500)
+  expect(audits[0].progressPercent).toBe(0)
+  expect(audits[0].overpaymentDeltaMinor).toBe(0)
 })
