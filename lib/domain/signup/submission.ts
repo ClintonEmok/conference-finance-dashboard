@@ -248,6 +248,23 @@ function normalizeEnvelope(
         )
       }
 
+      // Option decisions are user-supplied booleans: strict type checks
+      // preserve the exact options-only payload contract (WR-06). Coercing
+      // with Boolean() turned the string "false" into true and could
+      // unexpectedly enable a chargeable option.
+      const upgradeSelected = preference.upgradeSelected
+      if (typeof upgradeSelected !== "boolean") {
+        throw new SignupSubmissionValidationError(
+          `Invalid 'accommodationSelections[${index}].upgradeSelected'. Expected a boolean.`
+        )
+      }
+      const cotSelected = preference.cotSelected
+      if (typeof cotSelected !== "boolean") {
+        throw new SignupSubmissionValidationError(
+          `Invalid 'accommodationSelections[${index}].cotSelected'. Expected a boolean.`
+        )
+      }
+
       return {
         attendeeKey: normalizeRequiredString(
           preference.attendeeKey,
@@ -258,8 +275,8 @@ function normalizeEnvelope(
           `accommodationSelections[${index}].categoryId`
         ),
         occupancy: occupancy as SignupAccommodationOccupancy,
-        upgradeSelected: Boolean(preference.upgradeSelected),
-        cotSelected: Boolean(preference.cotSelected),
+        upgradeSelected,
+        cotSelected,
         ageBandCode: ageBandCode as SignupAgeBandCode | undefined,
       }
     }
