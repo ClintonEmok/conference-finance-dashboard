@@ -380,7 +380,7 @@ export function TrackPaymentView({
                           </span>
                           <span className="text-muted-foreground tabular-nums">
                             {ticket.quantity} ×{" "}
-                            {formatMoney(ticket.pricePerTicketMinor)}
+                            {formatMoney(ticket.pricePerTicketMinor, currency)}
                           </span>
                         </div>
                       ))}
@@ -394,7 +394,8 @@ export function TrackPaymentView({
                               {line.label}
                             </span>
                             <span className="text-muted-foreground tabular-nums">
-                              {line.nights} × {formatMoney(line.ratePerNightMinor)}
+                              {line.nights} ×{" "}
+                              {formatMoney(line.ratePerNightMinor, currency)}
                             </span>
                           </div>
                         )
