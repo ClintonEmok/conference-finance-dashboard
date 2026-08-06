@@ -15,6 +15,7 @@ import {
   signupAccommodationOccupancyValidator,
   type SignupSubmissionErrorCode,
 } from "../lib/types/signup"
+import { verifySignupSubmissionToken } from "../lib/domain/signup/submission-token"
 
 const IDEMPOTENCY_WINDOW_MS = 2 * 60 * 60 * 1000
 
@@ -308,6 +309,10 @@ export const submitSignupEnvelope = mutation({
     source: signupSourceValidator,
     idempotencyKey: v.string(),
     payloadFingerprint: v.string(),
+    // CR-07: server-issued post-CAPTCHA token. Required and verified below —
+    // this public mutation must never be directly callable with only a
+    // client-supplied envelope.
+    submissionToken: v.string(),
     honeypotSeen: v.boolean(),
     notes: v.optional(v.string()),
     booker: v.object({
@@ -327,6 +332,28 @@ export const submitSignupEnvelope = mutation({
     restorePayload: restorePayloadValidator,
   }),
   handler: async (ctx, args) => {
+    // CR-07: this function is a public Internet mutation. The Next.js route
+    // (app/api/signup/submit/route.ts) is the only CAPTCHA + rate-limit
+    // gate, but an attacker can call the generated Convex endpoint directly,
+    // so the mutation itself must refuse to persist anything without a
+    // server-issued token minted only after the route's checks pass. The
+    // token is an HMAC over `eventId:payloadFingerprint:expiresAt`, so a
+    // forged, expired, replayed, or cross-payload token fails closed here,
+    // before any database read or write.
+    const tokenValid = await verifySignupSubmissionToken(
+      args.submissionToken,
+      {
+        eventId: String(args.eventId),
+        payloadFingerprint: args.payloadFingerprint,
+      }
+    )
+    if (!tokenValid) {
+      throwSubmissionError(
+        "CAPTCHA_REQUIRED",
+        "A valid server-issued verification token is required before submitting a signup."
+      )
+    }
+
     const now = Date.now()
     const idempotencyKey = normalizeRequiredString(
       args.idempotencyKey,

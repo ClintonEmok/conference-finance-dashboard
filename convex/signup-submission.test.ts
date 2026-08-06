@@ -7,8 +7,16 @@ import { api } from "./_generated/api"
 import schema from "./schema"
 import type { Id } from "./_generated/dataModel"
 import { loadOrderAmountDueBreakdowns } from "./finance"
+import { mintSignupSubmissionToken } from "../lib/domain/signup/submission-token"
 
 const modules = import.meta.glob("./**/*.ts")
+
+// CR-07: the public mutation requires a server-issued token signed with
+// SIGNUP_SUBMISSION_SECRET. The test secret mirrors the real Next server /
+// Convex backend env wiring so every test envelope carries a valid token and
+// dedicated tests prove forged/expired/mis-bound tokens are rejected.
+const TEST_SIGNUP_SUBMISSION_SECRET = "test-signup-submission-secret"
+process.env.SIGNUP_SUBMISSION_SECRET = TEST_SIGNUP_SUBMISSION_SECRET
 
 function fresh() {
   return convexTest(schema, modules)
@@ -184,7 +192,7 @@ async function createConfiguredEvent(
   }
 }
 
-function buildEnvelope(input: {
+async function buildEnvelope(input: {
   eventId: Id<"events">
   ticketTypeId: Id<"ticketTypes">
   attendeeKey?: string
@@ -203,11 +211,20 @@ function buildEnvelope(input: {
   }>
 }) {
   const attendeeKey = input.attendeeKey ?? "attendee-1"
+  const payloadFingerprint = `fp-${Math.random().toString(36).slice(2)}`
+  // Every envelope mints its own token bound to its own fingerprint, exactly
+  // like the Next.js route does after CAPTCHA verification (CR-07).
+  const submissionToken = await mintSignupSubmissionToken({
+    eventId: String(input.eventId),
+    payloadFingerprint,
+    secret: TEST_SIGNUP_SUBMISSION_SECRET,
+  })
   return {
     eventId: input.eventId,
     source: "internal" as const,
     idempotencyKey: `idem-${Math.random().toString(36).slice(2)}`,
-    payloadFingerprint: `fp-${Math.random().toString(36).slice(2)}`,
+    payloadFingerprint,
+    submissionToken,
     honeypotSeen: false,
     booker: {
       name: "Booker",
@@ -240,7 +257,7 @@ test("valid options-only submission persists one selection row per preference wi
 
   const result = await t.mutation(
     api.signupSubmission.submitSignupEnvelope,
-    buildEnvelope({
+    await buildEnvelope({
       eventId: seed.eventId,
       ticketTypeId: seed.unconstrainedTicketId,
       accommodationSelections: [
@@ -308,7 +325,7 @@ test("the canonical amount-due loader prices newly inserted unconfirmed selectio
 
   const result = await t.mutation(
     api.signupSubmission.submitSignupEnvelope,
-    buildEnvelope({
+    await buildEnvelope({
       eventId: seed.eventId,
       ticketTypeId: seed.unconstrainedTicketId,
       accommodationSelections: [
@@ -357,7 +374,7 @@ test("submission accepts an optional blank age band", async () => {
 
   const result = await t.mutation(
     api.signupSubmission.submitSignupEnvelope,
-    buildEnvelope({
+    await buildEnvelope({
       eventId: seed.eventId,
       ticketTypeId: seed.unconstrainedTicketId,
       accommodationSelections: [
@@ -390,7 +407,7 @@ test("submission enforces ticket-constrained categories", async () => {
   await expect(
     t.mutation(
       api.signupSubmission.submitSignupEnvelope,
-      buildEnvelope({
+      await buildEnvelope({
         eventId: seed.eventId,
         ticketTypeId: seed.constrainedTicketId,
         accommodationSelections: [
@@ -410,7 +427,7 @@ test("submission enforces ticket-constrained categories", async () => {
   // The constrained category is accepted.
   const accepted = await t.mutation(
     api.signupSubmission.submitSignupEnvelope,
-    buildEnvelope({
+    await buildEnvelope({
       eventId: seed.eventId,
       ticketTypeId: seed.constrainedTicketId,
       accommodationSelections: [
@@ -435,7 +452,7 @@ test("submission enforces the event-configured cot eligibility band", async () =
   await expect(
     t.mutation(
       api.signupSubmission.submitSignupEnvelope,
-      buildEnvelope({
+      await buildEnvelope({
         eventId: seed.eventId,
         ticketTypeId: seed.unconstrainedTicketId,
         accommodationSelections: [
@@ -454,7 +471,7 @@ test("submission enforces the event-configured cot eligibility band", async () =
 
   const accepted = await t.mutation(
     api.signupSubmission.submitSignupEnvelope,
-    buildEnvelope({
+    await buildEnvelope({
       eventId: seed.eventId,
       ticketTypeId: seed.unconstrainedTicketId,
       accommodationSelections: [
@@ -480,7 +497,7 @@ test("submission rejects stale rate combinations, duplicates, and unknown attend
   await expect(
     t.mutation(
       api.signupSubmission.submitSignupEnvelope,
-      buildEnvelope({
+      await buildEnvelope({
         eventId: seed.eventId,
         ticketTypeId: seed.unconstrainedTicketId,
         accommodationSelections: [
@@ -501,7 +518,7 @@ test("submission rejects stale rate combinations, duplicates, and unknown attend
   await expect(
     t.mutation(
       api.signupSubmission.submitSignupEnvelope,
-      buildEnvelope({
+      await buildEnvelope({
         eventId: seed.eventId,
         ticketTypeId: seed.unconstrainedTicketId,
         accommodationSelections: [
@@ -527,7 +544,7 @@ test("submission rejects stale rate combinations, duplicates, and unknown attend
   ).rejects.toThrow("SUBMISSION_CONFLICT")
 
   // Preference for an attendee with no ticket selection is rejected.
-  const envelopeWithUnseatedAttendee = buildEnvelope({
+  const envelopeWithUnseatedAttendee = await buildEnvelope({
     eventId: seed.eventId,
     ticketTypeId: seed.unconstrainedTicketId,
   })
@@ -603,7 +620,7 @@ test("submission rejects non-empty legacy room assignments before any write", as
   await expect(
     t.mutation(
       api.signupSubmission.submitSignupEnvelope,
-      buildEnvelope({
+      await buildEnvelope({
         eventId: seed.eventId,
         ticketTypeId: seed.unconstrainedTicketId,
         assignments: [
@@ -662,7 +679,7 @@ test("submission rejects cross-event ticket and category IDs", async () => {
   await expect(
     t.mutation(
       api.signupSubmission.submitSignupEnvelope,
-      buildEnvelope({
+      await buildEnvelope({
         eventId: seed.eventId,
         ticketTypeId: otherTicketId as Id<"ticketTypes">,
       })
@@ -687,7 +704,7 @@ test("submission rejects cross-event ticket and category IDs", async () => {
   await expect(
     t.mutation(
       api.signupSubmission.submitSignupEnvelope,
-      buildEnvelope({
+      await buildEnvelope({
         eventId: seed.eventId,
         ticketTypeId: seed.unconstrainedTicketId,
         accommodationSelections: [
@@ -736,7 +753,7 @@ test("CR-02: submission rejects a ticket whose constrained room type cannot be r
   await expect(
     t.mutation(
       api.signupSubmission.submitSignupEnvelope,
-      buildEnvelope({
+      await buildEnvelope({
         eventId: seed.eventId,
         ticketTypeId: danglingTicketId as Id<"ticketTypes">,
         accommodationSelections: [
@@ -762,7 +779,7 @@ test("CR-03: a configured event requires exactly one preference per ticketed att
   await expect(
     t.mutation(
       api.signupSubmission.submitSignupEnvelope,
-      buildEnvelope({
+      await buildEnvelope({
         eventId: seed.eventId,
         ticketTypeId: seed.unconstrainedTicketId,
       })
@@ -771,7 +788,7 @@ test("CR-03: a configured event requires exactly one preference per ticketed att
 
   // A preference for a non-ticketed attendee is rejected too: the preference
   // set must equal the ticketed attendee set exactly.
-  const envelopeWithExtraPreference = buildEnvelope({
+  const envelopeWithExtraPreference = await buildEnvelope({
     eventId: seed.eventId,
     ticketTypeId: seed.unconstrainedTicketId,
     accommodationSelections: [
@@ -847,7 +864,7 @@ test("CR-03: an unconfigured event requires an empty preference list", async () 
   // Ticket-only submission with no preferences succeeds.
   const result = await t.mutation(
     api.signupSubmission.submitSignupEnvelope,
-    buildEnvelope({
+    await buildEnvelope({
       eventId: eventId as Id<"events">,
       ticketTypeId: ticketId as Id<"ticketTypes">,
     })
@@ -865,7 +882,7 @@ test("CR-03: an unconfigured event requires an empty preference list", async () 
   await expect(
     t.mutation(
       api.signupSubmission.submitSignupEnvelope,
-      buildEnvelope({
+      await buildEnvelope({
         eventId: eventId as Id<"events">,
         ticketTypeId: ticketId as Id<"ticketTypes">,
         accommodationSelections: [
@@ -888,7 +905,7 @@ test("CR-04: duplicate ticket selections and ticketless attendees are rejected",
 
   // Duplicate ticket selection rows for the same attendee are rejected before
   // any write, so soldCount can never double-count an attendee.
-  const duplicateEnvelope = buildEnvelope({
+  const duplicateEnvelope = await buildEnvelope({
     eventId: seed.eventId,
     ticketTypeId: seed.unconstrainedTicketId,
   })
@@ -915,7 +932,7 @@ test("CR-04: duplicate ticket selections and ticketless attendees are rejected",
   ).rejects.toThrow("SUBMISSION_CONFLICT")
 
   // An attendee without a ticket selection is rejected (no ticketless rows).
-  const ticketlessEnvelope = buildEnvelope({
+  const ticketlessEnvelope = await buildEnvelope({
     eventId: seed.eventId,
     ticketTypeId: seed.unconstrainedTicketId,
   })
@@ -960,7 +977,7 @@ test("WR-05: legacy allocatedRoomTypeId is only set for explicitly constrained t
   // even though the event exposes a default room type in a real deployment.
   const unconstrained = await t.mutation(
     api.signupSubmission.submitSignupEnvelope,
-    buildEnvelope({
+    await buildEnvelope({
       eventId: seed.eventId,
       ticketTypeId: seed.unconstrainedTicketId,
       accommodationSelections: [
@@ -989,7 +1006,7 @@ test("WR-05: legacy allocatedRoomTypeId is only set for explicitly constrained t
   // metadata (never the event default, never the buyer's category).
   const constrained = await t.mutation(
     api.signupSubmission.submitSignupEnvelope,
-    buildEnvelope({
+    await buildEnvelope({
       eventId: seed.eventId,
       ticketTypeId: seed.constrainedTicketId,
       accommodationSelections: [
@@ -1023,4 +1040,131 @@ test("WR-05: legacy allocatedRoomTypeId is only set for explicitly constrained t
   expect(constrainedAttendee?.allocatedRoomTypeId).toBe(
     constrainedTicketRow?.roomTypeId
   )
+})
+
+test("CR-07: the public mutation rejects envelopes without a valid server-issued token", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  // A direct call with no token (the attack the API route used to be the
+  // only guard against) is rejected before any work happens.
+  const noToken = await buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: seed.unconstrainedTicketId,
+    accommodationSelections: [
+      {
+        attendeeKey: "attendee-1",
+        categoryId: seed.categoryStandardId,
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+        ageBandCode: "18_plus",
+      },
+    ],
+  })
+  noToken.submissionToken = ""
+  await expect(
+    t.mutation(api.signupSubmission.submitSignupEnvelope, noToken)
+  ).rejects.toThrow("CAPTCHA_REQUIRED")
+
+  // Nothing was persisted for the rejected submission.
+  const orders = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId))
+      .take(10)
+  })
+  expect(orders).toHaveLength(0)
+})
+
+test("CR-07: forged, expired, and mis-bound submission tokens are rejected before any write", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  // Tampered signature: flip the first hex char of the signature portion
+  // while keeping a valid-looking expiry.
+  const tampered = await buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: seed.unconstrainedTicketId,
+    accommodationSelections: [
+      {
+        attendeeKey: "attendee-1",
+        categoryId: seed.categoryStandardId,
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+        ageBandCode: "18_plus",
+      },
+    ],
+  })
+  const tamperedDotIndex = tampered.submissionToken.lastIndexOf(".")
+  const flippedSignature =
+    (tampered.submissionToken[0] === "0" ? "1" : "0") +
+    tampered.submissionToken.slice(1, tamperedDotIndex)
+  tampered.submissionToken =
+    flippedSignature + tampered.submissionToken.slice(tamperedDotIndex)
+  await expect(
+    t.mutation(api.signupSubmission.submitSignupEnvelope, tampered)
+  ).rejects.toThrow("CAPTCHA_REQUIRED")
+
+  // Expired token: minted with a `now` before the current time beyond the
+  // 5-minute TTL, so the expiry check rejects it.
+  const expired = await buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: seed.unconstrainedTicketId,
+    accommodationSelections: [
+      {
+        attendeeKey: "attendee-1",
+        categoryId: seed.categoryStandardId,
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+        ageBandCode: "18_plus",
+      },
+    ],
+  })
+  expired.submissionToken = await mintSignupSubmissionToken({
+    eventId: String(seed.eventId),
+    payloadFingerprint: expired.payloadFingerprint,
+    secret: TEST_SIGNUP_SUBMISSION_SECRET,
+    now: Date.now() - 10 * 60 * 1000,
+  })
+  await expect(
+    t.mutation(api.signupSubmission.submitSignupEnvelope, expired)
+  ).rejects.toThrow("CAPTCHA_REQUIRED")
+
+  // Mis-bound token: validly signed but for a different payload fingerprint,
+  // so presenting it against this envelope must fail.
+  const misBound = await buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: seed.unconstrainedTicketId,
+    accommodationSelections: [
+      {
+        attendeeKey: "attendee-1",
+        categoryId: seed.categoryStandardId,
+        occupancy: "shared",
+        upgradeSelected: false,
+        cotSelected: false,
+        ageBandCode: "18_plus",
+      },
+    ],
+  })
+  const otherFingerprint = `fp-${Math.random().toString(36).slice(2)}`
+  misBound.submissionToken = await mintSignupSubmissionToken({
+    eventId: String(seed.eventId),
+    payloadFingerprint: otherFingerprint,
+    secret: TEST_SIGNUP_SUBMISSION_SECRET,
+  })
+  await expect(
+    t.mutation(api.signupSubmission.submitSignupEnvelope, misBound)
+  ).rejects.toThrow("CAPTCHA_REQUIRED")
+
+  // Nothing was persisted for any of the rejected submissions.
+  const orders = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId))
+      .take(10)
+  })
+  expect(orders).toHaveLength(0)
 })

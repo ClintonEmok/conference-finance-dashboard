@@ -9,6 +9,7 @@ import type {
   SignupSubmissionEnvelope,
   SignupSubmissionResult,
 } from "@/lib/types/signup"
+import { mintSignupSubmissionToken } from "@/lib/domain/signup/submission-token"
 
 export class SignupSubmissionValidationError extends Error {
   readonly code = "INVALID_SUBMISSION"
@@ -321,6 +322,15 @@ export async function submitSignup(
 ): Promise<SignupSubmissionResult> {
   const envelope = normalizeEnvelope(input, options)
 
+  // CR-07: only this server-side path may mint the post-CAPTCHA token. It is
+  // called exclusively from the Next.js route after Turnstile verification
+  // and IP rate limiting, and the token is what stops direct calls to the
+  // public Convex mutation from bypassing those controls.
+  const submissionToken = await mintSignupSubmissionToken({
+    eventId: envelope.eventId,
+    payloadFingerprint: envelope.payloadFingerprint,
+  })
+
   const result = await convexMutation(
     api.signupSubmission.submitSignupEnvelope,
     {
@@ -328,6 +338,7 @@ export async function submitSignup(
       source: envelope.source,
       idempotencyKey: envelope.idempotencyKey,
       payloadFingerprint: envelope.payloadFingerprint,
+      submissionToken,
       honeypotSeen: envelope.honeypotSeen,
       notes: envelope.notes,
       booker: envelope.booker,

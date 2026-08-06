@@ -163,6 +163,7 @@ export const signupSubmissionErrorCodeValues = [
   "TICKET_UNAVAILABLE",
   "ASSIGNMENT_UNAVAILABLE",
   "SUBMISSION_CONFLICT",
+  "CAPTCHA_REQUIRED",
 ] as const
 
 export type SignupSubmissionErrorCode =
