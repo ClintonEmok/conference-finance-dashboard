@@ -1,4 +1,4 @@
-import { mutation, query, type MutationCtx } from "./_generated/server"
+import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server"
 import { v } from "convex/values"
 import type { Doc, Id } from "./_generated/dataModel"
 
@@ -22,8 +22,6 @@ import {
   verifyEditRequestSignature,
   verifyTrackPaymentEditToken,
 } from "../lib/domain/track-payment/edit-token"
-
-const EDIT_SELECTION_LIMIT = 200
 
 function normalizeBookingRef(bookingRef: string): string {
   return bookingRef.trim().toUpperCase()
@@ -549,6 +547,26 @@ function throwEditError(code: string, message: string): never {
   throw new Error(`${code}: ${message}`)
 }
 
+/**
+ * Every `orderAccommodationSelections` row for an order, read through bounded
+ * async iteration. A fixed `.take()` would silently truncate orders with more
+ * rows than the cap and make a truncated collection the authoritative
+ * replacement set or confirmedAt lock scan (CR-05). This mirrors the canonical
+ * finance loader's pattern for the same table.
+ */
+async function loadAccommodationSelectionsForOrder(
+  ctx: QueryCtx | MutationCtx,
+  orderId: Id<"orders">
+): Promise<Array<Doc<"orderAccommodationSelections">>> {
+  const rows: Array<Doc<"orderAccommodationSelections">> = []
+  for await (const row of ctx.db
+    .query("orderAccommodationSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", orderId))) {
+    rows.push(row)
+  }
+  return rows
+}
+
 async function loadPaidTotalForOrder(
   ctx: MutationCtx,
   orderId: Id<"orders">
@@ -658,10 +676,7 @@ export const getTrackPaymentEditContext = query({
           .query("orderTicketSelections")
           .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
           .take(500),
-        ctx.db
-          .query("orderAccommodationSelections")
-          .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
-          .take(EDIT_SELECTION_LIMIT),
+        loadAccommodationSelectionsForOrder(ctx, order._id),
         loadPublicSignupAccommodationContext(ctx, order.eventId),
       ])
 
@@ -900,10 +915,10 @@ export const updateAccommodation = mutation({
       )
     }
 
-    const selectionRows = await ctx.db
-      .query("orderAccommodationSelections")
-      .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
-      .take(EDIT_SELECTION_LIMIT)
+    const selectionRows = await loadAccommodationSelectionsForOrder(
+      ctx,
+      order._id
+    )
 
     // Missing rows and the confirmedAt lock reject the whole request
     // atomically before any write.
