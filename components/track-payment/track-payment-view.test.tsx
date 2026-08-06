@@ -100,6 +100,7 @@ const mockTracking = {
     totalPaidMinor: 10000,
     remainingMinor: 12500,
     progressPercent: 44,
+    overpaymentDeltaMinor: 0,
     paymentCount: 1,
     paymentStatus: "partial" as const,
   },

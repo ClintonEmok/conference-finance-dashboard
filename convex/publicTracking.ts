@@ -64,6 +64,7 @@ export const getByBookingRef = query({
         totalPaidMinor: v.number(),
         remainingMinor: v.number(),
         progressPercent: v.number(),
+        overpaymentDeltaMinor: v.number(),
         paymentCount: v.number(),
         paymentStatus: v.union(
           v.literal("unpaid"),
@@ -119,6 +120,7 @@ export const getByBookingRef = query({
     const totalDueMinor =
       amountDueBreakdown?.amountDueMinor ?? order.totalAmountMinor ?? 0
     const remainingMinor = Math.max(0, totalDueMinor - totalPaidMinor)
+    const overpaymentDeltaMinor = Math.max(0, totalPaidMinor - totalDueMinor)
     const paymentStatus: "unpaid" | "partial" | "paid" | "overpaid" =
       totalPaidMinor === 0
         ? "unpaid"
@@ -177,6 +179,7 @@ export const getByBookingRef = query({
         totalPaidMinor,
         remainingMinor,
         progressPercent: computeProgress(totalPaidMinor, totalDueMinor),
+        overpaymentDeltaMinor,
         paymentCount: matchedPayments.length,
         paymentStatus,
       },
@@ -226,6 +229,7 @@ async function loadTrackingByOrder(
   const totalDueMinor =
     amountDueBreakdown?.amountDueMinor ?? order.totalAmountMinor ?? 0
   const remainingMinor = Math.max(0, totalDueMinor - totalPaidMinor)
+  const overpaymentDeltaMinor = Math.max(0, totalPaidMinor - totalDueMinor)
   const paymentStatus: "unpaid" | "partial" | "paid" | "overpaid" =
     totalPaidMinor === 0
       ? "unpaid"
@@ -284,6 +288,7 @@ async function loadTrackingByOrder(
       totalPaidMinor,
       remainingMinor,
       progressPercent: computeProgress(totalPaidMinor, totalDueMinor),
+      overpaymentDeltaMinor,
       paymentCount: matchedPayments.length,
       paymentStatus,
     },
@@ -320,6 +325,7 @@ export const getByEmailOrBookingRef = query({
         totalPaidMinor: v.number(),
         remainingMinor: v.number(),
         progressPercent: v.number(),
+        overpaymentDeltaMinor: v.number(),
         paymentCount: v.number(),
         paymentStatus: v.union(
           v.literal("unpaid"),

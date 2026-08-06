@@ -204,8 +204,7 @@ export function TrackPaymentView({
                       {formatMoney(result.tracking.payment.totalDueMinor)}.
                       Your donation is{" "}
                       {formatMoney(
-                        result.tracking.payment.totalPaidMinor -
-                          result.tracking.payment.totalDueMinor
+                        result.tracking.payment.overpaymentDeltaMinor
                       )}
                       .
                     </p>
@@ -317,8 +316,7 @@ export function TrackPaymentView({
                         <MetricCard
                           label="Donation"
                           value={formatMoney(
-                            result.tracking.payment.totalPaidMinor -
-                              result.tracking.payment.totalDueMinor
+                            result.tracking.payment.overpaymentDeltaMinor
                           )}
                           icon={Wallet}
                         />
