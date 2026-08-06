@@ -1,201 +1,185 @@
 # Project Research Summary
 
-**Project:** Conference Finance Dashboard — v5.0 "Accommodation Upgrades & Options"
-**Domain:** Church conference finance system (Convex + Next.js) — priced accommodation catalog, buyer-selects-options/admin-assigns-rooms, booking-ref permalink re-pricing, paid-priority allocation
-**Researched:** 2026-08-05
-**Confidence:** HIGH (codebase-grounded across all four research files)
+**Project:** Conference Finance Dashboard
+**Milestone:** v6.0 "Dynamic Event Accommodation"
+**Domain:** Church conference finance — event-owned accommodation configuration, explicit copy/template reuse, dynamic data-driven options/pricing/ticket eligibility, signup/track-payment/allocation consumption of one event-scoped contract (brownfield, established Next.js 16 + React 19 + Convex + Clerk + shadcn/ui codebase)
+**Researched:** 2026-08-06
+**Confidence:** HIGH for stack/current-state findings (all verified against `node_modules` and source); HIGH codebase-grounded for features/pitfalls; MEDIUM for a handful of target-state design decisions (unit vocabulary, template storage, ticket-rules table shape) flagged for plan-time confirmation
 
 ## Executive Summary
 
-This is a **finance-trust-first conference management app**: every surface (public tracking, order ledger, payments, reconciliation, reports, allocation) must agree on money. v5.0 turns accommodation from a preference-capture + drag-drop self-assignment flow into a **priced, option-driven catalog**: reusable categories/options/age-bands defined once, event-scoped rates, buyers pick priced options at signup (admin assigns final rooms), and a durable `/track-payment/[bookingRef]` permalink lets buyers change options *before admin confirmation* with automatic re-pricing. The milestone's core promise is that accommodation charges flow into the canonical amount-due so Paid/Outstanding/Reconciliation stay correct.
+v6.0 completes the inversion v5.0 started. v5.0 built a two-layer accommodation model — a **live global reusable catalog** (`accommodationCategories`, `accommodationOptions`, `accommodationAgeBands`) referenced by event-scoped config rows — with hardcoded option codes (`superior_upgrade` | `cot`), fixed category codes (`standard|superior|family`), four locked age bands, and boolean selection flags (`upgradeSelected`/`cotSelected`). v6.0 makes the **commercial configuration event-owned** (deep-copied per event, evolving independently), removes every hardcoded code from schema, domain, and UI, makes options/units/eligibility/ticket rules **data-driven**, and reuses setup between events only through **explicit copy/template actions**. The reusable hotel → physical-room → room-type → capacity inventory workflow is **preserved untouched** as the shared inventory foundation (locked decision).
 
-**The recommended approach requires no new runtime stack.** All four research files converge on the same validated stack (Next.js 16, React 19, Convex 1.34, Clerk 7, shadcn/ui + radix, Tailwind 4, zod, vitest). The work is: (1) an **additive Convex schema** (reusable catalog tables + event-scoped config tables + per-attendee order selection rows — no destructive migrations), (2) a **single canonical derivation choke point** — extend `convex/finance.ts → loadOrderAmountDueBreakdowns` + a pure `lib/domain/finance/accommodation-amounts.ts` helper so every consumer updates automatically with zero consumer changes, (3) a server-page permalink modeled on the existing `/signup/success/[bookingRef]`, and (4) two shadcn components (`checkbox`, `radio-group`). The single highest-leverage integration is extending the canonical amount-due loader once; the single biggest architectural rule is **never recompute money in the UI**.
+The recommended approach, consistent across all four research files: **no new runtime dependencies and no platform changes**. Everything is achievable with the installed, production-validated stack (Convex 1.34.0, Next.js 16.1.7, React 19.2.4, Clerk 7.0.7, shadcn/ui 4.0.8, zod 4.3.6, vitest 4.1.0 + convex-test). The work is a "relax + generalize" of v5.0's own implementation: widen literal union validators to `v.string()` (non-destructive schema evolution, verified via Context7), add event-owned tables + a copy/template engine as **one atomic Convex mutation per action**, refactor the pure pricing module into a **data-driven line-item engine** priced from resolved option rows (never from client-side codes), and render all admin/public surfaces **exclusively from server contracts**. The single money choke point (`convex/finance.ts → loadOrderAmountDueBreakdowns → lib/domain/finance/accommodation-amounts.ts`) and the immutable confirmation snapshot stay authoritative — dynamic config must never create a second money or historical-pricing source.
 
-**The key risks are all money-integrity and access-control risks**, and the research files give a coherent prevention story: (a) **retroactive re-pricing** — live-rate reads would silently re-price confirmed orders; the reconciled position is *live derivation for unconfirmed orders, snapshot at confirmation* (with a `configVersion` boundary), never price snapshots during the pending window; (b) **diverging amount sources** — reconciliation/revenue/auto-match must all migrate to the canonical loader; `orders.totalAmountMinor`'s meaning must be decided explicitly; (c) **stale Tikkie payment links** after re-price break exact-amount auto-match — expire/regenerate links on re-price; (d) **the permalink is the app's first public write** — the booking ref alone (a patterned, non-cryptographic hash) must not authorize edits; gate by booker-email match/edit-token, add rate limiting, idempotent replace-style mutation, and a `confirmedAt` server-side write-guard; (e) **paid-priority allocation** must key on a derived tri-state per-attendee paid-set (never `order.status`, which is unset for internal orders, and never an even-split ledger once per-attendee accommodation charges exist).
+The three highest risks, all addressed in the backend/data phase with dedicated test gates: (1) **copy/template isolation failure** — a shallow copy that shares row IDs with its source would recreate the live-coupling anti-goal; prevention is a deep copy of every event-owned row under the target `eventId` with a bidirectional isolation test. (2) **money-integrity regression during the pricing generalization** — the two hardcoded option branches must become a pure unit-driven line-item engine, unit-tested per unit type, with the fail-closed snapshot completeness guard *extended* (accepting both legacy boolean and new line-item shapes) rather than loosened. (3) **"configured but never rendered"** — the most likely "looks done but isn't" outcome is an admin creating a third option that the signup step and track-payment editor never render because they still do `option.optionCode === "superior_upgrade"` lookups; the fix is a server display contract with generic rendering and a third-option UAT.
 
 ## Key Findings
 
 ### Recommended Stack
 
-No new runtime libraries. All capabilities are achievable with the installed stack; the "stack work" concentrates in the Convex data layer and a pure finance domain module. Verified against installed versions (`node_modules`) and current docs via Context7.
+No stack changes. All milestone capabilities are covered by the installed stack, and the v5.0 team already proved the required patterns (server-owned contracts, atomic multi-table mutations, handler-level test harness, workspace tab UX). The real work is schema/domain generalization plus new copy/template mutations — no new libraries, no microservice, no workflow engine, no Convex components beyond the existing resend one.
 
 **Core technologies:**
-- **Convex 1.34.0**: data layer for catalog/config/selection tables, reactive queries, `.withIndex()` + bounded `.take()` correctness pattern — already the backend; no feature gap
-- **Next.js 16.1.7**: `/track-payment/[bookingRef]` dynamic route — copy the existing `/signup/success/[bookingRef]` server-page pattern (`fetchQuery` from `convex/nextjs`); `params` is a `Promise` (await in server pages)
-- **React 19.2.4**: option-selection UI + re-pricing reactivity — Convex `useQuery`/`useMutation` means config-change re-pricing is server-side recompute + automatic re-render; no state library
-- **Clerk 7.0.7**: admin "Upgrades & Options" tab auth only; permalink stays public (no auth) — consistent with current `/track-payment`
-- **shadcn/ui + radix-ui 4.x/1.4.3**: add only `checkbox` and `radio-group` via `npx shadcn@latest add checkbox radio-group`
-- **zod 4.3.6**: client-side validation for options step + permalink edit form — reuse existing `components/signup/validation/*` pattern
-- **vitest 4.1.0**: `*.test.ts` siblings for every pure pricing function — how "money never drifts" is enforced
-- **@tanstack/react-query 5.95.2 / Tailwind 4.2.1 / date-fns 4.1.0**: no change (date-fns only if age bands derive from birthdate)
+- **Convex 1.34.0**: data layer — event-owned setup rows, copy/template mutations (all writes in one mutation are atomic, verified via Context7), widened validators (tracked as unions, non-destructive), reactive contracts. No feature gap.
+- **Next.js 16.1.7**: data-driven admin workspace tabs + public signup/track-payment rendering; async `params`/`searchParams` pattern already established (`app/track-payment/[bookingRef]/page.tsx`).
+- **React 19.2.4**: Convex `useQuery`/`useMutation` reactivity re-renders copied/edited setup automatically; no state library.
+- **Clerk 7.0.7**: admin-only boundary (`requireIdentity`) for setup/copy/template mutations; public signup/track-payment stays public.
+- **shadcn/ui + radix-ui 4.0.8/1.4.3**: all needed primitives already installed (dialog, select, table, tabs, sheet, dropdown-menu, alert, badge) — unlike v5.0, no new components required.
+- **zod 4.3.6**: client-side validation for dynamic config/copy forms, reusing the existing `components/signup/validation/*` pattern.
+- **vitest 4.1.0 + convex-test 0.0.52 + @edge-runtime/vm 5.0.0**: three-config test matrix already covers pure domain, handler-level, and component tests — no additions.
+- **@tanstack/react-query 5.95.2 / Tailwind 4.2.1 / date-fns 4.1.0 / @dnd-kit/react 0.3.2**: unchanged; do **not** add drag-drop for new setup/copy flows (buyer self-assignment retired in v5.0).
 
-**New Convex tables (all additive; integer minor-unit money everywhere):** `accommodationCategories`, `accommodationOptions` (kind: upgrade|cot|resource), `accommodationAgeBands` (reusable catalog) + `eventAccommodationConfig` (event-scoped rates/availability, join table keyed by eventId) + `orderAccommodationSelections` (per-attendee selection snapshot storing *references*, not prices) + extend `accommodationRoomTypes` with optional `description`. Pricing model: **derived, not copied** — `eventAccommodationConfig.priceMinor` overrides catalog default (fallback chain: event config → default); re-pricing on config change is automatic at read time for pending orders. Explicit per-age-band price rows are recommended over hidden multiplier math.
-
-**Do NOT use:** decimal/float money (integer minor units is the invariant), form libraries, Redux/zustand/jotai, new payment SDKs (Tikkie already integrated), server-side sessions for the permalink, vector search, or a separate API layer.
+**The concrete stack work** (dependency-ordered): widen hardcoded unions in `convex/schema.ts` (`accommodationCategories.code`, `accommodationOptions.code`/`kind`, `ageBandCode`; keep `occupancy`, `unit`, `rateType` as **typed unions** — money math must never switch on free strings); move `LOCKED_OPTION_SEMANTICS`/`LOCKED_AGE_BAND_BOUNDS` from code to seed data; add event-owned setup/ticket-rules tables + copy audit; refactor `lib/domain/finance/accommodation-amounts.ts` from named-boolean formula (`categoryIsSuperior`, `upgradeSelected`, `cotSelected`) to a **resolved option-list pricing engine**; extend `AccommodationPriceSnapshot` with data-driven `optionLines`; extend `getPublicSignupCatalog`/`resolvePublicSignupSelection` as the entitlement choke points; one atomic mutation per copy action with idempotency + append-only audit. Run `npx convex codegen` + `npx convex dev --once` after every Convex change (AGENTS.md).
 
 ### Expected Features
 
-The milestone forms one coherent model: **accommodation becomes priced line items on the canonical order, and allocation becomes payment-aware.** Buyer picks options → selections persisted → canonical amount-due extended → permalink re-prices pre-confirmation → admin confirms and assigns rooms → allocation highlights paid attendees.
+Feature research splits the milestone into: preserved inventory workflow (table stakes), event-owned commercial setup (the core change), copy/template reuse (the differentiator), and aligned consumption surfaces (signup, track-payment, snapshots, finance, allocation). Full detail in `.planning/research/FEATURES.md`.
 
-**Must have (table stakes, P1 launch set):**
-- Buyers see a live price for every option at selection time (no surprise totals)
-- Rate matrix: category × occupancy, per-person-per-night, event-scoped with catalog defaults
-- Upgrade priced as a visible delta; cot option gated by age-band eligibility with its own inventory count
-- Availability derived from physical room counts × capacity (no separate availability counter)
-- Config changes at the booking-ref permalink with re-priced total, gated "before admin confirmation"
-- Payment status drives allocation priority (paid highlighted, unpaid grayed)
-- Accommodation charges feed canonical amount-due (Paid/Outstanding/Reconciliation stay correct)
-- Admin confirmation gates final room assignment (buyer self-assignment at signup is *retired*)
+**Must have (table stakes, P1):**
+- Event-owned setup model: rules, rate matrix, age bands + pricing, generic dynamic options (label, description, unit, price in minor units, eligibility, optional per-option availability), resources, ticket entitlements — all as independent event-owned rows.
+- Generic dynamic options with units (`per_night`/`per_person`/... — exact vocabulary is a phase decision) and eligibility; hardcoded `superior_upgrade`/`cot`/category/band codes and boolean selection flags removed end-to-end.
+- Canonical finance generalization: pure module prices generic unit-based options; loader + per-attendee maps stay correct; confirmed snapshots remain the single historical money authority.
+- Event-owned ticket entitlements (SEED-002): per-ticket → allowed room categories/types, enforced in signup **and** allocation.
+- Copy/template actions: explicit, ID-remapped, order-data-free; independent evolution after copy.
+- Public signup consumption: data-driven cards, server-quoted, entitlement-gated, generic `option + quantity` selections persisted.
+- Track-payment edits + confirmation snapshots: permalink edits against the event-owned contract; `confirmedAt` guard; generalized snapshot shape (legacy shape stays valid).
+- Safe archive/delete: reference-checked soft archive; archived rows never affect finance or new signup quotes.
 
-**Should have (differentiators):**
-- Booking-ref permalink with self-service config changes before confirmation (ahead of Eventbrite/Pretix, which only allow attendee-info edits)
-- Reusable accommodation catalog across events (categories/room types/options/age bands defined once)
-- Ticket-driven room eligibility (SEED-002 — `ticketTypes.roomTypeId` already exists in schema)
-- Paid-priority allocation with visual states, reusing existing `getRoomAllocationBoard`/`generateAllocationProposal`
-- Optional age-band capture (only when cot/children selected); "breakfast included" + descriptive copy
+**Should have (differentiators / P2):**
+- Template library management (save/name/list/update/delete) — copy-from-event first, named template store after.
+- Pending-impact preview polish ("N pending orders will re-price") extended to all dynamic config changes.
+- Standard/Superior preserved as recognizable data-driven pricing groups (label + `isSuperior`/upgrade relation in data, not `categoryCode === "superior"`).
 
-**Defer (v5.1 / v6+):**
-- SEED-002 full signup-gating wiring (v5.1 tightening pass once catalog is stable)
-- Inventory-exhausted "request/waitlist/pending" capture (v5.1); breakfast/category copy polish (v5.1)
-- Roommate matching marketplace, multi-night pricing, inline card payment, admin price overrides, tax/discount engine (v6+ — all deliberately out of scope)
-
-**Anti-features (do NOT build):** buyer drag-drop self-assignment at signup (conflicts with admin-assigns + paid-priority), real-time room-level inventory holds/locking, multi-night date-range rates, freeform per-order admin overrides (breaks canonical derivation), inline payment capture (breaks Tikkie matching model).
+**Defer (v6.1+/v7+):**
+- Multi-room-type `roomTypeIds` array on `ticketTypes` (capability is delivered event-side via ticket-rules rows; schema break not required).
+- Waitlist/pending-intent capture on exhausted inventory; template versioning/update-propagation (rejected: violates independent evolution); bulk spreadsheet import; multi-night/date-range pricing; roommate matching; inline payment capture (breaks the Tikkie-link model).
 
 ### Architecture Approach
 
-This milestone **does not introduce a new subsystem**. It adds one order-scoped record type, a two-layer catalog/config model, and three behavioral changes to existing surfaces. Layered: **Catalog (global, reusable)** → **Event Config (event-scoped rates/availability/enabled options)** → **Order Layer (per-attendee preference selections, mutable until confirmation)** → **Canonical Finance (the single loader)** → consumers (publicTracking, orders ledger, payments, reports, attendees, allocation, Tikkie links). Preferences (`orderAccommodationSelections`) and placement (`orderAssignments`/`assignedRoomId`) are **separate records** and must stay separate.
+The architectural thesis is an **inversion**: the event owns a deep copy of its commercial setup; the global catalog becomes a seed/template library; physical inventory stays referenced because it is genuinely shared infrastructure. A copy/template engine materializes independent event-owned setups; a generalized pricing engine (kind × unit, data-driven receipt lines) replaces the two hardcoded branches; the confirmation snapshot and canonical finance loader remain the single money authority. Full detail in `.planning/research/ARCHITECTURE.md`.
 
 **Major components:**
-1. **Catalog layer** — `accommodationCategories`, `accommodationOptionDefinitions` (kind discriminator incl. age bands), extended `accommodationRoomTypes` (categoryId, description, sortOrder, isActive)
-2. **Event config layer** — `accommodationEventConfig` (toggles/policy), `accommodationEventRoomTypeRates` (baseRateMinor, availability per room type), `accommodationEventOptions` (priceMinor, enabled per option) — separate row-per-entity tables, **never nested arrays on one doc** (1MB Convex cap)
-3. **Order layer** — `orderAccommodationSelections` (per-attendee, `assignmentState`, `confirmedAt/By`) + child rows `orderAccommodationOptionSelections` (more robust than a bounded array; matches the `orderTicketSelections`/`orderAssignments` child-row precedent)
-4. **Canonical finance** — extend `loadOrderAmountDueBreakdowns` (batch event-config loads, per-attendee `amountDueByAttendeeId` map) + pure `deriveOrderAmountBreakdown`; delete the duplicate inline `reduce` total in `signupSubmission.getByBookingRef` (~lines 850-854)
-5. **Track payment permalink** — new `app/track-payment/[bookingRef]` (old page becomes lookup/redirect), public `updateOrderAccommodationSelections` mutation, admin `confirmOrderAccommodationSelections` (locks edits + regenerates Tikkie link)
-6. **Admin config + allocation** — "Upgrades & Options" workspace tab (third tab beside hotels/allocation); `getRoomAllocationBoard` joins canonical totals via `loadOrderAmountDueBreakdowns` + `loadMatchedPaymentTotalsByOrderId` (reuse, never re-implement payment math)
+1. **Inventory layer (global, unchanged)** — `accommodationHotels`, `accommodationRooms`, `accommodationRoomTypes`, `accommodationEventHotels`, `accommodationSlots`; referenced (read-only) by event-owned resources and the allocation board.
+2. **Template layer (global, seed-only)** — existing catalog tables treated as a library; optional `accommodationSetupTemplates` (named, versioned, typed snapshot); never read live by signup/finance.
+3. **Event-owned setup layer (per event, v6.0 core)** — `eventAccommodationSetup` (provenance + single version boundary), event-owned categories/options/age bands/rates/age pricing/resources, `eventTicketAccommodationRules`; one loader `loadEventOwnedAccommodationContext` consumed by every surface.
+4. **Copy/template engine** — `copyAccommodationSetup`/`saveAccommodationTemplate`; deep-copies commercial setup only; never copies stay window, orders, selections, snapshots, payments, audits, or assignments; records provenance.
+5. **Canonical finance** — `loadOrderAmountDueBreakdowns` → pure pricing engine; snapshot authority for confirmed rows; unconfirmed rows price live from the shared event-owned loader.
+6. **Public signup/permalink** — data-driven options from the event-owned loader; server-priced; one shared resolver for quote + submission + edit.
+7. **Admin setup editor + Allocation** — Setup tab (data-driven editors, copy/template actions, ticket rules, pending impact); Hotels and Allocation tabs unchanged in behavior; allocation joins entitlements + canonical payment state.
 
-**Key patterns:** single canonical derivation choke point; preferences vs placement as separate records; dynamic derivation with no price snapshots during the pending window; event-scoped batch reads (no N+1). **Anti-patterns:** price snapshots in selection rows, config arrays in one doc, reusing slots to mean options, UI/duplicate money math, Tikkie link amount ≠ canonical amount-due.
+Key patterns: **one event-owned config loader + one money module** (collapse the two existing duplicate resolvers — `loadPublicSignupAccommodationContext` and `loadEventAccommodationContexts`); **single version boundary** (one `updatedAt` token bumped atomically by every config write); **preferences vs placement remain separate records** (option selections vs `assignedRoomId`/`orderAssignments`); **child collections in their own tables** (`orderAccommodationOptionSelections` mirrors `orderTicketSelections`); **fail-closed loaders** and bounded async iteration for authoritative counts.
 
 ### Critical Pitfalls
 
-Top pitfalls from PITFALLS.md (all codebase-grounded, HIGH confidence), with the research-recommended prevention:
+Top 5 from `.planning/research/PITFALLS.md` (16 total, mapped to phases there):
 
-1. **Live rate reads at query time re-price every order retroactively** (confirmed/paid/reconciled orders silently change; "paid" flips to "partial" with no payment event). *Avoid:* prices decided at confirmation — **live config for unconfirmed orders only, snapshot at confirmation** (`priceSnapshotVersion`/`configVersion` on the order; confirmed orders never re-price). This is the reconciled position across all three files (see Gaps).
-2. **Two diverging amount sources** — derived amount-due vs stored `orders.totalAmountMinor`: reconciliation/revenue/auto-match silently under-count accommodation. *Avoid:* extend `loadOrderAmountDueBreakdowns` as the one canonical aggregation and **migrate every finance consumer**; decide explicitly what `totalAmountMinor` means post-milestone.
-3. **Stale Tikkie links break exact-amount auto-match after re-pricing** — buyer pays old amount, match fails, payment sits `unassigned`. *Avoid:* on re-price, expire/supersede order-level links and regenerate at the current amount (or stop surfacing stale links with an "amount changed" state); match against derived amount-due with multi-payment tolerance.
-4. **First public write without an ownership gate** — the booking ref is a patterned, non-cryptographic hash (`BK-` + djb2-derived base-36) and leaks via emails by design; ref-only edits let strangers change others' orders. *Avoid:* gate the edit mutation by booker-email match or per-order edit token (server-side), rate limit, honeypot on the edit form, per-order edit audit trail, and a `canEdit` window closing at `confirmedAt`.
-5. **Re-pricing not idempotent / no config-version drift detection** — delta-style edits double-apply on retry/OCC-conflict; edits computed against config v1 commit against v2. *Avoid:* **replace-style mutation** (whole selection set), reuse the `orderIdempotency` pattern, record `configVersion` and staleness-warn ("prices changed, please review").
-6. **Re-pricing after payments silently creates donations or flips paid status** — downward re-price auto-classifies the excess as donation (buyer never intended); upward re-price after payment asks for more with no context. *Avoid:* surface the overpayment decision (refund vs donate), show "your total increased by €X" with a new payment link, add re-price-specific reconciliation reasons.
-7. **Per-attendee accommodation charges break the even-split attendee ledger** — one upgrade-taking attendee splits the cost across all. *Avoid:* extend `amountDueByAttendeeId` with per-attendee accommodation lines (quantity=1, like tickets) and migrate the ledger + paid-weight allocation to use it.
-8. **No admin-confirmation write-guard** — UI-only disabling lets buyers edit after admin assigned rooms. *Avoid:* `confirmedAt`/lock enforced **in the mutation** (throw "locked for changes"), not just hidden in the UI.
-9. **Trusting client-supplied prices / unvalidated option IDs** — *Avoid:* mutation accepts only option IDs + attendee keys; server re-reads event config and computes totals (mirror `submitSignupEnvelope`'s ticket validation); typed `OPTION_UNAVAILABLE` errors; availability re-checked atomically inside the edit mutation.
-10. **Schema traps** — mixed catalog/event scopes in one table, nested option arrays, string-label references, hard-deleting referenced options. *Avoid:* two-layer tables with typed FKs, child tables, ID refs + label snapshots at confirmation, soft-delete/archive.
-11. **Paid-priority keyed on the wrong "paid"** — `order.status`/`normalizedStatus` are never set for internal orders (allocation board is internal-events-only) → everyone grayed. *Avoid:* one derived `isAttendeePaid` helper on per-attendee due-vs-paid maps; **tri-state** (paid/partial/unpaid); precompute the paid-set once per board load.
-12. **Bulk eager re-price exceeds Convex transaction limits and rewrites history** — *Avoid:* lazy pricing (unconfirmed orders price from current config on read, no writes; only confirmation writes the snapshot); scheduler-batched only if a finance snapshot is ever required.
+1. **Copy/template isolation failure (shallow copy)** — a copy whose event-owned rows hold the source's row IDs re-creates live cross-event coupling; editing the copy re-prices the source. *Prevention:* deep copy of every event-owned row under the target `eventId`, global catalog IDs preserved (intentionally shared), labels/descriptions snapshotted into the copy, provenance recorded, bidirectional isolation test in verification.
+2. **Server/client money authority breaks on the dynamic contract** — the old boolean payload was implicitly safe; a dynamic option list invites client-supplied `priceMinor`/quantity. *Prevention:* keep the v5.0 rule verbatim — server resolves every price from event config by option ID inside the mutation; validators reject monetary args; every option ID validated against the event's enabled set in the same transaction.
+3. **Confirmed snapshots not extended for dynamic decisions** — keeping the fixed boolean snapshot shape silently drops dynamic lines on confirmed orders (re-pricing from live config) or loosens the fail-closed guard (€0 pricing). *Prevention:* generalize the snapshot to a self-contained line-item list with an *extended* completeness guard that requires every persisted line fully resolved; the guard must accept both the legacy boolean shape and the new shape.
+4. **Ticket eligibility drift** — signup, track-payment edit, and allocation each re-derive "is this ticket allowed this choice" from different sources. *Prevention:* one server-side eligibility resolver (pure function) used by all three surfaces; `ticketTypes.roomTypeId` stays the ticket→room-type anchor; fail closed with an explicit reason when a room type's category is unset.
+5. **Generic option rendering forgotten ("configured but never rendered")** — the most likely "looks done but isn't" outcome. *Prevention:* server returns a display contract per enabled option; UI renders all enabled options generically; selection payloads become `Array<{optionId, quantity?}>` validated server-side; third-option UAT.
 
-**"Looks done but isn't" checklist (from research, for Verification):** double-invoke edit must not change total; stale `status: created` links expired post-edit; confirmed orders immutable after config edit; same order compared across all finance surfaces; ref-only edit rejected; internal-event allocation shows paid; edit-after-assign throws server-side; old `/track-payment` deep links still work; attendee detail outstanding equals that attendee's line items; no silent donation on downward re-price; archive-referenced-option blocked; availability re-checked atomically on edit.
+Also critical: **data ownership confusion** (event-facing saves must never mutate global catalog rows — invariant: *global rows are name-and-shape only, every price/eligibility/enable flag lives in `eventAccommodation*` rows*); **room type vs category conflation** (categories price, room types hold physical inventory, `eventAccommodationResources` counts what an event sells — keep `deriveResourceSellableBeds` fail-closed); **stale config** (single version token on every config write; quote mismatch → re-query or "configuration changed" state); **deletion/archive of referenced rows** (archive, don't hard-delete; block deletion with the "Cannot delete with references" guard pattern); **bounded-read truncation** (`.take(100)`/`.take(200)` on dynamic per-event rows silently drops config — use `for await` bounded iteration, the pattern the finance loader already uses).
 
 ## Implications for Roadmap
 
-Based on combined research (ARCHITECTURE build order + PITFALLS phase mapping + FEATURES dependency graph), 7 phases in dependency order. Finance derivation must exist before selections are priced; admin config before signup can offer options; signup before the permalink can edit them; allocation last.
+All four research files converge on the same ordering: **backend/data phases first** (schema + domain generalization, then copy/template engine), **then UI phases** (admin, then public signup/track-payment, then allocation), **then cross-surface verification** — because the widened schema + pure-domain registry + contract changes must land as one typecheck-green unit before any UI can consume them, and because copy/template is a backend capability the admin UX merely invokes. The locked decision that UI phases stay separate from backend/data phases is respected below.
 
-### Phase 1: Schema & Catalog Foundation
-**Rationale:** Every other feature reads from the catalog + event-config data model (FEATURES dependency root). Pure additive schema = zero behavior risk; unblocks everything.
-**Delivers:** New tables (categories, options, age bands, event config, order selections), extended `accommodationRoomTypes`, typed FKs, indexes, `npx convex codegen` + `npx convex dev --once`.
-**Addresses:** FEATURES "reusable catalog data model" + "event-scoped configuration" (data half).
-**Avoids:** Pitfall 10 (mixed scopes, nested arrays, string labels, hard deletes), Pitfall 13 (lazy-pricing shape). **Resolves** the table-naming/child-table discrepancy between STACK and ARCHITECTURE.
+### Phase 1: Backend/Data — Event-owned setup schema + generalized pricing domain (incl. SEED-002 tables)
+**Rationale:** Everything reads the event-owned contract, so the data model is the dependency root. Schema must land before copy (copy copies the new rows) and before pricing (money must derive correctly before any surface prices anything).
+**Delivers:** Widened validators (`categories.code`, `options.code`/`kind`, `ageBandCode` → data; `occupancy`/`unit`/`rateType` stay typed unions); new event-owned tables (`eventAccommodationSetup` with provenance + single version boundary, event-owned categories/options/age bands, `eventTicketAccommodationRules` per SEED-002, `orderAccommodationOptionSelections` child rows, copy audit table); snapshot `optionLines` extension; **pure pricing engine refactor** (`deriveAccommodationAmount` prices a resolved option list by kind × unit, no named booleans); **shared event-owned loader** (`loadEventOwnedAccommodationContext`) collapsing the two duplicate resolvers; legacy dual-read stubs (setupMode: legacy_global → event_owned, per-event materialization).
+**Addresses (FEATURES.md):** event-owned setup model, generic dynamic options, canonical finance generalization, SEED-002 ticket entitlements (schema side).
+**Avoids (PITFALLS.md):** #1 (ownership confusion — event-scoped writes never touch global rows), #2 (room type vs category conflation), #6 (pricing units drift — unit-tested engine), #9 (snapshot not extended — dual-shape guard), #12 (legacy orders — additive, legacy shape stays valid), #15 (bounded-read truncation — `for await`).
+**Gate:** `npx convex codegen` + `npm run typecheck` + full test matrix green with **zero UI change** (per AGENTS.md: `convex dev --once` after Convex changes).
 
-### Phase 2: Canonical Finance Derivation
-**Rationale:** The single highest-leverage dependency (FEATURES: "extending it once keeps all surfaces correct"). Money must flow correctly before anything can be priced or displayed.
-**Delivers:** Pure `lib/domain/finance/accommodation-amounts.ts` + extended `loadOrderAmountDueBreakdowns` (batch event-config loads, per-attendee map), delete inline total in `getByBookingRef`, migrate all finance consumers to the canonical loader, extend `tests/finance/money-model.test.ts`.
-**Addresses:** "Accommodation charges feed canonical amount-due" — the milestone's core promise.
-**Avoids:** Pitfall 2 (diverging amount sources), Pitfall 7 (even-split ledger). **Requires a decision:** snapshot mechanics at confirmation (see Research Flags).
+### Phase 2: Backend/Data — Copy/template engine, eligibility resolver, safe archive
+**Rationale:** Requires Phase 1's rows to copy and price; the mutation must be authoritative and auditable before any dialog invokes it.
+**Delivers:** `copyAccommodationSetupFromEvent` (atomic deep copy under target `eventId`, idempotency key + fingerprint, `sourceRef` provenance, "setup exists" guard, copy audit rows); `saveAccommodationTemplate`/apply (if the roadmap scopes named templates — see flag); ticket-rule seeding from `ticketTypes.roomTypeId`/`accommodationIncluded`; **one server-side eligibility resolver** shared by catalog/quote/submission/edit/allocation; contract extensions (`getEventAccommodationConfig` gains copy-source/template options + preview; catalog/quote return dynamic rules); reference-checked soft archive/delete mutations.
+**Addresses:** copy/template actions, safe archive/delete, SEED-002 enforcement logic.
+**Avoids:** #3 (duplicate creation paths — one create contract, idempotent copy), #4 (isolation — deep copy + bidirectional test), #5 (eligibility drift — one resolver), #11 (deletion corruption — archive-only), #13 (provider mapping — explicit "unmapped" state).
+**Gate:** convex-test suites (atomicity, idempotency, audit immutability, copy-then-edit isolation, widened-validator compat, archive reference integrity).
 
-### Phase 3: Admin "Upgrades & Options" Config Surface
-**Rationale:** Public signup cannot offer priced options until admins can set rates/availability without code (FEATURES dependency note: config surface lands before/with signup).
-**Delivers:** Third workspace tab (options/upgrades) — CRUD over catalog + event config: rates, upgrade delta, cot price/count, age bands, availability toggles, descriptions; soft-delete lifecycle.
-**Addresses:** "Admin Upgrades & Options config surface" (P1).
-**Avoids:** Pitfall 13 (no eager re-price — show "N pending orders will re-price" preview), Pitfall 10 (option lifecycle/archive). 
+### Phase 3: UI — Admin setup UX (Setup tab + copy/template + ticket rules)
+**Rationale:** Admin must configure event-owned setup before buyers see it; consumes the Phase 1-2 contracts. Backend contracts are locked by now.
+**Delivers:** Data-driven generalization of `upgrades-options-config-form.tsx`/`upgrades-options-catalog.tsx` (codes/kinds/units editable in place, dynamic ticket rules table, age-band editor, rate grid); copy/template **dialog with mandatory preview** (source picker, what will be copied/remapped/reset, what already exists on target, confirm, audit status); pending-impact panel extended to all dynamic changes; archive controls; rendering exclusively from `getEventAccommodationConfig`/`getEventOwnedAccommodationSetup` (no client code switches).
+**Addresses:** admin setup UX, copy/template actions, safe archive/delete (UI), pending-impact preview.
+**Avoids:** #3/#4 (copy UX is wrapper over Phase 2 mutations), #10 (stale config — version token refresh), #16 (UX dead ends — preview step, honest empty/disabled/exhausted states).
+**Gate:** component tests asserting contract-driven rendering (no `optionCode ===` lookups); preview-step UAT.
 
-### Phase 4: Signup Catalog & Submission (Options Flow)
-**Rationale:** Buyer flow depends on Phases 1–3; replaces the retired `RoomAssignmentStep` drag-drop with an options step.
-**Delivers:** Options view in `signupCatalog`, `accommodationSelections` envelope in `submitSignupEnvelope` (validation order: attendees → tickets → accommodation → placement), selection inserts + restore payload, `ReviewSubmitStep` with live prices, email confirmation lists options.
-**Addresses:** "Buyer selects options with live pricing" + "order accommodation selections persisted" (both P1).
-**Avoids:** Pitfall 11 (availability re-checked in the mutation, atomically for capacity-bearing options; SEED-002 entitlement respected), Pitfall 9 (server-side validation of option IDs).
-**Research flag:** SEED-002 signup gating — partial alignment here (single `ticketTypes.roomTypeId`: set ⇒ only that type, unset ⇒ all enabled); full multi-room-type array deferred.
+### Phase 4: UI — Public signup + track-payment consumption
+**Rationale:** Buyers consume the event-owned contract the admin now controls; must share the Phase 2 eligibility resolver so quote, submission, and edit can never diverge.
+**Delivers:** `AccommodationOptionsStep.tsx` rewritten to render generic data-driven cards from `getPublicSignupCatalog` (kind/unit/price/eligibility, option-agnostic); selection payloads become `Array<{optionId, quantity?}>` persisted via `orderAccommodationOptionSelections` child rows; generalized quote rendering (`getPublicSignupAccommodationQuote`); generalized `TrackPaymentAccommodationEditor` consuming the same resolver + child-row selections; legacy boolean dual-read during transition.
+**Addresses:** public signup consumption, track-payment edits + confirmation snapshots.
+**Avoids:** #5 (eligibility parity — shared resolver), #7 (generic rendering — third-option UAT), #8 (client money — server resolution, typed rejections), #16 (mid-signup invalidation — v5.0 cot-clearing rule generalized to any option).
+**Gate:** quote + submission resolver parity tests (eligibility can't diverge), price-tamper + cross-event-option rejection tests, component tests.
 
-### Phase 5: Track-Payment Permalink (Public Edit + Confirm)
-**Rationale:** Depends on canonical derivation (Phase 2) and selections (Phase 4); the app's **first public write** — the most security-sensitive phase.
-**Delivers:** `app/track-payment/[bookingRef]` server page (old page → lookup/redirect to preserve deep links), public `updateOrderAccommodationSelections` (replace-style, idempotent, ownership-gated), admin `confirmOrderAccommodationSelections` (locks edits, snapshots prices, regenerates Tikkie link from canonical total), delta surfacing + overpayment decision on the page.
-**Addresses:** "Booking-ref permalink with config change + re-price" (P1).
-**Avoids:** Pitfalls 1 (snapshot at confirm), 3 (stale Tikkie links), 4 (ownership gate), 5 (idempotency/version drift), 6 (overpayment policy), 8 (confirm write-guard), 9 (server-side pricing).
-**Research flag:** **needs dedicated security planning** — gate design (email vs token), rate limiting, honeypot, audit trail; Tikkie regeneration timing decision.
+### Phase 5: UI — Allocation alignment
+**Rationale:** Depends on entitlements (Phase 2 resolver), payment state (unchanged), and the preserved room workflow; safe to land late.
+**Delivers:** `getRoomAllocationBoard` joins the shared entitlement rule so an admin can never place a buyer into a category their ticket does not allow (mismatch warnings); paid-priority + entitlement-aligned assignment confirmed; physical placement machinery (`assignedRoomId`/`orderAssignments`) unchanged.
+**Addresses:** allocation alignment (P2), SEED-002 on the board.
+**Avoids:** #5 (eligibility parity on allocation), #2 (category/room-type separation preserved).
+**Gate:** board entitlement-parity tests; paid-priority regression (Phase 41/44 patterns).
 
-### Phase 6: Allocation Paid-Priority + SEED-002 Alignment
-**Rationale:** Depends on canonical totals (Phase 2) and payment state; last because it consumes everything.
-**Delivers:** `getRoomAllocationBoard` joins `loadOrderAmountDueBreakdowns` + `loadMatchedPaymentTotalsByOrderId`; tri-state paid-set precomputed once per load; paid-first sorting of unassigned/queue; confirm flow sets the lock; entitlement-mismatch warning badges.
-**Addresses:** "Paid-priority allocation" (P1) + SEED-002 alignment.
-**Avoids:** Pitfall 12 (wrong "paid" definition — never `order.status`), Pitfall 7 (per-attendee due), Pitfall 8 (confirm flow sets lock), Pitfall 11 (flag-not-regrade semantics).
-
-### Phase 7: Verification & Cross-Surface Audit
-**Rationale:** PITFALLS mandates a verification phase for money-integrity and security claims — the "looks done but isn't" checklist.
-**Delivers:** Cross-surface amount-due comparison (same order across reconciliation/revenue/ledger/tracking/auto-match), security tests (ref-only edit rejected, price-tamper rejected, edit-after-confirm throws), idempotency double-invoke test, config-edit-after-confirm immutability test, stale-link UAT, internal-event paid UAT, per-attendee ledger sum test.
-**Avoids:** Every pitfall's verification gate; also the documented recovery strategies (PITFALLS §Recovery) if any regressions surface.
+### Phase 6: Verification & cross-surface audit
+**Rationale:** Mirrors v5.0 Phase 45 — closes the "looks done but isn't" checklist across every consumer.
+**Delivers:** canonical money matrix across all consumers including new option lines; confirmed-order snapshot immutability across copy/template + config edits; legacy boolean-snapshot fixture parity; copy-isolation tests (bidirectional); archive reference-integrity tests; no-client-money static audit (extend `tests/finance/phase45-money-integrity.test.ts` to assert **no client-side option-code switches** remain); hardcoded-code sweep (no `"superior_upgrade"`/`"cot"`/`"under_3"` string branching in UI or domain); hotel/room workflow regression; human UAT.
+**Addresses:** the milestone's "looks done but isn't" gate (FEATURES.md launch item 10).
+**Avoids:** all PITFALLS #1-16 as regression gates.
+**Gate:** full run matrix (node + convex + components + typecheck + build) plus the "Looks Done But Isn't" checklist.
 
 ### Phase Ordering Rationale
-- **Dependency-driven:** catalog/config → finance → admin config → signup → permalink → allocation. Money must be derivable before it can be priced or shown; the permalink edit requires both selections and canonical derivation.
-- **Architecture-aligned:** phases follow the layer stack (Catalog → Event Config → Order → Canonical Finance) and each extends the existing choke points (`finance.ts` loader, `signupSubmission`, `accommodation.ts` board) rather than adding new subsystems.
-- **Risk-front-loaded:** the two highest-risk items (money integrity in Phase 2, first public write in Phase 5) are explicitly scheduled with their pitfall preventions and verification gates; the milestone's finance promise is verified in Phase 7 before UAT.
+
+- **Schema/domain → copy → admin UI → public UI → allocation → verification**: each phase consumes the previous phase's locked contract; this is the dependency chain in all four research files (STACK §Implications, ARCHITECTURE §Roadmap Separation, PITFALLS §Pitfall-to-Phase Mapping, FEATURES §Feature Dependencies).
+- **Risk-front-loading**: the two highest-risk items — the money-integrity refactor (option-list pricing) and copy-idempotency/isolation — both land in backend/data phases with dedicated test gates, before any UI exists to mask them.
+- **UI/backend separation is a locked decision**: no UI change enters Phases 1-2; no backend contract change happens after Phase 2 (verification may only surface defects).
+- **SEED-002 is included by default** (locked decision): ticket rules land in Phase 1 (tables) + Phase 2 (resolver) + Phases 3-5 (surfaces), rather than being deferred.
 
 ### Research Flags
 
-Phases needing deeper research during planning:
-- **Phase 2:** the **live-derivation vs snapshot tension** must be resolved as a decision: STACK/ARCHITECTURE favor pure live derivation with `confirmedAt` boundary; PITFALLS Pitfall 1 requires per-line snapshot `priceMinor`/label at confirmation for confirmed orders. Recommended position: live for unconfirmed, snapshot at confirm — but the *mechanics* (per-line snapshot vs order-total snapshot, `configVersion` field placement) need a concrete decision.
-- **Phase 5:** first **public write** — needs a security-focused research/design pass (ownership gate mechanism, rate limiting, honeypot reuse, edit audit rows, idempotency via `orderIdempotency`). Also the Tikkie link regeneration timing decision (creation-time vs confirmation-time).
-- **Phase 6:** SEED-002 scope decision — single-field `ticketTypes.roomTypeId` alignment now vs the multi-room-type `roomTypeIds` schema change (defer).
+Phases needing focused research/decisions during planning:
+- **Phase 1:** exact `unit` vocabulary (`per_night`/`per_person` baseline; `per_stay` vs `per_person_per_night` vs `flat` candidates across research files) — must be locked before the pricing engine is written; which table owns the single version boundary (`eventAccommodationSetup.updatedAt` vs `eventAccommodationConfig.updatedAt`); ticket-rules shape (`eventTicketAccommodationRules` with `allowedCategoryKeys` array — recommended, delivers SEED-002 event-side without a `ticketTypes` schema break — vs optional `ticketTypes.roomTypeIds` array); `isSuperior` flag vs per-option delta model for Standard/Superior; percent rate-type rounding conventions (`allocateMinorAmountByWeight`).
+- **Phase 2:** named template table (`accommodationSetupTemplates`) vs copy-from-event only (recommend: copy-from-event first; table is P2); copy idempotency + OCC conflict behavior ("setup exists" guard vs last-writer-wins); copy audit table shape.
+- **Phase 3:** "Upgrades & Options" tab rename to "Accommodation Setup" and `?tab=upgrades-options` deep-link handling (recommend: keep query param, rename label); copy undoability (recommend audit-only, no eager revert).
+- **Phase 4:** legacy `slots`-based signup coexistence remains an open v5.0 flag — dynamic rules must not force the legacy flow off before its migration window is decided.
+- **Phase 5:** entitlement enforcement strength on the board (block vs warn) — align with SEED-002.
 
 Phases with standard patterns (skip research-phase):
-- **Phase 1:** additive Convex schema + codegen is fully specified in STACK.md/ARCHITECTURE.md with verified APIs; well-documented Convex patterns.
-- **Phase 3:** admin CRUD over existing workspace-tab pattern (`workspace-routes.ts`) — established.
-- **Phase 7:** verification checklist fully enumerated in PITFALLS.md.
+- **Phase 6:** pure verification; patterns proven in v5.0 Phase 45 (money matrix, static source audit, UAT checklist).
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Versions verified from `node_modules`; APIs verified via Context7 (convex, next.js); codebase integration points read directly |
-| Features | HIGH | Codebase facts direct; ecosystem patterns MEDIUM (vendor marketing pages: Arrowhead, CampBrain, Pretix docs HIGH, Eventbrite docs HIGH) |
-| Architecture | HIGH | Integration points/data flow verified against 8 source files; MEDIUM on new-table naming/shape (design recommendation, not stakeholder-validated) |
-| Pitfalls | HIGH | Every pitfall verified against current source; low web-source weight (niche domain, no authoritative external sources) — codebase-grounded |
+| Stack | HIGH | Installed versions verified from `node_modules`; Convex schema-evolution + mutation-atomicity verified via Context7; no new dependency identified |
+| Features | HIGH (codebase) / MEDIUM (ecosystem) | Feature shapes grounded in locked PROJECT.md decisions and v5.0 execution records; niche domain has no authoritative external sources |
+| Architecture | HIGH (current state) / MEDIUM (target state) | Every integration point read from source; the target-state design (event-owned boundary, template table, dynamic option model) is opinionated synthesis not yet stakeholder-validated |
+| Pitfalls | HIGH | Every pitfall verified against current source; prevention mirrors v5.0's proven patterns |
 
-**Overall confidence:** HIGH
+**Overall confidence:** HIGH for what to build and in what order; MEDIUM for a small set of "how" decisions listed under Research Flags.
 
 ### Gaps to Address
 
-- **Snapshot mechanics at confirmation (live vs snapshot):** STACK/ARCHITECTURE (derive-at-read, `confirmedAt` boundary) vs PITFALLS (snapshot `priceMinor` + label per line at confirmation). Resolve during Phase 2 planning; the two-phase position (live pending, snapshot confirmed) satisfies both.
-- **Table naming/shape discrepancy:** STACK names `accommodationOptions`/`eventAccommodationConfig`/`optionIds` array; ARCHITECTURE names `accommodationOptionDefinitions`/`accommodationEventConfig` + `accommodationEventRoomTypeRates` + child `orderAccommodationOptionSelections` table. Structural agreement is high (two-layer, per-attendee rows, typed FKs); reconcile names during Phase 1 — **prefer ARCHITECTURE's child-table shape** (matches `orderTicketSelections` precedent, better for admin adjustment/audit).
-- **Age-band pricing semantics:** per-attendee option (assumed) vs occupancy-rate modifier — needs stakeholder confirmation during Phase 3.
-- **Legacy slot-based signup coexistence:** options flow new/default, slot flow back-compat for events without config — decide the migration window during Phase 4.
-- **`orders.totalAmountMinor` post-milestone meaning:** (a) ticket-only provider snapshot (documented NOT the amount-due) vs (b) kept in sync in the same transaction as selection writes — decide in Phase 2.
-- **Tikkie regeneration timing:** creation-time derivation with regeneration on confirmation (recommended) — decide in Phase 5.
+- **Unit vocabulary** (per_stay vs per_person_per_night vs flat; FEATURES and ARCHITECTURE propose overlapping sets): resolve in Phase 1 planning before the pricing engine is written; keep the locked invariant — `unit` stays a typed domain union with a pure handler registry, never a free string.
+- **Named template table vs copy-from-event only**: STACK recommends copy-first, ARCHITECTURE recommends a named table; defer the table to P2 unless a stakeholder requirement demands named presets in v6.0.
+- **Ticket-rules table shape**: `eventTicketAccommodationRules.allowedCategoryKeys` (ARCHITECTURE) vs optional `ticketTypes.roomTypeIds` array (STACK alternative); both deliver SEED-002 — confirm which in Phase 1.
+- **Single version boundary owner**: two candidate tables; invariant is one boundary, never two.
+- **Per-event backfill vs materialize-on-first-save**: recommend per-event materialization; a global sweep risks re-pricing surprises.
+- **Provider (Ticket Tailor) mapping surface**: unmapped provider ticket categories/age groups must be visible, not silently null; exact UI shape is a Phase 3 decision.
+- **Transition window**: when legacy boolean fields and the `slots` block are finally removed — sequence after v6.0 verification, not during.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Codebase reads (all four research files, 2026-08-05): `convex/schema.ts`, `convex/finance.ts`, `convex/signupSubmission.ts`, `convex/signupCatalog.ts`, `convex/publicTracking.ts`, `convex/accommodation.ts`, `convex/payments.ts`, `convex/orders.ts`, `convex/reports.ts`, `convex/attendees.ts`, `convex/tikkie.ts`, `convex/emailActions.ts`, `lib/domain/finance/amounts.ts`, `lib/domain/finance/attendees.ts`, `lib/domain/finance/reconciliation.ts`, `lib/domain/finance/reporting.ts`, `lib/domain/finance/tikkie-templates.ts`, `lib/domain/accommodation/assignments.ts`, `lib/domain/signup/*`, `lib/convex/hooks/*`, `lib/types/signup.ts`, `components/signup/state.ts`, `components/signup/steps/*.tsx`, `app/track-payment/page.tsx`, `app/signup/success/[bookingRef]/page.tsx`, `lib/dashboard/workspace-routes.ts`
-- `convex/_generated/ai/guidelines.md` — project-specific Convex API conventions (HIGH)
-- Context7: `/llmstxt/convex_dev_llms-full_txt` (indexes, `.withIndex()`, `.take()`, `.paginate()`, validators); `/vercel/next.js` (async `params`, dynamic route segments) (HIGH)
-- Installed versions from `node_modules/*/package.json`; latest from npm registry (HIGH)
-- `.planning/PROJECT.md`, `.planning/seeds/SEED-002-ticket-room-eligibility.md`, `.planning/codebase/TABLE_RELATIONSHIPS.md`, `.planning/codebase/FINANCIAL_DATA_FLOW.md` (HIGH)
-- Pretix product docs (add-on categories, quotas) and Eventbrite Help (order-edit limitations) (HIGH — official docs)
+- **Codebase (read directly, 2026-08-06):** `convex/schema.ts`, `convex/accommodation.ts` (validators, `LOCKED_OPTION_SEMANTICS`, `getEventAccommodationConfig`, delete guards), `convex/finance.ts` (`loadOrderAmountDueBreakdowns`, `loadEventAccommodationContexts`), `convex/signupCatalog.ts`, `convex/signupSubmission.ts`, `convex/publicTracking.ts`, `convex/events.ts`, `convex/init.ts`, `lib/domain/finance/accommodation-amounts.ts` (`categoryIsSuperior`, `ACCOMMODATION_LINE_LABELS`, `isCompleteAccommodationPriceSnapshot`), `lib/domain/signup/catalog.ts`, `lib/convex/hooks/accommodation.ts`, `components/dashboard/accommodation/*`, `components/signup/steps/AccommodationOptionsStep.tsx`, `components/track-payment/TrackPaymentAccommodationEditor.tsx`, `vitest.*.config.ts`, `convex/_generated/ai/guidelines.md`, installed `node_modules/*/package.json` versions.
+- **Planning docs:** `.planning/PROJECT.md` (v6.0 goal + locked decisions), `.planning/features/dynamic-accommodation/README.md`, `.planning/STATE.md`, `.planning/ROADMAP.md`, `.planning/REQUIREMENTS.md`, `.planning/seeds/SEED-002-ticket-room-eligibility.md`.
+- **Context7 (HIGH):** `/llmstxt/convex_dev_llms-full_txt` — widening validators tracked as unions (non-destructive), batch-mutation atomicity, bounded `.take()`/no `.filter()`, `for await` iteration, audit logging, array bounds (8192), 1MB doc limit.
+- **Convex official guidelines (HIGH):** `convex/_generated/ai/guidelines.md` — bounded reads, scheduler continuation for bulk writes.
 
 ### Secondary (MEDIUM confidence)
-- Arrowhead CE (Cru ministry) registration + housing vendor page — payment-before-reservation, one-room-per-paid-registrant, admin assignment, change windows (MEDIUM — vendor marketing)
-- CampBrain conference-center inventory/charges page (MEDIUM)
-
-### Tertiary (LOW confidence)
-- Cvent/Passkey room-block page, RoomSync roommate matching — used only as anti-feature references (LOW)
-- DuckDuckGo event-finance pitfall searches (2026-08-05) — generic marketing content only; no authoritative external sources for this niche (LOW, excluded from findings)
+- **Archived v5.0 research (2026-08-05, HIGH codebase-grounded):** `.planning/research/v5.0-accommodation-upgrades-options/{FEATURES,ARCHITECTURE,PITFALLS,SUMMARY}.md` — snapshot/permalink/idempotency/paid-priority contracts carried forward.
+- **Ecosystem comparison (MEDIUM/LOW, carried from v5.0):** Eventbrite Help, Pretix docs (official); Arrowhead CE (Cru), CampBrain (vendor pages) — no authoritative external source exists for this niche; codebase facts dominate.
 
 ---
-*Research completed: 2026-08-05*
+*Research completed: 2026-08-06*
 *Ready for roadmap: yes*

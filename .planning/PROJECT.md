@@ -8,19 +8,21 @@ Conference Finance Dashboard is the church's internal system for conference orde
 
 Give church finance admins one reliable place to track conference revenue, reconcile ticket sales with payment collections, and act on outstanding balances quickly.
 
-## Current Milestone: v5.0 Accommodation Upgrades & Options
+## Current Milestone: v6.0 Dynamic Event Accommodation
 
-**Goal:** Turn accommodation into a reusable, configurable catalog where buyers select options and upgrades, admins configure rates and availability, payment tracking becomes a booking-reference permalink, and allocation prioritizes paid attendees.
+**Goal:** Redesign accommodation as flexible, event-owned configuration over the established reusable hotel and physical-room workflow, with explicit setup reuse and dynamic ticket-aware signup consumption.
 
 **Target features:**
 
-- Reusable accommodation catalog (categories, room types with descriptions, options, age bands) plus event-scoped configuration (rates, upgrade, cot, resources).
-- Admin "Upgrades & Options" tab for configuring rates, options, age bands, availability, and room-type descriptions.
-- Public signup: buyers select category/occupancy, superior upgrade, cot, and optional age band — options only, admin does final assignment.
-- Track payment becomes a booking-reference permalink (`/track-payment/[bookingRef]`) that allows configuration changes before admin confirmation and re-prices the order.
-- Accommodation option charges flow into order amount-due and finance totals.
-- Allocation prioritizes paid attendees: paid names highlighted, unpaid grayed out.
-- Ticket-driven room eligibility aligns ticket → room-type entitlement (SEED-002).
+- Event-owned accommodation setup for inventory rules, ticket entitlements, rates, options/upgrades, and signup consumption.
+- Optional event stay windows, including a configurable base stay (commonly the night before) and optional extended nights before and/or after the event.
+- Ticket inclusion does not remove stay choice: an attendee may add an enabled extra night before or after the event even when the ticket covers the included base accommodation nights.
+- Admin-enabled upgrades and add-ons can apply across the attendee's selected stay nights, with per-person-per-night pricing and ticket-specific inclusion rules.
+- Existing reusable hotels, physical rooms, room types, and capacity remain the inventory foundation.
+- Explicit copy/template actions reuse accommodation setup between events without live global configuration coupling.
+- Flexible dynamic options, pricing units, eligibility rules, and data-driven admin/public cards without hardcoded option codes.
+- Ticket-driven room eligibility and accommodation pricing rules carried forward from SEED-002, including tickets that include the configured base accommodation stay.
+- Signup, track-payment, confirmation, canonical finance, and allocation contracts aligned to the same event configuration.
 
 ## Requirements
 
@@ -35,13 +37,11 @@ Give church finance admins one reliable place to track conference revenue, recon
 
 ### Active
 
-- [ ] Reusable accommodation catalog and event configuration model.
-- [ ] Admin Upgrades & Options configuration surface.
-- [ ] Buyers select accommodation options (category/occupancy, upgrade, cot, optional age band) during signup without booking rooms.
-- [ ] Track payment is a booking-reference permalink supporting configuration changes and re-pricing.
-- [ ] Accommodation option charges flow into order amount-due and finance totals.
-- [ ] Allocation highlights paid attendees and defers unpaid ones.
-- [ ] Ticket-driven room eligibility keeps signup and allocation rules aligned.
+- [ ] Event-owned accommodation configuration preserves the established hotel, physical-room, room-type, and capacity workflow.
+- [ ] Explicit copy/template reuse creates independent event accommodation setup.
+- [ ] Human-manageable dynamic ticket rules, room eligibility, options/upgrades, pricing units, and eligibility rules exist.
+- [ ] Signup and track-payment consume the same dynamic event configuration with server-owned quotes and immutable confirmed snapshots.
+- [ ] Canonical finance and allocation continue to consume one event-scoped accommodation contract.
 
 ### Out Of Scope
 
@@ -73,11 +73,11 @@ Give church finance admins one reliable place to track conference revenue, recon
 | Group Finance and Accommodation into workspaces | Related workflows should share context without adding sidebar noise | Done (v4.0) |
 | Reuse Convex hooks and canonical contracts | Prevents UI-specific finance formulas and duplicate reads | Done (v4.0) |
 | Keep share/configuration actions in Settings | Keeps primary navigation focused on daily operations | Done (v4.0) |
-| Separate reusable accommodation catalog from event configuration | Lets admin define categories/descriptions/options once and reuse across events | Pending |
-| Buyers choose options; admins assign rooms | Accommodation is preference-led; final placement stays operator-controlled | Pending |
-| Track payment becomes a booking-reference permalink with config changes | Gives buyers a durable link and lets them adjust options before admin confirmation | Pending |
-| Accommodation option charges feed canonical amount-due | Keeps finance totals and reconciliation correct when options are selected/changed | Pending |
-| Allocation prioritizes paid attendees | Prevents assigning unpaid attendees before they complete payment | Pending |
+| Preserve reusable hotels, physical rooms, and room types while making accommodation configuration event-owned | Keeps the established hotel workflow while avoiding live cross-event configuration coupling | Locked for v6.0 |
+| Reuse event accommodation through explicit copy/template actions | Reuse is intentional and copied configurations evolve independently | Locked for v6.0 |
+| Buyers choose dynamic options; admins assign physical rooms | Accommodation is preference-led and operator-controlled | Carried forward |
+| Ticket rules define accommodation entitlement and eligibility; event configuration defines rates/options | Prevents ticket products, room inventory, and event pricing from being conflated | Locked for v6.0 |
+| Canonical finance and confirmation snapshots remain authoritative | Dynamic configuration must not create a second money or historical-pricing source | Carried forward |
 
 ## Evolution
 
@@ -100,4 +100,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-_Last updated: 2026-08-05 — v5.0 milestone initialized_
+_Last updated: 2026-08-06 — v6.0 milestone initialized; Phase 46 planned_
