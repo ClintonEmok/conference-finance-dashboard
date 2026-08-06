@@ -519,3 +519,98 @@ test("quote keeps an unconfigured event at an honest zero accommodation contribu
     })
   ).rejects.toThrow("QUOTE_INVALID")
 })
+
+test("CR-01: a disabled event with stale config/rate rows exposes no choices and rejects preferences", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("events", {
+      slug: "signup-disabled-accommodation",
+      title: "Disabled Accommodation Event",
+      startsAt: BASE_EVENT_AT,
+      timezone: "Europe/Amsterdam",
+      currency: "EUR",
+      isPublished: true,
+      isSignupOpen: true,
+      accommodationEnabled: false,
+      primarySourceKind: "internal" as const,
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+  const categoryId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("accommodationCategories", {
+      code: "standard",
+      label: "Standard",
+      sortOrder: 1,
+    })
+  })
+  // Stale configuration rows remain: the event-level flag must still win.
+  await t.mutation(api.accommodation.upsertEventAccommodationConfig, {
+    eventId: eventId as Id<"events">,
+    baseCheckInAt: BASE_EVENT_AT - 2 * DAY_MS,
+    baseCheckOutAt: BASE_EVENT_AT,
+    breakfastIncluded: true,
+  })
+  await t.mutation(api.accommodation.upsertEventAccommodationRate, {
+    eventId: eventId as Id<"events">,
+    categoryId: categoryId as Id<"accommodationCategories">,
+    occupancy: "shared",
+    pricePerPersonMinor: 3000,
+  })
+  const ticketId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("ticketTypes", {
+      eventId: eventId as never,
+      label: "Plain ticket",
+      priceMinor: 1000,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+
+  // Catalog: the disabled event exposes no accommodation choices at all.
+  const catalog = await t.query(api.signupCatalog.getPublicSignupCatalog, {})
+  const event = catalog.find((entry) => entry.eventId === eventId)
+  expect(event?.accommodation.config).toBeNull()
+  expect(event?.accommodation.activeCategories).toEqual([])
+  expect(event?.accommodation.options).toEqual([])
+  expect(event?.accommodation.ageBands).toEqual([])
+  expect(event?.accommodation.eligible).toBe(false)
+
+  // Quote: a supplied preference is rejected even though stale rows exist.
+  await expect(
+    t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
+      eventId: eventId as Id<"events">,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: ticketId as Id<"ticketTypes">,
+          categoryId: categoryId as Id<"accommodationCategories">,
+          occupancy: "shared",
+          upgradeSelected: false,
+          cotSelected: false,
+        },
+      ],
+    })
+  ).rejects.toThrow("QUOTE_INVALID")
+
+  // Quote: a ticket-only quote remains valid at zero accommodation.
+  const quote = await t.query(
+    api.signupCatalog.getPublicSignupAccommodationQuote,
+    {
+      eventId: eventId as Id<"events">,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: ticketId as Id<"ticketTypes">,
+          upgradeSelected: false,
+          cotSelected: false,
+        },
+      ],
+    }
+  )
+  expect(quote).toMatchObject({
+    accommodationTotalMinor: 0,
+    totalDueMinor: 1000,
+  })
+})

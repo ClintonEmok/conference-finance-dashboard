@@ -346,8 +346,9 @@ export async function loadPublicSignupAccommodationContext(
   ctx: QueryCtx | MutationCtx,
   eventId: Id<"events">
 ): Promise<PublicSignupAccommodationContext> {
-  const [configRow, rateRows, eventOptionRows, agePricingRows] =
+  const [event, configRow, rateRows, eventOptionRows, agePricingRows] =
     await Promise.all([
+      ctx.db.get(eventId),
       ctx.db
         .query("eventAccommodationConfig")
         .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
@@ -448,8 +449,14 @@ export async function loadPublicSignupAccommodationContext(
       maxAge: band.maxAge ?? null,
     }))
 
+  // An event only exposes configured accommodation when it is enabled at the
+  // event level AND has a stay config AND at least one active rate category.
+  // The event flag is authoritative: stale config/rate rows must never make a
+  // disabled event look sellable (CR-01).
   const hasConfiguredAccommodation =
-    configRow !== null && activeCategoryIds.size > 0
+    event?.accommodationEnabled === true &&
+    configRow !== null &&
+    activeCategoryIds.size > 0
 
   return {
     hasConfiguredAccommodation,
@@ -834,31 +841,40 @@ export const getPublicSignupCatalog = query({
         const accommodationContract =
           await loadPublicSignupAccommodationContext(ctx, event._id)
 
-        const activeCategories = Array.from(
-          accommodationContract.activeCategoryIds
-        ).map((categoryId) => {
-          const category = accommodationContract.categoryById.get(categoryId)
-          const rates = Array.from(
-            accommodationContract.ratesByKey.entries()
-          )
-            .filter(([key]) => key.startsWith(`${categoryId}:`))
-            .map(([key, pricePerPersonMinor]) => ({
-              occupancy: key.split(":")[1] as
-                | "single"
-                | "shared"
-                | "family",
-              pricePerPersonMinor,
-            }))
-          return {
-            categoryId: categoryId as Id<"accommodationCategories">,
-            code: (category?.code ?? "standard") as
-              | "standard"
-              | "superior"
-              | "family",
-            label: category?.label ?? "Unknown category",
-            rates,
-          }
-        })
+        // Options-only choices are exposed only when the event-level flag,
+        // stay config, and rate rows all agree (CR-01). A disabled or stale
+        // configuration yields empty choices so the client can never render
+        // or submit a preference the server would reject.
+        const hasConfiguredChoices = accommodationContract.hasConfiguredAccommodation
+
+        const activeCategories = hasConfiguredChoices
+          ? Array.from(accommodationContract.activeCategoryIds).map(
+              (categoryId) => {
+                const category =
+                  accommodationContract.categoryById.get(categoryId)
+                const rates = Array.from(
+                  accommodationContract.ratesByKey.entries()
+                )
+                  .filter(([key]) => key.startsWith(`${categoryId}:`))
+                  .map(([key, pricePerPersonMinor]) => ({
+                    occupancy: key.split(":")[1] as
+                      | "single"
+                      | "shared"
+                      | "family",
+                    pricePerPersonMinor,
+                  }))
+                return {
+                  categoryId: categoryId as Id<"accommodationCategories">,
+                  code: (category?.code ?? "standard") as
+                    | "standard"
+                    | "superior"
+                    | "family",
+                  label: category?.label ?? "Unknown category",
+                  rates,
+                }
+              }
+            )
+          : []
 
         const options: Array<{
           optionCode: "superior_upgrade" | "cot"
@@ -871,7 +887,10 @@ export const getPublicSignupCatalog = query({
             | "18_plus"
             | null
         }> = []
-        if (accommodationContract.superiorUpgradePriceMinor !== null) {
+        if (
+          hasConfiguredChoices &&
+          accommodationContract.superiorUpgradePriceMinor !== null
+        ) {
           options.push({
             optionCode: "superior_upgrade",
             label:
@@ -882,7 +901,10 @@ export const getPublicSignupCatalog = query({
             eligibilityAgeBandCode: null,
           })
         }
-        if (accommodationContract.cotPriceMinor !== null) {
+        if (
+          hasConfiguredChoices &&
+          accommodationContract.cotPriceMinor !== null
+        ) {
           options.push({
             optionCode: "cot",
             label:
@@ -916,10 +938,10 @@ export const getPublicSignupCatalog = query({
           tickets,
           accommodation: {
             ...accommodation,
-            config: accommodationContract.config,
+            config: hasConfiguredChoices ? accommodationContract.config : null,
             activeCategories,
             options,
-            ageBands: accommodationContract.ageBands,
+            ageBands: hasConfiguredChoices ? accommodationContract.ageBands : [],
           },
         }
       })
