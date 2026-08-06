@@ -46,6 +46,17 @@ function buildBoard(
   }
 }
 
+/** Server-owned payment projection fields shared by every board row. */
+function paymentFields(
+  paymentState: "paid" | "partial" | "unpaid" | null = null
+) {
+  return {
+    paymentState,
+    amountDueMinor: null,
+    paidAmountMinor: null,
+  }
+}
+
 describe("allocation proposal compatibility strategy", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -98,6 +109,7 @@ describe("allocation proposal compatibility strategy", () => {
             location: null,
             remarks: null,
             hasFamily: true,
+            ...paymentFields(),
           },
           {
             attendeeId: "attendee-2",
@@ -114,6 +126,7 @@ describe("allocation proposal compatibility strategy", () => {
             location: null,
             remarks: null,
             hasFamily: true,
+            ...paymentFields(),
           },
         ],
       })
@@ -163,6 +176,7 @@ describe("allocation proposal compatibility strategy", () => {
             location: null,
             remarks: null,
             hasFamily: false,
+            ...paymentFields(),
           },
           {
             attendeeId: "attendee-female",
@@ -179,6 +193,7 @@ describe("allocation proposal compatibility strategy", () => {
             location: null,
             remarks: null,
             hasFamily: false,
+            ...paymentFields(),
           },
         ],
       })
@@ -232,6 +247,7 @@ describe("allocation proposal compatibility strategy", () => {
                 providerEventId: "event-1",
                 eventName: "Camp",
                 ticketTypeLabel: null,
+                ...paymentFields(),
               },
             ],
             pendingAssignments: [],
@@ -248,6 +264,7 @@ describe("allocation proposal compatibility strategy", () => {
             hotelName: "Main Hotel",
             assignmentIntent: "assign",
             sortOrder: 0,
+            ...paymentFields(),
           },
         ],
         unassignedAttendees: [
@@ -266,6 +283,7 @@ describe("allocation proposal compatibility strategy", () => {
             location: null,
             remarks: null,
             hasFamily: false,
+            ...paymentFields(),
           },
         ],
       })
@@ -304,6 +322,7 @@ describe("allocation proposal compatibility strategy", () => {
                 providerEventId: "event-1",
                 eventName: "Camp",
                 ticketTypeLabel: null,
+                ...paymentFields(),
               },
             ],
             pendingAssignments: [],
@@ -340,6 +359,7 @@ describe("allocation proposal compatibility strategy", () => {
             roommatePreference: null,
             roommateAvoid: "Jamie",
             hasFamily: false,
+            ...paymentFields(),
           },
         ],
       })
@@ -398,6 +418,7 @@ describe("allocation proposal compatibility strategy", () => {
             location: null,
             remarks: null,
             hasFamily: false,
+            ...paymentFields(),
           },
           {
             attendeeId: "attendee-critical",
@@ -414,6 +435,7 @@ describe("allocation proposal compatibility strategy", () => {
             location: null,
             remarks: null,
             hasFamily: false,
+            ...paymentFields(),
           },
         ],
       })
@@ -424,5 +446,285 @@ describe("allocation proposal compatibility strategy", () => {
     expect(proposal.suggestions).toHaveLength(2)
     expect(proposal.suggestions[0]?.attendeeId).toBe("attendee-critical")
     expect(proposal.suggestions[0]?.reason).toContain("priority CRITICAL")
+  })
+
+  it("keeps payment state on generated suggestion and unplaced rows", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-1",
+            label: "A-101",
+            capacity: 1,
+            occupiedBeds: 0,
+            availableBeds: 1,
+            availability: "empty",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+        ],
+        unassignedAttendees: [
+          {
+            attendeeId: "attendee-paid",
+            attendeeName: "Paid Guest",
+            attendeeEmail: null,
+            orderId: "order-paid",
+            providerOrderId: "order-paid",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "UNKNOWN",
+            allocationPriority: "NORMAL",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields("paid"),
+          },
+          {
+            attendeeId: "attendee-unpaid",
+            attendeeName: "Unpaid Guest",
+            attendeeEmail: null,
+            orderId: "order-unpaid",
+            providerOrderId: "order-unpaid",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "MALE",
+            allocationPriority: "NORMAL",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields("unpaid"),
+          },
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    expect(proposal.suggestions).toHaveLength(1)
+    expect(proposal.suggestions[0]?.paymentState).toBe("paid")
+    expect(proposal.unplacedAttendees).toHaveLength(1)
+    expect(proposal.unplacedAttendees[0]?.paymentState).toBe("unpaid")
+  })
+
+  it("places a paid LOW attendee before an unpaid CRITICAL attendee", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-1",
+            label: "A-101",
+            capacity: 2,
+            occupiedBeds: 0,
+            availableBeds: 2,
+            availability: "empty",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+        ],
+        unassignedAttendees: [
+          {
+            attendeeId: "attendee-unpaid-critical",
+            attendeeName: "Unpaid Critical",
+            attendeeEmail: null,
+            orderId: "order-unpaid",
+            providerOrderId: "order-unpaid",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "MALE",
+            allocationPriority: "CRITICAL",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields("unpaid"),
+          },
+          {
+            attendeeId: "attendee-paid-low",
+            attendeeName: "Paid Low",
+            attendeeEmail: null,
+            orderId: "order-paid",
+            providerOrderId: "order-paid",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "MALE",
+            allocationPriority: "LOW",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields("paid"),
+          },
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    expect(proposal.suggestions[0]?.attendeeId).toBe("attendee-paid-low")
+    expect(proposal.suggestions[1]?.attendeeId).toBe(
+      "attendee-unpaid-critical"
+    )
+  })
+
+  it("places partial attendees before unpaid and keeps priority as the tie-breaker", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-1",
+            label: "A-101",
+            capacity: 3,
+            occupiedBeds: 0,
+            availableBeds: 3,
+            availability: "empty",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+        ],
+        unassignedAttendees: [
+          {
+            attendeeId: "attendee-unpaid-normal",
+            attendeeName: "Unpaid Normal",
+            attendeeEmail: null,
+            orderId: "order-unpaid-normal",
+            providerOrderId: "order-unpaid-normal",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "MALE",
+            allocationPriority: "NORMAL",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields("unpaid"),
+          },
+          {
+            attendeeId: "attendee-partial-high",
+            attendeeName: "Partial High",
+            attendeeEmail: null,
+            orderId: "order-partial-high",
+            providerOrderId: "order-partial-high",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "MALE",
+            allocationPriority: "HIGH",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields("partial"),
+          },
+          {
+            attendeeId: "attendee-partial-low",
+            attendeeName: "Partial Low",
+            attendeeEmail: null,
+            orderId: "order-partial-low",
+            providerOrderId: "order-partial-low",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "MALE",
+            allocationPriority: "LOW",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields("partial"),
+          },
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    // Payment rank first: both partial attendees precede the unpaid attendee.
+    expect(proposal.suggestions.map((s) => s.attendeeId)).toEqual([
+      "attendee-partial-high",
+      "attendee-partial-low",
+      "attendee-unpaid-normal",
+    ])
+  })
+
+  it("keeps CRITICAL/HIGH/NORMAL/LOW ordering when payment states are equal", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-1",
+            label: "A-101",
+            capacity: 3,
+            occupiedBeds: 0,
+            availableBeds: 3,
+            availability: "empty",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+        ],
+        unassignedAttendees: [
+          {
+            attendeeId: "attendee-unpaid-normal",
+            attendeeName: "Unpaid Normal",
+            attendeeEmail: null,
+            orderId: "order-z",
+            providerOrderId: "order-z",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "MALE",
+            allocationPriority: "NORMAL",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields("unpaid"),
+          },
+          {
+            attendeeId: "attendee-unpaid-critical",
+            attendeeName: "Unpaid Critical",
+            attendeeEmail: null,
+            orderId: "order-a",
+            providerOrderId: "order-a",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "MALE",
+            allocationPriority: "CRITICAL",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields("unpaid"),
+          },
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    // Equal payment state falls back to allocation priority: CRITICAL first.
+    expect(proposal.suggestions.map((s) => s.attendeeId)).toEqual([
+      "attendee-unpaid-critical",
+      "attendee-unpaid-normal",
+    ])
   })
 })
