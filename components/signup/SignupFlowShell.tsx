@@ -175,8 +175,10 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
   // The quote hook receives only attendee keys, ticket IDs and option
   // selections — never client prices, dates, nights, room IDs, slot IDs, or
-  // totals. It is only issued once every attendee has a complete
-  // category+occupancy selection (when accommodation is configured).
+  // totals. For a configured event it is only issued once every attendee has
+  // a complete category+occupancy selection; for an unconfigured event a
+  // server ticket-only quote is issued so the review can show a server-derived
+  // total and the flow stays submittable (CR-05).
   const quoteAttendeeArgs = useMemo(() => {
     if (!draft) return null
     return draft.attendees.map((attendee) => {
@@ -208,8 +210,9 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
   const shouldQueryQuote =
     Boolean(eventId) &&
-    configuredAccommodation &&
-    allAccommodationSelected
+    draft !== null &&
+    draft.attendees.length > 0 &&
+    (!configuredAccommodation || allAccommodationSelected)
 
   const quoteResult = usePublicSignupAccommodationQuote(
     eventId,
@@ -235,21 +238,23 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   }, [quoteResult, quoteSignature])
 
   const quoteRenderState: PublicSignupQuoteRenderState = (() => {
-    if (!configuredAccommodation) {
-      return { status: "unconfigured" }
-    }
-    if (!allAccommodationSelected) {
-      return { status: "incomplete" }
-    }
     if (quoteError) {
       return { status: "error", message: quoteError }
+    }
+    if (configuredAccommodation && !allAccommodationSelected) {
+      return { status: "incomplete" }
     }
     if (
       quoteResult === undefined ||
       quoteReadyForSignature !== quoteSignature ||
       !isQuoteResult(quoteResult)
     ) {
-      return { status: "loading" }
+      // For an unconfigured event the server ticket-only quote is still
+      // loading; show the honest unconfigured copy until it arrives, then
+      // flip to ready (CR-05). No fabricated zero totals are rendered.
+      return {
+        status: !configuredAccommodation ? "unconfigured" : "loading",
+      }
     }
     return { status: "ready", quote: quoteResult }
   })()
