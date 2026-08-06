@@ -1005,7 +1005,11 @@ test("WR-05: legacy allocatedRoomTypeId is only set for explicitly constrained t
     })
   )
   const constrainedTicketRow = await t.query(async (ctx) => {
-    return await ctx.db.get(seed.constrainedTicketId as never)
+    const rows = await ctx.db
+      .query("ticketTypes")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId as never))
+      .take(100)
+    return rows.find((row) => row._id === seed.constrainedTicketId)
   })
   const constrainedAttendee = await t.query(async (ctx) => {
     return await ctx.db
