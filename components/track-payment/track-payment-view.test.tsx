@@ -420,7 +420,7 @@ describe("TrackPaymentView routing and states", () => {
     const html = render(
       createElement(TrackPaymentView, { initialBookingRef: undefined })
     )
-    expect(html).toContain("Track Booking")
+    expect(html).toContain("Manage booking")
     expect(html).toContain('aria-label="Booking reference"')
     expect(html).toContain("Find")
     expect(html).not.toContain("Search another booking")
@@ -593,14 +593,14 @@ describe("TrackPaymentEditResultPanel", () => {
 
 describe("deep-link and single-shell source contracts (Phase 45)", () => {
   it("root search page is a thin TrackPaymentView wrapper with no second shell", () => {
-    const rootPage = readSource("app/track-payment/page.tsx")
+    const rootPage = readSource("app/manage/page.tsx")
     expect(rootPage).toContain("<TrackPaymentView />")
     expect(rootPage).not.toContain("initialBookingRef")
     expect(rootPage).not.toContain("Track Booking")
   })
 
   it("permalink page normalizes the reference and preserves the edit-token query", () => {
-    const permalink = readSource("app/track-payment/[bookingRef]/page.tsx")
+    const permalink = readSource("app/manage/[bookingRef]/page.tsx")
     expect(permalink).toContain("normalizeBookingRefForEdit")
     expect(permalink).toContain("initialBookingRef={bookingRef}")
     expect(permalink).toContain("initialEditToken={token}")
@@ -615,10 +615,10 @@ describe("deep-link and single-shell source contracts (Phase 45)", () => {
     const view = readSource("components/track-payment/TrackPaymentView.tsx")
     // Root search navigates to the canonical normalized permalink.
     expect(view).toContain(
-      "router.push(`/track-payment/${encodeURIComponent(normalized)}`)"
+      "router.push(`/manage/${encodeURIComponent(normalized)}`)"
     )
     // The permalink provides a safe path back to search.
-    expect(view).toContain('href="/track-payment"')
+    expect(view).toContain('href="/manage"')
     // The search hero renders only on the root entry, so the permalink never
     // shows a duplicate shell.
     expect(view).toContain("{!initialBookingRef ? (")
@@ -627,20 +627,20 @@ describe("deep-link and single-shell source contracts (Phase 45)", () => {
     expect(view).toContain("initialEditToken")
   })
 
-  it("confirmation email links prefer the token permalink and fail closed to the root tracker", () => {
+  it("confirmation email links prefer the token permalink and fail closed to the manage surface", () => {
     const email = readSource("convex/emailActions.ts")
     const permalinkBuilder = readSource(
       "lib/domain/track-payment/edit-token.ts"
     )
     const template = readSource("lib/email/templates/signup-confirmation.tsx")
 
-    expect(permalinkBuilder).toContain("/track-payment/${encodeURIComponent(")
+    expect(permalinkBuilder).toContain("/manage/${encodeURIComponent(")
     expect(permalinkBuilder).toContain("?token=${encodeURIComponent(token)}")
     // Resend/signup confirmation prefers the durable token permalink.
     expect(email).toContain("buildTrackPaymentPermalink")
-    // Missing secret fails closed to the plain root tracker (email-match
+    // Missing secret fails closed to the plain manage surface (email-match
     // ownership) — never a forgeable token link.
-    expect(email).toContain("?? `${appUrl}/track-payment`")
+    expect(email).toContain("?? `${appUrl}/manage`")
     // The email template renders the server-built link target.
     expect(template).toContain("trackPaymentUrl")
     expect(template).toContain("href={trackPaymentUrl}")
