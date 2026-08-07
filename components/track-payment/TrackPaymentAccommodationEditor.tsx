@@ -22,8 +22,11 @@ import { formatPrice } from "@/lib/utils"
 
 export type TrackPaymentEditSelection = {
   attendeeKey: string
-  categoryId: string
+  /** Legacy optional category input; the server resolves the included stay. */
+  categoryId?: string
   occupancy: "single" | "shared" | "family"
+  /** Independent one-night night-before level; omitted = no night before. */
+  nightBeforeLevel?: "standard" | "superior"
   optionSelections: Array<{
     optionKey: string
     quantity: number
@@ -53,6 +56,7 @@ export type TrackPaymentEditContext = {
     ticketCategoryId?: string
     categoryId?: string
     occupancy?: "single" | "shared" | "family"
+    nightBeforeLevel?: "standard" | "superior"
     optionSelections: Array<{
       optionKey: string
       quantity: number
@@ -82,12 +86,17 @@ export type TrackPaymentEditContext = {
       label: string
       priceMinor: number
     }>
+    /** Server-resolved night-before display rates (copy only). */
+    nightBefore: {
+      standard: { single: number; shared: number }
+      superior: { single: number; shared: number }
+    } | null
   }
 }
 
 type Draft = {
-  categoryId: string
   occupancy: string
+  nightBeforeLevel: "standard" | "superior" | undefined
   optionSelections: Array<{
     optionKey: string
     quantity: number
@@ -104,8 +113,8 @@ type SubmitStatus =
 /**
  * Build the complete options-only edit request body. Only ownership /
  * idempotency metadata plus attendee preferences are sent — never an amount,
- * date, night count, room, slot, or snapshot. The API route rejects any such
- * field before it reaches Convex.
+ * date, night count, category authority, room, slot, or snapshot. The API
+ * route rejects any such field before it reaches Convex.
  */
 export function buildTrackPaymentEditBody(input: {
   bookingRef: string
@@ -123,8 +132,10 @@ export function buildTrackPaymentEditBody(input: {
     website: "",
     selections: input.selections.map((selection) => ({
       attendeeKey: selection.attendeeKey,
-      categoryId: selection.categoryId,
       occupancy: selection.occupancy,
+      ...(selection.nightBeforeLevel !== undefined
+        ? { nightBeforeLevel: selection.nightBeforeLevel }
+        : {}),
       optionSelections: selection.optionSelections,
     })),
   }
@@ -160,8 +171,8 @@ export { messageForEditError }
 
 function emptyDraft(): Draft {
   return {
-    categoryId: "",
     occupancy: "",
+    nightBeforeLevel: undefined,
     optionSelections: [],
   }
 }
@@ -188,8 +199,8 @@ export function TrackPaymentAccommodationEditor({
     return JSON.stringify(
       editContext.selections.map((selection) => [
         selection.attendeeKey,
-        selection.categoryId ?? "",
         selection.occupancy ?? "",
+        selection.nightBeforeLevel ?? "",
         selection.optionSelections,
       ])
     )
@@ -204,8 +215,8 @@ export function TrackPaymentAccommodationEditor({
     const next: Record<string, Draft> = {}
     for (const selection of editContext.selections) {
       next[selection.attendeeKey] = {
-        categoryId: selection.categoryId ?? "",
         occupancy: selection.occupancy ?? "",
+        nightBeforeLevel: selection.nightBeforeLevel,
         optionSelections: selection.optionSelections,
       }
     }
@@ -270,9 +281,11 @@ export function TrackPaymentAccommodationEditor({
                 {selection.attendeeName}
               </span>
               <span className="min-w-0 text-muted-foreground">
-                {selection.ticketLabel} ·{" "}
-                {selectionCategoryLabel(editContext, selection.categoryId)}
+                {selection.ticketLabel} · Included (Standard)
                 {selection.occupancy ? ` · ${selection.occupancy}` : ""}
+                {selection.nightBeforeLevel
+                  ? ` · Night before ${selection.nightBeforeLevel}`
+                  : ""}
               </span>
             </li>
           ))}
@@ -285,7 +298,7 @@ export function TrackPaymentAccommodationEditor({
     editContext.selections.length > 0 &&
     editContext.selections.every((selection) => {
       const draft = drafts[selection.attendeeKey]
-      return Boolean(draft && draft.categoryId && draft.occupancy)
+      return Boolean(draft && draft.occupancy)
     })
   const ownershipReady =
     Boolean(bookerEmail.trim()) || Boolean(editToken.trim())
@@ -307,11 +320,11 @@ export function TrackPaymentAccommodationEditor({
         const draft = drafts[selection.attendeeKey]
         return {
           attendeeKey: selection.attendeeKey,
-          categoryId: draft?.categoryId ?? "",
           occupancy: (draft?.occupancy ?? "shared") as
             | "single"
             | "shared"
             | "family",
+          nightBeforeLevel: draft?.nightBeforeLevel,
           optionSelections: draft?.optionSelections ?? [],
         }
       }
@@ -344,9 +357,9 @@ export function TrackPaymentAccommodationEditor({
         Accommodation preferences
       </h3>
       <p className="mb-6 max-w-2xl text-sm text-muted-foreground">
-        Your amount due is recalculated from the organizer's current
-        configuration when you save. Final room placement will be confirmed by
-        the organizer.
+        The included stay is always a Standard room. Your amount due is
+        recalculated from the organizer&apos;s current configuration when you
+        save. Final room placement will be confirmed by the organizer.
       </p>
 
       <div className="space-y-4">
@@ -467,18 +480,6 @@ export function TrackPaymentAccommodationEditor({
   )
 }
 
-function selectionCategoryLabel(
-  editContext: TrackPaymentEditContext,
-  categoryId?: string
-): string {
-  if (!categoryId) return "No category"
-  return (
-    editContext.accommodation.activeCategories.find(
-      (category) => category.categoryId === categoryId
-    )?.label ?? "Unknown category"
-  )
-}
-
 function AttendeePreferenceFieldset({
   attendee,
   index,
@@ -492,15 +493,6 @@ function AttendeePreferenceFieldset({
   draft: Draft
   onChange: (patch: Partial<Draft>) => void
 }) {
-  const ticketCategoryId = attendee.ticketCategoryId
-  const eligibleCategories = editContext.accommodation.activeCategories.filter(
-    (category) =>
-      !ticketCategoryId || category.categoryId === ticketCategoryId
-  )
-  const selectedCategory = eligibleCategories.find(
-    (category) => category.categoryId === draft.categoryId
-  )
-
   function updateOption(optionKey: string, quantity: number, nights: number) {
     const others = draft.optionSelections.filter(
       (optionSelection) => optionSelection.optionKey !== optionKey
@@ -511,6 +503,8 @@ function AttendeePreferenceFieldset({
     }
     onChange({ optionSelections: next })
   }
+
+  const nightBefore = editContext.accommodation.nightBefore
 
   return (
     <fieldset className="min-w-0 rounded-xl border border-border/50 bg-card p-4 shadow-sm sm:p-6">
@@ -526,282 +520,289 @@ function AttendeePreferenceFieldset({
           <Badge variant="secondary" className="font-medium">
             {attendee.ticketLabel}
           </Badge>
+          <Badge
+            variant="outline"
+            className="border-emerald-600/40 bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+          >
+            Included (Standard)
+          </Badge>
         </div>
 
-        {eligibleCategories.length === 0 ? (
-          <div
-            role="alert"
-            className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+        <div className="space-y-2">
+          <span
+            id={`edit-occupancy-legend-${attendee.attendeeKey}`}
+            className="block text-sm font-medium text-foreground"
           >
-            No accommodation category is currently available for this ticket.
+            Occupancy <span className="text-destructive">*</span>
+          </span>
+          <div
+            role="radiogroup"
+            aria-labelledby={`edit-occupancy-legend-${attendee.attendeeKey}`}
+            className="flex flex-wrap gap-3"
+          >
+            {(["single", "shared"] as const).map((occupancy) => {
+              const selected = draft.occupancy === occupancy
+              return (
+                <label
+                  key={occupancy}
+                  className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
+                    selected
+                      ? "border-primary bg-primary/5"
+                      : "border-border/60 hover:border-primary/40"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name={`edit-occupancy-${attendee.attendeeKey}`}
+                    value={occupancy}
+                    checked={selected}
+                    onChange={() => onChange({ occupancy })}
+                    className="size-4 accent-primary"
+                  />
+                  <span className="text-sm capitalize text-foreground">
+                    {occupancy}
+                  </span>
+                </label>
+              )
+            })}
           </div>
-        ) : (
-          <>
-            <div className="space-y-2">
-              <span
-                id={`edit-category-legend-${attendee.attendeeKey}`}
-                className="block text-sm font-medium text-foreground"
-              >
-                Category
-              </span>
-              <div
-                role="radiogroup"
-                aria-labelledby={`edit-category-legend-${attendee.attendeeKey}`}
-                className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
-              >
-                {eligibleCategories.map((category) => {
-                  const selected = draft.categoryId === category.categoryId
-                  return (
-                    <label
-                      key={category.categoryId}
-                      className={`flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
-                        selected
-                          ? "border-primary bg-primary/5"
-                          : "border-border/60 hover:border-primary/40"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name={`edit-category-${attendee.attendeeKey}`}
-                        value={category.categoryId}
-                        checked={selected}
-                        onChange={() => {
-                          const rateOccupancies = new Set(
-                            category.rates.map((rate) => rate.occupancy)
-                          )
-                          const patch: Partial<Draft> = {
-                            categoryId: category.categoryId,
-                          }
-                          if (
-                            draft.occupancy &&
-                            !rateOccupancies.has(
-                              draft.occupancy as "single" | "shared" | "family"
-                            )
-                          ) {
-                            patch.occupancy = ""
-                          }
-                          onChange(patch)
-                        }}
-                        className="mt-0.5 size-4 shrink-0 accent-primary"
-                      />
+        </div>
+
+        {editContext.accommodation.options.length > 0 ? (
+          <div className="space-y-2">
+            <span className="block text-sm font-medium text-foreground">
+              Add-ons
+            </span>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {editContext.accommodation.options.map((option) => {
+                const selectedOption = draft.optionSelections.find(
+                  (optionSelection) =>
+                    optionSelection.optionKey === option.optionKey
+                )
+                const quantity = selectedOption?.quantity ?? 0
+                const nights = selectedOption?.nights ?? 0
+                const isSelected = quantity > 0 && nights > 0
+                const baseNights =
+                  editContext.accommodation.config?.nightCount ?? 1
+                // The included-stay Superior upgrade is a fixed add-on:
+                // exactly one attendee for the included base nights.
+                const isIncludedStayUpgrade =
+                  option.optionKey === "superior_upgrade"
+                return (
+                  <div
+                    key={option.optionKey}
+                    className={`flex min-w-0 flex-col gap-2 rounded-lg border p-3 transition-colors ${
+                      isSelected
+                        ? "border-primary bg-primary/5"
+                        : "border-border/60"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
                       <span className="min-w-0">
                         <span className="block text-sm font-medium text-foreground">
-                          {category.label}
+                          {option.label}
                         </span>
-                        {category.rates.length > 0 ? (
-                          <span className="block text-xs text-muted-foreground">
-                            {category.rates
-                              .map(
-                                (rate) =>
-                                  `${formatPrice(
-                                    rate.pricePerPersonMinor,
-                                    editContext.event.currency
-                                  )} / person / night`
-                              )
-                              .join(" · ")}
-                          </span>
-                        ) : null}
-                      </span>
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-
-            {selectedCategory ? (
-              <div className="space-y-2">
-                <span
-                  id={`edit-occupancy-legend-${attendee.attendeeKey}`}
-                  className="block text-sm font-medium text-foreground"
-                >
-                  Room type
-                </span>
-                <div
-                  role="radiogroup"
-                  aria-labelledby={`edit-occupancy-legend-${attendee.attendeeKey}`}
-                  className="flex flex-wrap gap-3"
-                >
-                  {selectedCategory.rates.map((rate) => {
-                    const selected = draft.occupancy === rate.occupancy
-                    return (
-                      <label
-                        key={rate.occupancy}
-                        className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
-                          selected
-                            ? "border-primary bg-primary/5"
-                            : "border-border/60 hover:border-primary/40"
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name={`edit-occupancy-${attendee.attendeeKey}`}
-                          value={rate.occupancy}
-                          checked={selected}
-                          onChange={() => onChange({ occupancy: rate.occupancy })}
-                          className="size-4 accent-primary"
-                        />
-                        <span className="text-sm capitalize text-foreground">
-                          {rate.occupancy}
-                        </span>
-                        <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                          {formatPrice(
-                            rate.pricePerPersonMinor,
-                            editContext.event.currency
-                          )}{" "}
-                          / night
-                        </span>
-                      </label>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            {editContext.accommodation.options.length > 0 ? (
-              <div className="space-y-2">
-                <span className="block text-sm font-medium text-foreground">
-                  Add-ons
-                </span>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {editContext.accommodation.options.map((option) => {
-                    const selectedOption = draft.optionSelections.find(
-                      (optionSelection) =>
-                        optionSelection.optionKey === option.optionKey
-                    )
-                    const quantity = selectedOption?.quantity ?? 0
-                    const nights = selectedOption?.nights ?? 0
-                    const isSelected = quantity > 0 && nights > 0
-                    return (
-                      <div
-                        key={option.optionKey}
-                        className={`flex min-w-0 flex-col gap-2 rounded-lg border p-3 transition-colors ${
-                          isSelected
-                            ? "border-primary bg-primary/5"
-                            : "border-border/60"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="min-w-0">
-                            <span className="block text-sm font-medium text-foreground">
-                              {option.label}
-                            </span>
-                            <span className="block text-xs text-muted-foreground">
-                              {formatPrice(
+                        <span className="block text-xs text-muted-foreground">
+                          {isIncludedStayUpgrade
+                            ? `${formatPrice(
                                 option.priceMinor,
                                 editContext.event.currency
-                              )}{" "}
-                              / unit / night
-                            </span>
-                          </span>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            aria-pressed={isSelected}
-                            onClick={() => {
-                              if (isSelected) {
-                                updateOption(option.optionKey, 0, 0)
-                              } else {
+                              )} / person / night for the included stay`
+                            : `${formatPrice(
+                                option.priceMinor,
+                                editContext.event.currency
+                              )} / unit / night`}
+                        </span>
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-pressed={isSelected}
+                        onClick={() => {
+                          if (isSelected) {
+                            updateOption(option.optionKey, 0, 0)
+                          } else if (isIncludedStayUpgrade) {
+                            updateOption(option.optionKey, 1, baseNights)
+                          } else {
+                            updateOption(option.optionKey, 1, baseNights)
+                          }
+                        }}
+                        className="shrink-0"
+                      >
+                        {isSelected ? "Remove" : "Add"}
+                      </Button>
+                    </div>
+                    {isSelected && !isIncludedStayUpgrade ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>How many</span>
+                          <span className="flex items-center gap-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon-sm"
+                              aria-label={`Decrease quantity of ${option.label}`}
+                              onClick={() =>
                                 updateOption(
                                   option.optionKey,
-                                  1,
-                                  editContext.accommodation.config?.nightCount ?? 1
+                                  Math.max(0, quantity - 1),
+                                  nights
                                 )
                               }
-                            }}
-                            className="shrink-0"
-                          >
-                            {isSelected ? "Remove" : "Add"}
-                          </Button>
-                        </div>
-                        {isSelected ? (
-                          <div className="flex items-center justify-between gap-2">
-                            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span>How many</span>
-                              <span className="flex items-center gap-1">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="icon-sm"
-                                  aria-label={`Decrease quantity of ${option.label}`}
-                                  onClick={() =>
-                                    updateOption(
-                                      option.optionKey,
-                                      Math.max(0, quantity - 1),
-                                      nights
-                                    )
-                                  }
-                                >
-                                  <Minus className="size-3" aria-hidden="true" />
-                                </Button>
-                                <span className="w-8 text-center font-mono text-sm tabular-nums text-foreground">
-                                  {quantity}
-                                </span>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="icon-sm"
-                                  aria-label={`Increase quantity of ${option.label}`}
-                                  onClick={() =>
-                                    updateOption(
-                                      option.optionKey,
-                                      quantity + 1,
-                                      nights
-                                    )
-                                  }
-                                >
-                                  <Plus className="size-3" aria-hidden="true" />
-                                </Button>
-                              </span>
-                            </label>
-                            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span>Nights</span>
-                              <span className="flex items-center gap-1">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="icon-sm"
-                                  aria-label={`Decrease nights for ${option.label}`}
-                                  onClick={() =>
-                                    updateOption(
-                                      option.optionKey,
-                                      quantity,
-                                      Math.max(0, nights - 1)
-                                    )
-                                  }
-                                >
-                                  <Minus className="size-3" aria-hidden="true" />
-                                </Button>
-                                <span className="w-8 text-center font-mono text-sm tabular-nums text-foreground">
-                                  {nights}
-                                </span>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="icon-sm"
-                                  aria-label={`Increase nights for ${option.label}`}
-                                  onClick={() =>
-                                    updateOption(
-                                      option.optionKey,
-                                      quantity,
-                                      nights + 1
-                                    )
-                                  }
-                                >
-                                  <Plus className="size-3" aria-hidden="true" />
-                                </Button>
-                              </span>
-                            </label>
-                          </div>
-                        ) : null}
+                            >
+                              <Minus className="size-3" aria-hidden="true" />
+                            </Button>
+                            <span className="w-8 text-center font-mono text-sm tabular-nums text-foreground">
+                              {quantity}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon-sm"
+                              aria-label={`Increase quantity of ${option.label}`}
+                              onClick={() =>
+                                updateOption(
+                                  option.optionKey,
+                                  quantity + 1,
+                                  nights
+                                )
+                              }
+                            >
+                              <Plus className="size-3" aria-hidden="true" />
+                            </Button>
+                          </span>
+                        </label>
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>Nights</span>
+                          <span className="flex items-center gap-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon-sm"
+                              aria-label={`Decrease nights for ${option.label}`}
+                              onClick={() =>
+                                updateOption(
+                                  option.optionKey,
+                                  quantity,
+                                  Math.max(0, nights - 1)
+                                )
+                              }
+                            >
+                              <Minus className="size-3" aria-hidden="true" />
+                            </Button>
+                            <span className="w-8 text-center font-mono text-sm tabular-nums text-foreground">
+                              {nights}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon-sm"
+                              aria-label={`Increase nights for ${option.label}`}
+                              onClick={() =>
+                                updateOption(
+                                  option.optionKey,
+                                  quantity,
+                                  nights + 1
+                                )
+                              }
+                            >
+                              <Plus className="size-3" aria-hidden="true" />
+                            </Button>
+                          </span>
+                        </label>
                       </div>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : null}
-          </>
-        )}
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {nightBefore ? (
+          <div className="space-y-2">
+            <span
+              id={`edit-night-before-legend-${attendee.attendeeKey}`}
+              className="block text-sm font-medium text-foreground"
+            >
+              Night before the event
+            </span>
+            <div
+              role="radiogroup"
+              aria-labelledby={`edit-night-before-legend-${attendee.attendeeKey}`}
+              className="flex flex-wrap gap-3"
+            >
+              <label
+                className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
+                  draft.nightBeforeLevel === undefined
+                    ? "border-primary bg-primary/5"
+                    : "border-border/60 hover:border-primary/40"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name={`edit-night-before-${attendee.attendeeKey}`}
+                  value="none"
+                  checked={draft.nightBeforeLevel === undefined}
+                  onChange={() => onChange({ nightBeforeLevel: undefined })}
+                  className="size-4 accent-primary"
+                />
+                <span className="text-sm text-foreground">
+                  No night before
+                </span>
+              </label>
+              {(
+                [
+                  {
+                    level: "standard",
+                    rateMinor:
+                      draft.occupancy === "single"
+                        ? nightBefore.standard.single
+                        : nightBefore.standard.shared,
+                  },
+                  {
+                    level: "superior",
+                    rateMinor:
+                      draft.occupancy === "single"
+                        ? nightBefore.superior.single
+                        : nightBefore.superior.shared,
+                  },
+                ] as const
+              ).map((option) => {
+                const selected = draft.nightBeforeLevel === option.level
+                return (
+                  <label
+                    key={option.level}
+                    className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
+                      selected
+                        ? "border-primary bg-primary/5"
+                        : "border-border/60 hover:border-primary/40"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name={`edit-night-before-${attendee.attendeeKey}`}
+                      value={option.level}
+                      checked={selected}
+                      onChange={() =>
+                        onChange({ nightBeforeLevel: option.level })
+                      }
+                      className="size-4 accent-primary"
+                    />
+                    <span className="text-sm capitalize text-foreground">
+                      {option.level}
+                    </span>
+                    <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                      {formatPrice(option.rateMinor, editContext.event.currency)}{" "}
+                      / night
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+        ) : null}
 
         <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 p-3 text-xs text-muted-foreground">
           <BedDouble className="mt-0.5 size-4 shrink-0" />

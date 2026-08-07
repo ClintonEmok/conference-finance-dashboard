@@ -138,6 +138,7 @@ function buildEditContext(
         ticketCategoryId: undefined,
         categoryId: "cat-standard",
         occupancy: "shared",
+        nightBeforeLevel: "standard",
         optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
         confirmed: false,
       },
@@ -146,8 +147,9 @@ function buildEditContext(
         attendeeName: "Attendee Two",
         ticketLabel: "Superior-suite ticket",
         ticketCategoryId: "cat-superior",
-        categoryId: "cat-superior",
+        categoryId: "cat-standard",
         occupancy: "shared",
+        nightBeforeLevel: undefined,
         optionSelections: [],
         confirmed: false,
       },
@@ -189,6 +191,10 @@ function buildEditContext(
           priceMinor: 500,
         },
       ],
+      nightBefore: {
+        standard: { single: 5000, shared: 3000 },
+        superior: { single: 6000, shared: 4000 },
+      },
     },
     ...overrides,
   }
@@ -255,8 +261,8 @@ describe("buildTrackPaymentEditBody", () => {
       selections: [
         {
           attendeeKey: "a-1",
-          categoryId: "cat-standard",
           occupancy: "shared",
+          nightBeforeLevel: "superior",
           optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
         },
       ],
@@ -270,8 +276,11 @@ describe("buildTrackPaymentEditBody", () => {
     expect(Array.isArray(body.selections)).toBe(true)
     const selection = (body.selections as Array<Record<string, unknown>>)[0]
     expect(selection.attendeeKey).toBe("a-1")
-    expect(selection.categoryId).toBe("cat-standard")
+    // The simplified contract never sends a category or any client money
+    // field — only occupancy, the night-before level, and option selections.
+    expect(selection.categoryId).toBeUndefined()
     expect(selection.occupancy).toBe("shared")
+    expect(selection.nightBeforeLevel).toBe("superior")
     expect(selection.optionSelections).toEqual([
       { optionKey: "cot", quantity: 1, nights: 2 },
     ])
@@ -498,7 +507,7 @@ describe("TrackPaymentView routing and states", () => {
 })
 
 describe("TrackPaymentAccommodationEditor states", () => {
-  it("renders server-configured per-attendee choices with ticket-constrained filtering", () => {
+  it("renders server-configured per-attendee choices under the simplified contract", () => {
     const html = render(
       createElement(TrackPaymentAccommodationEditor, {
         bookingRef: BOOKING_REF,
@@ -512,10 +521,18 @@ describe("TrackPaymentAccommodationEditor states", () => {
     // Long server-configured option labels render verbatim.
     expect(html).toContain("Parking pass")
     expect(html).toContain("Cot")
-    // a-1 (unconstrained) sees Standard + Superior; a-2 (superior ticket)
-    // sees only Superior — Standard appears exactly once.
-    expect(html.match(/Standard/g)?.length).toBe(1)
-    expect(html.match(/Superior/g)?.length).toBeGreaterThanOrEqual(2)
+    // The included stay is always Standard; only Single/Shared occupancy and
+    // the independent night-before level are offered. No category radios and
+    // no physical room details are rendered.
+    expect(html).toContain("Included (Standard)")
+    expect(html).toContain('value="single"')
+    expect(html).toContain('value="shared"')
+    expect(html).toContain("No night before")
+    expect(html).toContain("Night before the event")
+    expect(html).not.toMatch(/name="edit-category-/)
+    // The server-provided night-before display rates render as copy.
+    expect(html).toContain("30,00 / night")
+    expect(html).toContain("40,00 / night")
     // Save action is present; narrow-layout classes are applied.
     expect(html).toContain("Save preferences")
     expect(html).toContain("min-w-0")

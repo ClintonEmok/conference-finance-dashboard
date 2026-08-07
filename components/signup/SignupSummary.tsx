@@ -119,13 +119,10 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
                     {attendee.categoryLabel && attendee.accommodationIncluded ? (
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-muted-foreground">
-                          Accommodation
-                          {attendee.categoryLabel
-                            ? ` (${attendee.categoryLabel}`
-                            : " ("}
+                          Included (Standard)
                           {attendee.occupancy
-                            ? ` · ${attendee.occupancy[0].toUpperCase()}${attendee.occupancy.slice(1)})`
-                            : ")"}
+                            ? ` · ${attendee.occupancy[0].toUpperCase()}${attendee.occupancy.slice(1)}`
+                            : ""}
                         </span>
                         <span className="font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
                           Included
@@ -139,16 +136,15 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
                       >
                         <span className="text-muted-foreground">
                           {/* Server receipt line only: an accommodation line
-                              for an included ticket is the charged
+                              for an included ticket is the charged one-night
                               night-before portion beyond the included base
-                              nights shown above. */}
+                              stay; the superior night-before premium and the
+                              included-stay upgrade are option lines labeled by
+                              the server. */}
                           {line.kind === "accommodation" &&
                           attendee.accommodationIncluded
                             ? "Night before"
                             : line.label}
-                          {attendee.categoryLabel
-                            ? ` (${attendee.categoryLabel})`
-                            : ""}
                         </span>
                         <span className="font-mono tabular-nums text-foreground/80">
                           {formatPrice(line.chargeMinor, currency)}

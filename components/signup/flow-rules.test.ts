@@ -10,8 +10,6 @@ import {
   allAttendeesHaveAccommodationSelections,
   attendeeHasCompleteAccommodationSelection,
   eventHasConfiguredAccommodation,
-  eventPermitsExtendedStay,
-  resolveDraftNights,
 } from "@/components/signup/flow-rules"
 import type { PublicSignupCatalogEvent } from "@/lib/domain/signup/catalog"
 
@@ -47,20 +45,24 @@ const baseEvent: PublicSignupCatalogEvent = {
       baseCheckOutAt: 2,
       nightCount: 1,
       breakfastIncluded: false,
-      allowExtendedStayBefore: false,
-      allowExtendedStayAfter: false,
-      allowExtendedStayBoth: false,
     },
     activeCategories: [
       {
         categoryId: "cat_1",
         code: "standard",
         label: "Standard",
-        rates: [{ occupancy: "shared", pricePerPersonMinor: 3000 }],
+        rates: [
+          { occupancy: "shared", pricePerPersonMinor: 3000 },
+          { occupancy: "single", pricePerPersonMinor: 5000 },
+        ],
       },
     ],
     options: [],
     slots: [],
+    nightBefore: {
+      standard: { single: 5000, shared: 3000 },
+      superior: { single: 6000, shared: 4000 },
+    },
   },
 }
 
@@ -86,7 +88,6 @@ function makeSelection(
   overrides: Partial<AccommodationSelectionDraft> = {}
 ): AccommodationSelectionDraft {
   return {
-    categoryId: "cat_1",
     occupancy: "shared",
     optionSelections: [],
     ...overrides,
@@ -112,13 +113,13 @@ describe("signup flow options-only rules", () => {
         accommodation: {
           ...baseEvent.accommodation,
           config: null,
-          activeCategories: [],
+          nightBefore: null,
         },
       })
     ).toBe(false)
   })
 
-  it("requires a category and occupancy before a selection is complete", () => {
+  it("requires an occupancy before a selection is complete", () => {
     const attendee = makeAttendee("ticket_1-1")
     expect(
       attendeeHasCompleteAccommodationSelection(attendee, {
@@ -127,7 +128,7 @@ describe("signup flow options-only rules", () => {
     ).toBe(true)
     expect(
       attendeeHasCompleteAccommodationSelection(attendee, {
-        "ticket_1-1": makeSelection({ categoryId: "" }),
+        "ticket_1-1": makeSelection({ occupancy: "" }),
       })
     ).toBe(false)
     expect(
@@ -173,9 +174,14 @@ describe("signup flow options-only rules", () => {
     })
   })
 
-  it("preserves the buyer-chosen nights for surviving attendee keys", () => {
+  it("preserves the independent night-before level and add-ons for surviving attendee keys", () => {
     const previous = {
-      "ticket_1-1": makeSelection({ nights: 3 }),
+      "ticket_1-1": makeSelection({
+        nightBeforeLevel: "superior",
+        optionSelections: [
+          { optionKey: "superior_upgrade", quantity: 1, nights: 2 },
+        ],
+      }),
       "ticket_1-2": makeSelection(),
     }
     const pruned = pruneAccommodationSelectionsForAttendees(previous, [
@@ -183,56 +189,12 @@ describe("signup flow options-only rules", () => {
     ])
 
     expect(pruned).toEqual({
-      "ticket_1-1": makeSelection({ nights: 3 }),
+      "ticket_1-1": makeSelection({
+        nightBeforeLevel: "superior",
+        optionSelections: [
+          { optionKey: "superior_upgrade", quantity: 1, nights: 2 },
+        ],
+      }),
     })
-  })
-
-  it("resolves an omitted draft nights value to the configured base", () => {
-    expect(resolveDraftNights(makeSelection(), 2)).toBe(2)
-    expect(resolveDraftNights(undefined, 2)).toBe(2)
-    expect(resolveDraftNights(makeSelection({ nights: 4 }), 2)).toBe(4)
-    // A below-base draft value clamps to the base for UI purposes; the server
-    // stays authoritative for rejection.
-    expect(resolveDraftNights(makeSelection({ nights: 0 }), 2)).toBe(2)
-  })
-
-  it("detects extended-stay permission from the server config flags", () => {
-    expect(eventPermitsExtendedStay(baseEvent)).toBe(false)
-    expect(
-      eventPermitsExtendedStay({
-        ...baseEvent,
-        accommodation: {
-          ...baseEvent.accommodation,
-          config: {
-            ...baseEvent.accommodation.config!,
-            allowExtendedStayBefore: true,
-          },
-        },
-      })
-    ).toBe(true)
-    expect(
-      eventPermitsExtendedStay({
-        ...baseEvent,
-        accommodation: {
-          ...baseEvent.accommodation,
-          config: {
-            ...baseEvent.accommodation.config!,
-            allowExtendedStayAfter: true,
-          },
-        },
-      })
-    ).toBe(true)
-    expect(
-      eventPermitsExtendedStay({
-        ...baseEvent,
-        accommodation: {
-          ...baseEvent.accommodation,
-          config: {
-            ...baseEvent.accommodation.config!,
-            allowExtendedStayBoth: true,
-          },
-        },
-      })
-    ).toBe(true)
   })
 })

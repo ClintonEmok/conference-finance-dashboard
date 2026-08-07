@@ -54,7 +54,6 @@ type SignupFlowShellProps = {
 
 function emptyAccommodationSelection(): AccommodationSelectionDraft {
   return {
-    categoryId: "",
     occupancy: "",
     optionSelections: [],
   }
@@ -171,12 +170,13 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     [draft?.attendees]
   )
 
-  // The quote hook receives only attendee keys, ticket IDs, option selections
-  // and the buyer-chosen total nights — never client prices, dates, room IDs,
-  // slot IDs, or totals. For a configured event it is only issued once every
-  // attendee has a complete category+occupancy selection; for an unconfigured
-  // event a server ticket-only quote is issued so the review can show a
-  // server-derived total and the flow stays submittable (CR-05).
+  // The quote hook receives only attendee keys, ticket IDs, occupancy,
+  // option selections, and the independent night-before level — never client
+  // prices, dates, categories, room IDs, slot IDs, or totals. For a
+  // configured event it is only issued once every attendee has an occupancy
+  // selection; for an unconfigured event a server ticket-only quote is issued
+  // so the review can show a server-derived total and the flow stays
+  // submittable (CR-05).
   const quoteAttendeeArgs = useMemo(() => {
     if (!draft) return null
     return draft.attendees.map((attendee) => {
@@ -184,11 +184,10 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       return {
         attendeeKey: attendee.attendeeKey,
         ticketTypeId: attendee.ticketTypeId,
-        categoryId: selection?.categoryId || undefined,
         occupancy: selection?.occupancy || undefined,
-        // Omitted nights mean "use the configured base night count"; the
-        // server resolves that default authoritatively.
-        nights: selection?.nights,
+        // Omitted nightBeforeLevel means "no night before"; the server
+        // resolves the derived total stay and all money authoritatively.
+        nightBeforeLevel: selection?.nightBeforeLevel,
         optionSelections: selection?.optionSelections ?? [],
       }
     })
@@ -732,8 +731,8 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                           role="alert"
                           className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive"
                         >
-                          Select a category and room type for every attendee to
-                          continue.
+                          Select an occupancy (Single or Shared) for every
+                          attendee to continue.
                         </div>
                       )}
                   </div>

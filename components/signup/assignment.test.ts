@@ -30,6 +30,7 @@ const eventFixture: PublicSignupCatalogEvent = {
     config: null,
     activeCategories: [],
     options: [],
+    nightBefore: null,
     slots: [
       {
         slotId: "slot-a",

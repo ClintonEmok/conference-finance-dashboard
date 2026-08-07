@@ -117,77 +117,82 @@ function QuoteContent({
             No accommodation is configured for this event.
           </p>
         ) : (
-          <div className="space-y-4">
-            {quote.attendees.map((attendee) => {
-              if (!attendee.categoryLabel && attendee.lines.length === 0) {
-                return null
-              }
-              const occupancy = formatOccupancy(attendee.occupancy)
-              return (
-                <div key={attendee.attendeeKey}>
-                  <p className="mb-2 text-sm font-medium text-foreground">
-                    {attendeeNameByKey.get(attendee.attendeeKey) ||
-                      `Attendee ${attendee.attendeeKey}`}
-                    {attendee.categoryLabel
-                      ? ` — ${attendee.categoryLabel}`
-                      : ""}
-                    {occupancy ? ` · ${occupancy}` : ""}
-                  </p>
-                  <div className="space-y-2">
-                    {attendee.categoryLabel && attendee.accommodationIncluded ? (
-                      <div className="flex items-center justify-between rounded-md border border-emerald-600/30 bg-emerald-50/50 p-3 text-sm dark:bg-emerald-950/30">
-                        <div className="min-w-0">
-                          <p className="break-words font-medium text-foreground">
-                            Accommodation
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {attendee.baseNights}{" "}
-                            {attendee.baseNights === 1 ? "night" : "nights"}
-                            {" · included with your ticket"}
-                          </p>
-                        </div>
-                        <span className="shrink-0 font-mono text-sm font-medium tabular-nums text-emerald-700 dark:text-emerald-400">
-                          Included
-                        </span>
+              <div className="space-y-4">
+                {quote.attendees.map((attendee) => {
+                  if (!attendee.categoryLabel && attendee.lines.length === 0) {
+                    return null
+                  }
+                  const occupancy = formatOccupancy(attendee.occupancy)
+                  return (
+                    <div key={attendee.attendeeKey}>
+                      <p className="mb-2 text-sm font-medium text-foreground">
+                        {attendeeNameByKey.get(attendee.attendeeKey) ||
+                          `Attendee ${attendee.attendeeKey}`}
+                        {/* The server-resolved included stay is always
+                            Standard; the server receipt is the authority. */}
+                        {attendee.categoryLabel
+                          ? ` — ${attendee.categoryLabel}`
+                          : ""}
+                        {occupancy ? ` · ${occupancy}` : ""}
+                      </p>
+                      <div className="space-y-2">
+                        {attendee.categoryLabel && attendee.accommodationIncluded ? (
+                          <div className="flex items-center justify-between rounded-md border border-emerald-600/30 bg-emerald-50/50 p-3 text-sm dark:bg-emerald-950/30">
+                            <div className="min-w-0">
+                              <p className="break-words font-medium text-foreground">
+                                Included (Standard)
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {attendee.baseNights}{" "}
+                                {attendee.baseNights === 1 ? "night" : "nights"}
+                                {" · included with your ticket"}
+                              </p>
+                            </div>
+                            <span className="shrink-0 font-mono text-sm font-medium tabular-nums text-emerald-700 dark:text-emerald-400">
+                              Included
+                            </span>
+                          </div>
+                        ) : null}
+                        {attendee.lines.map((line, index) => (
+                          <div
+                            key={`${attendee.attendeeKey}-${line.kind}-${index}`}
+                            className="flex items-center justify-between rounded-md border border-border/50 p-3 text-sm"
+                          >
+                            <div className="min-w-0">
+                              <p className="break-words font-medium text-foreground">
+                                {/* The server receipt line is the authority:
+                                    an accommodation line for an included
+                                    ticket is the charged one-night
+                                    night-before portion beyond the included
+                                    base stay; the superior night-before
+                                    premium and the included-stay upgrade are
+                                    option lines labeled by the server. */}
+                                {line.kind === "accommodation" &&
+                                attendee.accommodationIncluded
+                                  ? "Night before"
+                                  : line.label}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatPrice(line.ratePerNightMinor, displayCurrency)}{" "}
+                                / person / night
+                                {line.nights > 1
+                                  ? ` · ${line.nights} nights`
+                                  : ""}
+                                {line.kind === "accommodation" &&
+                                attendee.accommodationIncluded
+                                  ? " · night before the event"
+                                  : ""}
+                              </p>
+                            </div>
+                            <span className="shrink-0 font-mono text-sm font-medium tabular-nums text-foreground/80">
+                              {formatPrice(line.chargeMinor, displayCurrency)}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                    ) : null}
-                    {attendee.lines.map((line, index) => (
-                      <div
-                        key={`${attendee.attendeeKey}-${line.kind}-${index}`}
-                        className="flex items-center justify-between rounded-md border border-border/50 p-3 text-sm"
-                      >
-                        <div className="min-w-0">
-                          <p className="break-words font-medium text-foreground">
-                            {/* The server receipt line is the authority: an
-                                accommodation line for an included ticket is
-                                the charged night-before portion beyond the
-                                base nights shown above. */}
-                            {line.kind === "accommodation" &&
-                            attendee.accommodationIncluded
-                              ? "Night before"
-                              : line.label}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatPrice(line.ratePerNightMinor, displayCurrency)}{" "}
-                            / person / night
-                            {line.nights > 1
-                              ? ` · ${line.nights} nights`
-                              : ""}
-                            {line.kind === "accommodation" &&
-                            attendee.accommodationIncluded
-                              ? " · night before the event"
-                              : ""}
-                          </p>
-                        </div>
-                        <span className="shrink-0 font-mono text-sm font-medium tabular-nums text-foreground/80">
-                          {formatPrice(line.chargeMinor, displayCurrency)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
+                    </div>
+                  )
+                })}
             {quote.breakfastIncluded ? (
               <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
                 Breakfast is included.

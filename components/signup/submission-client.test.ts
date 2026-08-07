@@ -49,14 +49,12 @@ const draftFixture: SignupDraft = {
   ],
   accommodationSelections: {
     "ticket_1-1": {
-      categoryId: "cat_1",
       occupancy: "shared",
       optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
-      // Buyer-chosen total stay nights (base stay included).
-      nights: 3,
+      // Independent one-night night-before level (no client money).
+      nightBeforeLevel: "standard",
     },
     "ticket_1-2": {
-      categoryId: "cat_1",
       occupancy: "shared",
       optionSelections: [],
     },
@@ -156,16 +154,14 @@ describe("signup-flow submission client", () => {
           accommodationSelections: [
             {
               attendeeKey: "ticket_1-1",
-              categoryId: "cat_1",
               occupancy: "shared",
-              nights: 3,
+              nightBeforeLevel: "standard",
               optionSelections: [
                 { optionKey: "cot", quantity: 1, nights: 2 },
               ],
             },
             {
               attendeeKey: "ticket_1-2",
-              categoryId: "cat_1",
               occupancy: "shared",
               optionSelections: [],
             },
@@ -183,28 +179,29 @@ describe("signup-flow submission client", () => {
     expect(payload.accommodationSelections).toEqual([
       {
         attendeeKey: "ticket_1-1",
-        categoryId: "cat_1",
         occupancy: "shared",
-        nights: 3,
+        nightBeforeLevel: "standard",
         optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
       },
       {
         attendeeKey: "ticket_1-2",
-        categoryId: "cat_1",
         occupancy: "shared",
         optionSelections: [],
       },
     ])
 
-    // The buyer-chosen nights survive serialization for the attendee that set
-    // them, and stay absent for the attendee that did not (the server then
-    // defaults to the configured base night count).
+    // The independent night-before level survives serialization for the
+    // attendee that set it, and stays absent for the attendee that did not
+    // (the server then resolves the derived total stay).
     const serialized = JSON.stringify(payload)
-    expect(serialized).toContain('"nights":3')
+    expect(serialized).toContain('"nightBeforeLevel":"standard"')
 
-    // Negative assertions: no client amount, room, slot, date, or stay-field
-    // may leak into the accommodation preferences — money and stay dates stay
-    // server-authoritative.
+    // Negative assertions: no client amount, category, room, slot, date, or
+    // top-level stay field may leak into the accommodation preferences —
+    // money, the included-stay category, and stay dates stay
+    // server-authoritative. (Option rows legitimately carry a per-option
+    // `nights` span, which the structural toEqual above pins exactly.)
+    expect(serialized).not.toMatch(/categoryId/)
     expect(serialized).not.toMatch(/priceMinor/)
     expect(serialized).not.toMatch(/totalMinor|totalDue/)
     expect(serialized).not.toMatch(/slotId|roomId|roomType/)
@@ -217,10 +214,9 @@ describe("signup-flow submission client", () => {
       ...draftFixture,
       accommodationSelections: {
         "ticket_1-1": {
-          categoryId: "cat_1",
           occupancy: "shared",
           optionSelections: [],
-          nights: 3,
+          nightBeforeLevel: "standard",
         },
         // ticket_1-2 has no selection at all.
       },
@@ -229,9 +225,8 @@ describe("signup-flow submission client", () => {
     expect(payload.accommodationSelections).toEqual([
       {
         attendeeKey: "ticket_1-1",
-        categoryId: "cat_1",
         occupancy: "shared",
-        nights: 3,
+        nightBeforeLevel: "standard",
         optionSelections: [],
       },
     ])

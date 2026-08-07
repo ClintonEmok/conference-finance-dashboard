@@ -16,12 +16,17 @@ export type PublicSignupCatalogAccommodationConfig = {
   baseCheckOutAt: number
   nightCount: number
   breakfastIncluded: boolean
-  /** Whether buyers may extend the stay with an extra night before the event. */
-  allowExtendedStayBefore: boolean
-  /** Whether buyers may extend the stay with an extra night after the event. */
-  allowExtendedStayAfter: boolean
-  /** Whether the extended-stay policy allows nights both before and after. */
-  allowExtendedStayBoth: boolean
+}
+
+/**
+ * Server-resolved night-before display rates (minor units per person for
+ * exactly one night) for the independent night-before choice. Copy only —
+ * the server remains the charge authority and the client never derives these
+ * rates locally.
+ */
+export type PublicSignupCatalogNightBeforeRates = {
+  standard: { single: number; shared: number }
+  superior: { single: number; shared: number }
 }
 
 export type PublicSignupCatalogActiveCategory = {
@@ -52,6 +57,8 @@ export type PublicSignupCatalogAccommodation = {
   config: PublicSignupCatalogAccommodationConfig | null
   activeCategories: PublicSignupCatalogActiveCategory[]
   options: PublicSignupCatalogOption[]
+  /** Server-resolved night-before display rates (copy only). */
+  nightBefore: PublicSignupCatalogNightBeforeRates | null
 }
 
 export type PublicSignupCatalogTicket = {
@@ -129,6 +136,7 @@ export function normalizePublicSignupCatalog(
         ...option,
         priceMinor: Number(option.priceMinor) || 0,
       })),
+      nightBefore: event.accommodation.nightBefore ?? null,
     },
   }))
 }

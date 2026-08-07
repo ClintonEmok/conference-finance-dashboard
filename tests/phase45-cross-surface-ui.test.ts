@@ -71,8 +71,11 @@ describe("Phase 45 cross-surface UI source audit", () => {
       /assignedRoomId|slotId|accommodationSlots/.test(`${shell}\n${step}`),
       "signup surfaces expose a physical room/slot control"
     ).toBe(false)
-    // The accommodation step is driven by the server catalog contract.
-    expect(step).toMatch(/categoryId|occupancy|upgradeSelected|cotSelected|ageBandCode/)
+    // The accommodation step is driven by the server catalog contract: it
+    // offers occupancy and the independent night-before level, never a
+    // client category picker or any physical room detail.
+    expect(step).toMatch(/occupancy|nightBeforeLevel|optionSelections/)
+    expect(step).not.toMatch(/name="category-|ageBandCode|upgradeSelected|cotSelected/)
   })
 
   test("Allocation renders server payment state as text-plus-icon, never derives it", () => {
