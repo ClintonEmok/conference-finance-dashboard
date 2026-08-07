@@ -327,6 +327,7 @@ export const getRoomAllocationBoard = query({
       familyMembers,
       accommodationSlotDocs,
       allOrders,
+      accommodationCategoriesDocs,
     ] = await Promise.all([
       ctx.db.query("ticketTailorEvents").take(200),
       ctx.db.query("events").take(200),
@@ -344,6 +345,7 @@ export const getRoomAllocationBoard = query({
             )
             .take(500)
         : ctx.db.query("orders").take(500),
+      ctx.db.query("accommodationCategories").take(100),
     ])
 
     const normalizedLocationFilter = normalizeOptionalString(args.location)
@@ -392,6 +394,78 @@ export const getRoomAllocationBoard = query({
       dueBreakdownsByOrderId,
       attendeeIdsByOrderId,
     })
+
+    // --- Accommodation preference projection (quick task 260807-uel) ---
+    // Load the scoped orders' stored accommodation selection rows and their
+    // generic option child rows, mirroring the per-order Promise.all loading
+    // pattern used for orderAttendees/orderAssignments below. The projection
+    // feeds an attendeeId-keyed preference map consumed by both attendee
+    // surfaces (unassigned inbox and room occupants) so admins see what
+    // buyers selected. No schema changes: all fields come from existing
+    // stored selection and option rows.
+    const scopedOrderIds = scopedOrders.map((s) => s._id)
+
+    const [accommodationSelectionDocs, accommodationOptionDocs] =
+      scopedOrderIds.length
+        ? await Promise.all([
+            Promise.all(
+              scopedOrderIds.map((oid) =>
+                ctx.db
+                  .query("orderAccommodationSelections")
+                  .withIndex("by_orderId", (q) => q.eq("orderId", oid))
+                  .take(100)
+              )
+            ).then((results) => results.flat()),
+            Promise.all(
+              scopedOrderIds.map((oid) =>
+                ctx.db
+                  .query("orderAccommodationOptionSelections")
+                  .withIndex("by_orderId", (q) => q.eq("orderId", oid))
+                  .take(100)
+              )
+            ).then((results) => results.flat()),
+          ])
+        : [[], []]
+
+    const categoryById = new Map(
+      accommodationCategoriesDocs.map((c) => [c._id as string, c])
+    )
+
+    // Group generic option child rows by their base selection id. A selection
+    // row belongs to exactly one attendee, so selectionId grouping is
+    // attendee-safe.
+    const optionKeysBySelectionId = new Map<string, string[]>()
+    for (const option of accommodationOptionDocs) {
+      const selectionKey = String(option.selectionId)
+      const existing = optionKeysBySelectionId.get(selectionKey) ?? []
+      existing.push(option.optionKey)
+      optionKeysBySelectionId.set(selectionKey, existing)
+    }
+
+    // attendeeId-keyed preference map; there is one selection row per attendee
+    // per order, so the first row wins and duplicates cannot double-join.
+    const accommodationPreferenceByAttendeeId = new Map<
+      string,
+      {
+        occupancy: "single" | "shared" | "family" | null
+        nightBeforeLevel: "standard" | "superior" | null
+        categoryLabel: string | null
+        optionKeys: string[]
+      }
+    >()
+    for (const selection of accommodationSelectionDocs) {
+      const attendeeKey = String(selection.attendeeId)
+      if (accommodationPreferenceByAttendeeId.has(attendeeKey)) continue
+      const category = selection.categoryId
+        ? (categoryById.get(String(selection.categoryId)) ?? null)
+        : null
+      accommodationPreferenceByAttendeeId.set(attendeeKey, {
+        occupancy: selection.occupancy ?? null,
+        nightBeforeLevel: selection.nightBeforeLevel ?? null,
+        categoryLabel: category?.label ?? null,
+        optionKeys: optionKeysBySelectionId.get(String(selection._id)) ?? [],
+      })
+    }
 
     const attendeeFamilyGroupByAttendeeId = new Map<string, string>()
     for (const familyMember of familyMembers) {
@@ -502,6 +576,9 @@ export const getRoomAllocationBoard = query({
           ? canonicalEventById.get(order.eventId as string)
           : null
         const payment = paymentById.get(String(a._id))
+        const preference = accommodationPreferenceByAttendeeId.get(
+          String(a._id)
+        )
         return {
           attendeeId: a._id,
           orderId: order?._id ?? null,
@@ -515,6 +592,10 @@ export const getRoomAllocationBoard = query({
           paymentState: payment?.paymentState ?? null,
           amountDueMinor: payment?.amountDueMinor ?? null,
           paidAmountMinor: payment?.paidAmountMinor ?? null,
+          occupancy: preference?.occupancy ?? null,
+          nightBeforeLevel: preference?.nightBeforeLevel ?? null,
+          categoryLabel: preference?.categoryLabel ?? null,
+          optionKeys: preference?.optionKeys ?? [],
         }
       })
       const occupiedBeds = occupants.length
@@ -557,6 +638,7 @@ export const getRoomAllocationBoard = query({
       const attendeeFamilyGroupId =
         attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
       const payment = paymentById.get(String(a._id))
+      const preference = accommodationPreferenceByAttendeeId.get(String(a._id))
       return {
         attendeeId: a._id,
         orderId: order?._id ?? null,
@@ -590,6 +672,10 @@ export const getRoomAllocationBoard = query({
         paymentState: payment?.paymentState ?? null,
         amountDueMinor: payment?.amountDueMinor ?? null,
         paidAmountMinor: payment?.paidAmountMinor ?? null,
+        occupancy: preference?.occupancy ?? null,
+        nightBeforeLevel: preference?.nightBeforeLevel ?? null,
+        categoryLabel: preference?.categoryLabel ?? null,
+        optionKeys: preference?.optionKeys ?? [],
       }
     })
 
