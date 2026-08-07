@@ -108,7 +108,7 @@ Attendees: ${args.attendeeCount}
 
 ${args.tikkieUrl ? `Please complete your payment: ${args.tikkieUrl}` : ""}
 
-Track your payment progress and update your accommodation preferences: ${args.trackPaymentUrl}
+Manage your booking — review payment progress and update your accommodation preferences: ${args.trackPaymentUrl}
 Keep your booking reference handy: ${args.bookingRef}
 
 View your booking: ${args.successPageUrl}
@@ -183,14 +183,14 @@ async function sendOrderConfirmationResendEmail(
 
   // Phase 43: prefer the durable booking-reference permalink with an HMAC
   // edit token when the shared secret is available; fall back to the plain
-  // root tracker (email ownership) when it is not so a resend is never
+  // manage surface (email ownership) when it is not so a resend is never
   // emitted with a forgeable token.
   const trackPaymentUrl =
     (await buildTrackPaymentPermalink({
       bookingRef: order.order.bookingRef,
       bookerEmail: order.order.bookerEmail,
       appUrl,
-    })) ?? `${appUrl}/track-payment`
+    })) ?? `${appUrl}/manage`
 
   const result = await sendSignupConfirmationEmail(ctx, {
     to: order.order.bookerEmail,

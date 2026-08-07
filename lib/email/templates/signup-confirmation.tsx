@@ -121,8 +121,9 @@ export default function SignupConfirmationEmail({
 
           <Section style={{ padding: "24px 28px 8px" }}>
             <Text style={{ margin: 0, color: "#475569", fontSize: "14px" }}>
-              Use the booking reference below whenever you need to review your
-              payment progress or view booking details.
+              Use the booking reference below whenever you need to manage your
+              booking — review payment progress, view booking details, or
+              update accommodation.
             </Text>
           </Section>
 
@@ -188,8 +189,8 @@ export default function SignupConfirmationEmail({
               color: "#334155",
             }}
           >
-            You can check your payment progress and update your accommodation
-            preferences anytime at{" "}
+            You can manage your booking — review payment progress, update
+            accommodation preferences, or make a payment — anytime at{" "}
             <a
               href={trackPaymentUrl}
               style={{ color: "#3b82f6", textDecoration: "none" }}

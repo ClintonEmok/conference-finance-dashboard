@@ -118,14 +118,14 @@ export default async function PayPage({ params }: PayPageProps) {
           </Link>
 
           <Link
-            href="/track-payment"
+            href="/manage"
             className="group flex items-center gap-4 rounded-2xl border border-border/40 bg-card/40 p-5 shadow-sm backdrop-blur-xl transition-all hover:border-primary/30 hover:bg-card/60 hover:shadow-md"
           >
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20 transition-all group-hover:bg-primary/15">
               <Search className="h-5 w-5" />
             </div>
             <div className="flex-1">
-              <p className="text-sm font-bold text-foreground">Track Booking</p>
+              <p className="text-sm font-bold text-foreground">Manage booking</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Already registered?
               </p>

@@ -48,9 +48,9 @@ function TrackPaymentSkeleton() {
 }
 
 /**
- * Shared buyer-facing track-payment presentation used by both the root
- * booking-reference search (`/track-payment`) and the durable permalink
- * (`/track-payment/[bookingRef]`). All money, payment status, receipt lines,
+ * Shared buyer-facing manage-booking presentation used by both the root
+ * booking-reference search (`/manage`) and the durable permalink
+ * (`/manage/[bookingRef]`). All money, payment status, receipt lines,
  * accommodation choices and overpayment values render server-provided fields
  * only — the client never derives a total, rate, night count, overpayment or
  * Tikkie amount.
@@ -65,9 +65,9 @@ export function TrackPaymentView({
   const router = useRouter()
   const [draftBookingRef, setDraftBookingRef] = useState("")
   // Normalize the permalink's initial reference the same way the tracking
-  // queries do, so `/track-payment/bk-20260411-abc123` resolves identically
-  // to the canonical `BK-20260411-ABC123` (CR-07). All three queries below
-  // share this normalized value.
+  // queries do, so `/manage/bk-20260411-abc123` resolves identically to the
+  // canonical `BK-20260411-ABC123` (CR-07). All three queries below share
+  // this normalized value.
   const [searchedBookingRef, setSearchedBookingRef] = useState<string | null>(
     initialBookingRef ? initialBookingRef.trim().toUpperCase() : null
   )
@@ -91,7 +91,7 @@ export function TrackPaymentView({
     event.preventDefault()
     const normalized = draftBookingRef.trim().toUpperCase()
     if (!normalized) return
-    router.push(`/track-payment/${encodeURIComponent(normalized)}`)
+    router.push(`/manage/${encodeURIComponent(normalized)}`)
   }
 
   const isSearching =
@@ -117,7 +117,7 @@ export function TrackPaymentView({
           <div className="mb-8 text-center">
             <p className="text-xs font-medium text-muted-foreground">
               <Link
-                href="/track-payment"
+                href="/manage"
                 className="underline-offset-4 hover:underline"
               >
                 Search another booking
@@ -131,11 +131,11 @@ export function TrackPaymentView({
         {!initialBookingRef ? (
           <section className="mx-auto mb-16 max-w-xl text-center">
             <h1 className="mb-4 text-4xl font-black tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-              Track Booking
+              Manage booking
             </h1>
             <p className="mb-8 text-sm leading-6 text-muted-foreground md:text-base">
-              Enter your booking reference to check your balance, submit pending
-              payments, or view your ticket itinerary.
+              Enter your booking reference to review your payment progress and
+              booking details, update your accommodation, or make a payment.
             </p>
 
             <form

@@ -287,14 +287,14 @@ export function SuccessView({
                 <CardContent className="space-y-4 p-6">
                   <div className="space-y-1">
                     <p className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/70 uppercase">
-                      Payment tracker
+                      Manage booking
                     </p>
                     <p className="text-sm font-semibold text-foreground">
-                      Check your payment progress later.
+                      Review your payment progress and booking details any time.
                     </p>
                   </div>
                   <Button asChild className="w-full">
-                    <Link href="/track-payment">Open tracker</Link>
+                    <Link href="/manage">Manage booking</Link>
                   </Button>
                 </CardContent>
               </Card>
