@@ -445,7 +445,17 @@ function buildEditChoices(
 
   return {
     eligible: hasConfiguredChoices,
-    config: hasConfiguredChoices ? context.config : null,
+    // The track-payment edit contract keeps its original four-field config
+    // shape: the extended-stay flags are a buyer-facing catalog concern and
+    // are deliberately not propagated to this legacy edit surface.
+    config: hasConfiguredChoices && context.config
+      ? {
+          baseCheckInAt: context.config.baseCheckInAt,
+          baseCheckOutAt: context.config.baseCheckOutAt,
+          nightCount: context.config.nightCount,
+          breakfastIncluded: context.config.breakfastIncluded,
+        }
+      : null,
     activeCategories,
     options,
   }
