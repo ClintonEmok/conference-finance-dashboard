@@ -2,9 +2,9 @@ import { redirect } from "next/navigation"
 
 /**
  * Legacy root track-payment compatibility redirect: the canonical
- * buyer-facing manage-booking surface now lives at `/manage`. The complete
+ * buyer-facing manage-booking surface now lives at `/booking`. The complete
  * incoming query string is forwarded so existing confirmation links and
- * arbitrary future query parameters survive the rename. This page redirect
+ * arbitrary future query parameters survive the move. This page redirect
  * stays separate from the edit API route
  * (`/api/track-payment/[bookingRef]`), which is unchanged.
  */
@@ -14,7 +14,7 @@ export default async function TrackPaymentPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const params = await searchParams
-  redirect(`/manage${buildQueryString(params)}`)
+  redirect(`/booking${buildQueryString(params)}`)
 }
 
 /**

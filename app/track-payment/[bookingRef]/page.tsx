@@ -3,11 +3,11 @@ import { normalizeBookingRefForEdit } from "@/lib/domain/track-payment/edit-toke
 
 /**
  * Legacy permalink compatibility redirect: the canonical durable
- * manage-booking permalink now lives at `/manage/[bookingRef]`. The booking
- * reference is normalized here exactly as the canonical page normalizes it,
- * and the complete incoming query string (including `?token=`) is forwarded
- * so existing confirmation email links keep working. This page redirect
- * stays separate from the edit API route
+ * manage-booking permalink now lives at `/booking/[bookingRef]/manage`. The
+ * booking reference is normalized here exactly as the canonical page
+ * normalizes it, and the complete incoming query string (including `?token=`)
+ * is forwarded so existing confirmation email links keep working. This page
+ * redirect stays separate from the edit API route
  * (`/api/track-payment/[bookingRef]`), which is unchanged.
  */
 export default async function TrackPaymentPermalinkPage({
@@ -21,7 +21,7 @@ export default async function TrackPaymentPermalinkPage({
   const paramsRecord = await searchParams
   const bookingRef = normalizeBookingRefForEdit(rawBookingRef)
   redirect(
-    `/manage/${encodeURIComponent(bookingRef)}${buildQueryString(paramsRecord)}`
+    `/booking/${encodeURIComponent(bookingRef)}/manage${buildQueryString(paramsRecord)}`
   )
 }
 
