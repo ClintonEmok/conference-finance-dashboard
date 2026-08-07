@@ -521,12 +521,11 @@ describe("TrackPaymentAccommodationEditor states", () => {
     // Long server-configured option labels render verbatim.
     expect(html).toContain("Parking pass")
     expect(html).toContain("Cot")
-    // The included stay is always Standard; only Single/Shared occupancy and
-    // the independent night-before level are offered. No category radios and
-    // no physical room details are rendered.
+    // The included stay is always Standard; occupancy is supplied by the
+    // ticket and the independent night-before level remains editable. No
+    // occupancy radios, category radios, or physical room details are rendered.
     expect(html).toContain("Included (Standard)")
-    expect(html).toContain('value="single"')
-    expect(html).toContain('value="shared"')
+    expect(html).not.toContain('name="edit-occupancy-')
     expect(html).toContain("No night before")
     expect(html).toContain("Night before the event")
     expect(html).not.toMatch(/name="edit-category-/)

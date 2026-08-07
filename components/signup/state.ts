@@ -23,6 +23,7 @@ export type TicketSelectionDraft = {
   reason: TicketUnavailableReason | null
   roomTypeId?: string
   roomTypeCategoryId?: string
+  occupancy?: AccommodationOccupancy
 }
 
 export type AttendeeDraft = {
@@ -49,11 +50,11 @@ export type AccommodationOptionSelectionDraft = {
 /**
  * One attendee's options-only accommodation preference, keyed by the stable
  * attendee key in `SignupDraft.accommodationSelections`. Under the simplified
- * contract the buyer picks an occupancy (Single/Shared), zero or more
- * configured options (each with a quantity and nights), and an independent
- * one-night `nightBeforeLevel` (omitted = no night before). It never holds a
- * room/slot ID, date, price, category, or total — the included-stay category
- * and all money are server-resolved.
+ * contract the ticket supplies occupancy, while the buyer chooses zero or more
+ * configured options (each with a quantity and nights) and an independent
+ * one-night `nightBeforeLevel` (omitted = no night before). The legacy
+ * occupancy field remains in drafts so restored historical state can still be
+ * normalized, but it is no longer buyer-editable.
  */
 export type AccommodationSelectionDraft = {
   occupancy: AccommodationOccupancy | ""

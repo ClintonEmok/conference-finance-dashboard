@@ -73,6 +73,8 @@ export type PublicSignupCatalogTicket = {
   /** Resolved ticket entitlement: the category of `ticketTypes.roomTypeId`. */
   roomTypeCategoryId?: string
   roomTypeCategoryCode?: string
+  /** Resolved occupancy from the ticket's linked room type capacity. */
+  occupancy?: SignupAccommodationOccupancy
 }
 
 export type PublicSignupCatalogEvent = {

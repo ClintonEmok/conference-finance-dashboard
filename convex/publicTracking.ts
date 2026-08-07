@@ -562,6 +562,7 @@ export const getTrackPaymentEditContext = query({
           attendeeName: v.string(),
           ticketLabel: v.string(),
           ticketCategoryId: v.optional(v.id("accommodationCategories")),
+          ticketOccupancy: v.optional(editOccupancyValidator),
           categoryId: v.optional(v.id("accommodationCategories")),
           occupancy: v.optional(editOccupancyValidator),
           optionSelections: v.array(signupAccommodationOptionSelectionValidator),
@@ -694,6 +695,7 @@ export const getTrackPaymentEditContext = query({
             ticketEntitlement === null || ticketEntitlement === undefined
               ? undefined
               : (ticketEntitlement.categoryId as Id<"accommodationCategories">),
+          ticketOccupancy: ticketEntitlement?.occupancy,
           categoryId: row.categoryId ?? undefined,
           occupancy: row.occupancy ?? undefined,
           nightBeforeLevel: row.nightBeforeLevel ?? undefined,
@@ -1020,6 +1022,16 @@ export const updateAccommodation = mutation({
         )
       }
       const ticketCategoryId = ticketEntitlement?.categoryId ?? null
+      if (
+        ticketEntitlement?.occupancy &&
+        preference.occupancy &&
+        preference.occupancy !== ticketEntitlement.occupancy
+      ) {
+        throwEditError(
+          "EDIT_INVALID",
+          "Occupancy is determined by the selected ticket."
+        )
+      }
 
       let resolved: ReturnType<typeof resolvePublicSignupSelection>
       try {
@@ -1029,7 +1041,7 @@ export const updateAccommodation = mutation({
             categoryId: preference.categoryId
               ? String(preference.categoryId)
               : null,
-            occupancy: preference.occupancy ?? null,
+            occupancy: ticketEntitlement?.occupancy ?? preference.occupancy ?? null,
             optionSelections: preference.optionSelections,
             nightBeforeLevel: preference.nightBeforeLevel ?? null,
             nights: undefined,

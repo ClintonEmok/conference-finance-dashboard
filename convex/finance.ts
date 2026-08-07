@@ -34,6 +34,7 @@ type TicketTypeDoc = {
   _id: Id<"ticketTypes">
   priceMinor: number
   accommodationIncluded?: boolean | null
+  roomTypeId?: Id<"accommodationRoomTypes"> | null
 }
 
 /**
@@ -274,6 +275,40 @@ export async function loadOrderAmountDueBreakdowns(
     })
   }
 
+  const roomTypeIds = Array.from(
+    new Set(
+      (ticketTypes as Array<TicketTypeDoc | null>)
+        .map((ticketType) => ticketType?.roomTypeId)
+        .filter(
+          (roomTypeId): roomTypeId is Id<"accommodationRoomTypes"> =>
+            roomTypeId !== undefined && roomTypeId !== null
+        )
+    )
+  )
+  const roomTypes = await Promise.all(
+    roomTypeIds.map((roomTypeId) =>
+      ctx.db.get("accommodationRoomTypes", roomTypeId)
+    )
+  )
+  const occupancyByRoomTypeId = new Map<string, "single" | "shared">()
+  for (const roomType of roomTypes) {
+    if (roomType) {
+      occupancyByRoomTypeId.set(
+        String(roomType._id),
+        roomType.defaultCapacity === 1 ? "single" : "shared"
+      )
+    }
+  }
+  const ticketOccupancyById = new Map<string, "single" | "shared">()
+  for (const ticketType of ticketTypes as Array<TicketTypeDoc | null>) {
+    if (ticketType?.roomTypeId) {
+      const occupancy = occupancyByRoomTypeId.get(String(ticketType.roomTypeId))
+      if (occupancy) {
+        ticketOccupancyById.set(String(ticketType._id), occupancy)
+      }
+    }
+  }
+
   // Resolve the event id per order (bare refs must fetch the order doc).
   const eventIdByOrderId = new Map<string, Id<"events"> | null>()
   await Promise.all(
@@ -378,6 +413,9 @@ export async function loadOrderAmountDueBreakdowns(
       const ticketInfo = ticketTypeId
         ? ticketTypeInfoById.get(String(ticketTypeId))
         : undefined
+      const occupancy = ticketTypeId
+        ? (ticketOccupancyById.get(String(ticketTypeId)) ?? row.occupancy ?? null)
+        : (row.occupancy ?? null)
 
       // Confirmation is determined by field presence, not by a positive
       // timestamp: a malformed/epoch `confirmedAt` is still inside the
@@ -420,9 +458,9 @@ export async function loadOrderAmountDueBreakdowns(
       }
 
       const rate =
-        row.categoryId && row.occupancy
+        row.categoryId && occupancy
           ? accommodationContext?.ratesByKey.get(
-              `${String(row.categoryId)}:${row.occupancy}`
+              `${String(row.categoryId)}:${occupancy}`
             )
           : undefined
       const categoryCode = row.categoryId
@@ -502,7 +540,7 @@ export async function loadOrderAmountDueBreakdowns(
         selection: {
           attendeeId: attendeeKey,
           categoryCode,
-          occupancy: row.occupancy,
+          occupancy,
           nightCount: row.nightCount,
           nightBeforeLevel: row.nightBeforeLevel ?? null,
           optionSelections: optionSelectionsForPricing,

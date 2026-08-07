@@ -54,6 +54,7 @@ export type TrackPaymentEditContext = {
     attendeeName: string
     ticketLabel: string
     ticketCategoryId?: string
+    ticketOccupancy?: "single" | "shared" | "family"
     categoryId?: string
     occupancy?: "single" | "shared" | "family"
     nightBeforeLevel?: "standard" | "superior"
@@ -215,7 +216,7 @@ export function TrackPaymentAccommodationEditor({
     const next: Record<string, Draft> = {}
     for (const selection of editContext.selections) {
       next[selection.attendeeKey] = {
-        occupancy: selection.occupancy ?? "",
+        occupancy: selection.ticketOccupancy ?? selection.occupancy ?? "",
         nightBeforeLevel: selection.nightBeforeLevel,
         optionSelections: selection.optionSelections,
       }
@@ -282,7 +283,9 @@ export function TrackPaymentAccommodationEditor({
               </span>
               <span className="min-w-0 text-muted-foreground">
                 {selection.ticketLabel} · Included (Standard)
-                {selection.occupancy ? ` · ${selection.occupancy}` : ""}
+                {selection.ticketOccupancy ?? selection.occupancy
+                  ? ` · ${selection.ticketOccupancy ?? selection.occupancy}`
+                  : ""}
                 {selection.nightBeforeLevel
                   ? ` · Night before ${selection.nightBeforeLevel}`
                   : ""}
@@ -298,7 +301,7 @@ export function TrackPaymentAccommodationEditor({
     editContext.selections.length > 0 &&
     editContext.selections.every((selection) => {
       const draft = drafts[selection.attendeeKey]
-      return Boolean(draft && draft.occupancy)
+      return Boolean(selection.ticketOccupancy ?? draft?.occupancy ?? selection.occupancy)
     })
   const ownershipReady =
     Boolean(bookerEmail.trim()) || Boolean(editToken.trim())
@@ -320,7 +323,7 @@ export function TrackPaymentAccommodationEditor({
         const draft = drafts[selection.attendeeKey]
         return {
           attendeeKey: selection.attendeeKey,
-          occupancy: (draft?.occupancy ?? "shared") as
+          occupancy: (selection.ticketOccupancy ?? draft?.occupancy ?? "shared") as
             | "single"
             | "shared"
             | "family",
@@ -511,6 +514,8 @@ function AttendeePreferenceFieldset({
   }
 
   const nightBefore = editContext.accommodation.nightBefore
+  const occupancy = attendee.ticketOccupancy ?? draft.occupancy ?? "shared"
+  const occupancyLabel = occupancy === "single" ? "Single" : "Shared"
 
   return (
     <fieldset className="min-w-0 rounded-xl border border-border/50 bg-card p-4 shadow-sm sm:p-6">
@@ -532,46 +537,6 @@ function AttendeePreferenceFieldset({
           >
             Included (Standard)
           </Badge>
-        </div>
-
-        <div className="space-y-2">
-          <span
-            id={`edit-occupancy-legend-${attendee.attendeeKey}`}
-            className="block text-sm font-medium text-foreground"
-          >
-            Occupancy <span className="text-destructive">*</span>
-          </span>
-          <div
-            role="radiogroup"
-            aria-labelledby={`edit-occupancy-legend-${attendee.attendeeKey}`}
-            className="flex flex-wrap gap-3"
-          >
-            {(["single", "shared"] as const).map((occupancy) => {
-              const selected = draft.occupancy === occupancy
-              return (
-                <label
-                  key={occupancy}
-                  className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
-                    selected
-                      ? "border-primary bg-primary/5"
-                      : "border-border/60 hover:border-primary/40"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name={`edit-occupancy-${attendee.attendeeKey}`}
-                    value={occupancy}
-                    checked={selected}
-                    onChange={() => onChange({ occupancy })}
-                    className="size-4 accent-primary"
-                  />
-                  <span className="text-sm capitalize text-foreground">
-                    {occupancy}
-                  </span>
-                </label>
-              )
-            })}
-          </div>
         </div>
 
         {editContext.accommodation.options.length > 0 ? (
@@ -763,14 +728,14 @@ function AttendeePreferenceFieldset({
                   {
                     level: "standard",
                     rateMinor:
-                      draft.occupancy === "single"
+                      occupancy === "single"
                         ? nightBefore.standard.single
                         : nightBefore.standard.shared,
                   },
                   {
                     level: "superior",
                     rateMinor:
-                      draft.occupancy === "single"
+                      occupancy === "single"
                         ? nightBefore.superior.single
                         : nightBefore.superior.shared,
                   },
@@ -797,7 +762,7 @@ function AttendeePreferenceFieldset({
                       className="size-4 accent-primary"
                     />
                     <span className="text-sm capitalize text-foreground">
-                      {option.level}
+                      {option.level} · {occupancyLabel}
                     </span>
                     <span className="font-mono text-xs tabular-nums text-muted-foreground">
                       {formatPrice(option.rateMinor, editContext.event.currency)}{" "}

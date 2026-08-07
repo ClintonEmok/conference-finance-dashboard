@@ -43,7 +43,7 @@ function formatStayDate(epoch: number, timeZone: string): string {
 /**
  * The independent night-before choice. The buyer never derives money: the
  * per-night display rates come from the server catalog (`nightBefore`), and
- * only the chosen level is sent to the server.
+ * the ticket-resolved occupancy determines which rate is shown.
  */
 function NightBeforeChoice({
   attendeeKey,
@@ -76,8 +76,16 @@ function NightBeforeChoice({
     label: string
     rateMinor: number
   }> = [
-    { level: "standard", label: "Standard", rateMinor: rates.standard },
-    { level: "superior", label: "Superior", rateMinor: rates.superior },
+    {
+      level: "standard",
+      label: `Standard · ${occupancy === "single" ? "Single" : "Shared"}`,
+      rateMinor: rates.standard,
+    },
+    {
+      level: "superior",
+      label: `Superior · ${occupancy === "single" ? "Single" : "Shared"}`,
+      rateMinor: rates.superior,
+    },
   ]
 
   return (
@@ -185,8 +193,9 @@ export function AccommodationOptionsStep({
                   Included accommodation (Standard)
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  The included stay is always a Standard room — you only choose
-                  occupancy, add-ons, and whether you want the night before.
+                   The included stay is always a Standard room. Your ticket sets
+                   the occupancy; you only choose add-ons and whether you want
+                   the night before.
                   Final room placement is confirmed by the organizer.
                 </p>
               </div>
@@ -283,46 +292,6 @@ export function AccommodationOptionsStep({
                     Accommodation included with ticket
                   </Badge>
                 ) : null}
-              </div>
-
-              <div className="space-y-2">
-                <span
-                  id={`occupancy-legend-${attendee.attendeeKey}`}
-                  className="block text-sm font-medium text-foreground"
-                >
-                  Occupancy <span className="text-destructive">*</span>
-                </span>
-                <div
-                  role="radiogroup"
-                  aria-labelledby={`occupancy-legend-${attendee.attendeeKey}`}
-                  className="flex flex-wrap gap-3"
-                >
-                  {(["single", "shared"] as const).map((occupancy) => {
-                    const selected = current.occupancy === occupancy
-                    return (
-                      <label
-                        key={occupancy}
-                        className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
-                          selected
-                            ? "border-primary bg-primary/5"
-                            : "border-border/60 hover:border-primary/40"
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name={`occupancy-${attendee.attendeeKey}`}
-                          value={occupancy}
-                          checked={selected}
-                          onChange={() => patch({ occupancy })}
-                          className="size-4 accent-primary"
-                        />
-                        <span className="text-sm capitalize text-foreground">
-                          {occupancy}
-                        </span>
-                      </label>
-                    )
-                  })}
-                </div>
               </div>
 
               {event.accommodation.options.length > 0 ? (
@@ -497,7 +466,7 @@ export function AccommodationOptionsStep({
               {nightBefore ? (
                 <NightBeforeChoice
                   attendeeKey={attendee.attendeeKey}
-                  occupancy={current.occupancy}
+                  occupancy={ticket?.occupancy ?? current.occupancy}
                   nightBefore={nightBefore}
                   value={current.nightBeforeLevel}
                   currency={event.currency}

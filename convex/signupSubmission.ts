@@ -713,6 +713,15 @@ export const submitSignupEnvelope = mutation({
           "The selected ticket's room type is no longer available."
         )
       }
+      if (
+        ticketEntitlement?.occupancy &&
+        preference.occupancy !== ticketEntitlement.occupancy
+      ) {
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          "Occupancy is determined by the selected ticket."
+        )
+      }
 
       let resolved: ReturnType<typeof resolvePublicSignupSelection>
       try {
@@ -722,7 +731,7 @@ export const submitSignupEnvelope = mutation({
             categoryId: preference.categoryId
               ? String(preference.categoryId)
               : null,
-            occupancy: preference.occupancy,
+            occupancy: ticketEntitlement?.occupancy ?? preference.occupancy,
             optionSelections: preference.optionSelections,
             nightBeforeLevel: preference.nightBeforeLevel ?? null,
             nights: preference.nights,

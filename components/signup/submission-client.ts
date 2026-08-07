@@ -67,8 +67,9 @@ export function buildSubmissionBodyFromDraft(
     })),
     // Options-only contract: the client always submits an empty assignment
     // list (room placement is admin-owned) plus per-attendee accommodation
-    // preferences. The preferences carry the occupancy, the independent
-    // night-before level, and selected options only — no client amount,
+    // preferences. The ticket supplies occupancy; the preferences carry the
+    // resolved occupancy for the server contract, independent night-before
+    // level, and selected options only — no client amount,
     // price, date, category, room ID, or slot ID is ever included; the
     // server resolves money, the included-stay category, stay dates, and the
     // derived night count.
@@ -76,17 +77,22 @@ export function buildSubmissionBodyFromDraft(
     accommodationSelections: draft.attendees
       .map((attendee): SignupAccommodationSelection | null => {
         const selection = draft.accommodationSelections[attendee.attendeeKey]
-        if (!selection?.occupancy) {
+        const ticket = draft.ticketSelections.find(
+          (ticketSelection) =>
+            ticketSelection.ticketTypeId === attendee.ticketTypeId
+        )
+        const occupancy = ticket?.occupancy ?? selection?.occupancy
+        if (!occupancy) {
           return null
         }
 
         return {
           attendeeKey: attendee.attendeeKey,
-          occupancy: selection.occupancy,
+          occupancy,
           ...(selection.nightBeforeLevel !== undefined
             ? { nightBeforeLevel: selection.nightBeforeLevel }
             : {}),
-          optionSelections: selection.optionSelections,
+          optionSelections: selection?.optionSelections ?? [],
         }
       })
       .filter(

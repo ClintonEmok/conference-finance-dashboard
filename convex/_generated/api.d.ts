@@ -1344,6 +1344,7 @@ export declare const api: {
           }>;
           ticketCategoryId?: Id<"accommodationCategories">;
           ticketLabel: string;
+          ticketOccupancy?: "single" | "shared" | "family";
         }>;
       }
     >;
@@ -1529,6 +1530,7 @@ export declare const api: {
         tickets: Array<{
           accommodationIncluded?: boolean;
           label: string;
+          occupancy?: "single" | "shared" | "family";
           priceMinor: number;
           reason: "sold_out" | "disabled" | "hidden" | "not_on_sale" | null;
           roomTypeCategoryCode?: "standard" | "superior" | "family";

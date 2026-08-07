@@ -360,6 +360,67 @@ export const getRoomAllocationBoard = query({
       internalEventIds.has(String(order.eventId))
     )
 
+    const scopedTicketSelectionDocs = scopedOrders.length
+      ? (
+          await Promise.all(
+            scopedOrders.map((order) =>
+              ctx.db
+                .query("orderTicketSelections")
+                .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+                .take(100)
+            )
+          )
+        ).flat()
+      : []
+    const scopedTicketTypeIds = Array.from(
+      new Set(scopedTicketSelectionDocs.map((selection) => selection.ticketTypeId))
+    )
+    const scopedTicketTypes = await Promise.all(
+      scopedTicketTypeIds.map((ticketTypeId) =>
+        ctx.db.get("ticketTypes", ticketTypeId)
+      )
+    )
+    const scopedTicketTypeById = new Map(
+      scopedTicketTypes
+        .filter((ticket): ticket is NonNullable<typeof ticket> => ticket !== null)
+        .map((ticket) => [String(ticket._id), ticket])
+    )
+    const scopedRoomTypeIds = Array.from(
+      new Set(
+        scopedTicketTypes
+          .filter((ticket): ticket is NonNullable<typeof ticket> => ticket !== null)
+          .map((ticket) => ticket.roomTypeId)
+          .filter(
+            (roomTypeId): roomTypeId is Id<"accommodationRoomTypes"> =>
+              roomTypeId !== undefined
+          )
+      )
+    )
+    const scopedRoomTypes = await Promise.all(
+      scopedRoomTypeIds.map((roomTypeId) =>
+        ctx.db.get("accommodationRoomTypes", roomTypeId)
+      )
+    )
+    const occupancyByRoomTypeId = new Map<string, "single" | "shared">()
+    for (const roomType of scopedRoomTypes) {
+      if (roomType) {
+        occupancyByRoomTypeId.set(
+          String(roomType._id),
+          roomType.defaultCapacity === 1 ? "single" : "shared"
+        )
+      }
+    }
+    const ticketOccupancyByAttendeeId = new Map<string, "single" | "shared">()
+    for (const selection of scopedTicketSelectionDocs) {
+      const ticket = scopedTicketTypeById.get(String(selection.ticketTypeId))
+      const occupancy = ticket?.roomTypeId
+        ? occupancyByRoomTypeId.get(String(ticket.roomTypeId))
+        : undefined
+      if (occupancy) {
+        ticketOccupancyByAttendeeId.set(String(selection.attendeeId), occupancy)
+      }
+    }
+
     // Build order lookup for event scoping
     const orderById = new Map(scopedOrders.map((o) => [o._id as string, o]))
 
@@ -460,7 +521,10 @@ export const getRoomAllocationBoard = query({
         ? (categoryById.get(String(selection.categoryId)) ?? null)
         : null
       accommodationPreferenceByAttendeeId.set(attendeeKey, {
-        occupancy: selection.occupancy ?? null,
+        occupancy:
+          ticketOccupancyByAttendeeId.get(attendeeKey) ??
+          selection.occupancy ??
+          null,
         nightBeforeLevel: selection.nightBeforeLevel ?? null,
         categoryLabel: category?.label ?? null,
         optionKeys: optionKeysBySelectionId.get(String(selection._id)) ?? [],

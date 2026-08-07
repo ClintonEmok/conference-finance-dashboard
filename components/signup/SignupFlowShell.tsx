@@ -23,7 +23,6 @@ import {
   type TicketSelectionDraft,
 } from "@/components/signup/state"
 import {
-  allAttendeesHaveAccommodationSelections,
   eventHasConfiguredAccommodation,
 } from "@/components/signup/flow-rules"
 import { TicketStep } from "@/components/signup/steps/TicketStep"
@@ -170,21 +169,20 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     [draft?.attendees]
   )
 
-  // The quote hook receives only attendee keys, ticket IDs, occupancy,
-  // option selections, and the independent night-before level — never client
-  // prices, dates, categories, room IDs, slot IDs, or totals. For a
-  // configured event it is only issued once every attendee has an occupancy
-  // selection; for an unconfigured event a server ticket-only quote is issued
-  // so the review can show a server-derived total and the flow stays
-  // submittable (CR-05).
+  // The quote hook receives only attendee keys, ticket IDs, ticket-resolved
+  // occupancy, option selections, and the independent night-before level —
+  // never client prices, dates, categories, room IDs, slot IDs, or totals.
   const quoteAttendeeArgs = useMemo(() => {
     if (!draft) return null
     return draft.attendees.map((attendee) => {
       const selection = draft.accommodationSelections[attendee.attendeeKey]
+      const ticket = event?.tickets.find(
+        (ticketType) => ticketType.ticketTypeId === attendee.ticketTypeId
+      )
       return {
         attendeeKey: attendee.attendeeKey,
         ticketTypeId: attendee.ticketTypeId,
-        occupancy: selection?.occupancy || undefined,
+        occupancy: (ticket?.occupancy ?? selection?.occupancy) || undefined,
         // Omitted nightBeforeLevel means "no night before"; the server
         // resolves the derived total stay and all money authoritatively.
         nightBeforeLevel: selection?.nightBeforeLevel,
@@ -200,11 +198,14 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
 
   const allAccommodationSelected = useMemo(() => {
     if (!draft) return false
-    return allAttendeesHaveAccommodationSelections(
-      draft.attendees,
-      draft.accommodationSelections
-    )
-  }, [draft?.attendees, draft?.accommodationSelections])
+    return draft.attendees.every((attendee) => {
+      const ticket = event?.tickets.find(
+        (ticketType) => ticketType.ticketTypeId === attendee.ticketTypeId
+      )
+      const selection = draft.accommodationSelections[attendee.attendeeKey]
+      return Boolean(ticket?.occupancy ?? selection?.occupancy)
+    })
+  }, [event?.tickets, draft?.attendees, draft?.accommodationSelections])
 
   const shouldQueryQuote =
     Boolean(eventId) &&
@@ -422,6 +423,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
           reason: ticket.reason,
           roomTypeId: ticket.roomTypeId,
           roomTypeCategoryId: ticket.roomTypeCategoryId,
+          occupancy: ticket.occupancy,
         }))
 
   function handleTicketSelectionsChange(

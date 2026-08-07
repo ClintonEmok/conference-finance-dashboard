@@ -46,6 +46,7 @@ const publicSignupTicketValidator = v.object({
   roomTypeId: v.optional(v.id("accommodationRoomTypes")),
   roomTypeCategoryId: v.optional(v.id("accommodationCategories")),
   roomTypeCategoryCode: v.optional(categoryCodeValidator),
+  occupancy: v.optional(occupancyValidator),
 })
 
 const publicSignupAccommodationSlotValidator = v.object({
@@ -185,6 +186,7 @@ function mapTicket(
     {
       categoryId: Id<"accommodationCategories"> | null
       categoryCode: "standard" | "superior" | "family" | null
+      occupancy: "single" | "shared"
     }
   >
 ) {
@@ -216,6 +218,7 @@ function mapTicket(
       roomTypeId: ticket.roomTypeId ?? undefined,
       roomTypeCategoryId: roomTypeCategory?.categoryId ?? undefined,
       roomTypeCategoryCode: roomTypeCategory?.categoryCode ?? undefined,
+      occupancy: roomTypeCategory?.occupancy,
     }
   }
 
@@ -239,6 +242,7 @@ function mapTicket(
     roomTypeId: ticket.roomTypeId ?? undefined,
     roomTypeCategoryId: roomTypeCategory?.categoryId ?? undefined,
     roomTypeCategoryCode: roomTypeCategory?.categoryCode ?? undefined,
+    occupancy: roomTypeCategory?.occupancy,
   }
 }
 
@@ -823,12 +827,14 @@ export function resolvePublicSignupSelection(input: {
 }
 
 /**
- * Resolves the ticket entitlement category for every ticket referenced by a
- * public quote request: `ticketTypes.roomTypeId` → room type → category.
+ * Resolves the ticket entitlement for every ticket referenced by a public
+ * quote request: `ticketTypes.roomTypeId` → room type → category and
+ * occupancy. Room capacity is the ticket authority for Single vs Shared.
  *
  * The result is a three-state map so a dangling constrained room type can be
  * distinguished from a genuinely unconstrained ticket (CR-02):
- * - `{ categoryId }` — the ticket's room type resolved to a catalog category;
+ * - `{ categoryId, occupancy }` — the ticket's room type resolved to a
+ *   catalog category and occupancy;
  * - `undefined` — the ticket has no roomTypeId and is truly unconstrained;
  * - `null` — the ticket has a roomTypeId that cannot be resolved (missing
  *   room type or missing category); callers MUST reject this state.
@@ -836,7 +842,12 @@ export function resolvePublicSignupSelection(input: {
 export async function resolveTicketCategoryById(
   ctx: QueryCtx | MutationCtx,
   ticketById: Map<string, Doc<"ticketTypes">>
-): Promise<Map<string, { categoryId: string } | null | undefined>> {
+): Promise<
+  Map<
+    string,
+    { categoryId: string; occupancy: "single" | "shared" } | null | undefined
+  >
+> {
   const roomTypeIds = new Set<string>()
   for (const ticket of ticketById.values()) {
     if (ticket.roomTypeId) {
@@ -851,17 +862,21 @@ export async function resolveTicketCategoryById(
       )
     )
   )
-  const roomTypeCategoryById = new Map<string, { categoryId: string }>()
+  const roomTypeCategoryById = new Map<
+    string,
+    { categoryId: string; occupancy: "single" | "shared" }
+  >()
   for (const roomType of roomTypes) {
     if (roomType?.categoryId) {
       roomTypeCategoryById.set(String(roomType._id), {
         categoryId: String(roomType.categoryId),
+        occupancy: roomType.defaultCapacity === 1 ? "single" : "shared",
       })
     }
   }
   const ticketCategoryById = new Map<
     string,
-    { categoryId: string } | null | undefined
+    { categoryId: string; occupancy: "single" | "shared" } | null | undefined
   >()
   for (const [ticketId, ticket] of ticketById) {
     if (!ticket.roomTypeId) {
@@ -875,7 +890,9 @@ export async function resolveTicketCategoryById(
     // unconstrained.
     ticketCategoryById.set(
       ticketId,
-      resolved ? { categoryId: resolved.categoryId } : null
+      resolved
+        ? { categoryId: resolved.categoryId, occupancy: resolved.occupancy }
+        : null
     )
   }
   return ticketCategoryById
@@ -962,6 +979,7 @@ export const getPublicSignupCatalog = query({
           {
             categoryId: Id<"accommodationCategories"> | null
             categoryCode: "standard" | "superior" | "family" | null
+            occupancy: "single" | "shared"
           }
         >()
         for (const roomType of roomTypeDocs) {
@@ -977,6 +995,7 @@ export const getPublicSignupCatalog = query({
               : null) as Id<"accommodationCategories"> | null,
             categoryCode: (category?.code ??
               null) as "standard" | "superior" | "family" | null,
+            occupancy: roomType.defaultCapacity === 1 ? "single" : "shared",
           })
         }
 
@@ -1234,6 +1253,15 @@ export const getPublicSignupAccommodationQuote = query({
           "QUOTE_INVALID: The selected ticket's room type is no longer available."
         )
       }
+      if (
+        ticketEntitlement?.occupancy &&
+        attendee.occupancy &&
+        attendee.occupancy !== ticketEntitlement.occupancy
+      ) {
+        throw new Error(
+          "QUOTE_INVALID: Occupancy is determined by the selected ticket."
+        )
+      }
 
       const resolved = resolvePublicSignupSelection({
         context,
@@ -1241,7 +1269,7 @@ export const getPublicSignupAccommodationQuote = query({
           categoryId: attendee.categoryId
             ? String(attendee.categoryId)
             : null,
-          occupancy: attendee.occupancy ?? null,
+          occupancy: ticketEntitlement?.occupancy ?? attendee.occupancy ?? null,
           optionSelections: attendee.optionSelections,
           nightBeforeLevel: attendee.nightBeforeLevel ?? null,
           nights: attendee.nights,

@@ -216,6 +216,7 @@ test("public catalog exposes event-configured accommodation choices and ticket e
   expect(constrainedTicket?.roomTypeId).toBe(seed.constrainedRoomTypeId)
   expect(constrainedTicket?.roomTypeCategoryId).toBe(seed.categorySuperiorId)
   expect(constrainedTicket?.roomTypeCategoryCode).toBe("superior")
+  expect(constrainedTicket?.occupancy).toBe("shared")
 
   const unconstrainedTicket = event?.tickets.find(
     (ticket) => ticket.ticketTypeId === seed.unconstrainedTicketId
@@ -311,8 +312,9 @@ test("quote resolves the included stay to Standard for every ticket and rejects 
     })
   ).rejects.toThrow("QUOTE_INVALID")
 
-  // No categoryId at all: the server resolves the included stay to Standard
-  // and prices the Standard shared rate (2 × €30 = €60).
+  // No categoryId or occupancy: the server resolves the included stay to
+  // Standard and derives Shared from the ticket's room capacity (2 × €30 =
+  // €60).
   const accepted = await t.query(
     api.signupCatalog.getPublicSignupAccommodationQuote,
     {
@@ -321,7 +323,6 @@ test("quote resolves the included stay to Standard for every ticket and rejects 
         {
           attendeeKey: "a1",
           ticketTypeId: seed.constrainedTicketId,
-          occupancy: "shared",
           optionSelections: [],
         },
       ],
