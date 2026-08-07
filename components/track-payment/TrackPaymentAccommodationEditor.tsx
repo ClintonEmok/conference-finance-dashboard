@@ -331,14 +331,18 @@ export function TrackPaymentAccommodationEditor({
     )
 
     setStatus({ kind: "saving" })
+    const requestIdempotencyKey = idempotencyKey()
     const outcome = await submitTrackPaymentEdit({
       bookingRef,
       bookerEmail,
       editToken,
-      idempotencyKey: idempotencyKey(),
+      idempotencyKey: requestIdempotencyKey,
       selections,
     })
     if (!outcome.ok) {
+      if (outcome.code === "EDIT_IDEMPOTENCY_CONFLICT") {
+        idempotencyKeyRef.current = null
+      }
       setStatus({
         kind: "error",
         code: outcome.code,
@@ -346,6 +350,8 @@ export function TrackPaymentAccommodationEditor({
       })
       return
     }
+    // Keep the key for a retry, but mint a fresh key for the next edit.
+    idempotencyKeyRef.current = null
     setStatus({ kind: "success", result: outcome.result })
   }
 
