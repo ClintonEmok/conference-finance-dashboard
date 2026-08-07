@@ -560,7 +560,11 @@ export default function EventAllocationPage({
         </div>
       )}
 
-      {unassigned.length > 0 && !suggestions && (
+      {/* QUICK TASK 260807-UEL: the Generate Suggestions trigger is dormant.
+          The suggestion algorithm (`generateSuggestions`), the application
+          flow (`applySuggestions`/`isApplying`), and the result panel below
+          remain intact for a later rebuild. */}
+      {/* {unassigned.length > 0 && !suggestions && (
         <div className="flex justify-center">
           <Button
             onClick={generateSuggestions}
@@ -569,7 +573,7 @@ export default function EventAllocationPage({
             Generate Suggestions
           </Button>
         </div>
-      )}
+      )} */}
 
       {suggestions && (
         <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 shadow-sm">
