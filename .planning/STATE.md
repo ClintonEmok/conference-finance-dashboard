@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md`.
 Phase: 46 of 51 (Event-Owned Setup Schema, Generalized Pricing & Shared Contract) — planned, not started
 Plan: 5 plans in 5 sequential waves (46-01 through 46-05)
 Status: Phase 46 executable plans written — ready for execution
-Last activity: 2026-08-07 — Completed quick task 260807-ejn: buyer-facing optional extended night-before purchase
+Last activity: 2026-08-07 — Completed quick task 260807-ka4: repointed manage-booking permalink to /booking/[bookingRef]/manage
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -83,6 +83,8 @@ Progress: [░░░░░░░░░░] 0%
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260807-ka4 | Repointed the manage-booking permalink to `/booking/[bookingRef]/manage` with `/booking` as canonical search entry; `/manage*` and `/track-payment*` became full-query-preserving legacy redirects; all buyer-facing link producers repointed | 2026-08-07 | a22e470 | [260807-ka4-repoint-the-manage-booking-permalink-to-booking](./quick/260807-ka4-repoint-the-manage-booking-permalink-to-/) |
+| 260807-f6r | Manage booking page permalink — renamed the track-payment surface to "Manage booking" at `/manage`, booking summary + payment tracking + accommodation edit + Tikkie retained, edit-token permalink builder + email links moved, legacy `/track-payment*` redirects | 2026-08-07 | d6dac52 | [260807-f6r-add-a-manage-booking-page-with-a-permali](./quick/260807-f6r-add-a-manage-booking-page-with-a-permali/) |
 | 260807-ejn | Buyer-facing optional extended night-before accommodation purchase (per-attendee nights stepper, server-authoritative nights validation shared by quote + submission, review/sidebar display, full test matrix) | 2026-08-07 | 490ea43 | [260807-ejn-add-buyer-facing-optional-extended-night](./quick/260807-ejn-add-buyer-facing-optional-extended-night/) |
 
 ## Deferred Verification
@@ -105,6 +107,6 @@ Progress: [░░░░░░░░░░] 0%
 ## Session Continuity
 
 Last session: 2026-08-07
-Last activity: Completed quick task 260807-ejn: buyer-facing optional extended night-before purchase (server-authoritative nights validation, per-attendee stepper, review/sidebar display; 445/492/116 tests + tsc green)
+Last activity: Completed quick task 260807-ka4: manage-booking permalink at /booking/[bookingRef]/manage (canonical /booking search, legacy /manage* + /track-payment* redirects, all producers repointed; 455/502/116 tests + tsc green)
 Stopped at: Phase 46 planning complete; implementation has not started
 Resume file: None (next: /gsd/execute-phase 46)
