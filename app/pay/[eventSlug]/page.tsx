@@ -118,7 +118,7 @@ export default async function PayPage({ params }: PayPageProps) {
           </Link>
 
           <Link
-            href="/manage"
+            href="/booking"
             className="group flex items-center gap-4 rounded-2xl border border-border/40 bg-card/40 p-5 shadow-sm backdrop-blur-xl transition-all hover:border-primary/30 hover:bg-card/60 hover:shadow-md"
           >
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20 transition-all group-hover:bg-primary/15">

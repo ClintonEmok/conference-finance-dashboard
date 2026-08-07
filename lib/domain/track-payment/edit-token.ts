@@ -7,9 +7,9 @@
  *   `track-payment:${bookingRef}:${normalizedBookerEmail}`, signed with the
  *   already-required `SIGNUP_SUBMISSION_SECRET`. No new secret is introduced
  *   and no raw bearer token is ever persisted. New confirmation/resend emails
- *   embed the token in a `/manage/{bookingRef}?token=...` link; legacy
- *   orders without a token link remain editable through the normalized
- *   booker-email match.
+ *   embed the token in a `/booking/{bookingRef}/manage?token=...` link;
+ *   legacy orders without a token link remain editable through the
+ *   normalized booker-email match.
  * - The **request signature** is a short-lived HMAC token minted by the
  *   Next.js route after its rate-limit + honeypot checks and bound to the
  *   normalized edit envelope (booking reference, ownership fields,
@@ -35,7 +35,7 @@ export function getTrackPaymentSecret(): string | undefined {
 
 /**
  * Normalize a booking reference the same way the tracking queries do:
- * trimmed and upper-cased so `/manage/bk-20260411-abc123` and
+ * trimmed and upper-cased so `/booking/bk-20260411-abc123/manage` and
  * `BK-20260411-ABC123` resolve to the same order.
  */
 export function normalizeBookingRefForEdit(bookingRef: string): string {
@@ -416,8 +416,8 @@ export async function verifyEditRequestSignature(
  * Build the canonical buyer-facing permalink for a booking reference,
  * embedding a fresh edit token as a query parameter when the shared secret is
  * available. Returns null when the secret is missing so the caller keeps the
- * plain root manage surface (email-match) link and never emits a forgeable
- * token. Used by signup confirmation and confirmation resend email
+ * plain root search surface (`/booking`, email-match) link and never emits a
+ * forgeable token. Used by signup confirmation and confirmation resend email
  * construction.
  */
 export async function buildTrackPaymentPermalink(input: {
@@ -441,7 +441,7 @@ export async function buildTrackPaymentPermalink(input: {
     process.env.NEXT_PUBLIC_APP_URL ??
     "http://localhost:3000"
   ).replace(/\/+$/, "")
-  return `${appUrl}/manage/${encodeURIComponent(
+  return `${appUrl}/booking/${encodeURIComponent(
     bookingRef
-  )}?token=${encodeURIComponent(token)}`
+  )}/manage?token=${encodeURIComponent(token)}`
 }

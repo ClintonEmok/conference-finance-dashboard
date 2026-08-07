@@ -24,7 +24,7 @@ const sampleProps = {
   tikkieAmountMinor: 42900,
   tikkieCurrency: "EUR",
   attendeeCount: 3,
-  trackPaymentUrl: "http://localhost:3000/manage",
+  trackPaymentUrl: "http://localhost:3000/booking",
   successPageUrl: "http://localhost:3000/signup/success/CFD-84X2M9",
 }
 
@@ -94,7 +94,7 @@ export default async function EmailPreviewPage() {
               <div className="flex items-center justify-between gap-4 rounded-lg border border-border/70 bg-card p-3">
                 <span className="text-muted-foreground">Manage booking</span>
                 <span className="truncate font-mono text-xs">
-                  /manage
+                  /booking
                 </span>
               </div>
               <div className="flex items-center justify-between gap-4 rounded-lg border border-border/70 bg-card p-3">
@@ -118,7 +118,7 @@ export default async function EmailPreviewPage() {
                 <Link href="/dashboard/integrations">Integrations</Link>
               </Button>
               <Button asChild variant="outline">
-                <Link href="/manage">Manage booking</Link>
+                <Link href="/booking">Manage booking</Link>
               </Button>
             </CardContent>
           </Card>

@@ -132,7 +132,7 @@ export function EventEntryContent({ event }: EventEntryContentProps) {
                 variant="outline"
                 className="h-12 rounded-2xl border-primary/20 bg-primary/5 text-primary hover:bg-primary/10"
               >
-                <Link href="/manage" className="flex items-center gap-2">
+                <Link href="/booking" className="flex items-center gap-2">
                   Manage booking
                   <CreditCard className="h-4 w-4" />
                 </Link>

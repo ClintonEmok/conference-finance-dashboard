@@ -49,8 +49,8 @@ function TrackPaymentSkeleton() {
 
 /**
  * Shared buyer-facing manage-booking presentation used by both the root
- * booking-reference search (`/manage`) and the durable permalink
- * (`/manage/[bookingRef]`). All money, payment status, receipt lines,
+ * booking-reference search (`/booking`) and the durable permalink
+ * (`/booking/[bookingRef]/manage`). All money, payment status, receipt lines,
  * accommodation choices and overpayment values render server-provided fields
  * only — the client never derives a total, rate, night count, overpayment or
  * Tikkie amount.
@@ -65,9 +65,9 @@ export function TrackPaymentView({
   const router = useRouter()
   const [draftBookingRef, setDraftBookingRef] = useState("")
   // Normalize the permalink's initial reference the same way the tracking
-  // queries do, so `/manage/bk-20260411-abc123` resolves identically to the
-  // canonical `BK-20260411-ABC123` (CR-07). All three queries below share
-  // this normalized value.
+  // queries do, so `/booking/bk-20260411-abc123/manage` resolves identically
+  // to the canonical `BK-20260411-ABC123` (CR-07). All three queries below
+  // share this normalized value.
   const [searchedBookingRef, setSearchedBookingRef] = useState<string | null>(
     initialBookingRef ? initialBookingRef.trim().toUpperCase() : null
   )
@@ -91,7 +91,7 @@ export function TrackPaymentView({
     event.preventDefault()
     const normalized = draftBookingRef.trim().toUpperCase()
     if (!normalized) return
-    router.push(`/manage/${encodeURIComponent(normalized)}`)
+    router.push(`/booking/${encodeURIComponent(normalized)}/manage`)
   }
 
   const isSearching =
@@ -117,7 +117,7 @@ export function TrackPaymentView({
           <div className="mb-8 text-center">
             <p className="text-xs font-medium text-muted-foreground">
               <Link
-                href="/manage"
+                href="/booking"
                 className="underline-offset-4 hover:underline"
               >
                 Search another booking

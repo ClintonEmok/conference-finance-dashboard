@@ -970,15 +970,16 @@ export const submitSignupEnvelope = mutation({
 
       // Phase 43: prefer the durable booking-reference permalink with an
       // HMAC edit token when the shared secret is available; fall back to the
-      // plain manage surface (email ownership) when it is not so an email is
-      // never emitted with a forgeable token. `/manage` is the canonical
-      // buyer-facing route; the legacy `/track-payment` pages redirect here.
+      // plain search surface (`/booking`, email ownership) when it is not so
+      // an email is never emitted with a forgeable token. `/booking` is the
+      // canonical buyer-facing route; the legacy `/manage` and
+      // `/track-payment` pages redirect here.
       const trackPaymentUrl =
         (await buildTrackPaymentPermalink({
           bookingRef,
           bookerEmail,
           appUrl,
-        })) ?? `${appUrl}/manage`
+        })) ?? `${appUrl}/booking`
 
       await ctx.scheduler.runAfter(
         0,

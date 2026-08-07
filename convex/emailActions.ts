@@ -183,14 +183,14 @@ async function sendOrderConfirmationResendEmail(
 
   // Phase 43: prefer the durable booking-reference permalink with an HMAC
   // edit token when the shared secret is available; fall back to the plain
-  // manage surface (email ownership) when it is not so a resend is never
-  // emitted with a forgeable token.
+  // search surface (`/booking`, email ownership) when it is not so a resend
+  // is never emitted with a forgeable token.
   const trackPaymentUrl =
     (await buildTrackPaymentPermalink({
       bookingRef: order.order.bookingRef,
       bookerEmail: order.order.bookerEmail,
       appUrl,
-    })) ?? `${appUrl}/manage`
+    })) ?? `${appUrl}/booking`
 
   const result = await sendSignupConfirmationEmail(ctx, {
     to: order.order.bookerEmail,

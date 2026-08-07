@@ -294,7 +294,7 @@ export function SuccessView({
                     </p>
                   </div>
                   <Button asChild className="w-full">
-                    <Link href="/manage">Manage booking</Link>
+                    <Link href="/booking">Manage booking</Link>
                   </Button>
                 </CardContent>
               </Card>
