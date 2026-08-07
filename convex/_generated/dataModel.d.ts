@@ -578,6 +578,7 @@ export type DataModel = {
       configVersion?: number;
       confirmedAt?: number;
       cotSelected?: boolean;
+      nightBeforeLevel?: "standard" | "superior";
       nightCount?: number;
       occupancy?: "single" | "shared" | "family";
       orderId: Id<"orders">;
@@ -612,6 +613,7 @@ export type DataModel = {
       | "configVersion"
       | "confirmedAt"
       | "cotSelected"
+      | "nightBeforeLevel"
       | "nightCount"
       | "occupancy"
       | "orderId"

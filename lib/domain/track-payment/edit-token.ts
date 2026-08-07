@@ -54,6 +54,13 @@ export type EditAccommodationSelectionInput = {
   attendeeKey: string
   categoryId?: string | null
   occupancy?: "single" | "shared" | "family" | null
+  /**
+   * Independent one-night night-before level of the simplified contract.
+   * Omitted/null means no night-before stay. Included in the signed envelope
+   * and the before/after digest so a captured signature cannot be replayed
+   * with a swapped level.
+   */
+  nightBeforeLevel?: "standard" | "superior" | null
   optionSelections?: Array<{
     optionKey: string
     quantity: number
@@ -97,6 +104,7 @@ function normalizeSelection(
   attendeeKey: string
   categoryId: string | null
   occupancy: "single" | "shared" | "family" | null
+  nightBeforeLevel: "standard" | "superior" | null
   optionSelections: Array<{
     optionKey: string
     quantity: number
@@ -120,6 +128,7 @@ function normalizeSelection(
       ? String(selection.categoryId).trim()
       : null,
     occupancy: selection.occupancy ?? null,
+    nightBeforeLevel: selection.nightBeforeLevel ?? null,
     optionSelections,
   }
 }
@@ -158,6 +167,7 @@ export async function digestAccommodationSelections(
     attendeeKey: string
     categoryId?: string | null
     occupancy?: "single" | "shared" | "family" | null
+    nightBeforeLevel?: "standard" | "superior" | null
     optionSelections?: Array<{
       optionKey: string
       quantity: number

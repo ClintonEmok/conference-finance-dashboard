@@ -49,6 +49,20 @@ export const signupAccommodationOccupancyValidator = v.union(
 export type SignupAccommodationOccupancy = "single" | "shared" | "family"
 
 /**
+ * The independent per-attendee night-before level of the simplified
+ * accommodation contract. Omitted means no night-before stay. `standard`
+ * prices one night at the Standard occupancy rate; `superior` adds the fixed
+ * €10 premium to that same one-night line. It is fully independent of the
+ * included-stay category and of the `superior_upgrade` add-on.
+ */
+export const signupAccommodationNightBeforeLevelValidator = v.union(
+  v.literal("standard"),
+  v.literal("superior")
+)
+
+export type SignupAccommodationNightBeforeLevel = "standard" | "superior"
+
+/**
  * One selected accommodation option for an attendee. The client supplies only
  * the event option key, a quantity and the nights the option applies to —
  * prices, totals and eligibility are always resolved server-side.
@@ -67,27 +81,34 @@ export type SignupAccommodationOptionSelection = {
 
 /**
  * One per-attendee accommodation preference carried by a public signup
- * submission. It contains exactly one attendee key, a category ID, an
- * occupancy literal, and a list of selected option rows. The optional
- * `nights` field carries the buyer-chosen total stay nights (base stay
- * included) for the attendee; when omitted, the server prices and persists
- * the event's configured base night count. It never contains room IDs, slot
- * IDs, dates, prices, totals, or snapshots — those are server-resolved.
+ * submission. It contains exactly one attendee key, an occupancy literal, and
+ * a list of selected option rows. Under the simplified contract the client
+ * never supplies a category — the server resolves the included-stay category
+ * (Standard) — so `categoryId` is optional legacy input that the resolver
+ * rejects when it does not match the server-resolved included-stay category.
+ * The optional `nightBeforeLevel` carries the independent one-night
+ * night-before level; the optional `nights` is legacy total-stay input that
+ * the resolver only accepts when it equals the derived total. It never
+ * contains room IDs, slot IDs, dates, prices, totals, or snapshots — those
+ * are server-resolved.
  */
 export const signupAccommodationSelectionValidator = v.object({
   attendeeKey: v.string(),
-  categoryId: v.id("accommodationCategories"),
+  categoryId: v.optional(v.id("accommodationCategories")),
   occupancy: signupAccommodationOccupancyValidator,
   optionSelections: v.array(signupAccommodationOptionSelectionValidator),
+  nightBeforeLevel: v.optional(signupAccommodationNightBeforeLevelValidator),
   nights: v.optional(v.number()),
 })
 
 export type SignupAccommodationSelection = {
   attendeeKey: string
-  categoryId: string
+  categoryId?: string
   occupancy: SignupAccommodationOccupancy
   optionSelections: SignupAccommodationOptionSelection[]
-  /** Buyer-chosen total stay nights; omitted = configured base night count. */
+  /** Independent one-night night-before level; omitted = no night before. */
+  nightBeforeLevel?: SignupAccommodationNightBeforeLevel
+  /** Legacy buyer-chosen total stay nights; omitted = configured base. */
   nights?: number
 }
 
@@ -98,9 +119,10 @@ export type SignupAccommodationSelection = {
  */
 export type SignupAccommodationSelectionRestore = {
   attendeeKey: string
-  categoryId: string
+  categoryId?: string
   occupancy: SignupAccommodationOccupancy
   optionSelections: SignupAccommodationOptionSelection[]
+  nightBeforeLevel?: SignupAccommodationNightBeforeLevel
   nights?: number
 }
 

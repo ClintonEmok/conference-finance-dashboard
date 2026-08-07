@@ -1305,6 +1305,10 @@ export declare const api: {
             nightCount: number;
           } | null;
           eligible: boolean;
+          nightBefore: null | {
+            standard: { shared: number; single: number };
+            superior: { shared: number; single: number };
+          };
           options: Array<{
             label: string;
             optionKey: string;
@@ -1325,6 +1329,7 @@ export declare const api: {
           attendeeName: string;
           categoryId?: Id<"accommodationCategories">;
           confirmed: boolean;
+          nightBeforeLevel?: "standard" | "superior";
           occupancy?: "single" | "shared" | "family";
           optionSelections: Array<{
             nights: number;
@@ -1348,6 +1353,7 @@ export declare const api: {
         selections: Array<{
           attendeeKey: string;
           categoryId?: Id<"accommodationCategories">;
+          nightBeforeLevel?: "standard" | "superior";
           occupancy?: "single" | "shared" | "family";
           optionSelections: Array<{
             nights: number;
@@ -1415,6 +1421,7 @@ export declare const api: {
         attendees: Array<{
           attendeeKey: string;
           categoryId?: Id<"accommodationCategories">;
+          nightBeforeLevel?: "standard" | "superior";
           nights?: number;
           occupancy?: "single" | "shared" | "family";
           optionSelections: Array<{
@@ -1446,6 +1453,7 @@ export declare const api: {
             quantity?: number;
             ratePerNightMinor: number;
           }>;
+          nightBeforeLevel?: "standard" | "superior";
           occupancy?: "single" | "shared" | "family";
           ticketLabel: string;
           ticketPriceMinor: number;
@@ -1474,15 +1482,16 @@ export declare const api: {
             }>;
           }>;
           config: {
-            allowExtendedStayAfter: boolean;
-            allowExtendedStayBefore: boolean;
-            allowExtendedStayBoth: boolean;
             baseCheckInAt: number;
             baseCheckOutAt: number;
             breakfastIncluded: boolean;
             nightCount: number;
           } | null;
           eligible: boolean;
+          nightBefore: {
+            standard: { shared: number; single: number };
+            superior: { shared: number; single: number };
+          } | null;
           options: Array<{
             label: string;
             optionKey: string;
@@ -1576,7 +1585,8 @@ export declare const api: {
       {
         accommodationSelections: Array<{
           attendeeKey: string;
-          categoryId: Id<"accommodationCategories">;
+          categoryId?: Id<"accommodationCategories">;
+          nightBeforeLevel?: "standard" | "superior";
           nights?: number;
           occupancy: "single" | "shared" | "family";
           optionSelections: Array<{
@@ -1619,7 +1629,8 @@ export declare const api: {
         restorePayload: {
           accommodationSelections: Array<{
             attendeeKey: string;
-            categoryId: string;
+            categoryId?: string;
+            nightBeforeLevel?: "standard" | "superior";
             nights?: number;
             occupancy: "single" | "shared" | "family";
             optionSelections: Array<{
@@ -2329,6 +2340,9 @@ export declare const internal: {
       },
       any
     >;
+  };
+  applySimplifiedDivineConferenceAccommodation: {
+    default: FunctionReference<"mutation", "internal", { slug?: string }, any>;
   };
   autoSync: {
     autoSyncTicketTailor: FunctionReference<"action", "internal", {}, any>;

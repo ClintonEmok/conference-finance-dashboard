@@ -3558,6 +3558,7 @@ export async function resolveOrderAccommodationConfirmation(
         categoryCode: category.code,
         occupancy: row.occupancy,
         nightCount: row.nightCount,
+        nightBeforeLevel: row.nightBeforeLevel ?? null,
         optionSelections: resolvedOptions,
       },
       pricing: {

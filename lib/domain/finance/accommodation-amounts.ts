@@ -11,16 +11,29 @@
  *
  * Locked formula (per attendee, minor units):
  *   coveredNights  = ticket.accommodationIncluded ? eventBaseNights : 0
- *   totalNights    = buyer-chosen nights
+ *   totalNights    = buyer-chosen nights (base + 1 when a night-before level
+ *                    is selected; the resolver derives and persists this)
  *   baseCharge     = max(0, totalNights - coveredNights) * baseRate
  *   optionCharge   = Σ per selected option: pricePerUnit × quantity × nights
+ *                    (+ the fixed €10 Superior night-before premium line)
  *   amountDue      = tickets + baseCharge + optionCharge
  *
+ * Simplified contract (v6 buyer surfaces): the included stay is always the
+ * event's resolved included-stay category (Standard for the divine event),
+ * priced at that category's occupancy rate. `nightBeforeLevel` prices the
+ * independent one-night night-before stay: the base charge covers one night
+ * at the Standard rate, and a `superior` level adds exactly one
+ * €10/person/night premium line. The premium is never derived from client
+ * input — it is a constant of this module shared by quote, catalog display
+ * rates, confirmation snapshots, and the canonical loader.
+ *
  * Options are data-driven: every enabled event option is a priced, per-unit
- * line. There is no hardcoded option code (no superior_upgrade/cot branches)
- * and no age-band eligibility gate. `kind`/`unit` remain typed at the schema
- * boundary; the charge math here is unit × quantity × nights for the supported
- * per_night unit and price × quantity for per_person.
+ * line. There is no hardcoded cot branch and no age-band eligibility gate.
+ * `kind`/`unit` remain typed at the schema boundary; the charge math here is
+ * unit × quantity × nights for the supported per_night unit and price ×
+ * quantity for per_person. `superior_upgrade` is a regular enabled event
+ * option (€10/person/night for the included base nights); the only option
+ * key treated specially in this module is the derived night-before premium.
  *
  * Breakfast is always included and carries no charge. Zero rates are valid
  * (€0 prices stay €0 and simply produce no receipt line). Malformed,
@@ -37,6 +50,20 @@
 export const ACCOMMODATION_LINE_LABELS = {
   accommodation: "Accommodation",
 } as const
+
+/**
+ * The fixed €10/person/night premium applied to the one independent
+ * night-before line when the buyer chooses the Superior night-before level.
+ * The base night-before line is always priced at the Standard occupancy rate
+ * (resolved from the event's included-stay category rates); Superior adds
+ * exactly this premium for exactly one night. This constant is the canonical
+ * source for both the pure pricing engine and the server quote/catalog
+ * display rates, so the client never derives €100/€70 locally.
+ */
+export const NIGHT_BEFORE_SUPERIOR_PREMIUM_MINOR = 1000
+
+export const NIGHT_BEFORE_SUPERIOR_LINE_KEY = "night_before_superior"
+export const NIGHT_BEFORE_SUPERIOR_LINE_LABEL = "Night before · Superior"
 
 export type AccommodationOptionSelection = {
   optionKey: string
@@ -55,6 +82,14 @@ export type AccommodationSelectionInput = {
   categoryCode?: string | null
   occupancy?: string | null
   nightCount?: number | null
+  /**
+   * Simplified contract: the independent one-night stay before the event.
+   * `standard` charges one night at the Standard occupancy rate; `superior`
+   * adds the fixed €10 premium to that same one-night line. Omitted/null
+   * means no night-before stay. This never changes the included-stay
+   * category, and the included-stay Superior upgrade never implies it.
+   */
+  nightBeforeLevel?: "standard" | "superior" | null
   /** Data-driven option selections (optionKey + quantity + nights). */
   optionSelections?: AccommodationOptionSelection[] | null
 }
@@ -217,7 +252,10 @@ export function buildAccommodationPriceSnapshot(input: {
     ? normalizeNights(pricing.eventBaseNights)
     : 0
 
-  const resolvedOptions = resolveSelectedOptions(selection, pricing)
+  const resolvedOptions = [
+    ...resolveSelectedOptions(selection, pricing),
+    ...resolveNightBeforePremium(selection),
+  ]
 
   return {
     baseRatePerNightMinor: normalizeMinorUnits(
@@ -234,6 +272,32 @@ export function buildAccommodationPriceSnapshot(input: {
       chargeMinor: deriveOptionChargeMinor(resolved),
     })),
   }
+}
+
+/**
+ * The derived Superior night-before premium line: exactly one night at the
+ * fixed €10 premium, only when the independent night-before level is
+ * `superior`. It is produced identically by the snapshot builder and the live
+ * derivation so confirmation persistence and live pricing can never disagree.
+ * The Standard night-before line itself is the base accommodation charge
+ * (one charged night at the Standard occupancy rate).
+ */
+function resolveNightBeforePremium(
+  selection: AccommodationSelectionInput
+): ResolvedSelectedOption[] {
+  if (selection.nightBeforeLevel !== "superior") {
+    return []
+  }
+  return [
+    {
+      optionKey: NIGHT_BEFORE_SUPERIOR_LINE_KEY,
+      label: NIGHT_BEFORE_SUPERIOR_LINE_LABEL,
+      pricePerUnitMinor: NIGHT_BEFORE_SUPERIOR_PREMIUM_MINOR,
+      quantity: 1,
+      nights: 1,
+      unit: "per_night",
+    },
+  ]
 }
 
 type ResolvedSelectedOption = {
@@ -396,8 +460,14 @@ export function deriveAccommodationAmount(input: {
     }
   } else {
     // Live resolution: price each selected option against the event-owned
-    // option set, ignoring any option that is no longer enabled.
-    for (const resolved of resolveSelectedOptions(selection, pricing)) {
+    // option set, ignoring any option that is no longer enabled, plus the
+    // derived Superior night-before premium line (a `superior` level adds the
+    // fixed €10 to the one-night line whose Standard-rate base charge is the
+    // accommodation line above).
+    for (const resolved of [
+      ...resolveSelectedOptions(selection, pricing),
+      ...resolveNightBeforePremium(selection),
+    ]) {
       const chargeMinor = deriveOptionChargeMinor(resolved)
       optionChargeMinor += chargeMinor
       if (chargeMinor > 0) {

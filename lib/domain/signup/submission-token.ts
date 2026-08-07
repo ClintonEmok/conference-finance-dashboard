@@ -75,14 +75,16 @@ export type SignupEnvelopeCanonicalInput = {
   }>
   accommodationSelections: Array<{
     attendeeKey: string
-    categoryId: string
+    categoryId?: string | null
     occupancy: "single" | "shared" | "family"
     optionSelections: Array<{
       optionKey: string
       quantity: number
       nights: number
     }>
-    /** Buyer-chosen total stay nights; omitted canonicalizes as null. */
+    /** Independent one-night night-before level; omitted canonicalizes as null. */
+    nightBeforeLevel?: "standard" | "superior" | null
+    /** Legacy buyer-chosen total stay nights; omitted canonicalizes as null. */
     nights?: number
   }>
 }
@@ -142,8 +144,18 @@ export function canonicalizeSignupEnvelope(
     accommodationSelections: input.accommodationSelections.map(
       (preference) => ({
         attendeeKey: normalizeRequiredString(preference.attendeeKey),
-        categoryId: normalizeRequiredString(String(preference.categoryId)),
+        // CR-09: the simplified contract never trusts a client category; an
+        // absent category canonicalizes as null (deterministic) and a
+        // supplied one is still covered by the digest so it cannot be
+        // swapped between quote and submission.
+        categoryId: preference.categoryId
+          ? normalizeRequiredString(String(preference.categoryId))
+          : null,
         occupancy: preference.occupancy,
+        // CR-09: the independent night-before level is part of the signed
+        // envelope, so a captured token can never have the level swapped
+        // without invalidating the digest.
+        nightBeforeLevel: preference.nightBeforeLevel ?? null,
         // CR-09: the buyer's night choice is part of the signed envelope, so
         // a captured token can never have nights swapped without invalidating
         // the digest. Omitted nights canonicalize as null (deterministic).

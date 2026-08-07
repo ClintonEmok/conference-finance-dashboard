@@ -75,7 +75,7 @@ const restorePayloadValidator = v.object({
   accommodationSelections: v.array(
     v.object({
       attendeeKey: v.string(),
-      categoryId: v.string(),
+      categoryId: v.optional(v.string()),
       occupancy: signupAccommodationOccupancyValidator,
       optionSelections: v.array(
         v.object({
@@ -83,6 +83,9 @@ const restorePayloadValidator = v.object({
           quantity: v.number(),
           nights: v.number(),
         })
+      ),
+      nightBeforeLevel: v.optional(
+        v.union(v.literal("standard"), v.literal("superior"))
       ),
       nights: v.optional(v.number()),
     })
@@ -210,13 +213,15 @@ async function buildRestorePayload(
   }>
   accommodationSelections: Array<{
     attendeeKey: string
-    categoryId: string
+    categoryId?: string
     occupancy: "single" | "shared" | "family"
     optionSelections: Array<{
       optionKey: string
       quantity: number
       nights: number
     }>
+    /** Independent one-night night-before level persisted on the row. */
+    nightBeforeLevel?: "standard" | "superior"
     /** Resolved selected total stay nights persisted on the order row. */
     nights?: number
   }>
@@ -312,15 +317,16 @@ async function buildRestorePayload(
     accommodationSelections: accommodationSelectionRows
       .map((row) => {
         const attendee = attendeeById.get(String(row.attendeeId))
-        if (!attendee || !row.categoryId || !row.occupancy) {
+        if (!attendee || !row.occupancy) {
           return null
         }
 
         return {
           attendeeKey: attendee.attendeeKey,
-          categoryId: String(row.categoryId),
+          categoryId: row.categoryId ? String(row.categoryId) : undefined,
           occupancy: row.occupancy,
           nights: row.nightCount,
+          nightBeforeLevel: row.nightBeforeLevel,
           optionSelections: (optionSelectionsBySelectionId.get(String(row._id)) ?? [])
             .sort((left, right) => left.sortOrder - right.sortOrder)
             .map((optionRow) => ({
@@ -395,9 +401,12 @@ export const submitSignupEnvelope = mutation({
       accommodationSelections: args.accommodationSelections.map(
         (preference) => ({
           attendeeKey: preference.attendeeKey,
-          categoryId: String(preference.categoryId),
+          categoryId: preference.categoryId
+            ? String(preference.categoryId)
+            : null,
           occupancy: preference.occupancy,
           optionSelections: preference.optionSelections,
+          nightBeforeLevel: preference.nightBeforeLevel ?? null,
           nights: preference.nights,
         })
       ),
@@ -662,6 +671,7 @@ export const submitSignupEnvelope = mutation({
       categoryId: Id<"accommodationCategories">
       occupancy: "single" | "shared" | "family"
       nightCount: number | null
+      nightBeforeLevel: "standard" | "superior" | null
       optionSelections: Array<{
         optionKey: string
         quantity: number
@@ -703,19 +713,20 @@ export const submitSignupEnvelope = mutation({
           "The selected ticket's room type is no longer available."
         )
       }
-      const ticketCategoryId = ticketEntitlement?.categoryId ?? null
 
       let resolved: ReturnType<typeof resolvePublicSignupSelection>
       try {
         resolved = resolvePublicSignupSelection({
           context: accommodationContext,
           selection: {
-            categoryId: String(preference.categoryId),
+            categoryId: preference.categoryId
+              ? String(preference.categoryId)
+              : null,
             occupancy: preference.occupancy,
             optionSelections: preference.optionSelections,
+            nightBeforeLevel: preference.nightBeforeLevel ?? null,
             nights: preference.nights,
           },
-          ticketCategoryId,
         })
       } catch (error) {
         const message =
@@ -729,7 +740,7 @@ export const submitSignupEnvelope = mutation({
       if (!resolved.categoryId || !resolved.occupancy) {
         throwSubmissionError(
           "SUBMISSION_CONFLICT",
-          "Accommodation preferences require a category and occupancy when the event offers configured accommodation."
+          "Accommodation preferences require an occupancy when the event offers configured accommodation."
         )
       }
 
@@ -737,6 +748,7 @@ export const submitSignupEnvelope = mutation({
         categoryId: resolved.categoryId as Id<"accommodationCategories">,
         occupancy: resolved.occupancy,
         nightCount: resolved.nightCount ?? null,
+        nightBeforeLevel: resolved.nightBeforeLevel,
         optionSelections: resolved.options,
       })
     }
@@ -905,14 +917,20 @@ export const submitSignupEnvelope = mutation({
       const selectionId = await ctx.db.insert("orderAccommodationSelections", {
         orderId: submissionId,
         attendeeId,
+        // The server-resolved included-stay category (Standard for the divine
+        // event) is persisted for admin allocation; the buyer never supplied
+        // it and never sees a physical room choice.
         categoryId: resolved.categoryId,
         occupancy: resolved.occupancy,
         checkInAt: eventConfig?.baseCheckInAt,
         checkOutAt: eventConfig?.baseCheckOutAt,
-        // The validated buyer-chosen total nights (defaulted to the base stay)
+        // The derived total nights (base, or base + 1 with a night-before)
         // are persisted so the canonical finance loader prices the charged
         // nights beyond any ticket-covered base nights exactly as quoted.
         nightCount: resolved.nightCount ?? undefined,
+        // The independent night-before level is persisted so the canonical
+        // loader can re-derive the Superior premium line exactly.
+        nightBeforeLevel: resolved.nightBeforeLevel ?? undefined,
       })
 
       // Persist one child row per selected option (optionKey + quantity +
@@ -1041,18 +1059,26 @@ export const submitSignupEnvelope = mutation({
           assignmentIntent: assignment.assignmentIntent,
         })),
         accommodationSelections: args.accommodationSelections.map(
-          (preference) => ({
-            attendeeKey: preference.attendeeKey,
-            categoryId: String(preference.categoryId),
-            occupancy: preference.occupancy,
-            // Restore the RESOLVED night count that was persisted (not the
-            // raw client value), so a replayed restore payload round-trips
-            // exactly what the order row holds.
-            nights:
-              resolvedAccommodationSelections.get(preference.attendeeKey)
-                ?.nightCount ?? undefined,
-            optionSelections: preference.optionSelections,
-          })
+          (preference) => {
+            const resolved = resolvedAccommodationSelections.get(
+              preference.attendeeKey
+            )
+            return {
+              attendeeKey: preference.attendeeKey,
+              categoryId: resolved
+                ? String(resolved.categoryId)
+                : preference.categoryId
+                  ? String(preference.categoryId)
+                  : undefined,
+              occupancy: preference.occupancy,
+              // Restore the RESOLVED night count that was persisted (not the
+              // raw client value), so a replayed restore payload round-trips
+              // exactly what the order row holds.
+              nights: resolved?.nightCount ?? undefined,
+              nightBeforeLevel: resolved?.nightBeforeLevel ?? undefined,
+              optionSelections: preference.optionSelections,
+            }
+          }
         ),
       },
     }

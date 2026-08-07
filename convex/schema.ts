@@ -262,6 +262,13 @@ export default defineSchema({
       checkInAt: v.optional(v.number()),
       checkOutAt: v.optional(v.number()),
       nightCount: v.optional(v.number()),
+      // Simplified contract: the independent one-night night-before level.
+      // `nightCount` on a new row is the derived total stay (base + 1 when a
+      // level is present); this field records which level was chosen so the
+      // canonical loader can re-derive the Superior premium line exactly.
+      nightBeforeLevel: v.optional(
+        v.union(v.literal("standard"), v.literal("superior"))
+      ),
       // Phase 44 confirmation contract (schema shape only): the
       // assignment-confirm flow atomically writes confirmedAt,
       // configVersion = eventAccommodationConfig.updatedAt, and the pure

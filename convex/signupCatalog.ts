@@ -6,9 +6,14 @@ import {
   ticketUnavailableReasonValidator,
   signupAccommodationOccupancyValidator,
   signupAccommodationOptionSelectionValidator,
+  signupAccommodationNightBeforeLevelValidator,
 } from "../lib/types/signup"
 import type { TicketUnavailableReason } from "../lib/types/signup"
-import { deriveAccommodationAmount } from "../lib/domain/finance/accommodation-amounts"
+import {
+  deriveAccommodationAmount,
+  NIGHT_BEFORE_SUPERIOR_PREMIUM_MINOR,
+  type AccommodationOptionSelection,
+} from "../lib/domain/finance/accommodation-amounts"
 
 const PUBLIC_EVENT_LIMIT = 50
 const EVENT_TICKET_LIMIT = 100
@@ -18,12 +23,12 @@ const EVENT_RATE_LIMIT = 200
 const EVENT_OPTION_LIMIT = 100
 
 /**
- * Bounded per-attendee extended-stay allowance shared by the public quote and
- * the submission mutation: a buyer may select at most the configured base
- * night count plus this many extra nights. The UI mirrors this as a UI-only
- * stepper maximum; the server stays authoritative.
+ * The event option key of the included-stay Superior upgrade add-on. It is a
+ * regular enabled event option (€10/person/night for exactly the configured
+ * included base nights) and is never an authority field — the server enforces
+ * the quantity/nights shape for this key.
  */
-export const MAX_EXTENDED_STAY_EXTRA_NIGHTS = 7
+export const SUPERIOR_UPGRADE_OPTION_KEY = "superior_upgrade"
 
 const categoryCodeValidator = v.union(
   v.literal("standard"),
@@ -56,9 +61,23 @@ const publicSignupAccommodationConfigValidator = v.object({
   baseCheckOutAt: v.number(),
   nightCount: v.number(),
   breakfastIncluded: v.boolean(),
-  allowExtendedStayBefore: v.boolean(),
-  allowExtendedStayAfter: v.boolean(),
-  allowExtendedStayBoth: v.boolean(),
+})
+
+/**
+ * Server-resolved night-before display rates (minor units per person for
+ * exactly one night), derived from the event's included-stay (Standard)
+ * category rates plus the fixed Superior premium. The client renders these
+ * copy-only; the server remains the charge authority.
+ */
+const publicSignupNightBeforeRatesValidator = v.object({
+  standard: v.object({
+    single: v.number(),
+    shared: v.number(),
+  }),
+  superior: v.object({
+    single: v.number(),
+    shared: v.number(),
+  }),
 })
 
 const publicSignupAccommodationRateValidator = v.object({
@@ -103,6 +122,9 @@ const publicSignupCatalogEventValidator = v.object({
     config: v.union(publicSignupAccommodationConfigValidator, v.null()),
     activeCategories: v.array(publicSignupActiveCategoryValidator),
     options: v.array(publicSignupOptionValidator),
+    // Server-resolved display rates for the independent night-before choice
+    // (copy only — the server stays the charge authority).
+    nightBefore: v.union(publicSignupNightBeforeRatesValidator, v.null()),
   }),
 })
 
@@ -119,9 +141,14 @@ const publicSignupReceiptLineValidator = v.object({
 const publicSignupQuoteAttendeeValidator = v.object({
   attendeeKey: v.string(),
   ticketTypeId: v.id("ticketTypes"),
+  // Legacy optional category input; the resolver rejects any value that does
+  // not match the server-resolved included-stay category.
   categoryId: v.optional(v.id("accommodationCategories")),
   occupancy: v.optional(occupancyValidator),
   optionSelections: v.array(signupAccommodationOptionSelectionValidator),
+  nightBeforeLevel: v.optional(signupAccommodationNightBeforeLevelValidator),
+  // Legacy optional total-nights input; the resolver only accepts the
+  // derived total (base, or base + 1 when a night-before level is present).
   nights: v.optional(v.number()),
 })
 
@@ -134,6 +161,7 @@ const publicSignupQuoteAttendeeResultValidator = v.object({
   categoryCode: v.optional(categoryCodeValidator),
   categoryLabel: v.optional(v.string()),
   occupancy: v.optional(occupancyValidator),
+  nightBeforeLevel: v.optional(signupAccommodationNightBeforeLevelValidator),
   accommodationIncluded: v.boolean(),
   baseNights: v.number(),
   accommodationTotalMinor: v.number(),
@@ -469,9 +497,9 @@ export async function loadPublicSignupAccommodationContext(
           baseCheckOutAt: configRow.baseCheckOutAt,
           nightCount: configRow.nightCount,
           breakfastIncluded: configRow.breakfastIncluded,
-          allowExtendedStayBefore: configRow.allowExtendedStayBefore,
-          allowExtendedStayAfter: configRow.allowExtendedStayAfter,
-          allowExtendedStayBoth: configRow.allowExtendedStayBoth,
+          defaultCategoryId: configRow.defaultCategoryId
+            ? String(configRow.defaultCategoryId)
+            : null,
         }
       : null,
     ratesByKey,
@@ -488,9 +516,8 @@ export type PublicSignupAccommodationContext = {
     baseCheckOutAt: number
     nightCount: number
     breakfastIncluded: boolean
-    allowExtendedStayBefore: boolean
-    allowExtendedStayAfter: boolean
-    allowExtendedStayBoth: boolean
+    /** Event-configured included-stay category id (stringified) or null. */
+    defaultCategoryId: string | null
   } | null
   ratesByKey: Map<string, number>
   categoryById: Map<string, { code: string; label: string }>
@@ -498,11 +525,112 @@ export type PublicSignupAccommodationContext = {
   optionsByKey: Map<string, { label: string; priceMinor: number }>
 }
 
+export type PublicSignupNightBeforeRates = {
+  standard: { single: number; shared: number }
+  superior: { single: number; shared: number }
+}
+
+/**
+ * Resolves the event's included-stay category for the simplified contract.
+ * The buyer never chooses a category; the server resolves it through the
+ * existing config/ticket fallback chain: the event's configured
+ * `defaultCategoryId` first (the divine event is configured to Standard),
+ * then the active category with code `standard`, then any remaining active
+ * category. Returns null when the event has no resolvable included-stay
+ * category (callers fail closed). Ticket `roomTypeId` metadata is untouched
+ * and remains admin-allocation-only — it never changes the buyer's included
+ * stay.
+ */
+export function resolveIncludedStayCategory(
+  context: PublicSignupAccommodationContext
+): {
+  categoryId: string
+  code: "standard" | "superior" | "family"
+  label: string
+} | null {
+  const preferredId = context.config?.defaultCategoryId
+  if (
+    preferredId &&
+    context.activeCategoryIds.has(preferredId) &&
+    context.categoryById.has(preferredId)
+  ) {
+    const category = context.categoryById.get(preferredId)!
+    return {
+      categoryId: preferredId,
+      code: (category.code === "standard" ||
+      category.code === "superior" ||
+      category.code === "family"
+        ? category.code
+        : "standard") as "standard" | "superior" | "family",
+      label: category.label,
+    }
+  }
+
+  for (const categoryId of context.activeCategoryIds) {
+    const category = context.categoryById.get(categoryId)
+    if (category?.code === "standard") {
+      return {
+        categoryId,
+        code: "standard",
+        label: category.label,
+      }
+    }
+  }
+
+  const fallbackId = Array.from(context.activeCategoryIds)[0]
+  if (fallbackId) {
+    const category = context.categoryById.get(fallbackId)
+    if (category) {
+      return {
+        categoryId: fallbackId,
+        code: (category.code === "standard" ||
+        category.code === "superior" ||
+        category.code === "family"
+          ? category.code
+          : "standard") as "standard" | "superior" | "family",
+        label: category.label,
+      }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Resolves the server-priced night-before display rates from the included
+ * (Standard) category's occupancy rates plus the fixed Superior premium.
+ * Returns null when the included-stay category is missing either the single
+ * or shared rate, so the client never fabricates €90/€60/€100/€70 locally.
+ */
+export function resolveNightBeforeDisplayRates(
+  context: PublicSignupAccommodationContext,
+  includedCategoryId: string | null
+): PublicSignupNightBeforeRates | null {
+  if (!includedCategoryId) {
+    return null
+  }
+  const singleRate = context.ratesByKey.get(`${includedCategoryId}:single`)
+  const sharedRate = context.ratesByKey.get(`${includedCategoryId}:shared`)
+  if (singleRate === undefined || sharedRate === undefined) {
+    return null
+  }
+  return {
+    standard: {
+      single: singleRate,
+      shared: sharedRate,
+    },
+    superior: {
+      single: singleRate + NIGHT_BEFORE_SUPERIOR_PREMIUM_MINOR,
+      shared: sharedRate + NIGHT_BEFORE_SUPERIOR_PREMIUM_MINOR,
+    },
+  }
+}
+
 export type PublicSignupSelectionResolved = {
   categoryId: string | null
   categoryCode: string | null
   categoryLabel: string | null
-  occupancy: "single" | "shared" | "family" | null
+  occupancy: "single" | "shared" | null
   baseRatePerNightMinor: number | null
   options: Array<{
     optionKey: string
@@ -513,8 +641,10 @@ export type PublicSignupSelectionResolved = {
   }>
   /** The configured base stay night count for the event. */
   baseNights: number | null
-  /** The selected total stay nights (buyer-chosen, defaulted to the base). */
+  /** The derived total stay nights (base, or base + 1 with a night before). */
   nightCount: number | null
+  /** The validated independent night-before level (null = none). */
+  nightBeforeLevel: "standard" | "superior" | null
   breakfastIncluded: boolean
 }
 
@@ -522,10 +652,23 @@ export type PublicSignupSelectionResolved = {
  * Validates one public signup accommodation preference against the event's
  * configuration and the attendee's ticket entitlement. Both the quote query
  * and the submission mutation resolve through this single rule set so the
- * browser can never become the authority for eligibility, dates, nights or
- * money. Throws a deterministic `QUOTE_INVALID:` error for stale/invalid
- * combinations; the submission mutation re-maps that marker to its structured
- * conflict error.
+ * browser can never become the authority for eligibility, dates, nights,
+ * night-before level, upgrade shape, or money. Throws a deterministic
+ * `QUOTE_INVALID:` error for stale/invalid combinations; the submission
+ * mutation re-maps that marker to its structured conflict error.
+ *
+ * Simplified contract rules:
+ * - The included-stay category is always server-resolved (`defaultCategoryId`
+ *   → code `standard` → first active). A supplied client `categoryId` is
+ *   legacy input accepted only when it matches the resolved category —
+ *   anything else is a category-dependent payload and is rejected.
+ * - Occupancy is required and limited to single/shared for new selections.
+ * - `nightBeforeLevel` is optional and must be a valid level; the derived
+ *   total night count is base (none) or base + 1 (any level).
+ * - A legacy `nights` value is accepted only when it equals the derived total.
+ * - Options must be enabled event options without duplicates; the
+ *   `superior_upgrade` upgrade is restricted to exactly one attendee and the
+ *   configured included base nights.
  */
 export function resolvePublicSignupSelection(input: {
   context: PublicSignupAccommodationContext
@@ -537,15 +680,11 @@ export function resolvePublicSignupSelection(input: {
       quantity: number
       nights: number
     }> | null
+    nightBeforeLevel?: "standard" | "superior" | null
     nights?: number | null
   }
-  /**
-   * The category of `ticketTypes.roomTypeId` for the attendee's ticket, or
-   * null when the ticket is unconstrained (any active event category).
-   */
-  ticketCategoryId: string | null
 }): PublicSignupSelectionResolved {
-  const { context, selection, ticketCategoryId } = input
+  const { context, selection } = input
   const optionSelections = Array.isArray(selection.optionSelections)
     ? selection.optionSelections
     : []
@@ -555,7 +694,8 @@ export function resolvePublicSignupSelection(input: {
       selection.categoryId ||
       selection.occupancy ||
       optionSelections.length > 0 ||
-      selection.nights !== undefined
+      selection.nightBeforeLevel != null ||
+      selection.nights != null
     ) {
       throw new Error(
         "QUOTE_INVALID: This event does not offer configured accommodation options."
@@ -570,68 +710,72 @@ export function resolvePublicSignupSelection(input: {
       options: [],
       baseNights: null,
       nightCount: null,
+      nightBeforeLevel: null,
       breakfastIncluded: false,
     }
   }
 
-  const categoryId = selection.categoryId ? String(selection.categoryId) : null
   const occupancy = selection.occupancy ?? null
+  if (!occupancy) {
+    throw new Error(
+      "QUOTE_INVALID: An occupancy is required when accommodation is configured."
+    )
+  }
+  if (occupancy !== "single" && occupancy !== "shared") {
+    throw new Error(
+      "QUOTE_INVALID: Only single and shared occupancy are offered for the included stay."
+    )
+  }
 
-  if (!categoryId || !occupancy) {
+  // The included-stay category is server-resolved; the client never chooses
+  // it. A legacy categoryId is accepted only when it matches the resolved
+  // category — any other value is a category-dependent payload.
+  const includedCategory = resolveIncludedStayCategory(context)
+  if (!includedCategory) {
     throw new Error(
-      "QUOTE_INVALID: A category and occupancy are required when accommodation is configured."
+      "QUOTE_INVALID: The included accommodation category is not configured for this event."
     )
   }
-  if (
-    occupancy !== "single" &&
-    occupancy !== "shared" &&
-    occupancy !== "family"
-  ) {
-    throw new Error("QUOTE_INVALID: Unknown accommodation occupancy.")
-  }
-  if (!context.activeCategoryIds.has(categoryId)) {
-    throw new Error(
-      "QUOTE_INVALID: The selected accommodation category is not offered for this event."
-    )
-  }
-  if (ticketCategoryId && ticketCategoryId !== categoryId) {
-    throw new Error(
-      "QUOTE_INVALID: The selected accommodation category is not allowed for this ticket."
-    )
+  if (selection.categoryId) {
+    const clientCategoryId = String(selection.categoryId)
+    if (clientCategoryId !== includedCategory.categoryId) {
+      throw new Error(
+        "QUOTE_INVALID: The included stay is offered as one room category; the selected category is not available."
+      )
+    }
   }
 
   const baseRatePerNightMinor = context.ratesByKey.get(
-    `${categoryId}:${occupancy}`
+    `${includedCategory.categoryId}:${occupancy}`
   )
   if (baseRatePerNightMinor === undefined) {
     throw new Error(
-      "QUOTE_INVALID: No rate is configured for the selected category and occupancy."
+      "QUOTE_INVALID: No rate is configured for the included category and occupancy."
     )
   }
 
-  const category = context.categoryById.get(categoryId)
-  if (!category) {
-    throw new Error(
-      "QUOTE_INVALID: The selected accommodation category is unknown."
-    )
-  }
-
-  // Buyer-chosen total stay nights. Omission means "use the configured base
-  // night count"; anything present must be a finite whole number at or above
-  // the base, may exceed the base only when the event's extended-stay policy
-  // is enabled, and is capped at the base plus the fixed extension allowance.
-  // The quote and the submission mutation share this single rule set, so the
-  // browser can never become the authority for night eligibility.
   const baseNights = context.config?.nightCount ?? 0
-  const selectedNights = normalizeSelectedNights(
-    selection.nights,
-    baseNights,
-    context
-  )
+
+  // Night-before level: optional, must be a valid level, and exactly one
+  // night (derived total = base + 1). A legacy `nights` value is only
+  // accepted when it agrees with the derived total.
+  const nightBeforeLevel = selection.nightBeforeLevel ?? null
+  const derivedTotalNights = baseNights + (nightBeforeLevel ? 1 : 0)
+  if (
+    selection.nights !== undefined &&
+    selection.nights !== null &&
+    selection.nights !== derivedTotalNights
+  ) {
+    throw new Error(
+      "QUOTE_INVALID: The selected total nights are not part of the simplified accommodation contract."
+    )
+  }
 
   // Every selected option must be a key in the event's enabled option set.
   // Unknown/disabled/duplicate keys fail closed; quantity and nights are
-  // normalized by the pricing engine.
+  // normalized by the pricing engine. The `superior_upgrade` included-stay
+  // upgrade is restricted to exactly one attendee for exactly the configured
+  // included base nights (arbitrary quantities/nights are rejected).
   const resolvedOptions: PublicSignupSelectionResolved["options"] = []
   const seenKeys = new Set<string>()
   for (const selected of optionSelections) {
@@ -647,77 +791,36 @@ export function resolvePublicSignupSelection(input: {
       )
     }
     seenKeys.add(selected.optionKey)
+    const quantity = Math.max(0, Math.floor(selected.quantity ?? 0))
+    const nights = Math.max(0, Math.floor(selected.nights ?? 0))
+    if (selected.optionKey === SUPERIOR_UPGRADE_OPTION_KEY) {
+      if (quantity !== 1 || nights !== baseNights) {
+        throw new Error(
+          "QUOTE_INVALID: The included-stay Superior upgrade applies to exactly one attendee for the included base nights."
+        )
+      }
+    }
     resolvedOptions.push({
       optionKey: selected.optionKey,
       label: option.label,
       pricePerUnitMinor: option.priceMinor,
-      quantity: Math.max(0, Math.floor(selected.quantity ?? 0)),
-      nights: Math.max(0, Math.floor(selected.nights ?? 0)),
+      quantity,
+      nights,
     })
   }
 
   return {
-    categoryId,
-    categoryCode: category.code,
-    categoryLabel: category.label,
-    occupancy: occupancy as "single" | "shared" | "family",
+    categoryId: includedCategory.categoryId,
+    categoryCode: includedCategory.code,
+    categoryLabel: includedCategory.label,
+    occupancy: occupancy as "single" | "shared",
     baseRatePerNightMinor,
     options: resolvedOptions,
     baseNights,
-    nightCount: selectedNights,
+    nightCount: derivedTotalNights,
+    nightBeforeLevel,
     breakfastIncluded: context.config?.breakfastIncluded ?? false,
   }
-}
-
-/**
- * Normalizes one buyer-supplied total nights value against the configured
- * base stay. Omitted values default to the base; present values must be a
- * finite whole number at or above the base, may exceed the base only when an
- * extended-stay flag is enabled, and are capped at the base plus the bounded
- * extension allowance. Throws a deterministic `QUOTE_INVALID:` error for
- * fractional, below-base, disallowed, and over-cap values so quote and
- * submission reject the same invalid requests.
- */
-function normalizeSelectedNights(
-  value: number | null | undefined,
-  baseNights: number,
-  context: PublicSignupAccommodationContext
-): number {
-  if (value === undefined || value === null) {
-    return baseNights
-  }
-
-  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)) {
-    throw new Error(
-      "QUOTE_INVALID: The selected accommodation nights must be a whole number."
-    )
-  }
-  if (value < baseNights) {
-    throw new Error(
-      `QUOTE_INVALID: The selected accommodation nights cannot be fewer than the ${baseNights}-night base stay.`
-    )
-  }
-
-  const maximumNights = baseNights + MAX_EXTENDED_STAY_EXTRA_NIGHTS
-  if (value > maximumNights) {
-    throw new Error(
-      `QUOTE_INVALID: The selected accommodation nights exceed the allowed maximum of ${maximumNights} nights.`
-    )
-  }
-
-  if (value > baseNights) {
-    const extendedAllowed =
-      context.config?.allowExtendedStayBefore === true ||
-      context.config?.allowExtendedStayAfter === true ||
-      context.config?.allowExtendedStayBoth === true
-    if (!extendedAllowed) {
-      throw new Error(
-        "QUOTE_INVALID: This event does not permit an extended stay beyond the base nights."
-      )
-    }
-  }
-
-  return value
 }
 
 /**
@@ -962,6 +1065,32 @@ export const getPublicSignupCatalog = query({
           )
         }
 
+        // Server-resolved night-before display rates from the included
+        // (Standard) category occupancy rates plus the fixed Superior
+        // premium. Copy only — the charge authority stays server-side.
+        const includedCategory = hasConfiguredChoices
+          ? resolveIncludedStayCategory(accommodationContract)
+          : null
+        const nightBefore = hasConfiguredChoices
+          ? resolveNightBeforeDisplayRates(
+              accommodationContract,
+              includedCategory?.categoryId ?? null
+            )
+          : null
+
+        // The public config contract exposes only the four buyer-facing stay
+        // fields; the internal defaultCategoryId is never surfaced.
+        const publicConfig =
+          hasConfiguredChoices && accommodationContract.config
+            ? {
+                baseCheckInAt: accommodationContract.config.baseCheckInAt,
+                baseCheckOutAt: accommodationContract.config.baseCheckOutAt,
+                nightCount: accommodationContract.config.nightCount,
+                breakfastIncluded:
+                  accommodationContract.config.breakfastIncluded,
+              }
+            : null
+
         return {
           eventId: event._id,
           slug: event.slug,
@@ -980,9 +1109,10 @@ export const getPublicSignupCatalog = query({
           tickets,
           accommodation: {
             ...accommodation,
-            config: hasConfiguredChoices ? accommodationContract.config : null,
+            config: publicConfig,
             activeCategories,
             options,
+            nightBefore,
           },
         }
       })
@@ -1105,7 +1235,6 @@ export const getPublicSignupAccommodationQuote = query({
           "QUOTE_INVALID: The selected ticket's room type is no longer available."
         )
       }
-      const ticketCategoryId = ticketEntitlement?.categoryId ?? null
 
       const resolved = resolvePublicSignupSelection({
         context,
@@ -1115,16 +1244,17 @@ export const getPublicSignupAccommodationQuote = query({
             : null,
           occupancy: attendee.occupancy ?? null,
           optionSelections: attendee.optionSelections,
+          nightBeforeLevel: attendee.nightBeforeLevel ?? null,
           nights: attendee.nights,
         },
-        ticketCategoryId,
       })
 
-      // The buyer's selected total nights (defaulted to the configured base)
-      // drive the charge: `deriveAccommodationAmount` prices the selected
-      // total nights against the ticket-covered base nights, so an
-      // included-ticket attendee selecting one extra night is charged exactly
-      // one server-priced night.
+      // The server-derived total nights (base, or base + 1 with a
+      // night-before) drive the charge: `deriveAccommodationAmount` prices
+      // the selected total nights against the ticket-covered base nights, so
+      // an included-ticket attendee with a night-before is charged exactly
+      // one server-priced night (plus the fixed Superior premium line when
+      // the level is `superior`).
       const nightCount = resolved.nightCount ?? 0
       const eventBaseNights = resolved.baseNights ?? 0
       const result = deriveAccommodationAmount({
@@ -1133,6 +1263,7 @@ export const getPublicSignupAccommodationQuote = query({
           categoryCode: resolved.categoryCode,
           occupancy: resolved.occupancy,
           nightCount,
+          nightBeforeLevel: resolved.nightBeforeLevel,
           optionSelections: resolved.options,
         },
         pricing: {
@@ -1166,6 +1297,7 @@ export const getPublicSignupAccommodationQuote = query({
           : undefined,
         categoryLabel: resolved.categoryLabel ?? undefined,
         occupancy: resolved.occupancy ?? undefined,
+        nightBeforeLevel: resolved.nightBeforeLevel ?? undefined,
         accommodationIncluded: ticket.accommodationIncluded === true,
         baseNights: eventBaseNights,
         accommodationTotalMinor: result.totalMinor,

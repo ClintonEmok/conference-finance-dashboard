@@ -12,15 +12,21 @@ import { parseTrackPaymentEditGuardError } from "@/lib/types/track-payment"
 
 type EditOccupancy = "single" | "shared" | "family"
 
+type EditNightBeforeLevel = "standard" | "superior"
+
 /**
  * One parsed options-only preference. Only these fields are ever forwarded
  * to Convex — any client amount, stay date/night, room/slot, or snapshot
- * field is rejected before this shape is built.
+ * field is rejected before this shape is built. `categoryId` remains
+ * optional legacy input that the server rejects when it does not match the
+ * resolved included-stay category; the simplified contract never requires
+ * it from the client.
  */
 type ParsedEditSelection = {
   attendeeKey: string
   categoryId?: Id<"accommodationCategories">
   occupancy?: EditOccupancy
+  nightBeforeLevel?: EditNightBeforeLevel
   optionSelections: Array<{
     optionKey: string
     quantity: number
@@ -266,6 +272,11 @@ export async function POST(
     )
       ? (selectionRecord.occupancy as EditOccupancy)
       : undefined
+    const nightBeforeValue = selectionRecord.nightBeforeLevel
+    const nightBeforeLevel =
+      nightBeforeValue === "standard" || nightBeforeValue === "superior"
+        ? (nightBeforeValue as EditNightBeforeLevel)
+        : undefined
     const categoryIdValue = selectionRecord.categoryId
     const categoryId =
       typeof categoryIdValue === "string" && categoryIdValue.trim()
@@ -276,6 +287,7 @@ export async function POST(
       attendeeKey: selectionRecord.attendeeKey.trim(),
       categoryId,
       occupancy,
+      nightBeforeLevel,
       optionSelections,
     })
   }

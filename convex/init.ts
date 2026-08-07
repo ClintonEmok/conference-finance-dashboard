@@ -57,6 +57,14 @@ const OPTIONS: OptionSeed[] = [
     kind: "addon",
     unit: "per_night",
   },
+  {
+    code: "superior_upgrade",
+    label: "Superior upgrade",
+    description:
+      "Upgrade the included stay to Superior rooms, charged per person per night for exactly the included base nights.",
+    kind: "upgrade",
+    unit: "per_night",
+  },
 ]
 
 const ROOM_TYPES: RoomTypeSeed[] = [
@@ -175,9 +183,10 @@ export default internalMutation({
       }
     }
 
-    // 2. Reusable catalog: options. The only seeded option is the cot. The
-    //    obsolete `superior_upgrade` option is removed below (v6: superior is
-    //    a rate category, not an option).
+    // 2. Reusable catalog: options. The seeded options are the cot and the
+    //    `superior_upgrade` included-stay upgrade. Both are regular catalog
+    //    options that events enable/price per-event; the seed only guarantees
+    //    the reusable definitions exist.
     const optionIdByCode = new Map<string, Id<"accommodationOptions">>()
     for (const option of OPTIONS) {
       const existing = existingOptionByCode.get(option.code)
@@ -225,52 +234,13 @@ export default internalMutation({
 
     // 4. Reconciliation of data from the pre-v6 model. This seed does not
     //    configure any event's accommodation (accommodation is optional and
-    //    event-owned). Re-running the seed removes rows that the v6 prune made
-    //    obsolete, so a deployment that previously ran the old seed converges
-    //    to the clean catalog:
-    //    - `superior_upgrade` catalog option and any event options referencing
-    //      it (v6: superior is a rate category, never an option).
-    //    - the legacy `eligibilityAgeBandCode` field on event options (the
-    //      age-band model was removed).
-    //    Existing orders, selections, snapshots, payments, assignments, and the
+    //    event-owned). Re-running the seed only clears the legacy
+    //    `eligibilityAgeBandCode` field on event options (the age-band model
+    //    was removed). The `superior_upgrade` catalog option is now part of
+    //    the simplified contract and is retained — never pruned. Existing
+    //    orders, selections, snapshots, payments, assignments, and the
     //    existing event's stay/rates/resources are never touched.
-    let removedSuperiorUpgradeCatalog = 0
-    let removedSuperiorUpgradeEventOptions = 0
     let clearedEligibilityAgeBand = 0
-
-    const superiorUpgradeOptionId = optionRows.find(
-      (option) => option.code === "superior_upgrade"
-    )?._id
-
-    // Read the full event-option set once; event options are few per event and
-    // the whole set is small enough for bounded iteration.
-    const eventOptionRows: Array<{
-      _id: Id<"eventAccommodationOptions">
-      optionId: Id<"accommodationOptions">
-    }> = []
-    for await (const row of ctx.db.query("eventAccommodationOptions")) {
-      eventOptionRows.push({
-        _id: row._id,
-        optionId: row.optionId,
-      })
-    }
-
-    // Remove event options referencing the obsolete option first (child
-    // references before the catalog row).
-    for (const eventOption of eventOptionRows) {
-      if (
-        superiorUpgradeOptionId !== undefined &&
-        String(eventOption.optionId) === String(superiorUpgradeOptionId)
-      ) {
-        await ctx.db.delete("eventAccommodationOptions", eventOption._id)
-        removedSuperiorUpgradeEventOptions += 1
-      }
-    }
-
-    if (superiorUpgradeOptionId !== undefined) {
-      await ctx.db.delete("accommodationOptions", superiorUpgradeOptionId)
-      removedSuperiorUpgradeCatalog += 1
-    }
 
     for await (const eventOption of ctx.db.query("eventAccommodationOptions")) {
       const legacy = eventOption as unknown as Record<string, unknown>
@@ -289,8 +259,8 @@ export default internalMutation({
       categories: CATEGORIES.length,
       options: OPTIONS.length,
       roomTypes: ROOM_TYPES.length,
-      removedSuperiorUpgradeCatalog,
-      removedSuperiorUpgradeEventOptions,
+      removedSuperiorUpgradeCatalog: 0,
+      removedSuperiorUpgradeEventOptions: 0,
       clearedEligibilityAgeBand,
     }
   },

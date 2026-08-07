@@ -51,6 +51,7 @@ type OrderAccommodationSelectionDoc = {
   upgradeSelected?: boolean | null
   cotSelected?: boolean | null
   nightCount?: number | null
+  nightBeforeLevel?: "standard" | "superior" | null
   confirmedAt?: number | null
   configVersion?: number | null
   priceSnapshot?: AccommodationPriceSnapshot | null
@@ -503,6 +504,7 @@ export async function loadOrderAmountDueBreakdowns(
           categoryCode,
           occupancy: row.occupancy,
           nightCount: row.nightCount,
+          nightBeforeLevel: row.nightBeforeLevel ?? null,
           optionSelections: optionSelectionsForPricing,
         },
         pricing: {

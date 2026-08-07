@@ -18,6 +18,7 @@ export function usePublicSignupCatalog() {
 export type PublicSignupQuoteAttendeeArg = {
   attendeeKey: string
   ticketTypeId: string
+  /** Legacy optional category input; the server resolves the included stay. */
   categoryId?: string
   occupancy?: "single" | "shared" | "family"
   optionSelections?: Array<{
@@ -25,7 +26,9 @@ export type PublicSignupQuoteAttendeeArg = {
     quantity: number
     nights: number
   }>
-  /** Buyer-chosen total stay nights; omitted = configured base night count. */
+  /** Independent one-night night-before level; omitted = no night before. */
+  nightBeforeLevel?: "standard" | "superior"
+  /** Legacy buyer-chosen total stay nights; omitted = configured base. */
   nights?: number
 }
 
@@ -55,6 +58,8 @@ export type PublicSignupAccommodationQuote = {
     categoryCode?: string
     categoryLabel?: string
     occupancy?: "single" | "shared" | "family"
+    /** Independent one-night night-before level (omitted = none). */
+    nightBeforeLevel?: "standard" | "superior"
     /** Whether the ticket price covers the event's base accommodation stay. */
     accommodationIncluded: boolean
     /** Event base-stay night count priced for this attendee. */
@@ -103,6 +108,9 @@ export function usePublicSignupAccommodationQuote(
                   }
                 : {}),
               ...(attendee.occupancy ? { occupancy: attendee.occupancy } : {}),
+              ...(attendee.nightBeforeLevel
+                ? { nightBeforeLevel: attendee.nightBeforeLevel }
+                : {}),
               ...(attendee.nights !== undefined
                 ? { nights: attendee.nights }
                 : {}),

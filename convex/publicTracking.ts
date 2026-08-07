@@ -7,6 +7,8 @@ import { isOrderAppliedPayment } from "../lib/domain/finance/amounts"
 import {
   loadPublicSignupAccommodationContext,
   resolvePublicSignupSelection,
+  resolveIncludedStayCategory,
+  resolveNightBeforeDisplayRates,
   resolveTicketCategoryById,
   type PublicSignupAccommodationContext,
 } from "./signupCatalog"
@@ -371,6 +373,9 @@ const editSelectionValidator = v.object({
   categoryId: v.optional(v.id("accommodationCategories")),
   occupancy: v.optional(editOccupancyValidator),
   optionSelections: v.array(signupAccommodationOptionSelectionValidator),
+  nightBeforeLevel: v.optional(
+    v.union(v.literal("standard"), v.literal("superior"))
+  ),
 })
 
 /**
@@ -403,6 +408,10 @@ function buildEditChoices(
     label: string
     priceMinor: number
   }>
+  nightBefore: {
+    standard: { single: number; shared: number }
+    superior: { single: number; shared: number }
+  } | null
 } {
   const hasConfiguredChoices = context.hasConfiguredAccommodation
 
@@ -458,6 +467,14 @@ function buildEditChoices(
       : null,
     activeCategories,
     options,
+    // Server-resolved night-before display rates (copy only) so the manage
+    // editor renders the same independent choice as the signup surface.
+    nightBefore: hasConfiguredChoices
+      ? resolveNightBeforeDisplayRates(
+          context,
+          resolveIncludedStayCategory(context)?.categoryId ?? null
+        )
+      : null,
   }
 }
 
@@ -548,6 +565,9 @@ export const getTrackPaymentEditContext = query({
           categoryId: v.optional(v.id("accommodationCategories")),
           occupancy: v.optional(editOccupancyValidator),
           optionSelections: v.array(signupAccommodationOptionSelectionValidator),
+          nightBeforeLevel: v.optional(
+            v.union(v.literal("standard"), v.literal("superior"))
+          ),
           confirmed: v.boolean(),
         })
       ),
@@ -556,6 +576,13 @@ export const getTrackPaymentEditContext = query({
         config: v.union(editAccommodationConfigValidator, v.null()),
         activeCategories: v.array(editChoiceCategoryValidator),
         options: v.array(editChoiceOptionValidator),
+        nightBefore: v.union(
+          v.null(),
+          v.object({
+            standard: v.object({ single: v.number(), shared: v.number() }),
+            superior: v.object({ single: v.number(), shared: v.number() }),
+          })
+        ),
       }),
     })
   ),
@@ -669,6 +696,7 @@ export const getTrackPaymentEditContext = query({
               : (ticketEntitlement.categoryId as Id<"accommodationCategories">),
           categoryId: row.categoryId ?? undefined,
           occupancy: row.occupancy ?? undefined,
+          nightBeforeLevel: row.nightBeforeLevel ?? undefined,
           optionSelections: (optionSelectionsBySelectionId.get(String(row._id)) ?? [])
             .sort((left, right) => left.optionKey.localeCompare(right.optionKey))
             .map((optionSelection) => ({
@@ -958,6 +986,8 @@ export const updateAccommodation = mutation({
       {
         categoryId: string
         occupancy: "single" | "shared" | "family"
+        nightCount: number | null
+        nightBeforeLevel: "standard" | "superior" | null
         optionSelections: Array<{
           optionKey: string
           quantity: number
@@ -1001,8 +1031,9 @@ export const updateAccommodation = mutation({
               : null,
             occupancy: preference.occupancy ?? null,
             optionSelections: preference.optionSelections,
+            nightBeforeLevel: preference.nightBeforeLevel ?? null,
+            nights: undefined,
           },
-          ticketCategoryId,
         })
       } catch (error) {
         const message =
@@ -1018,13 +1049,15 @@ export const updateAccommodation = mutation({
       if (!resolved.categoryId || !resolved.occupancy) {
         throwEditError(
           "EDIT_INVALID",
-          "A category and occupancy are required when the event offers configured accommodation."
+          "An occupancy is required when the event offers configured accommodation."
         )
       }
 
       resolvedByAttendeeKey.set(attendeeKey, {
         categoryId: String(resolved.categoryId),
         occupancy: resolved.occupancy,
+        nightCount: resolved.nightCount ?? null,
+        nightBeforeLevel: resolved.nightBeforeLevel,
         optionSelections: resolved.options,
       })
     }
@@ -1057,6 +1090,7 @@ export const updateAccommodation = mutation({
           attendeeKeyById.get(String(row.attendeeId)) ?? String(row.attendeeId),
         categoryId: row.categoryId ? String(row.categoryId) : null,
         occupancy: row.occupancy ?? null,
+        nightBeforeLevel: row.nightBeforeLevel ?? null,
         optionSelections:
           beforeOptionSelectionsBySelectionId.get(String(row._id)) ?? [],
       }))
@@ -1067,6 +1101,7 @@ export const updateAccommodation = mutation({
           attendeeKey,
           categoryId: resolved.categoryId,
           occupancy: resolved.occupancy,
+          nightBeforeLevel: resolved.nightBeforeLevel,
           optionSelections: resolved.optionSelections,
         })
       )
@@ -1105,11 +1140,17 @@ export const updateAccommodation = mutation({
         )
       }
       await ctx.db.patch("orderAccommodationSelections", row._id, {
+        // The server-resolved included-stay category is persisted for admin
+        // allocation; the buyer never supplied it.
         categoryId: resolved.categoryId as Id<"accommodationCategories">,
         occupancy: resolved.occupancy,
         checkInAt: context.config?.baseCheckInAt,
         checkOutAt: context.config?.baseCheckOutAt,
-        nightCount: context.config?.nightCount,
+        // The derived total nights (base, or base + 1 with a night-before)
+        // plus the independent night-before level are persisted so the
+        // canonical loader re-derives the same lines as the quote.
+        nightCount: resolved.nightCount ?? context.config?.nightCount,
+        nightBeforeLevel: resolved.nightBeforeLevel ?? undefined,
       })
       for await (const optionRow of ctx.db
         .query("orderAccommodationOptionSelections")
