@@ -71,13 +71,14 @@ export type DataModel = {
   };
   accommodationHotels: {
     document: {
+      address?: string;
       city?: string;
       name: string;
       notes?: string;
       _id: Id<"accommodationHotels">;
       _creationTime: number;
     };
-    fieldPaths: "_creationTime" | "_id" | "city" | "name" | "notes";
+    fieldPaths: "_creationTime" | "_id" | "address" | "city" | "name" | "notes";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];

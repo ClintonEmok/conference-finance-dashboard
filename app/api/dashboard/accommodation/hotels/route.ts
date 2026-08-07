@@ -48,10 +48,15 @@ export async function POST(request: Request) {
     return authResult
   }
 
-  let body: { name?: unknown; city?: unknown; notes?: unknown }
+  let body: { name?: unknown; city?: unknown; address?: unknown; notes?: unknown }
 
   try {
-    body = (await request.json()) as { name?: unknown; city?: unknown; notes?: unknown }
+    body = (await request.json()) as {
+      name?: unknown
+      city?: unknown
+      address?: unknown
+      notes?: unknown
+    }
   } catch {
     return badRequest("Request body must be valid JSON")
   }
@@ -60,6 +65,7 @@ export async function POST(request: Request) {
     const hotel = await createHotel({
       name: typeof body.name === "string" ? body.name : "",
       city: typeof body.city === "string" ? body.city : null,
+      address: typeof body.address === "string" ? body.address : null,
       notes: typeof body.notes === "string" ? body.notes : null,
     })
 

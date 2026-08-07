@@ -1041,6 +1041,7 @@ export const listAccommodationInventory = query({
         id: hotel._id,
         name: hotel.name,
         city: hotel.city ?? null,
+        address: hotel.address ?? null,
         notes: hotel.notes ?? null,
         roomCount: roomsByHotel[hotel._id]?.length ?? 0,
         assignedEventIds: eventHotelsByHotel[hotel._id] ?? [],
@@ -1145,6 +1146,7 @@ export const createHotel = mutation({
   args: {
     name: v.string(),
     city: v.optional(v.string()),
+    address: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -1704,6 +1706,7 @@ export const updateHotel = mutation({
     hotelId: v.string(),
     name: v.optional(v.string()),
     city: v.optional(v.string()),
+    address: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {

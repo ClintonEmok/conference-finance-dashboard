@@ -417,3 +417,125 @@ test("applySimplifiedDivineConferenceAccommodation is idempotent and leaves admi
   })
   expect(orders).toHaveLength(0)
 })
+
+test("applyKoningshofAccommodationInventory creates the hotel link and exact resource caps idempotently", async () => {
+  const t = fresh()
+  const eventId = await t.mutation(async (ctx) =>
+    await ctx.db.insert("events", {
+      slug: "divine-conference",
+      title: "Divine Conference",
+      startsAt: 1_750_000_000_000,
+      timezone: "Europe/Amsterdam",
+      currency: "EUR",
+      isPublished: true,
+      isSignupOpen: true,
+      accommodationEnabled: true,
+      primarySourceKind: "internal" as const,
+      updatedAt: 1_750_000_000_000,
+    })
+  )
+
+  const categoryIds = await t.mutation(async (ctx) => {
+    const categories = await Promise.all(
+      (["standard", "superior", "family"] as const).map((code, index) =>
+        ctx.db.insert("accommodationCategories", {
+          code,
+          label: code,
+          sortOrder: index,
+        })
+      )
+    )
+    return categories
+  })
+  const categoryByCode = new Map(
+    (["standard", "superior", "family"] as const).map((code, index) => [
+      code,
+      categoryIds[index],
+    ])
+  )
+
+  const roomResources = [
+    ["Standard Single", 1, 95, "standard"],
+    ["Standard Double King", 2, 61, "standard"],
+    ["Standard Double Queen", 2, 29, "standard"],
+    ["Standard Double Twin", 2, 60, "standard"],
+    ["Standard Twin (separate beds)", 2, 21, "standard"],
+    ["Superior Single", 1, 15, "superior"],
+    ["Superior Double King", 2, 33, "superior"],
+    ["Superior Double Twin", 2, 50, "superior"],
+    ["Family Room Double King", 3, 4, "family"],
+    ["Family Room Double Twin", 3, 6, "family"],
+  ] as const
+
+  await t.mutation(async (ctx) => {
+    for (const [label, defaultCapacity, count, categoryCode] of roomResources) {
+      await ctx.db.insert("accommodationRoomTypes", {
+        label,
+        defaultCapacity,
+        count,
+        categoryId: categoryByCode.get(categoryCode) as never,
+      })
+    }
+  })
+
+  const first = await t.mutation(
+    internal.applyKoningshofAccommodationInventory.default,
+    {}
+  )
+  expect(first).toMatchObject({
+    slug: "divine-conference",
+    hotelCreated: 1,
+    eventHotelLinked: 1,
+    roomResources: 10,
+    cotResourceCount: 10,
+    resourcesCreated: 11,
+  })
+
+  const hotel = await t.mutation(async (ctx) =>
+    await ctx.db
+      .query("accommodationHotels")
+      .withIndex("name", (q) =>
+        q.eq("name", "NH Eindhoven Conference Centre Koningshof")
+      )
+      .first()
+  )
+  expect(hotel).toMatchObject({
+    city: "Veldhoven",
+    address: "Locht 117, 5504 RM Veldhoven, Netherlands",
+  })
+
+  const resources = await t.mutation(async (ctx) =>
+    await ctx.db
+      .query("eventAccommodationResources")
+      .withIndex("by_eventId", (q) => q.eq("eventId", eventId as never))
+      .take(100)
+  )
+  expect(resources).toHaveLength(11)
+  expect(resources.filter((row) => row.kind === "cot")[0]?.count).toBe(10)
+  expect(
+    resources
+      .filter((row) => row.kind === "room")
+      .map((row) => row.count)
+      .sort((a, b) => a - b)
+  ).toEqual([4, 6, 15, 21, 29, 33, 50, 60, 61, 95])
+
+  const second = await t.mutation(
+    internal.applyKoningshofAccommodationInventory.default,
+    {}
+  )
+  expect(second).toMatchObject({
+    hotelCreated: 0,
+    hotelUpdated: 0,
+    eventHotelLinked: 0,
+    resourcesCreated: 0,
+    resourcesUpdated: 0,
+  })
+
+  const resourcesAfter = await t.mutation(async (ctx) =>
+    await ctx.db
+      .query("eventAccommodationResources")
+      .withIndex("by_eventId", (q) => q.eq("eventId", eventId as never))
+      .take(100)
+  )
+  expect(resourcesAfter).toHaveLength(11)
+})

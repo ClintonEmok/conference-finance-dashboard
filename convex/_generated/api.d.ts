@@ -80,7 +80,7 @@ export declare const api: {
     createHotel: FunctionReference<
       "mutation",
       "public",
-      { city?: string; name: string; notes?: string },
+      { address?: string; city?: string; name: string; notes?: string },
       any
     >;
     createRoom: FunctionReference<
@@ -284,7 +284,13 @@ export declare const api: {
     updateHotel: FunctionReference<
       "mutation",
       "public",
-      { city?: string; hotelId: string; name?: string; notes?: string },
+      {
+        address?: string;
+        city?: string;
+        hotelId: string;
+        name?: string;
+        notes?: string;
+      },
       any
     >;
     updateRoomLabel: FunctionReference<
@@ -2340,6 +2346,9 @@ export declare const internal: {
       },
       any
     >;
+  };
+  applyKoningshofAccommodationInventory: {
+    default: FunctionReference<"mutation", "internal", { slug?: string }, any>;
   };
   applySimplifiedDivineConferenceAccommodation: {
     default: FunctionReference<"mutation", "internal", { slug?: string }, any>;

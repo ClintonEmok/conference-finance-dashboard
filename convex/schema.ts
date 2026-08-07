@@ -494,6 +494,7 @@ export default defineSchema({
     v.object({
       name: v.string(),
       city: v.optional(v.string()),
+      address: v.optional(v.string()),
       notes: v.optional(v.string()),
     })
   ).index("name", ["name"]),
