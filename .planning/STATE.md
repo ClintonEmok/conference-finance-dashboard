@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Dynamic Event Accommodation
 status: planning
-last_updated: "2026-08-06T16:00:00.000Z"
-last_activity: 2026-08-06
+last_updated: "2026-08-07T08:50:00.000Z"
+last_activity: 2026-08-07
 progress:
   total_phases: 6
   completed_phases: 0
@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md`.
 Phase: 46 of 51 (Event-Owned Setup Schema, Generalized Pricing & Shared Contract) — planned, not started
 Plan: 5 plans in 5 sequential waves (46-01 through 46-05)
 Status: Phase 46 executable plans written — ready for execution
-Last activity: 2026-08-06 — Phase 46 plan set updated (5 plans, 5 waves, 21 owned requirements)
+Last activity: 2026-08-07 — Completed quick task 260807-ejn: buyer-facing optional extended night-before purchase
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -79,6 +79,12 @@ Progress: [░░░░░░░░░░] 0%
 - Repository-wide lint remains red from pre-existing findings (163 errors, 185 warnings); typecheck, tests, and production build pass.
 - Research MEDIUM-confidence target-state decisions remaining for later phases are flagged per phase and must be locked at plan time (template table, copy inventory mode, and later UI/integration choices), not assumed in implementation.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260807-ejn | Buyer-facing optional extended night-before accommodation purchase (per-attendee nights stepper, server-authoritative nights validation shared by quote + submission, review/sidebar display, full test matrix) | 2026-08-07 | 490ea43 | [260807-ejn-add-buyer-facing-optional-extended-night](./quick/260807-ejn-add-buyer-facing-optional-extended-night/) |
+
 ## Deferred Verification
 
 | Phase | State | Resume |
@@ -98,7 +104,7 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-08-06
-Last activity: Phase 46 plan set written — 5 dependency-ordered PLAN.md files, roadmap plan list, and state updated
+Last session: 2026-08-07
+Last activity: Completed quick task 260807-ejn: buyer-facing optional extended night-before purchase (server-authoritative nights validation, per-attendee stepper, review/sidebar display; 445/492/116 tests + tsc green)
 Stopped at: Phase 46 planning complete; implementation has not started
 Resume file: None (next: /gsd/execute-phase 46)
