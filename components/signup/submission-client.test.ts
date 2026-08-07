@@ -52,6 +52,8 @@ const draftFixture: SignupDraft = {
       categoryId: "cat_1",
       occupancy: "shared",
       optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
+      // Buyer-chosen total stay nights (base stay included).
+      nights: 3,
     },
     "ticket_1-2": {
       categoryId: "cat_1",
@@ -156,6 +158,7 @@ describe("signup-flow submission client", () => {
               attendeeKey: "ticket_1-1",
               categoryId: "cat_1",
               occupancy: "shared",
+              nights: 3,
               optionSelections: [
                 { optionKey: "cot", quantity: 1, nights: 2 },
               ],
@@ -182,6 +185,7 @@ describe("signup-flow submission client", () => {
         attendeeKey: "ticket_1-1",
         categoryId: "cat_1",
         occupancy: "shared",
+        nights: 3,
         optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
       },
       {
@@ -192,9 +196,15 @@ describe("signup-flow submission client", () => {
       },
     ])
 
-    // Negative assertions: no client amount, room, slot, date, night count,
-    // or stay field may leak into the accommodation preferences.
+    // The buyer-chosen nights survive serialization for the attendee that set
+    // them, and stay absent for the attendee that did not (the server then
+    // defaults to the configured base night count).
     const serialized = JSON.stringify(payload)
+    expect(serialized).toContain('"nights":3')
+
+    // Negative assertions: no client amount, room, slot, date, or stay-field
+    // may leak into the accommodation preferences — money and stay dates stay
+    // server-authoritative.
     expect(serialized).not.toMatch(/priceMinor/)
     expect(serialized).not.toMatch(/totalMinor|totalDue/)
     expect(serialized).not.toMatch(/slotId|roomId|roomType/)
@@ -210,6 +220,7 @@ describe("signup-flow submission client", () => {
           categoryId: "cat_1",
           occupancy: "shared",
           optionSelections: [],
+          nights: 3,
         },
         // ticket_1-2 has no selection at all.
       },
@@ -220,6 +231,7 @@ describe("signup-flow submission client", () => {
         attendeeKey: "ticket_1-1",
         categoryId: "cat_1",
         occupancy: "shared",
+        nights: 3,
         optionSelections: [],
       },
     ])

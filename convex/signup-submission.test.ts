@@ -194,6 +194,7 @@ async function envelopeDigest(envelope: {
       quantity: number
       nights: number
     }>
+    nights?: number
   }>
 }): Promise<string> {
   return digestSubmissionEnvelope({
@@ -214,6 +215,7 @@ async function envelopeDigest(envelope: {
         categoryId: String(preference.categoryId),
         occupancy: preference.occupancy,
         optionSelections: preference.optionSelections,
+        nights: preference.nights,
       })
     ),
   })
@@ -232,6 +234,7 @@ async function buildEnvelope(input: {
       quantity: number
       nights: number
     }>
+    nights?: number
   }>
   assignments?: Array<{
     attendeeKey: string
@@ -1480,6 +1483,208 @@ test("CR-10: a submission with two attendees sharing one ticket with one remaini
     t.mutation(api.signupSubmission.submitSignupEnvelope, envelope)
   ).rejects.toThrow("TICKET_UNAVAILABLE")
 
+  const orders = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId))
+      .take(10)
+  })
+  expect(orders).toHaveLength(0)
+})
+
+test("extended stay: a chosen extra night is validated, persisted, and restored", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  // Enable the night-before extension and add an accommodation-included
+  // ticket so the base 2-night stay is covered and one extra night is charged.
+  await t.mutation(api.accommodation.upsertEventAccommodationConfig, {
+    eventId: seed.eventId,
+    baseCheckInAt: BASE_EVENT_AT - 2 * DAY_MS,
+    baseCheckOutAt: BASE_EVENT_AT,
+    allowExtendedStayBefore: true,
+    allowExtendedStayAfter: false,
+    allowExtendedStayBoth: false,
+    breakfastIncluded: true,
+  })
+  const includedTicketId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("ticketTypes", {
+      eventId: seed.eventId as never,
+      label: "Included-stay ticket",
+      priceMinor: 2000,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      accommodationIncluded: true,
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+
+  const result = await t.mutation(
+    api.signupSubmission.submitSignupEnvelope,
+    await buildEnvelope({
+      eventId: seed.eventId,
+      ticketTypeId: includedTicketId as Id<"ticketTypes">,
+      accommodationSelections: [
+        {
+          attendeeKey: "attendee-1",
+          categoryId: seed.categoryStandardId,
+          occupancy: "shared",
+          optionSelections: [],
+          nights: 3,
+        },
+      ],
+    })
+  )
+
+  // The resolved selected night count is persisted on the order row.
+  const rows = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orderAccommodationSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", result.submissionId as never))
+      .take(10)
+  })
+  expect(rows).toHaveLength(1)
+  expect(rows[0]).toMatchObject({
+    categoryId: seed.categoryStandardId,
+    occupancy: "shared",
+    nightCount: 3,
+    checkInAt: BASE_EVENT_AT - 2 * DAY_MS,
+    checkOutAt: BASE_EVENT_AT,
+  })
+
+  // The restore payload round-trips the selected nights.
+  expect(result.restorePayload.accommodationSelections).toEqual([
+    {
+      attendeeKey: "attendee-1",
+      categoryId: String(seed.categoryStandardId),
+      occupancy: "shared",
+      nights: 3,
+      optionSelections: [],
+    },
+  ])
+
+  // The canonical loader prices only the charged night beyond the covered
+  // base: ticket €20 + 1 extra night × €30 = €50.
+  const breakdown = await t.query(async (ctx) => {
+    const loaderCtx =
+      ctx as unknown as Parameters<typeof loadOrderAmountDueBreakdowns>[0]
+    const breakdowns = await loadOrderAmountDueBreakdowns(loaderCtx, [
+      { _id: result.submissionId as never },
+    ])
+    const row = breakdowns.get(String(result.submissionId))
+    if (!row) return null
+    return {
+      amountDueMinor: row.amountDueMinor,
+      accommodationLines: row.accommodationLines,
+    }
+  })
+  expect(breakdown?.amountDueMinor).toBe(5000)
+  expect(breakdown?.accommodationLines).toEqual([
+    {
+      kind: "accommodation",
+      label: "Accommodation",
+      nights: 1,
+      ratePerNightMinor: 3000,
+      chargeMinor: 3000,
+    },
+  ])
+})
+
+test("extended stay: below-base, fractional, over-cap, and disabled nights are rejected by submission", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  await t.mutation(api.accommodation.upsertEventAccommodationConfig, {
+    eventId: seed.eventId,
+    baseCheckInAt: BASE_EVENT_AT - 2 * DAY_MS,
+    baseCheckOutAt: BASE_EVENT_AT,
+    allowExtendedStayBefore: true,
+    allowExtendedStayAfter: false,
+    allowExtendedStayBoth: false,
+    breakfastIncluded: true,
+  })
+  const includedTicketId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("ticketTypes", {
+      eventId: seed.eventId as never,
+      label: "Included-stay ticket",
+      priceMinor: 2000,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      accommodationIncluded: true,
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+
+  const preferenceFor = (nights: number) => ({
+    attendeeKey: "attendee-1",
+    categoryId: seed.categoryStandardId,
+    occupancy: "shared" as const,
+    optionSelections: [],
+    nights,
+  })
+
+  // Below the configured base fails.
+  await expect(
+    t.mutation(
+      api.signupSubmission.submitSignupEnvelope,
+      await buildEnvelope({
+        eventId: seed.eventId,
+        ticketTypeId: includedTicketId as Id<"ticketTypes">,
+        accommodationSelections: [preferenceFor(1)],
+      })
+    )
+  ).rejects.toThrow("SUBMISSION_CONFLICT")
+
+  // Fractional nights fail — only finite whole numbers are accepted.
+  await expect(
+    t.mutation(
+      api.signupSubmission.submitSignupEnvelope,
+      await buildEnvelope({
+        eventId: seed.eventId,
+        ticketTypeId: includedTicketId as Id<"ticketTypes">,
+        accommodationSelections: [preferenceFor(2.5)],
+      })
+    )
+  ).rejects.toThrow("SUBMISSION_CONFLICT")
+
+  // Over the bounded allowance (base 2 + 7 extra = 9) fails.
+  await expect(
+    t.mutation(
+      api.signupSubmission.submitSignupEnvelope,
+      await buildEnvelope({
+        eventId: seed.eventId,
+        ticketTypeId: includedTicketId as Id<"ticketTypes">,
+        accommodationSelections: [preferenceFor(10)],
+      })
+    )
+  ).rejects.toThrow("SUBMISSION_CONFLICT")
+
+  // No extension flag enabled: the seeded event has all flags false, so an
+  // extra night is rejected with the same rule set as the quote.
+  const disabledEvent = fresh().withIdentity(adminIdentity)
+  const disabledSeed = await createConfiguredEvent(disabledEvent)
+  await expect(
+    disabledEvent.mutation(
+      api.signupSubmission.submitSignupEnvelope,
+      await buildEnvelope({
+        eventId: disabledSeed.eventId,
+        ticketTypeId: disabledSeed.unconstrainedTicketId,
+        accommodationSelections: [
+          {
+            attendeeKey: "attendee-1",
+            categoryId: disabledSeed.categoryStandardId,
+            occupancy: "shared",
+            optionSelections: [],
+            nights: 3,
+          },
+        ],
+      })
+    )
+  ).rejects.toThrow("SUBMISSION_CONFLICT")
+
+  // Nothing was persisted for any rejected submission on the extended event.
   const orders = await t.query(async (ctx) => {
     return await ctx.db
       .query("orders")

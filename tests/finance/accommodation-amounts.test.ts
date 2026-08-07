@@ -69,6 +69,33 @@ describe("accommodation amounts - locked pricing formula", () => {
     ])
   })
 
+  it("charges exactly max(0, selectedTotalNights - coveredBaseNights) for an extended stay", () => {
+    // Included ticket + event base 2: the extended-stay choice is expressed
+    // as total nights, and only the charged nights beyond the covered base
+    // are priced (one extra night and two extra nights).
+    const oneExtra = deriveAccommodationAmount({
+      selection: { ...BASE_SELECTION, nightCount: 3 },
+      pricing: { ...BASE_PRICING, ticketAccommodationIncluded: true },
+    })
+    expect(oneExtra.totalMinor).toBe(3000) // max(0, 3 − 2) × €30
+    expect(oneExtra.lines[0]).toMatchObject({ nights: 1, chargeMinor: 3000 })
+
+    const twoExtra = deriveAccommodationAmount({
+      selection: { ...BASE_SELECTION, nightCount: 4 },
+      pricing: { ...BASE_PRICING, ticketAccommodationIncluded: true },
+    })
+    expect(twoExtra.totalMinor).toBe(6000) // max(0, 4 − 2) × €30
+    expect(twoExtra.lines[0]).toMatchObject({ nights: 2, chargeMinor: 6000 })
+
+    // Selecting exactly the covered base contributes €0 with no line.
+    const baseOnly = deriveAccommodationAmount({
+      selection: BASE_SELECTION,
+      pricing: { ...BASE_PRICING, ticketAccommodationIncluded: true },
+    })
+    expect(baseOnly.totalMinor).toBe(0) // max(0, 2 − 2) × €30
+    expect(baseOnly.lines).toEqual([])
+  })
+
   it("charges nothing for a stay shorter than the covered nights", () => {
     const result = deriveAccommodationAmount({
       selection: { ...BASE_SELECTION, nightCount: 1 },

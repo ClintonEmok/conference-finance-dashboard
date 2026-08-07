@@ -241,6 +241,45 @@ describe("signup submission envelope digest (CR-09)", () => {
     expect(changedSelection).not.toBe(baseline)
   })
 
+  it("changes when the buyer-chosen accommodation nights change", async () => {
+    const selectionWithoutNights = {
+      ...canonicalInput,
+      accommodationSelections: [
+        {
+          attendeeKey: "a-1",
+          categoryId: "cat_1",
+          occupancy: "shared" as const,
+          optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
+        },
+      ],
+    }
+    const baseline = await digestSubmissionEnvelope(selectionWithoutNights)
+    const withNights = await digestSubmissionEnvelope({
+      ...selectionWithoutNights,
+      accommodationSelections: [
+        {
+          ...selectionWithoutNights.accommodationSelections[0],
+          nights: 3,
+        },
+      ],
+    })
+    const withDifferentNights = await digestSubmissionEnvelope({
+      ...selectionWithoutNights,
+      accommodationSelections: [
+        {
+          ...selectionWithoutNights.accommodationSelections[0],
+          nights: 4,
+        },
+      ],
+    })
+
+    // CR-09: a captured token must never be replayable with a swapped night
+    // count, so the digest covers the nights field.
+    expect(withNights).not.toBe(baseline)
+    expect(withDifferentNights).not.toBe(baseline)
+    expect(withNights).not.toBe(withDifferentNights)
+  })
+
   it("normalizes optional and required strings before hashing", async () => {
     const trimmed = await digestSubmissionEnvelope({
       ...canonicalInput,
