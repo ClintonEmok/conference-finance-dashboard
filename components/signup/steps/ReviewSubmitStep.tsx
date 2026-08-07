@@ -160,11 +160,11 @@ function QuoteContent({
                           <p className="break-words font-medium text-foreground">
                             {/* The server receipt line is the authority: an
                                 accommodation line for an included ticket is
-                                the charged extended-stay portion beyond the
+                                the charged night-before portion beyond the
                                 base nights shown above. */}
                             {line.kind === "accommodation" &&
                             attendee.accommodationIncluded
-                              ? "Extended stay"
+                              ? "Night before"
                               : line.label}
                           </p>
                           <p className="text-xs text-muted-foreground">
@@ -175,7 +175,7 @@ function QuoteContent({
                               : ""}
                             {line.kind === "accommodation" &&
                             attendee.accommodationIncluded
-                              ? " · additional stay beyond your included nights"
+                              ? " · night before the event"
                               : ""}
                           </p>
                         </div>

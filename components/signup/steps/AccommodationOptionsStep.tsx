@@ -332,7 +332,7 @@ export function AccommodationOptionsStep({
                       <span className="block text-sm font-medium text-foreground">
                         Add-ons
                       </span>
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <div className="grid gap-3">
                         {event.accommodation.options.map((option) => {
                           const selectedOption = current.optionSelections.find(
                             (optionSelection) =>
@@ -475,7 +475,14 @@ export function AccommodationOptionsStep({
                   eventPermitsExtendedStay(event) ? (
                     <ExtendedStayPicker
                       attendeeName={attendee.name || `attendee ${index + 1}`}
-                      baseNights={event.accommodation.config.nightCount}
+                      config={event.accommodation.config}
+                      timezone={event.timezone}
+                      currency={event.currency}
+                      ratePerNightMinor={
+                        selectedCategory?.rates.find(
+                          (rate) => rate.occupancy === current.occupancy
+                        )?.pricePerPersonMinor ?? null
+                      }
                       nights={resolveDraftNights(
                         selection,
                         event.accommodation.config.nightCount
@@ -511,17 +518,21 @@ export function AccommodationOptionsStep({
 }
 
 /**
- * Per-attendee total-nights stepper for the extended-stay choice. The value
+ * Per-attendee extended-stay stepper for the night-before choice. The value
  * is the TOTAL stay nights (base stay included), bounded between the
  * configured base and the server's bounded extension allowance
- * (base + EXTENDED_STAY_MAX_EXTRA_NIGHTS). The copy explains the base stay as
- * included and describes availability from the event's configured extension
- * flags without ever implying the client prices anything — the server remains
- * the authority for eligibility and money.
+ * (base + EXTENDED_STAY_MAX_EXTRA_NIGHTS). The copy names the extension by
+ * direction ("Night before the event"), shows the exact dates of the base
+ * stay and of the extra night(s), and displays the per-night rate only when
+ * the attendee has picked a category/occupancy — the server remains the
+ * authority for money and the client never derives a total.
  */
 function ExtendedStayPicker({
   attendeeName,
-  baseNights,
+  config,
+  timezone,
+  currency,
+  ratePerNightMinor,
   nights,
   allowExtendedStayBefore,
   allowExtendedStayAfter,
@@ -529,33 +540,75 @@ function ExtendedStayPicker({
   onChange,
 }: {
   attendeeName: string
-  baseNights: number
+  config: {
+    baseCheckInAt: number
+    baseCheckOutAt: number
+    nightCount: number
+  }
+  timezone: string
+  currency: string
+  ratePerNightMinor: number | null
   nights: number
   allowExtendedStayBefore: boolean
   allowExtendedStayAfter: boolean
   allowExtendedStayBoth: boolean
   onChange: (nights: number) => void
 }) {
+  const baseNights = config.nightCount
   const maximumNights = baseNights + EXTENDED_STAY_MAX_EXTRA_NIGHTS
   const extraNights = nights - baseNights
+
+  const title = allowExtendedStayBoth
+    ? "Extra nights"
+    : allowExtendedStayBefore
+      ? "Night before the event"
+      : allowExtendedStayAfter
+        ? "Night after the event"
+        : "Extended stay"
+
   const availabilityCopy = allowExtendedStayBoth
     ? "You may add extra nights before or after the event."
     : allowExtendedStayBefore
-      ? "You may add an extra night before the event."
+      ? "You may add the night before the event."
       : allowExtendedStayAfter
-        ? "You may add an extra night after the event."
+        ? "You may add the night after the event."
         : "Extended-stay nights are available for this event."
+
+  // The extra night(s) sit immediately before the base stay (before direction)
+  // or after it (after direction). For display we extend from the base
+  // check-in backwards (before) or check-out forwards (after).
+  const extendsBefore = allowExtendedStayBefore && !allowExtendedStayAfter
+  const extendsAfter = allowExtendedStayAfter && !allowExtendedStayBefore
+  const extendedCheckInAt = extendsBefore
+    ? config.baseCheckInAt - extraNights * 24 * 60 * 60 * 1000
+    : config.baseCheckInAt
+  const extendedCheckOutAt = extendsBefore
+    ? config.baseCheckInAt
+    : extendsAfter
+      ? config.baseCheckOutAt + extraNights * 24 * 60 * 60 * 1000
+      : config.baseCheckOutAt
+
+  const baseWindow = `${formatStayDate(
+    config.baseCheckInAt,
+    timezone
+  )} → ${formatStayDate(config.baseCheckOutAt, timezone)}`
+
+  const rateCopy =
+    ratePerNightMinor !== null && extraNights > 0
+      ? `${formatPrice(ratePerNightMinor, currency)} / night`
+      : "Pricing is confirmed by the organizer at the quoted rate."
 
   return (
     <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <span className="block text-sm font-medium text-foreground">
-            Extended stay
+            {title}
           </span>
           <p className="text-xs text-muted-foreground">
             Your ticket covers the {baseNights}{" "}
-            {baseNights === 1 ? "night" : "nights"} base stay. {availabilityCopy}
+            {baseNights === 1 ? "night" : "nights"} base stay ({baseWindow}).{" "}
+            {availabilityCopy}
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -589,9 +642,10 @@ function ExtendedStayPicker({
       </div>
       <p className="text-xs text-muted-foreground">
         {extraNights > 0
-          ? `${extraNights} extra ${extraNights === 1 ? "night" : "nights"} beyond the included base stay.`
-          : "No extra nights beyond the included base stay."}{" "}
-        Pricing is confirmed by the organizer at the quoted rate.
+          ? `${extraNights} extra ${extraNights === 1 ? "night" : "nights"} (${
+              formatStayDate(extendedCheckInAt, timezone)
+            } → ${formatStayDate(extendedCheckOutAt, timezone)}). ${rateCopy}`
+          : `No extra nights beyond the included base stay. ${rateCopy}`}
       </p>
     </div>
   )
