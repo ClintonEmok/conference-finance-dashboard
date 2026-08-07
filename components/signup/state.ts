@@ -50,13 +50,17 @@ export type AccommodationOptionSelectionDraft = {
  * One attendee's options-only accommodation preference, keyed by the stable
  * attendee key in `SignupDraft.accommodationSelections`. The buyer picks a
  * category, an occupancy literal and zero or more configured options (each
- * with a quantity and nights). It never holds a room/slot ID, date, price, or
- * total — those are server-resolved.
+ * with a quantity and nights). `nights` is the optional buyer-chosen total
+ * stay nights (base stay included); an omitted value means "use the event's
+ * configured base night count". It never holds a room/slot ID, date, price,
+ * or total — those are server-resolved.
  */
 export type AccommodationSelectionDraft = {
   categoryId: string
   occupancy: AccommodationOccupancy | ""
   optionSelections: AccommodationOptionSelectionDraft[]
+  /** Buyer-chosen total stay nights; omitted = configured base night count. */
+  nights?: number
 }
 
 export type SignupDraft = {

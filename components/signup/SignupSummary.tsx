@@ -138,7 +138,14 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
                         className="flex items-center justify-between text-xs"
                       >
                         <span className="text-muted-foreground">
-                          {line.label}
+                          {/* Server receipt line only: an accommodation line
+                              for an included ticket is the charged
+                              extended-stay portion beyond the included base
+                              nights shown above. */}
+                          {line.kind === "accommodation" &&
+                          attendee.accommodationIncluded
+                            ? "Extended stay"
+                            : line.label}
                           {attendee.categoryLabel
                             ? ` (${attendee.categoryLabel})`
                             : ""}

@@ -171,12 +171,12 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     [draft?.attendees]
   )
 
-  // The quote hook receives only attendee keys, ticket IDs and option
-  // selections — never client prices, dates, nights, room IDs, slot IDs, or
-  // totals. For a configured event it is only issued once every attendee has
-  // a complete category+occupancy selection; for an unconfigured event a
-  // server ticket-only quote is issued so the review can show a server-derived
-  // total and the flow stays submittable (CR-05).
+  // The quote hook receives only attendee keys, ticket IDs, option selections
+  // and the buyer-chosen total nights — never client prices, dates, room IDs,
+  // slot IDs, or totals. For a configured event it is only issued once every
+  // attendee has a complete category+occupancy selection; for an unconfigured
+  // event a server ticket-only quote is issued so the review can show a
+  // server-derived total and the flow stays submittable (CR-05).
   const quoteAttendeeArgs = useMemo(() => {
     if (!draft) return null
     return draft.attendees.map((attendee) => {
@@ -186,6 +186,9 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
         ticketTypeId: attendee.ticketTypeId,
         categoryId: selection?.categoryId || undefined,
         occupancy: selection?.occupancy || undefined,
+        // Omitted nights mean "use the configured base night count"; the
+        // server resolves that default authoritatively.
+        nights: selection?.nights,
         optionSelections: selection?.optionSelections ?? [],
       }
     })

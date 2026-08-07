@@ -25,6 +25,8 @@ export type PublicSignupQuoteAttendeeArg = {
     quantity: number
     nights: number
   }>
+  /** Buyer-chosen total stay nights; omitted = configured base night count. */
+  nights?: number
 }
 
 export type PublicSignupQuoteLine = {
@@ -65,10 +67,10 @@ export type PublicSignupAccommodationQuote = {
 
 /**
  * Server-backed live accommodation quote for the options-only signup flow.
- * The hook forwards only attendee keys, ticket IDs and option selections —
- * never prices, dates, nights, room IDs, slot IDs or totals. When the event
- * has no configured accommodation or the selection set is not yet complete,
- * the caller passes `null` and no query is issued.
+ * The hook forwards only attendee keys, ticket IDs, option selections, and
+ * the buyer-chosen total nights — never prices, dates, room IDs, slot IDs or
+ * totals. When the event has no configured accommodation or the selection set
+ * is not yet complete, the caller passes `null` and no query is issued.
  *
  * Unlike `useQuery`, this wrapper reads through `useQueries`, so a stale or
  * invalid selection surfaces as an `Error` value instead of throwing during
@@ -101,6 +103,9 @@ export function usePublicSignupAccommodationQuote(
                   }
                 : {}),
               ...(attendee.occupancy ? { occupancy: attendee.occupancy } : {}),
+              ...(attendee.nights !== undefined
+                ? { nights: attendee.nights }
+                : {}),
               optionSelections: attendee.optionSelections ?? [],
             })
           ),

@@ -67,8 +67,10 @@ export function buildSubmissionBodyFromDraft(
     })),
     // Options-only contract: the client always submits an empty assignment
     // list (room placement is admin-owned) plus per-attendee accommodation
-    // preferences. No client amount, price, date, night count, room ID, or
-    // slot ID is ever included.
+    // preferences. The preferences carry the buyer-chosen total nights when
+    // set; no client amount, price, date, room ID, or slot ID is ever
+    // included — the server resolves money, stay dates, and the night-count
+    // default.
     assignments: [],
     accommodationSelections: draft.attendees
       .map((attendee): SignupAccommodationSelection | null => {
@@ -81,6 +83,9 @@ export function buildSubmissionBodyFromDraft(
           attendeeKey: attendee.attendeeKey,
           categoryId: selection.categoryId,
           occupancy: selection.occupancy,
+          ...(selection.nights !== undefined
+            ? { nights: selection.nights }
+            : {}),
           optionSelections: selection.optionSelections,
         }
       })

@@ -9,6 +9,9 @@ import { formatPrice } from "@/lib/utils"
 import type { PublicSignupCatalogEvent } from "@/lib/domain/signup/catalog"
 import {
   eventHasConfiguredAccommodation,
+  eventPermitsExtendedStay,
+  resolveDraftNights,
+  EXTENDED_STAY_MAX_EXTRA_NIGHTS,
 } from "@/components/signup/flow-rules"
 import type {
   AccommodationSelectionDraft,
@@ -467,6 +470,28 @@ export function AccommodationOptionsStep({
                       </div>
                     </div>
                   ) : null}
+
+                  {event.accommodation.config &&
+                  eventPermitsExtendedStay(event) ? (
+                    <ExtendedStayPicker
+                      attendeeName={attendee.name || `attendee ${index + 1}`}
+                      baseNights={event.accommodation.config.nightCount}
+                      nights={resolveDraftNights(
+                        selection,
+                        event.accommodation.config.nightCount
+                      )}
+                      allowExtendedStayBefore={
+                        event.accommodation.config.allowExtendedStayBefore
+                      }
+                      allowExtendedStayAfter={
+                        event.accommodation.config.allowExtendedStayAfter
+                      }
+                      allowExtendedStayBoth={
+                        event.accommodation.config.allowExtendedStayBoth
+                      }
+                      onChange={(nights) => patch({ nights })}
+                    />
+                  ) : null}
                 </>
               )}
 
@@ -481,6 +506,93 @@ export function AccommodationOptionsStep({
           </fieldset>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * Per-attendee total-nights stepper for the extended-stay choice. The value
+ * is the TOTAL stay nights (base stay included), bounded between the
+ * configured base and the server's bounded extension allowance
+ * (base + EXTENDED_STAY_MAX_EXTRA_NIGHTS). The copy explains the base stay as
+ * included and describes availability from the event's configured extension
+ * flags without ever implying the client prices anything — the server remains
+ * the authority for eligibility and money.
+ */
+function ExtendedStayPicker({
+  attendeeName,
+  baseNights,
+  nights,
+  allowExtendedStayBefore,
+  allowExtendedStayAfter,
+  allowExtendedStayBoth,
+  onChange,
+}: {
+  attendeeName: string
+  baseNights: number
+  nights: number
+  allowExtendedStayBefore: boolean
+  allowExtendedStayAfter: boolean
+  allowExtendedStayBoth: boolean
+  onChange: (nights: number) => void
+}) {
+  const maximumNights = baseNights + EXTENDED_STAY_MAX_EXTRA_NIGHTS
+  const extraNights = nights - baseNights
+  const availabilityCopy = allowExtendedStayBoth
+    ? "You may add extra nights before or after the event."
+    : allowExtendedStayBefore
+      ? "You may add an extra night before the event."
+      : allowExtendedStayAfter
+        ? "You may add an extra night after the event."
+        : "Extended-stay nights are available for this event."
+
+  return (
+    <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <span className="block text-sm font-medium text-foreground">
+            Extended stay
+          </span>
+          <p className="text-xs text-muted-foreground">
+            Your ticket covers the {baseNights}{" "}
+            {baseNights === 1 ? "night" : "nights"} base stay. {availabilityCopy}
+          </p>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            aria-label={`Decrease nights for ${attendeeName}`}
+            disabled={nights <= baseNights}
+            onClick={() => onChange(Math.max(baseNights, nights - 1))}
+          >
+            <Minus className="size-3" aria-hidden="true" />
+          </Button>
+          <span
+            className="min-w-[4.5rem] text-center font-mono text-sm tabular-nums text-foreground"
+            aria-live="polite"
+          >
+            {nights} {nights === 1 ? "night" : "nights"}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            aria-label={`Increase nights for ${attendeeName}`}
+            disabled={nights >= maximumNights}
+            onClick={() => onChange(Math.min(maximumNights, nights + 1))}
+          >
+            <Plus className="size-3" aria-hidden="true" />
+          </Button>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {extraNights > 0
+          ? `${extraNights} extra ${extraNights === 1 ? "night" : "nights"} beyond the included base stay.`
+          : "No extra nights beyond the included base stay."}{" "}
+        Pricing is confirmed by the organizer at the quoted rate.
+      </p>
     </div>
   )
 }

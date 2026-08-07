@@ -158,13 +158,24 @@ function QuoteContent({
                       >
                         <div className="min-w-0">
                           <p className="break-words font-medium text-foreground">
-                            {line.label}
+                            {/* The server receipt line is the authority: an
+                                accommodation line for an included ticket is
+                                the charged extended-stay portion beyond the
+                                base nights shown above. */}
+                            {line.kind === "accommodation" &&
+                            attendee.accommodationIncluded
+                              ? "Extended stay"
+                              : line.label}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {formatPrice(line.ratePerNightMinor, displayCurrency)}{" "}
                             / person / night
                             {line.nights > 1
                               ? ` · ${line.nights} nights`
+                              : ""}
+                            {line.kind === "accommodation" &&
+                            attendee.accommodationIncluded
+                              ? " · additional stay beyond your included nights"
                               : ""}
                           </p>
                         </div>
