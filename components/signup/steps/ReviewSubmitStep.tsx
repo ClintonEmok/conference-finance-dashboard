@@ -27,6 +27,13 @@ function formatAttendeeGender(gender: string): string {
   return gender || "Not specified"
 }
 
+function formatOccupancy(occupancy: "single" | "shared" | "family" | undefined): string {
+  if (occupancy === "single") return "Single"
+  if (occupancy === "shared") return "Shared"
+  if (occupancy === "family") return "Family"
+  return ""
+}
+
 function AttendeeDetailRow({
   label,
   value,
@@ -100,25 +107,50 @@ function QuoteContent({
       <ReviewSection
         title="Accommodation"
         subtitle={`Total: ${formatPrice(quote.accommodationTotalMinor, displayCurrency)}`}
-        badge={quote.attendees.filter((attendee) => attendee.lines.length > 0).length}
+        badge={quote.attendees.filter(
+          (attendee) => attendee.categoryLabel || attendee.lines.length > 0
+        ).length}
         defaultExpanded={true}
       >
-        {quote.accommodationTotalMinor === 0 ? (
+        {quote.attendees.every((attendee) => !attendee.categoryLabel) ? (
           <p className="text-sm text-muted-foreground">
             No accommodation is configured for this event.
           </p>
         ) : (
           <div className="space-y-4">
             {quote.attendees.map((attendee) => {
-              if (attendee.lines.length === 0) return null
+              if (!attendee.categoryLabel && attendee.lines.length === 0) {
+                return null
+              }
+              const occupancy = formatOccupancy(attendee.occupancy)
               return (
                 <div key={attendee.attendeeKey}>
                   <p className="mb-2 text-sm font-medium text-foreground">
                     {attendeeNameByKey.get(attendee.attendeeKey) ||
                       `Attendee ${attendee.attendeeKey}`}
-                    {attendee.categoryLabel ? ` — ${attendee.categoryLabel}` : ""}
+                    {attendee.categoryLabel
+                      ? ` — ${attendee.categoryLabel}`
+                      : ""}
+                    {occupancy ? ` · ${occupancy}` : ""}
                   </p>
                   <div className="space-y-2">
+                    {attendee.categoryLabel && attendee.accommodationIncluded ? (
+                      <div className="flex items-center justify-between rounded-md border border-emerald-600/30 bg-emerald-50/50 p-3 text-sm dark:bg-emerald-950/30">
+                        <div className="min-w-0">
+                          <p className="break-words font-medium text-foreground">
+                            Accommodation
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {attendee.baseNights}{" "}
+                            {attendee.baseNights === 1 ? "night" : "nights"}
+                            {" · included with your ticket"}
+                          </p>
+                        </div>
+                        <span className="shrink-0 font-mono text-sm font-medium tabular-nums text-emerald-700 dark:text-emerald-400">
+                          Included
+                        </span>
+                      </div>
+                    ) : null}
                     {attendee.lines.map((line, index) => (
                       <div
                         key={`${attendee.attendeeKey}-${line.kind}-${index}`}

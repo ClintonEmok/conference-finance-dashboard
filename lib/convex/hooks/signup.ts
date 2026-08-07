@@ -53,6 +53,10 @@ export type PublicSignupAccommodationQuote = {
     categoryCode?: string
     categoryLabel?: string
     occupancy?: "single" | "shared" | "family"
+    /** Whether the ticket price covers the event's base accommodation stay. */
+    accommodationIncluded: boolean
+    /** Event base-stay night count priced for this attendee. */
+    baseNights: number
     accommodationTotalMinor: number
     amountDueMinor: number
     lines: PublicSignupQuoteLine[]

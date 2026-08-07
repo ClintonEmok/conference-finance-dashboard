@@ -1428,9 +1428,11 @@ export declare const api: {
       {
         accommodationTotalMinor: number;
         attendees: Array<{
+          accommodationIncluded: boolean;
           accommodationTotalMinor: number;
           amountDueMinor: number;
           attendeeKey: string;
+          baseNights: number;
           categoryCode?: "standard" | "superior" | "family";
           categoryId?: Id<"accommodationCategories">;
           categoryLabel?: string;
@@ -1506,6 +1508,7 @@ export declare const api: {
         };
         startsAt: number;
         tickets: Array<{
+          accommodationIncluded?: boolean;
           label: string;
           priceMinor: number;
           reason: "sold_out" | "disabled" | "hidden" | "not_on_sale" | null;
@@ -2305,6 +2308,19 @@ export declare const internal: {
       "mutation",
       "internal",
       { roomId: string },
+      any
+    >;
+  };
+  applyInclusiveEventStay: {
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        baseCheckInAt: number;
+        baseCheckOutAt: number;
+        eventId: Id<"events">;
+        markTicketsIncluded?: boolean;
+      },
       any
     >;
   };

@@ -108,32 +108,80 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
       <div className="space-y-2">
         {quote.status === "ready" ? (
           <>
-            {quote.quote.accommodationTotalMinor > 0 ? (
+            {quote.quote.accommodationTotalMinor > 0 ||
+            event.accommodation.config ? (
               <div className="space-y-1">
                 <p className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/50 uppercase">
                   Accommodation
                 </p>
-                {quote.quote.attendees.map((attendee) =>
-                  attendee.lines.map((line, index) => (
-                    <div
-                      key={`${attendee.attendeeKey}-${line.kind}-${index}`}
-                      className="flex items-center justify-between text-xs"
-                    >
-                      <span className="text-muted-foreground">
-                        {line.label}
-                        {attendee.categoryLabel
-                          ? ` (${attendee.categoryLabel})`
-                          : ""}
-                      </span>
-                      <span className="font-mono tabular-nums text-foreground/80">
-                        {formatPrice(line.chargeMinor, currency)}
-                      </span>
-                    </div>
-                  ))
-                )}
+                {quote.quote.attendees.map((attendee) => (
+                  <div key={attendee.attendeeKey} className="space-y-1">
+                    {attendee.categoryLabel && attendee.accommodationIncluded ? (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">
+                          Accommodation
+                          {attendee.categoryLabel
+                            ? ` (${attendee.categoryLabel}`
+                            : " ("}
+                          {attendee.occupancy
+                            ? ` · ${attendee.occupancy[0].toUpperCase()}${attendee.occupancy.slice(1)})`
+                            : ")"}
+                        </span>
+                        <span className="font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
+                          Included
+                        </span>
+                      </div>
+                    ) : null}
+                    {attendee.lines.map((line, index) => (
+                      <div
+                        key={`${attendee.attendeeKey}-${line.kind}-${index}`}
+                        className="flex items-center justify-between text-xs"
+                      >
+                        <span className="text-muted-foreground">
+                          {line.label}
+                          {attendee.categoryLabel
+                            ? ` (${attendee.categoryLabel})`
+                            : ""}
+                        </span>
+                        <span className="font-mono tabular-nums text-foreground/80">
+                          {formatPrice(line.chargeMinor, currency)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
                 {quote.quote.breakfastIncluded ? (
                   <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
                     Breakfast included
+                  </p>
+                ) : null}
+                {event.accommodation.config ? (
+                  <p className="text-xs text-muted-foreground/70">
+                    {event.accommodation.config.nightCount}{" "}
+                    {event.accommodation.config.nightCount === 1
+                      ? "night"
+                      : "nights"}
+                    {" · "}
+                    {new Intl.DateTimeFormat("en-GB", {
+                      timeZone: event.timezone,
+                      day: "numeric",
+                      month: "short",
+                    }).format(new Date(event.accommodation.config.baseCheckInAt))}{" "}
+                    →{" "}
+                    {new Intl.DateTimeFormat("en-GB", {
+                      timeZone: event.timezone,
+                      day: "numeric",
+                      month: "short",
+                    }).format(new Date(event.accommodation.config.baseCheckOutAt))}
+                    {quote.quote.attendees.every(
+                      (attendee) =>
+                        event.tickets.find(
+                          (ticket) =>
+                            ticket.ticketTypeId === attendee.ticketTypeId
+                        )?.accommodationIncluded
+                    )
+                      ? " · included with your ticket"
+                      : ""}
                   </p>
                 ) : null}
               </div>

@@ -1,6 +1,6 @@
 "use client"
 
-import { BedDouble, Info, Minus, Plus } from "lucide-react"
+import { BedDouble, CalendarDays, Info, Minus, Plus } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -33,6 +33,16 @@ function emptySelection(): AccommodationSelectionDraft {
   }
 }
 
+function formatStayDate(epoch: number, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(epoch))
+}
+
 export function AccommodationOptionsStep({
   event,
   attendees,
@@ -63,6 +73,60 @@ export function AccommodationOptionsStep({
 
   return (
     <div className="space-y-6">
+      {event.accommodation.config ? (
+        <div className="rounded-xl border border-border/50 bg-card p-4 shadow-sm sm:p-6">
+          <div className="flex items-start gap-3">
+            <CalendarDays className="mt-0.5 size-5 shrink-0 text-primary" />
+            <div className="min-w-0 space-y-2">
+              <div>
+                <h3 className="text-base font-semibold text-foreground">
+                  Accommodation stay
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  This is the accommodation covered by the event. You are
+                  choosing preferences; final room placement is confirmed by
+                  the organizer.
+                </p>
+              </div>
+              <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-muted-foreground">Check-in</dt>
+                  <dd className="font-medium tabular-nums text-foreground">
+                    {formatStayDate(
+                      event.accommodation.config.baseCheckInAt,
+                      event.timezone
+                    )}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-muted-foreground">Check-out</dt>
+                  <dd className="font-medium tabular-nums text-foreground">
+                    {formatStayDate(
+                      event.accommodation.config.baseCheckOutAt,
+                      event.timezone
+                    )}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-muted-foreground">Nights</dt>
+                  <dd className="font-medium tabular-nums text-foreground">
+                    {event.accommodation.config.nightCount}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-muted-foreground">Breakfast</dt>
+                  <dd className="font-medium text-foreground">
+                    {event.accommodation.config.breakfastIncluded
+                      ? "Included"
+                      : "Not included"}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {attendees.map((attendee, index) => {
         const ticket = event.tickets.find(
           (ticketType) => ticketType.ticketTypeId === attendee.ticketTypeId
@@ -115,6 +179,14 @@ export function AccommodationOptionsStep({
                 <Badge variant="secondary" className="font-medium">
                   {ticket?.label ?? attendee.ticketLabel}
                 </Badge>
+                {ticket?.accommodationIncluded ? (
+                  <Badge
+                    variant="outline"
+                    className="border-emerald-600/40 bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+                  >
+                    Accommodation included with ticket
+                  </Badge>
+                ) : null}
               </div>
 
               {eligibleCategories.length === 0 ? (
