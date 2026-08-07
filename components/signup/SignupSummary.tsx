@@ -52,12 +52,12 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
   const currency = quoteReady ? quote.quote.currency : event.currency
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <h2 className="text-lg font-bold tracking-tight text-foreground">
           {event.title}
         </h2>
-        <div className="mt-2 flex items-center gap-2 text-xs font-medium tracking-widest text-muted-foreground uppercase">
+        <div className="mt-1 flex items-center gap-2 text-xs font-medium tracking-widest text-muted-foreground uppercase">
           <Calendar className="size-3" />
           {new Date(event.startsAt).toLocaleDateString("en-GB", {
             day: "numeric",
@@ -69,14 +69,14 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
 
       <Separator className="bg-border/20" />
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div className="flex items-center gap-2 text-[10px] font-black tracking-[0.2em] text-muted-foreground/50 uppercase">
           <Ticket className="size-3" />
           Selections
         </div>
 
         {ticketRows.length > 0 ? (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {ticketRows.map((ticket) => (
               <div
                 key={ticket.ticketTypeId}
@@ -190,13 +190,13 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
               </div>
             ) : null}
 
-            <div className="pt-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-[10px] font-black tracking-[0.2em] text-primary uppercase">
+            <div className="mt-3 border-t border-border/30 pt-3">
+              <div className="flex items-end justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2 text-[10px] font-black tracking-[0.2em] text-primary uppercase">
                   <Wallet className="size-3" />
                   Total Balance
                 </div>
-                <div className="text-2xl font-black tracking-tight text-foreground">
+                <div className="shrink-0 whitespace-nowrap text-xl font-black tracking-tight text-foreground sm:text-2xl">
                   {formatPrice(quote.quote.totalDueMinor, currency)}
                 </div>
               </div>
