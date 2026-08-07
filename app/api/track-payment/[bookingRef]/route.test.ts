@@ -132,6 +132,7 @@ describe("POST /api/track-payment/[bookingRef]", () => {
       "attendeeKey",
       "categoryId",
       "occupancy",
+      "nightBeforeLevel",
       "optionSelections",
     ])
     for (const selection of args.selections as Array<Record<string, unknown>>) {

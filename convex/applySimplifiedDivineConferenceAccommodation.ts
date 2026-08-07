@@ -66,12 +66,30 @@ export default internalMutation({
     }
 
     // 2. Enable/upsert the superior_upgrade catalog option at €10 per night.
+    // The catalog definition is created if a deployment has not run the seed
+    // (the seed itself also guarantees it); the event option is then
+    // upserted idempotently.
+    let catalogOptionCreated = 0
     let optionEnabled = 0
     let optionPriceUpdated = 0
-    const catalogOption = await ctx.db
+    let catalogOption = await ctx.db
       .query("accommodationOptions")
       .withIndex("by_code", (q) => q.eq("code", SUPERIOR_UPGRADE_OPTION_KEY))
       .first()
+    if (!catalogOption) {
+      const createdId = await ctx.db.insert("accommodationOptions", {
+        code: SUPERIOR_UPGRADE_OPTION_KEY,
+        label: "Superior upgrade",
+        description:
+          "Upgrade the included stay to Superior rooms, charged per person per night for exactly the included base nights.",
+        kind: "upgrade",
+        unit: "per_night",
+      })
+      catalogOption = { _id: createdId } as NonNullable<
+        typeof catalogOption
+      >
+      catalogOptionCreated = 1
+    }
     if (catalogOption) {
       const eventOptionRow = await ctx.db
         .query("eventAccommodationOptions")
@@ -109,6 +127,7 @@ export default internalMutation({
       defaultCategoryId,
       configUpdated,
       superiorUpgrade: {
+        catalogOptionCreated,
         optionEnabled,
         optionPriceUpdated,
         priceMinor: 1000,

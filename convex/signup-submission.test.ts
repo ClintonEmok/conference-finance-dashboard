@@ -88,6 +88,7 @@ async function createConfiguredEvent(
     baseCheckInAt: BASE_EVENT_AT - 2 * DAY_MS,
     baseCheckOutAt: BASE_EVENT_AT,
     breakfastIncluded: true,
+    defaultCategoryId: categoryStandardId,
   })
   await t.mutation(api.accommodation.upsertEventAccommodationRate, {
     eventId,
@@ -106,6 +107,20 @@ async function createConfiguredEvent(
     optionId: cotOptionId,
     enabled: true,
     priceMinor: 500,
+  })
+  const superiorUpgradeOptionId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("accommodationOptions", {
+      code: "superior_upgrade",
+      label: "Superior upgrade",
+      kind: "upgrade",
+      unit: "per_night",
+    })
+  })
+  await t.mutation(api.accommodation.upsertEventAccommodationOption, {
+    eventId,
+    optionId: superiorUpgradeOptionId as Id<"accommodationOptions">,
+    enabled: true,
+    priceMinor: 1000,
   })
 
   const constrainedRoomTypeId = await t.mutation(async (ctx) => {
@@ -187,13 +202,14 @@ async function envelopeDigest(envelope: {
   }>
   accommodationSelections: Array<{
     attendeeKey: string
-    categoryId: Id<"accommodationCategories"> | string
+    categoryId?: Id<"accommodationCategories"> | string | null
     occupancy: "single" | "shared" | "family"
     optionSelections: Array<{
       optionKey: string
       quantity: number
       nights: number
     }>
+    nightBeforeLevel?: "standard" | "superior"
     nights?: number
   }>
 }): Promise<string> {
@@ -212,9 +228,12 @@ async function envelopeDigest(envelope: {
     accommodationSelections: envelope.accommodationSelections.map(
       (preference) => ({
         attendeeKey: preference.attendeeKey,
-        categoryId: String(preference.categoryId),
+        categoryId: preference.categoryId
+          ? String(preference.categoryId)
+          : null,
         occupancy: preference.occupancy,
         optionSelections: preference.optionSelections,
+        nightBeforeLevel: preference.nightBeforeLevel ?? null,
         nights: preference.nights,
       })
     ),
@@ -227,13 +246,14 @@ async function buildEnvelope(input: {
   attendeeKey?: string
   accommodationSelections?: Array<{
     attendeeKey: string
-    categoryId: Id<"accommodationCategories">
+    categoryId?: Id<"accommodationCategories">
     occupancy: "single" | "shared" | "family"
     optionSelections: Array<{
       optionKey: string
       quantity: number
       nights: number
     }>
+    nightBeforeLevel?: "standard" | "superior"
     nights?: number
   }>
   assignments?: Array<{
@@ -441,11 +461,12 @@ test("submission accepts an optional blank age band", async () => {
   expect(rows[0].nightCount).toBe(2)
 })
 
-test("submission enforces ticket-constrained categories", async () => {
+test("submission resolves the included stay to Standard and rejects category-dependent payloads", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await createConfiguredEvent(t)
 
-  // Constrained ticket (superior suite) with the wrong category is rejected.
+  // A client category that does not match the server-resolved included stay
+  // (Standard) is rejected — even for the superior-suite ticket.
   await expect(
     t.mutation(
       api.signupSubmission.submitSignupEnvelope,
@@ -455,7 +476,7 @@ test("submission enforces ticket-constrained categories", async () => {
         accommodationSelections: [
           {
             attendeeKey: "attendee-1",
-            categoryId: seed.categoryStandardId,
+            categoryId: seed.categorySuperiorId,
             occupancy: "shared",
             optionSelections: [],
           },
@@ -464,7 +485,8 @@ test("submission enforces ticket-constrained categories", async () => {
     )
   ).rejects.toThrow("SUBMISSION_CONFLICT")
 
-  // The constrained category is accepted.
+  // No categoryId at all: the server resolves the included stay to Standard
+  // and persists the resolved category for admin allocation.
   const accepted = await t.mutation(
     api.signupSubmission.submitSignupEnvelope,
     await buildEnvelope({
@@ -473,7 +495,6 @@ test("submission enforces ticket-constrained categories", async () => {
       accommodationSelections: [
         {
           attendeeKey: "attendee-1",
-          categoryId: seed.categorySuperiorId,
           occupancy: "shared",
           optionSelections: [],
         },
@@ -481,6 +502,16 @@ test("submission enforces ticket-constrained categories", async () => {
     })
   )
   expect(accepted.submissionId).toBeDefined()
+  const rows = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orderAccommodationSelections")
+      .withIndex("by_orderId", (q) =>
+        q.eq("orderId", accepted.submissionId as never)
+      )
+      .take(10)
+  })
+  expect(rows).toHaveLength(1)
+  expect(rows[0].categoryId).toBe(seed.categoryStandardId)
 })
 
 test("submission rejects an unknown accommodation option and persists selected options", async () => {
@@ -1042,7 +1073,8 @@ test("WR-05: legacy allocatedRoomTypeId is only set for explicitly constrained t
   expect(unconstrainedAttendee?.allocatedRoomTypeId).toBeUndefined()
 
   // Constrained ticket: the ticket's roomTypeId is stored as entitlement
-  // metadata (never the event default, never the buyer's category).
+  // metadata (never the event default, never the buyer's category). The
+  // buyer never supplies a category — the included stay resolves to Standard.
   const constrained = await t.mutation(
     api.signupSubmission.submitSignupEnvelope,
     await buildEnvelope({
@@ -1051,7 +1083,6 @@ test("WR-05: legacy allocatedRoomTypeId is only set for explicitly constrained t
       accommodationSelections: [
         {
           attendeeKey: "attendee-1",
-          categoryId: seed.categorySuperiorId,
           occupancy: "shared",
           optionSelections: [],
         },
@@ -1492,26 +1523,17 @@ test("CR-10: a submission with two attendees sharing one ticket with one remaini
   expect(orders).toHaveLength(0)
 })
 
-test("extended stay: a chosen extra night is validated, persisted, and restored", async () => {
+test("night before: a chosen level is validated, persisted, and restored with the derived night count", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await createConfiguredEvent(t)
 
-  // Enable the night-before extension and add an accommodation-included
-  // ticket so the base 2-night stay is covered and one extra night is charged.
-  await t.mutation(api.accommodation.upsertEventAccommodationConfig, {
-    eventId: seed.eventId,
-    baseCheckInAt: BASE_EVENT_AT - 2 * DAY_MS,
-    baseCheckOutAt: BASE_EVENT_AT,
-    allowExtendedStayBefore: true,
-    allowExtendedStayAfter: false,
-    allowExtendedStayBoth: false,
-    breakfastIncluded: true,
-  })
+  // Add an accommodation-included ticket so the base 2-night stay is covered
+  // and the night-before is the only charged stay component.
   const includedTicketId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("ticketTypes", {
       eventId: seed.eventId as never,
       label: "Included-stay ticket",
-      priceMinor: 2000,
+      priceMinor: 25000,
       isActive: true,
       visibility: "public",
       availabilityState: "selectable",
@@ -1528,16 +1550,18 @@ test("extended stay: a chosen extra night is validated, persisted, and restored"
       accommodationSelections: [
         {
           attendeeKey: "attendee-1",
-          categoryId: seed.categoryStandardId,
           occupancy: "shared",
-          optionSelections: [],
-          nights: 3,
+          nightBeforeLevel: "superior",
+          optionSelections: [
+            { optionKey: "superior_upgrade", quantity: 1, nights: 2 },
+          ],
         },
       ],
     })
   )
 
-  // The resolved selected night count is persisted on the order row.
+  // The resolved included-stay category, derived night count (base + 1), and
+  // the night-before level are persisted on the order row.
   const rows = await t.query(async (ctx) => {
     return await ctx.db
       .query("orderAccommodationSelections")
@@ -1549,23 +1573,28 @@ test("extended stay: a chosen extra night is validated, persisted, and restored"
     categoryId: seed.categoryStandardId,
     occupancy: "shared",
     nightCount: 3,
+    nightBeforeLevel: "superior",
     checkInAt: BASE_EVENT_AT - 2 * DAY_MS,
     checkOutAt: BASE_EVENT_AT,
   })
 
-  // The restore payload round-trips the selected nights.
+  // The restore payload round-trips the resolved category, the derived night
+  // count, and the night-before level.
   expect(result.restorePayload.accommodationSelections).toEqual([
     {
       attendeeKey: "attendee-1",
       categoryId: String(seed.categoryStandardId),
       occupancy: "shared",
       nights: 3,
-      optionSelections: [],
+      nightBeforeLevel: "superior",
+      optionSelections: [
+        { optionKey: "superior_upgrade", quantity: 1, nights: 2 },
+      ],
     },
   ])
 
   // The canonical loader prices only the charged night beyond the covered
-  // base: ticket €20 + 1 extra night × €30 = €50.
+  // base: ticket €250 + 1 night × €30 + €10 premium + €20 upgrade = €310.
   const breakdown = await t.query(async (ctx) => {
     const loaderCtx =
       ctx as unknown as Parameters<typeof loadOrderAmountDueBreakdowns>[0]
@@ -1579,7 +1608,7 @@ test("extended stay: a chosen extra night is validated, persisted, and restored"
       accommodationLines: row.accommodationLines,
     }
   })
-  expect(breakdown?.amountDueMinor).toBe(5000)
+  expect(breakdown?.amountDueMinor).toBe(31000)
   expect(breakdown?.accommodationLines).toEqual([
     {
       kind: "accommodation",
@@ -1588,27 +1617,36 @@ test("extended stay: a chosen extra night is validated, persisted, and restored"
       ratePerNightMinor: 3000,
       chargeMinor: 3000,
     },
+    {
+      kind: "option",
+      optionKey: "superior_upgrade",
+      label: "Superior upgrade",
+      nights: 2,
+      quantity: 1,
+      ratePerNightMinor: 1000,
+      chargeMinor: 2000,
+    },
+    {
+      kind: "option",
+      optionKey: "night_before_superior",
+      label: "Night before · Superior",
+      nights: 1,
+      quantity: 1,
+      ratePerNightMinor: 1000,
+      chargeMinor: 1000,
+    },
   ])
 })
 
-test("extended stay: below-base, fractional, over-cap, and disabled nights are rejected by submission", async () => {
+test("night before: malformed levels, mismatched totals, and unknown/duplicate options are rejected by submission", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await createConfiguredEvent(t)
 
-  await t.mutation(api.accommodation.upsertEventAccommodationConfig, {
-    eventId: seed.eventId,
-    baseCheckInAt: BASE_EVENT_AT - 2 * DAY_MS,
-    baseCheckOutAt: BASE_EVENT_AT,
-    allowExtendedStayBefore: true,
-    allowExtendedStayAfter: false,
-    allowExtendedStayBoth: false,
-    breakfastIncluded: true,
-  })
   const includedTicketId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("ticketTypes", {
       eventId: seed.eventId as never,
       label: "Included-stay ticket",
-      priceMinor: 2000,
+      priceMinor: 25000,
       isActive: true,
       visibility: "public",
       availabilityState: "selectable",
@@ -1617,74 +1655,69 @@ test("extended stay: below-base, fractional, over-cap, and disabled nights are r
     })
   })
 
-  const preferenceFor = (nights: number) => ({
+  const preferenceFor = (
+    overrides: Partial<{
+      nightBeforeLevel: "standard" | "superior"
+      nights: number
+      optionSelections: Array<{
+        optionKey: string
+        quantity: number
+        nights: number
+      }>
+    }> = {}
+  ) => ({
     attendeeKey: "attendee-1",
-    categoryId: seed.categoryStandardId,
     occupancy: "shared" as const,
     optionSelections: [],
-    nights,
+    ...overrides,
   })
 
-  // Below the configured base fails.
+  // A malformed night-before level fails at the contract boundary.
   await expect(
     t.mutation(
       api.signupSubmission.submitSignupEnvelope,
       await buildEnvelope({
         eventId: seed.eventId,
         ticketTypeId: includedTicketId as Id<"ticketTypes">,
-        accommodationSelections: [preferenceFor(1)],
-      })
-    )
-  ).rejects.toThrow("SUBMISSION_CONFLICT")
-
-  // Fractional nights fail — only finite whole numbers are accepted.
-  await expect(
-    t.mutation(
-      api.signupSubmission.submitSignupEnvelope,
-      await buildEnvelope({
-        eventId: seed.eventId,
-        ticketTypeId: includedTicketId as Id<"ticketTypes">,
-        accommodationSelections: [preferenceFor(2.5)],
-      })
-    )
-  ).rejects.toThrow("SUBMISSION_CONFLICT")
-
-  // Over the bounded allowance (base 2 + 7 extra = 9) fails.
-  await expect(
-    t.mutation(
-      api.signupSubmission.submitSignupEnvelope,
-      await buildEnvelope({
-        eventId: seed.eventId,
-        ticketTypeId: includedTicketId as Id<"ticketTypes">,
-        accommodationSelections: [preferenceFor(10)],
-      })
-    )
-  ).rejects.toThrow("SUBMISSION_CONFLICT")
-
-  // No extension flag enabled: the seeded event has all flags false, so an
-  // extra night is rejected with the same rule set as the quote.
-  const disabledEvent = fresh().withIdentity(adminIdentity)
-  const disabledSeed = await createConfiguredEvent(disabledEvent)
-  await expect(
-    disabledEvent.mutation(
-      api.signupSubmission.submitSignupEnvelope,
-      await buildEnvelope({
-        eventId: disabledSeed.eventId,
-        ticketTypeId: disabledSeed.unconstrainedTicketId,
         accommodationSelections: [
-          {
-            attendeeKey: "attendee-1",
-            categoryId: disabledSeed.categoryStandardId,
-            occupancy: "shared",
-            optionSelections: [],
-            nights: 3,
-          },
+          preferenceFor({ nightBeforeLevel: "family" as never }),
+        ],
+      })
+    )
+  ).rejects.toThrow()
+
+  // A legacy total-nights value that does not match the derived total is
+  // rejected by the shared resolver.
+  await expect(
+    t.mutation(
+      api.signupSubmission.submitSignupEnvelope,
+      await buildEnvelope({
+        eventId: seed.eventId,
+        ticketTypeId: includedTicketId as Id<"ticketTypes">,
+        accommodationSelections: [
+          preferenceFor({ nights: 4, nightBeforeLevel: "standard" }),
         ],
       })
     )
   ).rejects.toThrow("SUBMISSION_CONFLICT")
 
-  // Nothing was persisted for any rejected submission on the extended event.
+  // An unknown option is rejected and a duplicate option is rejected.
+  await expect(
+    t.mutation(
+      api.signupSubmission.submitSignupEnvelope,
+      await buildEnvelope({
+        eventId: seed.eventId,
+        ticketTypeId: includedTicketId as Id<"ticketTypes">,
+        accommodationSelections: [
+          preferenceFor({
+            optionSelections: [{ optionKey: "does_not_exist", quantity: 1, nights: 2 }],
+          }),
+        ],
+      })
+    )
+  ).rejects.toThrow("SUBMISSION_CONFLICT")
+
+  // Nothing was persisted for any rejected submission.
   const orders = await t.query(async (ctx) => {
     return await ctx.db
       .query("orders")
@@ -1692,4 +1725,170 @@ test("extended stay: below-base, fractional, over-cap, and disabled nights are r
       .take(10)
   })
   expect(orders).toHaveLength(0)
+})
+
+test("CR-09: a captured token cannot be replayed with a different night-before level", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  const envelope = await buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: seed.unconstrainedTicketId,
+    accommodationSelections: [
+      {
+        attendeeKey: "attendee-1",
+        occupancy: "shared",
+        nightBeforeLevel: "standard",
+        optionSelections: [],
+      },
+    ],
+  })
+
+  // The envelope is valid as signed.
+  const applied = await t.mutation(api.signupSubmission.submitSignupEnvelope, envelope)
+  expect(applied.submissionId).toBeDefined()
+
+  // Swap the night-before level to superior without re-minting the token: the
+  // recomputed digest differs and the mutation fails closed before any write.
+  const swapped = await reMintSubmissionToken({
+    ...envelope,
+    idempotencyKey: `idem-${Math.random().toString(36).slice(2)}`,
+    accommodationSelections: [
+      {
+        attendeeKey: "attendee-1",
+        occupancy: "shared",
+        nightBeforeLevel: "superior",
+        optionSelections: [],
+      },
+    ],
+  })
+  // The swap changes the digest, so a token minted for the original envelope
+  // can no longer verify — re-mint the token for the swapped envelope and
+  // confirm the ORIGINAL token (captured pre-swap) is rejected.
+  const captured = envelope.submissionToken
+  swapped.submissionToken = captured
+  await expect(
+    t.mutation(api.signupSubmission.submitSignupEnvelope, swapped)
+  ).rejects.toThrow("CAPTCHA_REQUIRED")
+
+  // A freshly minted token for the swapped envelope (a legitimately new
+  // submission) succeeds — proving the digest covers the level.
+  const freshToken = await mintSignupSubmissionToken({
+    eventId: String(seed.eventId),
+    payloadDigest: await digestSubmissionEnvelope({
+      eventId: String(seed.eventId),
+      source: swapped.source,
+      booker: swapped.booker,
+      attendees: swapped.attendees,
+      ticketSelections: swapped.ticketSelections,
+      assignments: swapped.assignments,
+      accommodationSelections: swapped.accommodationSelections.map(
+        (preference) => ({
+          attendeeKey: preference.attendeeKey,
+          categoryId: preference.categoryId
+            ? String(preference.categoryId)
+            : null,
+          occupancy: preference.occupancy,
+          optionSelections: preference.optionSelections,
+          nightBeforeLevel: preference.nightBeforeLevel ?? null,
+          nights: preference.nights,
+        })
+      ),
+    }),
+    idempotencyKey: swapped.idempotencyKey,
+    secret: TEST_SIGNUP_SUBMISSION_SECRET,
+  })
+  const resubmitted = await t.mutation(
+    api.signupSubmission.submitSignupEnvelope,
+    { ...swapped, submissionToken: freshToken }
+  )
+  expect(resubmitted.submissionId).toBeDefined()
+})
+
+test("a confirmed selection persists snapshot lines including the night-before premium", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  const includedTicketId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("ticketTypes", {
+      eventId: seed.eventId as never,
+      label: "Included-stay ticket",
+      priceMinor: 25000,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      accommodationIncluded: true,
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+
+  const result = await t.mutation(
+    api.signupSubmission.submitSignupEnvelope,
+    await buildEnvelope({
+      eventId: seed.eventId,
+      ticketTypeId: includedTicketId as Id<"ticketTypes">,
+      accommodationSelections: [
+        {
+          attendeeKey: "attendee-1",
+          occupancy: "shared",
+          nightBeforeLevel: "superior",
+          optionSelections: [
+            { optionKey: "cot", quantity: 1, nights: 2 },
+          ],
+        },
+      ],
+    })
+  )
+
+  // Confirm through the admin confirmation mutation: the snapshot is built
+  // from the persisted row and must include the derived premium line.
+  await t.mutation(
+    api.accommodation.confirmAccommodationOrderConfiguration,
+    { orderId: result.submissionId }
+  )
+
+  const rows = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orderAccommodationSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", result.submissionId as never))
+      .take(10)
+  })
+  expect(rows).toHaveLength(1)
+  expect(rows[0].confirmedAt).toBeDefined()
+  const snapshot = rows[0].priceSnapshot
+  expect(snapshot).toBeDefined()
+  expect(snapshot?.totalNights).toBe(3)
+  expect(snapshot?.coveredNights).toBe(2)
+  expect(snapshot?.optionLines).toEqual(
+    expect.arrayContaining([
+      {
+        optionKey: "night_before_superior",
+        label: "Night before · Superior",
+        pricePerUnitMinor: 1000,
+        quantity: 1,
+        nights: 1,
+        chargeMinor: 1000,
+      },
+      {
+        optionKey: "cot",
+        label: "Cot",
+        pricePerUnitMinor: 500,
+        quantity: 1,
+        nights: 2,
+        chargeMinor: 1000,
+      },
+    ])
+  )
+
+  // The canonical loader prices the confirmed row exclusively from the
+  // snapshot: ticket €250 + night €30 + premium €10 + cot €10 = €300.
+  const breakdown = await t.query(async (ctx) => {
+    const loaderCtx =
+      ctx as unknown as Parameters<typeof loadOrderAmountDueBreakdowns>[0]
+    const breakdowns = await loadOrderAmountDueBreakdowns(loaderCtx, [
+      { _id: result.submissionId as never },
+    ])
+    return breakdowns.get(String(result.submissionId))?.amountDueMinor ?? null
+  })
+  expect(breakdown).toBe(30000)
 })

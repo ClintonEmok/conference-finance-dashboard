@@ -72,12 +72,15 @@ async function createConfiguredEvent(
     })
   })
 
-  // Stay: two nights before the event, breakfast included.
+  // Stay: two nights before the event, breakfast included. The event's
+  // included-stay category defaults to Standard, mirroring the divine
+  // migration's effect.
   await t.mutation(api.accommodation.upsertEventAccommodationConfig, {
     eventId,
     baseCheckInAt: BASE_EVENT_AT - 2 * DAY_MS,
     baseCheckOutAt: BASE_EVENT_AT,
     breakfastIncluded: true,
+    defaultCategoryId: categoryStandardId,
   })
   // Rates: standard/shared €30, standard/single €40, superior/shared €45.
   await t.mutation(api.accommodation.upsertEventAccommodationRate, {
@@ -98,12 +101,27 @@ async function createConfiguredEvent(
     occupancy: "shared",
     pricePerPersonMinor: 4500,
   })
-  // Options: cot €5/unit/night (no age-band eligibility).
+  // Options: cot €5/unit/night (no age-band eligibility) and the
+  // superior_upgrade included-stay upgrade at €10/person/night.
   await t.mutation(api.accommodation.upsertEventAccommodationOption, {
     eventId,
     optionId: cotOptionId,
     enabled: true,
     priceMinor: 500,
+  })
+  const superiorUpgradeOptionId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("accommodationOptions", {
+      code: "superior_upgrade",
+      label: "Superior upgrade",
+      kind: "upgrade",
+      unit: "per_night",
+    })
+  })
+  await t.mutation(api.accommodation.upsertEventAccommodationOption, {
+    eventId,
+    optionId: superiorUpgradeOptionId as Id<"accommodationOptions">,
+    enabled: true,
+    priceMinor: 1000,
   })
 
   const constrainedRoomTypeId = await t.mutation(async (ctx) => {
@@ -163,11 +181,12 @@ test("public catalog exposes event-configured accommodation choices and ticket e
     baseCheckOutAt: BASE_EVENT_AT,
     nightCount: 2,
     breakfastIncluded: true,
-    // Extended-stay policy is exposed for the buyer surfaces; disabled by
-    // default in this fixture.
-    allowExtendedStayBefore: false,
-    allowExtendedStayAfter: false,
-    allowExtendedStayBoth: false,
+  })
+  // Server-resolved night-before display rates: Standard at the included
+  // category's occupancy rates, Superior + €10 (copy only).
+  expect(event?.accommodation.nightBefore).toEqual({
+    standard: { single: 4000, shared: 3000 },
+    superior: { single: 5000, shared: 4000 },
   })
 
   const standard = event?.accommodation.activeCategories.find(
@@ -183,6 +202,11 @@ test("public catalog exposes event-configured accommodation choices and ticket e
   expect(event?.accommodation.options).toEqual(
     expect.arrayContaining([
       { optionKey: "cot", label: "Cot", priceMinor: 500 },
+      {
+        optionKey: "superior_upgrade",
+        label: "Superior upgrade",
+        priceMinor: 1000,
+      },
     ])
   )
 
@@ -245,10 +269,12 @@ test("quote returns canonical ticket and accommodation lines and totals", async 
   ])
 })
 
-test("quote rejects a ticket/category mismatch and accepts the constrained category", async () => {
+test("quote resolves the included stay to Standard for every ticket and rejects category-dependent payloads", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await createConfiguredEvent(t)
 
+  // A client category that does not match the server-resolved included stay
+  // (Standard) is rejected — the buyer never chooses a category.
   const mismatched = t.query(
     api.signupCatalog.getPublicSignupAccommodationQuote,
     {
@@ -256,8 +282,8 @@ test("quote rejects a ticket/category mismatch and accepts the constrained categ
       attendees: [
         {
           attendeeKey: "a1",
-          ticketTypeId: seed.constrainedTicketId,
-          categoryId: seed.categoryStandardId,
+          ticketTypeId: seed.unconstrainedTicketId,
+          categoryId: seed.categorySuperiorId,
           occupancy: "shared",
           optionSelections: [],
         },
@@ -265,11 +291,13 @@ test("quote rejects a ticket/category mismatch and accepts the constrained categ
     }
   )
   await expect(mismatched).rejects.toThrow("QUOTE_INVALID")
-  await expect(mismatched).rejects.toThrow("not allowed for this ticket")
+  await expect(mismatched).rejects.toThrow("one room category")
 
-  const accepted = await t.query(
-    api.signupCatalog.getPublicSignupAccommodationQuote,
-    {
+  // The ticket's constrained room type (Superior) stays admin-allocation
+  // metadata only: the buyer-facing included stay still resolves to Standard,
+  // so a Superior categoryId is equally rejected for that ticket.
+  await expect(
+    t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
       eventId: seed.eventId,
       attendees: [
         {
@@ -280,10 +308,31 @@ test("quote rejects a ticket/category mismatch and accepts the constrained categ
           optionSelections: [],
         },
       ],
+    })
+  ).rejects.toThrow("QUOTE_INVALID")
+
+  // No categoryId at all: the server resolves the included stay to Standard
+  // and prices the Standard shared rate (2 × €30 = €60).
+  const accepted = await t.query(
+    api.signupCatalog.getPublicSignupAccommodationQuote,
+    {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: seed.constrainedTicketId,
+          occupancy: "shared",
+          optionSelections: [],
+        },
+      ],
     }
   )
-  expect(accepted.attendees[0].categoryCode).toBe("superior")
-  expect(accepted.accommodationTotalMinor).toBe(9000) // 2 × €45
+  expect(accepted.attendees[0]).toMatchObject({
+    categoryCode: "standard",
+    categoryLabel: "Standard",
+    occupancy: "shared",
+  })
+  expect(accepted.accommodationTotalMinor).toBe(6000) // 2 × €30 standard
 })
 
 test("quote rejects an unknown accommodation option and prices a selected option", async () => {
@@ -341,24 +390,24 @@ test("quote rejects an unknown accommodation option and prices a selected option
   expect(eligible.accommodationTotalMinor).toBe(7000) // 6000 base + 1000 cot
 })
 
-test("quote rejects an unconfigured rate/occupancy combination and unknown categories", async () => {
+test("quote rejects family occupancy and unknown categories under the simplified contract", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await createConfiguredEvent(t)
 
-  // family occupancy has no configured rate for standard.
+  // Only single/shared occupancy is offered for the included stay.
   const noRate = t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
     eventId: seed.eventId,
     attendees: [
       {
         attendeeKey: "a1",
         ticketTypeId: seed.unconstrainedTicketId,
-        categoryId: seed.categoryStandardId,
         occupancy: "family",
         optionSelections: [],
       },
     ],
   })
   await expect(noRate).rejects.toThrow("QUOTE_INVALID")
+  await expect(noRate).rejects.toThrow("single and shared occupancy")
 
   // A catalog category with no rate rows for this event is not active.
   const orphanCategoryId = await t.mutation(async (ctx) => {
@@ -384,7 +433,7 @@ test("quote rejects an unconfigured rate/occupancy combination and unknown categ
     }
   )
   await expect(unknownCategory).rejects.toThrow("QUOTE_INVALID")
-  await expect(unknownCategory).rejects.toThrow("not offered")
+  await expect(unknownCategory).rejects.toThrow("one room category")
 })
 
 test("quote keeps an unconfigured event at an honest zero accommodation contribution", async () => {
@@ -733,27 +782,54 @@ test("CR-10: a quote with two attendees sharing one ticket with one remaining pl
   ).rejects.toThrow("maximum quantity")
 })
 
-test("extended stay: an included ticket with base+1 nights is quoted as one server-priced night", async () => {
-  const t = fresh().withIdentity(adminIdentity)
+/**
+ * Divine-like fixture: Standard single €90 / shared €60 (the included-stay
+ * occupancy rates), cot €10/unit/night, superior_upgrade €10/person/night,
+ * and a €250 accommodation-included ticket — the production divine-conference
+ * model the simplified contract targets.
+ */
+async function createDivineLikeEvent(
+  t: TestConvexForDataModel<GenericDataModel>
+): Promise<SeedContext & { includedTicketId: Id<"ticketTypes"> }> {
   const seed = await createConfiguredEvent(t)
-
-  // Enable the night-before extension on the seeded event and add an
-  // accommodation-included ticket, mirroring the production divine-conference
-  // model: the base 2-night stay is covered, one extra night is charged.
-  await t.mutation(api.accommodation.upsertEventAccommodationConfig, {
+  await t.mutation(api.accommodation.upsertEventAccommodationRate, {
     eventId: seed.eventId,
-    baseCheckInAt: BASE_EVENT_AT - 2 * DAY_MS,
-    baseCheckOutAt: BASE_EVENT_AT,
-    allowExtendedStayBefore: true,
-    allowExtendedStayAfter: false,
-    allowExtendedStayBoth: false,
-    breakfastIncluded: true,
+    categoryId: seed.categoryStandardId,
+    occupancy: "shared",
+    pricePerPersonMinor: 6000,
   })
+  await t.mutation(api.accommodation.upsertEventAccommodationRate, {
+    eventId: seed.eventId,
+    categoryId: seed.categoryStandardId,
+    occupancy: "single",
+    pricePerPersonMinor: 9000,
+  })
+  await t.mutation(api.accommodation.upsertEventAccommodationRate, {
+    eventId: seed.eventId,
+    categoryId: seed.categorySuperiorId,
+    occupancy: "shared",
+    pricePerPersonMinor: 4500,
+  })
+  // Cot at €10/unit/night (replaces the €5 fixture price).
+  const cotOption = await t.mutation(async (ctx) => {
+    return await ctx.db
+      .query("accommodationOptions")
+      .withIndex("by_code", (q) => q.eq("code", "cot"))
+      .first()
+  })
+  if (cotOption) {
+    await t.mutation(api.accommodation.upsertEventAccommodationOption, {
+      eventId: seed.eventId,
+      optionId: cotOption._id as Id<"accommodationOptions">,
+      enabled: true,
+      priceMinor: 1000,
+    })
+  }
   const includedTicketId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("ticketTypes", {
       eventId: seed.eventId as never,
       label: "Included-stay ticket",
-      priceMinor: 2000,
+      priceMinor: 25000,
       isActive: true,
       visibility: "public",
       availabilityState: "selectable",
@@ -761,44 +837,18 @@ test("extended stay: an included ticket with base+1 nights is quoted as one serv
       updatedAt: BASE_EVENT_AT,
     })
   })
+  return {
+    ...seed,
+    includedTicketId: includedTicketId as Id<"ticketTypes">,
+  }
+}
 
-  // Buyer selects one extra night (total 3): only the charged night beyond
-  // the covered base is priced — €30 standard/shared.
-  const extended = await t.query(
-    api.signupCatalog.getPublicSignupAccommodationQuote,
-    {
-      eventId: seed.eventId,
-      attendees: [
-        {
-          attendeeKey: "a1",
-          ticketTypeId: includedTicketId as Id<"ticketTypes">,
-          categoryId: seed.categoryStandardId,
-          occupancy: "shared",
-          optionSelections: [],
-          nights: 3,
-        },
-      ],
-    }
-  )
-  expect(extended.attendees[0]).toMatchObject({
-    accommodationIncluded: true,
-    baseNights: 2,
-    accommodationTotalMinor: 3000,
-  })
-  expect(extended.attendees[0].lines).toEqual([
-    {
-      kind: "accommodation",
-      label: "Accommodation",
-      nights: 1,
-      ratePerNightMinor: 3000,
-      chargeMinor: 3000,
-    },
-  ])
-  expect(extended.accommodationTotalMinor).toBe(3000)
-  expect(extended.totalDueMinor).toBe(5000) // 2000 ticket + 3000 extra night
+test("night before: the Standard level quotes exactly one server-priced night at the included rate", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createDivineLikeEvent(t)
 
-  // Omitted nights keep quoting the base stay at zero charge for the included
-  // ticket: the base nights are covered, so no line and no charge.
+  // No categoryId: the included stay resolves to Standard. No night-before
+  // means the included 2-night stay is covered by the ticket at zero charge.
   const baseOnly = await t.query(
     api.signupCatalog.getPublicSignupAccommodationQuote,
     {
@@ -806,8 +856,7 @@ test("extended stay: an included ticket with base+1 nights is quoted as one serv
       attendees: [
         {
           attendeeKey: "a1",
-          ticketTypeId: includedTicketId as Id<"ticketTypes">,
-          categoryId: seed.categoryStandardId,
+          ticketTypeId: seed.includedTicketId,
           occupancy: "shared",
           optionSelections: [],
         },
@@ -815,31 +864,239 @@ test("extended stay: an included ticket with base+1 nights is quoted as one serv
     }
   )
   expect(baseOnly.attendees[0]).toMatchObject({
+    categoryCode: "standard",
+    accommodationIncluded: true,
     baseNights: 2,
     accommodationTotalMinor: 0,
   })
   expect(baseOnly.attendees[0].lines).toEqual([])
-  expect(baseOnly.totalDueMinor).toBe(2000)
+
+  // Night-before Standard: one charged night at the Standard shared rate
+  // (€60). Single occupancy prices the same night at €90.
+  const sharedStandard = await t.query(
+    api.signupCatalog.getPublicSignupAccommodationQuote,
+    {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: seed.includedTicketId,
+          occupancy: "shared",
+          nightBeforeLevel: "standard",
+          optionSelections: [],
+        },
+      ],
+    }
+  )
+  expect(sharedStandard.attendees[0].nightBeforeLevel).toBe("standard")
+  expect(sharedStandard.attendees[0].lines).toEqual([
+    {
+      kind: "accommodation",
+      label: "Accommodation",
+      nights: 1,
+      ratePerNightMinor: 6000,
+      chargeMinor: 6000,
+    },
+  ])
+  expect(sharedStandard.accommodationTotalMinor).toBe(6000)
+  expect(sharedStandard.totalDueMinor).toBe(31000) // 25000 + 6000
+
+  const singleStandard = await t.query(
+    api.signupCatalog.getPublicSignupAccommodationQuote,
+    {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: seed.includedTicketId,
+          occupancy: "single",
+          nightBeforeLevel: "standard",
+          optionSelections: [],
+        },
+      ],
+    }
+  )
+  expect(singleStandard.accommodationTotalMinor).toBe(9000)
 })
 
-test("extended stay: below-base, fractional, and over-cap nights are rejected by the quote", async () => {
+test("night before: the Superior level adds the fixed premium and stays independent of the included stay", async () => {
   const t = fresh().withIdentity(adminIdentity)
-  const seed = await createConfiguredEvent(t)
+  const seed = await createDivineLikeEvent(t)
 
-  await t.mutation(api.accommodation.upsertEventAccommodationConfig, {
-    eventId: seed.eventId,
-    baseCheckInAt: BASE_EVENT_AT - 2 * DAY_MS,
-    baseCheckOutAt: BASE_EVENT_AT,
-    allowExtendedStayBefore: true,
-    allowExtendedStayAfter: false,
-    allowExtendedStayBoth: false,
-    breakfastIncluded: true,
+  // Night-before Superior (shared): €60 Standard night + €10 premium = €70.
+  const superior = await t.query(
+    api.signupCatalog.getPublicSignupAccommodationQuote,
+    {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: seed.includedTicketId,
+          occupancy: "shared",
+          nightBeforeLevel: "superior",
+          optionSelections: [],
+        },
+      ],
+    }
+  )
+  expect(superior.attendees[0].lines).toEqual([
+    {
+      kind: "accommodation",
+      label: "Accommodation",
+      nights: 1,
+      ratePerNightMinor: 6000,
+      chargeMinor: 6000,
+    },
+    {
+      kind: "option",
+      optionKey: "night_before_superior",
+      label: "Night before · Superior",
+      nights: 1,
+      quantity: 1,
+      ratePerNightMinor: 1000,
+      chargeMinor: 1000,
+    },
+  ])
+  expect(superior.accommodationTotalMinor).toBe(7000)
+
+  // Single occupancy: €90 + €10 = €100.
+  const superiorSingle = await t.query(
+    api.signupCatalog.getPublicSignupAccommodationQuote,
+    {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: seed.includedTicketId,
+          occupancy: "single",
+          nightBeforeLevel: "superior",
+          optionSelections: [],
+        },
+      ],
+    }
+  )
+  expect(superiorSingle.accommodationTotalMinor).toBe(10000)
+
+  // Independence: adding the included-stay Superior upgrade (€10 × 2 nights
+  // = €20) must NOT change the night-before line or its level, and the
+  // night-before level must NOT upgrade the included stay.
+  const upgraded = await t.query(
+    api.signupCatalog.getPublicSignupAccommodationQuote,
+    {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: seed.includedTicketId,
+          occupancy: "shared",
+          nightBeforeLevel: "standard",
+          optionSelections: [
+            { optionKey: "superior_upgrade", quantity: 1, nights: 2 },
+          ],
+        },
+      ],
+    }
+  )
+  expect(upgraded.attendees[0].nightBeforeLevel).toBe("standard")
+  expect(upgraded.attendees[0].categoryCode).toBe("standard")
+  expect(upgraded.attendees[0].lines).toEqual(
+    expect.arrayContaining([
+      {
+        kind: "accommodation",
+        label: "Accommodation",
+        nights: 1,
+        ratePerNightMinor: 6000,
+        chargeMinor: 6000,
+      },
+      {
+        kind: "option",
+        optionKey: "superior_upgrade",
+        label: "Superior upgrade",
+        nights: 2,
+        quantity: 1,
+        ratePerNightMinor: 1000,
+        chargeMinor: 2000,
+      },
+    ])
+  )
+  expect(upgraded.accommodationTotalMinor).toBe(8000)
+})
+
+test("the acceptance example totals exactly €360 for the €250 ticket", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createDivineLikeEvent(t)
+
+  // 18+ attendee, included Superior upgrade (€20), night-before Superior
+  // shared (€70), cot (2 nights × €10 = €20): €250 + €20 + €70 + €20 = €360.
+  const quote = await t.query(
+    api.signupCatalog.getPublicSignupAccommodationQuote,
+    {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: seed.includedTicketId,
+          occupancy: "shared",
+          nightBeforeLevel: "superior",
+          optionSelections: [
+            { optionKey: "superior_upgrade", quantity: 1, nights: 2 },
+            { optionKey: "cot", quantity: 1, nights: 2 },
+          ],
+        },
+      ],
+    }
+  )
+  expect(quote).toMatchObject({
+    ticketTotalMinor: 25000,
+    accommodationTotalMinor: 11000,
+    totalDueMinor: 36000,
   })
-  const includedTicketId = await t.mutation(async (ctx) => {
+  expect(quote.attendees[0].lines).toEqual([
+    {
+      kind: "accommodation",
+      label: "Accommodation",
+      nights: 1,
+      ratePerNightMinor: 6000,
+      chargeMinor: 6000,
+    },
+    {
+      kind: "option",
+      optionKey: "superior_upgrade",
+      label: "Superior upgrade",
+      nights: 2,
+      quantity: 1,
+      ratePerNightMinor: 1000,
+      chargeMinor: 2000,
+    },
+    {
+      kind: "option",
+      optionKey: "cot",
+      label: "Cot",
+      nights: 2,
+      quantity: 1,
+      ratePerNightMinor: 1000,
+      chargeMinor: 2000,
+    },
+    {
+      kind: "option",
+      optionKey: "night_before_superior",
+      label: "Night before · Superior",
+      nights: 1,
+      quantity: 1,
+      ratePerNightMinor: 1000,
+      chargeMinor: 1000,
+    },
+  ])
+})
+
+test("two attendees choose independently: included Superior upgrade vs night-before Superior", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createDivineLikeEvent(t)
+  const secondIncludedTicketId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("ticketTypes", {
       eventId: seed.eventId as never,
-      label: "Included-stay ticket",
-      priceMinor: 2000,
+      label: "Included-stay ticket 2",
+      priceMinor: 25000,
       isActive: true,
       visibility: "public",
       availabilityState: "selectable",
@@ -848,100 +1105,140 @@ test("extended stay: below-base, fractional, and over-cap nights are rejected by
     })
   })
 
-  const baseAttendee = {
-    attendeeKey: "a1",
-    ticketTypeId: includedTicketId as Id<"ticketTypes">,
-    categoryId: seed.categoryStandardId,
-    occupancy: "shared" as const,
-    optionSelections: [],
-  }
-
-  // Below the configured base (2 nights) fails.
-  await expect(
-    t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
+  // a1: included Superior upgrade (€20), no night-before → 25000 + 2000.
+  // a2: no upgrade, night-before Superior shared (€70) → 25000 + 7000.
+  const quote = await t.query(
+    api.signupCatalog.getPublicSignupAccommodationQuote,
+    {
       eventId: seed.eventId,
-      attendees: [{ ...baseAttendee, nights: 1 }],
-    })
-  ).rejects.toThrow("cannot be fewer than the 2-night base stay")
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: seed.includedTicketId,
+          occupancy: "shared",
+          optionSelections: [
+            { optionKey: "superior_upgrade", quantity: 1, nights: 2 },
+          ],
+        },
+        {
+          attendeeKey: "a2",
+          ticketTypeId: secondIncludedTicketId as Id<"ticketTypes">,
+          occupancy: "shared",
+          nightBeforeLevel: "superior",
+          optionSelections: [],
+        },
+      ],
+    }
+  )
 
-  // Fractional nights fail — only finite whole numbers are accepted.
-  await expect(
-    t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
-      eventId: seed.eventId,
-      attendees: [{ ...baseAttendee, nights: 2.5 }],
-    })
-  ).rejects.toThrow("must be a whole number")
-
-  // Over the bounded allowance (base 2 + 7 extra = 9) fails even though the
-  // extension is enabled.
-  await expect(
-    t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
-      eventId: seed.eventId,
-      attendees: [{ ...baseAttendee, nights: 10 }],
-    })
-  ).rejects.toThrow("exceed the allowed maximum of 9 nights")
+  const a1 = quote.attendees.find((attendee) => attendee.attendeeKey === "a1")!
+  const a2 = quote.attendees.find((attendee) => attendee.attendeeKey === "a2")!
+  expect(a1.nightBeforeLevel).toBeUndefined()
+  expect(a2.nightBeforeLevel).toBe("superior")
+  expect(a1.categoryCode).toBe("standard")
+  expect(a2.categoryCode).toBe("standard")
+  // a1: only the Superior upgrade line (included stay covered). a2: the
+  // Standard night plus the Superior premium line — the two attendees never
+  // affect each other's choices.
+  expect(a1.lines.map((line) => line.optionKey ?? line.kind)).toEqual([
+    "superior_upgrade",
+  ])
+  expect(a2.lines.map((line) => line.optionKey ?? line.kind)).toEqual([
+    "accommodation",
+    "night_before_superior",
+  ])
+  expect(a1.accommodationTotalMinor).toBe(2000)
+  expect(a2.accommodationTotalMinor).toBe(7000)
+  expect(quote.accommodationTotalMinor).toBe(9000)
+  expect(quote.totalDueMinor).toBe(59000) // 25000 + 2000 + 25000 + 7000
 })
 
-test("extended stay: a nights request is rejected when no extension flag is enabled", async () => {
+test("night before: malformed levels, mismatched totals, and arbitrary upgrade shapes are rejected", async () => {
   const t = fresh().withIdentity(adminIdentity)
-  const seed = await createConfiguredEvent(t)
+  const seed = await createDivineLikeEvent(t)
 
-  // The seeded event has all three extended-stay flags disabled; an extra
-  // night beyond the base must be rejected by the same resolver the
-  // submission path uses.
+  // A malformed night-before level is rejected at the contract boundary.
   await expect(
     t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
       eventId: seed.eventId,
       attendees: [
         {
           attendeeKey: "a1",
-          ticketTypeId: seed.unconstrainedTicketId,
-          categoryId: seed.categoryStandardId,
+          ticketTypeId: seed.includedTicketId,
           occupancy: "shared",
+          nightBeforeLevel: "family" as never,
           optionSelections: [],
-          nights: 3,
         },
       ],
     })
-  ).rejects.toThrow("does not permit an extended stay")
+  ).rejects.toThrow()
 
-  // A nights value for an unconfigured event is rejected outright.
-  const plainEventId = await t.mutation(async (ctx) => {
-    return await ctx.db.insert("events", {
-      slug: "signup-no-accommodation-nights",
-      title: "No Accommodation Event",
-      startsAt: BASE_EVENT_AT,
-      timezone: "Europe/Amsterdam",
-      currency: "EUR",
-      isPublished: true,
-      isSignupOpen: true,
-      accommodationEnabled: false,
-      primarySourceKind: "internal" as const,
-      updatedAt: BASE_EVENT_AT,
-    })
-  })
-  const plainTicketId = await t.mutation(async (ctx) => {
-    return await ctx.db.insert("ticketTypes", {
-      eventId: plainEventId as never,
-      label: "Plain ticket",
-      priceMinor: 1000,
-      isActive: true,
-      visibility: "public",
-      availabilityState: "selectable",
-      updatedAt: BASE_EVENT_AT,
-    })
-  })
+  // A legacy total-nights value that does not match the derived total
+  // (base 2, or 3 with a night-before) is rejected.
   await expect(
     t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
-      eventId: plainEventId as Id<"events">,
+      eventId: seed.eventId,
       attendees: [
         {
           attendeeKey: "a1",
-          ticketTypeId: plainTicketId as Id<"ticketTypes">,
+          ticketTypeId: seed.includedTicketId,
+          occupancy: "shared",
+          nightBeforeLevel: "standard",
+          nights: 4,
           optionSelections: [],
-          nights: 2,
         },
       ],
     })
-  ).rejects.toThrow("does not offer configured accommodation")
+  ).rejects.toThrow("not part of the simplified accommodation contract")
+
+  // The included-stay upgrade is fixed: quantity must be 1 attendee and the
+  // nights must be exactly the included base nights (2).
+  await expect(
+    t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: seed.includedTicketId,
+          occupancy: "shared",
+          optionSelections: [
+            { optionKey: "superior_upgrade", quantity: 2, nights: 2 },
+          ],
+        },
+      ],
+    })
+  ).rejects.toThrow("exactly one attendee for the included base nights")
+
+  await expect(
+    t.query(api.signupCatalog.getPublicSignupAccommodationQuote, {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: seed.includedTicketId,
+          occupancy: "shared",
+          optionSelections: [
+            { optionKey: "superior_upgrade", quantity: 1, nights: 3 },
+          ],
+        },
+      ],
+    })
+  ).rejects.toThrow("exactly one attendee for the included base nights")
+
+  // The cot remains a normal independent option with its own quantity/nights.
+  const cot = await t.query(
+    api.signupCatalog.getPublicSignupAccommodationQuote,
+    {
+      eventId: seed.eventId,
+      attendees: [
+        {
+          attendeeKey: "a1",
+          ticketTypeId: seed.includedTicketId,
+          occupancy: "shared",
+          optionSelections: [{ optionKey: "cot", quantity: 2, nights: 1 }],
+        },
+      ],
+    }
+  )
+  expect(cot.accommodationTotalMinor).toBe(2000)
 })

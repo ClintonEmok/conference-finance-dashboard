@@ -167,10 +167,10 @@ async function createConfiguredEvent(
 
 /**
  * Creates an order with two attendees and their unconfirmed options-only
- * selections. a-1 holds the unconstrained ticket (standard/shared/18_plus),
- * a-2 holds the superior-suite ticket (superior/shared/18_plus). Original
- * canonical amount due: a-1 = 2000 + 2×3000 = 8000; a-2 = 2500 + 2×4500 =
- * 11500; total 19500.
+ * selections. Both attendees hold standard/shared selections under the
+ * simplified contract: a-1 = 2000 + 2×3000 = 8000; a-2 = 2500 + 2×3000 =
+ * 8500; total 16500. a-2's ticket keeps its superior-suite roomTypeId as
+ * admin-allocation metadata only.
  */
 async function createOrderWithSelections(
   t: TestConvexForDataModel<GenericDataModel>,
@@ -253,7 +253,9 @@ async function createOrderWithSelections(
 
   for (const [attendeeId, categoryId, occupancy] of [
     [attendeeOneId, seed.categoryStandardId, "shared"],
-    [attendeeTwoId, seed.categorySuperiorId, "shared"],
+    // The included stay resolves to Standard for every ticket; the ticket's
+    // superior-suite room type stays admin-allocation metadata only.
+    [attendeeTwoId, seed.categoryStandardId, "shared"],
   ]) {
     await t.mutation(async (ctx) => {
       return await ctx.db.insert("orderAccommodationSelections", {
@@ -317,8 +319,9 @@ async function createOrderWithSelections(
 
 function replacement(input: {
   attendeeKey: string
-  categoryId: Id<"accommodationCategories">
+  categoryId?: Id<"accommodationCategories">
   occupancy: "single" | "shared" | "family"
+  nightBeforeLevel?: "standard" | "superior"
   optionSelections?: Array<{
     optionKey: string
     quantity: number
@@ -326,8 +329,9 @@ function replacement(input: {
   }>
 }): {
   attendeeKey: string
-  categoryId: Id<"accommodationCategories">
+  categoryId?: Id<"accommodationCategories">
   occupancy: "single" | "shared" | "family"
+  nightBeforeLevel?: "standard" | "superior"
   optionSelections: Array<{
     optionKey: string
     quantity: number
@@ -336,8 +340,11 @@ function replacement(input: {
 } {
   return {
     attendeeKey: input.attendeeKey,
-    categoryId: input.categoryId,
+    ...(input.categoryId ? { categoryId: input.categoryId } : {}),
     occupancy: input.occupancy,
+    ...(input.nightBeforeLevel
+      ? { nightBeforeLevel: input.nightBeforeLevel }
+      : {}),
     optionSelections: input.optionSelections ?? [],
   }
 }
@@ -465,15 +472,13 @@ test("email ownership succeeds and returns an applied result with canonical re-p
   const selections = [
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      
+      nightBeforeLevel: "standard",
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      
+      nightBeforeLevel: "standard",
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -493,7 +498,7 @@ test("email ownership succeeds and returns an applied result with canonical re-p
   })
 
   expect(result.status).toBe("applied")
-  // a-1: 2000 + 2×4500 = 11000; a-2: 2500 + 2×4500 = 11500; total 22500.
+  // a-1: 2000 + 3×3000 = 11000; a-2: 2500 + 3×3000 = 11500; total 22500.
   expect(result.amountDueMinor).toBe(22500)
   expect(result.overpaymentDeltaMinor).toBe(0)
 
@@ -514,15 +519,13 @@ test("HMAC edit token ownership succeeds without email", async () => {
   const selections = [
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      
+      nightBeforeLevel: "standard",
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
-      
+      nightBeforeLevel: "standard",
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -543,7 +546,7 @@ test("HMAC edit token ownership succeeds without email", async () => {
   })
 
   expect(result.status).toBe("applied")
-  // a-1: 2000 + 2×4500 = 11000; a-2: 2500 + 2×4500 = 11500 → 22500.
+  // a-1: 2000 + 3×3000 = 11000; a-2: 2500 + 3×3000 = 11500 → 22500.
   expect(result.amountDueMinor).toBe(22500)
 
   // The audit row records the token ownership method.
@@ -567,13 +570,11 @@ test("unsigned and mis-signed direct calls are rejected before any write", async
   const selections = [
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
       
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
       
     }),
@@ -605,7 +606,6 @@ test("unsigned and mis-signed direct calls are rejected before any write", async
       }),
       replacement({
         attendeeKey: "a-2",
-        categoryId: seed.categorySuperiorId,
         occupancy: "shared",
         
       }),
@@ -621,7 +621,7 @@ test("unsigned and mis-signed direct calls are rejected before any write", async
     })
   ).rejects.toThrow("SIGNATURE_REQUIRED")
 
-  expect(await loadAmountDue(t, String(order.orderId))).toBe(19500)
+  expect(await loadAmountDue(t, String(order.orderId))).toBe(16500)
   const audits = await t.query(async (ctx) => {
     const rows = []
     for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
@@ -640,13 +640,11 @@ test("wrong ownership fails without leaking editability and without writes", asy
   const selections = [
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
       
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
       
     }),
@@ -688,7 +686,7 @@ test("wrong ownership fails without leaking editability and without writes", asy
     })
   ).rejects.toThrow("EDIT_OWNERSHIP")
 
-  expect(await loadAmountDue(t, String(order.orderId))).toBe(19500)
+  expect(await loadAmountDue(t, String(order.orderId))).toBe(16500)
 })
 
 test("client price, stay, room, slot and snapshot fields are rejected at the mutation boundary", async () => {
@@ -705,7 +703,6 @@ test("client price, stay, room, slot and snapshot fields are rejected at the mut
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
       
     }),
@@ -754,7 +751,7 @@ test("client price, stay, room, slot and snapshot fields are rejected at the mut
     t.mutation(api.publicTracking.updateAccommodation, tampered2)
   ).rejects.toThrow()
 
-  expect(await loadAmountDue(t, String(order.orderId))).toBe(19500)
+  expect(await loadAmountDue(t, String(order.orderId))).toBe(16500)
   const audits = await t.query(async (ctx) => {
     const rows = []
     for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
@@ -781,7 +778,6 @@ test("stale and cross-event choices are rejected before writes", async () => {
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
       
     }),
@@ -815,7 +811,6 @@ test("stale and cross-event choices are rejected before writes", async () => {
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
     }),
   ]
@@ -836,7 +831,8 @@ test("stale and cross-event choices are rejected before writes", async () => {
     })
   ).rejects.toThrow("EDIT_INVALID")
 
-  // A constrained ticket cannot move to a different category.
+  // A category-dependent payload is rejected: the buyer can never choose the
+  // ticket's admin category — the included stay is always Standard.
   const constrainedBreakSelections = [
     replacement({
       attendeeKey: "a-1",
@@ -846,7 +842,7 @@ test("stale and cross-event choices are rejected before writes", async () => {
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categoryStandardId,
+      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
       
     }),
@@ -894,7 +890,7 @@ test("stale and cross-event choices are rejected before writes", async () => {
     })
   ).rejects.toThrow("EDIT_CONFLICT")
 
-  expect(await loadAmountDue(t, String(order.orderId))).toBe(19500)
+  expect(await loadAmountDue(t, String(order.orderId))).toBe(16500)
 })
 
 // ---------------------------------------------------------------------------
@@ -918,7 +914,6 @@ test("confirmed orders reject edits atomically", async () => {
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
       
     }),
@@ -957,7 +952,7 @@ test("applied edits persist server-resolved preferences and stay fields and leav
   const order = await createOrderWithSelections(t, seed, {
     withPaymentMinor: 10000,
     withTikkieLink: true,
-    totalAmountMinor: 19500,
+    totalAmountMinor: 16500,
   })
 
   // Snapshot the untouched documents before the edit.
@@ -986,14 +981,14 @@ test("applied edits persist server-resolved preferences and stay fields and leav
   const selections = [
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
     }),
   ]
   const idempotencyKey = uniqueIdempotencyKey()
@@ -1013,7 +1008,8 @@ test("applied edits persist server-resolved preferences and stay fields and leav
   })
 
   expect(result.status).toBe("applied")
-  // a-1: 2000 + 2×4500 (superior) + cot 2×500 = 12000; a-2: 11500 → 23500.
+  // a-1: 2000 + 3×3000 (night before) + cot 2×500 = 12000; a-2: 2500 +
+  // 3×3000 = 11500 → 23500.
   expect(result.amountDueMinor).toBe(23500)
 
   // The persisted selection rows carry the server-resolved stay fields.
@@ -1025,7 +1021,8 @@ test("applied edits persist server-resolved preferences and stay fields and leav
   })
   expect(rows).toHaveLength(2)
   for (const row of rows) {
-    expect(row.nightCount).toBe(2)
+    expect(row.nightCount).toBe(3)
+    expect(row.nightBeforeLevel).toBe("standard")
     expect(row.checkInAt).toBe(BASE_EVENT_AT - 2 * DAY_MS)
     expect(row.checkOutAt).toBe(BASE_EVENT_AT)
     expect(row.confirmedAt).toBeUndefined()
@@ -1040,7 +1037,9 @@ test("applied edits persist server-resolved preferences and stay fields and leav
     attendeeKeys.set(String(attendee._id), attendee.attendeeKey)
   }
   const a1Row = rows.find((r) => attendeeKeys.get(String(r.attendeeId)) === "a-1")
-  expect(a1Row?.categoryId).toBe(seed.categorySuperiorId)
+  // The included-stay category is server-resolved to Standard for both
+  // attendees — the buyer never chose it.
+  expect(a1Row?.categoryId).toBe(seed.categoryStandardId)
   expect(a1Row?.occupancy).toBe("shared")
 
   // Nothing outside the selection rows changes.
@@ -1067,7 +1066,7 @@ test("applied edits persist server-resolved preferences and stay fields and leav
   })
 
   expect(afterOrder).toEqual(beforeOrder)
-  expect(afterOrder?.totalAmountMinor).toBe(19500)
+  expect(afterOrder?.totalAmountMinor).toBe(16500)
   expect(afterPayments).toEqual(beforePayments)
   expect(afterAssignments).toEqual(beforeAssignments)
   expect(afterTikkie).toEqual(beforeTikkie)
@@ -1092,7 +1091,7 @@ test("an identical replacement is a true no-op with no audit row", async () => {
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
+      categoryId: seed.categoryStandardId,
       occupancy: "shared",
       
     }),
@@ -1114,7 +1113,7 @@ test("an identical replacement is a true no-op with no audit row", async () => {
   })
 
   expect(result.status).toBe("unchanged")
-  expect(result.amountDueMinor).toBe(19500)
+  expect(result.amountDueMinor).toBe(16500)
 
   const audits = await t.query(async (ctx) => {
     const rows = []
@@ -1124,7 +1123,7 @@ test("an identical replacement is a true no-op with no audit row", async () => {
     return rows
   })
   expect(audits).toHaveLength(0)
-  expect(await loadAmountDue(t, String(order.orderId))).toBe(19500)
+  expect(await loadAmountDue(t, String(order.orderId))).toBe(16500)
 })
 
 test("an already-used idempotency key replays its stored result without duplicate writes", async () => {
@@ -1135,14 +1134,14 @@ test("an already-used idempotency key replays its stored result without duplicat
   const selections = [
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
   ]
@@ -1222,16 +1221,16 @@ test("an already-used idempotency key replays its stored result without duplicat
     (row) => row.attendeeId === String(order.attendeeTwoId)
   )
   expect(persistedOne).toMatchObject({
-    categoryId: String(seed.categorySuperiorId),
+    categoryId: String(seed.categoryStandardId),
     occupancy: "shared",
-    nightCount: 2,
+    nightCount: 3,
     confirmedAt: null,
     priceSnapshot: null,
   })
   expect(persistedTwo).toMatchObject({
-    categoryId: String(seed.categorySuperiorId),
+    categoryId: String(seed.categoryStandardId),
     occupancy: "shared",
-    nightCount: 2,
+    nightCount: 3,
     confirmedAt: null,
     priceSnapshot: null,
   })
@@ -1245,14 +1244,14 @@ test("a replay returns the originally stored money result even when a payment is
   const selections = [
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
   ]
@@ -1329,14 +1328,14 @@ test("distinct applied edits produce distinct append-only server-valued audit ro
   const editOne = [
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
   ]
@@ -1364,8 +1363,8 @@ test("distinct applied edits produce distinct append-only server-valued audit ro
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
   ]
@@ -1399,9 +1398,10 @@ test("distinct applied edits produce distinct append-only server-valued audit ro
   expect(audits).toHaveLength(2)
   expect(audits[0].idempotencyKey).toBe(keyOne)
   expect(audits[1].idempotencyKey).toBe(keyTwo)
-  // The first edit re-priced 19500 → 22500; the second 22500 → 23500
-  // (a-1 single standard: 2000 + 2×5000 = 12000; a-2: 11500).
-  expect(audits[0].amountDueBeforeMinor).toBe(19500)
+  // The first edit re-priced 16500 → 22500 (both night-before standard); the
+  // second 22500 → 23500 (a-1 single standard: 2000 + 2×5000 = 12000; a-2:
+  // night-before standard: 11500).
+  expect(audits[0].amountDueBeforeMinor).toBe(16500)
   expect(audits[0].amountDueAfterMinor).toBe(22500)
   expect(audits[1].amountDueBeforeMinor).toBe(22500)
   expect(audits[1].amountDueAfterMinor).toBe(23500)
@@ -1420,19 +1420,20 @@ test("a downward re-price returns the server-computed overpayment while the flex
     withTikkieLink: true,
   })
 
-  // Move a-1 to superior (19500 → 22500) first, then back down to standard
-  // (22500 → 19500). Payments of 30000 exceed the final due by 10500.
+  // Add the night-before to both attendees (16500 → 22500) first, then drop
+  // a-1's night-before (22500 → 19500). Payments of 30000 exceed the final
+  // due by 10500.
   const upSelections = [
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
   ]
@@ -1461,8 +1462,8 @@ test("a downward re-price returns the server-computed overpayment while the flex
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
   ]
@@ -1525,14 +1526,14 @@ test("reusing an idempotency key with a different envelope rejects with EDIT_IDE
   const appliedSelections = [
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
   ]
@@ -1562,8 +1563,8 @@ test("reusing an idempotency key with a different envelope rejects with EDIT_IDE
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
   ]
@@ -1604,14 +1605,14 @@ test("a same-key replay returns the stored result even after the organizer confi
   const selections = [
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
   ]
@@ -1694,13 +1695,11 @@ test("cross-order ownership fails without leaking editability and without writes
   const selections = [
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
       
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
       
     }),
@@ -1750,8 +1749,8 @@ test("cross-order ownership fails without leaking editability and without writes
 
   // Neither attempt wrote anything: amount stable, no audit rows, the other
   // order's own preferences untouched.
-  expect(await loadAmountDue(t, String(order.orderId))).toBe(19500)
-  expect(await loadAmountDue(t, String(otherOrder.orderId))).toBe(19500)
+  expect(await loadAmountDue(t, String(order.orderId))).toBe(16500)
+  expect(await loadAmountDue(t, String(otherOrder.orderId))).toBe(16500)
   const audits = await t.query(async (ctx) => {
     const rows = []
     for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
@@ -1770,14 +1769,14 @@ test("a signature is bound to its idempotency key and cannot be replayed under a
   const selections = [
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
+      nightBeforeLevel: "standard",
       
     }),
   ]
@@ -1837,7 +1836,6 @@ test("a duplicate attendee key in the replacement is rejected before writes", as
     }),
     replacement({
       attendeeKey: "a-1",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
       
     }),
@@ -1860,7 +1858,7 @@ test("a duplicate attendee key in the replacement is rejected before writes", as
     })
   ).rejects.toThrow("EDIT_INVALID")
 
-  expect(await loadAmountDue(t, String(order.orderId))).toBe(19500)
+  expect(await loadAmountDue(t, String(order.orderId))).toBe(16500)
   const audits = await t.query(async (ctx) => {
     const rows = []
     for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
@@ -1895,7 +1893,6 @@ test("a ticket whose room-type entitlement is broken rejects the edit before wri
     }),
     replacement({
       attendeeKey: "a-2",
-      categoryId: seed.categorySuperiorId,
       occupancy: "shared",
       
     }),
@@ -1918,7 +1915,7 @@ test("a ticket whose room-type entitlement is broken rejects the edit before wri
     })
   ).rejects.toThrow("EDIT_CONFLICT")
 
-  expect(await loadAmountDue(t, String(order.orderId))).toBe(19500)
+  expect(await loadAmountDue(t, String(order.orderId))).toBe(16500)
   const audits = await t.query(async (ctx) => {
     const rows = []
     for await (const row of ctx.db.query("orderAccommodationEditAudits")) {

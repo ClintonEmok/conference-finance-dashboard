@@ -12,7 +12,6 @@ import type { TicketUnavailableReason } from "../lib/types/signup"
 import {
   deriveAccommodationAmount,
   NIGHT_BEFORE_SUPERIOR_PREMIUM_MINOR,
-  type AccommodationOptionSelection,
 } from "../lib/domain/finance/accommodation-amounts"
 
 const PUBLIC_EVENT_LIMIT = 50
