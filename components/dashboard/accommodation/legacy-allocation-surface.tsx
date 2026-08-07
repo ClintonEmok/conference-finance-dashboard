@@ -135,13 +135,29 @@ function OccupancyChip({ occupancy }: { occupancy: unknown }) {
 }
 
 /**
+ * The board's server-payload accommodation preference fields consumed by the
+ * chips below. Everything renders from these typed fields only.
+ */
+type AccommodationPreferenceFields = {
+  occupancy?: "single" | "shared" | "family" | null
+  nightBeforeLevel?: "standard" | "superior" | null
+  categoryLabel?: string | null
+  optionKeys?: string[] | null
+}
+
+/**
  * Server-driven accommodation preference chips for unassigned inbox rows.
  * Reads only `occupancy`, `categoryLabel`, `optionKeys`, and
  * `nightBeforeLevel` from the board payload.
  */
-function AccommodationPreferenceChips({ attendee }: { attendee: any }) {
-  const optionKeys: string[] = Array.isArray(attendee?.optionKeys)
-    ? attendee.optionKeys
+function AccommodationPreferenceChips({
+  attendee,
+}: {
+  attendee: AccommodationPreferenceFields
+}) {
+  const rawOptionKeys = attendee?.optionKeys
+  const optionKeys: string[] = Array.isArray(rawOptionKeys)
+    ? rawOptionKeys
     : []
   return (
     <>
