@@ -300,7 +300,7 @@ describe("canonical permalink construction", () => {
       secret: TEST_SECRET,
     })
     expect(url).toBeTruthy()
-    expect(url).toContain("https://example.com/manage/BK-20260411-ABC123")
+    expect(url).toContain("https://example.com/booking/BK-20260411-ABC123/manage")
     const token = new URL(url as string).searchParams.get("token")
     expect(token).toBeTruthy()
     // The embedded token verifies for this exact binding.
