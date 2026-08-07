@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertCircle,
   BedDouble,
@@ -516,6 +516,9 @@ function AttendeePreferenceFieldset({
   const nightBefore = editContext.accommodation.nightBefore
   const occupancy = attendee.ticketOccupancy ?? draft.occupancy ?? "shared"
   const occupancyLabel = occupancy === "single" ? "Single" : "Shared"
+  const firstAddOnOptionKey = editContext.accommodation.options.find(
+    (option) => option.optionKey !== "superior_upgrade"
+  )?.optionKey
 
   return (
     <fieldset className="min-w-0 rounded-xl border border-border/50 bg-card p-4 shadow-sm sm:p-6">
@@ -541,9 +544,6 @@ function AttendeePreferenceFieldset({
 
         {editContext.accommodation.options.length > 0 ? (
           <div className="space-y-2">
-            <span className="block text-sm font-medium text-foreground">
-              Add-ons
-            </span>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {editContext.accommodation.options.map((option) => {
                 const selectedOption = draft.optionSelections.find(
@@ -560,14 +560,23 @@ function AttendeePreferenceFieldset({
                 const isIncludedStayUpgrade =
                   option.optionKey === "superior_upgrade"
                 return (
-                  <div
-                    key={option.optionKey}
-                    className={`flex min-w-0 flex-col gap-2 rounded-lg border p-3 transition-colors ${
+                  <Fragment key={option.optionKey}>
+                    {isIncludedStayUpgrade ? (
+                      <span className="col-span-full block text-sm font-medium text-foreground">
+                        Included stay upgrade
+                      </span>
+                    ) : option.optionKey === firstAddOnOptionKey ? (
+                      <span className="col-span-full block text-sm font-medium text-foreground">
+                        Add-ons
+                      </span>
+                    ) : null}
+                    <div
+                      className={`flex min-w-0 flex-col gap-2 rounded-lg border p-3 transition-colors ${
                       isSelected
                         ? "border-primary bg-primary/5"
                         : "border-border/60"
-                    }`}
-                  >
+                      }`}
+                    >
                     <div className="flex items-start justify-between gap-2">
                       <span className="min-w-0">
                         <span className="block text-sm font-medium text-foreground">
@@ -684,7 +693,8 @@ function AttendeePreferenceFieldset({
                         </label>
                       </div>
                     ) : null}
-                  </div>
+                    </div>
+                  </Fragment>
                 )
               })}
             </div>

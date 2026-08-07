@@ -1,5 +1,6 @@
 "use client"
 
+import { Fragment } from "react"
 import { BedDouble, CalendarDays, Info, Minus, Plus } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -244,6 +245,9 @@ export function AccommodationOptionsStep({
         )
         const selection = accommodationSelections[attendee.attendeeKey]
         const current = selection ?? emptySelection()
+        const firstAddOnOptionKey = event.accommodation.options.find(
+          (option) => option.optionKey !== "superior_upgrade"
+        )?.optionKey
 
         function patch(patchValue: Partial<AccommodationSelectionDraft>) {
           onChange(attendee.attendeeKey, patchValue)
@@ -296,9 +300,6 @@ export function AccommodationOptionsStep({
 
               {event.accommodation.options.length > 0 ? (
                 <div className="space-y-2">
-                  <span className="block text-sm font-medium text-foreground">
-                    Add-ons
-                  </span>
                   <div className="grid gap-3">
                     {event.accommodation.options.map((option) => {
                       const selectedOption = current.optionSelections.find(
@@ -316,14 +317,23 @@ export function AccommodationOptionsStep({
                       const isIncludedStayUpgrade =
                         option.optionKey === "superior_upgrade"
                       return (
-                        <div
-                          key={option.optionKey}
-                          className={`flex min-w-0 flex-col gap-2 rounded-lg border p-3 transition-colors ${
+                        <Fragment key={option.optionKey}>
+                          {isIncludedStayUpgrade ? (
+                            <span className="block text-sm font-medium text-foreground">
+                              Included stay upgrade
+                            </span>
+                          ) : option.optionKey === firstAddOnOptionKey ? (
+                            <span className="block text-sm font-medium text-foreground">
+                              Add-ons
+                            </span>
+                          ) : null}
+                          <div
+                            className={`flex min-w-0 flex-col gap-2 rounded-lg border p-3 transition-colors ${
                             isSelected
                               ? "border-primary bg-primary/5"
                               : "border-border/60"
-                          }`}
-                        >
+                            }`}
+                          >
                           <div className="flex items-start justify-between gap-2">
                             <span className="min-w-0">
                               <span className="block text-sm font-medium text-foreground">
@@ -456,7 +466,8 @@ export function AccommodationOptionsStep({
                               </label>
                             </div>
                           ) : null}
-                        </div>
+                          </div>
+                        </Fragment>
                       )
                     })}
                   </div>
