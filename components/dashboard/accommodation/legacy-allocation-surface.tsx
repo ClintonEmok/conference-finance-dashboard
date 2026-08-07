@@ -100,6 +100,81 @@ function PaymentBadge({ state }: { state: PaymentState }) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Quick task 260807-uel: buyer accommodation preferences are rendered from the
+// board's server payload fields only (occupancy, nightBeforeLevel, optionKeys,
+// categoryLabel). No client money arithmetic, no vocabulary de-enum.
+// ---------------------------------------------------------------------------
+
+const OCCUPANCY_LABEL: Record<"single" | "shared" | "family", string> = {
+  single: "Single",
+  shared: "Shared",
+  family: "Family",
+}
+
+function isKnownOccupancy(
+  occupancy: unknown
+): occupancy is "single" | "shared" | "family" {
+  return (
+    occupancy === "single" ||
+    occupancy === "shared" ||
+    occupancy === "family"
+  )
+}
+
+/** Occupancy chip shown beside unassigned attendees and assigned occupants. */
+function OccupancyChip({ occupancy }: { occupancy: unknown }) {
+  if (!isKnownOccupancy(occupancy)) {
+    return null
+  }
+  return (
+    <span className="rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+      {OCCUPANCY_LABEL[occupancy]}
+    </span>
+  )
+}
+
+/**
+ * Server-driven accommodation preference chips for unassigned inbox rows.
+ * Reads only `occupancy`, `categoryLabel`, `optionKeys`, and
+ * `nightBeforeLevel` from the board payload.
+ */
+function AccommodationPreferenceChips({ attendee }: { attendee: any }) {
+  const optionKeys: string[] = Array.isArray(attendee?.optionKeys)
+    ? attendee.optionKeys
+    : []
+  return (
+    <>
+      <OccupancyChip occupancy={attendee?.occupancy} />
+      {attendee?.categoryLabel && (
+        <span className="rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
+          {attendee.categoryLabel}
+        </span>
+      )}
+      {optionKeys.includes("superior_upgrade") && (
+        <span className="rounded-md border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:border-violet-900/30 dark:bg-violet-950/20 dark:text-violet-300">
+          Superior upgrade
+        </span>
+      )}
+      {optionKeys.includes("cot") && (
+        <span className="rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:border-sky-900/30 dark:bg-sky-950/20 dark:text-sky-300">
+          Cot
+        </span>
+      )}
+      {attendee?.nightBeforeLevel === "superior" && (
+        <span className="rounded-md border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:border-violet-900/30 dark:bg-violet-950/20 dark:text-violet-300">
+          Night before · Superior
+        </span>
+      )}
+      {attendee?.nightBeforeLevel === "standard" && (
+        <span className="rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          Night before · Standard
+        </span>
+      )}
+    </>
+  )
+}
+
 export type AccommodationBoard = {
   hotels: ReadonlyArray<unknown>
   rooms: ReadonlyArray<unknown>
@@ -744,6 +819,7 @@ export default function EventAllocationPage({
                     {attendee.allocationPriority === "HIGH" && (
                       <span className="rounded-md bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-medium text-orange-500">High</span>
                     )}
+                    <AccommodationPreferenceChips attendee={attendee} />
                   </div>
                 </div>
               ))
@@ -847,6 +923,7 @@ export default function EventAllocationPage({
                               <span className="flex min-w-0 flex-wrap items-center gap-1.5">
                                 <span className="truncate text-xs text-muted-foreground">{occ.attendeeName ?? "Unnamed"}</span>
                                 <PaymentBadge state={occ.paymentState} />
+                                <OccupancyChip occupancy={occ.occupancy} />
                               </span>
                               <button
                                 type="button"
