@@ -86,6 +86,36 @@ describe("submitSignup envelope normalization", () => {
     expect(args.payloadFingerprint).toBeUndefined()
   })
 
+  it("accepts the simplified no-category submission and preserves night-before level", async () => {
+    mocks.convexMutation.mockResolvedValueOnce(submissionResult)
+
+    const { categoryId: _categoryId, ...selectionWithoutCategory } =
+      validEnvelope.accommodationSelections[0]
+
+    await submitSignup({
+      ...validEnvelope,
+      accommodationSelections: [
+        {
+          ...selectionWithoutCategory,
+          nightBeforeLevel: "superior",
+        },
+      ],
+    })
+
+    expect(
+      mocks.convexMutation.mock.calls[0][1].accommodationSelections[0]
+    ).toEqual(
+      expect.objectContaining({
+        occupancy: "shared",
+        nightBeforeLevel: "superior",
+      })
+    )
+    expect(
+      mocks.convexMutation.mock.calls[0][1].accommodationSelections[0]
+        .categoryId
+    ).toBeUndefined()
+  })
+
   it("mints a token that verifies only against the exact forwarded payload and idempotency key (CR-09)", async () => {
     mocks.convexMutation.mockResolvedValueOnce(submissionResult)
 
@@ -165,7 +195,8 @@ describe("submitSignup envelope normalization", () => {
       })
     ).rejects.toMatchObject({
       code: "INVALID_SUBMISSION",
-      message: "Invalid 'accommodationSelections[0].optionSelections[1].optionKey'. Duplicate option 'cot'.",
+      message:
+        "Invalid 'accommodationSelections[0].optionSelections[1].optionKey'. Duplicate option 'cot'.",
     })
     expect(mocks.convexMutation).not.toHaveBeenCalled()
   })

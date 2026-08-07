@@ -3,6 +3,7 @@ import { convexMutation } from "@/lib/convex/server"
 import type { Id } from "@/convex/_generated/dataModel"
 import type {
   SignupAccommodationOccupancy,
+  SignupAccommodationNightBeforeLevel,
   SignupGender,
   SignupSource,
   SignupSubmissionEnvelope,
@@ -99,6 +100,12 @@ function isSignupAccommodationOccupancy(
   value: string
 ): value is SignupAccommodationOccupancy {
   return value === "single" || value === "shared" || value === "family"
+}
+
+function isSignupAccommodationNightBeforeLevel(
+  value: string
+): value is SignupAccommodationNightBeforeLevel {
+  return value === "standard" || value === "superior"
 }
 
 function normalizeEnvelope(
@@ -242,53 +249,82 @@ function normalizeEnvelope(
         `accommodationSelections[${index}].optionSelections`
       )
       const seenOptionKeys = new Set<string>()
-      const optionSelections = optionSelectionsRaw.map((optionValue, optionIndex) => {
-        const option = toObject(
-          optionValue,
-          `accommodationSelections[${index}].optionSelections[${optionIndex}]`
-        )
-        const optionKey = normalizeRequiredString(
-          option.optionKey,
-          `accommodationSelections[${index}].optionSelections[${optionIndex}].optionKey`
-        )
-        if (seenOptionKeys.has(optionKey)) {
-          throw new SignupSubmissionValidationError(
-            `Invalid 'accommodationSelections[${index}].optionSelections[${optionIndex}].optionKey'. Duplicate option '${optionKey}'.`
+      const optionSelections = optionSelectionsRaw.map(
+        (optionValue, optionIndex) => {
+          const option = toObject(
+            optionValue,
+            `accommodationSelections[${index}].optionSelections[${optionIndex}]`
           )
-        }
-        seenOptionKeys.add(optionKey)
+          const optionKey = normalizeRequiredString(
+            option.optionKey,
+            `accommodationSelections[${index}].optionSelections[${optionIndex}].optionKey`
+          )
+          if (seenOptionKeys.has(optionKey)) {
+            throw new SignupSubmissionValidationError(
+              `Invalid 'accommodationSelections[${index}].optionSelections[${optionIndex}].optionKey'. Duplicate option '${optionKey}'.`
+            )
+          }
+          seenOptionKeys.add(optionKey)
 
-        const quantity = Number(option.quantity)
-        if (!Number.isFinite(quantity) || quantity <= 0) {
-          throw new SignupSubmissionValidationError(
-            `Invalid 'accommodationSelections[${index}].optionSelections[${optionIndex}].quantity'. Expected a positive number.`
-          )
-        }
-        const nights = Number(option.nights)
-        if (!Number.isFinite(nights) || nights <= 0) {
-          throw new SignupSubmissionValidationError(
-            `Invalid 'accommodationSelections[${index}].optionSelections[${optionIndex}].nights'. Expected a positive number.`
-          )
-        }
+          const quantity = Number(option.quantity)
+          if (!Number.isFinite(quantity) || quantity <= 0) {
+            throw new SignupSubmissionValidationError(
+              `Invalid 'accommodationSelections[${index}].optionSelections[${optionIndex}].quantity'. Expected a positive number.`
+            )
+          }
+          const nights = Number(option.nights)
+          if (!Number.isFinite(nights) || nights <= 0) {
+            throw new SignupSubmissionValidationError(
+              `Invalid 'accommodationSelections[${index}].optionSelections[${optionIndex}].nights'. Expected a positive number.`
+            )
+          }
 
-        return {
-          optionKey,
-          quantity: Math.floor(quantity),
-          nights: Math.floor(nights),
+          return {
+            optionKey,
+            quantity: Math.floor(quantity),
+            nights: Math.floor(nights),
+          }
         }
-      })
+      )
+
+      const categoryId =
+        preference.categoryId === undefined || preference.categoryId === null
+          ? undefined
+          : normalizeRequiredString(
+              preference.categoryId,
+              `accommodationSelections[${index}].categoryId`
+            )
+      const nightBeforeLevelValue =
+        preference.nightBeforeLevel === undefined ||
+        preference.nightBeforeLevel === null
+          ? undefined
+          : normalizeRequiredString(
+              preference.nightBeforeLevel,
+              `accommodationSelections[${index}].nightBeforeLevel`
+            )
+      if (
+        nightBeforeLevelValue !== undefined &&
+        !isSignupAccommodationNightBeforeLevel(nightBeforeLevelValue)
+      ) {
+        throw new SignupSubmissionValidationError(
+          `Invalid 'accommodationSelections[${index}].nightBeforeLevel'.`
+        )
+      }
 
       return {
         attendeeKey: normalizeRequiredString(
           preference.attendeeKey,
           `accommodationSelections[${index}].attendeeKey`
         ),
-        categoryId: normalizeRequiredString(
-          preference.categoryId,
-          `accommodationSelections[${index}].categoryId`
-        ),
+        ...(categoryId ? { categoryId } : {}),
         occupancy: occupancy as SignupAccommodationOccupancy,
         optionSelections,
+        ...(nightBeforeLevelValue
+          ? {
+              nightBeforeLevel:
+                nightBeforeLevelValue as SignupAccommodationNightBeforeLevel,
+            }
+          : {}),
       }
     }
   )
@@ -383,9 +419,20 @@ export async function submitSignup(
       accommodationSelections: envelope.accommodationSelections.map(
         (preference) => ({
           attendeeKey: preference.attendeeKey,
-          categoryId: preference.categoryId as Id<"accommodationCategories">,
+          ...(preference.categoryId
+            ? {
+                categoryId:
+                  preference.categoryId as Id<"accommodationCategories">,
+              }
+            : {}),
           occupancy: preference.occupancy,
           optionSelections: preference.optionSelections,
+          ...(preference.nightBeforeLevel
+            ? { nightBeforeLevel: preference.nightBeforeLevel }
+            : {}),
+          ...(preference.nights !== undefined
+            ? { nights: preference.nights }
+            : {}),
         })
       ),
     }
@@ -421,9 +468,17 @@ export async function submitSignup(
           accommodationSelections: result.restorePayload.accommodationSelections
             .map((preference) => ({
               attendeeKey: preference.attendeeKey,
-              categoryId: String(preference.categoryId),
+              ...(preference.categoryId
+                ? { categoryId: String(preference.categoryId) }
+                : {}),
               occupancy: preference.occupancy,
               optionSelections: preference.optionSelections,
+              ...(preference.nightBeforeLevel
+                ? { nightBeforeLevel: preference.nightBeforeLevel }
+                : {}),
+              ...(preference.nights !== undefined
+                ? { nights: preference.nights }
+                : {}),
             }))
             .filter(
               (preference): preference is NonNullable<typeof preference> =>
