@@ -82,6 +82,8 @@ export type SignupEnvelopeCanonicalInput = {
       quantity: number
       nights: number
     }>
+    /** Buyer-chosen total stay nights; omitted canonicalizes as null. */
+    nights?: number
   }>
 }
 
@@ -142,6 +144,11 @@ export function canonicalizeSignupEnvelope(
         attendeeKey: normalizeRequiredString(preference.attendeeKey),
         categoryId: normalizeRequiredString(String(preference.categoryId)),
         occupancy: preference.occupancy,
+        // CR-09: the buyer's night choice is part of the signed envelope, so
+        // a captured token can never have nights swapped without invalidating
+        // the digest. Omitted nights canonicalize as null (deterministic).
+        nights:
+          preference.nights === undefined ? null : Number(preference.nights),
         optionSelections: preference.optionSelections.map((option) => ({
           optionKey: normalizeRequiredString(option.optionKey),
           quantity: Number(option.quantity),

@@ -84,6 +84,7 @@ const restorePayloadValidator = v.object({
           nights: v.number(),
         })
       ),
+      nights: v.optional(v.number()),
     })
   ),
 })
@@ -216,6 +217,8 @@ async function buildRestorePayload(
       quantity: number
       nights: number
     }>
+    /** Resolved selected total stay nights persisted on the order row. */
+    nights?: number
   }>
 } | null> {
   const submission = await ctx.db.get(submissionId)
@@ -317,6 +320,7 @@ async function buildRestorePayload(
           attendeeKey: attendee.attendeeKey,
           categoryId: String(row.categoryId),
           occupancy: row.occupancy,
+          nights: row.nightCount,
           optionSelections: (optionSelectionsBySelectionId.get(String(row._id)) ?? [])
             .sort((left, right) => left.sortOrder - right.sortOrder)
             .map((optionRow) => ({
@@ -394,6 +398,7 @@ export const submitSignupEnvelope = mutation({
           categoryId: String(preference.categoryId),
           occupancy: preference.occupancy,
           optionSelections: preference.optionSelections,
+          nights: preference.nights,
         })
       ),
     })
@@ -656,6 +661,7 @@ export const submitSignupEnvelope = mutation({
     const resolvedAccommodationSelections = new Map<string, {
       categoryId: Id<"accommodationCategories">
       occupancy: "single" | "shared" | "family"
+      nightCount: number | null
       optionSelections: Array<{
         optionKey: string
         quantity: number
@@ -707,6 +713,7 @@ export const submitSignupEnvelope = mutation({
             categoryId: String(preference.categoryId),
             occupancy: preference.occupancy,
             optionSelections: preference.optionSelections,
+            nights: preference.nights,
           },
           ticketCategoryId,
         })
@@ -729,6 +736,7 @@ export const submitSignupEnvelope = mutation({
       resolvedAccommodationSelections.set(preference.attendeeKey, {
         categoryId: resolved.categoryId as Id<"accommodationCategories">,
         occupancy: resolved.occupancy,
+        nightCount: resolved.nightCount ?? null,
         optionSelections: resolved.options,
       })
     }
@@ -868,8 +876,9 @@ export const submitSignupEnvelope = mutation({
     }
 
     // Persist one unconfirmed accommodation-selection row per supplied
-    // attendee preference. Stay timestamps and nightCount are server-resolved
-    // from the event configuration; confirmedAt/configVersion/priceSnapshot
+    // attendee preference. Stay timestamps are server-resolved from the event
+    // configuration and nightCount is the validated buyer-chosen total nights
+    // (defaulted to the base stay); confirmedAt/configVersion/priceSnapshot
     // stay absent so the Phase 40 canonical loader prices the rows live and
     // Phase 41/44 owns confirmation. No orderAssignments row is ever created
     // for an options-only request.
@@ -900,7 +909,10 @@ export const submitSignupEnvelope = mutation({
         occupancy: resolved.occupancy,
         checkInAt: eventConfig?.baseCheckInAt,
         checkOutAt: eventConfig?.baseCheckOutAt,
-        nightCount: eventConfig?.nightCount,
+        // The validated buyer-chosen total nights (defaulted to the base stay)
+        // are persisted so the canonical finance loader prices the charged
+        // nights beyond any ticket-covered base nights exactly as quoted.
+        nightCount: resolved.nightCount ?? undefined,
       })
 
       // Persist one child row per selected option (optionKey + quantity +
@@ -1032,6 +1044,12 @@ export const submitSignupEnvelope = mutation({
             attendeeKey: preference.attendeeKey,
             categoryId: String(preference.categoryId),
             occupancy: preference.occupancy,
+            // Restore the RESOLVED night count that was persisted (not the
+            // raw client value), so a replayed restore payload round-trips
+            // exactly what the order row holds.
+            nights:
+              resolvedAccommodationSelections.get(preference.attendeeKey)
+                ?.nightCount ?? undefined,
             optionSelections: preference.optionSelections,
           })
         ),

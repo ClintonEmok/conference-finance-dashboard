@@ -16,6 +16,12 @@ export type PublicSignupCatalogAccommodationConfig = {
   baseCheckOutAt: number
   nightCount: number
   breakfastIncluded: boolean
+  /** Whether buyers may extend the stay with an extra night before the event. */
+  allowExtendedStayBefore: boolean
+  /** Whether buyers may extend the stay with an extra night after the event. */
+  allowExtendedStayAfter: boolean
+  /** Whether the extended-stay policy allows nights both before and after. */
+  allowExtendedStayBoth: boolean
 }
 
 export type PublicSignupCatalogActiveCategory = {

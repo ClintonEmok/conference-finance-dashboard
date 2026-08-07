@@ -1415,6 +1415,7 @@ export declare const api: {
         attendees: Array<{
           attendeeKey: string;
           categoryId?: Id<"accommodationCategories">;
+          nights?: number;
           occupancy?: "single" | "shared" | "family";
           optionSelections: Array<{
             nights: number;
@@ -1473,6 +1474,9 @@ export declare const api: {
             }>;
           }>;
           config: {
+            allowExtendedStayAfter: boolean;
+            allowExtendedStayBefore: boolean;
+            allowExtendedStayBoth: boolean;
             baseCheckInAt: number;
             baseCheckOutAt: number;
             breakfastIncluded: boolean;
@@ -1573,6 +1577,7 @@ export declare const api: {
         accommodationSelections: Array<{
           attendeeKey: string;
           categoryId: Id<"accommodationCategories">;
+          nights?: number;
           occupancy: "single" | "shared" | "family";
           optionSelections: Array<{
             nights: number;
@@ -1615,6 +1620,7 @@ export declare const api: {
           accommodationSelections: Array<{
             attendeeKey: string;
             categoryId: string;
+            nights?: number;
             occupancy: "single" | "shared" | "family";
             optionSelections: Array<{
               nights: number;

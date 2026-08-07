@@ -348,12 +348,14 @@ test("valid options-only submission persists one selection row per preference wi
   })
   expect(assignments).toHaveLength(0)
 
-  // The restore payload round-trips the preferences.
+  // The restore payload round-trips the preferences (omitted nights resolved
+  // to the configured base stay, so the selected count survives persistence).
   expect(result.restorePayload.accommodationSelections).toEqual([
     {
       attendeeKey: "attendee-1",
       categoryId: String(seed.categoryStandardId),
       occupancy: "shared",
+      nights: 2,
       optionSelections: [],
     },
   ])

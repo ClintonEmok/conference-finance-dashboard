@@ -68,15 +68,18 @@ export type SignupAccommodationOptionSelection = {
 /**
  * One per-attendee accommodation preference carried by a public signup
  * submission. It contains exactly one attendee key, a category ID, an
- * occupancy literal, and a list of selected option rows. It never contains
- * room IDs, slot IDs, dates, night counts, prices, totals, or snapshots —
- * those are server-resolved.
+ * occupancy literal, and a list of selected option rows. The optional
+ * `nights` field carries the buyer-chosen total stay nights (base stay
+ * included) for the attendee; when omitted, the server prices and persists
+ * the event's configured base night count. It never contains room IDs, slot
+ * IDs, dates, prices, totals, or snapshots — those are server-resolved.
  */
 export const signupAccommodationSelectionValidator = v.object({
   attendeeKey: v.string(),
   categoryId: v.id("accommodationCategories"),
   occupancy: signupAccommodationOccupancyValidator,
   optionSelections: v.array(signupAccommodationOptionSelectionValidator),
+  nights: v.optional(v.number()),
 })
 
 export type SignupAccommodationSelection = {
@@ -84,17 +87,21 @@ export type SignupAccommodationSelection = {
   categoryId: string
   occupancy: SignupAccommodationOccupancy
   optionSelections: SignupAccommodationOptionSelection[]
+  /** Buyer-chosen total stay nights; omitted = configured base night count. */
+  nights?: number
 }
 
 /**
  * Restore-payload shape for accommodation preferences. IDs are stringified
  * (like the other restore arrays) so a replayed restore payload round-trips.
+ * `nights` is the resolved selected night count persisted on the order row.
  */
 export type SignupAccommodationSelectionRestore = {
   attendeeKey: string
   categoryId: string
   occupancy: SignupAccommodationOccupancy
   optionSelections: SignupAccommodationOptionSelection[]
+  nights?: number
 }
 
 export type SignupSubmissionEnvelope = {

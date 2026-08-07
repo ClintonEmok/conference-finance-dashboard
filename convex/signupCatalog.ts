@@ -17,6 +17,14 @@ const EVENT_SOURCE_LIMIT = 5
 const EVENT_RATE_LIMIT = 200
 const EVENT_OPTION_LIMIT = 100
 
+/**
+ * Bounded per-attendee extended-stay allowance shared by the public quote and
+ * the submission mutation: a buyer may select at most the configured base
+ * night count plus this many extra nights. The UI mirrors this as a UI-only
+ * stepper maximum; the server stays authoritative.
+ */
+export const MAX_EXTENDED_STAY_EXTRA_NIGHTS = 7
+
 const categoryCodeValidator = v.union(
   v.literal("standard"),
   v.literal("superior"),
@@ -48,6 +56,9 @@ const publicSignupAccommodationConfigValidator = v.object({
   baseCheckOutAt: v.number(),
   nightCount: v.number(),
   breakfastIncluded: v.boolean(),
+  allowExtendedStayBefore: v.boolean(),
+  allowExtendedStayAfter: v.boolean(),
+  allowExtendedStayBoth: v.boolean(),
 })
 
 const publicSignupAccommodationRateValidator = v.object({
@@ -111,6 +122,7 @@ const publicSignupQuoteAttendeeValidator = v.object({
   categoryId: v.optional(v.id("accommodationCategories")),
   occupancy: v.optional(occupancyValidator),
   optionSelections: v.array(signupAccommodationOptionSelectionValidator),
+  nights: v.optional(v.number()),
 })
 
 const publicSignupQuoteAttendeeResultValidator = v.object({
@@ -457,6 +469,9 @@ export async function loadPublicSignupAccommodationContext(
           baseCheckOutAt: configRow.baseCheckOutAt,
           nightCount: configRow.nightCount,
           breakfastIncluded: configRow.breakfastIncluded,
+          allowExtendedStayBefore: configRow.allowExtendedStayBefore,
+          allowExtendedStayAfter: configRow.allowExtendedStayAfter,
+          allowExtendedStayBoth: configRow.allowExtendedStayBoth,
         }
       : null,
     ratesByKey,
@@ -473,6 +488,9 @@ export type PublicSignupAccommodationContext = {
     baseCheckOutAt: number
     nightCount: number
     breakfastIncluded: boolean
+    allowExtendedStayBefore: boolean
+    allowExtendedStayAfter: boolean
+    allowExtendedStayBoth: boolean
   } | null
   ratesByKey: Map<string, number>
   categoryById: Map<string, { code: string; label: string }>
@@ -493,6 +511,9 @@ export type PublicSignupSelectionResolved = {
     quantity: number
     nights: number
   }>
+  /** The configured base stay night count for the event. */
+  baseNights: number | null
+  /** The selected total stay nights (buyer-chosen, defaulted to the base). */
   nightCount: number | null
   breakfastIncluded: boolean
 }
@@ -516,6 +537,7 @@ export function resolvePublicSignupSelection(input: {
       quantity: number
       nights: number
     }> | null
+    nights?: number | null
   }
   /**
    * The category of `ticketTypes.roomTypeId` for the attendee's ticket, or
@@ -529,12 +551,12 @@ export function resolvePublicSignupSelection(input: {
     : []
 
   if (!context.hasConfiguredAccommodation) {
-    if (selection.categoryId || selection.occupancy) {
-      throw new Error(
-        "QUOTE_INVALID: This event does not offer configured accommodation options."
-      )
-    }
-    if (optionSelections.length > 0) {
+    if (
+      selection.categoryId ||
+      selection.occupancy ||
+      optionSelections.length > 0 ||
+      selection.nights !== undefined
+    ) {
       throw new Error(
         "QUOTE_INVALID: This event does not offer configured accommodation options."
       )
@@ -546,6 +568,7 @@ export function resolvePublicSignupSelection(input: {
       occupancy: null,
       baseRatePerNightMinor: null,
       options: [],
+      baseNights: null,
       nightCount: null,
       breakfastIncluded: false,
     }
@@ -593,6 +616,19 @@ export function resolvePublicSignupSelection(input: {
     )
   }
 
+  // Buyer-chosen total stay nights. Omission means "use the configured base
+  // night count"; anything present must be a finite whole number at or above
+  // the base, may exceed the base only when the event's extended-stay policy
+  // is enabled, and is capped at the base plus the fixed extension allowance.
+  // The quote and the submission mutation share this single rule set, so the
+  // browser can never become the authority for night eligibility.
+  const baseNights = context.config?.nightCount ?? 0
+  const selectedNights = normalizeSelectedNights(
+    selection.nights,
+    baseNights,
+    context
+  )
+
   // Every selected option must be a key in the event's enabled option set.
   // Unknown/disabled/duplicate keys fail closed; quantity and nights are
   // normalized by the pricing engine.
@@ -627,9 +663,61 @@ export function resolvePublicSignupSelection(input: {
     occupancy: occupancy as "single" | "shared" | "family",
     baseRatePerNightMinor,
     options: resolvedOptions,
-    nightCount: context.config?.nightCount ?? null,
+    baseNights,
+    nightCount: selectedNights,
     breakfastIncluded: context.config?.breakfastIncluded ?? false,
   }
+}
+
+/**
+ * Normalizes one buyer-supplied total nights value against the configured
+ * base stay. Omitted values default to the base; present values must be a
+ * finite whole number at or above the base, may exceed the base only when an
+ * extended-stay flag is enabled, and are capped at the base plus the bounded
+ * extension allowance. Throws a deterministic `QUOTE_INVALID:` error for
+ * fractional, below-base, disallowed, and over-cap values so quote and
+ * submission reject the same invalid requests.
+ */
+function normalizeSelectedNights(
+  value: number | null | undefined,
+  baseNights: number,
+  context: PublicSignupAccommodationContext
+): number {
+  if (value === undefined || value === null) {
+    return baseNights
+  }
+
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new Error(
+      "QUOTE_INVALID: The selected accommodation nights must be a whole number."
+    )
+  }
+  if (value < baseNights) {
+    throw new Error(
+      `QUOTE_INVALID: The selected accommodation nights cannot be fewer than the ${baseNights}-night base stay.`
+    )
+  }
+
+  const maximumNights = baseNights + MAX_EXTENDED_STAY_EXTRA_NIGHTS
+  if (value > maximumNights) {
+    throw new Error(
+      `QUOTE_INVALID: The selected accommodation nights exceed the allowed maximum of ${maximumNights} nights.`
+    )
+  }
+
+  if (value > baseNights) {
+    const extendedAllowed =
+      context.config?.allowExtendedStayBefore === true ||
+      context.config?.allowExtendedStayAfter === true ||
+      context.config?.allowExtendedStayBoth === true
+    if (!extendedAllowed) {
+      throw new Error(
+        "QUOTE_INVALID: This event does not permit an extended stay beyond the base nights."
+      )
+    }
+  }
+
+  return value
 }
 
 /**
@@ -1027,13 +1115,18 @@ export const getPublicSignupAccommodationQuote = query({
             : null,
           occupancy: attendee.occupancy ?? null,
           optionSelections: attendee.optionSelections,
+          nights: attendee.nights,
         },
         ticketCategoryId,
       })
 
-      // The buyer never chooses nights in this phase: the quote prices the
-      // event-configured base stay only.
+      // The buyer's selected total nights (defaulted to the configured base)
+      // drive the charge: `deriveAccommodationAmount` prices the selected
+      // total nights against the ticket-covered base nights, so an
+      // included-ticket attendee selecting one extra night is charged exactly
+      // one server-priced night.
       const nightCount = resolved.nightCount ?? 0
+      const eventBaseNights = resolved.baseNights ?? 0
       const result = deriveAccommodationAmount({
         selection: {
           attendeeId: attendee.attendeeKey,
@@ -1050,7 +1143,7 @@ export const getPublicSignupAccommodationQuote = query({
             pricePerUnitMinor: option.pricePerUnitMinor,
           })),
           ticketAccommodationIncluded: ticket.accommodationIncluded === true,
-          eventBaseNights: nightCount,
+          eventBaseNights,
         },
       })
 
@@ -1074,7 +1167,7 @@ export const getPublicSignupAccommodationQuote = query({
         categoryLabel: resolved.categoryLabel ?? undefined,
         occupancy: resolved.occupancy ?? undefined,
         accommodationIncluded: ticket.accommodationIncluded === true,
-        baseNights: nightCount,
+        baseNights: eventBaseNights,
         accommodationTotalMinor: result.totalMinor,
         amountDueMinor: ticket.priceMinor + result.totalMinor,
         lines: result.lines,
