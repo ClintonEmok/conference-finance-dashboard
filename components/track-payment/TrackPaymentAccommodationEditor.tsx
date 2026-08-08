@@ -782,6 +782,12 @@ function AttendeePreferenceFieldset({
                 )
               })}
             </div>
+            {editContext.accommodation.config?.breakfastIncluded &&
+            draft.nightBeforeLevel ? (
+              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                Breakfast included with this night-before stay
+              </p>
+            ) : null}
           </div>
         ) : null}
 

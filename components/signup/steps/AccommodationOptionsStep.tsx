@@ -50,6 +50,7 @@ function NightBeforeChoice({
   attendeeKey,
   occupancy,
   nightBefore,
+  breakfastIncluded,
   value,
   currency,
   onChange,
@@ -57,6 +58,7 @@ function NightBeforeChoice({
   attendeeKey: string
   occupancy: string
   nightBefore: NonNullable<PublicSignupCatalogEvent["accommodation"]["nightBefore"]>
+  breakfastIncluded: boolean
   value: "standard" | "superior" | undefined
   currency: string
   onChange: (level: "standard" | "superior" | undefined) => void
@@ -148,6 +150,11 @@ function NightBeforeChoice({
           )
         })}
       </div>
+      {breakfastIncluded && value ? (
+        <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+          Breakfast included with this night-before stay
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -223,14 +230,6 @@ export function AccommodationOptionsStep({
                   <dt className="text-muted-foreground">Nights</dt>
                   <dd className="font-medium tabular-nums text-foreground">
                     {event.accommodation.config.nightCount}
-                  </dd>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <dt className="text-muted-foreground">Breakfast</dt>
-                  <dd className="font-medium text-foreground">
-                    {event.accommodation.config.breakfastIncluded
-                      ? "Included"
-                      : "Not included"}
                   </dd>
                 </div>
               </dl>
@@ -479,6 +478,7 @@ export function AccommodationOptionsStep({
                   attendeeKey={attendee.attendeeKey}
                   occupancy={ticket?.occupancy ?? current.occupancy}
                   nightBefore={nightBefore}
+                  breakfastIncluded={event.accommodation.config?.breakfastIncluded ?? false}
                   value={current.nightBeforeLevel}
                   currency={event.currency}
                   onChange={(level) => patch({ nightBeforeLevel: level })}

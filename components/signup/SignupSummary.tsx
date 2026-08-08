@@ -151,13 +151,13 @@ export function SignupSummary({ event, draft, quote }: SignupSummaryProps) {
                         </span>
                       </div>
                     ))}
+                    {quote.quote.breakfastIncluded && attendee.nightBeforeLevel ? (
+                      <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                        Breakfast included with the night-before stay
+                      </p>
+                    ) : null}
                   </div>
                 ))}
-                {quote.quote.breakfastIncluded ? (
-                  <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                    Breakfast included
-                  </p>
-                ) : null}
                 {event.accommodation.config ? (
                   <p className="text-xs text-muted-foreground/70">
                     {event.accommodation.config.nightCount}{" "}

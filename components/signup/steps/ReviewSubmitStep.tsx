@@ -189,15 +189,15 @@ function QuoteContent({
                             </span>
                           </div>
                         ))}
+                        {quote.breakfastIncluded && attendee.nightBeforeLevel ? (
+                          <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                            Breakfast is included with the night-before stay.
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                   )
                 })}
-            {quote.breakfastIncluded ? (
-              <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
-                Breakfast is included.
-              </p>
-            ) : null}
           </div>
         )}
       </ReviewSection>
