@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   buildAccommodationPriceSnapshot,
   deriveAccommodationAmount,
+  deriveOptionChargeMinor,
   isCompleteAccommodationPriceSnapshot,
   type AccommodationPriceSnapshot,
 } from "@/lib/domain/finance/accommodation-amounts"
@@ -17,8 +18,8 @@ const BASE_SELECTION = {
 const BASE_PRICING = {
   baseRatePerNightMinor: 3000, // €30/night
   options: [
-    { optionKey: "cot", label: "Cot", pricePerUnitMinor: 500 }, // €5/unit/night
-    { optionKey: "parking", label: "Parking pass", pricePerUnitMinor: 2000 }, // €20/unit/night
+    { optionKey: "cot", label: "Cot", pricePerUnitMinor: 500, unit: "per_night" as const }, // €5/unit/night
+    { optionKey: "parking", label: "Parking pass", pricePerUnitMinor: 2000, unit: "per_night" as const }, // €20/unit/night
   ],
   ticketAccommodationIncluded: false,
   eventBaseNights: 2,
@@ -162,6 +163,114 @@ describe("accommodation amounts - locked pricing formula", () => {
     ])
   })
 
+  it("prices a per-person option by price × quantity, ignoring nights", () => {
+    const result = deriveAccommodationAmount({
+      selection: {
+        ...BASE_SELECTION,
+        optionSelections: [
+          { optionKey: "welcome_dinner", quantity: 2, nights: 2 },
+        ],
+      },
+      pricing: {
+        ...BASE_PRICING,
+        options: [
+          {
+            optionKey: "welcome_dinner",
+            label: "Welcome dinner",
+            pricePerUnitMinor: 2500,
+            unit: "per_person",
+          },
+        ],
+      },
+    })
+
+    // base 2 × €30 = 6000 + welcome dinner 2 × €25 = 5000 (nights are NOT
+    // multiplied for a per-person option — charging nights would overcharge).
+    expect(result.totalMinor).toBe(11000)
+    expect(result.lines).toContainEqual({
+      kind: "option",
+      optionKey: "welcome_dinner",
+      label: "Welcome dinner",
+      nights: 2,
+      quantity: 2,
+      ratePerNightMinor: 2500,
+      chargeMinor: 5000,
+    })
+  })
+
+  it("builds a snapshot for a per-person option with the exact charge", () => {
+    const snapshot = buildAccommodationPriceSnapshot({
+      selection: {
+        ...BASE_SELECTION,
+        optionSelections: [
+          { optionKey: "welcome_dinner", quantity: 2, nights: 2 },
+        ],
+      },
+      pricing: {
+        ...BASE_PRICING,
+        options: [
+          {
+            optionKey: "welcome_dinner",
+            label: "Welcome dinner",
+            pricePerUnitMinor: 2500,
+            unit: "per_person",
+          },
+        ],
+      },
+    })
+
+    expect(snapshot.optionLines).toEqual([
+      {
+        optionKey: "welcome_dinner",
+        label: "Welcome dinner",
+        pricePerUnitMinor: 2500,
+        quantity: 2,
+        nights: 2,
+        chargeMinor: 5000,
+      },
+    ])
+  })
+
+  it("fails closed on an unknown or absent option unit instead of guessing per_night", () => {
+    expect(() =>
+      deriveOptionChargeMinor({
+        pricePerUnitMinor: 500,
+        quantity: 1,
+        nights: 2,
+        unit: "per_week" as never,
+      })
+    ).toThrow(/unknown unit/)
+
+    expect(() =>
+      deriveOptionChargeMinor({
+        pricePerUnitMinor: 500,
+        quantity: 1,
+        nights: 2,
+        unit: undefined as never,
+      })
+    ).toThrow(/unknown unit/)
+
+    // Resolution of a selected option whose pricing entry carries an invalid
+    // unit also fails closed (the live and snapshot paths both resolve through
+    // `resolveSelectedOptions`).
+    expect(() =>
+      deriveAccommodationAmount({
+        selection: COT_SELECTION,
+        pricing: {
+          ...BASE_PRICING,
+          options: [
+            {
+              optionKey: "cot",
+              label: "Cot",
+              pricePerUnitMinor: 500,
+              unit: "per_week" as never,
+            },
+          ],
+        },
+      })
+    ).toThrow(/unknown unit/)
+  })
+
   it("prices multiple units and multiple options independently", () => {
     const result = deriveAccommodationAmount({
       selection: {
@@ -191,7 +300,7 @@ describe("accommodation amounts - locked pricing formula", () => {
       selection: COT_SELECTION,
       pricing: {
         ...BASE_PRICING,
-        options: [{ optionKey: "parking", label: "Parking pass", pricePerUnitMinor: 2000 }],
+        options: [{ optionKey: "parking", label: "Parking pass", pricePerUnitMinor: 2000, unit: "per_night" }],
       },
     })
 
@@ -208,7 +317,7 @@ describe("accommodation amounts - locked pricing formula", () => {
       },
       pricing: {
         baseRatePerNightMinor: 0,
-        options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 0 }],
+        options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 0, unit: "per_night" }],
         ticketAccommodationIncluded: false,
         eventBaseNights: 2,
       },
@@ -254,8 +363,8 @@ describe("accommodation amounts - locked pricing formula", () => {
       pricing: {
         baseRatePerNightMinor: -5000,
         options: [
-          { optionKey: "cot", label: "Cot", pricePerUnitMinor: Number.NaN },
-          { optionKey: "parking", label: "Parking pass", pricePerUnitMinor: 2000 },
+          { optionKey: "cot", label: "Cot", pricePerUnitMinor: Number.NaN, unit: "per_night" },
+          { optionKey: "parking", label: "Parking pass", pricePerUnitMinor: 2000, unit: "per_night" },
         ],
         ticketAccommodationIncluded: false,
         eventBaseNights: 1.5,
@@ -312,7 +421,7 @@ describe("accommodation amounts - locked pricing formula", () => {
         // Live config changed after confirmation: rate doubled, nights changed.
         baseRatePerNightMinor: 6000,
         options: [
-          { optionKey: "cot", label: "Cot", pricePerUnitMinor: 1000 },
+          { optionKey: "cot", label: "Cot", pricePerUnitMinor: 1000, unit: "per_night" },
         ],
         ticketAccommodationIncluded: false,
         eventBaseNights: 1,
@@ -422,7 +531,7 @@ describe("accommodation amounts - locked pricing formula", () => {
         // returned snapshot.
         baseRatePerNightMinor: 9999,
         options: [
-          { optionKey: "cot", label: "Cot", pricePerUnitMinor: 9999 },
+          { optionKey: "cot", label: "Cot", pricePerUnitMinor: 9999, unit: "per_night" },
         ],
         ticketAccommodationIncluded: false,
         eventBaseNights: 9,

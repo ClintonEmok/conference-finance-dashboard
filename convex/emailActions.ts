@@ -2,6 +2,7 @@
 
 import { action, internalAction, type ActionCtx } from "./_generated/server"
 import { v } from "convex/values"
+import { requireIdentity } from "./auth"
 import { Resend } from "@convex-dev/resend"
 import { api, components, internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
@@ -227,7 +228,10 @@ export const sendSignupConfirmation = internalAction({
 export const sendSignupConfirmationTest = action({
   args: signupConfirmationArgs,
   returns: signupConfirmationReturns,
-  handler: async (ctx, args) => sendSignupConfirmationEmail(ctx, args),
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    return sendSignupConfirmationEmail(ctx, args)
+  },
 })
 
 const announcementTestArgs = {
@@ -261,6 +265,7 @@ export const sendAnnouncementTest = action({
   args: announcementTestArgs,
   returns: announcementTestReturns,
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     try {
       const html = await render(
         AnnouncementEmail({
@@ -327,6 +332,8 @@ This email was sent by DCLM NL Conference.`.trim()
 export const resendOrderConfirmation = action({
   args: { orderId: v.id("orders") },
   returns: signupConfirmationReturns,
-  handler: async (ctx, args) =>
-    sendOrderConfirmationResendEmail(ctx, args.orderId),
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    return sendOrderConfirmationResendEmail(ctx, args.orderId)
+  },
 })

@@ -32,11 +32,17 @@ signups run degraded with a Convex warning. Provision both, then verify.
 
 > These commands target `dev:acoustic-tiger-876` ONLY. They write rows into the
 > preview deployment (no delete-undone path) — but never production.
+>
+> The deployment guard requires an EXACT match between the detected deployment
+> URL (`CONVEX_SITE_URL`) and the `allowedDeploymentUrl`, and fails closed
+> (no writes) when the deployment identity or allowlist is unavailable. The
+> commands below therefore pass the exact site URL
+> (`https://acoustic-tiger-876.convex.site`) rather than a selector.
 
 1. **Seed the sanitized preview:**
    ```bash
    npx convex run seedPreviewSimulation \
-     --args '{"scope":"full","preview":true,"allowedDeploymentUrl":"dev:acoustic-tiger-876"}'
+     --args '{"scope":"full","preview":true,"allowedDeploymentUrl":"https://acoustic-tiger-876.convex.site"}'
    ```
    Expected: 1 event, 51 orders, 116 attendees, 160 slots, 84 rooms, 2 hotels,
    44 legacy assignments, 44 legacy selections; PII-free (preview placeholders).
@@ -47,7 +53,7 @@ signups run degraded with a Convex warning. Provision both, then verify.
 3. **Run the Phase 47 legacy backfill (costly write):**
    ```bash
    npx convex run backfillLegacyAccommodationPreferences \
-     --args '{"slug":"divine-redesign","preview":true,"allowedDeploymentUrl":"dev:acoustic-tiger-876"}'
+     --args '{"slug":"divine-redesign","preview":true,"allowedDeploymentUrl":"https://acoustic-tiger-876.convex.site"}'
    ```
    Expected first run: `ordersResolved: 38`, `attendeesHandled: 72`,
    `ordersAlreadyHandled: 13`, `ordersUnresolved: 0`.
@@ -82,9 +88,13 @@ signup with a valid token succeeds and a token-less signup is rejected
 > ⛔ **OPERATOR AUTHORIZATION REQUIRED** (gate B).
 > The backfill's `preview` argument is the explicit **write-authorization
 > marker** (named "preview" for historical reasons); the deployment-URL guard
-> is what binds the write to a target. Passing `preview: true` with the
-> production deployment URL is the ONLY way the shipped guard permits a
-> production write — there is no `preview: false` production path by design.
+> is what binds the write to a target. The guard requires an EXACT match
+> between the detected deployment URL and the `allowedDeploymentUrl` below —
+> a suffix, selector, or partial value fails closed before any write. Passing
+> `preview: true` with the EXACT production URL
+> (`https://grateful-pelican-605.convex.cloud`) is the ONLY way the shipped
+> guard permits a production write — there is no `preview: false` production
+> path by design.
 Run the backfill against production with the production selector:
 ```bash
 npx convex run backfillLegacyAccommodationPreferences \

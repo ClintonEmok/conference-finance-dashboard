@@ -13,6 +13,7 @@ import type { TicketUnavailableReason } from "../lib/types/signup"
 import {
   deriveAccommodationAmount,
   NIGHT_BEFORE_SUPERIOR_PREMIUM_MINOR,
+  type AccommodationOptionUnit,
 } from "../lib/domain/finance/accommodation-amounts"
 
 const PUBLIC_EVENT_LIMIT = 50
@@ -450,22 +451,37 @@ export async function loadPublicSignupAccommodationContext(
   )
   const optionKeyById = new Map<string, string>()
   const optionLabelByKey = new Map<string, string>()
+  const optionUnitByKey = new Map<string, AccommodationOptionUnit>()
   for (const definition of optionDefinitions) {
     if (definition) {
       optionKeyById.set(String(definition._id), definition.code)
       optionLabelByKey.set(definition.code, definition.label)
+      optionUnitByKey.set(definition.code, definition.unit)
     }
   }
 
-  const optionsByKey = new Map<string, { label: string; priceMinor: number }>()
+  const optionsByKey = new Map<
+    string,
+    { label: string; priceMinor: number; unit: AccommodationOptionUnit }
+  >()
   for (const row of enabledOptionRows) {
     const key = optionKeyById.get(String(row.optionId))
     if (!key) {
       continue
     }
+    const unit = optionUnitByKey.get(key)
+    // The schema requires `unit` on every accommodation option definition; an
+    // option without a resolvable unit must never be offered or priced (the
+    // charge formula would be unknowable). Missing unit fails closed.
+    if (!unit) {
+      throw new Error(
+        `Accommodation option '${key}' (${String(row.optionId)}) has no resolvable unit; refusing to offer it.`
+      )
+    }
     optionsByKey.set(key, {
       label: optionLabelByKey.get(key) ?? key,
       priceMinor: row.priceMinor,
+      unit,
     })
   }
 
@@ -532,7 +548,10 @@ export type PublicSignupAccommodationContext = {
   ratesByKey: Map<string, number>
   categoryById: Map<string, { code: string; label: string }>
   activeCategoryIds: Set<string>
-  optionsByKey: Map<string, { label: string; priceMinor: number }>
+  optionsByKey: Map<
+    string,
+    { label: string; priceMinor: number; unit: AccommodationOptionUnit }
+  >
 }
 
 export type PublicSignupNightBeforeRates = {
@@ -648,6 +667,7 @@ export type PublicSignupSelectionResolved = {
     pricePerUnitMinor: number
     quantity: number
     nights: number
+    unit: AccommodationOptionUnit
   }>
   /** The configured base stay night count for the event. */
   baseNights: number | null
@@ -841,6 +861,7 @@ export function resolvePublicSignupSelection(input: {
       pricePerUnitMinor: option.priceMinor,
       quantity,
       nights,
+      unit: option.unit,
     })
   }
 
@@ -1335,6 +1356,7 @@ export const getPublicSignupAccommodationQuote = query({
             optionKey: option.optionKey,
             label: option.label,
             pricePerUnitMinor: option.pricePerUnitMinor,
+            unit: option.unit,
           })),
           ticketAccommodationIncluded: ticket.accommodationIncluded === true,
           eventBaseNights,

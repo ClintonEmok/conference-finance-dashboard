@@ -31,11 +31,16 @@
  *
  * Options are data-driven: every enabled event option is a priced, per-unit
  * line. There is no hardcoded cot branch and no age-band eligibility gate.
- * `kind`/`unit` remain typed at the schema boundary; the charge math here is
- * unit × quantity × nights for the supported per_night unit and price ×
- * quantity for per_person. `superior_upgrade` is a regular enabled event
- * option (€10/person/night for the included base nights); the only option
- * key treated specially in this module is the derived night-before premium.
+ * The option definition's schema `unit` (`per_night` | `per_person`) is
+ * carried through `ResolvedAccommodationOption` into the charge math: a
+ * per_night option is unit × quantity × nights and a per_person option is
+ * price × quantity. `superior_upgrade` is a regular enabled event option
+ * (€10/person/night for the included base nights); the only option key
+ * treated specially in this module is the derived night-before premium.
+ *
+ * An option whose `unit` is missing or unknown is the one input this module
+ * refuses to normalize: the charge formula is unknowable, so pricing fails
+ * closed with a descriptive error instead of silently guessing per_night.
  *
  * Breakfast is always included and carries no charge. Zero rates are valid
  * (€0 prices stay €0 and simply produce no receipt line). Malformed,
@@ -67,6 +72,8 @@ export const NIGHT_BEFORE_SUPERIOR_PREMIUM_MINOR = 1000
 export const NIGHT_BEFORE_SUPERIOR_LINE_KEY = "night_before_superior"
 export const NIGHT_BEFORE_SUPERIOR_LINE_LABEL = "Night before · Superior"
 
+export type AccommodationOptionUnit = "per_night" | "per_person"
+
 export type AccommodationOptionSelection = {
   optionKey: string
   quantity: number
@@ -77,6 +84,8 @@ export type ResolvedAccommodationOption = {
   optionKey: string
   label: string
   pricePerUnitMinor: number
+  /** The option definition's schema `unit` (required by accommodationOptions). */
+  unit: AccommodationOptionUnit
 }
 
 export type AccommodationSelectionInput = {
@@ -325,7 +334,7 @@ type ResolvedSelectedOption = {
   pricePerUnitMinor: number
   quantity: number
   nights: number
-  unit: "per_night" | "per_person"
+  unit: AccommodationOptionUnit
 }
 
 function resolveSelectedOptions(
@@ -346,15 +355,22 @@ function resolveSelectedOptions(
     if (!option) {
       continue
     }
+    // The schema makes `unit` a required union on accommodationOptions, so a
+    // resolved option must carry it. An unknown/absent unit means the charge
+    // formula (per_night × nights vs per_person) is unknowable — fail closed
+    // rather than silently charging the option as per_night.
+    if (option.unit !== "per_night" && option.unit !== "per_person") {
+      throw new Error(
+        `Accommodation option '${selected.optionKey}' has an unknown unit; refusing to price it.`
+      )
+    }
     resolved.push({
       optionKey: selected.optionKey,
       label: option.label,
       pricePerUnitMinor: normalizeMinorUnits(option.pricePerUnitMinor),
       quantity: Math.max(0, Math.floor(selected.quantity ?? 0)),
       nights: normalizeNights(selected.nights),
-      // All supported options are per_night in this model; the unit is
-      // resolved at the schema boundary.
-      unit: "per_night",
+      unit: option.unit,
     })
   }
   return resolved
@@ -364,17 +380,26 @@ function resolveSelectedOptions(
  * Charges one resolved option by its unit semantics. `per_night` is price ×
  * quantity × nights; `per_person` is price × quantity. The charge is always a
  * non-negative integer in minor units.
+ *
+ * An unknown/absent `unit` fails closed: the schema requires the unit on every
+ * accommodation option, so a resolved option without a known unit is corrupt
+ * and is never silently priced as per_night.
  */
 export function deriveOptionChargeMinor(option: {
   pricePerUnitMinor: number
   quantity: number
   nights: number
-  unit?: "per_night" | "per_person"
+  unit: AccommodationOptionUnit
 }): number {
   const pricePerUnitMinor = normalizeMinorUnits(option.pricePerUnitMinor)
   const quantity = Math.max(0, Math.floor(option.quantity ?? 0))
   if (option.unit === "per_person") {
     return pricePerUnitMinor * quantity
+  }
+  if (option.unit !== "per_night") {
+    throw new Error(
+      "Cannot price an accommodation option with an unknown unit; expected 'per_night' or 'per_person'."
+    )
   }
   const nights = normalizeNights(option.nights)
   return pricePerUnitMinor * quantity * nights

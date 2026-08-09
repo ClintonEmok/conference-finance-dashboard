@@ -21,6 +21,13 @@ import {
 const TEST_SECRET = "test-legacy-readiness-secret"
 process.env.SIGNUP_SUBMISSION_SECRET = TEST_SECRET
 
+// The deployment guard now requires a detectable deployment URL and an exact
+// match, so every success-path call stubs the detected URL and passes an
+// exactly-matching allowed deployment URL.
+const TEST_DEPLOYMENT_URL = "https://test-preview.convex.site"
+process.env.CONVEX_SITE_URL = TEST_DEPLOYMENT_URL
+const previewGuard = { preview: true, allowedDeploymentUrl: TEST_DEPLOYMENT_URL }
+
 const modules = import.meta.glob("./**/*.ts")
 
 function fresh() {
@@ -140,7 +147,7 @@ test("LEG-01: backfill creates exactly 72 first preferences (38 orders) and skip
 
   const first = await t.mutation(
     internal.backfillLegacyAccommodationPreferences.default,
-    { slug: LEGACY_EVENT_SLUG, preview: true }
+    { slug: LEGACY_EVENT_SLUG, ...previewGuard }
   )
 
   expect(first.eventId).toBeDefined()
@@ -184,7 +191,7 @@ test("LEG-01: backfill creates exactly 72 first preferences (38 orders) and skip
   // Re-run is a full no-op.
   const second = await t.mutation(
     internal.backfillLegacyAccommodationPreferences.default,
-    { slug: LEGACY_EVENT_SLUG, preview: true }
+    { slug: LEGACY_EVENT_SLUG, ...previewGuard }
   )
   expect(second.ordersResolved).toBe(0)
   expect(second.attendeesHandled).toBe(0)
@@ -235,7 +242,7 @@ test("LEG-01: the backfill derives single occupancy for a capacity-1 room type",
 
   const result = await t.mutation(
     internal.backfillLegacyAccommodationPreferences.default,
-    { slug: LEGACY_EVENT_SLUG, preview: true }
+    { slug: LEGACY_EVENT_SLUG, ...previewGuard }
   )
   expect(result.attendeesHandled).toBe(LEGACY_AUDIT_COUNTS.noSelectionAttendees + 1)
 
@@ -252,7 +259,7 @@ test("LEG-01: the backfill derives single occupancy for a capacity-1 room type",
 // LEG-03: preview-only guard and deployment protection
 // ---------------------------------------------------------------------------
 
-test("LEG-03: the backfill rejects without the preview marker and against a production deployment before any read", async () => {
+test("LEG-03: the backfill guard fails closed on missing preview, unknown deployment, missing allowlist, suffix collisions, and production mismatches", async () => {
   const t = fresh().withIdentity(adminIdentity)
 
   // No preview marker -> rejected before any database interaction.
@@ -260,13 +267,85 @@ test("LEG-03: the backfill rejects without the preview marker and against a prod
     t.mutation(internal.backfillLegacyAccommodationPreferences.default, {
       slug: LEGACY_EVENT_SLUG,
       preview: false,
+      allowedDeploymentUrl: TEST_DEPLOYMENT_URL,
     })
   ).rejects.toThrow("PREVIEW_REQUIRED")
 
-  // Production-like deployment URL -> rejected before the event lookup (the
-  // empty DB would otherwise report 'event not found', proving the guard runs
-  // before any read/write).
+  // Detected deployment identity unavailable -> fail closed (no reads/writes;
+  // the empty DB would otherwise report 'event not found', proving the guard
+  // runs before any read/write).
   const previousSiteUrl = process.env.CONVEX_SITE_URL
+  delete process.env.CONVEX_SITE_URL
+  try {
+    await expect(
+      t.mutation(internal.backfillLegacyAccommodationPreferences.default, {
+        slug: LEGACY_EVENT_SLUG,
+        preview: true,
+        allowedDeploymentUrl: TEST_DEPLOYMENT_URL,
+      })
+    ).rejects.toThrow("DEPLOYMENT_UNKNOWN")
+  } finally {
+    if (previousSiteUrl === undefined) {
+      delete process.env.CONVEX_SITE_URL
+    } else {
+      process.env.CONVEX_SITE_URL = previousSiteUrl
+    }
+  }
+  expect(await countSelections(t)).toBe(0)
+
+  // No allowed deployment URL configured -> fail closed (detected identity is
+  // present but neither the argument nor PREVIEW_DEPLOYMENT_URL provides an
+  // allowlist).
+  const previousAllowedUrl = process.env.PREVIEW_DEPLOYMENT_URL
+  process.env.CONVEX_SITE_URL = TEST_DEPLOYMENT_URL
+  delete process.env.PREVIEW_DEPLOYMENT_URL
+  try {
+    await expect(
+      t.mutation(internal.backfillLegacyAccommodationPreferences.default, {
+        slug: LEGACY_EVENT_SLUG,
+        preview: true,
+      })
+    ).rejects.toThrow("ALLOWLIST_UNAVAILABLE")
+  } finally {
+    process.env.CONVEX_SITE_URL = previousSiteUrl
+    if (previousAllowedUrl === undefined) {
+      delete process.env.PREVIEW_DEPLOYMENT_URL
+    } else {
+      process.env.PREVIEW_DEPLOYMENT_URL = previousAllowedUrl
+    }
+  }
+  expect(await countSelections(t)).toBe(0)
+
+  // Suffix-colliding allowed URL must NOT match the detected deployment
+  // (exact normalized equality only — no endsWith/prefix matching).
+  process.env.CONVEX_SITE_URL = "https://acoustic-tiger-876.convex.site"
+  try {
+    await expect(
+      t.mutation(internal.backfillLegacyAccommodationPreferences.default, {
+        slug: LEGACY_EVENT_SLUG,
+        preview: true,
+        allowedDeploymentUrl: "https://evil-convex.site",
+      })
+    ).rejects.toThrow("WRONG_DEPLOYMENT")
+    // A bare suffix of the detected URL is also not an exact match.
+    await expect(
+      t.mutation(internal.backfillLegacyAccommodationPreferences.default, {
+        slug: LEGACY_EVENT_SLUG,
+        preview: true,
+        allowedDeploymentUrl: "convex.site",
+      })
+    ).rejects.toThrow("WRONG_DEPLOYMENT")
+  } finally {
+    if (previousSiteUrl === undefined) {
+      delete process.env.CONVEX_SITE_URL
+    } else {
+      process.env.CONVEX_SITE_URL = previousSiteUrl
+    }
+  }
+  expect(await countSelections(t)).toBe(0)
+
+  // Production-like deployment URL -> rejected (the dev selector resolves to
+  // the preview site URL, which does not equal the production site URL).
   process.env.CONVEX_SITE_URL = "https://grateful-pelican-605.convex.cloud"
   try {
     await expect(
@@ -283,6 +362,19 @@ test("LEG-03: the backfill rejects without the preview marker and against a prod
       process.env.CONVEX_SITE_URL = previousSiteUrl
     }
   }
+  expect(await countSelections(t)).toBe(0)
+
+  // Exact match passes the guard: on an empty DB the backfill proceeds to the
+  // event lookup and reports the missing event (proving the guard did not
+  // reject and no write occurred).
+  process.env.CONVEX_SITE_URL = TEST_DEPLOYMENT_URL
+  await expect(
+    t.mutation(internal.backfillLegacyAccommodationPreferences.default, {
+      slug: LEGACY_EVENT_SLUG,
+      ...previewGuard,
+    })
+  ).rejects.toThrow("Event with slug")
+  expect(await countSelections(t)).toBe(0)
 })
 
 test("LEG-01: an order with a dangling ticket fails closed as a unit (zero partial inserts)", async () => {
@@ -341,7 +433,7 @@ test("LEG-01: an order with a dangling ticket fails closed as a unit (zero parti
 
   const result = await t.mutation(
     internal.backfillLegacyAccommodationPreferences.default,
-    { slug: LEGACY_EVENT_SLUG, preview: true }
+    { slug: LEGACY_EVENT_SLUG, ...previewGuard }
   )
 
   // The dangling order is reported unresolved and nothing was inserted for it.
@@ -817,7 +909,7 @@ test("LEG-02: all 44 legacy assignments surface as grouped buyer suggestions on 
 
   await t.mutation(internal.backfillLegacyAccommodationPreferences.default, {
     slug: LEGACY_EVENT_SLUG,
-    preview: true,
+    ...previewGuard,
   })
 
   const board = await t.query(api.accommodation.getRoomAllocationBoard, {
@@ -855,7 +947,7 @@ test("LEG-01: a backfilled order passes through the manage-booking edit path and
 
   await t.mutation(internal.backfillLegacyAccommodationPreferences.default, {
     slug: LEGACY_EVENT_SLUG,
-    preview: true,
+    ...previewGuard,
   })
 
   // Pick the last no-selection order (single attendee, shared ticket).

@@ -644,20 +644,18 @@ describe("deep-link and single-shell source contracts (Phase 45)", () => {
     expect(view).toContain("initialEditToken")
   })
 
-  it("confirmation email links prefer the token permalink and fail closed to the booking surface", () => {
+  it("confirmation email links prefill the booking reference and verify ownership by booking email", () => {
     const email = readSource("convex/emailActions.ts")
-    const permalinkBuilder = readSource(
-      "lib/domain/track-payment/edit-token.ts"
-    )
+    const submission = readSource("convex/signupSubmission.ts")
     const template = readSource("lib/email/templates/signup-confirmation.tsx")
 
-    expect(permalinkBuilder).toContain("/booking/${encodeURIComponent(")
-    expect(permalinkBuilder).toContain("?token=${encodeURIComponent(token)}")
-    // Resend/signup confirmation prefers the durable token permalink.
-    expect(email).toContain("buildTrackPaymentPermalink")
-    // Missing secret fails closed to the plain booking search surface
-    // (email-match ownership) — never a forgeable token link.
-    expect(email).toContain("?? `${appUrl}/booking`")
+    // Confirmation emails embed the booking reference directly in the
+    // manage-booking permalink; ownership is then verified by the booking
+    // email inside the manage form (no forgeable edit token in the link).
+    expect(email).toContain("/booking/${encodeURIComponent(")
+    expect(email).toContain("/manage")
+    expect(submission).toContain("/booking/${encodeURIComponent(")
+    expect(submission).toContain("/manage")
     // The email template renders the server-built link target.
     expect(template).toContain("trackPaymentUrl")
     expect(template).toContain("href={trackPaymentUrl}")

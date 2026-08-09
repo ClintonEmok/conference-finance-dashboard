@@ -6,13 +6,14 @@ import {
   resolveIncludedStayCategory,
   resolvePublicSignupSelection,
 } from "./signupCatalog"
+import { assertPreviewDeployment } from "../lib/domain/legacy/preview-deployment-guard"
 
 /**
  * LEG-01 idempotent, operator-run first-preference backfill for the
  * `divine-redesign` production event. Run with:
  *
  *   npx convex run backfillLegacyAccommodationPreferences \
- *     --args '{"slug":"divine-redesign","preview":true,"allowedDeploymentUrl":"dev:acoustic-tiger-876"}'
+ *     --args '{"slug":"divine-redesign","preview":true,"allowedDeploymentUrl":"https://acoustic-tiger-876.convex.site"}'
  *
  * Behavior:
  * - Locates the event by slug and loads the shared accommodation context.
@@ -27,16 +28,19 @@ import {
  * - Never touches confirmed rows, other events, payments, assignments, order
  *   totals, or Tikkie links.
  *
- * Safety (LEG-03):
- * - Requires `preview: true` AND, when the deployment URL is detectable
- *   (`CONVEX_SITE_URL`), it must match the allowed preview deployment URL —
- *   otherwise the call is rejected BEFORE any database read or write. A
- *   production deployment URL therefore fails closed.
+ * Safety (LEG-03, shared preview-deployment guard):
+ * - Requires `preview: true` AND an exactly-matching, explicitly allowed
+ *   deployment URL (`allowedDeploymentUrl` or `PREVIEW_DEPLOYMENT_URL`),
+ *   compared to the detected `CONVEX_SITE_URL` in canonical form — no
+ *   prefix/suffix matching. The guard fails closed BEFORE any database read
+ *   or write when the deployment identity or allowlist is unavailable.
+ * - Production execution is only possible when an operator explicitly passes
+ *   the exact production deployment URL as the allowed deployment (documented
+ *   gate B in docs/production-deployment-runbook.md).
  * - The category is always the event's included Standard category resolved
  *   server-side — never a legacy room type's (absent) categoryId.
  * - This mutation is the `costly` write: Convex has no delete-undone path for
- *   the inserted selection rows. Run it ONLY against the sanitized dev
- *   preview, never production.
+ *   the inserted selection rows. Rehearse on the sanitized preview first.
  */
 
 const SELECTION_BATCH = 500
@@ -64,33 +68,16 @@ export default internalMutation({
     ),
   }),
   handler: async (ctx, args) => {
-    const slug = args.slug?.trim() || "divine-redesign"
+    // Deployment guard: shared fail-closed check runs BEFORE any database
+    // read/write. Requires `preview: true` and an exactly-matching, explicitly
+    // allowed deployment URL against the detected CONVEX_SITE_URL.
+    assertPreviewDeployment({
+      preview: args.preview,
+      allowedDeploymentUrl: args.allowedDeploymentUrl,
+      operation: "backfill",
+    })
 
-    // Deployment guard: fail closed before any database read when the
-    // preview marker is absent or the detectable deployment is not the
-    // allowed preview.
-    if (args.preview !== true) {
-      throw new Error(
-        "PREVIEW_REQUIRED: This backfill is preview-only and requires `preview: true`."
-      )
-    }
-    const siteUrl = process.env.CONVEX_SITE_URL?.trim() ?? null
-    if (siteUrl) {
-      const allowed =
-        args.allowedDeploymentUrl?.trim() ||
-        process.env.PREVIEW_DEPLOYMENT_URL?.trim() ||
-        null
-      const matches =
-        allowed !== null &&
-        (siteUrl === allowed ||
-          siteUrl.endsWith(allowed) ||
-          allowed.endsWith(siteUrl))
-      if (!matches) {
-        throw new Error(
-          `WRONG_DEPLOYMENT: Detected deployment '${siteUrl}' does not match the allowed preview deployment. Backfill aborted before any read or write.`
-        )
-      }
-    }
+    const slug = args.slug?.trim() || "divine-redesign"
 
     const event = await ctx.db
       .query("events")

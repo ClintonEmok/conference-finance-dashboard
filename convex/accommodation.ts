@@ -3753,7 +3753,10 @@ export async function resolveOrderAccommodationConfirmation(
   // Enabled event options resolved to typed per-unit prices keyed by option
   // code — the same resolution the canonical loader uses, so a confirmed
   // snapshot always matches live pricing at confirmation.
-  const optionsByKey = new Map<string, { label: string; priceMinor: number }>()
+  const optionsByKey = new Map<
+    string,
+    { label: string; priceMinor: number; unit: "per_night" | "per_person" }
+  >()
   for (const optionRow of eventOptionRows) {
     if (!optionRow.enabled) continue
     const definition = optionDefinitionById.get(String(optionRow.optionId))
@@ -3761,6 +3764,7 @@ export async function resolveOrderAccommodationConfirmation(
     optionsByKey.set(definition.code, {
       label: definition.label,
       priceMinor: optionRow.priceMinor,
+      unit: definition.unit,
     })
   }
 
@@ -3849,6 +3853,7 @@ export async function resolveOrderAccommodationConfirmation(
       pricePerUnitMinor: number
       quantity: number
       nights: number
+      unit: "per_night" | "per_person"
     }> = []
     for (const selected of selectedOptionKeys) {
       if (seenKeys.has(selected.optionKey)) {
@@ -3879,6 +3884,7 @@ export async function resolveOrderAccommodationConfirmation(
         pricePerUnitMinor: option.priceMinor,
         quantity: selected.quantity,
         nights: selected.nights,
+        unit: option.unit,
       })
     }
 

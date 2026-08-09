@@ -409,7 +409,7 @@ test("confirmed order stays fixed after a rate edit using its snapshot", async (
     },
     pricing: {
       baseRatePerNightMinor: 3000,
-      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500 }],
+      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500, unit: "per_night" }],
       ticketAccommodationIncluded: false,
       eventBaseNights: 2,
     },
@@ -594,7 +594,7 @@ test("loader fails closed when confirmedAt is a malformed epoch timestamp", asyn
     },
     pricing: {
       baseRatePerNightMinor: 3000,
-      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500 }],
+      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500, unit: "per_night" }],
       ticketAccommodationIncluded: false,
       eventBaseNights: 2,
     },
@@ -661,7 +661,7 @@ test("loader fails closed when a confirmed row lacks configVersion", async () =>
     },
     pricing: {
       baseRatePerNightMinor: 3000,
-      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500 }],
+      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500, unit: "per_night" }],
       ticketAccommodationIncluded: false,
       eventBaseNights: 2,
     },
@@ -699,7 +699,7 @@ test("confirmed row prices from its snapshot even when event config is missing",
     },
     pricing: {
       baseRatePerNightMinor: 3000,
-      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500 }],
+      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500, unit: "per_night" }],
       ticketAccommodationIncluded: false,
       eventBaseNights: 2,
     },
@@ -1057,7 +1057,7 @@ test("confirmed order is not re-priced when live selection flags are edited", as
     },
     pricing: {
       baseRatePerNightMinor: 3000,
-      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500 }],
+      options: [{ optionKey: "cot", label: "Cot", pricePerUnitMinor: 500, unit: "per_night" }],
       ticketAccommodationIncluded: false,
       eventBaseNights: 2,
     },

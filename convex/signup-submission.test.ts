@@ -1520,6 +1520,91 @@ test("CR-09: an exact retry (same payload, key, and token) returns the existing 
   expect(orders).toHaveLength(1)
 })
 
+test("CR-07: reusing a live idempotency key with a changed payload is rejected as SUBMISSION_CONFLICT", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  const envelope = await buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: seed.unconstrainedTicketId,
+    accommodationSelections: [
+      {
+        attendeeKey: "attendee-1",
+        categoryId: seed.categoryStandardId,
+        occupancy: "shared",
+        optionSelections: [],
+      },
+    ],
+  })
+
+  const first = await t.mutation(
+    api.signupSubmission.submitSignupEnvelope,
+    envelope
+  )
+
+  // Re-mint a VALID token over the CHANGED payload bound to the SAME
+  // idempotency key: the token verifies (CR-09 recomputes the digest from the
+  // args), so the request reaches the idempotency check. The live key
+  // record's fingerprint differs from the new digest, so the mutation must
+  // fail closed instead of inserting a second order and idempotency row.
+  const changed = {
+    ...envelope,
+    booker: { ...envelope.booker, name: "Changed Booker" },
+  }
+  await reMintSubmissionToken(changed)
+
+  await expect(
+    t.mutation(api.signupSubmission.submitSignupEnvelope, changed)
+  ).rejects.toThrow("SUBMISSION_CONFLICT")
+
+  // Exactly ONE order exists: the conflict aborted before any insert.
+  const orders = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId))
+      .take(10)
+  })
+  expect(orders).toHaveLength(1)
+
+  // The ticket soldCount is unchanged by the rejected attempt.
+  const ticketRows = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("ticketTypes")
+      .withIndex("by_eventId", (q) => q.eq("eventId", seed.eventId as never))
+      .take(100)
+  })
+  const ticketRow = ticketRows.find(
+    (row) => row._id === seed.unconstrainedTicketId
+  )
+  expect(ticketRow?.soldCount).toBe(1)
+
+  // Exactly one idempotency record exists for the key: the conflict did not
+  // persist a second record.
+  const idempotencyRecords = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orderIdempotency")
+      .withIndex("by_eventId_and_idempotencyKey", (q) =>
+        q
+          .eq("eventId", seed.eventId)
+          .eq("idempotencyKey", envelope.idempotencyKey)
+      )
+      .take(20)
+  })
+  expect(idempotencyRecords).toHaveLength(1)
+
+  // The first order's selection set is intact: no second selection set was
+  // created for the rejected attempt.
+  const selectionRows = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orderAccommodationSelections")
+      .withIndex("by_orderId", (q) =>
+        q.eq("orderId", first.submissionId as never)
+      )
+      .take(10)
+  })
+  expect(selectionRows).toHaveLength(1)
+})
+
 test("CR-10: a submission with two attendees sharing one ticket with one remaining place is rejected", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await createConfiguredEvent(t)

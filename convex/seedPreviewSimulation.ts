@@ -9,6 +9,7 @@ import {
   stableKeyFor,
   type PreviewSnapshot,
 } from "../lib/domain/legacy/preview-simulation"
+import { assertPreviewDeployment } from "../lib/domain/legacy/preview-deployment-guard"
 
 /**
  * RUN-01 preview production simulation seed. Private, preview-only,
@@ -18,18 +19,20 @@ import {
  * the DEV/PREVIEW deployment. Run with:
  *
  *   npx convex run seedPreviewSimulation \
- *     --args '{"scope":"full","preview":true,"allowedDeploymentUrl":"dev:acoustic-tiger-876"}'
+ *     --args '{"scope":"full","preview":true,"allowedDeploymentUrl":"https://acoustic-tiger-876.convex.site"}'
  *
- * Safety (mirrors the Phase 47 backfill):
- * - Requires `preview: true` AND, when a deployment URL is detectable
- *   (`CONVEX_SITE_URL`), it must match the allowed preview deployment —
- *   otherwise rejected BEFORE any database read or write. Production fails
- *   closed.
+ * Safety (shared preview-deployment guard):
+ * - Requires `preview: true` AND an exactly-matching, explicitly allowed
+ *   deployment URL (`allowedDeploymentUrl` or `PREVIEW_DEPLOYMENT_URL`),
+ *   compared to the detected `CONVEX_SITE_URL` in canonical form — no
+ *   prefix/suffix matching. Rejected BEFORE any database read or write, and
+ *   fails closed when the deployment identity or allowlist is unavailable.
  * - Idempotent by stable keys (event slug, booking ref, attendee key, codes,
  *   labels, slot labels), so a `tracer` seed can expand to `full` and a
  *   re-run is a no-op. Never overwrites a row, never writes payments/totals,
  *   never creates physical assignments, never touches another event.
- * - Runs only against the sanitized preview; NEVER production.
+ * - A production write is only possible when an operator explicitly passes
+ *   the exact production deployment URL as the allowed deployment.
  */
 
 const TABLE_LIMIT = 2000
@@ -170,30 +173,16 @@ export default internalMutation({
     insertedByTable: v.record(v.string(), v.number()),
   }),
   handler: async (ctx, args) => {
-    const slug = args.slug?.trim() || LEGACY_EVENT_SLUG
+    // Deployment guard: shared fail-closed check runs BEFORE any database
+    // read/write. Requires `preview: true` and an exactly-matching, explicitly
+    // allowed deployment URL against the detected CONVEX_SITE_URL.
+    assertPreviewDeployment({
+      preview: args.preview,
+      allowedDeploymentUrl: args.allowedDeploymentUrl,
+      operation: "seed",
+    })
 
-    if (args.preview !== true) {
-      throw new Error(
-        "PREVIEW_REQUIRED: This seed is preview-only and requires `preview: true`."
-      )
-    }
-    const siteUrl = process.env.CONVEX_SITE_URL?.trim() ?? null
-    if (siteUrl) {
-      const allowed =
-        args.allowedDeploymentUrl?.trim() ||
-        process.env.PREVIEW_DEPLOYMENT_URL?.trim() ||
-        null
-      const matches =
-        allowed !== null &&
-        (siteUrl === allowed ||
-          siteUrl.endsWith(allowed) ||
-          allowed.endsWith(siteUrl))
-      if (!matches) {
-        throw new Error(
-          `WRONG_DEPLOYMENT: Detected deployment '${siteUrl}' does not match the allowed preview deployment. Seed aborted before any read or write.`
-        )
-      }
-    }
+    const slug = args.slug?.trim() || LEGACY_EVENT_SLUG
 
     const snapshot =
       args.scope === "tracer"

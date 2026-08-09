@@ -1935,3 +1935,59 @@ test("a ticket whose room-type entitlement is broken rejects the edit before wri
   })
   expect(audits).toHaveLength(0)
 })
+
+test("the canonical loader fails closed on a missing ticket reference (CQ-13)", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+
+  // Insert a ticket row, point a selection at it, then delete the ticket so
+  // the reference is dangling at load time (the ID validator prevents
+  // inserting a pointer to a never-existing document).
+  const danglingOrderId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("orders", {
+      eventId: seed.eventId as never,
+      source: "internal" as const,
+      bookingRef: "BK-DANGLING-TKT",
+      bookerName: "Dangling Ticket Buyer",
+      submittedAt: BASE_EVENT_AT,
+    })
+  })
+  const danglingAttendeeId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("orderAttendees", {
+      orderId: danglingOrderId as never,
+      attendeeKey: "dangling-ticket",
+      name: "Dangling Ticket Attendee",
+      gender: "unknown" as const,
+      sortOrder: 0,
+    })
+  })
+  const danglingTicketId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("ticketTypes", {
+      eventId: seed.eventId as never,
+      label: "Dangling ticket",
+      priceMinor: 1000,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+  await t.mutation(async (ctx) => {
+    return await ctx.db.insert("orderTicketSelections", {
+      orderId: danglingOrderId as never,
+      attendeeId: danglingAttendeeId as never,
+      ticketTypeId: danglingTicketId as never,
+      quantity: 1,
+      sortOrder: 0,
+    })
+  })
+  await t.mutation(async (ctx) => {
+    return await ctx.db.delete("ticketTypes", danglingTicketId)
+  })
+
+  // The dangling reference must never be priced at zero: the canonical money
+  // projection fails closed with a descriptive error.
+  await expect(loadAmountDue(t, String(danglingOrderId))).rejects.toThrow(
+    /does not exist/
+  )
+})

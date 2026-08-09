@@ -12,6 +12,7 @@ import {
 import {
   deriveAccommodationAmount,
   isCompleteAccommodationPriceSnapshot,
+  type AccommodationOptionUnit,
   type AccommodationPriceSnapshot,
   type AccommodationReceiptLine,
 } from "../lib/domain/finance/accommodation-amounts"
@@ -83,7 +84,10 @@ type EventAccommodationContext = {
   config: { nightCount: number } | null
   ratesByKey: Map<string, { pricePerPersonMinor: number }>
   categoryCodeById: Map<string, string | undefined>
-  optionsByKey: Map<string, { label: string; priceMinor: number }>
+  optionsByKey: Map<
+    string,
+    { label: string; priceMinor: number; unit: AccommodationOptionUnit }
+  >
 }
 
 type EventAccommodationConfigDoc = {
@@ -179,10 +183,12 @@ async function loadEventAccommodationContexts(
 
   const optionCodeById = new Map<string, string | undefined>()
   const optionLabelById = new Map<string, string | undefined>()
+  const optionUnitById = new Map<string, AccommodationOptionUnit>()
   for (const definition of optionDefinitions) {
     if (!definition) continue
     optionCodeById.set(String(definition._id), definition.code)
     optionLabelById.set(String(definition._id), definition.label)
+    optionUnitById.set(String(definition._id), definition.unit)
   }
 
   const categoryCodeById = new Map<string, string | undefined>()
@@ -202,15 +208,28 @@ async function loadEventAccommodationContexts(
       })
     }
 
-    const optionsByKey = new Map<string, { label: string; priceMinor: number }>()
+    const optionsByKey = new Map<
+      string,
+      { label: string; priceMinor: number; unit: AccommodationOptionUnit }
+    >()
     for (const row of enabledOptionRows) {
       const code = optionCodeById.get(String(row.optionId))
+      const unit = optionUnitById.get(String(row.optionId))
       if (!code) {
         continue
+      }
+      // The schema requires `unit` on every accommodation option definition;
+      // a catalog definition without a resolvable unit must never be priced
+      // (the charge formula would be unknowable). Missing unit fails closed.
+      if (!unit) {
+        throw new Error(
+          `Accommodation option '${code}' (${String(row.optionId)}) has no resolvable unit; refusing to price it.`
+        )
       }
       optionsByKey.set(code, {
         label: optionLabelById.get(String(row.optionId)) ?? code,
         priceMinor: row.priceMinor,
+        unit,
       })
     }
 
@@ -387,6 +406,22 @@ export async function loadOrderAmountDueBreakdowns(
     const orderKey = String(order._id)
     const selections = selectionsByOrderId.get(orderKey) ?? []
 
+    // Fail closed on corrupt ticket references (CQ-13): a selection that
+    // references a ticket type that does not exist makes the ticket charge
+    // unknowable. It is never silently priced at zero, which would understate
+    // the canonical amount due and could present a booking as paid when its
+    // ticket charge is unknown. Orders with zero ticket selections are
+    // unaffected, and a selection referencing an existing ticket is always
+    // priced from that ticket's known `priceMinor` (never fabricated as zero).
+    for (const selection of selections) {
+      const ticketTypeId = String(selection.ticketTypeId)
+      if (!ticketTypePriceById.has(ticketTypeId)) {
+        throw new Error(
+          `Order ${orderKey} references ticket type ${ticketTypeId} which does not exist; refusing to price the order with an unknown ticket charge.`
+        )
+      }
+    }
+
     const attendeeTicketTypeId = new Map<string, Id<"ticketTypes">>()
     for (const selection of selections) {
       const attendeeKey = String(selection.attendeeId)
@@ -497,6 +532,7 @@ export async function loadOrderAmountDueBreakdowns(
             pricePerUnitMinor: option.priceMinor,
             quantity: optionSelection.quantity,
             nights: optionSelection.nights,
+            unit: option.unit,
           }
         }
       ).filter((option): option is NonNullable<typeof option> => option !== null)
@@ -511,6 +547,7 @@ export async function loadOrderAmountDueBreakdowns(
         pricePerUnitMinor: number
         quantity: number
         nights: number
+        unit: AccommodationOptionUnit
       }> = []
       if (childOptionSelections.length === 0) {
         if (row.upgradeSelected === true) {
@@ -524,6 +561,7 @@ export async function loadOrderAmountDueBreakdowns(
               pricePerUnitMinor: option.priceMinor,
               quantity: 1,
               nights: row.nightCount ?? accommodationContext?.config?.nightCount ?? 0,
+              unit: option.unit,
             })
           }
         }
@@ -536,6 +574,7 @@ export async function loadOrderAmountDueBreakdowns(
               pricePerUnitMinor: option.priceMinor,
               quantity: 1,
               nights: row.nightCount ?? accommodationContext?.config?.nightCount ?? 0,
+              unit: option.unit,
             })
           }
         }

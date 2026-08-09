@@ -13,6 +13,13 @@ import { loadOrderAmountDueBreakdowns } from "./finance"
 
 const modules = import.meta.glob("./**/*.ts")
 
+// The deployment guard now requires a detectable deployment URL and an exact
+// match, so every success-path call stubs the detected URL and passes an
+// exactly-matching allowed deployment URL.
+const TEST_DEPLOYMENT_URL = "https://test-preview.convex.site"
+process.env.CONVEX_SITE_URL = TEST_DEPLOYMENT_URL
+const previewGuard = { preview: true, allowedDeploymentUrl: TEST_DEPLOYMENT_URL }
+
 function fresh() {
   return convexTest(schema, modules)
 }
@@ -80,7 +87,7 @@ test("RUN-01 tracer: a single sanitized legacy order seeds, backfills, and price
 
   const seeded = await t.mutation(internal.seedPreviewSimulation.default, {
     scope: "tracer",
-    preview: true,
+    ...previewGuard,
   })
   expect(seeded.slug).toBe(LEGACY_EVENT_SLUG)
   expect(seeded.insertedByTable.orders).toBe(1)
@@ -100,7 +107,7 @@ test("RUN-01 tracer: a single sanitized legacy order seeds, backfills, and price
   // Deferred Phase 47 backfill runs against the seeded preview.
   const backfill = await t.mutation(
     internal.backfillLegacyAccommodationPreferences.default,
-    { slug: LEGACY_EVENT_SLUG, preview: true }
+    { slug: LEGACY_EVENT_SLUG, ...previewGuard }
   )
   expect(backfill.ordersResolved).toBe(1)
   expect(backfill.attendeesHandled).toBe(1)
@@ -129,7 +136,7 @@ test("RUN-01 full: the sanitized preview mirrors the audited shape with correct 
 
   await t.mutation(internal.seedPreviewSimulation.default, {
     scope: "full",
-    preview: true,
+    ...previewGuard,
   })
 
   expect(await countRows(t, "events")).toBe(1)
@@ -194,20 +201,20 @@ test("RUN-01 expansion + idempotency: a tracer seed expands to full and a re-run
 
   await t.mutation(internal.seedPreviewSimulation.default, {
     scope: "tracer",
-    preview: true,
+    ...previewGuard,
   })
   expect(await countRows(t, "orders")).toBe(1)
 
   const expanded = await t.mutation(internal.seedPreviewSimulation.default, {
     scope: "full",
-    preview: true,
+    ...previewGuard,
   })
   expect(expanded.alreadySeeded).toBe(false)
   expect(await countRows(t, "orders")).toBe(LEGACY_AUDIT_COUNTS.orders)
 
   const rerun = await t.mutation(internal.seedPreviewSimulation.default, {
     scope: "full",
-    preview: true,
+    ...previewGuard,
   })
   expect(rerun.alreadySeeded).toBe(true)
   expect(await countRows(t, "orders")).toBe(LEGACY_AUDIT_COUNTS.orders)
@@ -216,17 +223,90 @@ test("RUN-01 expansion + idempotency: a tracer seed expands to full and a re-run
   )
 })
 
-test("RUN-01 guards: the seed rejects without preview authorization and against a production deployment", async () => {
+test("RUN-01 guards: the seed fails closed on missing preview, unknown deployment, missing allowlist, suffix collisions, and production mismatches", async () => {
   const t = fresh().withIdentity(adminIdentity)
 
   await expect(
     t.mutation(internal.seedPreviewSimulation.default, {
       scope: "full",
       preview: false,
+      allowedDeploymentUrl: TEST_DEPLOYMENT_URL,
     })
   ).rejects.toThrow("PREVIEW_REQUIRED")
 
+  // Detected deployment identity unavailable -> fail closed (no writes).
   const previousSiteUrl = process.env.CONVEX_SITE_URL
+  delete process.env.CONVEX_SITE_URL
+  try {
+    await expect(
+      t.mutation(internal.seedPreviewSimulation.default, {
+        scope: "full",
+        preview: true,
+        allowedDeploymentUrl: TEST_DEPLOYMENT_URL,
+      })
+    ).rejects.toThrow("DEPLOYMENT_UNKNOWN")
+  } finally {
+    if (previousSiteUrl === undefined) {
+      delete process.env.CONVEX_SITE_URL
+    } else {
+      process.env.CONVEX_SITE_URL = previousSiteUrl
+    }
+  }
+  expect(await countRows(t, "orders")).toBe(0)
+
+  // No allowed deployment URL configured -> fail closed (detected identity is
+  // present but neither the argument nor PREVIEW_DEPLOYMENT_URL provides an
+  // allowlist).
+  const previousAllowedUrl = process.env.PREVIEW_DEPLOYMENT_URL
+  process.env.CONVEX_SITE_URL = TEST_DEPLOYMENT_URL
+  delete process.env.PREVIEW_DEPLOYMENT_URL
+  try {
+    await expect(
+      t.mutation(internal.seedPreviewSimulation.default, {
+        scope: "full",
+        preview: true,
+      })
+    ).rejects.toThrow("ALLOWLIST_UNAVAILABLE")
+  } finally {
+    process.env.CONVEX_SITE_URL = previousSiteUrl
+    if (previousAllowedUrl === undefined) {
+      delete process.env.PREVIEW_DEPLOYMENT_URL
+    } else {
+      process.env.PREVIEW_DEPLOYMENT_URL = previousAllowedUrl
+    }
+  }
+  expect(await countRows(t, "orders")).toBe(0)
+
+  // Suffix-colliding allowed URL must NOT match the detected deployment
+  // (exact normalized equality only — no endsWith/prefix matching).
+  process.env.CONVEX_SITE_URL = "https://acoustic-tiger-876.convex.site"
+  try {
+    await expect(
+      t.mutation(internal.seedPreviewSimulation.default, {
+        scope: "full",
+        preview: true,
+        allowedDeploymentUrl: "https://evil-convex.site",
+      })
+    ).rejects.toThrow("WRONG_DEPLOYMENT")
+    // A bare suffix of the detected URL is also not an exact match.
+    await expect(
+      t.mutation(internal.seedPreviewSimulation.default, {
+        scope: "full",
+        preview: true,
+        allowedDeploymentUrl: "convex.site",
+      })
+    ).rejects.toThrow("WRONG_DEPLOYMENT")
+  } finally {
+    if (previousSiteUrl === undefined) {
+      delete process.env.CONVEX_SITE_URL
+    } else {
+      process.env.CONVEX_SITE_URL = previousSiteUrl
+    }
+  }
+  expect(await countRows(t, "orders")).toBe(0)
+
+  // Production-like deployment URL -> rejected (the dev selector resolves to
+  // the preview site URL, which does not equal the production site URL).
   process.env.CONVEX_SITE_URL = "https://grateful-pelican-605.convex.cloud"
   try {
     await expect(
@@ -244,18 +324,27 @@ test("RUN-01 guards: the seed rejects without preview authorization and against 
     }
   }
   expect(await countRows(t, "orders")).toBe(0)
+
+  // Exact match passes the guard and the seed runs (one tracer order seeded).
+  process.env.CONVEX_SITE_URL = TEST_DEPLOYMENT_URL
+  const seeded = await t.mutation(internal.seedPreviewSimulation.default, {
+    scope: "tracer",
+    ...previewGuard,
+  })
+  expect(seeded.insertedByTable.orders).toBe(1)
+  expect(await countRows(t, "orders")).toBe(1)
 })
 
 test("RUN-01: the deferred full backfill runs idempotently on the seeded preview and surfaces 44 board suggestions", async () => {
   const t = fresh().withIdentity(adminIdentity)
   await t.mutation(internal.seedPreviewSimulation.default, {
     scope: "full",
-    preview: true,
+    ...previewGuard,
   })
 
   const first = await t.mutation(
     internal.backfillLegacyAccommodationPreferences.default,
-    { slug: LEGACY_EVENT_SLUG, preview: true }
+    { slug: LEGACY_EVENT_SLUG, ...previewGuard }
   )
   expect(first.ordersResolved).toBe(LEGACY_AUDIT_COUNTS.noSelectionOrders)
   expect(first.attendeesHandled).toBe(
@@ -268,7 +357,7 @@ test("RUN-01: the deferred full backfill runs idempotently on the seeded preview
 
   const second = await t.mutation(
     internal.backfillLegacyAccommodationPreferences.default,
-    { slug: LEGACY_EVENT_SLUG, preview: true }
+    { slug: LEGACY_EVENT_SLUG, ...previewGuard }
   )
   expect(second.ordersResolved).toBe(0)
   expect(second.attendeesHandled).toBe(0)

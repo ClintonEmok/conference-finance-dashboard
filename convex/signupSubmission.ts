@@ -523,6 +523,24 @@ export const submitSignupEnvelope = mutation({
       }
     }
 
+    // CR-07: an unexpired idempotency record for this key with a DIFFERENT
+    // fingerprint means the key was already consumed by another submission.
+    // The matching-fingerprint replay path above handles exact retries, so
+    // falling through here with a mismatched live record would insert a
+    // second order and a second idempotency row. Fail closed instead of
+    // creating a duplicate booking.
+    const conflictingKeyRecord = idempotencyRecords.find(
+      (record) =>
+        record.expiresAt >= now && record.fingerprint !== payloadDigest
+    )
+
+    if (conflictingKeyRecord) {
+      throwSubmissionError(
+        "SUBMISSION_CONFLICT",
+        "This idempotency key was already used for a different submission. Retry with a fresh key."
+      )
+    }
+
     const event = await ctx.db.get(args.eventId)
     if (!event) {
       throwSubmissionError("SUBMISSION_CONFLICT", "Event not found")
