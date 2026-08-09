@@ -7,6 +7,7 @@ import {
   signupAccommodationOccupancyValidator,
   signupAccommodationOptionSelectionValidator,
   signupAccommodationNightBeforeLevelValidator,
+  signupAccommodationNightBeforeOccupancyValidator,
 } from "../lib/types/signup"
 import type { TicketUnavailableReason } from "../lib/types/signup"
 import {
@@ -147,6 +148,9 @@ const publicSignupQuoteAttendeeValidator = v.object({
   occupancy: v.optional(occupancyValidator),
   optionSelections: v.array(signupAccommodationOptionSelectionValidator),
   nightBeforeLevel: v.optional(signupAccommodationNightBeforeLevelValidator),
+  nightBeforeOccupancy: v.optional(
+    signupAccommodationNightBeforeOccupancyValidator
+  ),
   // Legacy optional total-nights input; the resolver only accepts the
   // derived total (base, or base + 1 when a night-before level is present).
   nights: v.optional(v.number()),
@@ -162,6 +166,9 @@ const publicSignupQuoteAttendeeResultValidator = v.object({
   categoryLabel: v.optional(v.string()),
   occupancy: v.optional(occupancyValidator),
   nightBeforeLevel: v.optional(signupAccommodationNightBeforeLevelValidator),
+  nightBeforeOccupancy: v.optional(
+    signupAccommodationNightBeforeOccupancyValidator
+  ),
   accommodationIncluded: v.boolean(),
   baseNights: v.number(),
   accommodationTotalMinor: v.number(),
@@ -648,6 +655,9 @@ export type PublicSignupSelectionResolved = {
   nightCount: number | null
   /** The validated independent night-before level (null = none). */
   nightBeforeLevel: "standard" | "superior" | null
+  /** The occupancy used to price the independent night-before stay. */
+  nightBeforeOccupancy: "single" | "shared" | null
+  nightBeforeRatePerNightMinor: number | null
   breakfastIncluded: boolean
 }
 
@@ -684,6 +694,7 @@ export function resolvePublicSignupSelection(input: {
       nights: number
     }> | null
     nightBeforeLevel?: "standard" | "superior" | null
+    nightBeforeOccupancy?: "single" | "shared" | null
     nights?: number | null
   }
 }): PublicSignupSelectionResolved {
@@ -698,6 +709,7 @@ export function resolvePublicSignupSelection(input: {
       selection.occupancy ||
       optionSelections.length > 0 ||
       selection.nightBeforeLevel != null ||
+      selection.nightBeforeOccupancy != null ||
       selection.nights != null
     ) {
       throw new Error(
@@ -714,6 +726,8 @@ export function resolvePublicSignupSelection(input: {
       baseNights: null,
       nightCount: null,
       nightBeforeLevel: null,
+      nightBeforeOccupancy: null,
+      nightBeforeRatePerNightMinor: null,
       breakfastIncluded: false,
     }
   }
@@ -763,6 +777,24 @@ export function resolvePublicSignupSelection(input: {
   // night (derived total = base + 1). A legacy `nights` value is only
   // accepted when it agrees with the derived total.
   const nightBeforeLevel = selection.nightBeforeLevel ?? null
+  const nightBeforeOccupancy = nightBeforeLevel
+    ? (selection.nightBeforeOccupancy ?? occupancy)
+    : null
+  if (selection.nightBeforeOccupancy && !nightBeforeLevel) {
+    throw new Error(
+      "QUOTE_INVALID: Night-before occupancy requires a night-before stay."
+    )
+  }
+  const nightBeforeRatePerNightMinor = nightBeforeOccupancy
+    ? context.ratesByKey.get(
+        `${includedCategory.categoryId}:${nightBeforeOccupancy}`
+      ) ?? null
+    : null
+  if (nightBeforeLevel && nightBeforeRatePerNightMinor === null) {
+    throw new Error(
+      "QUOTE_INVALID: No rate is configured for the night-before occupancy."
+    )
+  }
   const derivedTotalNights = baseNights + (nightBeforeLevel ? 1 : 0)
   if (
     selection.nights !== undefined &&
@@ -822,6 +854,8 @@ export function resolvePublicSignupSelection(input: {
     baseNights,
     nightCount: derivedTotalNights,
     nightBeforeLevel,
+    nightBeforeOccupancy,
+    nightBeforeRatePerNightMinor,
     breakfastIncluded: context.config?.breakfastIncluded ?? false,
   }
 }
@@ -1272,6 +1306,7 @@ export const getPublicSignupAccommodationQuote = query({
           occupancy: ticketEntitlement?.occupancy ?? attendee.occupancy ?? null,
           optionSelections: attendee.optionSelections,
           nightBeforeLevel: attendee.nightBeforeLevel ?? null,
+          nightBeforeOccupancy: attendee.nightBeforeOccupancy ?? null,
           nights: attendee.nights,
         },
       })
@@ -1291,6 +1326,7 @@ export const getPublicSignupAccommodationQuote = query({
           occupancy: resolved.occupancy,
           nightCount,
           nightBeforeLevel: resolved.nightBeforeLevel,
+          nightBeforeOccupancy: resolved.nightBeforeOccupancy,
           optionSelections: resolved.options,
         },
         pricing: {
@@ -1302,6 +1338,7 @@ export const getPublicSignupAccommodationQuote = query({
           })),
           ticketAccommodationIncluded: ticket.accommodationIncluded === true,
           eventBaseNights,
+          nightBeforeRatePerNightMinor: resolved.nightBeforeRatePerNightMinor,
         },
       })
 
@@ -1325,6 +1362,7 @@ export const getPublicSignupAccommodationQuote = query({
         categoryLabel: resolved.categoryLabel ?? undefined,
         occupancy: resolved.occupancy ?? undefined,
         nightBeforeLevel: resolved.nightBeforeLevel ?? undefined,
+        nightBeforeOccupancy: resolved.nightBeforeOccupancy ?? undefined,
         accommodationIncluded: ticket.accommodationIncluded === true,
         baseNights: eventBaseNights,
         accommodationTotalMinor: result.totalMinor,

@@ -13,16 +13,18 @@
  *   coveredNights  = ticket.accommodationIncluded ? eventBaseNights : 0
  *   totalNights    = buyer-chosen nights (base + 1 when a night-before level
  *                    is selected; the resolver derives and persists this)
- *   baseCharge     = max(0, totalNights - coveredNights) * baseRate
+ *   baseCharge     = main charged nights * main-stay rate
+ *   nightBefore    = selected night-before occupancy rate × one night
  *   optionCharge   = Σ per selected option: pricePerUnit × quantity × nights
  *                    (+ the fixed €10 Superior night-before premium line)
  *   amountDue      = tickets + baseCharge + optionCharge
  *
  * Simplified contract (v6 buyer surfaces): the included stay is always the
  * event's resolved included-stay category (Standard for the divine event),
- * priced at that category's occupancy rate. `nightBeforeLevel` prices the
- * independent one-night night-before stay: the base charge covers one night
- * at the Standard rate, and a `superior` level adds exactly one
+ * priced at that category's occupancy rate. `nightBeforeLevel` and
+ * `nightBeforeOccupancy` price the independent one-night night-before stay:
+ * the base charge covers one night at the selected Standard occupancy rate,
+ * and a `superior` level adds exactly one
  * €10/person/night premium line. The premium is never derived from client
  * input — it is a constant of this module shared by quote, catalog display
  * rates, confirmation snapshots, and the canonical loader.
@@ -90,6 +92,8 @@ export type AccommodationSelectionInput = {
    * category, and the included-stay Superior upgrade never implies it.
    */
   nightBeforeLevel?: "standard" | "superior" | null
+  /** Independent occupancy for the one-night night-before stay. */
+  nightBeforeOccupancy?: "single" | "shared" | null
   /** Data-driven option selections (optionKey + quantity + nights). */
   optionSelections?: AccommodationOptionSelection[] | null
 }
@@ -103,6 +107,8 @@ export type AccommodationPricingInput = {
   ticketAccommodationIncluded?: boolean | null
   /** The event's base night count (`eventAccommodationConfig.nightCount`). */
   eventBaseNights?: number | null
+  /** Resolved rate for the independent night-before occupancy. */
+  nightBeforeRatePerNightMinor?: number | null
 }
 
 export type AccommodationOptionLine = {
@@ -130,6 +136,9 @@ export type AccommodationPriceSnapshot = {
   coveredNights: number
   /** New shape: resolved per-option charges (fully self-contained). */
   optionLines?: AccommodationOptionLine[]
+  /** New shape: independent night-before base rate and charged night count. */
+  nightBeforeRatePerNightMinor?: number
+  nightBeforeNights?: number
   /** Legacy shape (v5 confirmed rows only): resolved decision fields. */
   upgradeRatePerNightMinor?: number
   cotRatePerNightMinor?: number
@@ -257,6 +266,8 @@ export function buildAccommodationPriceSnapshot(input: {
     ...resolveNightBeforePremium(selection),
   ]
 
+  const nightBeforeNights = selection.nightBeforeLevel ? 1 : 0
+
   return {
     baseRatePerNightMinor: normalizeMinorUnits(
       pricing.baseRatePerNightMinor
@@ -271,6 +282,14 @@ export function buildAccommodationPriceSnapshot(input: {
       nights: resolved.nights,
       chargeMinor: deriveOptionChargeMinor(resolved),
     })),
+    ...(nightBeforeNights > 0
+      ? {
+          nightBeforeRatePerNightMinor: normalizeMinorUnits(
+            pricing.nightBeforeRatePerNightMinor ?? pricing.baseRatePerNightMinor
+          ),
+          nightBeforeNights,
+        }
+      : {}),
   }
 }
 
@@ -392,8 +411,27 @@ export function deriveAccommodationAmount(input: {
       ? normalizeNights(pricing.eventBaseNights)
       : 0
 
-  const chargedNights = Math.max(0, totalNights - coveredNights)
-  const baseChargeMinor = chargedNights * baseRatePerNightMinor
+  const nightBeforeNights = usesSnapshot
+    ? Math.min(
+        totalNights,
+        normalizeNights(snapshot.nightBeforeNights)
+      )
+    : selection.nightBeforeLevel
+      ? Math.min(1, totalNights)
+      : 0
+  const mainChargedNights = Math.max(
+    0,
+    totalNights - coveredNights - nightBeforeNights
+  )
+  const nightBeforeRatePerNightMinor = usesSnapshot
+    ? normalizeMinorUnits(
+        snapshot.nightBeforeRatePerNightMinor ?? baseRatePerNightMinor
+      )
+    : normalizeMinorUnits(
+        pricing.nightBeforeRatePerNightMinor ?? baseRatePerNightMinor
+      )
+  const baseChargeMinor = mainChargedNights * baseRatePerNightMinor
+  const nightBeforeChargeMinor = nightBeforeNights * nightBeforeRatePerNightMinor
 
   const lines: AccommodationReceiptLine[] = []
 
@@ -401,9 +439,19 @@ export function deriveAccommodationAmount(input: {
     lines.push({
       kind: "accommodation",
       label: ACCOMMODATION_LINE_LABELS.accommodation,
-      nights: chargedNights,
+      nights: mainChargedNights,
       ratePerNightMinor: baseRatePerNightMinor,
       chargeMinor: baseChargeMinor,
+    })
+  }
+
+  if (nightBeforeChargeMinor > 0) {
+    lines.push({
+      kind: "accommodation",
+      label: ACCOMMODATION_LINE_LABELS.accommodation,
+      nights: nightBeforeNights,
+      ratePerNightMinor: nightBeforeRatePerNightMinor,
+      chargeMinor: nightBeforeChargeMinor,
     })
   }
 
@@ -485,7 +533,7 @@ export function deriveAccommodationAmount(input: {
   }
 
   return {
-    totalMinor: baseChargeMinor + optionChargeMinor,
+    totalMinor: baseChargeMinor + nightBeforeChargeMinor + optionChargeMinor,
     lines,
     // A confirmed row returns its persisted snapshot untouched — the snapshot
     // is never rebuilt from live pricing inputs.

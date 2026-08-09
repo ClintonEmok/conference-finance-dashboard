@@ -580,6 +580,7 @@ export type DataModel = {
       confirmedAt?: number;
       cotSelected?: boolean;
       nightBeforeLevel?: "standard" | "superior";
+      nightBeforeOccupancy?: "single" | "shared";
       nightCount?: number;
       occupancy?: "single" | "shared" | "family";
       orderId: Id<"orders">;
@@ -588,6 +589,8 @@ export type DataModel = {
         categoryIsSuperior?: boolean;
         cotSelected?: boolean;
         coveredNights: number;
+        nightBeforeNights?: number;
+        nightBeforeRatePerNightMinor?: number;
         optionLines?: Array<{
           chargeMinor: number;
           label: string;
@@ -615,6 +618,7 @@ export type DataModel = {
       | "confirmedAt"
       | "cotSelected"
       | "nightBeforeLevel"
+      | "nightBeforeOccupancy"
       | "nightCount"
       | "occupancy"
       | "orderId"
@@ -623,6 +627,8 @@ export type DataModel = {
       | "priceSnapshot.categoryIsSuperior"
       | "priceSnapshot.cotSelected"
       | "priceSnapshot.coveredNights"
+      | "priceSnapshot.nightBeforeNights"
+      | "priceSnapshot.nightBeforeRatePerNightMinor"
       | "priceSnapshot.optionLines"
       | "priceSnapshot.totalNights"
       | "priceSnapshot.upgradeSelected"

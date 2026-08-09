@@ -27,6 +27,8 @@ export type TrackPaymentEditSelection = {
   occupancy: "single" | "shared" | "family"
   /** Independent one-night night-before level; omitted = no night before. */
   nightBeforeLevel?: "standard" | "superior"
+  /** Independent occupancy for the one-night night-before stay. */
+  nightBeforeOccupancy?: "single" | "shared"
   optionSelections: Array<{
     optionKey: string
     quantity: number
@@ -58,6 +60,7 @@ export type TrackPaymentEditContext = {
     categoryId?: string
     occupancy?: "single" | "shared" | "family"
     nightBeforeLevel?: "standard" | "superior"
+    nightBeforeOccupancy?: "single" | "shared"
     optionSelections: Array<{
       optionKey: string
       quantity: number
@@ -98,6 +101,7 @@ export type TrackPaymentEditContext = {
 type Draft = {
   occupancy: string
   nightBeforeLevel: "standard" | "superior" | undefined
+  nightBeforeOccupancy: "single" | "shared" | undefined
   optionSelections: Array<{
     optionKey: string
     quantity: number
@@ -137,6 +141,9 @@ export function buildTrackPaymentEditBody(input: {
       ...(selection.nightBeforeLevel !== undefined
         ? { nightBeforeLevel: selection.nightBeforeLevel }
         : {}),
+      ...(selection.nightBeforeOccupancy !== undefined
+        ? { nightBeforeOccupancy: selection.nightBeforeOccupancy }
+        : {}),
       optionSelections: selection.optionSelections,
     })),
   }
@@ -174,6 +181,7 @@ function emptyDraft(): Draft {
   return {
     occupancy: "",
     nightBeforeLevel: undefined,
+    nightBeforeOccupancy: undefined,
     optionSelections: [],
   }
 }
@@ -202,6 +210,7 @@ export function TrackPaymentAccommodationEditor({
         selection.attendeeKey,
         selection.occupancy ?? "",
         selection.nightBeforeLevel ?? "",
+        selection.nightBeforeOccupancy ?? "",
         selection.optionSelections,
       ])
     )
@@ -218,6 +227,12 @@ export function TrackPaymentAccommodationEditor({
       next[selection.attendeeKey] = {
         occupancy: selection.ticketOccupancy ?? selection.occupancy ?? "",
         nightBeforeLevel: selection.nightBeforeLevel,
+        nightBeforeOccupancy:
+          selection.nightBeforeOccupancy ??
+          (selection.ticketOccupancy === "single" ||
+          selection.ticketOccupancy === "shared"
+            ? selection.ticketOccupancy
+            : undefined),
         optionSelections: selection.optionSelections,
       }
     }
@@ -328,6 +343,7 @@ export function TrackPaymentAccommodationEditor({
             | "shared"
             | "family",
           nightBeforeLevel: draft?.nightBeforeLevel,
+          nightBeforeOccupancy: draft?.nightBeforeOccupancy,
           optionSelections: draft?.optionSelections ?? [],
         }
       }
@@ -514,8 +530,6 @@ function AttendeePreferenceFieldset({
   }
 
   const nightBefore = editContext.accommodation.nightBefore
-  const occupancy = attendee.ticketOccupancy ?? draft.occupancy ?? "shared"
-  const occupancyLabel = occupancy === "single" ? "Single" : "Shared"
   const firstAddOnOptionKey = editContext.accommodation.options.find(
     (option) => option.optionKey !== "superior_upgrade"
   )?.optionKey
@@ -726,7 +740,12 @@ function AttendeePreferenceFieldset({
                   name={`edit-night-before-${attendee.attendeeKey}`}
                   value="none"
                   checked={draft.nightBeforeLevel === undefined}
-                  onChange={() => onChange({ nightBeforeLevel: undefined })}
+                  onChange={() =>
+                    onChange({
+                      nightBeforeLevel: undefined,
+                      nightBeforeOccupancy: undefined,
+                    })
+                  }
                   className="size-4 accent-primary"
                 />
                 <span className="text-sm text-foreground">
@@ -735,26 +754,19 @@ function AttendeePreferenceFieldset({
               </label>
               {(
                 [
-                  {
-                    level: "standard",
-                    rateMinor:
-                      occupancy === "single"
-                        ? nightBefore.standard.single
-                        : nightBefore.standard.shared,
-                  },
-                  {
-                    level: "superior",
-                    rateMinor:
-                      occupancy === "single"
-                        ? nightBefore.superior.single
-                        : nightBefore.superior.shared,
-                  },
+                  ["standard", "single"],
+                  ["standard", "shared"],
+                  ["superior", "single"],
+                  ["superior", "shared"],
                 ] as const
-              ).map((option) => {
-                const selected = draft.nightBeforeLevel === option.level
+              ).map(([level, optionOccupancy]) => {
+                const selected =
+                  draft.nightBeforeLevel === level &&
+                  draft.nightBeforeOccupancy === optionOccupancy
+                const rateMinor = nightBefore[level][optionOccupancy]
                 return (
                   <label
-                    key={option.level}
+                    key={`${level}-${optionOccupancy}`}
                     className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
                       selected
                         ? "border-primary bg-primary/5"
@@ -764,18 +776,21 @@ function AttendeePreferenceFieldset({
                     <input
                       type="radio"
                       name={`edit-night-before-${attendee.attendeeKey}`}
-                      value={option.level}
+                      value={`${level}-${optionOccupancy}`}
                       checked={selected}
                       onChange={() =>
-                        onChange({ nightBeforeLevel: option.level })
+                        onChange({
+                          nightBeforeLevel: level,
+                          nightBeforeOccupancy: optionOccupancy,
+                        })
                       }
                       className="size-4 accent-primary"
                     />
                     <span className="text-sm capitalize text-foreground">
-                      {option.level} · {occupancyLabel}
+                      {level} · {optionOccupancy === "single" ? "Single" : "Shared"}
                     </span>
                     <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                      {formatPrice(option.rateMinor, editContext.event.currency)}{" "}
+                      {formatPrice(rateMinor, editContext.event.currency)}{" "}
                       / night
                     </span>
                   </label>

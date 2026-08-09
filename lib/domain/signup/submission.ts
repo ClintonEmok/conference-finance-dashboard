@@ -4,6 +4,7 @@ import type { Id } from "@/convex/_generated/dataModel"
 import type {
   SignupAccommodationOccupancy,
   SignupAccommodationNightBeforeLevel,
+  SignupAccommodationNightBeforeOccupancy,
   SignupGender,
   SignupSource,
   SignupSubmissionEnvelope,
@@ -11,6 +12,7 @@ import type {
 } from "@/lib/types/signup"
 import {
   digestSubmissionEnvelope,
+  isSignupSubmissionSecretConfigured,
   mintSignupSubmissionToken,
 } from "@/lib/domain/signup/submission-token"
 
@@ -106,6 +108,12 @@ function isSignupAccommodationNightBeforeLevel(
   value: string
 ): value is SignupAccommodationNightBeforeLevel {
   return value === "standard" || value === "superior"
+}
+
+function isSignupAccommodationNightBeforeOccupancy(
+  value: string
+): value is SignupAccommodationNightBeforeOccupancy {
+  return value === "single" || value === "shared"
 }
 
 function normalizeEnvelope(
@@ -311,6 +319,23 @@ function normalizeEnvelope(
         )
       }
 
+      const nightBeforeOccupancyValue =
+        preference.nightBeforeOccupancy === undefined ||
+        preference.nightBeforeOccupancy === null
+          ? undefined
+          : normalizeRequiredString(
+              preference.nightBeforeOccupancy,
+              `accommodationSelections[${index}].nightBeforeOccupancy`
+            )
+      if (
+        nightBeforeOccupancyValue !== undefined &&
+        !isSignupAccommodationNightBeforeOccupancy(nightBeforeOccupancyValue)
+      ) {
+        throw new SignupSubmissionValidationError(
+          `Invalid 'accommodationSelections[${index}].nightBeforeOccupancy'.`
+        )
+      }
+
       return {
         attendeeKey: normalizeRequiredString(
           preference.attendeeKey,
@@ -323,6 +348,12 @@ function normalizeEnvelope(
           ? {
               nightBeforeLevel:
                 nightBeforeLevelValue as SignupAccommodationNightBeforeLevel,
+            }
+          : {}),
+        ...(nightBeforeOccupancyValue
+          ? {
+              nightBeforeOccupancy:
+                nightBeforeOccupancyValue as SignupAccommodationNightBeforeOccupancy,
             }
           : {}),
       }
@@ -377,7 +408,11 @@ export async function submitSignup(
   // verification and IP rate limiting. The token signs a SHA-256 digest of
   // the normalized envelope plus the idempotency key, so the public mutation
   // can recompute the same digest from its own arguments and reject any
-  // replay that changes the payload or the key.
+  // replay that changes the payload or the key. When this runtime has no
+  // SIGNUP_SUBMISSION_SECRET (production predates the gate), no token can be
+  // minted and `undefined` is forwarded so the Convex mutation runs its
+  // degraded no-token mode (which also warns); the gate is restored as soon
+  // as the secret is provisioned on both runtimes.
   const payloadDigest = await digestSubmissionEnvelope({
     eventId: envelope.eventId,
     source: envelope.source,
@@ -389,11 +424,13 @@ export async function submitSignup(
     accommodationSelections: envelope.accommodationSelections,
   })
 
-  const submissionToken = await mintSignupSubmissionToken({
-    eventId: envelope.eventId,
-    payloadDigest,
-    idempotencyKey: envelope.idempotencyKey,
-  })
+  const submissionToken = isSignupSubmissionSecretConfigured()
+    ? await mintSignupSubmissionToken({
+        eventId: envelope.eventId,
+        payloadDigest,
+        idempotencyKey: envelope.idempotencyKey,
+      })
+    : undefined
 
   const result = await convexMutation(
     api.signupSubmission.submitSignupEnvelope,
@@ -429,6 +466,9 @@ export async function submitSignup(
           optionSelections: preference.optionSelections,
           ...(preference.nightBeforeLevel
             ? { nightBeforeLevel: preference.nightBeforeLevel }
+            : {}),
+          ...(preference.nightBeforeOccupancy
+            ? { nightBeforeOccupancy: preference.nightBeforeOccupancy }
             : {}),
           ...(preference.nights !== undefined
             ? { nights: preference.nights }
@@ -473,9 +513,12 @@ export async function submitSignup(
                 : {}),
               occupancy: preference.occupancy,
               optionSelections: preference.optionSelections,
-              ...(preference.nightBeforeLevel
-                ? { nightBeforeLevel: preference.nightBeforeLevel }
-                : {}),
+                ...(preference.nightBeforeLevel
+                  ? { nightBeforeLevel: preference.nightBeforeLevel }
+                  : {}),
+                ...(preference.nightBeforeOccupancy
+                  ? { nightBeforeOccupancy: preference.nightBeforeOccupancy }
+                  : {}),
               ...(preference.nights !== undefined
                 ? { nights: preference.nights }
                 : {}),

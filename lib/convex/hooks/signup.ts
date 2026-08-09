@@ -28,6 +28,8 @@ export type PublicSignupQuoteAttendeeArg = {
   }>
   /** Independent one-night night-before level; omitted = no night before. */
   nightBeforeLevel?: "standard" | "superior"
+  /** Independent occupancy for the one-night night-before stay. */
+  nightBeforeOccupancy?: "single" | "shared"
   /** Legacy buyer-chosen total stay nights; omitted = configured base. */
   nights?: number
 }
@@ -60,6 +62,7 @@ export type PublicSignupAccommodationQuote = {
     occupancy?: "single" | "shared" | "family"
     /** Independent one-night night-before level (omitted = none). */
     nightBeforeLevel?: "standard" | "superior"
+    nightBeforeOccupancy?: "single" | "shared"
     /** Whether the ticket price covers the event's base accommodation stay. */
     accommodationIncluded: boolean
     /** Event base-stay night count priced for this attendee. */
@@ -110,6 +113,9 @@ export function usePublicSignupAccommodationQuote(
               ...(attendee.occupancy ? { occupancy: attendee.occupancy } : {}),
               ...(attendee.nightBeforeLevel
                 ? { nightBeforeLevel: attendee.nightBeforeLevel }
+                : {}),
+              ...(attendee.nightBeforeOccupancy
+                ? { nightBeforeOccupancy: attendee.nightBeforeOccupancy }
                 : {}),
               ...(attendee.nights !== undefined
                 ? { nights: attendee.nights }

@@ -61,6 +61,8 @@ export type AccommodationSelectionDraft = {
   optionSelections: AccommodationOptionSelectionDraft[]
   /** Independent one-night night-before level; omitted = no night before. */
   nightBeforeLevel?: "standard" | "superior"
+  /** Independent occupancy for the one-night night-before stay. */
+  nightBeforeOccupancy?: "single" | "shared"
 }
 
 export type SignupDraft = {

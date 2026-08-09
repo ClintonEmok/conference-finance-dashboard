@@ -10,37 +10,32 @@ import {
   Text,
   Section,
 } from "@react-email/components"
-import { EmailTikkieSection } from "./EmailTikkieSection"
 
 const logoUrl = `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/dlbc-logo.png`
 
-interface SignupConfirmationEmailProps {
-  bookerName: string
-  bookingRef: string
+export interface AnnouncementEmailProps {
+  title: string
+  message: string
   eventName: string
   eventDate: string
   eventLocation: string
-  tikkieUrl: string | null
-  tikkieAmountMinor?: number
-  tikkieCurrency?: string
-  attendeeCount: number
-  trackPaymentUrl: string
-  successPageUrl: string
+  manageBookingUrl: string
+  signupUrl: string
+  paymentUrl: string | null
+  nightBeforeNote: string | null
 }
 
-export default function SignupConfirmationEmail({
-  bookerName,
-  bookingRef,
+export default function AnnouncementEmail({
+  title,
+  message,
   eventName,
   eventDate,
   eventLocation,
-  tikkieUrl,
-  tikkieAmountMinor,
-  tikkieCurrency,
-  attendeeCount,
-  trackPaymentUrl,
-  successPageUrl,
-}: SignupConfirmationEmailProps) {
+  manageBookingUrl,
+  signupUrl,
+  paymentUrl,
+  nightBeforeNote,
+}: AnnouncementEmailProps) {
   return (
     <Html lang="en">
       <Head>
@@ -52,6 +47,7 @@ export default function SignupConfirmationEmail({
             .email-header { background-color: #1f1c1f !important; }
             .email-panel { background-color: #302b30 !important; border-color: #6356d9 !important; }
             .email-panel p, .email-panel strong { color: #fafafa !important; }
+            .email-callout { background-color: #3d3540 !important; border-color: #6356d9 !important; color: #e7e2ff !important; }
             .email-button-primary { background-color: #5146c7 !important; color: #ffffff !important; }
             .email-button-secondary { border-color: #8175e8 !important; color: #c9c2ff !important; }
           }
@@ -63,9 +59,7 @@ export default function SignupConfirmationEmail({
           }
         `}</style>
       </Head>
-      <Preview>
-        {bookerName}, your booking for {eventName} is confirmed
-      </Preview>
+      <Preview>{title}</Preview>
       <Body
         className="email-body"
         style={{
@@ -82,7 +76,7 @@ export default function SignupConfirmationEmail({
             maxWidth: "600px",
             margin: "0 auto",
             backgroundColor: "#ffffff",
-            padding: "0",
+            padding: 0,
             borderRadius: "16px",
             overflow: "hidden",
             border: "1px solid #e5e7eb",
@@ -121,6 +115,7 @@ export default function SignupConfirmationEmail({
               DCLM NL Conference
             </Text>
             <Heading
+              as="h1"
               style={{
                 margin: "10px 0 0",
                 color: "#ffffff",
@@ -128,25 +123,24 @@ export default function SignupConfirmationEmail({
                 lineHeight: "36px",
               }}
             >
-              Booking Confirmed
+              {title}
             </Heading>
             <Text
               style={{
                 margin: "10px 0 0",
                 color: "#cbd5e1",
                 fontSize: "15px",
+                lineHeight: 1.5,
               }}
             >
-              Hi {bookerName}, your booking for <strong>{eventName}</strong> is
-              confirmed.
+              {message}
             </Text>
           </Section>
 
           <Section style={{ padding: "24px 28px 8px" }}>
             <Text style={{ margin: 0, color: "#475569", fontSize: "14px" }}>
-              Use the booking reference below whenever you need to manage your
-              booking. Review payment progress, view booking details, or update
-              accommodation.
+              Keep this information handy for registration, payment, and
+              accommodation updates.
             </Text>
           </Section>
 
@@ -163,50 +157,100 @@ export default function SignupConfirmationEmail({
             >
             <Text
               style={{
-                margin: "0 0 10px 0",
+                margin: "0 0 10px",
                 color: "#6366f1",
                 fontSize: "12px",
                 textTransform: "uppercase",
                 letterSpacing: "0.08em",
               }}
             >
-              Booking Reference
+              Event Details
             </Text>
             <Text
               style={{
                 margin: 0,
                 color: "#312e81",
-                fontSize: "26px",
+                fontSize: "18px",
                 fontWeight: 700,
-                letterSpacing: "0.02em",
               }}
             >
-              {bookingRef}
+              {eventName}
             </Text>
             <Text
-              style={{ margin: "16px 0 0", color: "#334155", fontSize: "14px" }}
+              style={{
+                margin: "10px 0 0",
+                color: "#334155",
+                fontSize: "14px",
+              }}
             >
               <strong>Date:</strong> {eventDate}
             </Text>
             <Text
-              style={{ margin: "8px 0 0", color: "#334155", fontSize: "14px" }}
+              style={{
+                margin: "8px 0 0",
+                color: "#334155",
+                fontSize: "14px",
+              }}
             >
               <strong>Location:</strong> {eventLocation}
-            </Text>
-            <Text
-              style={{ margin: "8px 0 0", color: "#334155", fontSize: "14px" }}
-            >
-              <strong>Attendees:</strong> {attendeeCount}
             </Text>
             </Section>
           </Section>
 
-          <EmailTikkieSection
-            tikkieUrl={tikkieUrl}
-            eventName={eventName}
-            amountMinor={tikkieAmountMinor}
-            currency={tikkieCurrency}
-          />
+          {nightBeforeNote && (
+            <Text
+              style={{
+                margin: "24px 28px 0",
+                padding: "16px 18px",
+                color: "#334155",
+                backgroundColor: "#eff6ff",
+                border: "1px solid #bfdbfe",
+                borderRadius: "12px",
+                fontSize: "14px",
+                lineHeight: 1.6,
+              }}
+            >
+              {nightBeforeNote}
+            </Text>
+          )}
+
+          {paymentUrl && (
+            <Section
+              style={{
+                margin: "24px 28px 0",
+                padding: 0,
+              }}
+            >
+              <Text
+                style={{
+                  margin: "0 0 12px",
+                  fontSize: "14px",
+                  lineHeight: 1.6,
+                  color: "#334155",
+                }}
+              >
+                Payments are handled separately via Tikkie.
+              </Text>
+              <Button
+                className="email-button-primary"
+                href={paymentUrl}
+                style={{
+                  backgroundColor: "#0f172a",
+                  color: "#ffffff",
+                  padding: "12px 20px",
+                  textDecoration: "none",
+                  borderRadius: "10px",
+                  display: "block",
+                  margin: "4px 8px 0",
+                  textAlign: "center",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                }}
+              >
+                Review Payment
+              </Button>
+            </Section>
+          )}
 
           <Section
             style={{
@@ -222,12 +266,12 @@ export default function SignupConfirmationEmail({
                 color: "#334155",
               }}
             >
-              Review payment progress, update accommodation preferences, or
-              make a payment at any time.
+              Review payment progress and update your accommodation
+              preferences.
             </Text>
             <Button
               className="email-button-primary"
-              href={trackPaymentUrl}
+              href={manageBookingUrl}
               style={{
                 backgroundColor: "#2563eb",
                 color: "#ffffff",
@@ -243,15 +287,6 @@ export default function SignupConfirmationEmail({
             >
               Manage Booking
             </Button>
-            <Text
-              style={{
-                margin: "12px 0 0",
-                fontSize: "12px",
-                color: "#64748b",
-              }}
-            >
-              Your booking reference is <strong>{bookingRef}</strong>.
-            </Text>
           </Section>
 
           <Section
@@ -264,14 +299,15 @@ export default function SignupConfirmationEmail({
               style={{
                 margin: "0 0 12px",
                 fontSize: "14px",
+                lineHeight: 1.6,
                 color: "#6b7280",
               }}
             >
-              View your full booking details.
+              Not registered yet? Create your booking below.
             </Text>
             <Button
               className="email-button-secondary"
-              href={successPageUrl}
+              href={signupUrl}
               style={{
                 border: "1px solid #2563eb",
                 color: "#2563eb",
@@ -285,20 +321,29 @@ export default function SignupConfirmationEmail({
                 fontWeight: 600,
               }}
             >
-              View Booking Details
+              Register for the Conference
             </Button>
           </Section>
 
-          <Text
+          <Section
             style={{
-              margin: "24px 28px 28px",
-              fontSize: "12px",
-              color: "#9ca3af",
+              padding: "24px 28px 28px",
+              marginTop: "24px",
+              borderTop: "1px solid #e5e7eb",
             }}
           >
-            This email was sent by DCLM NL Conference. If you have any
-            questions, please contact the event organizers.
-          </Text>
+            <Text
+              style={{
+                fontSize: "12px",
+                lineHeight: 1.5,
+                color: "#9ca3af",
+                margin: 0,
+              }}
+            >
+              This email was sent by DCLM NL Conference. If you have any
+              questions, please contact the event organizers.
+            </Text>
+          </Section>
         </Container>
       </Body>
     </Html>

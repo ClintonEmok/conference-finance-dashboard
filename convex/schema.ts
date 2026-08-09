@@ -269,6 +269,11 @@ export default defineSchema({
       nightBeforeLevel: v.optional(
         v.union(v.literal("standard"), v.literal("superior"))
       ),
+      // Independent occupancy for the one-night night-before stay. Historical
+      // rows omit this and fall back to the main ticket occupancy.
+      nightBeforeOccupancy: v.optional(
+        v.union(v.literal("single"), v.literal("shared"))
+      ),
       // Phase 44 confirmation contract (schema shape only): the
       // assignment-confirm flow atomically writes confirmedAt,
       // configVersion = eventAccommodationConfig.updatedAt, and the pure
@@ -284,6 +289,8 @@ export default defineSchema({
           baseRatePerNightMinor: v.number(),
           totalNights: v.number(),
           coveredNights: v.number(),
+          nightBeforeRatePerNightMinor: v.optional(v.number()),
+          nightBeforeNights: v.optional(v.number()),
           categoryIsSuperior: v.optional(v.boolean()),
           upgradeSelected: v.optional(v.boolean()),
           cotSelected: v.optional(v.boolean()),

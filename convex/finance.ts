@@ -53,6 +53,7 @@ type OrderAccommodationSelectionDoc = {
   cotSelected?: boolean | null
   nightCount?: number | null
   nightBeforeLevel?: "standard" | "superior" | null
+  nightBeforeOccupancy?: "single" | "shared" | null
   confirmedAt?: number | null
   configVersion?: number | null
   priceSnapshot?: AccommodationPriceSnapshot | null
@@ -416,6 +417,9 @@ export async function loadOrderAmountDueBreakdowns(
       const occupancy = ticketTypeId
         ? (ticketOccupancyById.get(String(ticketTypeId)) ?? row.occupancy ?? null)
         : (row.occupancy ?? null)
+      const nightBeforeOccupancy =
+        row.nightBeforeOccupancy ??
+        (occupancy === "single" || occupancy === "shared" ? occupancy : null)
 
       // Confirmation is determined by field presence, not by a positive
       // timestamp: a malformed/epoch `confirmedAt` is still inside the
@@ -461,6 +465,12 @@ export async function loadOrderAmountDueBreakdowns(
         row.categoryId && occupancy
           ? accommodationContext?.ratesByKey.get(
               `${String(row.categoryId)}:${occupancy}`
+            )
+            : undefined
+      const nightBeforeRate =
+        row.categoryId && nightBeforeOccupancy
+          ? accommodationContext?.ratesByKey.get(
+              `${String(row.categoryId)}:${nightBeforeOccupancy}`
             )
           : undefined
       const categoryCode = row.categoryId
@@ -543,6 +553,7 @@ export async function loadOrderAmountDueBreakdowns(
           occupancy,
           nightCount: row.nightCount,
           nightBeforeLevel: row.nightBeforeLevel ?? null,
+          nightBeforeOccupancy,
           optionSelections: optionSelectionsForPricing,
         },
         pricing: {
@@ -550,6 +561,7 @@ export async function loadOrderAmountDueBreakdowns(
           options: optionSelectionsForPricing,
           ticketAccommodationIncluded: ticketInfo?.accommodationIncluded,
           eventBaseNights: accommodationContext?.config?.nightCount,
+          nightBeforeRatePerNightMinor: nightBeforeRate?.pricePerPersonMinor,
         },
         snapshot: isConfirmed ? snapshot : null,
       })

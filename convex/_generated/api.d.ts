@@ -498,6 +498,23 @@ export declare const api: {
       { orderId: Id<"orders"> },
       { emailId?: string; error?: string; success: boolean }
     >;
+    sendAnnouncementTest: FunctionReference<
+      "action",
+      "public",
+      {
+        eventDate: string;
+        eventLocation: string;
+        eventName: string;
+        manageBookingUrl: string;
+        message: string;
+        nightBeforeNote?: string;
+        paymentUrl?: string;
+        signupUrl: string;
+        title: string;
+        to: string;
+      },
+      { emailId?: string; error?: string; success: boolean }
+    >;
     sendSignupConfirmationTest: FunctionReference<
       "action",
       "public",
@@ -1336,6 +1353,7 @@ export declare const api: {
           categoryId?: Id<"accommodationCategories">;
           confirmed: boolean;
           nightBeforeLevel?: "standard" | "superior";
+          nightBeforeOccupancy?: "single" | "shared";
           occupancy?: "single" | "shared" | "family";
           optionSelections: Array<{
             nights: number;
@@ -1361,6 +1379,7 @@ export declare const api: {
           attendeeKey: string;
           categoryId?: Id<"accommodationCategories">;
           nightBeforeLevel?: "standard" | "superior";
+          nightBeforeOccupancy?: "single" | "shared";
           occupancy?: "single" | "shared" | "family";
           optionSelections: Array<{
             nights: number;
@@ -1429,6 +1448,7 @@ export declare const api: {
           attendeeKey: string;
           categoryId?: Id<"accommodationCategories">;
           nightBeforeLevel?: "standard" | "superior";
+          nightBeforeOccupancy?: "single" | "shared";
           nights?: number;
           occupancy?: "single" | "shared" | "family";
           optionSelections: Array<{
@@ -1461,6 +1481,7 @@ export declare const api: {
             ratePerNightMinor: number;
           }>;
           nightBeforeLevel?: "standard" | "superior";
+          nightBeforeOccupancy?: "single" | "shared";
           occupancy?: "single" | "shared" | "family";
           ticketLabel: string;
           ticketPriceMinor: number;
@@ -1595,6 +1616,7 @@ export declare const api: {
           attendeeKey: string;
           categoryId?: Id<"accommodationCategories">;
           nightBeforeLevel?: "standard" | "superior";
+          nightBeforeOccupancy?: "single" | "shared";
           nights?: number;
           occupancy: "single" | "shared" | "family";
           optionSelections: Array<{
@@ -1625,7 +1647,7 @@ export declare const api: {
         idempotencyKey: string;
         notes?: string;
         source: "integration" | "internal";
-        submissionToken: string;
+        submissionToken?: string;
         ticketSelections: Array<{
           attendeeKey: string;
           quantity: number;
@@ -1639,6 +1661,7 @@ export declare const api: {
             attendeeKey: string;
             categoryId?: string;
             nightBeforeLevel?: "standard" | "superior";
+            nightBeforeOccupancy?: "single" | "shared";
             nights?: number;
             occupancy: "single" | "shared" | "family";
             optionSelections: Array<{
@@ -2359,6 +2382,23 @@ export declare const internal: {
     autoSyncTicketTailor: FunctionReference<"action", "internal", {}, any>;
     autoSyncTikkiePayments: FunctionReference<"action", "internal", {}, any>;
   };
+  backfillLegacyAccommodationPreferences: {
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      { allowedDeploymentUrl?: string; preview: boolean; slug?: string },
+      {
+        attendeesHandled: number;
+        eventId: string;
+        ordersAlreadyHandled: number;
+        ordersResolved: number;
+        ordersScanned: number;
+        ordersUnresolved: number;
+        slug: string;
+        unresolved: Array<{ orderId: string; reason: string }>;
+      }
+    >;
+  };
   emailActions: {
     sendSignupConfirmation: FunctionReference<
       "action",
@@ -2439,6 +2479,25 @@ export declare const internal: {
         sourceId: string;
       },
       any
+    >;
+  };
+  seedPreviewSimulation: {
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        allowedDeploymentUrl?: string;
+        preview: boolean;
+        scope: "tracer" | "full";
+        slug?: string;
+      },
+      {
+        alreadySeeded: boolean;
+        eventId?: string;
+        insertedByTable: Record<string, number>;
+        scope: "tracer" | "full";
+        slug: string;
+      }
     >;
   };
   sync: {

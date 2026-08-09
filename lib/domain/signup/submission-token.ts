@@ -43,6 +43,20 @@ export function getSignupSubmissionSecret(): string | undefined {
   return process.env[SECRET_ENV_VAR]
 }
 
+/**
+ * True when a non-empty signing secret is provisioned on THIS runtime. Used
+ * to select the gate mode: enforced (token required) when both the Next
+ * server and the Convex backend have the secret, degraded no-token mode when
+ * both are absent (production predates the gate). A half-provisioned
+ * deployment is deliberately not treated as enforced here — the Convex
+ * boundary either fails closed (Next absent / Convex present) or logs a
+ * degraded-mode warning (Next present / Convex absent). Provisioning must
+ * set the secret on BOTH runtimes.
+ */
+export function isSignupSubmissionSecretConfigured(): boolean {
+  return Boolean(getSignupSubmissionSecret())
+}
+
 export type SignupEnvelopeCanonicalInput = {
   eventId: string
   source: "integration" | "internal"
@@ -84,6 +98,7 @@ export type SignupEnvelopeCanonicalInput = {
     }>
     /** Independent one-night night-before level; omitted canonicalizes as null. */
     nightBeforeLevel?: "standard" | "superior" | null
+    nightBeforeOccupancy?: "single" | "shared" | null
     /** Legacy buyer-chosen total stay nights; omitted canonicalizes as null. */
     nights?: number
   }>
@@ -156,6 +171,7 @@ export function canonicalizeSignupEnvelope(
         // envelope, so a captured token can never have the level swapped
         // without invalidating the digest.
         nightBeforeLevel: preference.nightBeforeLevel ?? null,
+        nightBeforeOccupancy: preference.nightBeforeOccupancy ?? null,
         // CR-09: the buyer's night choice is part of the signed envelope, so
         // a captured token can never have nights swapped without invalidating
         // the digest. Omitted nights canonicalize as null (deterministic).

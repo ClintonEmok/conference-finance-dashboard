@@ -43,53 +43,52 @@ function formatStayDate(epoch: number, timeZone: string): string {
 
 /**
  * The independent night-before choice. The buyer never derives money: the
- * per-night display rates come from the server catalog (`nightBefore`), and
- * the ticket-resolved occupancy determines which rate is shown.
+ * per-night display rates come from the server catalog (`nightBefore`). The
+ * night-before occupancy is independent of the ticket-resolved main stay.
  */
 function NightBeforeChoice({
   attendeeKey,
-  occupancy,
+  mainOccupancy,
   nightBefore,
   breakfastIncluded,
-  value,
+  level,
+  selectedOccupancy,
   currency,
   onChange,
 }: {
   attendeeKey: string
-  occupancy: string
+  mainOccupancy: string
   nightBefore: NonNullable<PublicSignupCatalogEvent["accommodation"]["nightBefore"]>
   breakfastIncluded: boolean
-  value: "standard" | "superior" | undefined
+  level: "standard" | "superior" | undefined
+  selectedOccupancy: "single" | "shared" | undefined
   currency: string
-  onChange: (level: "standard" | "superior" | undefined) => void
+  onChange: (
+    level: "standard" | "superior" | undefined,
+    occupancy?: "single" | "shared"
+  ) => void
 }) {
-  const rates =
-    occupancy === "single"
-      ? {
-          standard: nightBefore.standard.single,
-          superior: nightBefore.superior.single,
-        }
-      : {
-          standard: nightBefore.standard.shared,
-          superior: nightBefore.superior.shared,
-        }
-
+  const effectiveSelectedOccupancy =
+    selectedOccupancy ?? (mainOccupancy === "single" ? "single" : "shared")
   const options: Array<{
     level: "standard" | "superior"
+    occupancy: "single" | "shared"
     label: string
     rateMinor: number
   }> = [
-    {
-      level: "standard",
-      label: `Standard · ${occupancy === "single" ? "Single" : "Shared"}`,
-      rateMinor: rates.standard,
-    },
-    {
-      level: "superior",
-      label: `Superior · ${occupancy === "single" ? "Single" : "Shared"}`,
-      rateMinor: rates.superior,
-    },
-  ]
+    ["standard", "single"],
+    ["standard", "shared"],
+    ["superior", "single"],
+    ["superior", "shared"],
+  ].map(([optionLevel, optionOccupancy]) => ({
+    level: optionLevel as "standard" | "superior",
+    occupancy: optionOccupancy as "single" | "shared",
+    label: `${optionLevel === "standard" ? "Standard" : "Superior"} · ${optionOccupancy === "single" ? "Single" : "Shared"}`,
+    rateMinor:
+      nightBefore[optionLevel as "standard" | "superior"][
+        optionOccupancy as "single" | "shared"
+      ],
+  }))
 
   return (
     <div className="space-y-2">
@@ -106,7 +105,7 @@ function NightBeforeChoice({
       >
         <label
           className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
-            value === undefined
+            level === undefined
               ? "border-primary bg-primary/5"
               : "border-border/60 hover:border-primary/40"
           }`}
@@ -115,17 +114,19 @@ function NightBeforeChoice({
             type="radio"
             name={`night-before-${attendeeKey}`}
             value="none"
-            checked={value === undefined}
+            checked={level === undefined}
             onChange={() => onChange(undefined)}
             className="size-4 accent-primary"
           />
           <span className="text-sm text-foreground">No night before</span>
         </label>
         {options.map((option) => {
-          const selected = value === option.level
+          const selected =
+            level === option.level &&
+            effectiveSelectedOccupancy === option.occupancy
           return (
             <label
-              key={option.level}
+              key={`${option.level}-${option.occupancy}`}
               className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
                 selected
                   ? "border-primary bg-primary/5"
@@ -135,9 +136,9 @@ function NightBeforeChoice({
               <input
                 type="radio"
                 name={`night-before-${attendeeKey}`}
-                value={option.level}
+                value={`${option.level}-${option.occupancy}`}
                 checked={selected}
-                onChange={() => onChange(option.level)}
+                onChange={() => onChange(option.level, option.occupancy)}
                 className="size-4 accent-primary"
               />
               <span className="text-sm capitalize text-foreground">
@@ -150,7 +151,7 @@ function NightBeforeChoice({
           )
         })}
       </div>
-      {breakfastIncluded && value ? (
+      {breakfastIncluded && level ? (
         <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
           Breakfast included with this night-before stay
         </p>
@@ -476,12 +477,18 @@ export function AccommodationOptionsStep({
               {nightBefore ? (
                 <NightBeforeChoice
                   attendeeKey={attendee.attendeeKey}
-                  occupancy={ticket?.occupancy ?? current.occupancy}
+                  mainOccupancy={ticket?.occupancy ?? current.occupancy}
                   nightBefore={nightBefore}
                   breakfastIncluded={event.accommodation.config?.breakfastIncluded ?? false}
-                  value={current.nightBeforeLevel}
+                  level={current.nightBeforeLevel}
+                  selectedOccupancy={current.nightBeforeOccupancy}
                   currency={event.currency}
-                  onChange={(level) => patch({ nightBeforeLevel: level })}
+                  onChange={(level, occupancy) =>
+                    patch({
+                      nightBeforeLevel: level,
+                      nightBeforeOccupancy: level ? occupancy : undefined,
+                    })
+                  }
                 />
               ) : null}
 

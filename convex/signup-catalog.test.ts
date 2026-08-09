@@ -912,12 +912,14 @@ test("night before: the Standard level quotes exactly one server-priced night at
           ticketTypeId: seed.includedTicketId,
           occupancy: "single",
           nightBeforeLevel: "standard",
+          nightBeforeOccupancy: "shared",
           optionSelections: [],
         },
       ],
     }
   )
-  expect(singleStandard.accommodationTotalMinor).toBe(9000)
+  expect(singleStandard.attendees[0].nightBeforeOccupancy).toBe("shared")
+  expect(singleStandard.accommodationTotalMinor).toBe(6000)
 })
 
 test("night before: the Superior level adds the fixed premium and stays independent of the included stay", async () => {

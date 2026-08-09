@@ -1,13 +1,24 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import {
   SIGNUP_SUBMISSION_TOKEN_TTL_MS,
   canonicalizeSignupEnvelope,
   digestSubmissionEnvelope,
+  isSignupSubmissionSecretConfigured,
   mintSignupSubmissionToken,
   verifySignupSubmissionToken,
 } from "@/lib/domain/signup/submission-token"
 
 const SECRET = "unit-test-submission-secret"
+const SECRET_ENV_VAR = "SIGNUP_SUBMISSION_SECRET"
+
+const previousSecret = process.env[SECRET_ENV_VAR]
+afterEach(() => {
+  if (previousSecret === undefined) {
+    delete process.env[SECRET_ENV_VAR]
+  } else {
+    process.env[SECRET_ENV_VAR] = previousSecret
+  }
+})
 
 const canonicalInput = {
   eventId: "event_1",
@@ -72,6 +83,17 @@ describe("signup submission token (CR-07)", () => {
         secret: SECRET,
       })
     ).resolves.toBe(false)
+  })
+
+  it("OWN-01: reports the signing secret as configured only for a non-empty value", () => {
+    delete process.env[SECRET_ENV_VAR]
+    expect(isSignupSubmissionSecretConfigured()).toBe(false)
+
+    process.env[SECRET_ENV_VAR] = ""
+    expect(isSignupSubmissionSecretConfigured()).toBe(false)
+
+    process.env[SECRET_ENV_VAR] = SECRET
+    expect(isSignupSubmissionSecretConfigured()).toBe(true)
   })
 
   it("rejects a tampered signature", async () => {

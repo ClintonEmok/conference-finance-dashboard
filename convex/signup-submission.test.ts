@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import { convexTest, type TestConvexForDataModel } from "convex-test"
 import type { GenericDataModel } from "convex/server"
 
@@ -95,6 +95,12 @@ async function createConfiguredEvent(
     categoryId: categoryStandardId,
     occupancy: "shared",
     pricePerPersonMinor: 3000,
+  })
+  await t.mutation(api.accommodation.upsertEventAccommodationRate, {
+    eventId,
+    categoryId: categoryStandardId,
+    occupancy: "single",
+    pricePerPersonMinor: 4000,
   })
   await t.mutation(api.accommodation.upsertEventAccommodationRate, {
     eventId,
@@ -210,6 +216,7 @@ async function envelopeDigest(envelope: {
       nights: number
     }>
     nightBeforeLevel?: "standard" | "superior"
+    nightBeforeOccupancy?: "single" | "shared"
     nights?: number
   }>
 }): Promise<string> {
@@ -234,6 +241,7 @@ async function envelopeDigest(envelope: {
         occupancy: preference.occupancy,
         optionSelections: preference.optionSelections,
         nightBeforeLevel: preference.nightBeforeLevel ?? null,
+        nightBeforeOccupancy: preference.nightBeforeOccupancy ?? null,
         nights: preference.nights,
       })
     ),
@@ -254,6 +262,7 @@ async function buildEnvelope(input: {
       nights: number
     }>
     nightBeforeLevel?: "standard" | "superior"
+    nightBeforeOccupancy?: "single" | "shared"
     nights?: number
   }>
   assignments?: Array<{
@@ -382,6 +391,65 @@ test("valid options-only submission persists one selection row per preference wi
       optionSelections: [],
     },
   ])
+})
+
+test("OWN-01: degraded no-token mode submits a complete order when SIGNUP_SUBMISSION_SECRET is absent, and warns", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await createConfiguredEvent(t)
+
+  const envelope = await buildEnvelope({
+    eventId: seed.eventId,
+    ticketTypeId: seed.unconstrainedTicketId,
+    accommodationSelections: [
+      {
+        attendeeKey: "attendee-1",
+        categoryId: seed.categoryStandardId,
+        occupancy: "shared",
+        optionSelections: [],
+      },
+    ],
+  })
+  delete (envelope as { submissionToken?: string }).submissionToken
+
+  const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+  const previousSecret = process.env.SIGNUP_SUBMISSION_SECRET
+  try {
+    delete process.env.SIGNUP_SUBMISSION_SECRET
+
+    const result = await t.mutation(
+      api.signupSubmission.submitSignupEnvelope,
+      envelope
+    )
+
+    expect(result.submissionId).toBeDefined()
+    expect(
+      warnSpy.mock.calls.some((call) =>
+        String(call[0]).includes("degraded no-token mode")
+      )
+    ).toBe(true)
+
+    const selectionRows = await t.query(async (ctx) => {
+      return await ctx.db
+        .query("orderAccommodationSelections")
+        .withIndex("by_orderId", (q) =>
+          q.eq("orderId", result.submissionId as never)
+        )
+        .take(10)
+    })
+    expect(selectionRows).toHaveLength(1)
+    expect(selectionRows[0]).toMatchObject({
+      categoryId: seed.categoryStandardId,
+      occupancy: "shared",
+      nightCount: 2,
+    })
+  } finally {
+    if (previousSecret === undefined) {
+      delete process.env.SIGNUP_SUBMISSION_SECRET
+    } else {
+      process.env.SIGNUP_SUBMISSION_SECRET = previousSecret
+    }
+    warnSpy.mockRestore()
+  }
 })
 
 test("the canonical amount-due loader prices newly inserted unconfirmed selection rows live", async () => {
@@ -1550,8 +1618,9 @@ test("night before: a chosen level is validated, persisted, and restored with th
       accommodationSelections: [
         {
           attendeeKey: "attendee-1",
-          occupancy: "shared",
+          occupancy: "single",
           nightBeforeLevel: "superior",
+          nightBeforeOccupancy: "shared",
           optionSelections: [
             { optionKey: "superior_upgrade", quantity: 1, nights: 2 },
           ],
@@ -1571,7 +1640,8 @@ test("night before: a chosen level is validated, persisted, and restored with th
   expect(rows).toHaveLength(1)
   expect(rows[0]).toMatchObject({
     categoryId: seed.categoryStandardId,
-    occupancy: "shared",
+    occupancy: "single",
+    nightBeforeOccupancy: "shared",
     nightCount: 3,
     nightBeforeLevel: "superior",
     checkInAt: BASE_EVENT_AT - 2 * DAY_MS,
@@ -1584,9 +1654,10 @@ test("night before: a chosen level is validated, persisted, and restored with th
     {
       attendeeKey: "attendee-1",
       categoryId: String(seed.categoryStandardId),
-      occupancy: "shared",
-      nights: 3,
-      nightBeforeLevel: "superior",
+      occupancy: "single",
+       nights: 3,
+       nightBeforeLevel: "superior",
+      nightBeforeOccupancy: "shared",
       optionSelections: [
         { optionKey: "superior_upgrade", quantity: 1, nights: 2 },
       ],

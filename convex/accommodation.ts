@@ -8,6 +8,7 @@ import {
   isCompleteAccommodationPriceSnapshot,
   type AccommodationPriceSnapshot,
 } from "../lib/domain/finance/accommodation-amounts"
+import { SUPERIOR_UPGRADE_OPTION_KEY } from "./signupCatalog"
 import {
   loadOrderAmountDueBreakdowns,
   loadOrderAttendeePaymentBreakdowns,
@@ -68,6 +69,67 @@ async function getAccommodationRoomTypeByStringId(
   return normalizedRoomTypeId
     ? await ctx.db.get("accommodationRoomTypes", normalizedRoomTypeId)
     : null
+}
+
+/**
+ * RMG-03: event-resource inventory guard. When the event has
+ * `eventAccommodationResources` rows (kind "room") for the target room's room
+ * type, the number of DISTINCT rooms of that type that currently hold at
+ * least one assigned attendee bounds the pool: single occupancy reserves a
+ * full room, shared occupancy consumes beds in remaining rooms, and an
+ * exhausted pool blocks placement atomically. Runs before any
+ * assignment/confirmation write. When the event has no resource rows for the
+ * room type (legacy/pre-resource setups), it is a no-op — the existing room
+ * capacity check still applies.
+ */
+async function assertEventRoomInventoryAvailable(
+  ctx: MutationCtx,
+  order: Doc<"orders"> | null,
+  room: Doc<"accommodationRooms">,
+  targetRoomHasOccupants: boolean
+): Promise<void> {
+  if (!order?.eventId || !room.roomTypeId) {
+    return
+  }
+  const resource = await ctx.db
+    .query("eventAccommodationResources")
+    .withIndex("by_eventId_and_kind_and_roomTypeId", (q) =>
+      q
+        .eq("eventId", order.eventId as Id<"events">)
+        .eq("kind", "room")
+        .eq("roomTypeId", room.roomTypeId as Id<"accommodationRoomTypes">)
+    )
+    .first()
+  if (!resource || resource.count <= 0) {
+    return
+  }
+
+  const roomsOfType = await ctx.db
+    .query("accommodationRooms")
+    .withIndex("roomTypeId", (q) =>
+      q.eq("roomTypeId", room.roomTypeId as Id<"accommodationRoomTypes">)
+    )
+    .take(500)
+
+  let usedRooms = 0
+  for (const candidate of roomsOfType) {
+    const occupants = await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_assignedRoomId", (q) =>
+        q.eq("assignedRoomId", String(candidate._id))
+      )
+      .take(1)
+    if (occupants.length > 0) {
+      usedRooms += 1
+    }
+  }
+
+  const projectedUsed = targetRoomHasOccupants ? usedRooms : usedRooms + 1
+  if (projectedUsed > resource.count) {
+    throw new Error(
+      "No accommodation inventory remains for this room type (event resource limit reached)"
+    )
+  }
 }
 
 async function getAttendeeByStringId(ctx: any, attendeeId: string) {
@@ -510,6 +572,7 @@ export const getRoomAllocationBoard = query({
       {
         occupancy: "single" | "shared" | "family" | null
         nightBeforeLevel: "standard" | "superior" | null
+        nightBeforeOccupancy: "single" | "shared" | null
         categoryLabel: string | null
         optionKeys: string[]
       }
@@ -526,6 +589,7 @@ export const getRoomAllocationBoard = query({
           selection.occupancy ??
           null,
         nightBeforeLevel: selection.nightBeforeLevel ?? null,
+        nightBeforeOccupancy: selection.nightBeforeOccupancy ?? null,
         categoryLabel: category?.label ?? null,
         optionKeys: optionKeysBySelectionId.get(String(selection._id)) ?? [],
       })
@@ -634,6 +698,15 @@ export const getRoomAllocationBoard = query({
     const mappedRooms = filteredRooms.map((room) => {
       const hotel = hotelMap.get(room.hotelId as string)
       const roomType = roomTypeMap.get(room.roomTypeId as string)
+      // RMG-04: server-computed mismatch inputs — the assigned room's resolved
+      // category code and capacity. Unresolvable => null => the flag fails
+      // safe to false (never a fabricated warning).
+      const roomCategoryCode = roomType?.categoryId
+        ? ((categoryById.get(String(roomType.categoryId)) as
+            | { code?: string }
+            | undefined)?.code ?? null)
+        : null
+      const roomCapacity = roomType?.defaultCapacity ?? room.capacity
       const occupants = (attendeesByRoom[room._id] ?? []).map((a) => {
         const order = orderById.get(a.orderId as string)
         const canonicalEvent = order
@@ -643,6 +716,25 @@ export const getRoomAllocationBoard = query({
         const preference = accommodationPreferenceByAttendeeId.get(
           String(a._id)
         )
+        // RMG-04: night-before reuses the main-stay assignment — the flag
+        // only surfaces when the independent night-before choice cannot be
+        // satisfied by the assigned room (category conflict, or a shared
+        // night-before choice in a single-capacity room). No night-before
+        // selection, no assigned room, or unresolvable category/capacity => false.
+        const nbLevel = preference?.nightBeforeLevel ?? null
+        const nbOccupancy = preference?.nightBeforeOccupancy ?? null
+        let nightBeforeMismatch = false
+        if (nbLevel && roomCategoryCode) {
+          const levelMatchesCategory =
+            (nbLevel === "standard" && roomCategoryCode === "standard") ||
+            (nbLevel === "superior" && roomCategoryCode === "superior")
+          nightBeforeMismatch = !levelMatchesCategory
+        }
+        if (!nightBeforeMismatch && nbLevel && nbOccupancy && roomCapacity) {
+          if (nbOccupancy === "shared" && roomCapacity === 1) {
+            nightBeforeMismatch = true
+          }
+        }
         return {
           attendeeId: a._id,
           orderId: order?._id ?? null,
@@ -658,8 +750,10 @@ export const getRoomAllocationBoard = query({
           paidAmountMinor: payment?.paidAmountMinor ?? null,
           occupancy: preference?.occupancy ?? null,
           nightBeforeLevel: preference?.nightBeforeLevel ?? null,
+          nightBeforeOccupancy: preference?.nightBeforeOccupancy ?? null,
           categoryLabel: preference?.categoryLabel ?? null,
           optionKeys: preference?.optionKeys ?? [],
+          nightBeforeMismatch,
         }
       })
       const occupiedBeds = occupants.length
@@ -738,6 +832,7 @@ export const getRoomAllocationBoard = query({
         paidAmountMinor: payment?.paidAmountMinor ?? null,
         occupancy: preference?.occupancy ?? null,
         nightBeforeLevel: preference?.nightBeforeLevel ?? null,
+        nightBeforeOccupancy: preference?.nightBeforeOccupancy ?? null,
         categoryLabel: preference?.categoryLabel ?? null,
         optionKeys: preference?.optionKeys ?? [],
       }
@@ -809,6 +904,51 @@ export const getRoomAllocationBoard = query({
       orderAttendeesList.map((attendee) => [attendee._id as string, attendee])
     )
 
+    // RMG-02: server-computed mixed Standard/Superior group flags. Under the
+    // simplified contract the included category is Standard and Superior is
+    // the per-attendee superior_upgrade option, so a member is "Superior"
+    // when its stored selection carries that option. A pending buyer group
+    // (≥2 attendees sharing a requested room) that spans both is flagged on
+    // every member (buyerSuggestions[].mixedCategory) and on the requested
+    // room (rooms[].mixedCategoryGroup).
+    const suggestionSuperiorByAttendeeId = new Map<string, boolean>()
+    for (const attendeeKey of accommodationPreferenceByAttendeeId.keys()) {
+      const preference = accommodationPreferenceByAttendeeId.get(attendeeKey)
+      const isSuperior =
+        preference?.optionKeys.includes(SUPERIOR_UPGRADE_OPTION_KEY) ?? false
+      suggestionSuperiorByAttendeeId.set(attendeeKey, isSuperior)
+    }
+    const mixedMemberAttendeeIds = new Set<string>()
+    const mixedGroupRoomIds = new Set<string>()
+    {
+      const groupByRoom = new Map<string, string[]>()
+      for (const assignment of orderAssignmentsList) {
+        const roomId = slotIdToRoomId.get(assignment.slotId as string)
+        if (!roomId) continue
+        const members = groupByRoom.get(roomId) ?? []
+        members.push(String(assignment.attendeeId))
+        groupByRoom.set(roomId, members)
+      }
+      for (const [roomId, attendeeIds] of groupByRoom) {
+        if (attendeeIds.length < 2) continue
+        let hasStandard = false
+        let hasSuperior = false
+        for (const attendeeId of attendeeIds) {
+          if (suggestionSuperiorByAttendeeId.get(attendeeId)) {
+            hasSuperior = true
+          } else {
+            hasStandard = true
+          }
+        }
+        if (hasStandard && hasSuperior) {
+          mixedGroupRoomIds.add(roomId)
+          for (const attendeeId of attendeeIds) {
+            mixedMemberAttendeeIds.add(attendeeId)
+          }
+        }
+      }
+    }
+
     const buyerSuggestions = orderAssignmentsList
       .filter((assignment) => {
         const assignmentAny = assignment as { status?: string }
@@ -834,6 +974,9 @@ export const getRoomAllocationBoard = query({
           paymentState: payment?.paymentState ?? null,
           amountDueMinor: payment?.amountDueMinor ?? null,
           paidAmountMinor: payment?.paidAmountMinor ?? null,
+          mixedCategory: mixedMemberAttendeeIds.has(
+            String(assignment.attendeeId)
+          ),
         }
       })
       .sort((a, b) => {
@@ -1030,7 +1173,12 @@ export const getRoomAllocationBoard = query({
         label: rt.label,
         defaultCapacity: rt.defaultCapacity,
       })),
-      rooms: mappedRooms,
+      // RMG-02: room-level mixed-group flag applied after the mixed sets are
+      // computed (they depend on orderAssignments/slot loading).
+      rooms: mappedRooms.map((room) => ({
+        ...room,
+        mixedCategoryGroup: mixedGroupRoomIds.has(String(room.id)),
+      })),
       buyerSuggestions,
       unassignedAttendees: mappedUnassignedAttendees,
       submissionQueueRows,
@@ -1537,6 +1685,16 @@ export const assignRoomToAttendee = mutation({
       throw new Error("Room is already full")
     }
 
+    // RMG-03: event-resource inventory guard (no-op when the event has no
+    // resource rows for this room type).
+    const orderForInventory = await ctx.db.get("orders", attendee.orderId)
+    await assertEventRoomInventoryAvailable(
+      ctx,
+      orderForInventory,
+      room,
+      occupiedCount.length > 0
+    )
+
     // Phase 44 lock boundary: the first assignment for an order with
     // unconfirmed options-only selections persists the accommodation
     // confirmation snapshot atomically with the assignment write. Legacy
@@ -1610,6 +1768,16 @@ export const assignAttendeeToRoom = mutation({
     if (occupiedCount.length >= room.capacity) {
       throw new Error("Room is already full")
     }
+
+    // RMG-03: event-resource inventory guard (no-op when the event has no
+    // resource rows for this room type).
+    const orderForInventory = await ctx.db.get("orders", attendee.orderId)
+    await assertEventRoomInventoryAvailable(
+      ctx,
+      orderForInventory,
+      room,
+      occupiedCount.length > 0
+    )
 
     // Phase 44 lock boundary: first assignment for an order with unconfirmed
     // options-only selections persists the confirmation snapshot atomically
@@ -2425,6 +2593,10 @@ export const confirmBuyerAssignment = mutation({
         alternatives,
       }
     }
+
+    // RMG-03: event-resource inventory guard on the board Confirm path
+    // (no-op when the event has no resource rows for this room type).
+    await assertEventRoomInventoryAvailable(ctx, order, room, occupantCount > 0)
 
     // Phase 44 lock boundary: persisting the accommodation confirmation
     // happens after room/capacity validation but before the assignment write,
@@ -3651,6 +3823,21 @@ export async function resolveOrderAccommodationConfirmation(
         "No rate is configured for the selected category and occupancy"
       )
     }
+    const nightBeforeOccupancy =
+      row.nightBeforeOccupancy ??
+      (row.occupancy === "single" || row.occupancy === "shared"
+        ? row.occupancy
+        : null)
+    const nightBeforeRatePerNightMinor = nightBeforeOccupancy
+      ? rateByKey.get(
+          `${String(row.categoryId)}:${nightBeforeOccupancy}`
+        ) ?? null
+      : null
+    if (row.nightBeforeLevel && nightBeforeRatePerNightMinor === null) {
+      throw new Error(
+        "No rate is configured for the selected night-before occupancy"
+      )
+    }
 
     // Every selected option must be a key in the event's enabled option set.
     // Unknown/disabled keys fail closed; quantity and nights are normalized.
@@ -3712,10 +3899,12 @@ export async function resolveOrderAccommodationConfirmation(
         occupancy: row.occupancy,
         nightCount: row.nightCount,
         nightBeforeLevel: row.nightBeforeLevel ?? null,
+        nightBeforeOccupancy,
         optionSelections: resolvedOptions,
       },
       pricing: {
         baseRatePerNightMinor,
+        nightBeforeRatePerNightMinor,
         options: resolvedOptions,
         ticketAccommodationIncluded,
         eventBaseNights: config.nightCount,

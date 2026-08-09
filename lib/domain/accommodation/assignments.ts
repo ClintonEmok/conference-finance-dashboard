@@ -112,6 +112,14 @@ export type RoomAllocationBoard = {
       paymentState: BoardPaymentState
       amountDueMinor: number | null
       paidAmountMinor: number | null
+      /** Server-computed buyer preference projection (quick task 260807-uel); the live payload always includes these. */
+      occupancy?: "single" | "shared" | "family" | null
+      nightBeforeLevel?: "standard" | "superior" | null
+      nightBeforeOccupancy?: "single" | "shared" | null
+      categoryLabel?: string | null
+      optionKeys?: string[]
+      /** RMG-04: server-computed; true only when the night-before choice cannot be satisfied by the assigned room. Fail-safe false. */
+      nightBeforeMismatch?: boolean
     }>
     pendingAssignments: Array<{
       assignmentId: string
@@ -121,6 +129,8 @@ export type RoomAllocationBoard = {
       assignmentIntent: "assign" | "skip"
       sortOrder: number
     }>
+    /** RMG-02: server-computed; true when a pending buyer group requested on this room spans Standard and Superior. */
+    mixedCategoryGroup?: boolean
   }>
   buyerSuggestions?: Array<{
     assignmentId: string
@@ -135,6 +145,8 @@ export type RoomAllocationBoard = {
     paymentState: BoardPaymentState
     amountDueMinor: number | null
     paidAmountMinor: number | null
+    /** RMG-02: server-computed; true on every member of a pending group that spans Standard and Superior. */
+    mixedCategory?: boolean
   }>
   unassignedAttendees: Array<{
     attendeeId: string

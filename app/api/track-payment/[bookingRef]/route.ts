@@ -13,6 +13,7 @@ import { parseTrackPaymentEditGuardError } from "@/lib/types/track-payment"
 type EditOccupancy = "single" | "shared" | "family"
 
 type EditNightBeforeLevel = "standard" | "superior"
+type EditNightBeforeOccupancy = "single" | "shared"
 
 /**
  * One parsed options-only preference. Only these fields are ever forwarded
@@ -27,6 +28,7 @@ type ParsedEditSelection = {
   categoryId?: Id<"accommodationCategories">
   occupancy?: EditOccupancy
   nightBeforeLevel?: EditNightBeforeLevel
+  nightBeforeOccupancy?: EditNightBeforeOccupancy
   optionSelections: Array<{
     optionKey: string
     quantity: number
@@ -277,6 +279,12 @@ export async function POST(
       nightBeforeValue === "standard" || nightBeforeValue === "superior"
         ? (nightBeforeValue as EditNightBeforeLevel)
         : undefined
+    const nightBeforeOccupancyValue = selectionRecord.nightBeforeOccupancy
+    const nightBeforeOccupancy =
+      nightBeforeOccupancyValue === "single" ||
+      nightBeforeOccupancyValue === "shared"
+        ? (nightBeforeOccupancyValue as EditNightBeforeOccupancy)
+        : undefined
     const categoryIdValue = selectionRecord.categoryId
     const categoryId =
       typeof categoryIdValue === "string" && categoryIdValue.trim()
@@ -287,7 +295,10 @@ export async function POST(
       attendeeKey: selectionRecord.attendeeKey.trim(),
       categoryId,
       occupancy,
-      nightBeforeLevel,
+      ...(nightBeforeLevel !== undefined ? { nightBeforeLevel } : {}),
+      ...(nightBeforeOccupancy !== undefined
+        ? { nightBeforeOccupancy }
+        : {}),
       optionSelections,
     })
   }

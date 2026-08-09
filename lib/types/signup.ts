@@ -62,6 +62,13 @@ export const signupAccommodationNightBeforeLevelValidator = v.union(
 
 export type SignupAccommodationNightBeforeLevel = "standard" | "superior"
 
+export const signupAccommodationNightBeforeOccupancyValidator = v.union(
+  v.literal("single"),
+  v.literal("shared")
+)
+
+export type SignupAccommodationNightBeforeOccupancy = "single" | "shared"
+
 /**
  * One selected accommodation option for an attendee. The client supplies only
  * the event option key, a quantity and the nights the option applies to —
@@ -98,6 +105,9 @@ export const signupAccommodationSelectionValidator = v.object({
   occupancy: signupAccommodationOccupancyValidator,
   optionSelections: v.array(signupAccommodationOptionSelectionValidator),
   nightBeforeLevel: v.optional(signupAccommodationNightBeforeLevelValidator),
+  nightBeforeOccupancy: v.optional(
+    signupAccommodationNightBeforeOccupancyValidator
+  ),
   nights: v.optional(v.number()),
 })
 
@@ -108,6 +118,8 @@ export type SignupAccommodationSelection = {
   optionSelections: SignupAccommodationOptionSelection[]
   /** Independent one-night night-before level; omitted = no night before. */
   nightBeforeLevel?: SignupAccommodationNightBeforeLevel
+  /** Occupancy for the independent night-before stay; omitted uses main occupancy for legacy rows. */
+  nightBeforeOccupancy?: SignupAccommodationNightBeforeOccupancy
   /** Legacy buyer-chosen total stay nights; omitted = configured base. */
   nights?: number
 }
@@ -123,6 +135,7 @@ export type SignupAccommodationSelectionRestore = {
   occupancy: SignupAccommodationOccupancy
   optionSelections: SignupAccommodationOptionSelection[]
   nightBeforeLevel?: SignupAccommodationNightBeforeLevel
+  nightBeforeOccupancy?: SignupAccommodationNightBeforeOccupancy
   nights?: number
 }
 

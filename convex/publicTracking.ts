@@ -5,6 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { loadOrderAmountDueBreakdowns } from "./finance"
 import { isOrderAppliedPayment } from "../lib/domain/finance/amounts"
 import {
+  SUPERIOR_UPGRADE_OPTION_KEY,
   loadPublicSignupAccommodationContext,
   resolvePublicSignupSelection,
   resolveIncludedStayCategory,
@@ -376,6 +377,9 @@ const editSelectionValidator = v.object({
   nightBeforeLevel: v.optional(
     v.union(v.literal("standard"), v.literal("superior"))
   ),
+  nightBeforeOccupancy: v.optional(
+    v.union(v.literal("single"), v.literal("shared"))
+  ),
 })
 
 /**
@@ -569,6 +573,9 @@ export const getTrackPaymentEditContext = query({
           nightBeforeLevel: v.optional(
             v.union(v.literal("standard"), v.literal("superior"))
           ),
+          nightBeforeOccupancy: v.optional(
+            v.union(v.literal("single"), v.literal("shared"))
+          ),
           confirmed: v.boolean(),
         })
       ),
@@ -699,6 +706,7 @@ export const getTrackPaymentEditContext = query({
           categoryId: row.categoryId ?? undefined,
           occupancy: row.occupancy ?? undefined,
           nightBeforeLevel: row.nightBeforeLevel ?? undefined,
+          nightBeforeOccupancy: row.nightBeforeOccupancy ?? undefined,
           optionSelections: (optionSelectionsBySelectionId.get(String(row._id)) ?? [])
             .sort((left, right) => left.optionKey.localeCompare(right.optionKey))
             .map((optionSelection) => ({
@@ -990,6 +998,7 @@ export const updateAccommodation = mutation({
         occupancy: "single" | "shared" | "family"
         nightCount: number | null
         nightBeforeLevel: "standard" | "superior" | null
+        nightBeforeOccupancy: "single" | "shared" | null
         optionSelections: Array<{
           optionKey: string
           quantity: number
@@ -1044,6 +1053,7 @@ export const updateAccommodation = mutation({
             occupancy: ticketEntitlement?.occupancy ?? preference.occupancy ?? null,
             optionSelections: preference.optionSelections,
             nightBeforeLevel: preference.nightBeforeLevel ?? null,
+            nightBeforeOccupancy: preference.nightBeforeOccupancy ?? null,
             nights: undefined,
           },
         })
@@ -1070,8 +1080,65 @@ export const updateAccommodation = mutation({
         occupancy: resolved.occupancy,
         nightCount: resolved.nightCount ?? null,
         nightBeforeLevel: resolved.nightBeforeLevel,
+        nightBeforeOccupancy: resolved.nightBeforeOccupancy,
         optionSelections: resolved.options,
       })
+    }
+
+    // RMG-02: a buyer rooming group (attendees sharing a requested slot/room
+    // via pending orderAssignments) cannot mix Standard and Superior. Under
+    // the simplified contract the included category is always Standard and
+    // Superior is the per-attendee `superior_upgrade` option, so a group
+    // where some members carry the upgrade and others do not spans room
+    // categories and is rejected BEFORE any replacement/audit write.
+    const pendingGroupRows: Array<Doc<"orderAssignments">> = []
+    for await (const row of ctx.db
+      .query("orderAssignments")
+      .withIndex("by_orderId", (q) => q.eq("orderId", order._id))) {
+      pendingGroupRows.push(row)
+    }
+    const groupMembersBySlot = new Map<string, string[]>()
+    for (const assignment of pendingGroupRows) {
+      const assignmentAny = assignment as { status?: string }
+      const isPending =
+        assignment.assignmentIntent === "assign" &&
+        (!assignmentAny.status || assignmentAny.status === "pending")
+      if (!isPending) {
+        continue
+      }
+      const slotKey = String(assignment.slotId)
+      const members = groupMembersBySlot.get(slotKey) ?? []
+      members.push(String(assignment.attendeeId))
+      groupMembersBySlot.set(slotKey, members)
+    }
+    for (const [slotKey, attendeeIds] of groupMembersBySlot) {
+      if (attendeeIds.length < 2) {
+        continue
+      }
+      let hasStandard = false
+      let hasSuperior = false
+      for (const attendeeId of attendeeIds) {
+        const memberKey =
+          attendeeKeyById.get(attendeeId) ?? String(attendeeId)
+        const resolved = resolvedByAttendeeKey.get(memberKey)
+        if (!resolved) {
+          continue
+        }
+        const isSuperior = resolved.optionSelections.some(
+          (option) => option.optionKey === SUPERIOR_UPGRADE_OPTION_KEY
+        )
+        if (isSuperior) {
+          hasSuperior = true
+        } else {
+          hasStandard = true
+        }
+      }
+      if (hasStandard && hasSuperior) {
+        throwEditError(
+          "EDIT_CONFLICT",
+          "A rooming group cannot mix Standard and Superior accommodations. All members of a rooming group must choose the same category."
+        )
+      }
     }
 
     const beforeOptionRows: Array<Doc<"orderAccommodationOptionSelections">> = []
@@ -1103,6 +1170,7 @@ export const updateAccommodation = mutation({
         categoryId: row.categoryId ? String(row.categoryId) : null,
         occupancy: row.occupancy ?? null,
         nightBeforeLevel: row.nightBeforeLevel ?? null,
+        nightBeforeOccupancy: row.nightBeforeOccupancy ?? null,
         optionSelections:
           beforeOptionSelectionsBySelectionId.get(String(row._id)) ?? [],
       }))
@@ -1114,6 +1182,7 @@ export const updateAccommodation = mutation({
           categoryId: resolved.categoryId,
           occupancy: resolved.occupancy,
           nightBeforeLevel: resolved.nightBeforeLevel,
+          nightBeforeOccupancy: resolved.nightBeforeOccupancy,
           optionSelections: resolved.optionSelections,
         })
       )
@@ -1163,6 +1232,7 @@ export const updateAccommodation = mutation({
         // canonical loader re-derives the same lines as the quote.
         nightCount: resolved.nightCount ?? context.config?.nightCount,
         nightBeforeLevel: resolved.nightBeforeLevel ?? undefined,
+        nightBeforeOccupancy: resolved.nightBeforeOccupancy ?? undefined,
       })
       for await (const optionRow of ctx.db
         .query("orderAccommodationOptionSelections")

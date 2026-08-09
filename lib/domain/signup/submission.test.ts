@@ -86,6 +86,27 @@ describe("submitSignup envelope normalization", () => {
     expect(args.payloadFingerprint).toBeUndefined()
   })
 
+  it("OWN-01: forwards submissionToken undefined when SIGNUP_SUBMISSION_SECRET is absent (degraded mode)", async () => {
+    mocks.convexMutation.mockResolvedValueOnce(submissionResult)
+
+    const previousSecret = process.env.SIGNUP_SUBMISSION_SECRET
+    try {
+      delete process.env.SIGNUP_SUBMISSION_SECRET
+
+      const result = await submitSignup(validEnvelope)
+
+      expect(result.bookingRef).toBe("BK-20260806-ABC12345")
+      const args = mocks.convexMutation.mock.calls[0][1]
+      expect(args.submissionToken).toBeUndefined()
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.SIGNUP_SUBMISSION_SECRET
+      } else {
+        process.env.SIGNUP_SUBMISSION_SECRET = previousSecret
+      }
+    }
+  })
+
   it("accepts the simplified no-category submission and preserves night-before level", async () => {
     mocks.convexMutation.mockResolvedValueOnce(submissionResult)
 

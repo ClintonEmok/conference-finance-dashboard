@@ -18,9 +18,9 @@ import {
 } from "../lib/types/signup"
 import {
   digestSubmissionEnvelope,
+  isSignupSubmissionSecretConfigured,
   verifySignupSubmissionToken,
 } from "../lib/domain/signup/submission-token"
-import { buildTrackPaymentPermalink } from "../lib/domain/track-payment/edit-token"
 
 const IDEMPOTENCY_WINDOW_MS = 2 * 60 * 60 * 1000
 
@@ -86,6 +86,9 @@ const restorePayloadValidator = v.object({
       ),
       nightBeforeLevel: v.optional(
         v.union(v.literal("standard"), v.literal("superior"))
+      ),
+      nightBeforeOccupancy: v.optional(
+        v.union(v.literal("single"), v.literal("shared"))
       ),
       nights: v.optional(v.number()),
     })
@@ -222,6 +225,7 @@ async function buildRestorePayload(
     }>
     /** Independent one-night night-before level persisted on the row. */
     nightBeforeLevel?: "standard" | "superior"
+    nightBeforeOccupancy?: "single" | "shared"
     /** Resolved selected total stay nights persisted on the order row. */
     nights?: number
   }>
@@ -326,7 +330,8 @@ async function buildRestorePayload(
           categoryId: row.categoryId ? String(row.categoryId) : undefined,
           occupancy: row.occupancy,
           nights: row.nightCount,
-          nightBeforeLevel: row.nightBeforeLevel,
+            nightBeforeLevel: row.nightBeforeLevel,
+            nightBeforeOccupancy: row.nightBeforeOccupancy,
           optionSelections: (optionSelectionsBySelectionId.get(String(row._id)) ?? [])
             .sort((left, right) => left.sortOrder - right.sortOrder)
             .map((optionRow) => ({
@@ -345,10 +350,12 @@ export const submitSignupEnvelope = mutation({
     eventId: v.id("events"),
     source: signupSourceValidator,
     idempotencyKey: v.string(),
-    // CR-07: server-issued post-CAPTCHA token. Required and verified below —
-    // this public mutation must never be directly callable with only a
-    // client-supplied envelope.
-    submissionToken: v.string(),
+    // CR-07: server-issued post-CAPTCHA token. Optional so a deployment
+    // without SIGNUP_SUBMISSION_SECRET (production predates the gate) keeps
+    // working; the gate is only enforced when the secret is provisioned on
+    // BOTH the Next server and this Convex deployment (see the degraded-mode
+    // branch in the handler).
+    submissionToken: v.optional(v.string()),
     honeypotSeen: v.boolean(),
     notes: v.optional(v.string()),
     booker: v.object({
@@ -407,23 +414,43 @@ export const submitSignupEnvelope = mutation({
           occupancy: preference.occupancy,
           optionSelections: preference.optionSelections,
           nightBeforeLevel: preference.nightBeforeLevel ?? null,
+          nightBeforeOccupancy: preference.nightBeforeOccupancy ?? null,
           nights: preference.nights,
         })
       ),
     })
 
-    const tokenValid = await verifySignupSubmissionToken(
-      args.submissionToken,
-      {
-        eventId: String(args.eventId),
-        payloadDigest,
-        idempotencyKey,
+    // CR-07/CR-09: when this Convex deployment has the signing secret, the
+    // token is verified against the SHA-256 digest recomputed here from the
+    // actual mutation arguments (never from a caller-supplied fingerprint)
+    // plus the normalized idempotency key, and any missing/forged/replayed
+    // token fails closed before any database read or write. When this
+    // deployment has NO secret (production predates the gate), no token can
+    // be minted or verified, so the mutation runs in degraded no-token mode
+    // and logs a visible warning; enforcement is restored as soon as the
+    // secret is provisioned on BOTH the Next server and this deployment. A
+    // half-provisioned Next-absent/Convex-present deployment therefore fails
+    // closed here (no token accepted), never silently open.
+    if (isSignupSubmissionSecretConfigured()) {
+      const tokenValid = await verifySignupSubmissionToken(
+        args.submissionToken,
+        {
+          eventId: String(args.eventId),
+          payloadDigest,
+          idempotencyKey,
+        }
+      )
+      if (!tokenValid) {
+        throwSubmissionError(
+          "CAPTCHA_REQUIRED",
+          "A valid server-issued verification token is required before submitting a signup."
+        )
       }
-    )
-    if (!tokenValid) {
-      throwSubmissionError(
-        "CAPTCHA_REQUIRED",
-        "A valid server-issued verification token is required before submitting a signup."
+    } else {
+      console.warn(
+        "SIGNUP_SUBMISSION_SECRET is not configured on this Convex deployment; " +
+          "signup token verification is running in degraded no-token mode. " +
+          "Provision the secret on BOTH the Next server and Convex to restore the gate."
       )
     }
 
@@ -672,6 +699,7 @@ export const submitSignupEnvelope = mutation({
       occupancy: "single" | "shared" | "family"
       nightCount: number | null
       nightBeforeLevel: "standard" | "superior" | null
+      nightBeforeOccupancy: "single" | "shared" | null
       optionSelections: Array<{
         optionKey: string
         quantity: number
@@ -734,6 +762,7 @@ export const submitSignupEnvelope = mutation({
             occupancy: ticketEntitlement?.occupancy ?? preference.occupancy,
             optionSelections: preference.optionSelections,
             nightBeforeLevel: preference.nightBeforeLevel ?? null,
+            nightBeforeOccupancy: preference.nightBeforeOccupancy ?? null,
             nights: preference.nights,
           },
         })
@@ -758,6 +787,7 @@ export const submitSignupEnvelope = mutation({
         occupancy: resolved.occupancy,
         nightCount: resolved.nightCount ?? null,
         nightBeforeLevel: resolved.nightBeforeLevel,
+        nightBeforeOccupancy: resolved.nightBeforeOccupancy,
         optionSelections: resolved.options,
       })
     }
@@ -940,6 +970,7 @@ export const submitSignupEnvelope = mutation({
         // The independent night-before level is persisted so the canonical
         // loader can re-derive the Superior premium line exactly.
         nightBeforeLevel: resolved.nightBeforeLevel ?? undefined,
+        nightBeforeOccupancy: resolved.nightBeforeOccupancy ?? undefined,
       })
 
       // Persist one child row per selected option (optionKey + quantity +
@@ -990,23 +1021,17 @@ export const submitSignupEnvelope = mutation({
         })
         .catch(() => null)
 
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
       const roomAssignments = buildSignupConfirmationRoomAssignments(
         args.assignments
       )
 
-      // Phase 43: prefer the durable booking-reference permalink with an
-      // HMAC edit token when the shared secret is available; fall back to the
-      // plain search surface (`/booking`, email ownership) when it is not so
-      // an email is never emitted with a forgeable token. `/booking` is the
-      // canonical buyer-facing route; the legacy `/manage` and
-      // `/track-payment` pages redirect here.
-      const trackPaymentUrl =
-        (await buildTrackPaymentPermalink({
-          bookingRef,
-          bookerEmail,
-          appUrl,
-        })) ?? `${appUrl}/booking`
+      // Booking-specific confirmation links prefill the reference and let the
+      // buyer verify ownership with the booking email in the manage form.
+      const trackPaymentUrl = `${appUrl.replace(/\/+$/, "")}/booking/${encodeURIComponent(
+        bookingRef
+      )}/manage`
 
       await ctx.scheduler.runAfter(
         0,
@@ -1085,6 +1110,7 @@ export const submitSignupEnvelope = mutation({
               // exactly what the order row holds.
               nights: resolved?.nightCount ?? undefined,
               nightBeforeLevel: resolved?.nightBeforeLevel ?? undefined,
+              nightBeforeOccupancy: resolved?.nightBeforeOccupancy ?? undefined,
               optionSelections: preference.optionSelections,
             }
           }

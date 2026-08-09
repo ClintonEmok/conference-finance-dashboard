@@ -186,6 +186,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
         // Omitted nightBeforeLevel means "no night before"; the server
         // resolves the derived total stay and all money authoritatively.
         nightBeforeLevel: selection?.nightBeforeLevel,
+        nightBeforeOccupancy: selection?.nightBeforeOccupancy,
         optionSelections: selection?.optionSelections ?? [],
       }
     })

@@ -687,6 +687,16 @@ test("wrong ownership fails without leaking editability and without writes", asy
   ).rejects.toThrow("EDIT_OWNERSHIP")
 
   expect(await loadAmountDue(t, String(order.orderId))).toBe(16500)
+
+  // OWN-02: rejected ownership attempts leave no audit or selection rows.
+  const allAudits = await t.query(async (ctx) => {
+    const rows = []
+    for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
+      rows.push(row)
+    }
+    return rows
+  })
+  expect(allAudits).toHaveLength(0)
 })
 
 test("client price, stay, room, slot and snapshot fields are rejected at the mutation boundary", async () => {

@@ -86,8 +86,12 @@ export function AttendeeDetailsStep({
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2 md:gap-3">
             <div className="space-y-1">
-              <Label>Name *</Label>
+              <Label htmlFor={`attendee-${attendee.attendeeKey}-name`}>
+                Name *
+              </Label>
               <Input
+                id={`attendee-${attendee.attendeeKey}-name`}
+                name={`attendee-${attendee.attendeeKey}-name`}
                 aria-invalid={hasFieldError(
                   validationSummary,
                   attendee.attendeeKey,
@@ -112,8 +116,12 @@ export function AttendeeDetailsStep({
               ) : null}
             </div>
             <div className="space-y-1">
-              <Label>Email</Label>
+              <Label htmlFor={`attendee-${attendee.attendeeKey}-email`}>
+                Email
+              </Label>
               <Input
+                id={`attendee-${attendee.attendeeKey}-email`}
+                name={`attendee-${attendee.attendeeKey}-email`}
                 value={attendee.email}
                 onChange={(event) =>
                   onAttendeeChange(
@@ -127,8 +135,12 @@ export function AttendeeDetailsStep({
             </div>
 
             <div className="space-y-1">
-              <Label>Phone</Label>
+              <Label htmlFor={`attendee-${attendee.attendeeKey}-phone`}>
+                Phone
+              </Label>
               <Input
+                id={`attendee-${attendee.attendeeKey}-phone`}
+                name={`attendee-${attendee.attendeeKey}-phone`}
                 value={attendee.phone}
                 onChange={(event) =>
                   onAttendeeChange(
@@ -142,8 +154,12 @@ export function AttendeeDetailsStep({
             </div>
 
             <div className="space-y-1">
-              <Label>Gender *</Label>
+              <Label htmlFor={`attendee-${attendee.attendeeKey}-gender`}>
+                Gender *
+              </Label>
               <select
+                id={`attendee-${attendee.attendeeKey}-gender`}
+                name={`attendee-${attendee.attendeeKey}-gender`}
                 aria-invalid={hasFieldError(
                   validationSummary,
                   attendee.attendeeKey,
@@ -174,8 +190,12 @@ export function AttendeeDetailsStep({
             </div>
 
             <div className="space-y-1">
-              <Label>Location *</Label>
+              <Label htmlFor={`attendee-${attendee.attendeeKey}-location`}>
+                Location *
+              </Label>
               <select
+                id={`attendee-${attendee.attendeeKey}-location`}
+                name={`attendee-${attendee.attendeeKey}-location`}
                 aria-invalid={hasFieldError(
                   validationSummary,
                   attendee.attendeeKey,
@@ -213,8 +233,12 @@ export function AttendeeDetailsStep({
             </div>
 
             <div className="space-y-1">
-              <Label>Dietary restrictions</Label>
+              <Label htmlFor={`attendee-${attendee.attendeeKey}-dietary`}>
+                Dietary restrictions
+              </Label>
               <Input
+                id={`attendee-${attendee.attendeeKey}-dietary`}
+                name={`attendee-${attendee.attendeeKey}-dietary`}
                 value={attendee.dietaryRestrictions}
                 onChange={(event) =>
                   onAttendeeChange(
@@ -230,8 +254,12 @@ export function AttendeeDetailsStep({
             </div>
 
             <div className="space-y-1">
-              <Label>Roommate preference</Label>
+              <Label htmlFor={`attendee-${attendee.attendeeKey}-roommate`}>
+                Roommate preference
+              </Label>
               <Input
+                id={`attendee-${attendee.attendeeKey}-roommate`}
+                name={`attendee-${attendee.attendeeKey}-roommate`}
                 value={attendee.roommatePreference}
                 onChange={(event) =>
                   onAttendeeChange(

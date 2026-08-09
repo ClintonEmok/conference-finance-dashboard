@@ -69,6 +69,35 @@ describe("accommodation amounts - locked pricing formula", () => {
     ])
   })
 
+  it("prices night-before occupancy independently from the main-stay occupancy", () => {
+    const result = deriveAccommodationAmount({
+      selection: {
+        ...BASE_SELECTION,
+        occupancy: "single",
+        nightCount: 3,
+        nightBeforeLevel: "standard",
+        nightBeforeOccupancy: "shared",
+      },
+      pricing: {
+        ...BASE_PRICING,
+        baseRatePerNightMinor: 4000,
+        nightBeforeRatePerNightMinor: 3000,
+        ticketAccommodationIncluded: true,
+      },
+    })
+
+    expect(result.totalMinor).toBe(3000)
+    expect(result.lines).toEqual([
+      {
+        kind: "accommodation",
+        label: "Accommodation",
+        nights: 1,
+        ratePerNightMinor: 3000,
+        chargeMinor: 3000,
+      },
+    ])
+  })
+
   it("charges exactly max(0, selectedTotalNights - coveredBaseNights) for an extended stay", () => {
     // Included ticket + event base 2: the extended-stay choice is expressed
     // as total nights, and only the charged nights beyond the covered base

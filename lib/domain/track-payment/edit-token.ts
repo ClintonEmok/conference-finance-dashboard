@@ -61,6 +61,7 @@ export type EditAccommodationSelectionInput = {
    * with a swapped level.
    */
   nightBeforeLevel?: "standard" | "superior" | null
+  nightBeforeOccupancy?: "single" | "shared" | null
   optionSelections?: Array<{
     optionKey: string
     quantity: number
@@ -105,6 +106,7 @@ function normalizeSelection(
   categoryId: string | null
   occupancy: "single" | "shared" | "family" | null
   nightBeforeLevel: "standard" | "superior" | null
+  nightBeforeOccupancy: "single" | "shared" | null
   optionSelections: Array<{
     optionKey: string
     quantity: number
@@ -129,6 +131,7 @@ function normalizeSelection(
       : null,
     occupancy: selection.occupancy ?? null,
     nightBeforeLevel: selection.nightBeforeLevel ?? null,
+    nightBeforeOccupancy: selection.nightBeforeOccupancy ?? null,
     optionSelections,
   }
 }
@@ -168,6 +171,7 @@ export async function digestAccommodationSelections(
     categoryId?: string | null
     occupancy?: "single" | "shared" | "family" | null
     nightBeforeLevel?: "standard" | "superior" | null
+    nightBeforeOccupancy?: "single" | "shared" | null
     optionSelections?: Array<{
       optionKey: string
       quantity: number
