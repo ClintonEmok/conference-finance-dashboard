@@ -97,6 +97,9 @@ describe("/api/dashboard/accommodation/assignments route", () => {
             unresolvedReason: "no_assignment_record",
             submittedAt: 1743340800000,
             sortOrder: 0,
+            paymentState: null,
+            amountDueMinor: null,
+            paidAmountMinor: null,
           },
           {
             attendeeId: "sub-attendee-2",
@@ -118,6 +121,9 @@ describe("/api/dashboard/accommodation/assignments route", () => {
             unresolvedReason: "skipped_intent",
             submittedAt: 1743340800001,
             sortOrder: 1,
+            paymentState: null,
+            amountDueMinor: null,
+            paidAmountMinor: null,
           },
         ],
         summary: {
@@ -351,6 +357,9 @@ describe("/api/dashboard/accommodation/assignments route", () => {
             location: "Rotterdam",
             remarks: null,
             hasFamily: false,
+            paymentState: null,
+            amountDueMinor: null,
+            paidAmountMinor: null,
           },
         ],
         submissionQueueRows: [
@@ -374,6 +383,9 @@ describe("/api/dashboard/accommodation/assignments route", () => {
             unresolvedReason: null,
             submittedAt: 1743340800000,
             sortOrder: 0,
+            paymentState: null,
+            amountDueMinor: null,
+            paidAmountMinor: null,
           },
         ],
         summary: {

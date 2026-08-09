@@ -64,6 +64,7 @@ describe("/api/dashboard/attendees/[attendeeId] route", () => {
         id: "attendee_1",
         name: "Ada Lovelace",
         email: "ada@example.com",
+        ticketTypeId: "ticket_type_1",
         ticketTypeLabel: "Weekend",
         ticketStatus: "issued",
         checkedInAt: null,
@@ -165,7 +166,7 @@ describe("/api/dashboard/attendees/[attendeeId] route", () => {
       new Request("http://localhost/api/dashboard/attendees/attendee_1", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tikkieAmountOverrideMinor: 1900 }),
+        body: JSON.stringify({ location: "Amsterdam" }),
       }),
       { params: Promise.resolve({ attendeeId: "attendee_1" }) }
     )
@@ -175,10 +176,16 @@ describe("/api/dashboard/attendees/[attendeeId] route", () => {
     expect(body).toEqual({
       attendee: {
         id: "attendee_1",
-        tikkieAmountOverrideMinor: 1900,
+        tikkieAmountOverrideMinor: null,
         genderType: null,
+        ticketTypeId: null,
+        location: "Amsterdam",
       },
     })
     expect(convexMutation).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(convexMutation).mock.calls[0]?.[1]).toMatchObject({
+      attendeeId: "attendee_1",
+      location: "Amsterdam",
+    })
   })
 })

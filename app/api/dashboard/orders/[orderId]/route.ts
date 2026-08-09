@@ -307,35 +307,42 @@ export async function DELETE(
     return authResult
   }
 
-  const { orderId } = await params
+  try {
+    const orderId = await normalizeOrderId({ params })
 
-  const order = await convexQuery(api.orders.getOrderWithAttendees, {
-    orderId: orderId as Id<"orders">,
-  })
+    await convexMutation(api.orders.removeOrderLocally, {
+      orderId: orderId as Id<"orders">,
+    })
 
-  if (!order) {
-    return NextResponse.json(
-      { error: { message: "Order not found." } },
-      { status: 404 }
-    )
-  }
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    console.error("Error deleting order:", error)
+    const message = error instanceof Error ? error.message : "Invalid request"
 
-  if (!order.order.isArchived && order.order.normalizedStatus !== "cancelled") {
+    if (message === "Invalid orderId") {
+      return badRequest("Invalid orderId")
+    }
+
+    if (message.includes("not found")) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "NOT_FOUND",
+            message: "Order not found",
+          },
+        },
+        { status: 404 }
+      )
+    }
+
     return NextResponse.json(
       {
         error: {
-          message:
-            "Only archived or cancelled orders can be removed from local records.",
+          code: "INTERNAL_ERROR",
+          message: "Failed to delete order",
         },
       },
-      { status: 400 }
+      { status: 500 }
     )
   }
-
-  await convexMutation(api.orders.removeOrderLocally, {
-    orderId: order.order.id,
-    reason: "removed_by_user",
-  })
-
-  return NextResponse.json({ ok: true })
 }

@@ -168,14 +168,19 @@ export async function POST(request: Request) {
       delete fingerprintBody.website
     }
 
-    const payloadFingerprint = hashString(JSON.stringify(fingerprintBody))
+    // The default idempotency key is derived from the CAPTCHA-stripped body so
+    // a client retry without an explicit key maps to the same submission. The
+    // submission token itself is minted inside `submitSignup` over a SHA-256
+    // digest of the normalized payload plus this key (CR-09) — the mutation
+    // recomputes that digest from its own arguments, so the raw-body hash
+    // below is never treated as a trusted fingerprint.
+    const fingerprint = hashString(JSON.stringify(fingerprintBody))
     const idempotencyHeader = request.headers.get("x-idempotency-key")?.trim()
     const idempotencyKey =
-      idempotencyHeader || `derived-${payloadFingerprint.slice(0, 16)}`
+      idempotencyHeader || `derived-${fingerprint.slice(0, 16)}`
 
     const result = await submitSignup(body, {
       idempotencyKey,
-      payloadFingerprint,
       honeypotSeen: false,
     })
 

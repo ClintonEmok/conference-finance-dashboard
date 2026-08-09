@@ -20,6 +20,9 @@ export type PaymentMatchStatus =
   | "manual_assignment"
   | "ambiguous"
   | "unassigned"
+  | "donation"
+
+export type DonationKind = "overpayment" | "standalone"
 
 export type PaymentDto = {
   _id: string
@@ -29,7 +32,9 @@ export type PaymentDto = {
   payerAccountNumber: string | null
   amountMinor: number
   paidAt: number
+  eventId: Id<"events"> | null
   orderId: string | null
+  donationKind: DonationKind | null
   status: PaymentMatchStatus | null
   matchedAt: number | null
   matchedBy: string | null
@@ -61,6 +66,7 @@ export type AssignPaymentInput = {
 }
 
 export type ListPaymentsInput = {
+  eventId?: Id<"events">
   status?: PaymentMatchStatus
   source?: PaymentSource
   orderId?: string
@@ -90,11 +96,13 @@ type ConvexPayment = {
   _id: string
   source: PaymentSource
   sourceId?: string
+  eventId?: Id<"events">
   payerName: string
   payerAccountNumber?: string
   amountMinor: number
   paidAt: number
   orderId?: string
+  donationKind?: DonationKind
   status?: PaymentMatchStatus
   matchedAt?: number
   matchedBy?: string
@@ -115,7 +123,9 @@ function mapPaymentDto(payment: ConvexPayment): PaymentDto {
     payerAccountNumber: payment.payerAccountNumber ?? null,
     amountMinor: payment.amountMinor,
     paidAt: payment.paidAt,
+    eventId: payment.eventId ?? null,
     orderId: normalizedOrderId || null,
+    donationKind: payment.donationKind ?? null,
     status: payment.status ?? null,
     matchedAt: payment.matchedAt ?? null,
     matchedBy: payment.matchedBy ?? null,
@@ -295,6 +305,7 @@ export async function listPayments(
   input: ListPaymentsInput = {}
 ): Promise<ListPaymentsResult> {
   const payments = await convexQuery(api.payments.getPayments, {
+    eventId: input.eventId,
     orderId: input.orderId,
     source: input.source,
     status: input.status,
@@ -313,6 +324,27 @@ export async function getUnassignedPayments(): Promise<PaymentDto[]> {
   return payments.map((payment: (typeof payments)[number]) =>
     mapPaymentDto(payment as ConvexPayment)
   )
+}
+
+export async function markPaymentAsDonation(
+  paymentId: string,
+  input: { eventId?: string; matchedBy?: string } = {}
+): Promise<PaymentDto> {
+  await convexMutation(api.payments.markPaymentAsDonation, {
+    paymentId: paymentId as Id<"payments">,
+    eventId: input.eventId as Id<"events"> | undefined,
+    matchedBy: input.matchedBy,
+  })
+
+  const payment = await convexQuery(api.payments.getPaymentById, {
+    paymentId: paymentId as Id<"payments">,
+  })
+
+  if (!payment) {
+    throw new Error("Payment not found")
+  }
+
+  return mapPaymentDto(payment as ConvexPayment)
 }
 
 export async function syncTikkiePayments(

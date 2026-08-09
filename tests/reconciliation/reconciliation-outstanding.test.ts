@@ -32,6 +32,11 @@ describe("getReconciliationRows outstanding totals", () => {
       .mockResolvedValueOnce([
         { eventId: "event-1", slug: "conference", title: "Conference" },
       ])
+      .mockResolvedValueOnce({
+        page: [],
+        isDone: true,
+        continueCursor: "",
+      })
       .mockResolvedValueOnce([
         {
           amountMinor: 400,
@@ -41,7 +46,8 @@ describe("getReconciliationRows outstanding totals", () => {
         {
           amountMinor: 600,
           orderId: "order-1",
-          status: "auto_matched",
+          donationKind: "overpayment",
+          status: "donation",
         },
         {
           amountMinor: 100,
@@ -75,6 +81,11 @@ describe("getReconciliationRows outstanding totals", () => {
       .mockResolvedValueOnce([
         { eventId: "event-1", slug: "conference", title: "Conference" },
       ])
+      .mockResolvedValueOnce({
+        page: [],
+        isDone: true,
+        continueCursor: "",
+      })
       .mockResolvedValueOnce([
         {
           amountMinor: 700,
@@ -109,6 +120,11 @@ describe("getReconciliationRows outstanding totals", () => {
       .mockResolvedValueOnce([
         { eventId: "event-1", slug: "conference", title: "Conference" },
       ])
+      .mockResolvedValueOnce({
+        page: [],
+        isDone: true,
+        continueCursor: "",
+      })
       .mockResolvedValueOnce([])
 
     const result = await getReconciliationRows()
@@ -121,5 +137,40 @@ describe("getReconciliationRows outstanding totals", () => {
       outstandingMinor: 0,
       reasons: ["missing-amount", "pending-payment"],
     })
+  })
+
+  it("applies standalone donations to displayed outstanding without linking an order", async () => {
+    vi.mocked(convexQuery)
+      .mockResolvedValueOnce([baseOrder])
+      .mockResolvedValueOnce([
+        { eventId: "event-1", slug: "conference", title: "Conference" },
+      ])
+      .mockResolvedValueOnce({
+        page: [
+          {
+            _id: "donation_1",
+            _creationTime: 1,
+            source: "cash" as const,
+            payerName: "Supporter",
+            amountMinor: 400,
+            paidAt: Date.parse("2026-03-20T14:00:00.000Z"),
+            eventId: "event-1",
+          },
+        ],
+        isDone: true,
+        continueCursor: "",
+      })
+      .mockResolvedValueOnce([])
+
+    const result = await getReconciliationRows({
+      from: new Date("2026-03-01T00:00:00.000Z"),
+      to: new Date("2026-03-31T23:59:59.999Z"),
+    })
+
+    expect(result.totals).toMatchObject({
+      outstandingMinor: 600,
+      standaloneDonationMinor: 400,
+    })
+    expect(result.rows[0]?.outstandingMinor).toBe(600)
   })
 })

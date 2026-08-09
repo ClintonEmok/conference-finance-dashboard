@@ -1,0 +1,83 @@
+# Phase 39: Accommodation Catalog & Event Config Schema - Context
+
+**Gathered:** 2026-08-05
+**Status:** Ready for planning
+
+<domain>
+## Phase Boundary
+
+The system stores a reusable accommodation catalog (categories, room types with descriptions, options, age bands) and event-scoped configuration (stay window, active items, rates, upgrade/cot pricing, availability, age-band rules) so buyers can be offered priced options and admins can configure them. The change is purely additive — existing events, room types, orders, and finance contracts remain valid.
+
+</domain>
+
+<decisions>
+## Implementation Decisions
+
+### Catalog Table Shape
+- Room-type physical counts, admin descriptions, and category linkage are **additive optional fields on the existing `accommodationRoomTypes` table** (`count`, `description`, `categoryId`) — the catalog is the dictionary (definitions only, no prices, no stay).
+- Occupancy is modeled with an **explicit `occupancy` field** (`single` / `shared` / `family`) on event rates, not derived from capacity.
+- Age-band pricing rules live in an `eventAccommodationAgePricing` table that is **empty and seedable later**; no multiplier field on the band.
+- Categories (standard/superior/family), options (superior upgrade, cot), and age bands (under 3, 3-11, 12-17, 18+) are **reusable catalog tables** defined once and referenced by any event.
+
+### Event Config (all per-event)
+- `eventAccommodationConfig` stores the **base stay window as `baseCheckInAt`/`baseCheckOutAt`** (the conference nights a ticket may cover); the buyer's actual stay is selectable per order, `nightCount` is derived and **never hardcoded**.
+- The admin configures **extended-stay availability**: whether buyers may stay **before the event, after the event, or both**, plus per-direction night limits if needed (`allowExtendedStayBefore` / `allowExtendedStayAfter` / `allowExtendedStayBoth` — configurable, not assumed).
+- Rates are stored as **full rates per category × occupancy**: `(eventId, categoryId, occupancy)` → `pricePerPersonMinor` per night (e.g. standard single 9000, standard shared 6000, superior single 10000, superior shared 7000). The standard→superior "upgrade" is a **selection**, not a second charge — the €10 is the price difference shown in the UI, derived from the rate table, never added on top of the superior rate.
+- Upgrade and cot are separate `eventAccommodationOptions` rows with per-night prices that **default to €10** (1000 minor units) when an event creates the option and no price is supplied; explicit €0 and other prices remain supported. Cot has age eligibility (under 3) and its own availability count.
+- Breakfast is included in all room prices and modeled as an **event-level `breakfastIncluded` flag on `eventAccommodationConfig`** (not per-rate), since breakfast is included uniformly across the event's accommodation.
+- Category activation is **derived**: a category is active for an event when at least one `eventAccommodationRates` row exists for `(eventId, categoryId)` — no separate active-categories list or flag is stored.
+- Availability is physical room count per room type plus cot count; **sellable beds = count × capacity** — one derived availability source, no separate manually-tracked availability counter.
+
+### Compatibility
+- Additive optional fields only on existing room types; **no migration, no backfill required**; unlinked room types remain valid.
+- `categoryId` is optional on `accommodationRoomTypes`; unlinked types still work.
+
+### Pricing Relationship
+- Ticket price and accommodation pricing are **independent**. A ticket may or may not include accommodation in its price — the system does not special-case this.
+- A ticket carries an additive **`accommodationIncluded: boolean`** flag: when true, the ticket price covers the **base stay nights** (base accommodation rate is €0 for those nights); when false, the base rate is the real add-on (€90/€60/€100/€70 per night).
+- **Buyer's stay is selectable, not fixed**: the buyer chooses their total check-in/check-out (base stay plus any allowed extended nights before/after). Night count = buyer-chosen nights.
+- **Options/upgrades/addons are always separate additive line items**, regardless of what the ticket includes: superior upgrade (standard → superior, per-person/night), cot (per-night, under-3), and future add-ons. A ticket-inclusive event can still offer paid upgrades.
+- Pricing formula (per attendee): `coveredNights = ticket.accommodationIncluded ? eventBaseNights : 0`; `totalNights = buyer-chosen nights`; `baseCharge = max(0, totalNights − coveredNights) × baseRate`; `upgradeCharge = upgradePrice × totalNights`; `cotCharge = cotPrice × totalNights`. Canonical amount-due = Σ(ticket price) + Σ(baseCharge) + Σ(upgradeCharge) + Σ(cotCharge). The rate table supports €0; no bundled flag or special-casing is required.
+
+</decisions>
+
+<code_context>
+## Existing Code Insights
+
+### Reusable Assets
+- `convex/schema.ts` — defineTable pattern with typed validators and `.index()` helpers; existing `accommodationRoomTypes`, `accommodationRooms`, `accommodationSlots`, `accommodationEventHotels` tables.
+- `convex/accommodation.ts` — accommodation queries/mutations (room types, hotels, slots, allocation board).
+- `lib/domain/finance/amounts.ts` — minor-unit money helpers (`deriveBalanceAmounts`, `formatMoney` via `lib/format.ts`).
+- `lib/types/` — shared validator/type pattern (e.g. `lib/types/signup.ts`).
+
+### Established Patterns
+- Minor-unit money everywhere (cents as integers).
+- Convex `defineTable` with `v.object` validators and explicit indexes.
+- Domain logic in `lib/domain/`, validators in `convex/`, typed hooks in `lib/convex/hooks/`.
+- Existing global accommodation tables are cross-event; event linkage via `accommodationEventHotels`.
+
+### Integration Points
+- `convex/schema.ts` — new tables: `accommodationCategories`, `accommodationOptions`, `accommodationAgeBands`, `eventAccommodationConfig`, `eventAccommodationRates`, `eventAccommodationOptions`, `eventAccommodationResources`, `eventAccommodationAgePricing`, `orderAccommodationSelections` (per-attendee buyer-chosen stay + options; created in Phase 42, schema defined here), and additive fields on `accommodationRoomTypes` (`count`, `description`, `categoryId`) and `ticketTypes` (`accommodationIncluded`).
+- `convex/accommodation.ts` — new queries/mutations for catalog + event config (admin surface consumed in Phase 41).
+- `convex/finance.ts` — `loadOrderAmountDueBreakdowns` extended in Phase 40 to include accommodation; not this phase.
+
+</code_context>
+
+<specifics>
+## Specific Ideas
+
+- Room-type labels already carry bed arrangement (e.g. "Twin separate"); category (standard/superior/family) is the pricing grouping.
+- Initial reusable catalog content (categories/options/age bands) is defined but seeding is deferred; the schema must support later seeding.
+- Admin-facing descriptions are essential for allocation (each room type needs a description to help the admin allocate properly).
+
+</specifics>
+
+<deferred>
+## Deferred Ideas
+
+- Actual seed data population (categories, room types, options, age bands) — seeding happens later, after schema is stable.
+- Family room prices are not defined yet — `eventAccommodationRates` supports family occupancy but values stay empty until provided.
+- Rate snapshotting mechanics — live-derive for unconfirmed, snapshot at admin confirmation is a Phase 40+ decision, not Phase 39.
+- Per-ticket differing night bundles (e.g. one ticket covers 2 nights, another 4) — out of scope; the stay is event-global and tickets only flag `accommodationIncluded`.
+
+</deferred>

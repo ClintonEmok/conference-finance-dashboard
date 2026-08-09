@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation"
 import { useMemo, useState } from "react"
 
 import { LogoutButton } from "@/app/dashboard/logout-button"
-import { NavBreadcrumbs } from "@/components/dashboard/nav-breadcrumbs"
 import { EventSwitcher } from "@/components/dashboard/event-switcher"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import {
@@ -80,7 +79,6 @@ export function DashboardShell({ children }: DashboardShellProps) {
             <div className="flex items-center gap-4">
               <SidebarTrigger className="-ml-1" />
               <SidebarSeparator orientation="vertical" className="mr-2 h-4" />
-              <NavBreadcrumbs />
             </div>
           </header>
 

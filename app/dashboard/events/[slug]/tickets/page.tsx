@@ -23,8 +23,8 @@ import {
   useUpdateTicketType,
   useReorderTicketTypes,
   useDeleteTicketType,
-  useEventBySlug,
 } from "@/lib/convex/hooks/events"
+import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 import { useRoomTypes } from "@/lib/convex/hooks/accommodation"
 import { Id } from "@/convex/_generated/dataModel"
 
@@ -115,7 +115,7 @@ export default function EventTicketsPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = use(params)
-  const event = useEventBySlug(slug)
+  const { event } = useEventDashboard()
   
   // State from old monolithic page
   const [isAddingTicket, setIsAddingTicket] = useState(false)

@@ -62,6 +62,7 @@ type InventoryPayload = {
     id: string
     name: string
     city: string | null
+    address: string | null
     notes: string | null
     roomCount: number
     assignedEventIds: string[]
@@ -499,6 +500,11 @@ export default function RoomInventoryPage() {
                             {hotel.city || "Not set"} · {hotelRooms.length}{" "}
                             Units configured
                           </p>
+                          {hotel.address ? (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {hotel.address}
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">

@@ -1,5 +1,6 @@
 import type {
   AccommodationIneligibilityReason,
+  SignupAccommodationOccupancy,
   TicketUnavailableReason,
 } from "@/lib/types/signup"
 
@@ -8,6 +9,72 @@ export type PublicSignupCatalogSlot = {
   roomLabel: string
   roomTypeLabel: string
   assignable: boolean
+}
+
+export type PublicSignupCatalogAccommodationConfig = {
+  baseCheckInAt: number
+  baseCheckOutAt: number
+  nightCount: number
+  breakfastIncluded: boolean
+}
+
+/**
+ * Server-resolved night-before display rates (minor units per person for
+ * exactly one night) for the independent night-before choice. Copy only —
+ * the server remains the charge authority and the client never derives these
+ * rates locally.
+ */
+export type PublicSignupCatalogNightBeforeRates = {
+  standard: { single: number; shared: number }
+  superior: { single: number; shared: number }
+}
+
+export type PublicSignupCatalogActiveCategory = {
+  categoryId: string
+  code: "standard" | "superior" | "family"
+  label: string
+  rates: Array<{
+    occupancy: SignupAccommodationOccupancy
+    pricePerPersonMinor: number
+  }>
+}
+
+export type PublicSignupCatalogOption = {
+  optionKey: string
+  label: string
+  priceMinor: number
+}
+
+export type PublicSignupCatalogAccommodation = {
+  eligible: boolean
+  reason: AccommodationIneligibilityReason | null
+  /**
+   * Legacy slot-based contract preserved only for compatibility with
+   * historical consumers. The options-only client must never use slots as a
+   * selection source.
+   */
+  slots: PublicSignupCatalogSlot[]
+  config: PublicSignupCatalogAccommodationConfig | null
+  activeCategories: PublicSignupCatalogActiveCategory[]
+  options: PublicSignupCatalogOption[]
+  /** Server-resolved night-before display rates (copy only). */
+  nightBefore: PublicSignupCatalogNightBeforeRates | null
+}
+
+export type PublicSignupCatalogTicket = {
+  ticketTypeId: string
+  label: string
+  priceMinor: number
+  selectable: boolean
+  reason: TicketUnavailableReason | null
+  /** Whether the ticket price covers the event's base accommodation stay. */
+  accommodationIncluded?: boolean
+  roomTypeId?: string
+  /** Resolved ticket entitlement: the category of `ticketTypes.roomTypeId`. */
+  roomTypeCategoryId?: string
+  roomTypeCategoryCode?: string
+  /** Resolved occupancy from the ticket's linked room type capacity. */
+  occupancy?: SignupAccommodationOccupancy
 }
 
 export type PublicSignupCatalogEvent = {
@@ -24,19 +91,8 @@ export type PublicSignupCatalogEvent = {
     externalEventId: string | null
   }
   defaultRoomTypeId?: string
-  tickets: Array<{
-    ticketTypeId: string
-    label: string
-    priceMinor: number
-    selectable: boolean
-    reason: TicketUnavailableReason | null
-    roomTypeId?: string
-  }>
-  accommodation: {
-    eligible: boolean
-    reason: AccommodationIneligibilityReason | null
-    slots: PublicSignupCatalogSlot[]
-  }
+  tickets: PublicSignupCatalogTicket[]
+  accommodation: PublicSignupCatalogAccommodation
 }
 
 export function normalizePublicSignupCatalog(
@@ -56,6 +112,10 @@ export function normalizePublicSignupCatalog(
     tickets: event.tickets.map((ticket) => ({
       ...ticket,
       reason: ticket.reason ?? null,
+      accommodationIncluded: ticket.accommodationIncluded ?? undefined,
+      roomTypeId: ticket.roomTypeId ?? undefined,
+      roomTypeCategoryId: ticket.roomTypeCategoryId ?? undefined,
+      roomTypeCategoryCode: ticket.roomTypeCategoryCode ?? undefined,
     })),
     accommodation: {
       ...event.accommodation,
@@ -64,6 +124,21 @@ export function normalizePublicSignupCatalog(
         ...slot,
         assignable: Boolean(slot.assignable),
       })),
+      config: event.accommodation.config ?? null,
+      activeCategories: event.accommodation.activeCategories.map(
+        (category) => ({
+          ...category,
+          rates: category.rates.map((rate) => ({
+            ...rate,
+            pricePerPersonMinor: Number(rate.pricePerPersonMinor) || 0,
+          })),
+        })
+      ),
+      options: event.accommodation.options.map((option) => ({
+        ...option,
+        priceMinor: Number(option.priceMinor) || 0,
+      })),
+      nightBefore: event.accommodation.nightBefore ?? null,
     },
   }))
 }

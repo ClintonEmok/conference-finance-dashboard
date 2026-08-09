@@ -4,6 +4,13 @@ import { Id } from "@/convex/_generated/dataModel"
 
 type RoomAvailability = "all" | "empty" | "available" | "full"
 
+/**
+ * Server-owned payment state (Phase 44). The browser never derives this from
+ * amounts; the board precomputes it from canonical due/paid maps. Null means
+ * the projection is unavailable for that attendee (never a fabricated state).
+ */
+export type BoardPaymentState = "paid" | "partial" | "unpaid" | null
+
 export type SubmissionQueueRow = {
   attendeeId: string
   attendeeName: string
@@ -24,6 +31,9 @@ export type SubmissionQueueRow = {
   unresolvedReason: string | null
   submittedAt: number | null
   sortOrder: number
+  paymentState: BoardPaymentState
+  amountDueMinor: number | null
+  paidAmountMinor: number | null
 }
 
 type RoommateSignals = {
@@ -99,6 +109,17 @@ export type RoomAllocationBoard = {
       providerEventId: string
       eventName: string | null
       ticketTypeLabel: string | null
+      paymentState: BoardPaymentState
+      amountDueMinor: number | null
+      paidAmountMinor: number | null
+      /** Server-computed buyer preference projection (quick task 260807-uel); the live payload always includes these. */
+      occupancy?: "single" | "shared" | "family" | null
+      nightBeforeLevel?: "standard" | "superior" | null
+      nightBeforeOccupancy?: "single" | "shared" | null
+      categoryLabel?: string | null
+      optionKeys?: string[]
+      /** RMG-04: server-computed; true only when the night-before choice cannot be satisfied by the assigned room. Fail-safe false. */
+      nightBeforeMismatch?: boolean
     }>
     pendingAssignments: Array<{
       assignmentId: string
@@ -108,6 +129,8 @@ export type RoomAllocationBoard = {
       assignmentIntent: "assign" | "skip"
       sortOrder: number
     }>
+    /** RMG-02: server-computed; true when a pending buyer group requested on this room spans Standard and Superior. */
+    mixedCategoryGroup?: boolean
   }>
   buyerSuggestions?: Array<{
     assignmentId: string
@@ -119,6 +142,11 @@ export type RoomAllocationBoard = {
     hotelName: string | null
     assignmentIntent: "assign" | "skip"
     sortOrder: number
+    paymentState: BoardPaymentState
+    amountDueMinor: number | null
+    paidAmountMinor: number | null
+    /** RMG-02: server-computed; true on every member of a pending group that spans Standard and Superior. */
+    mixedCategory?: boolean
   }>
   unassignedAttendees: Array<{
     attendeeId: string
@@ -137,6 +165,9 @@ export type RoomAllocationBoard = {
     hasFamily: boolean
     roommatePreference?: string | null
     roommateAvoid?: string | null
+    paymentState: BoardPaymentState
+    amountDueMinor: number | null
+    paidAmountMinor: number | null
   }>
   submissionQueueRows: SubmissionQueueRow[]
   summary: {
@@ -162,12 +193,14 @@ export type AllocationProposal = {
     hotelName: string
     reason: string
     priority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+    paymentState: BoardPaymentState
   }>
   unplacedAttendees: Array<{
     attendeeId: string
     attendeeName: string | null
     reason: string
     priority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+    paymentState: BoardPaymentState
   }>
   summary: {
     totalSuggested: number
@@ -311,6 +344,20 @@ function priorityRank(priority: AllocationPriority | null | undefined): number {
   }
 
   return priorityOrder[priority ?? "NORMAL"]
+}
+
+/**
+ * Phase 44 primary rank: paid first, partial second, unpaid last, unknown/missing
+ * last. The server already sorts board rows this way; the client proposal keeps
+ * the same contract so generated suggestions can never undo paid-first order.
+ */
+function paymentStateRank(state: BoardPaymentState | undefined): number {
+  const rankOrder: Record<Exclude<BoardPaymentState, null>, number> = {
+    paid: 0,
+    partial: 1,
+    unpaid: 2,
+  }
+  return state ? (rankOrder[state] ?? 3) : 3
 }
 
 function normalizeAttendeeGender(
@@ -569,6 +616,10 @@ export async function generateAllocationProposal(input: {
   }
 
   const sortedAttendees = [...board.unassignedAttendees].sort((a, b) => {
+    const aPaymentRank = paymentStateRank(a.paymentState)
+    const bPaymentRank = paymentStateRank(b.paymentState)
+    if (aPaymentRank !== bPaymentRank) return aPaymentRank - bPaymentRank
+
     const aPriority = priorityRank(a.allocationPriority)
     const bPriority = priorityRank(b.allocationPriority)
     if (aPriority !== bPriority) return aPriority - bPriority
@@ -684,6 +735,7 @@ export async function generateAllocationProposal(input: {
           buyerSuggestionHonored,
         }),
         priority,
+        paymentState: attendee.paymentState ?? null,
       })
       return
     }
@@ -698,6 +750,7 @@ export async function generateAllocationProposal(input: {
         ? "No compatible rooms available after gender guardrails"
         : "No rooms with available beds",
       priority,
+      paymentState: attendee.paymentState ?? null,
     })
   }
 

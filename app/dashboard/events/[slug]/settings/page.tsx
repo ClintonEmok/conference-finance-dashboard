@@ -1,7 +1,7 @@
 "use client"
 
 import { use, useState, useEffect } from "react"
-import { Settings, Globe, Clock, CreditCard, AlertCircle, Trash2, Check, X } from "lucide-react"
+import { Settings, Globe, Clock, CreditCard, AlertCircle, Trash2, Check, X, Link as LinkIcon, ArrowRight } from "lucide-react"
 
 import {
   Card,
@@ -10,14 +10,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { useUpdateEvent, useEventBySlug } from "@/lib/convex/hooks/events"
+import { useUpdateEvent } from "@/lib/convex/hooks/events"
+import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 import { useRoomTypes } from "@/lib/convex/hooks/accommodation"
 import { Id } from "@/convex/_generated/dataModel"
 import { EventTikkieSection } from "@/components/dashboard/event-tikkie-section"
+import EventShareSettings from "@/components/dashboard/event-share-settings"
 
 const COMMON_TIMEZONES = [
   "Europe/London",
@@ -46,7 +49,7 @@ export default function EventSettingsPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = use(params)
-  const event = useEventBySlug(slug)
+  const { event } = useEventDashboard()
   
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -119,6 +122,16 @@ export default function EventSettingsPage({
         events={[{ eventId: event._id, title: event.title }]}
         selectedEventId={event._id}
       />
+
+      <section id="sharing" className="scroll-mt-20 space-y-4">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight">Sharing</h2>
+          <p className="text-sm text-muted-foreground">
+            Create and manage read-only public report links for stakeholders.
+          </p>
+        </div>
+        <EventShareSettings eventId={event._id} />
+      </section>
 
       <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-7">
@@ -290,6 +303,31 @@ export default function EventSettingsPage({
           )}
         </CardContent>
       </Card>
+
+      <Link
+        href={`/dashboard/events/${slug}/settings/sources`}
+        className="group block rounded-[1.75rem] border border-border/50 bg-background/80 p-5 shadow-sm backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/20 hover:bg-muted/35"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-4">
+            <div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+              <LinkIcon className="size-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black tracking-[0.22em] text-muted-foreground uppercase">
+                Integrations
+              </p>
+              <h3 className="mt-2 text-lg font-semibold tracking-tight text-foreground">
+                Event Sources
+              </h3>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                External integrations linked to this event
+              </p>
+            </div>
+          </div>
+          <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+        </div>
+      </Link>
     </div>
   )
 }

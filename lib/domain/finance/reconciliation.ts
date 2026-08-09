@@ -3,6 +3,8 @@ import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
 import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
+import { listStandaloneDonations } from "@/lib/domain/finance/standalone-donations"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export type ReconciliationFilters = {
   eventId?: string | null
@@ -51,6 +53,7 @@ export type ReconciliationResult = {
   totals: {
     rows: number
     outstandingMinor: number
+    standaloneDonationMinor: number
   }
   rows: ReconciliationRow[]
 }
@@ -137,7 +140,7 @@ export async function getReconciliationRows(
   const fromMs = from.getTime()
   const toMs = to.getTime()
 
-  const [orders, availableEvents] = await Promise.all([
+  const [orders, availableEvents, standaloneDonations] = await Promise.all([
     convexQuery(api.orders.getOrdersForReconciliation, {
       eventId: eventId ?? undefined,
       from: fromMs,
@@ -145,12 +148,26 @@ export async function getReconciliationRows(
       status: status ?? undefined,
     }),
     convexQuery(api.events.getEventsForLedger, {}),
+    listStandaloneDonations({
+      eventId: eventId ? (eventId as Id<"events">) : undefined,
+      from: fromMs,
+      to: toMs,
+    }),
   ])
 
   const matchedTotalsByOrderId = await buildMatchedTotalsByOrderId(orders)
 
+  // Calculate total standalone donations for this event
+  const totalStandaloneDonations = standaloneDonations.reduce(
+    (sum, donation) => sum + donation.amountMinor,
+    0
+  )
+
   const rows: ReconciliationRow[] = []
   let outstandingMinor = 0
+  // Apply unlinked donations to displayed follow-up rows without linking them
+  // to an attendee or order, keeping row totals consistent with the aggregate.
+  let remainingStandaloneDonationMinor = totalStandaloneDonations
 
   for (const order of orders) {
     const typedOrder = order as typeof order & {
@@ -163,14 +180,14 @@ export async function getReconciliationRows(
       ? new Date(typedOrder.refundedAt)
       : null
 
-      const reconciliation = deriveReconciliation({
-        normalizedStatus: typedOrder.normalizedStatus,
-        amountDueMinor: typedOrder.amountDueMinor ?? null,
-        totalAmountMinor: typedOrder.totalAmountMinor,
-        refundedAt: refundedAtDate,
-        matchedAmountMinor:
-          (orderLookupKey
-            ? matchedTotalsByOrderId.get(orderLookupKey)
+    const reconciliation = deriveReconciliation({
+      normalizedStatus: typedOrder.normalizedStatus,
+      amountDueMinor: typedOrder.amountDueMinor ?? null,
+      totalAmountMinor: typedOrder.totalAmountMinor,
+      refundedAt: refundedAtDate,
+      matchedAmountMinor:
+        (orderLookupKey
+          ? matchedTotalsByOrderId.get(orderLookupKey)
           : undefined) ?? 0,
     })
 
@@ -178,21 +195,29 @@ export async function getReconciliationRows(
       continue
     }
 
-    outstandingMinor += reconciliation.outstandingMinor
+    const donationAppliedMinor = Math.min(
+      remainingStandaloneDonationMinor,
+      reconciliation.outstandingMinor
+    )
+    remainingStandaloneDonationMinor -= donationAppliedMinor
+    const adjustedOutstandingMinor =
+      reconciliation.outstandingMinor - donationAppliedMinor
 
-      rows.push({
-        orderId: typedOrder.orderId ?? null,
-        providerOrderId: typedOrder.providerOrderId ?? null,
-        eventId: typedOrder.eventId,
-        eventSlug: typedOrder.eventSlug,
-        eventTitle: typedOrder.eventTitle,
-        normalizedStatus: typedOrder.normalizedStatus,
-        amountDueMinor: typedOrder.amountDueMinor ?? null,
-        totalAmountMinor: typedOrder.totalAmountMinor,
-        currency: typedOrder.currency,
-        orderedAt: typedOrder.orderedAt,
+    outstandingMinor += adjustedOutstandingMinor
+
+    rows.push({
+      orderId: typedOrder.orderId ?? null,
+      providerOrderId: typedOrder.providerOrderId ?? null,
+      eventId: typedOrder.eventId,
+      eventSlug: typedOrder.eventSlug,
+      eventTitle: typedOrder.eventTitle,
+      normalizedStatus: typedOrder.normalizedStatus,
+      amountDueMinor: typedOrder.amountDueMinor ?? null,
+      totalAmountMinor: typedOrder.totalAmountMinor,
+      currency: typedOrder.currency,
+      orderedAt: typedOrder.orderedAt,
       refundedAt: typedOrder.refundedAt,
-      outstandingMinor: reconciliation.outstandingMinor,
+      outstandingMinor: adjustedOutstandingMinor,
       reasons: reconciliation.reasons,
     })
   }
@@ -209,6 +234,7 @@ export async function getReconciliationRows(
     totals: {
       rows: rows.length,
       outstandingMinor,
+      standaloneDonationMinor: totalStandaloneDonations,
     },
     rows,
   }

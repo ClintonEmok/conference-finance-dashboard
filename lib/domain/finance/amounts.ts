@@ -27,6 +27,65 @@ function normalizeMinorAmount(value: number | null | undefined) {
   return Number.isFinite(value) ? Math.max(0, Math.floor(value ?? 0)) : 0
 }
 
+export type OrderAppliedPayment = {
+  orderId?: string | null
+  status?:
+    | "auto_matched"
+    | "manual_assignment"
+    | "ambiguous"
+    | "unassigned"
+    | "donation"
+    | null
+  donationKind?: "overpayment" | "standalone" | null
+}
+
+/**
+ * Returns true only for payments whose full amount is applied to an order's
+ * raw matched balance. Standalone donations are intentionally excluded.
+ */
+export function isOrderAppliedPayment(payment: OrderAppliedPayment) {
+  const hasOrderId =
+    typeof payment.orderId === "string" && payment.orderId.trim().length > 0
+
+  if (!hasOrderId) {
+    return false
+  }
+
+  return (
+    payment.status === "auto_matched" ||
+    payment.status === "manual_assignment" ||
+    (payment.status === "donation" && payment.donationKind === "overpayment")
+  )
+}
+
+export type DonationClassificationPatch<TEventId extends string = string> = {
+  orderId?: string
+  eventId?: TEventId
+  donationKind: "overpayment" | "standalone"
+  status: "donation"
+}
+
+/**
+ * Builds the schema-compatible classification patch without ever clearing a
+ * linked order. The caller supplies the canonical/event fallback separately.
+ */
+export function buildDonationClassification<TEventId extends string = string>(
+  params: {
+    orderId?: string | null
+    eventId?: TEventId | null
+  }
+): DonationClassificationPatch<TEventId> {
+  const hasOrderId =
+    typeof params.orderId === "string" && params.orderId.trim().length > 0
+
+  return {
+    ...(hasOrderId ? { orderId: params.orderId! } : {}),
+    ...(params.eventId ? { eventId: params.eventId } : {}),
+    donationKind: hasOrderId ? "overpayment" : "standalone",
+    status: "donation",
+  }
+}
+
 export function deriveOrderAmountBreakdown(params: {
   selections: OrderSelectionAmountInput[]
   ticketTypePriceById: Map<string, number | null | undefined>
@@ -131,11 +190,16 @@ export function deriveBalanceAmounts(
 ) {
   const safeAmountDueMinor = normalizeMinorAmount(amountDueMinor)
   const safePaidAmountMinor = normalizeMinorAmount(paidAmountMinor)
+  const appliedAmountMinor = Math.min(
+    safePaidAmountMinor,
+    safeAmountDueMinor
+  )
   const donationAmountMinor = Math.max(0, safePaidAmountMinor - safeAmountDueMinor)
 
   return {
     amountDueMinor: safeAmountDueMinor,
     paidAmountMinor: safePaidAmountMinor,
+    appliedAmountMinor,
     outstandingAmountMinor: Math.max(
       0,
       safeAmountDueMinor - safePaidAmountMinor

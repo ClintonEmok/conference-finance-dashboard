@@ -1,4 +1,5 @@
 import type {
+  SignupAccommodationSelection,
   SignupSubmissionEnvelope,
   SignupSubmissionRestorePayload,
   SignupSubmissionResult,
@@ -32,7 +33,7 @@ export type SignupClientSubmitResult =
 
 export type SignupSubmissionBody = Omit<
   SignupSubmissionEnvelope,
-  "idempotencyKey" | "payloadFingerprint" | "honeypotSeen"
+  "idempotencyKey" | "honeypotSeen"
 > & {
   captchaToken?: string
 }
@@ -64,17 +65,40 @@ export function buildSubmissionBodyFromDraft(
       ticketTypeId: attendee.ticketTypeId,
       quantity: 1 as const,
     })),
-    assignments: draft.attendees
-      .map((attendee) => ({
-        attendeeKey: attendee.attendeeKey,
-        slotId: draft.assignments[attendee.attendeeKey],
-      }))
-      .filter((assignment) => Boolean(assignment.slotId))
-      .map((assignment) => ({
-        attendeeKey: assignment.attendeeKey,
-        slotId: String(assignment.slotId),
-        assignmentIntent: "assign" as const,
-      })),
+    // Options-only contract: the client always submits an empty assignment
+    // list (room placement is admin-owned) plus per-attendee accommodation
+    // preferences. The ticket supplies occupancy; the preferences carry the
+    // resolved occupancy for the server contract, independent night-before
+    // level, and selected options only — no client amount,
+    // price, date, category, room ID, or slot ID is ever included; the
+    // server resolves money, the included-stay category, stay dates, and the
+    // derived night count.
+    assignments: [],
+    accommodationSelections: draft.attendees
+      .map((attendee): SignupAccommodationSelection | null => {
+        const selection = draft.accommodationSelections[attendee.attendeeKey]
+        const ticket = draft.ticketSelections.find(
+          (ticketSelection) =>
+            ticketSelection.ticketTypeId === attendee.ticketTypeId
+        )
+        const occupancy = ticket?.occupancy ?? selection?.occupancy
+        if (!occupancy) {
+          return null
+        }
+
+        return {
+          attendeeKey: attendee.attendeeKey,
+          occupancy,
+          ...(selection.nightBeforeLevel !== undefined
+            ? { nightBeforeLevel: selection.nightBeforeLevel }
+            : {}),
+          optionSelections: selection?.optionSelections ?? [],
+        }
+      })
+      .filter(
+        (selection): selection is SignupAccommodationSelection =>
+          selection !== null
+      ),
   }
 }
 

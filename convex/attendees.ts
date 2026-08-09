@@ -9,6 +9,12 @@ import { loadOrderAmountDueBreakdowns } from "./finance"
 
 type AttendeeResolveCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">
 
+type TicketFinancials = {
+  ticketTypeId: Id<"ticketTypes"> | null
+  ticketTypeLabel: string | null
+  amountDueMinor: number
+}
+
 function normalizeLowerGenderToUpper(
   gender: "male" | "female" | "mixed" | "unknown"
 ): "MALE" | "FEMALE" | "MIXED" | "UNKNOWN" {
@@ -91,7 +97,7 @@ async function getTicketFinancialsForAttendee(
   ctx: AttendeeResolveCtx,
   orderId: Id<"orders">,
   attendeeId: string
-) {
+) : Promise<TicketFinancials> {
   const selections = await ctx.db
     .query("orderTicketSelections")
     .withIndex("by_orderId", (q) => q.eq("orderId", orderId))
@@ -103,6 +109,7 @@ async function getTicketFinancialsForAttendee(
 
   if (!selection) {
     return {
+      ticketTypeId: null,
       ticketTypeLabel: null,
       amountDueMinor: 0,
     }
@@ -113,6 +120,7 @@ async function getTicketFinancialsForAttendee(
   )
 
   return {
+    ticketTypeId: selection.ticketTypeId,
     ticketTypeLabel: ticketType?.label ?? null,
     amountDueMinor:
       ticketType && Number.isFinite(ticketType.priceMinor)
@@ -200,7 +208,7 @@ async function resolveAttendeeRecordByStringId(
         ticketTailorAttendee.orderId,
         String(canonicalAttendee._id)
       )
-    : { ticketTypeLabel: null, amountDueMinor: 0 }
+    : { ticketTypeId: null, ticketTypeLabel: null, amountDueMinor: 0 }
 
   return {
     canonicalAttendee,
@@ -516,9 +524,9 @@ export const upsertAttendee = mutation({
 export const updateAttendee = mutation({
   args: {
     attendeeId: v.string(),
-    assignedRoomId: v.optional(v.string()),
     name: v.optional(v.string()),
     email: v.optional(v.string()),
+    location: v.optional(v.union(v.string(), v.null())),
     genderType: v.optional(
       v.union(
         v.literal("MALE"),
@@ -537,6 +545,7 @@ export const updateAttendee = mutation({
     ),
     priorityReason: v.optional(v.string()),
     tikkieAmountOverrideMinor: v.optional(v.number()),
+    ticketTypeId: v.optional(v.id("ticketTypes")),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
@@ -548,28 +557,24 @@ export const updateAttendee = mutation({
     }
 
     const extensionUpdates: {
-      assignedRoomId?: string
       name?: string
       email?: string
+      location?: string
       genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
       allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
       priorityReason?: string
       tikkieAmountOverrideMinor?: number
+      ticketTypeLabel?: string
     } = {}
 
     const coreUpdates: {
-      assignedRoomId?: string
       name?: string
       email?: string
+      location?: string
       gender?: "male" | "female" | "mixed" | "unknown"
       allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
       priorityReason?: string
     } = {}
-
-    if (args.assignedRoomId !== undefined) {
-      extensionUpdates.assignedRoomId = args.assignedRoomId
-      coreUpdates.assignedRoomId = args.assignedRoomId
-    }
 
     if (args.name !== undefined) {
       extensionUpdates.name = args.name
@@ -579,6 +584,11 @@ export const updateAttendee = mutation({
     if (args.email !== undefined) {
       extensionUpdates.email = args.email
       coreUpdates.email = args.email
+    }
+
+    if (args.location !== undefined) {
+      extensionUpdates.location = args.location ?? undefined
+      coreUpdates.location = args.location ?? undefined
     }
 
     if (args.genderType !== undefined) {
@@ -599,6 +609,58 @@ export const updateAttendee = mutation({
     if (args.tikkieAmountOverrideMinor !== undefined) {
       extensionUpdates.tikkieAmountOverrideMinor =
         args.tikkieAmountOverrideMinor
+    }
+
+    if (args.ticketTypeId !== undefined) {
+      if (!resolved.canonicalAttendee) {
+        throw new Error("Cannot change ticket type for attendee without an order attendee record.")
+      }
+
+      const selection = await ctx.db
+        .query("orderTicketSelections")
+        .withIndex("by_orderId", (q) => q.eq("orderId", resolved.canonicalAttendee!.orderId))
+        .take(100)
+        .then((selections) =>
+          selections.find(
+            (entry: { attendeeId?: unknown }) =>
+              String(entry.attendeeId) === String(resolved.canonicalAttendee!._id)
+          ) ?? null
+        )
+
+      if (!selection) {
+        throw new Error("Ticket selection not found for attendee.")
+      }
+
+      const currentTicketTypeId = String(selection.ticketTypeId)
+      const nextTicketTypeId = String(args.ticketTypeId)
+      const nextTicketType = await ctx.db.get(args.ticketTypeId)
+
+      if (!nextTicketType) {
+        throw new Error("Ticket type not found.")
+      }
+
+      if (currentTicketTypeId !== nextTicketTypeId) {
+        const currentTicketType = await ctx.db.get(selection.ticketTypeId)
+
+        await ctx.db.patch("orderTicketSelections", selection._id, {
+          ticketTypeId: args.ticketTypeId,
+        })
+
+        if (currentTicketType) {
+          await ctx.db.patch(currentTicketType._id, {
+            soldCount: Math.max(
+              0,
+              (currentTicketType.soldCount ?? 0) - selection.quantity
+            ),
+          })
+        }
+
+        await ctx.db.patch(nextTicketType._id, {
+          soldCount: (nextTicketType.soldCount ?? 0) + selection.quantity,
+        })
+      }
+
+      extensionUpdates.ticketTypeLabel = nextTicketType.label
     }
 
     if (resolved.canonicalAttendee && Object.keys(coreUpdates).length > 0) {
@@ -687,6 +749,7 @@ export const getAttendeeByStringId = query({
       _id: canonicalAttendee?._id ?? ticketTailorAttendee?._id,
       name: ticketTailorAttendee?.name ?? canonicalAttendee?.name ?? null,
       email: ticketTailorAttendee?.email ?? canonicalAttendee?.email ?? null,
+      ticketTypeId: resolved.ticketFinancials.ticketTypeId ?? null,
       ticketTypeLabel: resolved.ticketFinancials.ticketTypeLabel ?? null,
       amountDueMinor: resolved.ticketFinancials.amountDueMinor ?? 0,
       ticketStatus: ticketTailorAttendee?.ticketStatus ?? null,

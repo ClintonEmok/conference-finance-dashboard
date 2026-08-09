@@ -129,6 +129,50 @@ export function useGenerateSlotsForRoom() {
   return useMutation(api.accommodation.generateSlotsForRoom)
 }
 
+export function useRoomAllocationBoard(args?: {
+  eventId?: string
+  hotelId?: string
+  roomTypeId?: string
+  genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
+  familyGroupId?: string
+  location?: string
+  allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+  hasPriority?: boolean
+}, enabled = true) {
+  return useQuery(api.accommodation.getRoomAllocationBoard, enabled ? (args ?? {}) : "skip")
+}
+
+/** The Overview only needs the bounded allocation summary, not the board rows. */
+export function useEventAllocationSummary(eventId: string | undefined) {
+  const board = useQuery(
+    api.accommodation.getRoomAllocationBoard,
+    eventId ? { eventId } : "skip"
+  )
+  return board?.summary
+}
+
+export type OverviewAccommodationQuery<T> =
+  | { status: "pending" }
+  | { status: "success"; data: T }
+  | { status: "error"; message: string }
+
+function overviewQueryResult<T>(value: T | undefined | Error): OverviewAccommodationQuery<T> {
+  if (value instanceof Error) return { status: "error", message: value.message || "Accommodation data could not be loaded." }
+  if (value === undefined) return { status: "pending" }
+  return { status: "success", data: value }
+}
+
+/** Overview-only wrappers retain Convex query errors instead of collapsing them into undefined. */
+export function useEventAllocationSummaryForOverview(eventId: string | undefined) {
+  const result = useQuery(
+    api.accommodation.getRoomAllocationBoard,
+    eventId ? { eventId } : "skip"
+  )
+  const queryResult = overviewQueryResult(result)
+  if (queryResult.status !== "success") return queryResult
+  return { status: "success" as const, data: queryResult.data.summary }
+}
+
 export function useSlotsForEvent(eventId: Id<"events"> | undefined) {
   return useQuery(
     api.accommodation.getSlotsForEvent,
@@ -143,4 +187,57 @@ export function useAccommodationSummaryForEvent(
     api.accommodation.getAccommodationSummaryForEvent,
     eventId ? { eventId } : "skip"
   )
+}
+
+export function useAccommodationSummaryForEventForOverview(eventId: Id<"events"> | undefined) {
+  const result = useQuery(
+    api.accommodation.getAccommodationSummaryForEvent,
+    eventId ? { eventId } : "skip"
+  )
+  return overviewQueryResult(result)
+}
+
+// ---------------------------------------------------------------------------
+// Phase 41: Upgrades & Options admin contract (event-scoped typed access)
+// ---------------------------------------------------------------------------
+
+/** Server configuration, catalog references, derived values, and pending-order impact. */
+export function useEventAccommodationConfig(eventId: Id<"events"> | undefined) {
+  return useQuery(
+    api.accommodation.getEventAccommodationConfig,
+    eventId ? { eventId } : "skip"
+  )
+}
+
+/** Reusable catalog (categories, options, age bands, room types). */
+export function useAccommodationCatalog() {
+  return useQuery(api.accommodation.getAccommodationCatalog)
+}
+
+export function useUpsertEventAccommodationConfig() {
+  return useMutation(api.accommodation.upsertEventAccommodationConfig)
+}
+
+export function useUpsertEventAccommodationRate() {
+  return useMutation(api.accommodation.upsertEventAccommodationRate)
+}
+
+export function useUpsertEventAccommodationOption() {
+  return useMutation(api.accommodation.upsertEventAccommodationOption)
+}
+
+export function useUpsertEventAccommodationResource() {
+  return useMutation(api.accommodation.upsertEventAccommodationResource)
+}
+
+export function useUpdateAccommodationCategory() {
+  return useMutation(api.accommodation.updateAccommodationCategory)
+}
+
+export function useUpdateAccommodationOption() {
+  return useMutation(api.accommodation.updateAccommodationOption)
+}
+
+export function useConfirmAccommodationOrderConfiguration() {
+  return useMutation(api.accommodation.confirmAccommodationOrderConfiguration)
 }

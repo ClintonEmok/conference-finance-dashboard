@@ -27,9 +27,19 @@ const DEFAULT_CONFIG: RateLimitConfig = {
 /**
  * In-memory rate limiter keyed by arbitrary identifier.
  *
- * Suitable for single-instance deployments (Vercel serverless, local dev).
- * For multi-instance or edge deployments, swap the backing store for Redis
- * or a similar shared counter — the public surface stays the same.
+ * Single-process guarantee only: counters live in a process-local `Map`, so
+ * the limit is enforced exactly once per running instance. On a
+ * single-instance host this is a strict global limit; on Vercel serverless,
+ * edge, or any horizontally scaled deployment each instance keeps its own
+ * independent window, which lets a caller distribute requests across
+ * instances and exceed the intended limit (WR-07).
+ *
+ * This is an ACCEPTED limitation of the current deployment — documented as
+ * a known constraint, not fixed here. Enforcing a strict multi-instance
+ * limit requires backing `checkRateLimit` with a shared atomic store (e.g.
+ * Upstash/Redis) while keeping the same public surface. Do not treat this
+ * limiter as the sole abuse control once a multi-instance deployment is
+ * enabled.
  */
 export function checkRateLimit(
   key: string,
@@ -66,18 +76,34 @@ export function checkRateLimit(
   }
 }
 
+function isLoopbackAddress(ip: string): boolean {
+  if (ip === "127.0.0.1" || ip === "::1" || ip === "localhost") return true
+  return /^127\./.test(ip)
+}
+
 /**
  * Derive a rate-limit key from the incoming request.
  *
- * Uses the first non-loopback IP from x-forwarded-for (standard on Vercel)
- * with a fallback to "unknown" so requests without proxy headers still get
- * counted rather than silently bypassed.
+ * Trusted-proxy extraction: on managed hosts (Vercel, etc.) the platform
+ * proxy APPENDS the caller's IP as the LAST entry of `x-forwarded-for`.
+ * Earlier entries are client-controlled and must never be keyed on — an
+ * attacker rotating the first entry would otherwise bypass the limit. The
+ * final non-loopback entry wins, falling back to `x-real-ip` (also set by
+ * the proxy) and then to a shared "unknown" bucket so requests without
+ * proxy headers are still counted rather than silently bypassed (WR-01).
  */
 export function getClientIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for")
   if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim()
-    if (first) return first
+    const candidates = forwarded
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
+      const candidate = candidates[index]
+      if (candidate && !isLoopbackAddress(candidate)) return candidate
+    }
+    if (candidates.length > 0) return candidates[candidates.length - 1]
   }
 
   const realIp = request.headers.get("x-real-ip")

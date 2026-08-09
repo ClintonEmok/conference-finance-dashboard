@@ -39,6 +39,12 @@ export declare const api: {
       { eventProviderEventId: string; hotelId: string },
       any
     >;
+    confirmAccommodationOrderConfiguration: FunctionReference<
+      "mutation",
+      "public",
+      { orderId: Id<"orders"> },
+      any
+    >;
     confirmBuyerAssignment: FunctionReference<
       "mutation",
       "public",
@@ -48,10 +54,33 @@ export declare const api: {
       },
       any
     >;
+    createAccommodationCategory: FunctionReference<
+      "mutation",
+      "public",
+      {
+        code: "standard" | "superior" | "family";
+        description?: string;
+        label: string;
+        sortOrder: number;
+      },
+      any
+    >;
+    createAccommodationOption: FunctionReference<
+      "mutation",
+      "public",
+      {
+        code: string;
+        description?: string;
+        kind: "addon" | "upgrade" | "eligibility";
+        label: string;
+        unit: "per_night" | "per_person";
+      },
+      any
+    >;
     createHotel: FunctionReference<
       "mutation",
       "public",
-      { city?: string; name: string; notes?: string },
+      { address?: string; city?: string; name: string; notes?: string },
       any
     >;
     createRoom: FunctionReference<
@@ -82,7 +111,14 @@ export declare const api: {
     createRoomType: FunctionReference<
       "mutation",
       "public",
-      { defaultCapacity: number; label: string; notes?: string },
+      {
+        categoryId?: Id<"accommodationCategories">;
+        count?: number;
+        defaultCapacity: number;
+        description?: string;
+        label: string;
+        notes?: string;
+      },
       any
     >;
     deleteHotel: FunctionReference<
@@ -119,7 +155,14 @@ export declare const api: {
       },
       any
     >;
+    getAccommodationCatalog: FunctionReference<"query", "public", {}, any>;
     getAccommodationSummaryForEvent: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
+    getEventAccommodationConfig: FunctionReference<
       "query",
       "public",
       { eventId: Id<"events"> },
@@ -217,10 +260,37 @@ export declare const api: {
       { eventId: string; hotelId: Id<"accommodationHotels"> },
       any
     >;
+    updateAccommodationCategory: FunctionReference<
+      "mutation",
+      "public",
+      {
+        categoryId: Id<"accommodationCategories">;
+        description?: string;
+        label?: string;
+        sortOrder?: number;
+      },
+      any
+    >;
+    updateAccommodationOption: FunctionReference<
+      "mutation",
+      "public",
+      {
+        description?: string;
+        label?: string;
+        optionId: Id<"accommodationOptions">;
+      },
+      any
+    >;
     updateHotel: FunctionReference<
       "mutation",
       "public",
-      { city?: string; hotelId: string; name?: string; notes?: string },
+      {
+        address?: string;
+        city?: string;
+        hotelId: string;
+        name?: string;
+        notes?: string;
+      },
       any
     >;
     updateRoomLabel: FunctionReference<
@@ -233,10 +303,62 @@ export declare const api: {
       "mutation",
       "public",
       {
+        categoryId?: Id<"accommodationCategories">;
+        count?: number;
         defaultCapacity?: number;
+        description?: string;
         label?: string;
         notes?: string;
         roomTypeId: string;
+      },
+      any
+    >;
+    upsertEventAccommodationConfig: FunctionReference<
+      "mutation",
+      "public",
+      {
+        allowExtendedStayAfter?: boolean;
+        allowExtendedStayBefore?: boolean;
+        allowExtendedStayBoth?: boolean;
+        baseCheckInAt?: number;
+        baseCheckOutAt?: number;
+        breakfastIncluded?: boolean;
+        defaultCategoryId?: Id<"accommodationCategories">;
+        eventId: Id<"events">;
+      },
+      any
+    >;
+    upsertEventAccommodationOption: FunctionReference<
+      "mutation",
+      "public",
+      {
+        enabled?: boolean;
+        eventId: Id<"events">;
+        notes?: string;
+        optionId: Id<"accommodationOptions">;
+        priceMinor?: number;
+      },
+      any
+    >;
+    upsertEventAccommodationRate: FunctionReference<
+      "mutation",
+      "public",
+      {
+        categoryId: Id<"accommodationCategories">;
+        eventId: Id<"events">;
+        occupancy: "single" | "shared" | "family";
+        pricePerPersonMinor: number;
+      },
+      any
+    >;
+    upsertEventAccommodationResource: FunctionReference<
+      "mutation",
+      "public",
+      {
+        count: number;
+        eventId: Id<"events">;
+        kind: "room" | "cot";
+        roomTypeId?: Id<"accommodationRoomTypes">;
       },
       any
     >;
@@ -333,12 +455,13 @@ export declare const api: {
       "public",
       {
         allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
-        assignedRoomId?: string;
         attendeeId: string;
         email?: string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
+        location?: string | null;
         name?: string;
         priorityReason?: string;
+        ticketTypeId?: Id<"ticketTypes">;
         tikkieAmountOverrideMinor?: number;
       },
       any
@@ -373,6 +496,23 @@ export declare const api: {
       "action",
       "public",
       { orderId: Id<"orders"> },
+      { emailId?: string; error?: string; success: boolean }
+    >;
+    sendAnnouncementTest: FunctionReference<
+      "action",
+      "public",
+      {
+        eventDate: string;
+        eventLocation: string;
+        eventName: string;
+        manageBookingUrl: string;
+        message: string;
+        nightBeforeNote?: string;
+        paymentUrl?: string;
+        signupUrl: string;
+        title: string;
+        to: string;
+      },
       { emailId?: string; error?: string; success: boolean }
     >;
     sendSignupConfirmationTest: FunctionReference<
@@ -475,6 +615,7 @@ export declare const api: {
       "mutation",
       "public",
       {
+        accommodationIncluded?: boolean;
         eventId: Id<"events">;
         isActive?: boolean;
         label: string;
@@ -620,6 +761,7 @@ export declare const api: {
       "mutation",
       "public",
       {
+        accommodationIncluded?: boolean;
         availabilityState?: "selectable" | "unavailable";
         isActive?: boolean;
         label?: string;
@@ -732,6 +874,7 @@ export declare const api: {
       {
         eventId?: string;
         from?: number;
+        limit?: number;
         status?: "paid" | "refunded" | "cancelled" | "pending";
         to?: number;
       },
@@ -746,9 +889,11 @@ export declare const api: {
         eventSlug: string;
         eventTitle: string | null;
         isArchived: boolean;
+        matchedAmountMinor: number | null;
         normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
         orderId?: string;
         orderedAt: string | null;
+        outstandingAmountMinor: number;
         providerOrderId: string | null;
         refundedAt: string | null;
         totalAmountMinor: number | null;
@@ -760,6 +905,7 @@ export declare const api: {
       {
         eventId?: string;
         from?: number;
+        location?: string;
         page?: number;
         pageSize?: number;
         status?: "paid" | "refunded" | "cancelled" | "pending";
@@ -777,15 +923,22 @@ export declare const api: {
           eventSlug: string;
           eventTitle: string | null;
           isArchived: boolean;
+          matchedAmountMinor: number | null;
           normalizedStatus: "paid" | "refunded" | "cancelled" | "pending";
           orderId?: string;
           orderedAt: string | null;
+          outstandingAmountMinor: number;
           providerOrderId: string | null;
           refundedAt: string | null;
           totalAmountMinor: number | null;
         }>;
         totalPages: number;
         totalRows: number;
+        totals: {
+          amountDueMinor: number;
+          matchedAmountMinor: number;
+          outstandingAmountMinor: number;
+        };
       }
     >;
     getOrderWithAttendees: FunctionReference<
@@ -820,11 +973,21 @@ export declare const api: {
         };
       } | null
     >;
+    mergeOrders: FunctionReference<
+      "mutation",
+      "public",
+      { sourceOrderId: Id<"orders">; targetOrderId: Id<"orders"> },
+      {
+        movedAttendees: number;
+        movedPayments: number;
+        targetOrderId: Id<"orders">;
+      }
+    >;
     removeOrderLocally: FunctionReference<
       "mutation",
       "public",
-      { orderId: Id<"orders">; reason?: string },
-      { orderId: Id<"orders">; removedAt: number }
+      { orderId: Id<"orders"> },
+      { deletedAt: number; orderId: Id<"orders"> }
     >;
     searchOrders: FunctionReference<
       "query",
@@ -835,6 +998,19 @@ export declare const api: {
         buyerName: string | null;
         id: Id<"orders">;
         providerOrderId: string | null;
+      }>
+    >;
+    searchOrdersForMerge: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> | string; search: string },
+      Array<{
+        bookerEmail: string | null;
+        bookerName: string | null;
+        bookingRef: string | null;
+        orderId: Id<"orders">;
+        orderedAt: string | null;
+        totalAmountMinor: number | null;
       }>
     >;
     updateOrderDetails: FunctionReference<
@@ -908,6 +1084,7 @@ export declare const api: {
       "public",
       {
         amountMinor: number;
+        eventId?: Id<"events">;
         matchedBy?: string;
         notes?: string;
         orderId?: string;
@@ -922,7 +1099,21 @@ export declare const api: {
           | "auto_matched"
           | "manual_assignment"
           | "ambiguous"
-          | "unassigned";
+          | "unassigned"
+          | "donation";
+      },
+      any
+    >;
+    createStandaloneDonation: FunctionReference<
+      "mutation",
+      "public",
+      {
+        amountMinor: number;
+        eventId: Id<"events">;
+        notes?: string;
+        paidAt: number;
+        payerName: string;
+        source: "cash" | "bank_transfer";
       },
       any
     >;
@@ -934,6 +1125,8 @@ export declare const api: {
         _creationTime: number;
         _id: Id<"payments">;
         amountMinor: number;
+        donationKind?: "overpayment" | "standalone";
+        eventId?: Id<"events">;
         matchedAt?: number;
         matchedBy?: string;
         notes?: string;
@@ -949,13 +1142,15 @@ export declare const api: {
           | "auto_matched"
           | "manual_assignment"
           | "ambiguous"
-          | "unassigned";
+          | "unassigned"
+          | "donation";
       } | null
     >;
     getPayments: FunctionReference<
       "query",
       "public",
       {
+        eventId?: Id<"events">;
         orderId?: string;
         paginationOpts?: {
           cursor: string | null;
@@ -971,12 +1166,15 @@ export declare const api: {
           | "auto_matched"
           | "manual_assignment"
           | "ambiguous"
-          | "unassigned";
+          | "unassigned"
+          | "donation";
       },
       Array<{
         _creationTime: number;
         _id: Id<"payments">;
         amountMinor: number;
+        donationKind?: "overpayment" | "standalone";
+        eventId?: Id<"events">;
         matchedAt?: number;
         matchedBy?: string;
         notes?: string;
@@ -992,7 +1190,8 @@ export declare const api: {
           | "auto_matched"
           | "manual_assignment"
           | "ambiguous"
-          | "unassigned";
+          | "unassigned"
+          | "donation";
       }>
     >;
     getPaymentSummary: FunctionReference<
@@ -1001,7 +1200,31 @@ export declare const api: {
       { orderId: string },
       any
     >;
+    getStandaloneDonations: FunctionReference<
+      "query",
+      "public",
+      {
+        eventId?: Id<"events">;
+        from?: number;
+        paginationOpts: {
+          cursor: string | null;
+          endCursor?: string | null;
+          id?: number;
+          maximumBytesRead?: number;
+          maximumRowsRead?: number;
+          numItems: number;
+        };
+        to?: number;
+      },
+      any
+    >;
     getUnassignedPayments: FunctionReference<"query", "public", {}, any>;
+    markPaymentAsDonation: FunctionReference<
+      "mutation",
+      "public",
+      { eventId?: Id<"events">; matchedBy?: string; paymentId: Id<"payments"> },
+      any
+    >;
     unassignPayment: FunctionReference<
       "mutation",
       "public",
@@ -1032,7 +1255,6 @@ export declare const api: {
         event: { slug: string; startsAt: number; title: string };
         order: {
           amountDueMinor: number | null;
-          buyerEmail: string | null;
           buyerName: string | null;
           buyerPhone: string | null;
           orderedAt: number | null;
@@ -1041,6 +1263,7 @@ export declare const api: {
           totalAmountMinor: number | null;
         };
         payment: {
+          overpaymentDeltaMinor: number;
           paymentCount: number;
           paymentStatus: "unpaid" | "partial" | "paid" | "overpaid";
           progressPercent: number;
@@ -1053,8 +1276,142 @@ export declare const api: {
         tikkieUrl: string | null;
       }
     >;
+    getByEmailOrBookingRef: FunctionReference<
+      "query",
+      "public",
+      { emailOrBookingRef: string },
+      null | {
+        bookingRef: string;
+        event: { slug: string; startsAt: number; title: string };
+        order: {
+          amountDueMinor: number | null;
+          buyerName: string | null;
+          buyerPhone: string | null;
+          orderedAt: number | null;
+          status: string | null;
+          submittedAt: number | null;
+          totalAmountMinor: number | null;
+        };
+        payment: {
+          overpaymentDeltaMinor: number;
+          paymentCount: number;
+          paymentStatus: "unpaid" | "partial" | "paid" | "overpaid";
+          progressPercent: number;
+          remainingMinor: number;
+          totalDueMinor: number;
+          totalPaidMinor: number;
+        };
+        tikkieAmountMinor: number | null;
+        tikkieDescription: string | null;
+        tikkieUrl: string | null;
+      }
+    >;
+    getTrackPaymentEditContext: FunctionReference<
+      "query",
+      "public",
+      { bookingRef: string },
+      null | {
+        accommodation: {
+          activeCategories: Array<{
+            categoryId: Id<"accommodationCategories">;
+            code: "standard" | "superior" | "family";
+            label: string;
+            rates: Array<{
+              occupancy: "single" | "shared" | "family";
+              pricePerPersonMinor: number;
+            }>;
+          }>;
+          config: {
+            baseCheckInAt: number;
+            baseCheckOutAt: number;
+            breakfastIncluded: boolean;
+            nightCount: number;
+          } | null;
+          eligible: boolean;
+          nightBefore: null | {
+            standard: { shared: number; single: number };
+            superior: { shared: number; single: number };
+          };
+          options: Array<{
+            label: string;
+            optionKey: string;
+            priceMinor: number;
+          }>;
+        };
+        bookingRef: string;
+        event: {
+          currency: string;
+          slug: string;
+          startsAt: number;
+          title: string;
+        };
+        hasSelections: boolean;
+        locked: boolean;
+        selections: Array<{
+          attendeeKey: string;
+          attendeeName: string;
+          categoryId?: Id<"accommodationCategories">;
+          confirmed: boolean;
+          nightBeforeLevel?: "standard" | "superior";
+          nightBeforeOccupancy?: "single" | "shared";
+          occupancy?: "single" | "shared" | "family";
+          optionSelections: Array<{
+            nights: number;
+            optionKey: string;
+            quantity: number;
+          }>;
+          ticketCategoryId?: Id<"accommodationCategories">;
+          ticketLabel: string;
+          ticketOccupancy?: "single" | "shared" | "family";
+        }>;
+      }
+    >;
+    updateAccommodation: FunctionReference<
+      "mutation",
+      "public",
+      {
+        bookerEmail?: string;
+        bookingRef: string;
+        editToken?: string;
+        idempotencyKey: string;
+        requestSignature: string;
+        selections: Array<{
+          attendeeKey: string;
+          categoryId?: Id<"accommodationCategories">;
+          nightBeforeLevel?: "standard" | "superior";
+          nightBeforeOccupancy?: "single" | "shared";
+          occupancy?: "single" | "shared" | "family";
+          optionSelections: Array<{
+            nights: number;
+            optionKey: string;
+            quantity: number;
+          }>;
+        }>;
+      },
+      {
+        amountDueMinor: number;
+        bookingRef: string;
+        overpaymentDeltaMinor: number;
+        progressPercent: number;
+        remainingMinor: number;
+        status: "applied" | "unchanged" | "replayed";
+        totalPaidMinor: number;
+      }
+    >;
   };
   reports: {
+    getEventLocations: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
+    getFullReportByToken: FunctionReference<
+      "query",
+      "public",
+      { token: string },
+      any
+    >;
     getReportByToken: FunctionReference<
       "query",
       "public",
@@ -1065,6 +1422,12 @@ export declare const api: {
   reportShares: {
     createEventShare: FunctionReference<
       "mutation",
+      "public",
+      { eventId: Id<"events">; region?: string },
+      any
+    >;
+    listEventShares: FunctionReference<
+      "query",
       "public",
       { eventId: Id<"events"> },
       any
@@ -1077,13 +1440,91 @@ export declare const api: {
     >;
   };
   signupCatalog: {
+    getPublicSignupAccommodationQuote: FunctionReference<
+      "query",
+      "public",
+      {
+        attendees: Array<{
+          attendeeKey: string;
+          categoryId?: Id<"accommodationCategories">;
+          nightBeforeLevel?: "standard" | "superior";
+          nightBeforeOccupancy?: "single" | "shared";
+          nights?: number;
+          occupancy?: "single" | "shared" | "family";
+          optionSelections: Array<{
+            nights: number;
+            optionKey: string;
+            quantity: number;
+          }>;
+          ticketTypeId: Id<"ticketTypes">;
+        }>;
+        eventId: Id<"events">;
+      },
+      {
+        accommodationTotalMinor: number;
+        attendees: Array<{
+          accommodationIncluded: boolean;
+          accommodationTotalMinor: number;
+          amountDueMinor: number;
+          attendeeKey: string;
+          baseNights: number;
+          categoryCode?: "standard" | "superior" | "family";
+          categoryId?: Id<"accommodationCategories">;
+          categoryLabel?: string;
+          lines: Array<{
+            chargeMinor: number;
+            kind: "accommodation" | "option";
+            label: string;
+            nights: number;
+            optionKey?: string;
+            quantity?: number;
+            ratePerNightMinor: number;
+          }>;
+          nightBeforeLevel?: "standard" | "superior";
+          nightBeforeOccupancy?: "single" | "shared";
+          occupancy?: "single" | "shared" | "family";
+          ticketLabel: string;
+          ticketPriceMinor: number;
+          ticketTypeId: Id<"ticketTypes">;
+        }>;
+        breakfastIncluded: boolean;
+        currency: string;
+        eventId: Id<"events">;
+        ticketTotalMinor: number;
+        totalDueMinor: number;
+      }
+    >;
     getPublicSignupCatalog: FunctionReference<
       "query",
       "public",
       {},
       Array<{
         accommodation: {
+          activeCategories: Array<{
+            categoryId: Id<"accommodationCategories">;
+            code: "standard" | "superior" | "family";
+            label: string;
+            rates: Array<{
+              occupancy: "single" | "shared" | "family";
+              pricePerPersonMinor: number;
+            }>;
+          }>;
+          config: {
+            baseCheckInAt: number;
+            baseCheckOutAt: number;
+            breakfastIncluded: boolean;
+            nightCount: number;
+          } | null;
           eligible: boolean;
+          nightBefore: {
+            standard: { shared: number; single: number };
+            superior: { shared: number; single: number };
+          } | null;
+          options: Array<{
+            label: string;
+            optionKey: string;
+            priceMinor: number;
+          }>;
           reason:
             | "accommodation_disabled"
             | "no_assignable_inventory"
@@ -1108,9 +1549,13 @@ export declare const api: {
         };
         startsAt: number;
         tickets: Array<{
+          accommodationIncluded?: boolean;
           label: string;
+          occupancy?: "single" | "shared" | "family";
           priceMinor: number;
           reason: "sold_out" | "disabled" | "hidden" | "not_on_sale" | null;
+          roomTypeCategoryCode?: "standard" | "superior" | "family";
+          roomTypeCategoryId?: Id<"accommodationCategories">;
           roomTypeId?: Id<"accommodationRoomTypes">;
           selectable: boolean;
           ticketTypeId: Id<"ticketTypes">;
@@ -1126,13 +1571,21 @@ export declare const api: {
       "public",
       { bookingRef: string },
       null | {
+        accommodationLines: Array<{
+          chargeMinor: number;
+          kind: "accommodation" | "option";
+          label: string;
+          nights: number;
+          optionKey?: string;
+          quantity?: number;
+          ratePerNightMinor: number;
+        }>;
         attendees: Array<{
           assignedRoom?: string;
           email?: string;
           name: string;
           ticketType: string;
         }>;
-        bookerEmail?: string;
         bookerName?: string;
         bookerPhone?: string;
         bookingRef?: string;
@@ -1159,6 +1612,19 @@ export declare const api: {
       "mutation",
       "public",
       {
+        accommodationSelections: Array<{
+          attendeeKey: string;
+          categoryId?: Id<"accommodationCategories">;
+          nightBeforeLevel?: "standard" | "superior";
+          nightBeforeOccupancy?: "single" | "shared";
+          nights?: number;
+          occupancy: "single" | "shared" | "family";
+          optionSelections: Array<{
+            nights: number;
+            optionKey: string;
+            quantity: number;
+          }>;
+        }>;
         assignments: Array<{
           assignmentIntent: "assign" | "skip";
           attendeeKey: string;
@@ -1180,8 +1646,8 @@ export declare const api: {
         honeypotSeen: boolean;
         idempotencyKey: string;
         notes?: string;
-        payloadFingerprint: string;
         source: "integration" | "internal";
+        submissionToken?: string;
         ticketSelections: Array<{
           attendeeKey: string;
           quantity: number;
@@ -1191,6 +1657,19 @@ export declare const api: {
       {
         bookingRef?: string;
         restorePayload: {
+          accommodationSelections: Array<{
+            attendeeKey: string;
+            categoryId?: string;
+            nightBeforeLevel?: "standard" | "superior";
+            nightBeforeOccupancy?: "single" | "shared";
+            nights?: number;
+            occupancy: "single" | "shared" | "family";
+            optionSelections: Array<{
+              nights: number;
+              optionKey: string;
+              quantity: number;
+            }>;
+          }>;
           assignments: Array<{
             assignmentIntent: "assign" | "skip";
             attendeeKey: string;
@@ -1880,9 +2359,45 @@ export declare const internal: {
       any
     >;
   };
+  applyInclusiveEventStay: {
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        baseCheckInAt: number;
+        baseCheckOutAt: number;
+        eventId: Id<"events">;
+        markTicketsIncluded?: boolean;
+      },
+      any
+    >;
+  };
+  applyKoningshofAccommodationInventory: {
+    default: FunctionReference<"mutation", "internal", { slug?: string }, any>;
+  };
+  applySimplifiedDivineConferenceAccommodation: {
+    default: FunctionReference<"mutation", "internal", { slug?: string }, any>;
+  };
   autoSync: {
     autoSyncTicketTailor: FunctionReference<"action", "internal", {}, any>;
     autoSyncTikkiePayments: FunctionReference<"action", "internal", {}, any>;
+  };
+  backfillLegacyAccommodationPreferences: {
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      { allowedDeploymentUrl?: string; preview: boolean; slug?: string },
+      {
+        attendeesHandled: number;
+        eventId: string;
+        ordersAlreadyHandled: number;
+        ordersResolved: number;
+        ordersScanned: number;
+        ordersUnresolved: number;
+        slug: string;
+        unresolved: Array<{ orderId: string; reason: string }>;
+      }
+    >;
   };
   emailActions: {
     sendSignupConfirmation: FunctionReference<
@@ -1923,6 +2438,9 @@ export declare const internal: {
       any
     >;
   };
+  init: {
+    default: FunctionReference<"mutation", "internal", any, any>;
+  };
   orders: {
     syncFullyPaidOrders: FunctionReference<
       "mutation",
@@ -1961,6 +2479,25 @@ export declare const internal: {
         sourceId: string;
       },
       any
+    >;
+  };
+  seedPreviewSimulation: {
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        allowedDeploymentUrl?: string;
+        preview: boolean;
+        scope: "tracer" | "full";
+        slug?: string;
+      },
+      {
+        alreadySeeded: boolean;
+        eventId?: string;
+        insertedByTable: Record<string, number>;
+        scope: "tracer" | "full";
+        slug: string;
+      }
     >;
   };
   sync: {

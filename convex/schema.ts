@@ -105,6 +105,7 @@ export default defineSchema({
       ),
       unavailableReason: v.optional(v.string()),
       roomTypeId: v.optional(v.id("accommodationRoomTypes")),
+      accommodationIncluded: v.optional(v.boolean()),
       updatedAt: v.number(),
     })
   )
@@ -167,7 +168,8 @@ export default defineSchema({
     .index("by_submittedAt", ["submittedAt"])
     .index("by_providerOrderId", ["providerOrderId"])
     .index("by_providerEventId", ["providerEventId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_email", ["bookerEmail"]),
 
   orderAttendees: defineTable(
     v.object({
@@ -238,6 +240,125 @@ export default defineSchema({
     .index("by_slotId", ["slotId"])
     .index("by_attendeeId", ["attendeeId"])
     .index("by_status", ["status"]),
+
+  orderAccommodationSelections: defineTable(
+    v.object({
+      orderId: v.id("orders"),
+      attendeeId: v.id("orderAttendees"),
+      categoryId: v.optional(v.id("accommodationCategories")),
+      occupancy: v.optional(
+        v.union(
+          v.literal("single"),
+          v.literal("shared"),
+          v.literal("family")
+        )
+      ),
+      // Legacy dual-read fields from v5. New selections are persisted as
+      // `orderAccommodationOptionSelections` child rows instead; the booleans
+      // and age-band code remain readable for historical rows.
+      upgradeSelected: v.optional(v.boolean()),
+      cotSelected: v.optional(v.boolean()),
+      ageBandCode: v.optional(v.string()),
+      checkInAt: v.optional(v.number()),
+      checkOutAt: v.optional(v.number()),
+      nightCount: v.optional(v.number()),
+      // Simplified contract: the independent one-night night-before level.
+      // `nightCount` on a new row is the derived total stay (base + 1 when a
+      // level is present); this field records which level was chosen so the
+      // canonical loader can re-derive the Superior premium line exactly.
+      nightBeforeLevel: v.optional(
+        v.union(v.literal("standard"), v.literal("superior"))
+      ),
+      // Independent occupancy for the one-night night-before stay. Historical
+      // rows omit this and fall back to the main ticket occupancy.
+      nightBeforeOccupancy: v.optional(
+        v.union(v.literal("single"), v.literal("shared"))
+      ),
+      // Phase 44 confirmation contract (schema shape only): the
+      // assignment-confirm flow atomically writes confirmedAt,
+      // configVersion = eventAccommodationConfig.updatedAt, and the pure
+      // helper's immutable priceSnapshot. The Phase 40 loader fails closed
+      // when a row is confirmed without a complete snapshot. The snapshot's
+      // decision fields are resolved at confirmation so a confirmed row is
+      // priced exclusively from the snapshot, never from live selection
+      // flags.
+      confirmedAt: v.optional(v.number()),
+      configVersion: v.optional(v.number()),
+      priceSnapshot: v.optional(
+        v.object({
+          baseRatePerNightMinor: v.number(),
+          totalNights: v.number(),
+          coveredNights: v.number(),
+          nightBeforeRatePerNightMinor: v.optional(v.number()),
+          nightBeforeNights: v.optional(v.number()),
+          categoryIsSuperior: v.optional(v.boolean()),
+          upgradeSelected: v.optional(v.boolean()),
+          cotSelected: v.optional(v.boolean()),
+          optionLines: v.optional(
+            v.array(
+              v.object({
+                optionKey: v.string(),
+                label: v.string(),
+                pricePerUnitMinor: v.number(),
+                quantity: v.number(),
+                nights: v.number(),
+                chargeMinor: v.number(),
+              })
+            )
+          ),
+        })
+      ),
+    })
+  )
+    .index("by_orderId", ["orderId"])
+    .index("by_attendeeId", ["attendeeId"])
+    .index("by_orderId_and_attendeeId", ["orderId", "attendeeId"]),
+
+  orderAccommodationOptionSelections: defineTable(
+    v.object({
+      orderId: v.id("orders"),
+      attendeeId: v.id("orderAttendees"),
+      selectionId: v.id("orderAccommodationSelections"),
+      optionKey: v.string(),
+      quantity: v.number(),
+      nights: v.number(),
+      sortOrder: v.number(),
+    })
+  )
+    .index("by_selectionId", ["selectionId"])
+    .index("by_orderId", ["orderId"])
+    .index("by_orderId_and_attendeeId", ["orderId", "attendeeId"]),
+
+  /**
+   * Append-only audit trail for public track-payment accommodation edits
+   * (Phase 43). One immutable row is written per applied replace-style edit;
+   * an idempotent replay of an already-applied key returns the stored result
+   * and never writes a second row. Every value is server-derived — the
+   * mutation never accepts a client amount, digest, or money figure. The row
+   * persists the COMPLETE canonical response (amount due, paid, remaining,
+   * progress, overpayment) so a replay returns the exact originally stored
+   * money result (CR-08) instead of re-reading mutable payment rows that may
+   * have drifted since the edit was applied. Audit rows are evidence of
+   * accepted edits, not a second pricing source.
+   */
+  orderAccommodationEditAudits: defineTable(
+    v.object({
+      orderId: v.id("orders"),
+      idempotencyKey: v.string(),
+      requestDigest: v.string(),
+      ownershipMethod: v.union(v.literal("email"), v.literal("token")),
+      beforeSelectionDigest: v.string(),
+      afterSelectionDigest: v.string(),
+      amountDueBeforeMinor: v.number(),
+      amountDueAfterMinor: v.number(),
+      totalPaidMinor: v.number(),
+      remainingMinor: v.number(),
+      progressPercent: v.number(),
+      overpaymentDeltaMinor: v.number(),
+    })
+  )
+    .index("by_orderId_and_idempotencyKey", ["orderId", "idempotencyKey"])
+    .index("by_orderId_and_requestDigest", ["orderId", "requestDigest"]),
 
   orderIdempotency: defineTable(
     v.object({
@@ -380,6 +501,7 @@ export default defineSchema({
     v.object({
       name: v.string(),
       city: v.optional(v.string()),
+      address: v.optional(v.string()),
       notes: v.optional(v.string()),
     })
   ).index("name", ["name"]),
@@ -411,8 +533,42 @@ export default defineSchema({
       label: v.string(),
       defaultCapacity: v.number(),
       notes: v.optional(v.string()),
+      count: v.optional(v.number()),
+      description: v.optional(v.string()),
+      categoryId: v.optional(v.id("accommodationCategories")),
     })
-  ).index("label", ["label"]),
+  )
+    .index("label", ["label"])
+    .index("by_categoryId", ["categoryId"]),
+
+  accommodationCategories: defineTable(
+    v.object({
+      code: v.union(
+        v.literal("standard"),
+        v.literal("superior"),
+        v.literal("family")
+      ),
+      label: v.string(),
+      description: v.optional(v.string()),
+      sortOrder: v.number(),
+    })
+  )
+    .index("by_code", ["code"])
+    .index("by_sortOrder", ["sortOrder"]),
+
+  accommodationOptions: defineTable(
+    v.object({
+      code: v.string(),
+      label: v.string(),
+      description: v.optional(v.string()),
+      kind: v.union(
+        v.literal("addon"),
+        v.literal("upgrade"),
+        v.literal("eligibility")
+      ),
+      unit: v.union(v.literal("per_night"), v.literal("per_person")),
+    })
+  ).index("by_code", ["code"]),
 
   accommodationRooms: defineTable(
     v.object({
@@ -427,6 +583,72 @@ export default defineSchema({
     .index("hotelId_label", ["hotelId", "label"])
     .index("roomTypeId", ["roomTypeId"])
     .index("hotelId_capacity", ["hotelId", "capacity"]),
+
+  eventAccommodationConfig: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      baseCheckInAt: v.number(),
+      baseCheckOutAt: v.number(),
+      allowExtendedStayBefore: v.boolean(),
+      allowExtendedStayAfter: v.boolean(),
+      allowExtendedStayBoth: v.boolean(),
+      defaultCategoryId: v.optional(v.id("accommodationCategories")),
+      breakfastIncluded: v.boolean(),
+      nightCount: v.number(),
+      updatedAt: v.number(),
+    })
+  ).index("by_eventId", ["eventId"]),
+
+  eventAccommodationRates: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      categoryId: v.id("accommodationCategories"),
+      occupancy: v.union(
+        v.literal("single"),
+        v.literal("shared"),
+        v.literal("family")
+      ),
+      pricePerPersonMinor: v.number(),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_categoryId", ["eventId", "categoryId"])
+    .index("by_eventId_and_categoryId_and_occupancy", [
+      "eventId",
+      "categoryId",
+      "occupancy",
+    ]),
+
+  eventAccommodationOptions: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      optionId: v.id("accommodationOptions"),
+      enabled: v.boolean(),
+      priceMinor: v.number(),
+      // Legacy field retained for historical rows; no longer used by any flow.
+      eligibilityAgeBandCode: v.optional(v.string()),
+      notes: v.optional(v.string()),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_optionId", ["eventId", "optionId"])
+    .index("by_eventId_and_enabled", ["eventId", "enabled"]),
+
+  eventAccommodationResources: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      kind: v.union(v.literal("room"), v.literal("cot")),
+      roomTypeId: v.optional(v.id("accommodationRoomTypes")),
+      count: v.number(),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_kind", ["eventId", "kind"])
+    .index("by_eventId_and_kind_and_roomTypeId", [
+      "eventId",
+      "kind",
+      "roomTypeId",
+    ]),
 
   tikkiePaymentLinks: defineTable(
     v.object({
@@ -518,6 +740,7 @@ export default defineSchema({
     v.object({
       eventId: v.id("events"),
       token: v.string(),
+      region: v.optional(v.string()),
       createdAt: v.number(),
       revokedAt: v.optional(v.number()),
       createdByUserId: v.optional(v.string()),
@@ -578,13 +801,18 @@ export default defineSchema({
       payerAccountNumber: v.optional(v.string()),
       amountMinor: v.number(),
       paidAt: v.number(),
+      eventId: v.optional(v.id("events")),
       orderId: v.optional(v.string()),
+      donationKind: v.optional(
+        v.union(v.literal("overpayment"), v.literal("standalone"))
+      ),
       status: v.optional(
         v.union(
           v.literal("auto_matched"),
           v.literal("manual_assignment"),
           v.literal("ambiguous"),
-          v.literal("unassigned")
+          v.literal("unassigned"),
+          v.literal("donation")
         )
       ),
       matchedAt: v.optional(v.number()),
@@ -595,8 +823,15 @@ export default defineSchema({
     })
   )
     .index("orderId", ["orderId"])
+    .index("eventId", ["eventId"])
     .index("source_sourceId", ["source", "sourceId"])
     .index("status", ["status"])
+    .index("by_donationKind_and_paidAt", ["donationKind", "paidAt"])
+    .index("by_donationKind_and_eventId_and_paidAt", [
+      "donationKind",
+      "eventId",
+      "paidAt",
+    ])
     .index("paidAt", ["paidAt"]),
 
   roomAllocations: defineTable(

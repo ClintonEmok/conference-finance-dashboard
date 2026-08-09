@@ -15,9 +15,11 @@ import {
   ArrowRight,
   BedDouble,
   Building2,
+  Calendar,
   Check,
   ChevronLeft,
   ChevronRight,
+  CircleAlert,
   Clock,
   ExternalLink,
   FileText,
@@ -28,7 +30,6 @@ import {
   Sparkles,
   Users,
   X,
-  Calendar,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -110,6 +111,7 @@ type AccommodationWorkspacePayload = {
       eventName: string | null
       ticketTypeLabel: string | null
       orderId: string | null
+      nightBeforeMismatch?: boolean
     }>
     pendingAssignments: Array<{
       assignmentId: string
@@ -119,6 +121,7 @@ type AccommodationWorkspacePayload = {
       assignmentIntent: "assign" | "skip"
       sortOrder: number
     }>
+    mixedCategoryGroup?: boolean
   }>
   buyerSuggestions?: Array<{
     assignmentId: string
@@ -130,6 +133,7 @@ type AccommodationWorkspacePayload = {
     hotelName: string | null
     assignmentIntent: "assign" | "skip"
     sortOrder: number
+    mixedCategory?: boolean
   }>
   unassignedAttendees: Array<{
     attendeeId: string
@@ -619,6 +623,29 @@ export default function AccommodationPage() {
     })
   }, [payload.buyerSuggestions])
 
+  // RMG-02: consecutive buyer suggestions sharing a requested room render as
+  // one group (multi-member groups get a header + optional mixed-group chip).
+  const buyerSuggestionGroups = useMemo(() => {
+    const groups: Array<{
+      roomId: string | null
+      roomLabel: string | null
+      suggestions: typeof buyerSuggestions
+    }> = []
+    for (const suggestion of buyerSuggestions) {
+      const last = groups[groups.length - 1]
+      if (last && last.roomId === suggestion.roomId) {
+        last.suggestions.push(suggestion)
+      } else {
+        groups.push({
+          roomId: suggestion.roomId,
+          roomLabel: suggestion.roomLabel,
+          suggestions: [suggestion],
+        })
+      }
+    }
+    return groups
+  }, [buyerSuggestions])
+
   const totalCapacity = useMemo(
     () => payload.rooms.reduce((sum, room) => sum + room.capacity, 0),
     [payload.rooms]
@@ -1054,8 +1081,8 @@ export default function AccommodationPage() {
           "Unnamed attendee"
 
         setErrors((current) => ({ ...current, assignments: null }))
-        setAssignmentMessage("Buyer assignment confirmed successfully.")
-        showAssignmentToast("Buyer request fulfilled", [
+        setAssignmentMessage("Assignment confirmed successfully.")
+        showAssignmentToast("Request fulfilled", [
           `${attendeeName} -> ${resolvedRoomLabel}`,
         ])
         setShowConfirmDialog(false)
@@ -1097,7 +1124,7 @@ export default function AccommodationPage() {
       }
 
       setErrors((current) => ({ ...current, assignments: null }))
-      setAssignmentMessage("Buyer assignment removed.")
+      setAssignmentMessage("Assignment removed.")
       setShowConfirmDialog(false)
       setSelectedPendingAssignment(null)
       await loadWorkspace()
@@ -1306,10 +1333,10 @@ export default function AccommodationPage() {
             <div>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Sparkles className="size-4 text-primary" />
-                Buyer suggestions
+                Contact person suggestions
               </CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                Pending buyer requests captured during signup.
+                Pending requests captured during signup.
               </p>
             </div>
             <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
@@ -1318,64 +1345,117 @@ export default function AccommodationPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-              {buyerSuggestions.map((suggestion) => {
-                const roomId = suggestion.roomId
-                const roomLabel = suggestion.roomLabel
-                const canReview =
-                  suggestion.assignmentIntent === "assign" &&
-                  !!roomId &&
-                  !!roomLabel
-
-                return (
-                  <div
-                    key={suggestion.assignmentId}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/80 p-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {suggestion.attendeeName ?? "Unnamed"}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {suggestion.hotelName ?? "Unknown hotel"} •{" "}
-                        {roomLabel ?? "Unknown room"}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <span
-                        className={cn(
-                          "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                          suggestion.assignmentIntent === "skip"
-                            ? "bg-amber-500/10 text-amber-700"
-                            : "bg-emerald-500/10 text-emerald-600"
-                        )}
+              {buyerSuggestionGroups.map((group) => {
+                const multiMember =
+                  group.suggestions.length > 1 && group.roomId !== null
+                const groupMixed =
+                  group.suggestions.length > 0 &&
+                  group.suggestions.some(
+                    (suggestion) => suggestion.mixedCategory === true
+                  )
+                const groupContent = (
+                  <>
+                    {multiMember && (
+                      <div
+                        role="group"
+                        aria-label={`Room request group: ${group.roomLabel ?? "Unknown room"}, ${group.suggestions.length} attendees`}
+                        className="rounded-xl border border-border/40 bg-background/50 p-2"
                       >
-                        {suggestion.assignmentIntent === "skip"
-                          ? "Skip request"
-                          : "Suggested"}
-                      </span>
-                      {canReview && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-8 rounded-lg text-xs"
-                          onClick={() => {
-                            setSelectedPendingAssignment({
-                              assignmentId: suggestion.assignmentId,
-                              attendeeId: suggestion.attendeeId,
-                              attendeeName: suggestion.attendeeName,
-                              attendeeEmail: suggestion.attendeeEmail,
-                              roomId: roomId!,
-                              roomLabel: roomLabel!,
-                            })
-                            setAlternativeRooms([])
-                            setShowConfirmDialog(true)
-                          }}
+                        <div className="flex flex-wrap items-center gap-1.5 px-1 pb-1.5">
+                          <Building2
+                            className="size-3.5 text-muted-foreground"
+                            aria-hidden="true"
+                          />
+                          <span className="truncate text-xs text-muted-foreground">
+                            {group.roomLabel ?? "Unknown room"}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground/70">
+                            {group.suggestions.length} attendees
+                          </span>
+                          {groupMixed && (
+                            <span
+                              aria-label="Mixed group: group members span Standard and Superior categories"
+                              className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:border-rose-900/30 dark:bg-rose-950/20 dark:text-rose-400"
+                            >
+                              <CircleAlert
+                                className="size-3"
+                                aria-hidden="true"
+                              />
+                              Mixed Standard/Superior
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {group.suggestions.map((suggestion) => {
+                      const roomId = suggestion.roomId
+                      const roomLabel = suggestion.roomLabel
+                      const canReview =
+                        suggestion.assignmentIntent === "assign" &&
+                        !!roomId &&
+                        !!roomLabel
+
+                      return (
+                        <div
+                          key={suggestion.assignmentId}
+                          className={cn(
+                            "flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/80 p-3",
+                            multiMember && "ml-3"
+                          )}
                         >
-                          Review
-                        </Button>
-                      )}
-                    </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {suggestion.attendeeName ?? "Unnamed"}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {suggestion.hotelName ?? "Unknown hotel"} •{" "}
+                              {roomLabel ?? "Unknown room"}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <span
+                              className={cn(
+                                "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                                suggestion.assignmentIntent === "skip"
+                                  ? "bg-amber-500/10 text-amber-700"
+                                  : "bg-emerald-500/10 text-emerald-600"
+                              )}
+                            >
+                              {suggestion.assignmentIntent === "skip"
+                                ? "Skip request"
+                                : "Suggested"}
+                            </span>
+                            {canReview && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8 rounded-lg text-xs"
+                                onClick={() => {
+                                  setSelectedPendingAssignment({
+                                    assignmentId: suggestion.assignmentId,
+                                    attendeeId: suggestion.attendeeId,
+                                    attendeeName: suggestion.attendeeName,
+                                    attendeeEmail: suggestion.attendeeEmail,
+                                    roomId: roomId!,
+                                    roomLabel: roomLabel!,
+                                  })
+                                  setAlternativeRooms([])
+                                  setShowConfirmDialog(true)
+                                }}
+                              >
+                                Review
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </>
+                )
+                return (
+                  <div key={group.roomId ?? group.suggestions[0].assignmentId}>
+                    {groupContent}
                   </div>
                 )
               })}
@@ -2176,6 +2256,18 @@ export default function AccommodationPage() {
                             >
                               {room.availableBeds} free
                             </span>
+                            {room.mixedCategoryGroup === true && (
+                              <span
+                                aria-label="Mixed group: group members span Standard and Superior categories"
+                                className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:border-rose-900/30 dark:bg-rose-950/20 dark:text-rose-400"
+                              >
+                                <CircleAlert
+                                  className="size-3"
+                                  aria-hidden="true"
+                                />
+                                Mixed Standard/Superior
+                              </span>
+                            )}
                           </div>
                           <p className="mt-1 max-w-[160px] truncate text-[11px] leading-none text-muted-foreground">
                             {room.hotel.name}
@@ -2200,6 +2292,18 @@ export default function AccommodationPage() {
                                 occupant.attendeeEmail ??
                                 "Unnamed"}
                             </p>
+                            {occupant.nightBeforeMismatch === true && (
+                              <span
+                                aria-label="Night-before mismatch: night-before choice differs from assigned room category or capacity"
+                                className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-300"
+                              >
+                                <CircleAlert
+                                  className="size-3"
+                                  aria-hidden="true"
+                                />
+                                Night-before mismatch
+                              </span>
+                            )}
                           </div>
                           <Button
                             type="button"
@@ -2233,7 +2337,7 @@ export default function AccommodationPage() {
                                   "Unnamed"}
                               </p>
                               <p className="text-[9px] text-gray-400">
-                                Buyer request
+                                Request
                               </p>
                             </div>
                           </div>
@@ -2344,9 +2448,9 @@ export default function AccommodationPage() {
       <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>Confirm Buyer Assignment</DialogTitle>
+            <DialogTitle>Confirm Assignment</DialogTitle>
             <DialogDescription>
-              Review the buyer's room request before confirming.
+              Review the room request before confirming.
             </DialogDescription>
           </DialogHeader>
 

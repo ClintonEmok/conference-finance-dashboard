@@ -11,7 +11,7 @@ vi.mock("@/lib/convex/server", () => ({
 
 import { NextResponse } from "next/server"
 
-import { GET, PATCH } from "@/app/api/dashboard/orders/[orderId]/route"
+import { DELETE, GET, PATCH } from "@/app/api/dashboard/orders/[orderId]/route"
 import { requireApiUser } from "@/lib/auth/server"
 import { api } from "@/lib/convex/api"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
@@ -157,6 +157,44 @@ describe("/api/dashboard/orders/[orderId] route", () => {
       bookerName: "Ada Byron",
       normalizedStatus: "paid",
       totalAmountMinor: 5000,
+    })
+  })
+
+  it("removes archived orders locally on DELETE requests", async () => {
+    vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
+
+    vi.mocked(convexQuery)
+      .mockResolvedValueOnce({
+        order: {
+          id: "order_1",
+          providerOrderId: "ORD-123",
+          bookerName: "Ada Lovelace",
+          bookerEmail: "ada@example.com",
+          bookingRef: "BK-20260330-ABC123",
+          eventId: "event_1",
+          normalizedStatus: "cancelled" as const,
+          isArchived: true,
+          archivedAt: null,
+          archiveReason: null,
+          amountDueMinor: 2500,
+          totalAmountMinor: 5000,
+          orderedAt: "2026-03-01T10:00:00.000Z",
+        },
+        attendees: [],
+      })
+
+    const response = await DELETE(
+      new Request("http://localhost/api/dashboard/orders/order_1", {
+        method: "DELETE",
+      }),
+      { params: Promise.resolve({ orderId: "order_1" }) }
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual({ ok: true })
+    expect(convexMutation).toHaveBeenCalledWith(api.orders.removeOrderLocally, {
+      orderId: "order_1",
     })
   })
 })

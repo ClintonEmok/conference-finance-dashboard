@@ -10,6 +10,7 @@ export type AccommodationInventory = {
     id: string
     name: string
     city: string | null
+    address: string | null
     notes: string | null
     roomCount: number
     assignedEventIds: string[]
@@ -49,6 +50,7 @@ export type AccommodationInventory = {
 export type CreateHotelInput = {
   name: string
   city?: string | null
+  address?: string | null
   notes?: string | null
 }
 
@@ -150,11 +152,13 @@ export async function detachHotelFromEvent(input: EventHotelScopeInput) {
 export async function createHotel(input: CreateHotelInput) {
   const name = normalizeRequiredString(input.name, "name")
   const city = normalizeOptionalString(input.city)
+  const address = normalizeOptionalString(input.address)
   const notes = normalizeOptionalString(input.notes)
 
   return await convexMutation(api.accommodation.createHotel, {
     name,
     city: city ?? undefined,
+    address: address ?? undefined,
     notes: notes ?? undefined,
   })
 }
@@ -212,6 +216,7 @@ export async function updateHotel(input: {
   hotelId: string
   name?: string
   city?: string | null
+  address?: string | null
   notes?: string | null
 }) {
   const hotelId = normalizeRequiredString(input.hotelId, "hotelId")
@@ -222,6 +227,10 @@ export async function updateHotel(input: {
     city:
       input.city !== undefined
         ? (normalizeOptionalString(input.city) ?? undefined)
+        : undefined,
+    address:
+      input.address !== undefined
+        ? (normalizeOptionalString(input.address) ?? undefined)
         : undefined,
     notes:
       input.notes !== undefined

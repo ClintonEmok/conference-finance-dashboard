@@ -3,6 +3,7 @@ import { v } from "convex/values"
 import { requireIdentity } from "./auth"
 import type { Id } from "./_generated/dataModel"
 import { formatPaymentReference } from "../lib/domain/finance/payment-reference"
+import { loadOrderAmountDueBreakdowns } from "./finance"
 
 // Constants for quota enforcement
 const DEFAULT_MONTHLY_TIKKIE_CREATION_LIMIT = 5
@@ -108,6 +109,16 @@ export const createPaymentLink = mutation({
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
 
+    // Order Tikkie links are open, flexible payment requests: the payer may
+    // pay any amount against them (installments). The stored amount must
+    // therefore always be the flexible zero — a re-priced amount derived from
+    // canonical amount-due must never be persisted.
+    if (!Number.isInteger(args.amountMinor) || args.amountMinor !== 0) {
+      throw new Error(
+        "Invalid 'amountMinor'. Order Tikkie links use the flexible zero amount (0) for installment payments."
+      )
+    }
+
     // Atomic quota check - fail if quota exceeded
     const quota = await checkMonthlyQuota(ctx)
     if (!quota.allowed) {
@@ -118,6 +129,10 @@ export const createPaymentLink = mutation({
 
     const id = await ctx.db.insert("tikkiePaymentLinks", {
       ...args,
+      // Order links must carry the discriminator so order-link projections
+      // (publicTracking, dashboard) can select them; a link without it is
+      // ignored by order-link reads and tracking falls back to an event link.
+      linkType: "order",
       referenceId: formatPaymentReference(args.referenceId) ?? undefined,
       status: "created",
       statusSource: "create",
@@ -595,6 +610,13 @@ export const autoMatchTikkiePayments = mutation({
       (o) => !o.extension?.removedAt
     )
 
+    // Canonical amount-due (tickets + accommodation) drives matching: an
+    // attendee-name match must fit the canonical due, not the provider total.
+    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      visibleOrders
+    )
+
     // Pre-fetch attendees from core orderAttendees table
     const orderAttendees = await ctx.db.query("orderAttendees").take(1000)
 
@@ -633,7 +655,11 @@ export const autoMatchTikkiePayments = mutation({
         const attendeeMatch = orderAttendeeNames.some(
           (name) => name === normalizedPayer
         )
-        if (attendeeMatch && order.totalAmountMinor === payment.amountMinor) {
+        const canonicalAmountDueMinor =
+          amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
+          order.totalAmountMinor ??
+          0
+        if (attendeeMatch && canonicalAmountDueMinor === payment.amountMinor) {
           await ctx.db.patch("tikkiePayments", payment._id, {
             orderId: order._id,
             matchStatus: "auto_matched",

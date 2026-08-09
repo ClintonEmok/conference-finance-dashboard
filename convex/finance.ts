@@ -1,12 +1,27 @@
 import type { Id } from "./_generated/dataModel"
 import type { MutationCtx, QueryCtx } from "./_generated/server"
 
-import { deriveOrderAmountBreakdown } from "../lib/domain/finance/amounts"
+import {
+  deriveOrderAmountBreakdown,
+  isOrderAppliedPayment,
+} from "../lib/domain/finance/amounts"
+import {
+  deriveAllocationPaymentBreakdowns,
+  type AllocationPaymentState,
+} from "../lib/domain/finance/allocation-payment-state"
+import {
+  deriveAccommodationAmount,
+  isCompleteAccommodationPriceSnapshot,
+  type AccommodationOptionUnit,
+  type AccommodationPriceSnapshot,
+  type AccommodationReceiptLine,
+} from "../lib/domain/finance/accommodation-amounts"
 
 type FinanceDbCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">
 
 type OrderRef = {
   _id: Id<"orders">
+  eventId?: Id<"events"> | string | null
 }
 
 type OrderSelectionDoc = {
@@ -19,17 +34,214 @@ type OrderSelectionDoc = {
 type TicketTypeDoc = {
   _id: Id<"ticketTypes">
   priceMinor: number
+  accommodationIncluded?: boolean | null
+  roomTypeId?: Id<"accommodationRoomTypes"> | null
+}
+
+/**
+ * The accommodation selection row as read by the loader. `confirmedAt`,
+ * `configVersion` and `priceSnapshot` are the Phase 44 confirmation contract
+ * (schema shape landed in Phase 40, populated by Phase 44). The local shape
+ * keeps the loader typed against the snapshot contract before/after codegen.
+ */
+type OrderAccommodationSelectionDoc = {
+  _id: Id<"orderAccommodationSelections">
+  orderId: Id<"orders">
+  attendeeId: Id<"orderAttendees">
+  categoryId?: Id<"accommodationCategories"> | null
+  occupancy?: "single" | "shared" | "family" | null
+  upgradeSelected?: boolean | null
+  cotSelected?: boolean | null
+  nightCount?: number | null
+  nightBeforeLevel?: "standard" | "superior" | null
+  nightBeforeOccupancy?: "single" | "shared" | null
+  confirmedAt?: number | null
+  configVersion?: number | null
+  priceSnapshot?: AccommodationPriceSnapshot | null
 }
 
 export type OrderAmountDueBreakdown = {
   amountDueMinor: number
   amountDueByAttendeeId: Map<string, number>
+  /** Server-derived non-zero accommodation receipt lines (may be empty). */
+  accommodationLines: AccommodationReceiptLine[]
 }
 
 type MatchedPaymentRecord = {
   amountMinor: number
   orderId?: string | null
-  status?: "auto_matched" | "manual_assignment" | "ambiguous" | "unassigned" | null
+  status?:
+    | "auto_matched"
+    | "manual_assignment"
+    | "ambiguous"
+    | "unassigned"
+    | "donation"
+    | null
+  donationKind?: "overpayment" | "standalone" | null
+}
+
+type EventAccommodationContext = {
+  config: { nightCount: number } | null
+  ratesByKey: Map<string, { pricePerPersonMinor: number }>
+  categoryCodeById: Map<string, string | undefined>
+  optionsByKey: Map<
+    string,
+    { label: string; priceMinor: number; unit: AccommodationOptionUnit }
+  >
+}
+
+type EventAccommodationConfigDoc = {
+  eventId: Id<"events">
+  nightCount: number
+  updatedAt?: number
+}
+
+type EventAccommodationRateDoc = {
+  eventId: Id<"events">
+  categoryId: Id<"accommodationCategories">
+  occupancy: string
+  pricePerPersonMinor: number
+}
+
+type EventAccommodationOptionDoc = {
+  eventId: Id<"events">
+  optionId: Id<"accommodationOptions">
+  enabled: boolean
+  priceMinor: number
+}
+
+async function loadEventAccommodationContexts(
+  ctx: FinanceDbCtx,
+  eventIds: Set<Id<"events">>
+): Promise<Map<string, EventAccommodationContext>> {
+  const contextByEventId = new Map<string, EventAccommodationContext>()
+  if (eventIds.size === 0) {
+    return contextByEventId
+  }
+
+  // Phase A: per-event indexed reads (config, rates, options). These are
+  // event-keyed so they cannot be shared across events; each is bounded via
+  // async iteration so a large event never silently truncates its rate rows.
+  const perEventRows = await Promise.all(
+    Array.from(eventIds).map(async (eventId) => {
+      const eventKey = String(eventId)
+
+      // Fail loudly on configuration corruption: `.unique()` returns null only
+      // for the legitimate no-row case and throws on duplicate config rows or
+      // database errors. Catching those here would convert an invalid or
+      // transient configuration into a €0 accommodation charge and silently
+      // undercharge the order.
+      const configRow = (await ctx.db
+        .query("eventAccommodationConfig")
+        .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+        .unique()) as EventAccommodationConfigDoc | null
+
+      const rateRows: EventAccommodationRateDoc[] = []
+      for await (const row of ctx.db
+        .query("eventAccommodationRates")
+        .withIndex("by_eventId", (q) => q.eq("eventId", eventId))) {
+        rateRows.push(row as EventAccommodationRateDoc)
+      }
+
+      const eventOptionRows: EventAccommodationOptionDoc[] = []
+      for await (const row of ctx.db
+        .query("eventAccommodationOptions")
+        .withIndex("by_eventId", (q) => q.eq("eventId", eventId))) {
+        eventOptionRows.push(row as EventAccommodationOptionDoc)
+      }
+
+      return { eventKey, configRow, rateRows, eventOptionRows }
+    })
+  )
+
+  // Phase B: resolve catalog references through a single bounded batch/cache.
+  // Every referenced option/category id across all events is fetched once
+  // (not once per event), so multi-event consumers do not multiply the
+  // catalog read count.
+  const optionIds = new Set<Id<"accommodationOptions">>()
+  const categoryIds = new Set<Id<"accommodationCategories">>()
+  for (const { rateRows, eventOptionRows } of perEventRows) {
+    for (const row of eventOptionRows) {
+      if (row.enabled) optionIds.add(row.optionId)
+    }
+    for (const row of rateRows) {
+      categoryIds.add(row.categoryId)
+    }
+  }
+  const [optionDefinitions, categoryDefinitions] = await Promise.all([
+    Promise.all(
+      Array.from(optionIds).map((optionId) =>
+        ctx.db.get("accommodationOptions", optionId)
+      )
+    ),
+    Promise.all(
+      Array.from(categoryIds).map((categoryId) =>
+        ctx.db.get("accommodationCategories", categoryId)
+      )
+    ),
+  ])
+
+  const optionCodeById = new Map<string, string | undefined>()
+  const optionLabelById = new Map<string, string | undefined>()
+  const optionUnitById = new Map<string, AccommodationOptionUnit>()
+  for (const definition of optionDefinitions) {
+    if (!definition) continue
+    optionCodeById.set(String(definition._id), definition.code)
+    optionLabelById.set(String(definition._id), definition.label)
+    optionUnitById.set(String(definition._id), definition.unit)
+  }
+
+  const categoryCodeById = new Map<string, string | undefined>()
+  for (const definition of categoryDefinitions) {
+    if (!definition) continue
+    categoryCodeById.set(String(definition._id), definition.code)
+  }
+
+  // Phase C: build the per-event context from the shared catalog cache.
+  for (const { eventKey, configRow, rateRows, eventOptionRows } of perEventRows) {
+    const enabledOptionRows = eventOptionRows.filter((row) => row.enabled)
+
+    const ratesByKey = new Map<string, { pricePerPersonMinor: number }>()
+    for (const rate of rateRows) {
+      ratesByKey.set(`${String(rate.categoryId)}:${rate.occupancy}`, {
+        pricePerPersonMinor: rate.pricePerPersonMinor,
+      })
+    }
+
+    const optionsByKey = new Map<
+      string,
+      { label: string; priceMinor: number; unit: AccommodationOptionUnit }
+    >()
+    for (const row of enabledOptionRows) {
+      const code = optionCodeById.get(String(row.optionId))
+      const unit = optionUnitById.get(String(row.optionId))
+      if (!code) {
+        continue
+      }
+      // The schema requires `unit` on every accommodation option definition;
+      // a catalog definition without a resolvable unit must never be priced
+      // (the charge formula would be unknowable). Missing unit fails closed.
+      if (!unit) {
+        throw new Error(
+          `Accommodation option '${code}' (${String(row.optionId)}) has no resolvable unit; refusing to price it.`
+        )
+      }
+      optionsByKey.set(code, {
+        label: optionLabelById.get(String(row.optionId)) ?? code,
+        priceMinor: row.priceMinor,
+        unit,
+      })
+    }
+
+    contextByEventId.set(eventKey, {
+      config: configRow ? { nightCount: configRow.nightCount } : null,
+      ratesByKey,
+      categoryCodeById,
+      optionsByKey,
+    })
+  }
+
+  return contextByEventId
 }
 
 export async function loadOrderAmountDueBreakdowns(
@@ -41,10 +253,15 @@ export async function loadOrderAmountDueBreakdowns(
 
   await Promise.all(
     orders.map(async (order) => {
-      const selections = (await ctx.db
+      // Read every ticket selection for the order through bounded async
+      // iteration. A fixed `.take(100)` would silently truncate orders with
+      // more than 100 attendees/selections and undercount the amount due.
+      const selections: OrderSelectionDoc[] = []
+      for await (const row of ctx.db
         .query("orderTicketSelections")
-        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
-        .take(100)) as OrderSelectionDoc[]
+        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))) {
+        selections.push(row as OrderSelectionDoc)
+      }
 
       selectionsByOrderId.set(String(order._id), selections)
 
@@ -61,6 +278,10 @@ export async function loadOrderAmountDueBreakdowns(
   )
 
   const ticketTypePriceById = new Map<string, number>()
+  const ticketTypeInfoById = new Map<
+    string,
+    { priceMinor: number; accommodationIncluded: boolean }
+  >()
 
   for (const ticketType of ticketTypes as Array<TicketTypeDoc | null>) {
     if (!ticketType) {
@@ -68,19 +289,340 @@ export async function loadOrderAmountDueBreakdowns(
     }
 
     ticketTypePriceById.set(String(ticketType._id), ticketType.priceMinor)
+    ticketTypeInfoById.set(String(ticketType._id), {
+      priceMinor: ticketType.priceMinor,
+      accommodationIncluded: ticketType.accommodationIncluded === true,
+    })
   }
+
+  const roomTypeIds = Array.from(
+    new Set(
+      (ticketTypes as Array<TicketTypeDoc | null>)
+        .map((ticketType) => ticketType?.roomTypeId)
+        .filter(
+          (roomTypeId): roomTypeId is Id<"accommodationRoomTypes"> =>
+            roomTypeId !== undefined && roomTypeId !== null
+        )
+    )
+  )
+  const roomTypes = await Promise.all(
+    roomTypeIds.map((roomTypeId) =>
+      ctx.db.get("accommodationRoomTypes", roomTypeId)
+    )
+  )
+  const occupancyByRoomTypeId = new Map<string, "single" | "shared">()
+  for (const roomType of roomTypes) {
+    if (roomType) {
+      occupancyByRoomTypeId.set(
+        String(roomType._id),
+        roomType.defaultCapacity === 1 ? "single" : "shared"
+      )
+    }
+  }
+  const ticketOccupancyById = new Map<string, "single" | "shared">()
+  for (const ticketType of ticketTypes as Array<TicketTypeDoc | null>) {
+    if (ticketType?.roomTypeId) {
+      const occupancy = occupancyByRoomTypeId.get(String(ticketType.roomTypeId))
+      if (occupancy) {
+        ticketOccupancyById.set(String(ticketType._id), occupancy)
+      }
+    }
+  }
+
+  // Resolve the event id per order (bare refs must fetch the order doc).
+  const eventIdByOrderId = new Map<string, Id<"events"> | null>()
+  await Promise.all(
+    orders.map(async (order) => {
+      if (order.eventId) {
+        eventIdByOrderId.set(String(order._id), order.eventId as Id<"events">)
+        return
+      }
+
+      const doc = await ctx.db.get("orders", order._id)
+      eventIdByOrderId.set(String(order._id), doc?.eventId ?? null)
+    })
+  )
+
+  // Batch-load accommodation selections by indexed orderId. All rows are read
+  // through bounded async iteration — a fixed `.take(100)` would truncate
+  // large orders and silently drop accommodation charges.
+  const accommodationSelectionsByOrderId = new Map<
+    string,
+    OrderAccommodationSelectionDoc[]
+  >()
+  await Promise.all(
+    orders.map(async (order) => {
+      const rows: OrderAccommodationSelectionDoc[] = []
+      for await (const row of ctx.db
+        .query("orderAccommodationSelections")
+        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))) {
+        rows.push(row as OrderAccommodationSelectionDoc)
+      }
+      accommodationSelectionsByOrderId.set(String(order._id), rows)
+    })
+  )
+
+  // Batch-load generic option child rows per order (optionKey + quantity +
+  // nights) and group them by their base selection id.
+  const optionSelectionsByOrderId = new Map<
+    string,
+    Map<string, Array<{ optionKey: string; quantity: number; nights: number }>>
+  >()
+  await Promise.all(
+    orders.map(async (order) => {
+      const bySelectionId = new Map<
+        string,
+        Array<{ optionKey: string; quantity: number; nights: number }>
+      >()
+      for await (const row of ctx.db
+        .query("orderAccommodationOptionSelections")
+        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))) {
+        const selectionKey = String(row.selectionId)
+        const existing = bySelectionId.get(selectionKey) ?? []
+        existing.push({
+          optionKey: row.optionKey,
+          quantity: row.quantity,
+          nights: row.nights,
+        })
+        bySelectionId.set(selectionKey, existing)
+      }
+      optionSelectionsByOrderId.set(String(order._id), bySelectionId)
+    })
+  )
+
+  // Collect distinct event ids and resolve each event's config bundle once.
+  const eventIds = new Set<Id<"events">>()
+  for (const eventId of eventIdByOrderId.values()) {
+    if (eventId) {
+      eventIds.add(eventId)
+    }
+  }
+  const eventAccommodationContextByEventId =
+    await loadEventAccommodationContexts(ctx, eventIds)
 
   const breakdownByOrderId = new Map<string, OrderAmountDueBreakdown>()
 
   for (const order of orders) {
-    const selections = selectionsByOrderId.get(String(order._id)) ?? []
-    breakdownByOrderId.set(
-      String(order._id),
-      deriveOrderAmountBreakdown({
-        selections,
-        ticketTypePriceById,
+    const orderKey = String(order._id)
+    const selections = selectionsByOrderId.get(orderKey) ?? []
+
+    // Fail closed on corrupt ticket references (CQ-13): a selection that
+    // references a ticket type that does not exist makes the ticket charge
+    // unknowable. It is never silently priced at zero, which would understate
+    // the canonical amount due and could present a booking as paid when its
+    // ticket charge is unknown. Orders with zero ticket selections are
+    // unaffected, and a selection referencing an existing ticket is always
+    // priced from that ticket's known `priceMinor` (never fabricated as zero).
+    for (const selection of selections) {
+      const ticketTypeId = String(selection.ticketTypeId)
+      if (!ticketTypePriceById.has(ticketTypeId)) {
+        throw new Error(
+          `Order ${orderKey} references ticket type ${ticketTypeId} which does not exist; refusing to price the order with an unknown ticket charge.`
+        )
+      }
+    }
+
+    const attendeeTicketTypeId = new Map<string, Id<"ticketTypes">>()
+    for (const selection of selections) {
+      const attendeeKey = String(selection.attendeeId)
+      if (!attendeeTicketTypeId.has(attendeeKey)) {
+        attendeeTicketTypeId.set(attendeeKey, selection.ticketTypeId)
+      }
+    }
+
+    const baseBreakdown = deriveOrderAmountBreakdown({
+      selections,
+      ticketTypePriceById,
+    })
+    let amountDueMinor = baseBreakdown.amountDueMinor
+    const amountDueByAttendeeId = baseBreakdown.amountDueByAttendeeId
+    const accommodationLines: AccommodationReceiptLine[] = []
+
+    const eventId = eventIdByOrderId.get(orderKey)
+    const accommodationContext = eventId
+      ? eventAccommodationContextByEventId.get(String(eventId))
+      : null
+
+    for (const row of accommodationSelectionsByOrderId.get(orderKey) ?? []) {
+      const attendeeKey = String(row.attendeeId)
+      const ticketTypeId = attendeeTicketTypeId.get(attendeeKey)
+      const ticketInfo = ticketTypeId
+        ? ticketTypeInfoById.get(String(ticketTypeId))
+        : undefined
+      const occupancy = ticketTypeId
+        ? (ticketOccupancyById.get(String(ticketTypeId)) ?? row.occupancy ?? null)
+        : (row.occupancy ?? null)
+      const nightBeforeOccupancy =
+        row.nightBeforeOccupancy ??
+        (occupancy === "single" || occupancy === "shared" ? occupancy : null)
+
+      // Confirmation is determined by field presence, not by a positive
+      // timestamp: a malformed/epoch `confirmedAt` is still inside the
+      // confirmation boundary and must never be re-priced as live.
+      const isConfirmed = row.confirmedAt !== undefined && row.confirmedAt !== null
+
+      // Fail closed BEFORE any config-dependent pricing branch: every
+      // confirmed row must carry a valid `confirmedAt`, a `configVersion`
+      // boundary, and a complete snapshot. A confirmed row that lacks any of
+      // these is a broken confirmation — it is never silently re-priced from
+      // the current config and never silently dropped as €0, even when the
+      // event has no accommodation config.
+      if (isConfirmed) {
+        if (
+          typeof row.confirmedAt !== "number" ||
+          !Number.isFinite(row.confirmedAt) ||
+          row.confirmedAt <= 0 ||
+          typeof row.configVersion !== "number" ||
+          !Number.isFinite(row.configVersion) ||
+          row.configVersion <= 0 ||
+          !isCompleteAccommodationPriceSnapshot(row.priceSnapshot)
+        ) {
+          throw new Error(
+            "Invalid accommodation snapshot: selection is confirmed but missing a complete priceSnapshot."
+          )
+        }
+      }
+
+      const snapshot: AccommodationPriceSnapshot | null = row.priceSnapshot ?? null
+
+      // Live derivation needs the event config; when it is missing (legacy or
+      // unconfigured event) an unconfirmed row contributes €0 — the legacy
+      // behavior is preserved for unconfirmed rows only. Confirmed rows price
+      // exclusively from their persisted snapshot and never need live config.
+      const canPrice =
+        isConfirmed || accommodationContext?.config !== null
+
+      if (!canPrice) {
+        continue
+      }
+
+      const rate =
+        row.categoryId && occupancy
+          ? accommodationContext?.ratesByKey.get(
+              `${String(row.categoryId)}:${occupancy}`
+            )
+            : undefined
+      const nightBeforeRate =
+        row.categoryId && nightBeforeOccupancy
+          ? accommodationContext?.ratesByKey.get(
+              `${String(row.categoryId)}:${nightBeforeOccupancy}`
+            )
+          : undefined
+      const categoryCode = row.categoryId
+        ? accommodationContext?.categoryCodeById.get(String(row.categoryId))
+        : undefined
+
+      // Resolve the attendee's selected option rows (child rows) into the
+      // event's enabled option definitions. Legacy boolean selections without
+      // child rows map to synthetic option rows through the shared loader for
+      // unconfirmed rows; confirmed rows price from their snapshot instead.
+      const childOptionSelections =
+        optionSelectionsByOrderId.get(orderKey)?.get(String(row._id)) ?? []
+      const resolvedOptionSelections = childOptionSelections.map(
+        (optionSelection) => {
+          const option = accommodationContext?.optionsByKey.get(
+            optionSelection.optionKey
+          )
+          if (!option) {
+            return null
+          }
+          return {
+            optionKey: optionSelection.optionKey,
+            label: option.label,
+            pricePerUnitMinor: option.priceMinor,
+            quantity: optionSelection.quantity,
+            nights: optionSelection.nights,
+            unit: option.unit,
+          }
+        }
+      ).filter((option): option is NonNullable<typeof option> => option !== null)
+
+      // Legacy v5 selection rows carried booleans. Bridge them into the
+      // resolved-option shape so unconfirmed legacy rows price identically to
+      // how the v5 formula priced them (upgrade per night across the stay;
+      // cot per night when selected).
+      const legacyOptionSelections: Array<{
+        optionKey: string
+        label: string
+        pricePerUnitMinor: number
+        quantity: number
+        nights: number
+        unit: AccommodationOptionUnit
+      }> = []
+      if (childOptionSelections.length === 0) {
+        if (row.upgradeSelected === true) {
+          const option = accommodationContext?.optionsByKey.get(
+            "superior_upgrade"
+          )
+          if (option) {
+            legacyOptionSelections.push({
+              optionKey: "superior_upgrade",
+              label: option.label,
+              pricePerUnitMinor: option.priceMinor,
+              quantity: 1,
+              nights: row.nightCount ?? accommodationContext?.config?.nightCount ?? 0,
+              unit: option.unit,
+            })
+          }
+        }
+        if (row.cotSelected === true) {
+          const option = accommodationContext?.optionsByKey.get("cot")
+          if (option) {
+            legacyOptionSelections.push({
+              optionKey: "cot",
+              label: option.label,
+              pricePerUnitMinor: option.priceMinor,
+              quantity: 1,
+              nights: row.nightCount ?? accommodationContext?.config?.nightCount ?? 0,
+              unit: option.unit,
+            })
+          }
+        }
+      }
+
+      const optionSelectionsForPricing =
+        resolvedOptionSelections.length > 0
+          ? resolvedOptionSelections
+          : legacyOptionSelections
+
+      const result = deriveAccommodationAmount({
+        selection: {
+          attendeeId: attendeeKey,
+          categoryCode,
+          occupancy,
+          nightCount: row.nightCount,
+          nightBeforeLevel: row.nightBeforeLevel ?? null,
+          nightBeforeOccupancy,
+          optionSelections: optionSelectionsForPricing,
+        },
+        pricing: {
+          baseRatePerNightMinor: rate?.pricePerPersonMinor,
+          options: optionSelectionsForPricing,
+          ticketAccommodationIncluded: ticketInfo?.accommodationIncluded,
+          eventBaseNights: accommodationContext?.config?.nightCount,
+          nightBeforeRatePerNightMinor: nightBeforeRate?.pricePerPersonMinor,
+        },
+        snapshot: isConfirmed ? snapshot : null,
       })
-    )
+
+      if (result.totalMinor > 0) {
+        amountDueMinor += result.totalMinor
+        amountDueByAttendeeId.set(
+          attendeeKey,
+          (amountDueByAttendeeId.get(attendeeKey) ?? 0) + result.totalMinor
+        )
+      }
+
+      for (const line of result.lines) {
+        accommodationLines.push(line)
+      }
+    }
+
+    breakdownByOrderId.set(orderKey, {
+      amountDueMinor,
+      amountDueByAttendeeId,
+      accommodationLines,
+    })
   }
 
   return breakdownByOrderId
@@ -90,7 +632,13 @@ export async function loadMatchedPaymentTotalsByOrderId(
   ctx: FinanceDbCtx,
   orders: OrderRef[]
 ): Promise<Map<string, number>> {
-  const payments = (await ctx.db.query("payments").take(2000)) as MatchedPaymentRecord[]
+  // Read the complete applied-payment set through bounded async iteration.
+  // A fixed `.take(2000)` would silently truncate payments beyond the page and
+  // make a paid/partial attendee render as unpaid/partial.
+  const payments: MatchedPaymentRecord[] = []
+  for await (const payment of ctx.db.query("payments")) {
+    payments.push(payment as MatchedPaymentRecord)
+  }
   const canonicalOrderIdsByAlias = new Map<string, string>()
 
   for (const order of orders) {
@@ -110,7 +658,7 @@ export async function loadMatchedPaymentTotalsByOrderId(
   for (const payment of payments) {
     if (
       !payment ||
-      (payment.status !== "auto_matched" && payment.status !== "manual_assignment") ||
+      !isOrderAppliedPayment(payment) ||
       !Number.isFinite(payment.amountMinor) ||
       payment.amountMinor <= 0
     ) {
@@ -131,4 +679,66 @@ export async function loadMatchedPaymentTotalsByOrderId(
   }
 
   return totalsByOrderId
+}
+
+export type AllocationAttendeePaymentRow = {
+  attendeeId: string
+  amountDueMinor: number
+  paidAmountMinor: number
+  paymentState: AllocationPaymentState
+}
+
+/**
+ * Canonical per-attendee payment projection for the Allocation board (Phase
+ * 44). Accepts the already-scoped orders, their `loadOrderAmountDueBreakdowns`
+ * result, and the attendee IDs grouped by order; calls the matched-payment
+ * loader exactly once for the scoped set, then uses the pure due-weight
+ * allocation helper to produce an attendeeId-keyed tri-state map.
+ *
+ * The projection never reads `orders.status` or provider status as a payment
+ * authority — a pending internal order with a recorded applied payment renders
+ * as paid because the canonical matched balance says so. Attendees absent from
+ * the canonical due map (no ticket selection) are omitted; callers fall back
+ * to a neutral untyped row rather than fabricating an unpaid state.
+ */
+export async function loadOrderAttendeePaymentBreakdowns(input: {
+  ctx: FinanceDbCtx
+  orders: OrderRef[]
+  dueBreakdownsByOrderId: Map<string, OrderAmountDueBreakdown>
+  attendeeIdsByOrderId: Map<string, string[]>
+}): Promise<Map<string, AllocationAttendeePaymentRow>> {
+  const paidTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
+    input.ctx,
+    input.orders
+  )
+
+  const paymentById = new Map<string, AllocationAttendeePaymentRow>()
+
+  for (const order of input.orders) {
+    const orderKey = String(order._id)
+    const dueBreakdown = input.dueBreakdownsByOrderId.get(orderKey)
+    const attendeeIds = input.attendeeIdsByOrderId.get(orderKey) ?? []
+    if (!dueBreakdown || attendeeIds.length === 0) {
+      continue
+    }
+
+    const amountDueByAttendeeId = new Map<string, number>()
+    for (const attendeeId of attendeeIds) {
+      const dueMinor = dueBreakdown.amountDueByAttendeeId.get(attendeeId)
+      if (dueMinor !== undefined) {
+        amountDueByAttendeeId.set(attendeeId, dueMinor)
+      }
+    }
+
+    const breakdowns = deriveAllocationPaymentBreakdowns({
+      amountDueByAttendeeId,
+      paidTotalMinor: paidTotalsByOrderId.get(orderKey) ?? 0,
+    })
+
+    for (const [, breakdown] of breakdowns) {
+      paymentById.set(breakdown.attendeeId, breakdown)
+    }
+  }
+
+  return paymentById
 }

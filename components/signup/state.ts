@@ -8,7 +8,7 @@ export const SIGNUP_STEP_ORDER = [
   "tickets",
   "buyer",
   "attendees",
-  "rooms",
+  "accommodation",
   "review",
 ] as const
 
@@ -22,6 +22,8 @@ export type TicketSelectionDraft = {
   selectable: boolean
   reason: TicketUnavailableReason | null
   roomTypeId?: string
+  roomTypeCategoryId?: string
+  occupancy?: AccommodationOccupancy
 }
 
 export type AttendeeDraft = {
@@ -37,14 +39,39 @@ export type AttendeeDraft = {
   roommatePreference: string
 }
 
+export type AccommodationOccupancy = "single" | "shared" | "family"
+
+export type AccommodationOptionSelectionDraft = {
+  optionKey: string
+  quantity: number
+  nights: number
+}
+
+/**
+ * One attendee's options-only accommodation preference, keyed by the stable
+ * attendee key in `SignupDraft.accommodationSelections`. Under the simplified
+ * contract the ticket supplies occupancy, while the buyer chooses zero or more
+ * configured options (each with a quantity and nights) and an independent
+ * one-night `nightBeforeLevel` (omitted = no night before). The legacy
+ * occupancy field remains in drafts so restored historical state can still be
+ * normalized, but it is no longer buyer-editable.
+ */
+export type AccommodationSelectionDraft = {
+  occupancy: AccommodationOccupancy | ""
+  optionSelections: AccommodationOptionSelectionDraft[]
+  /** Independent one-night night-before level; omitted = no night before. */
+  nightBeforeLevel?: "standard" | "superior"
+  /** Independent occupancy for the one-night night-before stay. */
+  nightBeforeOccupancy?: "single" | "shared"
+}
+
 export type SignupDraft = {
   eventId: string
   source: SignupSource
   step: SignupStep
   ticketSelections: TicketSelectionDraft[]
   attendees: AttendeeDraft[]
-  assignments: Record<string, string>
-  acknowledgeRandomFill: boolean
+  accommodationSelections: Record<string, AccommodationSelectionDraft>
   notes: string
   booker: {
     name: string
@@ -63,8 +90,7 @@ export function createInitialSignupDraft(
     step: "tickets",
     ticketSelections: [],
     attendees: [],
-    assignments: {},
-    acknowledgeRandomFill: false,
+    accommodationSelections: {},
     notes: "",
     booker: {
       name: "",
@@ -108,30 +134,44 @@ export function deriveAttendeeDraftsFromTicketSelections(
   return next
 }
 
+/**
+ * Keeps only the accommodation selections whose stable attendee key survives
+ * a ticket-quantity change. Attendee keys embed the ticket type
+ * (`${ticketTypeId}-${index + 1}`), so a changed ticket type produces new
+ * keys and the old attendee's incompatible category/occupancy/options are
+ * dropped automatically, while surviving attendees keep their selections.
+ */
+export function pruneAccommodationSelectionsForAttendees(
+  previous: Record<string, AccommodationSelectionDraft>,
+  nextAttendees: AttendeeDraft[]
+): Record<string, AccommodationSelectionDraft> {
+  const next: Record<string, AccommodationSelectionDraft> = {}
+  for (const attendee of nextAttendees) {
+    const prior = previous[attendee.attendeeKey]
+    if (prior) {
+      next[attendee.attendeeKey] = prior
+    }
+  }
+  return next
+}
+
 export function invalidateDownstreamForTicketChange(
   draft: SignupDraft,
   nextTicketSelections: TicketSelectionDraft[]
 ): SignupDraft {
+  const nextAttendees = deriveAttendeeDraftsFromTicketSelections(
+    nextTicketSelections,
+    draft.attendees
+  )
+
   return {
     ...draft,
     step: "tickets",
     ticketSelections: nextTicketSelections,
-    attendees: deriveAttendeeDraftsFromTicketSelections(
-      nextTicketSelections,
-      draft.attendees
+    attendees: nextAttendees,
+    accommodationSelections: pruneAccommodationSelectionsForAttendees(
+      draft.accommodationSelections,
+      nextAttendees
     ),
-    assignments: {},
-    acknowledgeRandomFill: false,
-  }
-}
-
-export function invalidateDownstreamForRoomChange(
-  draft: SignupDraft,
-  nextAssignments: Record<string, string>
-): SignupDraft {
-  return {
-    ...draft,
-    assignments: nextAssignments,
-    acknowledgeRandomFill: false,
   }
 }

@@ -1,12 +1,26 @@
 import { v } from "convex/values"
 import { mutation, query, type MutationCtx } from "./_generated/server"
-import type { Id } from "./_generated/dataModel"
+import type { Doc, Id } from "./_generated/dataModel"
 import { api, internal } from "./_generated/api"
+import { loadOrderAmountDueBreakdowns } from "./finance"
+import {
+  isTicketCapacityExceeded,
+  loadPublicSignupAccommodationContext,
+  resolvePublicSignupSelection,
+  resolveTicketCategoryById,
+} from "./signupCatalog"
 import {
   signupGenderValidator,
   signupSourceValidator,
+  signupAccommodationSelectionValidator,
+  signupAccommodationOccupancyValidator,
   type SignupSubmissionErrorCode,
 } from "../lib/types/signup"
+import {
+  digestSubmissionEnvelope,
+  isSignupSubmissionSecretConfigured,
+  verifySignupSubmissionToken,
+} from "../lib/domain/signup/submission-token"
 
 const IDEMPOTENCY_WINDOW_MS = 2 * 60 * 60 * 1000
 
@@ -56,6 +70,27 @@ const restorePayloadValidator = v.object({
       attendeeKey: v.string(),
       slotId: v.string(),
       assignmentIntent: v.union(v.literal("assign"), v.literal("skip")),
+    })
+  ),
+  accommodationSelections: v.array(
+    v.object({
+      attendeeKey: v.string(),
+      categoryId: v.optional(v.string()),
+      occupancy: signupAccommodationOccupancyValidator,
+      optionSelections: v.array(
+        v.object({
+          optionKey: v.string(),
+          quantity: v.number(),
+          nights: v.number(),
+        })
+      ),
+      nightBeforeLevel: v.optional(
+        v.union(v.literal("standard"), v.literal("superior"))
+      ),
+      nightBeforeOccupancy: v.optional(
+        v.union(v.literal("single"), v.literal("shared"))
+      ),
+      nights: v.optional(v.number()),
     })
   ),
 })
@@ -179,6 +214,21 @@ async function buildRestorePayload(
     slotId: string
     assignmentIntent: "assign" | "skip"
   }>
+  accommodationSelections: Array<{
+    attendeeKey: string
+    categoryId?: string
+    occupancy: "single" | "shared" | "family"
+    optionSelections: Array<{
+      optionKey: string
+      quantity: number
+      nights: number
+    }>
+    /** Independent one-night night-before level persisted on the row. */
+    nightBeforeLevel?: "standard" | "superior"
+    nightBeforeOccupancy?: "single" | "shared"
+    /** Resolved selected total stay nights persisted on the order row. */
+    nights?: number
+  }>
 } | null> {
   const submission = await ctx.db.get(submissionId)
   if (!submission) {
@@ -202,6 +252,23 @@ async function buildRestorePayload(
     .query("orderAssignments")
     .withIndex("by_orderId", (q) => q.eq("orderId", submissionId))
     .take(500)
+
+  const accommodationSelectionRows = await ctx.db
+    .query("orderAccommodationSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", submissionId))
+    .take(500)
+
+  const optionSelectionRows = await ctx.db
+    .query("orderAccommodationOptionSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", submissionId))
+    .take(500)
+  const optionSelectionsBySelectionId = new Map<string, typeof optionSelectionRows>()
+  for (const row of optionSelectionRows) {
+    const selectionId = String(row.selectionId)
+    const existing = optionSelectionsBySelectionId.get(selectionId) ?? []
+    existing.push(row)
+    optionSelectionsBySelectionId.set(selectionId, existing)
+  }
 
   return {
     eventId: String(submission.eventId),
@@ -251,6 +318,30 @@ async function buildRestorePayload(
         }
       })
       .filter((item): item is NonNullable<typeof item> => item !== null),
+    accommodationSelections: accommodationSelectionRows
+      .map((row) => {
+        const attendee = attendeeById.get(String(row.attendeeId))
+        if (!attendee || !row.occupancy) {
+          return null
+        }
+
+        return {
+          attendeeKey: attendee.attendeeKey,
+          categoryId: row.categoryId ? String(row.categoryId) : undefined,
+          occupancy: row.occupancy,
+          nights: row.nightCount,
+            nightBeforeLevel: row.nightBeforeLevel,
+            nightBeforeOccupancy: row.nightBeforeOccupancy,
+          optionSelections: (optionSelectionsBySelectionId.get(String(row._id)) ?? [])
+            .sort((left, right) => left.sortOrder - right.sortOrder)
+            .map((optionRow) => ({
+              optionKey: optionRow.optionKey,
+              quantity: optionRow.quantity,
+              nights: optionRow.nights,
+            })),
+        }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null),
   }
 }
 
@@ -259,7 +350,12 @@ export const submitSignupEnvelope = mutation({
     eventId: v.id("events"),
     source: signupSourceValidator,
     idempotencyKey: v.string(),
-    payloadFingerprint: v.string(),
+    // CR-07: server-issued post-CAPTCHA token. Optional so a deployment
+    // without SIGNUP_SUBMISSION_SECRET (production predates the gate) keeps
+    // working; the gate is only enforced when the secret is provisioned on
+    // BOTH the Next server and this Convex deployment (see the degraded-mode
+    // branch in the handler).
+    submissionToken: v.optional(v.string()),
     honeypotSeen: v.boolean(),
     notes: v.optional(v.string()),
     booker: v.object({
@@ -270,6 +366,7 @@ export const submitSignupEnvelope = mutation({
     attendees: v.array(attendeeValidator),
     ticketSelections: v.array(ticketSelectionValidator),
     assignments: v.array(assignmentValidator),
+    accommodationSelections: v.array(signupAccommodationSelectionValidator),
   },
   returns: v.object({
     submissionId: v.id("orders"),
@@ -278,15 +375,86 @@ export const submitSignupEnvelope = mutation({
     restorePayload: restorePayloadValidator,
   }),
   handler: async (ctx, args) => {
-    const now = Date.now()
+    // CR-07: this function is a public Internet mutation. The Next.js route
+    // (app/api/signup/submit/route.ts) is the only CAPTCHA + rate-limit
+    // gate, but an attacker can call the generated Convex endpoint directly,
+    // so the mutation itself must refuse to persist anything without a
+    // server-issued token minted only after the route's checks pass.
+    //
+    // CR-09: the token is verified against a SHA-256 digest recomputed here
+    // from the actual mutation arguments (never from a caller-supplied
+    // fingerprint) plus the normalized idempotency key. Changing any booker,
+    // attendee, ticket, accommodation, or assignment field — or replaying a
+    // captured token under a new idempotency key — changes the recomputed
+    // digest or signed key and fails closed before any database read or
+    // write.
     const idempotencyKey = normalizeRequiredString(
       args.idempotencyKey,
       "idempotencyKey"
     )
-    const payloadFingerprint = normalizeRequiredString(
-      args.payloadFingerprint,
-      "payloadFingerprint"
-    )
+
+    const payloadDigest = await digestSubmissionEnvelope({
+      eventId: String(args.eventId),
+      source: args.source,
+      notes: args.notes,
+      booker: args.booker,
+      attendees: args.attendees,
+      ticketSelections: args.ticketSelections.map((selection) => ({
+        attendeeKey: selection.attendeeKey,
+        ticketTypeId: String(selection.ticketTypeId),
+        quantity: selection.quantity,
+      })),
+      assignments: args.assignments,
+      accommodationSelections: args.accommodationSelections.map(
+        (preference) => ({
+          attendeeKey: preference.attendeeKey,
+          categoryId: preference.categoryId
+            ? String(preference.categoryId)
+            : null,
+          occupancy: preference.occupancy,
+          optionSelections: preference.optionSelections,
+          nightBeforeLevel: preference.nightBeforeLevel ?? null,
+          nightBeforeOccupancy: preference.nightBeforeOccupancy ?? null,
+          nights: preference.nights,
+        })
+      ),
+    })
+
+    // CR-07/CR-09: when this Convex deployment has the signing secret, the
+    // token is verified against the SHA-256 digest recomputed here from the
+    // actual mutation arguments (never from a caller-supplied fingerprint)
+    // plus the normalized idempotency key, and any missing/forged/replayed
+    // token fails closed before any database read or write. When this
+    // deployment has NO secret (production predates the gate), no token can
+    // be minted or verified, so the mutation runs in degraded no-token mode
+    // and logs a visible warning; enforcement is restored as soon as the
+    // secret is provisioned on BOTH the Next server and this deployment. A
+    // half-provisioned Next-absent/Convex-present deployment therefore fails
+    // closed here (no token accepted), never silently open.
+    if (isSignupSubmissionSecretConfigured()) {
+      const tokenValid = await verifySignupSubmissionToken(
+        args.submissionToken,
+        {
+          eventId: String(args.eventId),
+          payloadDigest,
+          idempotencyKey,
+        }
+      )
+      if (!tokenValid) {
+        throwSubmissionError(
+          "CAPTCHA_REQUIRED",
+          "A valid server-issued verification token is required before submitting a signup."
+        )
+      }
+    } else {
+      console.warn(
+        "SIGNUP_SUBMISSION_SECRET is not configured on this Convex deployment; " +
+          "signup token verification is running in degraded no-token mode. " +
+          "Provision the secret on BOTH the Next server and Convex to restore the gate."
+      )
+    }
+
+    const now = Date.now()
 
     const bookerName = normalizeRequiredString(args.booker.name, "booker.name")
     const bookerEmail = normalizeRequiredString(
@@ -299,7 +467,7 @@ export const submitSignupEnvelope = mutation({
     const replayByFingerprint = await ctx.db
       .query("orderIdempotency")
       .withIndex("by_eventId_and_fingerprint", (q) =>
-        q.eq("eventId", args.eventId).eq("fingerprint", payloadFingerprint)
+        q.eq("eventId", args.eventId).eq("fingerprint", payloadDigest)
       )
       .first()
 
@@ -332,7 +500,7 @@ export const submitSignupEnvelope = mutation({
 
     const replayByKey = idempotencyRecords.find(
       (record) =>
-        record.expiresAt >= now && record.fingerprint === payloadFingerprint
+        record.expiresAt >= now && record.fingerprint === payloadDigest
     )
 
     if (replayByKey) {
@@ -353,6 +521,24 @@ export const submitSignupEnvelope = mutation({
           }
         }
       }
+    }
+
+    // CR-07: an unexpired idempotency record for this key with a DIFFERENT
+    // fingerprint means the key was already consumed by another submission.
+    // The matching-fingerprint replay path above handles exact retries, so
+    // falling through here with a mismatched live record would insert a
+    // second order and a second idempotency row. Fail closed instead of
+    // creating a duplicate booking.
+    const conflictingKeyRecord = idempotencyRecords.find(
+      (record) =>
+        record.expiresAt >= now && record.fingerprint !== payloadDigest
+    )
+
+    if (conflictingKeyRecord) {
+      throwSubmissionError(
+        "SUBMISSION_CONFLICT",
+        "This idempotency key was already used for a different submission. Retry with a fresh key."
+      )
     }
 
     const event = await ctx.db.get(args.eventId)
@@ -410,6 +596,7 @@ export const submitSignupEnvelope = mutation({
     )
     const soldCountIncrements = new Map<Id<"ticketTypes">, number>()
     const attendeeKeyToTicketTypeId = new Map<string, Id<"ticketTypes">>()
+    const seenTicketSelectionKeys = new Set<string>()
 
     for (const selection of args.ticketSelections) {
       if (!attendeeKeySet.has(selection.attendeeKey)) {
@@ -418,6 +605,17 @@ export const submitSignupEnvelope = mutation({
           `Ticket selection references unknown attendee '${selection.attendeeKey}'.`
         )
       }
+
+      // Cardinality (CR-04): each attendee has exactly one ticket row.
+      // Duplicate rows previously overwrote the map while every row was still
+      // inserted and counted toward soldCount.
+      if (seenTicketSelectionKeys.has(selection.attendeeKey)) {
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          `Duplicate ticket selection for attendee '${selection.attendeeKey}'.`
+        )
+      }
+      seenTicketSelectionKeys.add(selection.attendeeKey)
 
       if (selection.quantity !== 1) {
         throwSubmissionError(
@@ -444,101 +642,202 @@ export const submitSignupEnvelope = mutation({
           "Selected ticket type is no longer selectable"
         )
       }
-    }
 
-    const eventSlots = await ctx.db
-      .query("accommodationSlots")
-      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
-      .take(1000)
-    const slotById = new Map(eventSlots.map((slot) => [slot._id, slot]))
-
-    const requestedAssignedSlotIds = new Set<string>()
-
-    for (const assignment of args.assignments) {
-      if (!attendeeKeySet.has(assignment.attendeeKey)) {
+      // CR-08/CR-10: enforce the configured capacity before any write using
+      // the exact same aggregate rule as the public quote. The increment for
+      // this ticket is accumulated across the whole selection list (each row
+      // is quantity = 1), so repeated ticketTypeId values count their full
+      // quantity against maxQuantity and a single envelope can never oversell
+      // a `maxQuantity` ticket even if its state was not separately flipped
+      // to unavailable. The check runs inside the mutation's transaction
+      // before any insert, so concurrent submissions are also serialized
+      // against it — `soldCount` can never exceed `maxQuantity`.
+      const incrementForTicket =
+        soldCountIncrements.get(selection.ticketTypeId) ?? 0
+      const requestedCountForTicket = incrementForTicket + 1
+      if (
+        isTicketCapacityExceeded({
+          ticket: ticketType,
+          requestedCount: requestedCountForTicket,
+        })
+      ) {
         throwSubmissionError(
-          "SUBMISSION_CONFLICT",
-          `Assignment references unknown attendee '${assignment.attendeeKey}'.`
+          "TICKET_UNAVAILABLE",
+          "Selected ticket type has reached its maximum quantity"
         )
       }
-
-      const slot = slotById.get(assignment.slotId)
-      if (!slot) {
-        throwSubmissionError(
-          "ASSIGNMENT_UNAVAILABLE",
-          "Assignment references an unknown accommodation slot"
-        )
-      }
-
-      if (assignment.assignmentIntent === "assign") {
-        if (!slot.isAssignable) {
-          throwSubmissionError(
-            "ASSIGNMENT_UNAVAILABLE",
-            "Selected accommodation slot is no longer assignable"
-          )
-        }
-
-        const slotKey = String(assignment.slotId)
-        if (requestedAssignedSlotIds.has(slotKey)) {
-          throwSubmissionError(
-            "SUBMISSION_CONFLICT",
-            "Submission contains duplicate assignment for the same slot"
-          )
-        }
-        requestedAssignedSlotIds.add(slotKey)
-      }
-    }
-
-    if (event.accommodationEnabled) {
-      const assignableSlotCount = eventSlots.filter(
-        (slot) => slot.isAssignable
-      ).length
-      const requestedTicketCount = args.ticketSelections.length
-
-      if (assignableSlotCount > 0) {
-        const eventSubmissions = await ctx.db
-          .query("orders")
-          .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
-          .take(500)
-
-        let existingTicketCount = 0
-        for (const submission of eventSubmissions) {
-          const existingSelections = await ctx.db
-            .query("orderTicketSelections")
-            .withIndex("by_orderId", (q) => q.eq("orderId", submission._id))
-            .take(500)
-          existingTicketCount += existingSelections.length
-        }
-
-        if (existingTicketCount + requestedTicketCount > assignableSlotCount) {
-          throwSubmissionError(
-            "CAPACITY_EXCEEDED",
-            "Ticket capacity exceeded for this event"
-          )
-        }
-      }
-    }
-
-    for (const assignment of args.assignments) {
-      if (assignment.assignmentIntent !== "assign") {
-        continue
-      }
-
-      const existingAssignments = await ctx.db
-        .query("orderAssignments")
-        .withIndex("by_slotId", (q) => q.eq("slotId", assignment.slotId))
-        .take(20)
-
-      const alreadyAssigned = existingAssignments.some(
-        (existingAssignment) => existingAssignment.assignmentIntent === "assign"
+      soldCountIncrements.set(
+        selection.ticketTypeId,
+        requestedCountForTicket
       )
 
-      if (alreadyAssigned) {
+      attendeeKeyToTicketTypeId.set(
+        selection.attendeeKey,
+        selection.ticketTypeId
+      )
+    }
+
+    // Every attendee must be ticketed exactly once (CR-04); otherwise a
+    // ticketless attendee row could be persisted without any ticket charge.
+    if (attendeeKeyToTicketTypeId.size !== attendeeKeySet.size) {
+      throwSubmissionError(
+        "SUBMISSION_CONFLICT",
+        "Every attendee must have exactly one ticket selection."
+      )
+    }
+
+    // Options-only contract (D-03): a new public submission never creates a
+    // room-slot placement. Any non-empty assignment list is rejected before a
+    // slot claim or assignment write can occur; historical assignment rows
+    // remain readable through restore payloads.
+    if (args.assignments.length > 0) {
+      throwSubmissionError(
+        "SUBMISSION_CONFLICT",
+        "Room-slot assignments are no longer accepted for public signup; accommodation is captured as options-only preferences."
+      )
+    }
+
+    // Validate every accommodation preference against the event and its
+    // attendee ticket using the exact same rule set as the public quote, so
+    // a stale or client-forged preference can never reach persistence.
+    const accommodationContext =
+      await loadPublicSignupAccommodationContext(ctx, args.eventId)
+
+    const selectionTicketById = new Map<string, Doc<"ticketTypes">>()
+    for (const ticketType of eventTicketTypes) {
+      selectionTicketById.set(String(ticketType._id), ticketType)
+    }
+    const selectionTicketCategoryById = await resolveTicketCategoryById(
+      ctx,
+      selectionTicketById
+    )
+
+    const resolvedAccommodationSelections = new Map<string, {
+      categoryId: Id<"accommodationCategories">
+      occupancy: "single" | "shared" | "family"
+      nightCount: number | null
+      nightBeforeLevel: "standard" | "superior" | null
+      nightBeforeOccupancy: "single" | "shared" | null
+      optionSelections: Array<{
+        optionKey: string
+        quantity: number
+        nights: number
+      }>
+    }>()
+    for (const preference of args.accommodationSelections) {
+      if (!attendeeKeySet.has(preference.attendeeKey)) {
         throwSubmissionError(
-          "CAPACITY_EXCEEDED",
-          "Selected room slot has already been claimed"
+          "SUBMISSION_CONFLICT",
+          `Accommodation preference references unknown attendee '${preference.attendeeKey}'.`
         )
       }
+      if (resolvedAccommodationSelections.has(preference.attendeeKey)) {
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          `Duplicate accommodation preference for attendee '${preference.attendeeKey}'.`
+        )
+      }
+
+      const ticketTypeId = attendeeKeyToTicketTypeId.get(
+        preference.attendeeKey
+      )
+      if (!ticketTypeId) {
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          `Accommodation preference attendee '${preference.attendeeKey}' has no ticket selection.`
+        )
+      }
+
+      // A present but unresolvable ticketTypes.roomTypeId fails closed
+      // (CR-02): the ticket must never be treated as unconstrained.
+      const ticketEntitlement = selectionTicketCategoryById.get(
+        String(ticketTypeId)
+      )
+      if (ticketEntitlement === null) {
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          "The selected ticket's room type is no longer available."
+        )
+      }
+      if (
+        ticketEntitlement?.occupancy &&
+        preference.occupancy !== ticketEntitlement.occupancy
+      ) {
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          "Occupancy is determined by the selected ticket."
+        )
+      }
+
+      let resolved: ReturnType<typeof resolvePublicSignupSelection>
+      try {
+        resolved = resolvePublicSignupSelection({
+          context: accommodationContext,
+          selection: {
+            categoryId: preference.categoryId
+              ? String(preference.categoryId)
+              : null,
+            occupancy: ticketEntitlement?.occupancy ?? preference.occupancy,
+            optionSelections: preference.optionSelections,
+            nightBeforeLevel: preference.nightBeforeLevel ?? null,
+            nightBeforeOccupancy: preference.nightBeforeOccupancy ?? null,
+            nights: preference.nights,
+          },
+        })
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Invalid accommodation selection"
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          message.replace(/^QUOTE_INVALID:\s*/, "")
+        )
+      }
+
+      if (!resolved.categoryId || !resolved.occupancy) {
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          "Accommodation preferences require an occupancy when the event offers configured accommodation."
+        )
+      }
+
+      resolvedAccommodationSelections.set(preference.attendeeKey, {
+        categoryId: resolved.categoryId as Id<"accommodationCategories">,
+        occupancy: resolved.occupancy,
+        nightCount: resolved.nightCount ?? null,
+        nightBeforeLevel: resolved.nightBeforeLevel,
+        nightBeforeOccupancy: resolved.nightBeforeOccupancy,
+        optionSelections: resolved.options,
+      })
+    }
+
+    // Cardinality contract (CR-03): a configured event needs exactly one
+    // validated preference per ticketed attendee (the preference-key set must
+    // equal the ticketed attendee-key set), and an unconfigured event accepts
+    // no preferences at all. This prevents a direct mutation call or a stale
+    // HTTP payload from persisting an order without its accommodation rows.
+    const ticketedAttendeeKeys = new Set(attendeeKeyToTicketTypeId.keys())
+    if (accommodationContext.hasConfiguredAccommodation) {
+      for (const attendeeKey of ticketedAttendeeKeys) {
+        if (!resolvedAccommodationSelections.has(attendeeKey)) {
+          throwSubmissionError(
+            "SUBMISSION_CONFLICT",
+            `Attendee '${attendeeKey}' has a ticket but no accommodation preference.`
+          )
+        }
+      }
+      for (const attendeeKey of resolvedAccommodationSelections.keys()) {
+        if (!ticketedAttendeeKeys.has(attendeeKey)) {
+          throwSubmissionError(
+            "SUBMISSION_CONFLICT",
+            `Accommodation preference attendee '${attendeeKey}' has no ticket selection.`
+          )
+        }
+      }
+    } else if (args.accommodationSelections.length > 0) {
+      throwSubmissionError(
+        "SUBMISSION_CONFLICT",
+        "This event does not offer configured accommodation; no accommodation preferences may be submitted."
+      )
     }
 
     const bookingRef = buildBookingRef({
@@ -601,10 +900,9 @@ export const submitSignupEnvelope = mutation({
         sortOrder,
       })
 
-      soldCountIncrements.set(
-        selection.ticketTypeId,
-        (soldCountIncrements.get(selection.ticketTypeId) ?? 0) + 1
-      )
+      // soldCountIncrements was fully precomputed during the CR-08 capacity
+      // validation pass above — it must not be mutated again here, or the
+      // capacity check and the persisted increments could disagree.
       attendeeKeyToTicketTypeId.set(
         selection.attendeeKey,
         selection.ticketTypeId
@@ -616,11 +914,20 @@ export const submitSignupEnvelope = mutation({
       if (!ticketTypeId) continue
 
       const ticketType = ticketTypeById.get(ticketTypeId)
-      const effectiveRoomTypeId =
-        ticketType?.roomTypeId ?? (event as any).defaultRoomTypeId
-      if (effectiveRoomTypeId) {
+      // Legacy entitlement metadata only for explicitly constrained tickets:
+      // `ticketTypes.roomTypeId` is the authoritative room entitlement. An
+      // unconstrained ticket has no physical-room entitlement — the validated
+      // category preference (orderAccommodationSelections.categoryId) carries
+      // that for allocation. Writing event.defaultRoomTypeId here made the
+      // dashboard suggest the event default for a buyer who picked a
+      // superior/family category (WR-05), so the event default must never be
+      // stored as if it were a placement hint.
+      const ticketEntitlement = ticketType
+        ? selectionTicketCategoryById.get(String(ticketType._id))
+        : undefined
+      if (ticketType?.roomTypeId && ticketEntitlement) {
         await ctx.db.patch(attendeeId, {
-          allocatedRoomTypeId: effectiveRoomTypeId,
+          allocatedRoomTypeId: ticketType.roomTypeId,
         })
       }
     }
@@ -637,22 +944,66 @@ export const submitSignupEnvelope = mutation({
       })
     }
 
-    for (const [sortOrder, assignment] of args.assignments.entries()) {
-      const attendeeId = attendeeIdsByKey.get(assignment.attendeeKey)
+    // Persist one unconfirmed accommodation-selection row per supplied
+    // attendee preference. Stay timestamps are server-resolved from the event
+    // configuration and nightCount is the validated buyer-chosen total nights
+    // (defaulted to the base stay); confirmedAt/configVersion/priceSnapshot
+    // stay absent so the Phase 40 canonical loader prices the rows live and
+    // Phase 41/44 owns confirmation. No orderAssignments row is ever created
+    // for an options-only request.
+    const eventConfig = accommodationContext.config
+    for (const preference of args.accommodationSelections) {
+      const attendeeId = attendeeIdsByKey.get(preference.attendeeKey)
       if (!attendeeId) {
         throwSubmissionError(
           "SUBMISSION_CONFLICT",
-          `Assignment attendee '${assignment.attendeeKey}' could not be resolved`
+          `Accommodation preference attendee '${preference.attendeeKey}' could not be resolved`
         )
       }
 
-      await ctx.db.insert("orderAssignments", {
+      const resolved = resolvedAccommodationSelections.get(
+        preference.attendeeKey
+      )
+      if (!resolved) {
+        throwSubmissionError(
+          "SUBMISSION_CONFLICT",
+          `Accommodation preference for '${preference.attendeeKey}' failed validation`
+        )
+      }
+
+      const selectionId = await ctx.db.insert("orderAccommodationSelections", {
         orderId: submissionId,
         attendeeId,
-        slotId: assignment.slotId,
-        assignmentIntent: assignment.assignmentIntent,
-        sortOrder,
+        // The server-resolved included-stay category (Standard for the divine
+        // event) is persisted for admin allocation; the buyer never supplied
+        // it and never sees a physical room choice.
+        categoryId: resolved.categoryId,
+        occupancy: resolved.occupancy,
+        checkInAt: eventConfig?.baseCheckInAt,
+        checkOutAt: eventConfig?.baseCheckOutAt,
+        // The derived total nights (base, or base + 1 with a night-before)
+        // are persisted so the canonical finance loader prices the charged
+        // nights beyond any ticket-covered base nights exactly as quoted.
+        nightCount: resolved.nightCount ?? undefined,
+        // The independent night-before level is persisted so the canonical
+        // loader can re-derive the Superior premium line exactly.
+        nightBeforeLevel: resolved.nightBeforeLevel ?? undefined,
+        nightBeforeOccupancy: resolved.nightBeforeOccupancy ?? undefined,
       })
+
+      // Persist one child row per selected option (optionKey + quantity +
+      // nights). The base selection row stores category/occupancy only.
+      for (const [sortOrder, optionSelection] of resolved.optionSelections.entries()) {
+        await ctx.db.insert("orderAccommodationOptionSelections", {
+          orderId: submissionId,
+          attendeeId,
+          selectionId,
+          optionKey: optionSelection.optionKey,
+          quantity: optionSelection.quantity,
+          nights: optionSelection.nights,
+          sortOrder,
+        })
+      }
     }
 
     const expiredRecordByKey = idempotencyRecords.find(
@@ -661,7 +1012,7 @@ export const submitSignupEnvelope = mutation({
 
     if (expiredRecordByKey) {
       await ctx.db.patch(expiredRecordByKey._id, {
-        fingerprint: payloadFingerprint,
+        fingerprint: payloadDigest,
         orderId: submissionId,
         expiresAt: now + IDEMPOTENCY_WINDOW_MS,
       })
@@ -669,7 +1020,7 @@ export const submitSignupEnvelope = mutation({
       await ctx.db.insert("orderIdempotency", {
         eventId: args.eventId,
         idempotencyKey,
-        fingerprint: payloadFingerprint,
+        fingerprint: payloadDigest,
         orderId: submissionId,
         expiresAt: now + IDEMPOTENCY_WINDOW_MS,
       })
@@ -688,10 +1039,17 @@ export const submitSignupEnvelope = mutation({
         })
         .catch(() => null)
 
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
       const roomAssignments = buildSignupConfirmationRoomAssignments(
         args.assignments
       )
+
+      // Booking-specific confirmation links prefill the reference and let the
+      // buyer verify ownership with the booking email in the manage form.
+      const trackPaymentUrl = `${appUrl.replace(/\/+$/, "")}/booking/${encodeURIComponent(
+        bookingRef
+      )}/manage`
 
       await ctx.scheduler.runAfter(
         0,
@@ -710,7 +1068,7 @@ export const submitSignupEnvelope = mutation({
           tikkieCurrency: event?.currency,
           attendeeCount: args.attendees.length,
           roomAssignments,
-          trackPaymentUrl: `${appUrl}/track-payment`,
+          trackPaymentUrl,
           successPageUrl: `${appUrl}/signup/success/${bookingRef}`,
         }
       )
@@ -752,6 +1110,29 @@ export const submitSignupEnvelope = mutation({
           slotId: String(assignment.slotId),
           assignmentIntent: assignment.assignmentIntent,
         })),
+        accommodationSelections: args.accommodationSelections.map(
+          (preference) => {
+            const resolved = resolvedAccommodationSelections.get(
+              preference.attendeeKey
+            )
+            return {
+              attendeeKey: preference.attendeeKey,
+              categoryId: resolved
+                ? String(resolved.categoryId)
+                : preference.categoryId
+                  ? String(preference.categoryId)
+                  : undefined,
+              occupancy: preference.occupancy,
+              // Restore the RESOLVED night count that was persisted (not the
+              // raw client value), so a replayed restore payload round-trips
+              // exactly what the order row holds.
+              nights: resolved?.nightCount ?? undefined,
+              nightBeforeLevel: resolved?.nightBeforeLevel ?? undefined,
+              nightBeforeOccupancy: resolved?.nightBeforeOccupancy ?? undefined,
+              optionSelections: preference.optionSelections,
+            }
+          }
+        ),
       },
     }
   },
@@ -767,7 +1148,6 @@ export const getByBookingRef = query({
       submissionId: v.id("orders"),
       bookingRef: v.optional(v.string()),
       bookerName: v.optional(v.string()),
-      bookerEmail: v.optional(v.string()),
       bookerPhone: v.optional(v.string()),
       eventId: v.optional(v.id("events")),
       eventSlug: v.optional(v.string()),
@@ -788,6 +1168,17 @@ export const getByBookingRef = query({
         })
       ),
       totalAmountMinor: v.optional(v.number()),
+      accommodationLines: v.array(
+        v.object({
+          kind: v.union(v.literal("accommodation"), v.literal("option")),
+          optionKey: v.optional(v.string()),
+          label: v.string(),
+          nights: v.number(),
+          quantity: v.optional(v.number()),
+          ratePerNightMinor: v.number(),
+          chargeMinor: v.number(),
+        })
+      ),
       ticketSelections: v.array(
         v.object({
           id: v.string(),
@@ -800,9 +1191,12 @@ export const getByBookingRef = query({
     })
   ),
   handler: async (ctx, args) => {
+    // Normalize the reference the same way the public tracking queries do, so
+    // a lower/mixed-case permalink resolves to the canonical order (CR-07).
+    const bookingRef = args.bookingRef.trim().toUpperCase()
     const submission = await ctx.db
       .query("orders")
-      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", args.bookingRef))
+      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", bookingRef))
       .first()
 
     if (!submission || !submission.eventId) {
@@ -847,11 +1241,17 @@ export const getByBookingRef = query({
       }
     })
 
-    // Calculate total amount
-    const totalAmountMinor = ticketSelections.reduce(
-      (sum, ts) => sum + ts.pricePerTicketMinor * ts.quantity,
-      0
+    // Canonical amount-due (tickets + accommodation) from the shared loader.
+    // The booking reference response must never recompute its own total.
+    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      [{ _id: submission._id }]
     )
+    const amountDueBreakdown = amountDueBreakdownsByOrderId.get(
+      String(submission._id)
+    )
+    const totalAmountMinor = amountDueBreakdown?.amountDueMinor ?? 0
+    const accommodationLines = amountDueBreakdown?.accommodationLines ?? []
 
     // Build attendee list with ticket info
     const attendees = attendeeRows.map((attendee) => {
@@ -958,7 +1358,6 @@ export const getByBookingRef = query({
       submissionId: submission._id,
       bookingRef: submission.bookingRef,
       bookerName: submission.bookerName,
-      bookerEmail: submission.bookerEmail,
       bookerPhone: submission.bookerPhone,
       eventId: submission.eventId,
       eventSlug,
@@ -966,6 +1365,7 @@ export const getByBookingRef = query({
       attendees: attendeesWithRooms,
       roomAssignments,
       totalAmountMinor,
+      accommodationLines,
       ticketSelections,
     }
   },

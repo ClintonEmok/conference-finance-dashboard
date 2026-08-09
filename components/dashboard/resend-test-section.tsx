@@ -57,8 +57,8 @@ export function ResendTestSection() {
       ],
       trackPaymentUrl:
         typeof window === "undefined"
-          ? "http://localhost:3000/track-payment"
-          : `${window.location.origin}/track-payment`,
+          ? "http://localhost:3000/booking"
+          : `${window.location.origin}/booking`,
       successPageUrl:
         typeof window === "undefined"
           ? "http://localhost:3000/dashboard/integrations"

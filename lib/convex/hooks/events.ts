@@ -3,8 +3,8 @@
 import { useQuery, useMutation } from "convex/react"
 import { api } from "@/lib/convex/api"
 
-export function useEvents() {
-  return useQuery(api.events.getEvents)
+export function useEvents(enabled = true) {
+  return useQuery(api.events.getEvents, enabled ? {} : "skip")
 }
 
 export function useEventsForLedger() {

@@ -1,28 +1,32 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { normalizePublicSignupCatalog } from "@/lib/domain/signup/catalog"
-import { usePublicSignupCatalogRaw } from "@/lib/convex/hooks/signup"
+import {
+  usePublicSignupCatalogRaw,
+  usePublicSignupAccommodationQuote,
+  type PublicSignupAccommodationQuote,
+  type PublicSignupQuoteRenderState,
+} from "@/lib/convex/hooks/signup"
 import {
   createInitialSignupDraft,
   deriveAttendeeDraftsFromTicketSelections,
   invalidateDownstreamForTicketChange,
-  invalidateDownstreamForRoomChange,
   SIGNUP_STEP_ORDER,
+  type AccommodationSelectionDraft,
   type SignupDraft,
   type SignupStep,
   type TicketSelectionDraft,
 } from "@/components/signup/state"
 import {
-  buildAssignmentBoard,
-  summarizeUnfilledBedsInAllocatedRooms,
-} from "@/components/signup/assignment"
+  eventHasConfiguredAccommodation,
+} from "@/components/signup/flow-rules"
 import { TicketStep } from "@/components/signup/steps/TicketStep"
-import { RoomAssignmentStep } from "@/components/signup/steps/RoomAssignmentStep"
+import { AccommodationOptionsStep } from "@/components/signup/steps/AccommodationOptionsStep"
 import { BuyerDetailsStep } from "@/components/signup/steps/BuyerDetailsStep"
 import { AttendeeDetailsStep } from "@/components/signup/steps/AttendeeDetailsStep"
 import { ReviewSubmitStep } from "@/components/signup/steps/ReviewSubmitStep"
@@ -34,7 +38,6 @@ import { SignupProgress } from "@/components/signup/SignupProgress"
 import { SignupNavigation } from "@/components/signup/SignupNavigation"
 import { SignupSummary } from "@/components/signup/SignupSummary"
 import { SignupHeader } from "@/components/signup/SignupHeader"
-import { shouldSkipRoomsStep } from "@/components/signup/flow-rules"
 import {
   validateSignupAttendees,
   validateSignupBooker,
@@ -46,6 +49,39 @@ import type { SignupSubmissionResult } from "@/lib/types/signup"
 
 type SignupFlowShellProps = {
   slug: string
+}
+
+function emptyAccommodationSelection(): AccommodationSelectionDraft {
+  return {
+    occupancy: "",
+    optionSelections: [],
+  }
+}
+
+function isQuoteResult(value: unknown): value is PublicSignupAccommodationQuote {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    "totalDueMinor" in (value as Record<string, unknown>) &&
+    "attendees" in (value as Record<string, unknown>)
+  )
+}
+
+function quoteErrorMessage(value: unknown): string | null {
+  if (!value || typeof value !== "object") {
+    return null
+  }
+  const record = value as Record<string, unknown>
+  if ("totalDueMinor" in record) {
+    return null
+  }
+  if (typeof record.message === "string") {
+    return record.message
+  }
+  if (record instanceof Error) {
+    return record.message
+  }
+  return null
 }
 
 export function SignupFlowShell({ slug }: SignupFlowShellProps) {
@@ -71,6 +107,15 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const [idempotencyKey] = useState(() => `signup-${Date.now()}`)
 
+  // Quote staleness: the quote query is only issued for a complete selection
+  // set; a rendered quote is only trusted when its signature matches the
+  // current draft selections.
+  const [quoteReadyForSignature, setQuoteReadyForSignature] = useState<
+    string | null
+  >(null)
+  const [quoteError, setQuoteError] = useState<string | null>(null)
+  const quoteSignatureRef = useRef<string | null>(null)
+
   // Use primitive values for stable effect dependencies
   const eventId = event?.eventId
   const sourceKind = event?.source?.kind
@@ -90,6 +135,10 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     setDraft(createInitialSignupDraft(eventId, sourceKind))
   }, [eventId, sourceKind])
 
+  const configuredAccommodation = event
+    ? eventHasConfiguredAccommodation(event)
+    : false
+
   // Memoized computed values - always called, but only computed when data is ready
   const currentStepIndex = useMemo(() => {
     if (!draft) return 0
@@ -103,26 +152,6 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       0
     )
   }, [draft?.ticketSelections])
-
-  const roomBoard = useMemo(() => {
-    if (!event || !draft) return null
-    return buildAssignmentBoard(
-      draft.attendees.map((attendee) => ({
-        attendeeId: attendee.attendeeKey,
-        name: attendee.name || `Attendee ${attendee.attendeeKey}`,
-      })),
-      event.accommodation.slots,
-      draft.assignments
-    )
-  }, [event?.accommodation?.slots, draft?.attendees, draft?.assignments])
-
-  const roomSummary = useMemo(() => {
-    if (!roomBoard || !draft) return { unfilledBeds: 0 }
-    return summarizeUnfilledBedsInAllocatedRooms(
-      roomBoard,
-      new Set(draft.attendees.map((attendee) => attendee.attendeeKey))
-    )
-  }, [roomBoard, draft?.attendees])
 
   const buyerValidationSnapshot = useMemo(
     () =>
@@ -140,10 +169,95 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     [draft?.attendees]
   )
 
-  const skipRooms = useMemo(() => {
-    if (!event || !draft) return false
-    return shouldSkipRoomsStep(event, draft.attendees)
-  }, [event, draft?.attendees])
+  // The quote hook receives only attendee keys, ticket IDs, ticket-resolved
+  // occupancy, option selections, and the independent night-before level —
+  // never client prices, dates, categories, room IDs, slot IDs, or totals.
+  const quoteAttendeeArgs = useMemo(() => {
+    if (!draft) return null
+    return draft.attendees.map((attendee) => {
+      const selection = draft.accommodationSelections[attendee.attendeeKey]
+      const ticket = event?.tickets.find(
+        (ticketType) => ticketType.ticketTypeId === attendee.ticketTypeId
+      )
+      return {
+        attendeeKey: attendee.attendeeKey,
+        ticketTypeId: attendee.ticketTypeId,
+        occupancy: (ticket?.occupancy ?? selection?.occupancy) || undefined,
+        // Omitted nightBeforeLevel means "no night before"; the server
+        // resolves the derived total stay and all money authoritatively.
+        nightBeforeLevel: selection?.nightBeforeLevel,
+        nightBeforeOccupancy: selection?.nightBeforeOccupancy,
+        optionSelections: selection?.optionSelections ?? [],
+      }
+    })
+  }, [draft?.attendees, draft?.accommodationSelections])
+
+  const quoteSignature = useMemo(
+    () => JSON.stringify(quoteAttendeeArgs),
+    [quoteAttendeeArgs]
+  )
+
+  const allAccommodationSelected = useMemo(() => {
+    if (!draft) return false
+    return draft.attendees.every((attendee) => {
+      const ticket = event?.tickets.find(
+        (ticketType) => ticketType.ticketTypeId === attendee.ticketTypeId
+      )
+      const selection = draft.accommodationSelections[attendee.attendeeKey]
+      return Boolean(ticket?.occupancy ?? selection?.occupancy)
+    })
+  }, [event?.tickets, draft?.attendees, draft?.accommodationSelections])
+
+  const shouldQueryQuote =
+    Boolean(eventId) &&
+    draft !== null &&
+    draft.attendees.length > 0 &&
+    (!configuredAccommodation || allAccommodationSelected)
+
+  const quoteResult = usePublicSignupAccommodationQuote(
+    eventId,
+    shouldQueryQuote ? quoteAttendeeArgs : null
+  )
+
+  useEffect(() => {
+    quoteSignatureRef.current = quoteSignature
+  }, [quoteSignature])
+
+  useEffect(() => {
+    if (quoteResult === undefined) {
+      return
+    }
+    const errorMessage = quoteErrorMessage(quoteResult)
+    if (errorMessage !== null) {
+      setQuoteReadyForSignature(null)
+      setQuoteError(errorMessage)
+      return
+    }
+    setQuoteReadyForSignature(quoteSignatureRef.current)
+    setQuoteError(null)
+  }, [quoteResult, quoteSignature])
+
+  const quoteRenderState: PublicSignupQuoteRenderState = (() => {
+    if (quoteError) {
+      return { status: "error", message: quoteError }
+    }
+    if (configuredAccommodation && !allAccommodationSelected) {
+      return { status: "incomplete" }
+    }
+    if (
+      quoteResult === undefined ||
+      quoteReadyForSignature !== quoteSignature ||
+      !isQuoteResult(quoteResult)
+    ) {
+      // For an unconfigured event the server ticket-only quote is still
+      // loading; show the honest unconfigured copy until it arrives, then
+      // flip to ready (CR-05). No fabricated zero totals are rendered.
+      return {
+        status: !configuredAccommodation ? "unconfigured" : "loading",
+      }
+    }
+    return { status: "ready", quote: quoteResult }
+  })()
 
   useEffect(() => {
     if (draft?.step !== "review") {
@@ -156,32 +270,25 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       return {
         tickets: false,
         buyer: false,
-        rooms: false,
         attendees: false,
+        accommodation: false,
         review: false,
       }
     }
     return {
       tickets: totalSelectedTickets > 0,
       buyer: buyerValidationSnapshot.isValid,
-      rooms:
-        skipRooms ||
-        !event.accommodation.eligible ||
-        roomSummary.unfilledBeds === 0 ||
-        draft.acknowledgeRandomFill,
-      attendees:
-        draft.attendees.length > 0 && attendeeValidationSnapshot.isValid,
+      attendees: draft.attendees.length > 0 && attendeeValidationSnapshot.isValid,
+      accommodation: !configuredAccommodation || allAccommodationSelected,
       review: false,
     }
   }, [
-    draft?.acknowledgeRandomFill,
     draft?.attendees?.length,
-    event?.accommodation?.eligible,
+    configuredAccommodation,
+    allAccommodationSelected,
     buyerValidationSnapshot.isValid,
     attendeeValidationSnapshot.isValid,
-    roomSummary.unfilledBeds,
     totalSelectedTickets,
-    skipRooms,
   ])
 
   // Early returns after all hooks are called
@@ -292,24 +399,16 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       return
     }
 
-    let nextIndex = Math.min(currentStepIndex + 1, SIGNUP_STEP_ORDER.length - 1)
-
-    // Skip rooms step when all attendees have an effective room type
-    if (skipRooms && SIGNUP_STEP_ORDER[currentStepIndex] === "attendees") {
-      nextIndex = SIGNUP_STEP_ORDER.indexOf("review")
-    }
+    const nextIndex = Math.min(
+      currentStepIndex + 1,
+      SIGNUP_STEP_ORDER.length - 1
+    )
 
     moveToStep(SIGNUP_STEP_ORDER[nextIndex])
   }
 
   function moveBack() {
-    let previousIndex = Math.max(currentStepIndex - 1, 0)
-
-    // Skip rooms step when all attendees have an effective room type
-    if (skipRooms && SIGNUP_STEP_ORDER[currentStepIndex] === "review") {
-      previousIndex = SIGNUP_STEP_ORDER.indexOf("attendees")
-    }
-
+    const previousIndex = Math.max(currentStepIndex - 1, 0)
     moveToStep(SIGNUP_STEP_ORDER[previousIndex])
   }
 
@@ -324,6 +423,8 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
           selectable: ticket.selectable,
           reason: ticket.reason,
           roomTypeId: ticket.roomTypeId,
+          roomTypeCategoryId: ticket.roomTypeCategoryId,
+          occupancy: ticket.occupancy,
         }))
 
   function handleTicketSelectionsChange(
@@ -353,30 +454,33 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
     })
   }
 
-  function handleRoomAssignmentsChange(
-    nextAssignments: Record<string, string>
+  function handleAccommodationSelectionChange(
+    attendeeKey: string,
+    patch: Partial<AccommodationSelectionDraft>
   ) {
-    setAttendeeValidation(null)
     setSubmitResult(null)
     setSubmitError(null)
     setCaptchaToken(null)
-    setDraft((current) =>
-      current
-        ? invalidateDownstreamForRoomChange(current, nextAssignments)
-        : current
-    )
-  }
+    setDraft((current) => {
+      if (!current) {
+        return current
+      }
 
-  function handleAcknowledgeRandomFill(checked: boolean) {
-    setCaptchaToken(null)
-    setDraft((current) =>
-      current
-        ? {
-            ...current,
-            acknowledgeRandomFill: checked,
-          }
-        : current
-    )
+      const existing =
+        current.accommodationSelections[attendeeKey] ??
+        emptyAccommodationSelection()
+
+      return {
+        ...current,
+        accommodationSelections: {
+          ...current.accommodationSelections,
+          [attendeeKey]: {
+            ...existing,
+            ...patch,
+          },
+        },
+      }
+    })
   }
 
   function handleAttendeeChange(
@@ -458,6 +562,19 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       return
     }
 
+    // The quote is the only pricing authority: submission is blocked until a
+    // fresh valid server quote exists for the current selections.
+    if (quoteRenderState.status !== "ready") {
+      setSubmitError({
+        code: "SUBMISSION_CONFLICT",
+        message:
+          quoteRenderState.status === "incomplete"
+            ? "Complete the accommodation selections to see your live quote before submitting."
+            : "Your live quote is not ready yet. Please wait or review your selections.",
+      })
+      return
+    }
+
     if (!captchaToken) {
       setSubmitError({
         code: "CAPTCHA_REQUIRED",
@@ -500,10 +617,10 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
       ? "Tickets"
       : activeDraft.step === "buyer"
         ? "Your Details"
-        : activeDraft.step === "rooms"
-          ? "Room Preferences"
-          : activeDraft.step === "attendees"
-            ? "Attendee details"
+        : activeDraft.step === "attendees"
+          ? "Attendee details"
+          : activeDraft.step === "accommodation"
+            ? "Accommodation options"
             : "Review & submit"
 
   return (
@@ -529,7 +646,6 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                 completedByStep={completedByStep}
                 onStepClick={moveToStep}
                 canAccessStep={canAccessStep}
-                skipRooms={skipRooms}
               />
             </CardHeader>
           </Card>
@@ -541,7 +657,11 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <SignupSummary event={activeEvent} draft={activeDraft} />
+              <SignupSummary
+                event={activeEvent}
+                draft={activeDraft}
+                quote={quoteRenderState}
+              />
             </CardContent>
           </Card>
         </div>
@@ -592,29 +712,6 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                   </div>
                 )}
 
-                {activeDraft.step === "rooms" && (
-                  <div className="space-y-6">
-                    <RoomAssignmentStep
-                      event={activeEvent}
-                      attendees={activeDraft.attendees}
-                      assignments={activeDraft.assignments}
-                      acknowledgeRandomFill={activeDraft.acknowledgeRandomFill}
-                      onAssignmentChange={handleRoomAssignmentsChange}
-                      onAcknowledgeRandomFillChange={
-                        handleAcknowledgeRandomFill
-                      }
-                    />
-                    {activeEvent.accommodation.eligible &&
-                      roomSummary.unfilledBeds > 0 &&
-                      !activeDraft.acknowledgeRandomFill && (
-                        <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
-                          Acknowledge random-fill risk or assign all beds before
-                          continuing.
-                        </div>
-                      )}
-                  </div>
-                )}
-
                 {activeDraft.step === "attendees" && (
                   <AttendeeDetailsStep
                     attendees={activeDraft.attendees}
@@ -623,15 +720,37 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                   />
                 )}
 
+                {activeDraft.step === "accommodation" && (
+                  <div className="space-y-6">
+                    <AccommodationOptionsStep
+                      event={activeEvent}
+                      attendees={activeDraft.attendees}
+                      accommodationSelections={activeDraft.accommodationSelections}
+                      onChange={handleAccommodationSelectionChange}
+                    />
+                    {configuredAccommodation &&
+                      !allAccommodationSelected && (
+                        <div
+                          role="alert"
+                          className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive"
+                        >
+                          Select an occupancy (Single or Shared) for every
+                          attendee to continue.
+                        </div>
+                      )}
+                  </div>
+                )}
+
                 {activeDraft.step === "review" && (
                   <ReviewSubmitStep
                     draft={activeDraft}
+                    currency={activeEvent.currency}
+                    quote={quoteRenderState}
                     submitResult={submitResult}
                     submitError={submitError}
                     isSubmitting={isSubmitting}
                     captchaToken={captchaToken}
                     onCaptchaTokenChange={handleCaptchaTokenChange}
-                    skipRooms={skipRooms}
                   />
                 )}
 
@@ -642,7 +761,14 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                   totalSteps={SIGNUP_STEP_ORDER.length}
                   canProceed={
                     completedByStep[activeDraft.step] ||
-                    (activeDraft.step === "review" && Boolean(captchaToken))
+                    (activeDraft.step === "review" &&
+                      captchaToken !== null &&
+                      // The review button stays gated on a fresh server quote
+                      // (WR-03): an incomplete/loading/invalid quote must not
+                      // offer an apparently valid submit action. Unconfigured
+                      // events flip to ready once their ticket-only quote
+                      // arrives (CR-05).
+                      quoteRenderState.status === "ready")
                   }
                   onBack={moveBack}
                   onNext={
@@ -666,7 +792,11 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <SignupSummary event={activeEvent} draft={activeDraft} />
+              <SignupSummary
+                event={activeEvent}
+                draft={activeDraft}
+                quote={quoteRenderState}
+              />
             </CardContent>
           </Card>
         </div>

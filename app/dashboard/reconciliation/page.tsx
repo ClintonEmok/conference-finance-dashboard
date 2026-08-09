@@ -1,8 +1,10 @@
 "use client"
 
 import { useEffect, useMemo } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useEventsForLedger } from "@/lib/convex/hooks/events"
 
@@ -23,9 +25,14 @@ export default function ReconciliationBridgePage() {
   }, [router, targetHref])
 
   return (
-    <div className="space-y-4">
-      <Skeleton className="h-20 w-full rounded-2xl" />
-      <Skeleton className="h-96 w-full rounded-2xl" />
+    <div className="rounded-2xl border border-border/50 bg-card/40 p-10 text-center">
+      <h1 className="text-2xl font-bold">No events yet</h1>
+      <p className="mt-2 text-muted-foreground">
+        Create an event before using reconciliation.
+      </p>
+      <Button asChild className="mt-6 rounded-xl">
+        <Link href="/dashboard">Go to dashboard</Link>
+      </Button>
     </div>
   )
 }

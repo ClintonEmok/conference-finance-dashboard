@@ -52,7 +52,8 @@ export function EmailTikkieSection({
           ? `Please complete your payment of ${formatCurrency(amountMinor, currency)} for ${eventName} using the link below.`
           : `Please complete your payment for ${eventName} using the link below. You can pay any amount that covers your booking.`}
       </Text>
-      <Button
+        <Button
+          className="email-button-primary"
         href={tikkieUrl}
         style={{
           backgroundColor: "#0f172a",
@@ -61,22 +62,13 @@ export function EmailTikkieSection({
           textDecoration: "none",
           borderRadius: "10px",
           display: "inline-block",
-          marginTop: "16px",
+          margin: "16px 8px 0",
           fontSize: "14px",
           fontWeight: "600",
         }}
       >
         Pay Now
       </Button>
-      <Text
-        style={{
-          marginTop: "12px",
-          fontSize: "12px",
-          color: "#475569",
-        }}
-      >
-        Or copy this link: {tikkieUrl}
-      </Text>
     </Section>
   )
 }

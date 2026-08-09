@@ -7,7 +7,7 @@ import {
   ReceiptText,
   WalletCards,
 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
 
 import { Button } from "@/components/ui/button"
@@ -27,6 +27,7 @@ type RevenueResponse = {
     paidMinor: number
     refundedMinor: number
     netMinor: number
+    standaloneDonationMinor: number
   }
   statusCounts: {
     paid: number
@@ -40,6 +41,7 @@ type BalanceResponse = {
   totals: {
     rows: number
     outstandingMinor: number
+    standaloneDonationMinor: number
   }
   availableEvents: Array<{
     eventId: string
@@ -71,8 +73,8 @@ function FinancialSkeleton() {
             <Skeleton className="h-10 w-28 rounded-xl" />
           </div>
         </div>
-        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
+        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {[1, 2, 3, 4, 5].map((i) => (
             <Skeleton key={i} className="h-32 rounded-2xl" />
           ))}
         </div>
@@ -89,24 +91,21 @@ function FinancialSkeleton() {
 export default function FinancialPage() {
   const [revenue, setRevenue] = useState<RevenueResponse | null>(null)
   const [balances, setBalances] = useState<BalanceResponse | null>(null)
-  const [events, setEvents] = useState<
-    Array<{ eventId: string; title: string | null }>
-  >([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     const to = new Date().toISOString()
     const fromDate = new Date()
     fromDate.setDate(fromDate.getDate() - 30)
     const from = fromDate.toISOString()
 
-    async function load() {
-      setIsLoading(true)
-      setErrorMessage(null)
+    setIsLoading(true)
+    setErrorMessage(null)
 
-      try {
-        const [revenueResponse, balancesResponse] = await Promise.all([
+    try {
+      const [revenueResponse, balancesResponse] =
+        await Promise.all([
           fetch(
             `/api/dashboard/revenue?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
           ),
@@ -115,24 +114,24 @@ export default function FinancialPage() {
           ),
         ])
 
-        if (!revenueResponse.ok || !balancesResponse.ok) {
-          setErrorMessage("Unable to load the financial workspace right now.")
-          return
-        }
-
-        setRevenue((await revenueResponse.json()) as RevenueResponse)
-        const balancesData = (await balancesResponse.json()) as BalanceResponse
-        setBalances(balancesData)
-        setEvents(balancesData.availableEvents ?? [])
-      } catch {
-        setErrorMessage("Network error while loading the financial workspace.")
-      } finally {
-        setIsLoading(false)
+      if (!revenueResponse.ok || !balancesResponse.ok) {
+        setErrorMessage("Unable to load the financial workspace right now.")
+        return
       }
-    }
 
-    void load()
+      setRevenue((await revenueResponse.json()) as RevenueResponse)
+      const balancesData = (await balancesResponse.json()) as BalanceResponse
+      setBalances(balancesData)
+    } catch {
+      setErrorMessage("Network error while loading the financial workspace.")
+    } finally {
+      setIsLoading(false)
+    }
   }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
 
   const portfolio = useMemo(() => {
     if (!balances) return []
@@ -232,7 +231,7 @@ export default function FinancialPage() {
           </div>
         </div>
 
-        <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {[
             {
               label: "Order value",
@@ -251,6 +250,15 @@ export default function FinancialPage() {
                 ? `${revenue.statusCounts.refunded} refunded`
                 : "Final liquidity",
               trend: "stable",
+            },
+            {
+              label: "Donations",
+              value: revenue
+                ? formatMoney(revenue.totals.standaloneDonationMinor)
+                : "--",
+              sub: "Tracked within each event",
+              trend: "up",
+              isDonation: true,
             },
             {
               label: "Outstanding",
@@ -276,12 +284,14 @@ export default function FinancialPage() {
               key={card.label}
               className={`group overflow-hidden rounded-2xl border transition-all hover:scale-[1.02] ${card.isWarning
                 ? "border-orange-500/20 bg-orange-500/5 shadow-[0_8px_30px_rgb(249,115,22,0.08)]"
-                : "border-[rgba(113,84,255,0.3)] bg-[linear-gradient(145deg,rgba(113,84,255,0.05),rgba(113,84,255,0.02))] shadow-sm"
+                : card.isDonation
+                  ? "border-emerald-500/20 bg-emerald-500/5 shadow-[0_8px_30px_rgb(16,185,129,0.08)]"
+                  : "border-[rgba(113,84,255,0.3)] bg-[linear-gradient(145deg,rgba(113,84,255,0.05),rgba(113,84,255,0.02))] shadow-sm"
                 } p-6`}
             >
               <div className="flex items-center justify-between">
                 <p
-                  className={`text-[10px] font-bold tracking-[0.2em] uppercase ${card.isWarning ? "text-orange-600/70" : "text-primary/70"}`}
+                  className={`text-[10px] font-bold tracking-[0.2em] uppercase ${card.isWarning ? "text-orange-600/70" : card.isDonation ? "text-emerald-600/70" : "text-primary/70"}`}
                 >
                   {card.label}
                 </p>
@@ -291,7 +301,7 @@ export default function FinancialPage() {
               </p>
               <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
                 <span
-                  className={`size-1.5 rounded-full ${card.isWarning ? "bg-orange-500" : "bg-primary"}`}
+                  className={`size-1.5 rounded-full ${card.isWarning ? "bg-orange-500" : card.isDonation ? "bg-emerald-500" : "bg-primary"}`}
                 />
                 {card.sub}
               </p>

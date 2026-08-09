@@ -27,6 +27,10 @@ const eventFixture: PublicSignupCatalogEvent = {
   accommodation: {
     eligible: true,
     reason: null,
+    config: null,
+    activeCategories: [],
+    options: [],
+    nightBefore: null,
     slots: [
       {
         slotId: "slot-a",

@@ -8,6 +8,7 @@ export type OrderLedgerFilters = {
   from?: Date | string | null
   to?: Date | string | null
   status?: CanonicalOrderStatus | null
+  location?: string | null
   page?: number
   pageSize?: number
 }
@@ -34,9 +35,10 @@ export type OrderLedgerResult = {
   generatedAt: string
   filters: {
     eventId: string | null
-    from: string
-    to: string
+    from: string | null
+    to: string | null
     status: CanonicalOrderStatus | null
+    location: string | null
     page: number
     pageSize: number
   }
@@ -53,10 +55,14 @@ export type OrderLedgerResult = {
     totalRows: number
     totalPages: number
   }
+  totals: {
+    amountDueMinor: number
+    matchedAmountMinor: number
+    outstandingAmountMinor: number
+  }
   rows: OrderLedgerRow[]
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_PAGE = 1
 const DEFAULT_PAGE_SIZE = 25
 const MAX_PAGE_SIZE = 200
@@ -79,12 +85,17 @@ function parseDate(
 }
 
 function normalizeRange(filters: OrderLedgerFilters) {
-  const now = new Date()
-  const to = parseDate(filters.to, "to") ?? now
-  const from =
-    parseDate(filters.from, "from") ?? new Date(to.getTime() - 29 * DAY_MS)
+  const to = parseDate(filters.to, "to")
+  const from = parseDate(filters.from, "from")
 
-  if (from.getTime() > to.getTime()) {
+  if (!from && !to) {
+    return { from: null, to: null }
+  }
+
+  const rangeFrom = from ?? new Date(0)
+  const rangeTo = to ?? new Date()
+
+  if (rangeFrom.getTime() > rangeTo.getTime()) {
     throw new Error(
       "Invalid date range. 'from' must be less than or equal to 'to'."
     )
@@ -129,11 +140,15 @@ export async function getOrderLedger(
       ? filters.eventId.trim()
       : null
   const status = filters.status ?? null
+  const location =
+    typeof filters.location === "string" && filters.location.trim()
+      ? filters.location.trim()
+      : null
   const { from, to } = normalizeRange(filters)
   const { page, pageSize } = normalizePagination(filters.page, filters.pageSize)
 
-  const fromMs = from.getTime()
-  const toMs = to.getTime()
+  const fromMs = from?.getTime()
+  const toMs = to?.getTime()
 
   const [ordersResult, availableEvents] = await Promise.all([
     convexQuery(api.orders.getOrdersWithFilters, {
@@ -141,19 +156,29 @@ export async function getOrderLedger(
       from: fromMs,
       to: toMs,
       status: status ?? undefined,
+      location: location ?? undefined,
       page,
       pageSize,
     }),
     convexQuery(api.events.getEventsForLedger, {}),
   ])
 
+  const typedOrdersResult = ordersResult as typeof ordersResult & {
+    totals: {
+      amountDueMinor: number
+      matchedAmountMinor: number
+      outstandingAmountMinor: number
+    }
+  }
+
   return {
     generatedAt: new Date().toISOString(),
     filters: {
       eventId,
-      from: from.toISOString(),
-      to: to.toISOString(),
+      from: from ? from.toISOString() : null,
+      to: to ? to.toISOString() : null,
       status,
+      location,
       page,
       pageSize,
     },
@@ -170,6 +195,7 @@ export async function getOrderLedger(
       totalRows: ordersResult.totalRows,
       totalPages: ordersResult.totalPages,
     },
+    totals: typedOrdersResult.totals,
     rows: ordersResult.orders.map((row) => {
       const typedRow = row as typeof row & {
         amountDueMinor?: number | null

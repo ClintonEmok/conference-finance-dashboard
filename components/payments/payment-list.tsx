@@ -22,6 +22,7 @@ type PaymentMatchStatus =
   | "ambiguous"
   | "manual_assignment"
   | "auto_matched"
+  | "donation"
 
 type Payment = {
   id: string
@@ -121,6 +122,15 @@ function StatusBadge({ status }: { status: PaymentMatchStatus }) {
           className="h-6 rounded-lg border-emerald-500/20 bg-emerald-500/5 text-[10px] font-bold tracking-widest text-emerald-600 uppercase"
         >
           Auto
+        </Badge>
+      )
+    case "donation":
+      return (
+        <Badge
+          variant="outline"
+          className="h-6 rounded-lg border-amber-500/20 bg-amber-500/5 text-[10px] font-bold tracking-widest text-amber-600 uppercase"
+        >
+          Donation
         </Badge>
       )
   }

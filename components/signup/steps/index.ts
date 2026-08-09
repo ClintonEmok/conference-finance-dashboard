@@ -1,6 +1,6 @@
+export { AccommodationOptionsStep } from "./AccommodationOptionsStep"
 export { AttendeeDetailsStep } from "./AttendeeDetailsStep"
 export type { SignupAttendeeValidationSummary as AttendeeValidationSummary } from "@/components/signup/validation"
 export { BuyerDetailsStep } from "./BuyerDetailsStep"
 export { ReviewSubmitStep } from "./ReviewSubmitStep"
-export { RoomAssignmentStep } from "./RoomAssignmentStep"
 export { TicketStep } from "./TicketStep"

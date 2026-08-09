@@ -123,7 +123,7 @@ function PieCard({
   )
 }
 
-export function ReportCharts({ report }: { report: StakeholderReport }) {
+export function ReportCharts({ report, hideLocation }: { report: StakeholderReport; hideLocation?: boolean }) {
   const byLocation = report.slices.byLocation ?? []
   const byGender = report.slices.byGender ?? []
   const byTicketType = report.slices.byTicketType ?? []
@@ -154,13 +154,15 @@ export function ReportCharts({ report }: { report: StakeholderReport }) {
           centerLabel="PEOPLE"
           formatValue={(value) => value.toLocaleString()}
         />
-        <PieCard
-          title="Location mix"
-          description="Top locations by individual count, with the remainder grouped into other."
-          slices={locationSlices}
-          centerLabel="PEOPLE"
-          formatValue={(value) => value.toLocaleString()}
-        />
+        {!hideLocation && (
+          <PieCard
+            title="Location mix"
+            description="Top locations by individual count, with the remainder grouped into other."
+            slices={locationSlices}
+            centerLabel="PEOPLE"
+            formatValue={(value) => value.toLocaleString()}
+          />
+        )}
         <PieCard
           title="Ticket types"
           description="Distribution of attendee counts by ticket type label."

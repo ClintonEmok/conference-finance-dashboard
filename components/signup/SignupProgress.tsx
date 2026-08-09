@@ -10,14 +10,13 @@ type SignupProgressProps = {
   completedByStep: Record<SignupStep, boolean>
   onStepClick: (step: SignupStep) => void
   canAccessStep: (step: SignupStep) => boolean
-  skipRooms?: boolean
 }
 
 const STEP_LABELS: Record<SignupStep, string> = {
   tickets: "Ticket Selection",
   buyer: "Contact Details",
   attendees: "Attendee Info",
-  rooms: "Room Preferences",
+  accommodation: "Accommodation options",
   review: "Review & Submit",
 }
 
@@ -26,23 +25,17 @@ export function SignupProgress({
   completedByStep,
   onStepClick,
   canAccessStep,
-  skipRooms = false,
 }: SignupProgressProps) {
   const currentStepIndex = SIGNUP_STEP_ORDER.indexOf(currentStep)
-
-  const visibleSteps = SIGNUP_STEP_ORDER.filter(
-    (step) => step !== "rooms" || !skipRooms
-  )
 
   return (
     <nav aria-label="Signup Progress" className="w-full">
       <div className="flex gap-4 overflow-x-auto pb-4 md:flex-col md:overflow-visible md:pb-0">
-        {visibleSteps.map((step, index) => {
+        {SIGNUP_STEP_ORDER.map((step, index) => {
           const isActive = currentStep === step
-          const originalIndex = SIGNUP_STEP_ORDER.indexOf(step)
           const isComplete =
-            completedByStep[step] && originalIndex < currentStepIndex
-          const isUpcoming = originalIndex > currentStepIndex
+            completedByStep[step] && index < currentStepIndex
+          const isUpcoming = index > currentStepIndex
           const label = STEP_LABELS[step]
           const isDisabled = !canAccessStep(step)
 
@@ -83,7 +76,7 @@ export function SignupProgress({
                     </span>
                   )}
                 </div>
-                {index < visibleSteps.length - 1 && (
+                {index < SIGNUP_STEP_ORDER.length - 1 && (
                   <div
                     className={cn(
                       "mt-1 hidden h-8 w-[2px] rounded-full transition-colors duration-300 md:block",

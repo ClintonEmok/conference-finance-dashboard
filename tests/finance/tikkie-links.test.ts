@@ -142,6 +142,11 @@ describe("tikkie-links domain", () => {
     expect(convexQuery).toHaveBeenNthCalledWith(1, api.orders.getOrderById, {
       orderId: "order_1",
     })
+    // The provider request must use the flexible zero amount, never the
+    // client-supplied or canonical total.
+    expect(createPaymentRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ amountInCents: 0 })
+    )
     expect(convexMutation).toHaveBeenCalledWith(api.tikkie.createPaymentLink, {
       providerOrderId: "ORD-1",
       providerEventId: "event_1",
@@ -149,7 +154,7 @@ describe("tikkie-links domain", () => {
       paymentRequestToken: "token_1",
       paymentRequestUrl: "https://example.com/link",
       providerStatus: "OPEN",
-      amountMinor: 1200,
+      amountMinor: 0,
       description: "Order ORD-1",
       expiryDate: expect.any(Number),
       referenceId: undefined,
@@ -158,5 +163,104 @@ describe("tikkie-links domain", () => {
         paymentRequestToken: "token_1",
       }),
     })
+    // The returned link retains the flexible zero amount.
+    expect(result.link.amountMinor).toBe(0)
+  })
+
+  it("accepts amountMinor 0 and keeps 0 on the provider request, mutation and returned link", async () => {
+    vi.mocked(convexQuery)
+      .mockResolvedValueOnce({
+        _id: "order_1",
+        providerOrderId: "ORD-1",
+        providerEventId: "event_1",
+      })
+      .mockResolvedValueOnce([])
+
+    vi.mocked(createPaymentRequest).mockResolvedValue({
+      status: "OPEN",
+      paymentRequestToken: "token_1",
+      url: "https://example.com/link",
+    } as never)
+
+    vi.mocked(convexMutation).mockResolvedValue("link_1")
+
+    const result = await createTikkiePaymentLink({
+      orderId: "order_1",
+      providerOrderId: "ORD-1",
+      providerEventId: "event_1",
+      amountMinor: 0,
+      description: "Order ORD-1",
+      expiryDate: baseLink().expiryDate,
+      referenceId: null,
+    })
+
+    expect(createPaymentRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ amountInCents: 0 })
+    )
+    expect(convexMutation).toHaveBeenCalledWith(
+      api.tikkie.createPaymentLink,
+      expect.objectContaining({ amountMinor: 0 })
+    )
+    expect(result.link.amountMinor).toBe(0)
+    expect(result.created).toBe(true)
+  })
+
+  it("never lets the client-supplied total determine the created link amount", async () => {
+    vi.mocked(convexQuery)
+      .mockResolvedValueOnce({
+        _id: "order_1",
+        providerOrderId: "ORD-1",
+        providerEventId: "event_1",
+      })
+      .mockResolvedValueOnce([])
+
+    vi.mocked(createPaymentRequest).mockResolvedValue({
+      status: "OPEN",
+      paymentRequestToken: "token_1",
+      url: "https://example.com/link",
+    } as never)
+
+    vi.mocked(convexMutation).mockResolvedValue("link_1")
+
+    // A large client-supplied amount is validated as a non-negative integer
+    // but the flexible zero is what reaches the provider and the mutation.
+    await createTikkiePaymentLink({
+      orderId: "order_1",
+      providerOrderId: "ORD-1",
+      providerEventId: "event_1",
+      amountMinor: 999999,
+      description: "Order ORD-1",
+      expiryDate: baseLink().expiryDate,
+      referenceId: null,
+    })
+
+    expect(createPaymentRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ amountInCents: 0 })
+    )
+    expect(convexMutation).toHaveBeenCalledWith(
+      api.tikkie.createPaymentLink,
+      expect.objectContaining({ amountMinor: 0 })
+    )
+  })
+
+  it("rejects negative amounts even though zero is the flexible link amount", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce({
+      _id: "order_1",
+      providerOrderId: "ORD-1",
+      providerEventId: "event_1",
+    })
+
+    await expect(
+      createTikkiePaymentLink({
+        orderId: "order_1",
+        providerOrderId: "ORD-1",
+        providerEventId: "event_1",
+        amountMinor: -100,
+        description: "Order ORD-1",
+        expiryDate: baseLink().expiryDate,
+        referenceId: null,
+      })
+    ).rejects.toThrow(/non-negative integer/)
+    expect(createPaymentRequest).not.toHaveBeenCalled()
   })
 })

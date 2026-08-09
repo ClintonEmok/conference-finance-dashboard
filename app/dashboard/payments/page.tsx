@@ -30,6 +30,7 @@ type PaymentMatchStatus =
   | "ambiguous"
   | "manual_assignment"
   | "auto_matched"
+  | "donation"
 
 type PaymentSummary = {
   summary: {

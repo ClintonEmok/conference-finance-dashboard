@@ -77,9 +77,9 @@ function parseOptionalString(value: unknown, fieldName: string) {
 }
 
 function parseAmountMinor(value: unknown) {
-  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
     throw new Error(
-      "Invalid 'amountMinor'. Expected a positive integer in cents."
+      "Invalid 'amountMinor'. Expected a non-negative integer in cents (0 = flexible installment link)."
     )
   }
 

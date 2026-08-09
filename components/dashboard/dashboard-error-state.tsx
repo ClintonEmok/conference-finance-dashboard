@@ -1,8 +1,8 @@
 "use client"
 
-import { AlertTriangle, RefreshCcw } from "lucide-react"
+import { AlertTriangle } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
+import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 
 type DashboardErrorStateProps = {
   error: Error & { digest?: string }
@@ -20,15 +20,12 @@ export function DashboardErrorState({
           <AlertTriangle className="size-7" />
         </div>
 
-        <div className="space-y-2">
-          <h2 className="text-lg font-bold tracking-tight text-foreground">
-            Something went wrong
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            This section could not be loaded. You can try again or navigate to a
-            different section from the sidebar.
-          </p>
-        </div>
+        <DashboardQueryState
+          state="error"
+          title="Something went wrong"
+          message="This section could not be loaded. You can try again or navigate to a different section from the sidebar."
+          onRetry={reset}
+        />
 
         {error?.message && (
           <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-left">
@@ -41,13 +38,6 @@ export function DashboardErrorState({
           </div>
         )}
 
-        <Button
-          onClick={reset}
-          className="gap-2 rounded-lg bg-[linear-gradient(135deg,#7154ff,#5238aa)] text-white shadow-lg shadow-primary/20 hover:opacity-90"
-        >
-          <RefreshCcw className="size-4" />
-          Try again
-        </Button>
       </div>
     </div>
   )

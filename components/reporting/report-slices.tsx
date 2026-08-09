@@ -33,6 +33,24 @@ function SliceTable({
     state?: string
   }>
 }) {
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.count += row.count
+      acc.amountDueMinor += row.amountDueMinor
+      acc.paidMinor += row.paidMinor
+      acc.outstandingMinor += row.outstandingMinor
+      acc.overpaidMinor += row.overpaidMinor
+      return acc
+    },
+    {
+      count: 0,
+      amountDueMinor: 0,
+      paidMinor: 0,
+      outstandingMinor: 0,
+      overpaidMinor: 0,
+    }
+  )
+
   return (
     <Card className="border-border/60 bg-background/70 shadow-sm">
       <CardHeader className="space-y-1.5">
@@ -78,6 +96,24 @@ function SliceTable({
                     </TableCell>
                   </TableRow>
                 ))}
+                <TableRow className="border-t border-border/20 bg-muted/30 font-semibold">
+                  <TableCell className="text-foreground">Total</TableCell>
+                  <TableCell className="text-right tabular-nums text-foreground">
+                    {totals.count}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-foreground">
+                    {formatMoney(totals.amountDueMinor)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-foreground">
+                    {formatMoney(totals.paidMinor)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-foreground">
+                    {formatMoney(totals.outstandingMinor)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-foreground">
+                    {formatMoney(totals.overpaidMinor)}
+                  </TableCell>
+                </TableRow>
               </TableBody>
             </Table>
           </div>
@@ -87,14 +123,16 @@ function SliceTable({
   )
 }
 
-export function ReportSlices({ report }: { report: StakeholderReport }) {
+export function ReportSlices({ report, hideLocation }: { report: StakeholderReport; hideLocation?: boolean }) {
   return (
     <section className="grid gap-6">
-      <SliceTable
-        title="Location"
-        description="Where the aggregate participants in this scope come from."
-        rows={report.slices.byLocation}
-      />
+      {!hideLocation && (
+        <SliceTable
+          title="Location"
+          description="Where the aggregate participants in this scope come from."
+          rows={report.slices.byLocation}
+        />
+      )}
       <SliceTable
         title="Gender"
         description="A stakeholder-friendly split without exposing individual records."

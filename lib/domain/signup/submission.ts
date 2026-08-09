@@ -2,11 +2,19 @@ import { api } from "@/lib/convex/api"
 import { convexMutation } from "@/lib/convex/server"
 import type { Id } from "@/convex/_generated/dataModel"
 import type {
+  SignupAccommodationOccupancy,
+  SignupAccommodationNightBeforeLevel,
+  SignupAccommodationNightBeforeOccupancy,
   SignupGender,
   SignupSource,
   SignupSubmissionEnvelope,
   SignupSubmissionResult,
 } from "@/lib/types/signup"
+import {
+  digestSubmissionEnvelope,
+  isSignupSubmissionSecretConfigured,
+  mintSignupSubmissionToken,
+} from "@/lib/domain/signup/submission-token"
 
 export class SignupSubmissionValidationError extends Error {
   readonly code = "INVALID_SUBMISSION"
@@ -90,12 +98,29 @@ function isSignupGender(value: string): value is SignupGender {
   )
 }
 
+function isSignupAccommodationOccupancy(
+  value: string
+): value is SignupAccommodationOccupancy {
+  return value === "single" || value === "shared" || value === "family"
+}
+
+function isSignupAccommodationNightBeforeLevel(
+  value: string
+): value is SignupAccommodationNightBeforeLevel {
+  return value === "standard" || value === "superior"
+}
+
+function isSignupAccommodationNightBeforeOccupancy(
+  value: string
+): value is SignupAccommodationNightBeforeOccupancy {
+  return value === "single" || value === "shared"
+}
+
 function normalizeEnvelope(
   input: unknown,
   options?: {
     idempotencyKey?: string
     honeypotSeen?: boolean
-    payloadFingerprint?: string
   }
 ): SignupSubmissionEnvelope {
   const root = toObject(input, "submission")
@@ -111,6 +136,14 @@ function normalizeEnvelope(
   const attendeesRaw = toArray(root.attendees, "attendees")
   const ticketSelectionsRaw = toArray(root.ticketSelections, "ticketSelections")
   const assignmentsRaw = Array.isArray(root.assignments) ? root.assignments : []
+  // Options-only contract (CR-03): `accommodationSelections` is a required
+  // array. A missing or non-array field is rejected instead of being silently
+  // defaulted to `[]`, so a payload can never bypass the per-attendee
+  // preference cardinality rules that the mutation enforces.
+  const accommodationSelectionsRaw = toArray(
+    root.accommodationSelections,
+    "accommodationSelections"
+  )
 
   if (attendeesRaw.length === 0) {
     throw new SignupSubmissionValidationError(
@@ -203,6 +236,130 @@ function normalizeEnvelope(
     }
   })
 
+  const accommodationSelections = accommodationSelectionsRaw.map(
+    (value, index) => {
+      const preference = toObject(value, `accommodationSelections[${index}]`)
+      const occupancy = normalizeRequiredString(
+        preference.occupancy,
+        `accommodationSelections[${index}].occupancy`
+      )
+      if (!isSignupAccommodationOccupancy(occupancy)) {
+        throw new SignupSubmissionValidationError(
+          `Invalid 'accommodationSelections[${index}].occupancy'.`
+        )
+      }
+
+      // Data-driven option selections: each entry carries the event option
+      // key plus a quantity and nights. Prices/eligibility are never accepted
+      // here — they are resolved server-side against the event configuration.
+      const optionSelectionsRaw = toArray(
+        preference.optionSelections ?? [],
+        `accommodationSelections[${index}].optionSelections`
+      )
+      const seenOptionKeys = new Set<string>()
+      const optionSelections = optionSelectionsRaw.map(
+        (optionValue, optionIndex) => {
+          const option = toObject(
+            optionValue,
+            `accommodationSelections[${index}].optionSelections[${optionIndex}]`
+          )
+          const optionKey = normalizeRequiredString(
+            option.optionKey,
+            `accommodationSelections[${index}].optionSelections[${optionIndex}].optionKey`
+          )
+          if (seenOptionKeys.has(optionKey)) {
+            throw new SignupSubmissionValidationError(
+              `Invalid 'accommodationSelections[${index}].optionSelections[${optionIndex}].optionKey'. Duplicate option '${optionKey}'.`
+            )
+          }
+          seenOptionKeys.add(optionKey)
+
+          const quantity = Number(option.quantity)
+          if (!Number.isFinite(quantity) || quantity <= 0) {
+            throw new SignupSubmissionValidationError(
+              `Invalid 'accommodationSelections[${index}].optionSelections[${optionIndex}].quantity'. Expected a positive number.`
+            )
+          }
+          const nights = Number(option.nights)
+          if (!Number.isFinite(nights) || nights <= 0) {
+            throw new SignupSubmissionValidationError(
+              `Invalid 'accommodationSelections[${index}].optionSelections[${optionIndex}].nights'. Expected a positive number.`
+            )
+          }
+
+          return {
+            optionKey,
+            quantity: Math.floor(quantity),
+            nights: Math.floor(nights),
+          }
+        }
+      )
+
+      const categoryId =
+        preference.categoryId === undefined || preference.categoryId === null
+          ? undefined
+          : normalizeRequiredString(
+              preference.categoryId,
+              `accommodationSelections[${index}].categoryId`
+            )
+      const nightBeforeLevelValue =
+        preference.nightBeforeLevel === undefined ||
+        preference.nightBeforeLevel === null
+          ? undefined
+          : normalizeRequiredString(
+              preference.nightBeforeLevel,
+              `accommodationSelections[${index}].nightBeforeLevel`
+            )
+      if (
+        nightBeforeLevelValue !== undefined &&
+        !isSignupAccommodationNightBeforeLevel(nightBeforeLevelValue)
+      ) {
+        throw new SignupSubmissionValidationError(
+          `Invalid 'accommodationSelections[${index}].nightBeforeLevel'.`
+        )
+      }
+
+      const nightBeforeOccupancyValue =
+        preference.nightBeforeOccupancy === undefined ||
+        preference.nightBeforeOccupancy === null
+          ? undefined
+          : normalizeRequiredString(
+              preference.nightBeforeOccupancy,
+              `accommodationSelections[${index}].nightBeforeOccupancy`
+            )
+      if (
+        nightBeforeOccupancyValue !== undefined &&
+        !isSignupAccommodationNightBeforeOccupancy(nightBeforeOccupancyValue)
+      ) {
+        throw new SignupSubmissionValidationError(
+          `Invalid 'accommodationSelections[${index}].nightBeforeOccupancy'.`
+        )
+      }
+
+      return {
+        attendeeKey: normalizeRequiredString(
+          preference.attendeeKey,
+          `accommodationSelections[${index}].attendeeKey`
+        ),
+        ...(categoryId ? { categoryId } : {}),
+        occupancy: occupancy as SignupAccommodationOccupancy,
+        optionSelections,
+        ...(nightBeforeLevelValue
+          ? {
+              nightBeforeLevel:
+                nightBeforeLevelValue as SignupAccommodationNightBeforeLevel,
+            }
+          : {}),
+        ...(nightBeforeOccupancyValue
+          ? {
+              nightBeforeOccupancy:
+                nightBeforeOccupancyValue as SignupAccommodationNightBeforeOccupancy,
+            }
+          : {}),
+      }
+    }
+  )
+
   const deterministicPayload = {
     eventId: normalizeRequiredString(root.eventId, "eventId"),
     source: sourceValue,
@@ -215,18 +372,24 @@ function normalizeEnvelope(
     attendees,
     ticketSelections,
     assignments,
+    accommodationSelections,
   }
 
-  const payloadFingerprint =
-    options?.payloadFingerprint ??
-    hashString(JSON.stringify(deterministicPayload))
+  // Deterministic payload hash — used only to derive a stable default
+  // idempotency key when the caller did not supply one. The token binding
+  // (CR-09) uses a SHA-256 digest recomputed inside the mutation, never this
+  // weak hash, so no caller-controlled fingerprint is ever trusted.
+  const deterministicPayloadHash = hashString(
+    JSON.stringify(deterministicPayload)
+  )
 
   return {
     ...deterministicPayload,
     idempotencyKey:
       options?.idempotencyKey ??
-      `derived-${hashString(`${deterministicPayload.eventId}:${payloadFingerprint}`)}`,
-    payloadFingerprint,
+      `derived-${hashString(
+        `${deterministicPayload.eventId}:${deterministicPayloadHash}`
+      )}`,
     honeypotSeen: Boolean(options?.honeypotSeen),
   }
 }
@@ -236,10 +399,38 @@ export async function submitSignup(
   options?: {
     idempotencyKey?: string
     honeypotSeen?: boolean
-    payloadFingerprint?: string
   }
 ): Promise<SignupSubmissionResult> {
   const envelope = normalizeEnvelope(input, options)
+
+  // CR-07/CR-09: only this server-side path may mint the post-CAPTCHA token.
+  // It is called exclusively from the Next.js route after Turnstile
+  // verification and IP rate limiting. The token signs a SHA-256 digest of
+  // the normalized envelope plus the idempotency key, so the public mutation
+  // can recompute the same digest from its own arguments and reject any
+  // replay that changes the payload or the key. When this runtime has no
+  // SIGNUP_SUBMISSION_SECRET (production predates the gate), no token can be
+  // minted and `undefined` is forwarded so the Convex mutation runs its
+  // degraded no-token mode (which also warns); the gate is restored as soon
+  // as the secret is provisioned on both runtimes.
+  const payloadDigest = await digestSubmissionEnvelope({
+    eventId: envelope.eventId,
+    source: envelope.source,
+    notes: envelope.notes,
+    booker: envelope.booker,
+    attendees: envelope.attendees,
+    ticketSelections: envelope.ticketSelections,
+    assignments: envelope.assignments,
+    accommodationSelections: envelope.accommodationSelections,
+  })
+
+  const submissionToken = isSignupSubmissionSecretConfigured()
+    ? await mintSignupSubmissionToken({
+        eventId: envelope.eventId,
+        payloadDigest,
+        idempotencyKey: envelope.idempotencyKey,
+      })
+    : undefined
 
   const result = await convexMutation(
     api.signupSubmission.submitSignupEnvelope,
@@ -247,7 +438,7 @@ export async function submitSignup(
       eventId: envelope.eventId as Id<"events">,
       source: envelope.source,
       idempotencyKey: envelope.idempotencyKey,
-      payloadFingerprint: envelope.payloadFingerprint,
+      submissionToken,
       honeypotSeen: envelope.honeypotSeen,
       notes: envelope.notes,
       booker: envelope.booker,
@@ -262,6 +453,28 @@ export async function submitSignup(
         slotId: assignment.slotId as Id<"accommodationSlots">,
         assignmentIntent: assignment.assignmentIntent,
       })),
+      accommodationSelections: envelope.accommodationSelections.map(
+        (preference) => ({
+          attendeeKey: preference.attendeeKey,
+          ...(preference.categoryId
+            ? {
+                categoryId:
+                  preference.categoryId as Id<"accommodationCategories">,
+              }
+            : {}),
+          occupancy: preference.occupancy,
+          optionSelections: preference.optionSelections,
+          ...(preference.nightBeforeLevel
+            ? { nightBeforeLevel: preference.nightBeforeLevel }
+            : {}),
+          ...(preference.nightBeforeOccupancy
+            ? { nightBeforeOccupancy: preference.nightBeforeOccupancy }
+            : {}),
+          ...(preference.nights !== undefined
+            ? { nights: preference.nights }
+            : {}),
+        })
+      ),
     }
   )
 
@@ -292,6 +505,28 @@ export async function submitSignup(
             slotId: String(assignment.slotId),
             assignmentIntent: assignment.assignmentIntent,
           })),
+          accommodationSelections: result.restorePayload.accommodationSelections
+            .map((preference) => ({
+              attendeeKey: preference.attendeeKey,
+              ...(preference.categoryId
+                ? { categoryId: String(preference.categoryId) }
+                : {}),
+              occupancy: preference.occupancy,
+              optionSelections: preference.optionSelections,
+                ...(preference.nightBeforeLevel
+                  ? { nightBeforeLevel: preference.nightBeforeLevel }
+                  : {}),
+                ...(preference.nightBeforeOccupancy
+                  ? { nightBeforeOccupancy: preference.nightBeforeOccupancy }
+                  : {}),
+              ...(preference.nights !== undefined
+                ? { nights: preference.nights }
+                : {}),
+            }))
+            .filter(
+              (preference): preference is NonNullable<typeof preference> =>
+                preference !== null
+            ),
         }
       : undefined,
   }

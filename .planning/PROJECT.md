@@ -2,87 +2,102 @@
 
 ## What This Is
 
-Conference Finance Dashboard is the church's internal system for conference orders, payments, reconciliation, attendee tracking, room assignment, and signup operations. It already supports both integration-backed event flows and internal signup flows; the next step is making the internal order and payable model reliable enough to drive finance and operations without depending on provider-specific runtime tables.
+Conference Finance Dashboard is the church's internal system for conference orders, payments, reconciliation, attendee tracking, room assignment, and signup operations. It supports integration-backed and internal signup flows; the current product priority is making the event-scoped admin experience clear and efficient without weakening canonical finance behavior.
 
 ## Core Value
 
 Give church finance admins one reliable place to track conference revenue, reconcile ticket sales with payment collections, and act on outstanding balances quickly.
 
-## Current Milestone: v3.0 Canonical Orders Foundation
+## Current Milestone: v6.0 Dynamic Event Accommodation
 
-**Goal:** Make internal order, attendee, payable, and payment-reconciliation tables trustworthy enough to become the sole runtime source for finance and operational queries.
+**Goal:** Redesign accommodation as flexible, event-owned configuration over the established reusable hotel and physical-room workflow, with explicit setup reuse and dynamic ticket-aware signup consumption.
 
 **Target features:**
 
-- Remove runtime dependence on `ticketTailor*` query paths for orders, attendees, finance, and accommodation reads
-- Define one canonical order-cost and attendee-payable model from internal tables
-- Normalize the internal order/payment schema toward 3NF for reliable reporting and reconciliation
-- Treat Ticket Tailor as a secondary ingest and mapping boundary to redesign after the internal foundation is solid
+- Event-owned accommodation setup for inventory rules, ticket entitlements, rates, options/upgrades, and signup consumption.
+- Optional event stay windows, including a configurable base stay (commonly the night before) and optional extended nights before and/or after the event.
+- Ticket inclusion does not remove stay choice: an attendee may add an enabled extra night before or after the event even when the ticket covers the included base accommodation nights.
+- Admin-enabled upgrades and add-ons can apply across the attendee's selected stay nights, with per-person-per-night pricing and ticket-specific inclusion rules.
+- Existing reusable hotels, physical rooms, room types, and capacity remain the inventory foundation.
+- Explicit copy/template actions reuse accommodation setup between events without live global configuration coupling.
+- Flexible dynamic options, pricing units, eligibility rules, and data-driven admin/public cards without hardcoded option codes.
+- Ticket-driven room eligibility and accommodation pricing rules carried forward from SEED-002, including tickets that include the configured base accommodation stay.
+- Signup, track-payment, confirmation, canonical finance, and allocation contracts aligned to the same event configuration.
 
 ## Requirements
 
 ### Validated
 
-- ✓ Finance admins can use protected dashboard flows for revenue, reconciliation, order drilldown, payment tracking, attendee detail, and room assignment — v1.0 / phases 13-17
-- ✓ Public signup flows can create internal canonical order records with attendees, ticket selections, and room assignments — phases 18-24
-- ✓ Ticket Tailor and Tikkie integrations can sync data into Convex and support current operator workflows — v1.0 / phases 14-17, 24
+- ✓ Protected dashboard flows exist for finance, reconciliation, orders, payments, attendees, accommodation, settings, and event donations.
+- ✓ Event-scoped routing and a single-sidebar shell exist.
+- ✓ Canonical order totals, attendee payables, payment allocations, and shareable reporting contracts exist from prior milestones.
+- ✓ Public multi-step signup flow with ticket selection, attendee details, and room assignment exists.
+- ✓ Public payment tracking by booking reference exists.
+- ✓ Event accommodation workspace with Hotels and Allocation tabs exists.
 
 ### Active
 
-- [ ] Internal tables become the only runtime source for order, attendee, and finance queries
-- [ ] Order totals, balances, and attendee payables are derived from canonical internal data with deterministic formulas
-- [ ] Order/payment schema is normalized enough to support reliable reconciliation and future provider integrations without core-table leakage
-- [ ] Ticket Tailor runtime query dependencies are deprecated in favor of raw-ingest and mapping boundaries
+- [ ] Event-owned accommodation configuration preserves the established hotel, physical-room, room-type, and capacity workflow.
+- [ ] Explicit copy/template reuse creates independent event accommodation setup.
+- [ ] Human-manageable dynamic ticket rules, room eligibility, options/upgrades, pricing units, and eligibility rules exist.
+- [ ] Signup and track-payment consume the same dynamic event configuration with server-owned quotes and immutable confirmed snapshots.
+- [ ] Canonical finance and allocation continue to consume one event-scoped accommodation contract.
 
-### Out of Scope
+### Out Of Scope
 
-- Full Ticket Tailor table redesign in the same milestone — first stabilize the internal domain and runtime reads
-- New public signup UX features unrelated to finance/order correctness — milestone focus is internal data integrity
-- Multi-tenant church/org support — project remains single-org scoped
+- Full Ticket Tailor table/provider redesign.
+- Multi-tenant church/org support.
+- Cross-event analytics product.
+- QR-code event check-in (SEED-001 remains dormant).
 
 ## Context
 
-- Existing codebase state: Next.js 16 + React 19 + Convex + Clerk + shadcn/ui, with finance dashboard, public signup, Ticket Tailor sync, Tikkie payment flows, and accommodation operations already live
-- Recent schema/runtime audit found mixed use of canonical `orders*` tables and legacy `ticketTailor*` tables in active query paths, especially around attendee reads, order visibility, accommodation data, and finance reporting
-- Current reporting risk areas include inconsistent order amount derivation, mixed `payment.orderId` semantics, null-to-zero masking, and lack of one canonical attendee-payable model
-- There is no distinct `bookings` table today; a booking is represented by an `orders` row plus related attendee, ticket-selection, assignment, and payment records
+- Existing stack: Next.js 16, React 19, Convex, Clerk, shadcn/ui, and Tailwind.
+- Event-scoped routes already exist under `app/dashboard/events/[slug]`.
+- `lib/convex/hooks/` is the established typed Convex access boundary.
+- The previous milestone established canonical finance semantics; this milestone must reuse them rather than recalculate money in the UI.
 
 ## Constraints
 
-- **Tech stack**: Next.js 16 + React 19 + Convex + Clerk + shadcn/ui — preserve established runtime architecture
-- **Operational continuity**: Existing dashboard, signup, Ticket Tailor, and Tikkie behavior must keep working while the internal model is stabilized
-- **Data correctness**: Prioritize finance correctness and deterministic payable logic over new feature breadth
-- **Migration safety**: Brownfield changes must tolerate a dirty worktree and existing production-shaped data without destructive resets
+- Preserve established runtime architecture and Clerk authorization boundaries.
+- Avoid destructive migrations and unnecessary schema changes.
+- Preserve existing deep links or provide safe redirects when routes are consolidated.
+- Keep dashboard reads bounded and event-scoped.
 
 ## Key Decisions
 
-| Decision                                                                                                     | Rationale                                                          | Outcome   |
-| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ | --------- |
-| Keep Clerk as the only auth runtime for dashboard and API boundaries                                         | Auth model is already stabilized and verified                      | ✓ Good    |
-| Keep typed Convex contract boundaries as the canonical backend access path                                   | Protects route/query consistency during schema changes             | ✓ Good    |
-| Internal canonical tables must become the runtime source of truth before redesigning Ticket Tailor tables    | Current mixed core/provider reads are causing finance ambiguity    | — Pending |
-| Deprecate runtime querying of `ticketTailor*` tables and move provider data behind ingest/mapping boundaries | Separates core business facts from provider-specific payload/state | — Pending |
-| Define order totals and attendee payable from one canonical internal model                                   | Finance reporting needs deterministic, auditable formulas          | — Pending |
+| Decision | Rationale | Outcome |
+| --- | --- | --- |
+| Use the event Overview as the default event home | Admins need an operational starting point rather than a link directory | Done (v4.0) |
+| Keep one concise event sidebar | Duplicate or overly broad navigation obscures event context | Done (v4.0) |
+| Group Finance and Accommodation into workspaces | Related workflows should share context without adding sidebar noise | Done (v4.0) |
+| Reuse Convex hooks and canonical contracts | Prevents UI-specific finance formulas and duplicate reads | Done (v4.0) |
+| Keep share/configuration actions in Settings | Keeps primary navigation focused on daily operations | Done (v4.0) |
+| Preserve reusable hotels, physical rooms, and room types while making accommodation configuration event-owned | Keeps the established hotel workflow while avoiding live cross-event configuration coupling | Locked for v6.0 |
+| Reuse event accommodation through explicit copy/template actions | Reuse is intentional and copied configurations evolve independently | Locked for v6.0 |
+| Buyers choose dynamic options; admins assign physical rooms | Accommodation is preference-led and operator-controlled | Carried forward |
+| Ticket rules define accommodation entitlement and eligibility; event configuration defines rates/options | Prevents ticket products, room inventory, and event pricing from being conflated | Locked for v6.0 |
+| Canonical finance and confirmation snapshots remain authoritative | Dynamic configuration must not create a second money or historical-pricing source | Carried forward |
 
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
 
-**After each phase transition** (via `/gsd-transition`):
+**After each phase transition:**
 
-1. Requirements invalidated? -> Move to Out of Scope with reason
-2. Requirements validated? -> Move to Validated with phase reference
-3. New requirements emerged? -> Add to Active
-4. Decisions to log? -> Add to Key Decisions
-5. "What This Is" still accurate? -> Update if drifted
+1. Requirements invalidated? Move to Out Of Scope with reason.
+2. Requirements validated? Move to Validated with phase reference.
+3. New requirements emerged? Add to Active.
+4. Decisions to log? Add to Key Decisions.
+5. Check whether the project description remains accurate.
 
-**After each milestone** (via `/gsd-complete-milestone`):
+**After each milestone:**
 
-1. Full review of all sections
-2. Core Value check - still the right priority?
-3. Audit Out of Scope - reasons still valid?
-4. Update Context with current state
+1. Review all sections.
+2. Recheck the Core Value.
+3. Audit Out Of Scope reasons.
+4. Update Context with the current state.
 
 ---
 
-_Last updated: 2026-04-24 — Phase 28 complete: single-sidebar shell_
+_Last updated: 2026-08-06 — v6.0 milestone initialized; Phase 46 planned_

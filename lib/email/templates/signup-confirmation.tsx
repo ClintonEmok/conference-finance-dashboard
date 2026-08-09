@@ -1,5 +1,6 @@
 import {
   Body,
+  Button,
   Container,
   Head,
   Heading,
@@ -42,20 +43,41 @@ export default function SignupConfirmationEmail({
 }: SignupConfirmationEmailProps) {
   return (
     <Html lang="en">
-      <Head />
+      <Head>
+        <style>{`
+          :root { color-scheme: light; }
+          @media (prefers-color-scheme: dark) {
+            .email-body { background-color: #252225 !important; }
+            .email-container { background-color: #302b30 !important; border-color: rgba(255,255,255,.1) !important; }
+            .email-header { background-color: #1f1c1f !important; }
+            .email-panel { background-color: #302b30 !important; border-color: #6356d9 !important; }
+            .email-panel p, .email-panel strong { color: #fafafa !important; }
+            .email-button-primary { background-color: #5146c7 !important; color: #ffffff !important; }
+            .email-button-secondary { border-color: #8175e8 !important; color: #c9c2ff !important; }
+          }
+          @media only screen and (max-width: 600px) {
+            .email-body { padding: 16px 8px !important; }
+            .email-header, .email-header h1, .email-header p,
+            .email-container p, .email-container h1 { text-align: center !important; }
+            .email-header img { margin-left: auto !important; margin-right: auto !important; }
+          }
+        `}</style>
+      </Head>
       <Preview>
         {bookerName}, your booking for {eventName} is confirmed
       </Preview>
       <Body
+        className="email-body"
         style={{
           margin: 0,
-          padding: "24px 0",
+          padding: "24px 16px",
           fontFamily:
             'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-          backgroundColor: "#f3f4f6",
+          backgroundColor: "#ffffff",
         }}
       >
         <Container
+          className="email-container"
           style={{
             maxWidth: "600px",
             margin: "0 auto",
@@ -67,6 +89,7 @@ export default function SignupConfirmationEmail({
           }}
         >
           <Section
+            className="email-header"
             style={{
               backgroundColor: "#0f172a",
               padding: "24px 28px",
@@ -121,24 +144,27 @@ export default function SignupConfirmationEmail({
 
           <Section style={{ padding: "24px 28px 8px" }}>
             <Text style={{ margin: 0, color: "#475569", fontSize: "14px" }}>
-              Use the booking reference below whenever you need to review your
-              payment progress or view booking details.
+              Use the booking reference below whenever you need to manage your
+              booking. Review payment progress, view booking details, or update
+              accommodation.
             </Text>
           </Section>
 
-          <Section
-            style={{
-              backgroundColor: "#f8fafc",
-              padding: "20px 28px",
-              margin: "16px 28px 0",
-              borderRadius: "14px",
-              border: "1px solid #e2e8f0",
-            }}
-          >
+          <Section style={{ padding: "16px 28px 0" }}>
+            <Section
+              className="email-panel"
+              style={{
+                backgroundColor: "#eef2ff",
+                padding: "20px 28px",
+                margin: 0,
+                borderRadius: "14px",
+                border: "1px solid #c7d2fe",
+              }}
+            >
             <Text
               style={{
                 margin: "0 0 10px 0",
-                color: "#64748b",
+                color: "#6366f1",
                 fontSize: "12px",
                 textTransform: "uppercase",
                 letterSpacing: "0.08em",
@@ -149,7 +175,7 @@ export default function SignupConfirmationEmail({
             <Text
               style={{
                 margin: 0,
-                color: "#0f172a",
+                color: "#312e81",
                 fontSize: "26px",
                 fontWeight: 700,
                 letterSpacing: "0.02em",
@@ -172,6 +198,7 @@ export default function SignupConfirmationEmail({
             >
               <strong>Attendees:</strong> {attendeeCount}
             </Text>
+            </Section>
           </Section>
 
           <EmailTikkieSection
@@ -181,38 +208,86 @@ export default function SignupConfirmationEmail({
             currency={tikkieCurrency}
           />
 
-          <Text
+          <Section
             style={{
               margin: "24px 28px 0",
-              fontSize: "14px",
-              color: "#334155",
+              padding: 0,
             }}
           >
-            You can also check your payment progress at{" "}
-            <a
+            <Text
+              style={{
+                margin: "0 0 12px",
+                fontSize: "14px",
+                lineHeight: 1.6,
+                color: "#334155",
+              }}
+            >
+              Review payment progress, update accommodation preferences, or
+              make a payment at any time.
+            </Text>
+            <Button
+              className="email-button-primary"
               href={trackPaymentUrl}
-              style={{ color: "#3b82f6", textDecoration: "none" }}
+              style={{
+                backgroundColor: "#2563eb",
+                color: "#ffffff",
+                padding: "12px 20px",
+                textDecoration: "none",
+                borderRadius: "10px",
+                display: "block",
+                margin: "4px 8px 0",
+                textAlign: "center",
+                fontSize: "14px",
+                fontWeight: 600,
+              }}
             >
-              /track-payment
-            </a>{" "}
-            and enter your booking reference: <strong>{bookingRef}</strong>.
-          </Text>
+              Manage Booking
+            </Button>
+            <Text
+              style={{
+                margin: "12px 0 0",
+                fontSize: "12px",
+                color: "#64748b",
+              }}
+            >
+              Your booking reference is <strong>{bookingRef}</strong>.
+            </Text>
+          </Section>
 
-          <Text
+          <Section
             style={{
               margin: "24px 28px 0",
-              fontSize: "14px",
-              color: "#6b7280",
+              padding: 0,
             }}
           >
-            View your full booking details:{" "}
-            <a
-              href={successPageUrl}
-              style={{ color: "#3b82f6", textDecoration: "none" }}
+            <Text
+              style={{
+                margin: "0 0 12px",
+                fontSize: "14px",
+                color: "#6b7280",
+              }}
             >
-              {successPageUrl}
-            </a>
-          </Text>
+              View your full booking details.
+            </Text>
+            <Button
+              className="email-button-secondary"
+              href={successPageUrl}
+              style={{
+                border: "1px solid #2563eb",
+                color: "#2563eb",
+                padding: "11px 20px",
+                textDecoration: "none",
+                borderRadius: "10px",
+                display: "block",
+                margin: "4px 8px 0",
+                textAlign: "center",
+                fontSize: "14px",
+                fontWeight: 600,
+              }}
+            >
+              View Booking Details
+            </Button>
+          </Section>
 
           <Text
             style={{

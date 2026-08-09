@@ -34,6 +34,7 @@ type PaymentMatchStatus =
   | "manual_assignment"
   | "ambiguous"
   | "unassigned"
+  | "donation"
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 
@@ -100,6 +101,7 @@ export type AttendeeDetail = {
     id: string
     name: string | null
     email: string | null
+    ticketTypeId: string | null
     ticketTypeLabel: string | null
     amountDueMinor: number
     ticketStatus: string | null
@@ -227,6 +229,7 @@ export async function getAttendeeDetail(
     _id: string
     name: string | null
     email: string | null
+    ticketTypeId: string | null
     ticketTypeLabel: string | null
     amountDueMinor: number
     ticketStatus: string | null
@@ -535,6 +538,7 @@ export async function getAttendeeDetail(
       id: attendee._id,
       name: attendee.name,
       email: attendee.email,
+      ticketTypeId: attendee.ticketTypeId,
       ticketTypeLabel: attendee.ticketTypeLabel,
       amountDueMinor: attendeeAmountDueMinor,
       ticketStatus: attendee.ticketStatus,

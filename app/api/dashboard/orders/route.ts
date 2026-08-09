@@ -19,6 +19,11 @@ function parseOptionalDate(value: string | null, field: "from" | "to") {
   return parsed
 }
 
+function parseOptionalString(value: string | null) {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
+}
+
 function parsePositiveInteger(value: string | null, field: "page" | "pageSize") {
   if (!value || !value.trim()) {
     return null
@@ -37,12 +42,14 @@ function parseOrderFilters(request: Request) {
   const params = new URL(request.url).searchParams
   const eventIdParam = params.get("eventId")
   const statusParam = params.get("status")
+  const locationParam = params.get("location")
 
   const eventId = eventIdParam && eventIdParam.trim() ? eventIdParam.trim() : null
   const from = parseOptionalDate(params.get("from"), "from")
   const to = parseOptionalDate(params.get("to"), "to")
   const page = parsePositiveInteger(params.get("page"), "page")
   const pageSize = parsePositiveInteger(params.get("pageSize"), "pageSize")
+  const location = parseOptionalString(locationParam)
 
   const status = statusParam && statusParam.trim() ? statusParam.trim().toLowerCase() : null
 
@@ -59,6 +66,7 @@ function parseOrderFilters(request: Request) {
     from,
     to,
     status: (status as CanonicalOrderStatus | null) ?? null,
+    location,
     page: page ?? undefined,
     pageSize: pageSize ?? undefined,
   }
@@ -80,6 +88,7 @@ export async function GET(request: Request) {
       filters: ledger.filters,
       availableEvents: ledger.availableEvents,
       page: ledger.page,
+      totals: ledger.totals,
       rows: ledger.rows,
     })
   } catch (error) {

@@ -1,7 +1,18 @@
 import { internalMutation, query, mutation } from "./_generated/server"
+import type { MutationCtx, QueryCtx } from "./_generated/server"
 import { v } from "convex/values"
 import type { Doc, Id } from "./_generated/dataModel"
 import { requireIdentity } from "./auth"
+import {
+  buildAccommodationPriceSnapshot,
+  isCompleteAccommodationPriceSnapshot,
+  type AccommodationPriceSnapshot,
+} from "../lib/domain/finance/accommodation-amounts"
+import { SUPERIOR_UPGRADE_OPTION_KEY } from "./signupCatalog"
+import {
+  loadOrderAmountDueBreakdowns,
+  loadOrderAttendeePaymentBreakdowns,
+} from "./finance"
 
 type DocTables = {
   accommodationHotels: Doc<"accommodationHotels">
@@ -60,6 +71,67 @@ async function getAccommodationRoomTypeByStringId(
     : null
 }
 
+/**
+ * RMG-03: event-resource inventory guard. When the event has
+ * `eventAccommodationResources` rows (kind "room") for the target room's room
+ * type, the number of DISTINCT rooms of that type that currently hold at
+ * least one assigned attendee bounds the pool: single occupancy reserves a
+ * full room, shared occupancy consumes beds in remaining rooms, and an
+ * exhausted pool blocks placement atomically. Runs before any
+ * assignment/confirmation write. When the event has no resource rows for the
+ * room type (legacy/pre-resource setups), it is a no-op — the existing room
+ * capacity check still applies.
+ */
+async function assertEventRoomInventoryAvailable(
+  ctx: MutationCtx,
+  order: Doc<"orders"> | null,
+  room: Doc<"accommodationRooms">,
+  targetRoomHasOccupants: boolean
+): Promise<void> {
+  if (!order?.eventId || !room.roomTypeId) {
+    return
+  }
+  const resource = await ctx.db
+    .query("eventAccommodationResources")
+    .withIndex("by_eventId_and_kind_and_roomTypeId", (q) =>
+      q
+        .eq("eventId", order.eventId as Id<"events">)
+        .eq("kind", "room")
+        .eq("roomTypeId", room.roomTypeId as Id<"accommodationRoomTypes">)
+    )
+    .first()
+  if (!resource || resource.count <= 0) {
+    return
+  }
+
+  const roomsOfType = await ctx.db
+    .query("accommodationRooms")
+    .withIndex("roomTypeId", (q) =>
+      q.eq("roomTypeId", room.roomTypeId as Id<"accommodationRoomTypes">)
+    )
+    .take(500)
+
+  let usedRooms = 0
+  for (const candidate of roomsOfType) {
+    const occupants = await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_assignedRoomId", (q) =>
+        q.eq("assignedRoomId", String(candidate._id))
+      )
+      .take(1)
+    if (occupants.length > 0) {
+      usedRooms += 1
+    }
+  }
+
+  const projectedUsed = targetRoomHasOccupants ? usedRooms : usedRooms + 1
+  if (projectedUsed > resource.count) {
+    throw new Error(
+      "No accommodation inventory remains for this room type (event resource limit reached)"
+    )
+  }
+}
+
 async function getAttendeeByStringId(ctx: any, attendeeId: string) {
   const normalizedAttendeeId = ctx.db.normalizeId("orderAttendees", attendeeId)
   return normalizedAttendeeId
@@ -115,6 +187,22 @@ function allocationPriorityRank(
     LOW: 3,
   }
   return ranks[priority ?? "NORMAL"] ?? 2
+}
+
+/**
+ * Primary allocation rank (Phase 44): paid first, partial second, unpaid
+ * last. A missing/unknown projection sorts after unpaid so a neutral attendee
+ * is never silently promoted ahead of a real state.
+ */
+function paymentStateRank(
+  state: "paid" | "partial" | "unpaid" | null | undefined
+): number {
+  const ranks: Record<string, number> = {
+    paid: 0,
+    partial: 1,
+    unpaid: 2,
+  }
+  return state ? (ranks[state] ?? 3) : 3
 }
 
 export function attendeeMatchesSignalFilters(input: {
@@ -301,6 +389,7 @@ export const getRoomAllocationBoard = query({
       familyMembers,
       accommodationSlotDocs,
       allOrders,
+      accommodationCategoriesDocs,
     ] = await Promise.all([
       ctx.db.query("ticketTailorEvents").take(200),
       ctx.db.query("events").take(200),
@@ -318,6 +407,7 @@ export const getRoomAllocationBoard = query({
             )
             .take(500)
         : ctx.db.query("orders").take(500),
+      ctx.db.query("accommodationCategories").take(100),
     ])
 
     const normalizedLocationFilter = normalizeOptionalString(args.location)
@@ -332,6 +422,67 @@ export const getRoomAllocationBoard = query({
       internalEventIds.has(String(order.eventId))
     )
 
+    const scopedTicketSelectionDocs = scopedOrders.length
+      ? (
+          await Promise.all(
+            scopedOrders.map((order) =>
+              ctx.db
+                .query("orderTicketSelections")
+                .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+                .take(100)
+            )
+          )
+        ).flat()
+      : []
+    const scopedTicketTypeIds = Array.from(
+      new Set(scopedTicketSelectionDocs.map((selection) => selection.ticketTypeId))
+    )
+    const scopedTicketTypes = await Promise.all(
+      scopedTicketTypeIds.map((ticketTypeId) =>
+        ctx.db.get("ticketTypes", ticketTypeId)
+      )
+    )
+    const scopedTicketTypeById = new Map(
+      scopedTicketTypes
+        .filter((ticket): ticket is NonNullable<typeof ticket> => ticket !== null)
+        .map((ticket) => [String(ticket._id), ticket])
+    )
+    const scopedRoomTypeIds = Array.from(
+      new Set(
+        scopedTicketTypes
+          .filter((ticket): ticket is NonNullable<typeof ticket> => ticket !== null)
+          .map((ticket) => ticket.roomTypeId)
+          .filter(
+            (roomTypeId): roomTypeId is Id<"accommodationRoomTypes"> =>
+              roomTypeId !== undefined
+          )
+      )
+    )
+    const scopedRoomTypes = await Promise.all(
+      scopedRoomTypeIds.map((roomTypeId) =>
+        ctx.db.get("accommodationRoomTypes", roomTypeId)
+      )
+    )
+    const occupancyByRoomTypeId = new Map<string, "single" | "shared">()
+    for (const roomType of scopedRoomTypes) {
+      if (roomType) {
+        occupancyByRoomTypeId.set(
+          String(roomType._id),
+          roomType.defaultCapacity === 1 ? "single" : "shared"
+        )
+      }
+    }
+    const ticketOccupancyByAttendeeId = new Map<string, "single" | "shared">()
+    for (const selection of scopedTicketSelectionDocs) {
+      const ticket = scopedTicketTypeById.get(String(selection.ticketTypeId))
+      const occupancy = ticket?.roomTypeId
+        ? occupancyByRoomTypeId.get(String(ticket.roomTypeId))
+        : undefined
+      if (occupancy) {
+        ticketOccupancyByAttendeeId.set(String(selection.attendeeId), occupancy)
+      }
+    }
+
     // Build order lookup for event scoping
     const orderById = new Map(scopedOrders.map((o) => [o._id as string, o]))
 
@@ -342,6 +493,107 @@ export const getRoomAllocationBoard = query({
       if (eventId && order.eventId !== eventId) return false
       return true
     })
+
+    // --- Canonical payment-state projection (Phase 44) ---
+    // Group the scoped attendees by order once and load the canonical
+    // per-attendee payment breakdown exactly once for the scoped order set.
+    // The board never reads orders.status and never queries payments inside
+    // the attendee mapping loops below; rows consume the precomputed map.
+    const attendeeIdsByOrderId = new Map<string, string[]>()
+    for (const attendee of scopedAttendees) {
+      const orderKey = String(attendee.orderId)
+      const attendeeIds = attendeeIdsByOrderId.get(orderKey) ?? []
+      attendeeIds.push(String(attendee._id))
+      attendeeIdsByOrderId.set(orderKey, attendeeIds)
+    }
+
+    const dueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+      ctx,
+      scopedOrders
+    )
+    const paymentById = await loadOrderAttendeePaymentBreakdowns({
+      ctx,
+      orders: scopedOrders,
+      dueBreakdownsByOrderId,
+      attendeeIdsByOrderId,
+    })
+
+    // --- Accommodation preference projection (quick task 260807-uel) ---
+    // Load the scoped orders' stored accommodation selection rows and their
+    // generic option child rows, mirroring the per-order Promise.all loading
+    // pattern used for orderAttendees/orderAssignments below. The projection
+    // feeds an attendeeId-keyed preference map consumed by both attendee
+    // surfaces (unassigned inbox and room occupants) so admins see what
+    // buyers selected. No schema changes: all fields come from existing
+    // stored selection and option rows.
+    const scopedOrderIds = scopedOrders.map((s) => s._id)
+
+    const [accommodationSelectionDocs, accommodationOptionDocs] =
+      scopedOrderIds.length
+        ? await Promise.all([
+            Promise.all(
+              scopedOrderIds.map((oid) =>
+                ctx.db
+                  .query("orderAccommodationSelections")
+                  .withIndex("by_orderId", (q) => q.eq("orderId", oid))
+                  .take(100)
+              )
+            ).then((results) => results.flat()),
+            Promise.all(
+              scopedOrderIds.map((oid) =>
+                ctx.db
+                  .query("orderAccommodationOptionSelections")
+                  .withIndex("by_orderId", (q) => q.eq("orderId", oid))
+                  .take(100)
+              )
+            ).then((results) => results.flat()),
+          ])
+        : [[], []]
+
+    const categoryById = new Map(
+      accommodationCategoriesDocs.map((c) => [c._id as string, c])
+    )
+
+    // Group generic option child rows by their base selection id. A selection
+    // row belongs to exactly one attendee, so selectionId grouping is
+    // attendee-safe.
+    const optionKeysBySelectionId = new Map<string, string[]>()
+    for (const option of accommodationOptionDocs) {
+      const selectionKey = String(option.selectionId)
+      const existing = optionKeysBySelectionId.get(selectionKey) ?? []
+      existing.push(option.optionKey)
+      optionKeysBySelectionId.set(selectionKey, existing)
+    }
+
+    // attendeeId-keyed preference map; there is one selection row per attendee
+    // per order, so the first row wins and duplicates cannot double-join.
+    const accommodationPreferenceByAttendeeId = new Map<
+      string,
+      {
+        occupancy: "single" | "shared" | "family" | null
+        nightBeforeLevel: "standard" | "superior" | null
+        nightBeforeOccupancy: "single" | "shared" | null
+        categoryLabel: string | null
+        optionKeys: string[]
+      }
+    >()
+    for (const selection of accommodationSelectionDocs) {
+      const attendeeKey = String(selection.attendeeId)
+      if (accommodationPreferenceByAttendeeId.has(attendeeKey)) continue
+      const category = selection.categoryId
+        ? (categoryById.get(String(selection.categoryId)) ?? null)
+        : null
+      accommodationPreferenceByAttendeeId.set(attendeeKey, {
+        occupancy:
+          ticketOccupancyByAttendeeId.get(attendeeKey) ??
+          selection.occupancy ??
+          null,
+        nightBeforeLevel: selection.nightBeforeLevel ?? null,
+        nightBeforeOccupancy: selection.nightBeforeOccupancy ?? null,
+        categoryLabel: category?.label ?? null,
+        optionKeys: optionKeysBySelectionId.get(String(selection._id)) ?? [],
+      })
+    }
 
     const attendeeFamilyGroupByAttendeeId = new Map<string, string>()
     for (const familyMember of familyMembers) {
@@ -446,11 +698,43 @@ export const getRoomAllocationBoard = query({
     const mappedRooms = filteredRooms.map((room) => {
       const hotel = hotelMap.get(room.hotelId as string)
       const roomType = roomTypeMap.get(room.roomTypeId as string)
+      // RMG-04: server-computed mismatch inputs — the assigned room's resolved
+      // category code and capacity. Unresolvable => null => the flag fails
+      // safe to false (never a fabricated warning).
+      const roomCategoryCode = roomType?.categoryId
+        ? ((categoryById.get(String(roomType.categoryId)) as
+            | { code?: string }
+            | undefined)?.code ?? null)
+        : null
+      const roomCapacity = roomType?.defaultCapacity ?? room.capacity
       const occupants = (attendeesByRoom[room._id] ?? []).map((a) => {
         const order = orderById.get(a.orderId as string)
         const canonicalEvent = order
           ? canonicalEventById.get(order.eventId as string)
           : null
+        const payment = paymentById.get(String(a._id))
+        const preference = accommodationPreferenceByAttendeeId.get(
+          String(a._id)
+        )
+        // RMG-04: night-before reuses the main-stay assignment — the flag
+        // only surfaces when the independent night-before choice cannot be
+        // satisfied by the assigned room (category conflict, or a shared
+        // night-before choice in a single-capacity room). No night-before
+        // selection, no assigned room, or unresolvable category/capacity => false.
+        const nbLevel = preference?.nightBeforeLevel ?? null
+        const nbOccupancy = preference?.nightBeforeOccupancy ?? null
+        let nightBeforeMismatch = false
+        if (nbLevel && roomCategoryCode) {
+          const levelMatchesCategory =
+            (nbLevel === "standard" && roomCategoryCode === "standard") ||
+            (nbLevel === "superior" && roomCategoryCode === "superior")
+          nightBeforeMismatch = !levelMatchesCategory
+        }
+        if (!nightBeforeMismatch && nbLevel && nbOccupancy && roomCapacity) {
+          if (nbOccupancy === "shared" && roomCapacity === 1) {
+            nightBeforeMismatch = true
+          }
+        }
         return {
           attendeeId: a._id,
           orderId: order?._id ?? null,
@@ -461,6 +745,15 @@ export const getRoomAllocationBoard = query({
           eventId: canonicalEvent?._id ?? null,
           eventName: canonicalEvent?.title ?? null,
           ticketTypeLabel: null,
+          paymentState: payment?.paymentState ?? null,
+          amountDueMinor: payment?.amountDueMinor ?? null,
+          paidAmountMinor: payment?.paidAmountMinor ?? null,
+          occupancy: preference?.occupancy ?? null,
+          nightBeforeLevel: preference?.nightBeforeLevel ?? null,
+          nightBeforeOccupancy: preference?.nightBeforeOccupancy ?? null,
+          categoryLabel: preference?.categoryLabel ?? null,
+          optionKeys: preference?.optionKeys ?? [],
+          nightBeforeMismatch,
         }
       })
       const occupiedBeds = occupants.length
@@ -502,6 +795,8 @@ export const getRoomAllocationBoard = query({
         : null
       const attendeeFamilyGroupId =
         attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
+      const payment = paymentById.get(String(a._id))
+      const preference = accommodationPreferenceByAttendeeId.get(String(a._id))
       return {
         attendeeId: a._id,
         orderId: order?._id ?? null,
@@ -532,7 +827,37 @@ export const getRoomAllocationBoard = query({
           attendeeFamilyGroupId,
           attendeeCountByOrderId,
         }),
+        paymentState: payment?.paymentState ?? null,
+        amountDueMinor: payment?.amountDueMinor ?? null,
+        paidAmountMinor: payment?.paidAmountMinor ?? null,
+        occupancy: preference?.occupancy ?? null,
+        nightBeforeLevel: preference?.nightBeforeLevel ?? null,
+        nightBeforeOccupancy: preference?.nightBeforeOccupancy ?? null,
+        categoryLabel: preference?.categoryLabel ?? null,
+        optionKeys: preference?.optionKeys ?? [],
       }
+    })
+
+    // Paid-first ordering (Phase 44): payment state is the primary rank, then
+    // the existing allocation priority, then stable group/name/id tie-breakers.
+    mappedUnassignedAttendees.sort((a, b) => {
+      const aPaymentRank = paymentStateRank(a.paymentState)
+      const bPaymentRank = paymentStateRank(b.paymentState)
+      if (aPaymentRank !== bPaymentRank) return aPaymentRank - bPaymentRank
+
+      const aPriorityRank = allocationPriorityRank(a.allocationPriority)
+      const bPriorityRank = allocationPriorityRank(b.allocationPriority)
+      if (aPriorityRank !== bPriorityRank) return aPriorityRank - bPriorityRank
+
+      const orderComparison = (a.orderId ?? "").localeCompare(b.orderId ?? "")
+      if (orderComparison !== 0) return orderComparison
+
+      const nameComparison = (a.attendeeName ?? "").localeCompare(
+        b.attendeeName ?? ""
+      )
+      if (nameComparison !== 0) return nameComparison
+
+      return a.attendeeId.localeCompare(b.attendeeId)
     })
 
     // --- Canonical submission queue rows ---
@@ -579,6 +904,51 @@ export const getRoomAllocationBoard = query({
       orderAttendeesList.map((attendee) => [attendee._id as string, attendee])
     )
 
+    // RMG-02: server-computed mixed Standard/Superior group flags. Under the
+    // simplified contract the included category is Standard and Superior is
+    // the per-attendee superior_upgrade option, so a member is "Superior"
+    // when its stored selection carries that option. A pending buyer group
+    // (≥2 attendees sharing a requested room) that spans both is flagged on
+    // every member (buyerSuggestions[].mixedCategory) and on the requested
+    // room (rooms[].mixedCategoryGroup).
+    const suggestionSuperiorByAttendeeId = new Map<string, boolean>()
+    for (const attendeeKey of accommodationPreferenceByAttendeeId.keys()) {
+      const preference = accommodationPreferenceByAttendeeId.get(attendeeKey)
+      const isSuperior =
+        preference?.optionKeys.includes(SUPERIOR_UPGRADE_OPTION_KEY) ?? false
+      suggestionSuperiorByAttendeeId.set(attendeeKey, isSuperior)
+    }
+    const mixedMemberAttendeeIds = new Set<string>()
+    const mixedGroupRoomIds = new Set<string>()
+    {
+      const groupByRoom = new Map<string, string[]>()
+      for (const assignment of orderAssignmentsList) {
+        const roomId = slotIdToRoomId.get(assignment.slotId as string)
+        if (!roomId) continue
+        const members = groupByRoom.get(roomId) ?? []
+        members.push(String(assignment.attendeeId))
+        groupByRoom.set(roomId, members)
+      }
+      for (const [roomId, attendeeIds] of groupByRoom) {
+        if (attendeeIds.length < 2) continue
+        let hasStandard = false
+        let hasSuperior = false
+        for (const attendeeId of attendeeIds) {
+          if (suggestionSuperiorByAttendeeId.get(attendeeId)) {
+            hasSuperior = true
+          } else {
+            hasStandard = true
+          }
+        }
+        if (hasStandard && hasSuperior) {
+          mixedGroupRoomIds.add(roomId)
+          for (const attendeeId of attendeeIds) {
+            mixedMemberAttendeeIds.add(attendeeId)
+          }
+        }
+      }
+    }
+
     const buyerSuggestions = orderAssignmentsList
       .filter((assignment) => {
         const assignmentAny = assignment as { status?: string }
@@ -589,6 +959,7 @@ export const getRoomAllocationBoard = query({
         const room = roomId ? roomById.get(roomId) : null
         const hotel = room ? hotelMap.get(room.hotelId as string) : null
         const attendee = attendeeById.get(assignment.attendeeId as string)
+        const payment = paymentById.get(String(assignment.attendeeId))
 
         return {
           assignmentId: assignment._id as string,
@@ -600,6 +971,12 @@ export const getRoomAllocationBoard = query({
           hotelName: hotel?.name ?? null,
           assignmentIntent: assignment.assignmentIntent,
           sortOrder: assignment.sortOrder,
+          paymentState: payment?.paymentState ?? null,
+          amountDueMinor: payment?.amountDueMinor ?? null,
+          paidAmountMinor: payment?.paidAmountMinor ?? null,
+          mixedCategory: mixedMemberAttendeeIds.has(
+            String(assignment.attendeeId)
+          ),
         }
       })
       .sort((a, b) => {
@@ -656,6 +1033,7 @@ export const getRoomAllocationBoard = query({
     const submissionQueueRows = orderAttendeesList.map((attendee) => {
       const order = orderById.get(attendee.orderId as string)
       const assignment = assignmentByAttendeeId.get(attendee._id as string)
+      const payment = paymentById.get(String(attendee._id))
 
       let unresolved = false
       let unresolvedReason: string | null = null
@@ -696,6 +1074,10 @@ export const getRoomAllocationBoard = query({
         unresolvedReason,
         submittedAt: order?.submittedAt ?? null,
         sortOrder: attendee.sortOrder,
+        allocationPriority: attendee.allocationPriority ?? null,
+        paymentState: payment?.paymentState ?? null,
+        amountDueMinor: payment?.amountDueMinor ?? null,
+        paidAmountMinor: payment?.paidAmountMinor ?? null,
       }
     })
 
@@ -725,8 +1107,18 @@ export const getRoomAllocationBoard = query({
       }
     }
 
-    // Sort: unresolved first, then submittedAt, then attendeeId
+    // Sort: payment state first (paid/partial/unpaid), then allocation
+    // priority (CRITICAL before LOW), then unresolved, then submittedAt,
+    // then attendeeId (stable existing tie-breakers preserved).
     submissionQueueRows.sort((a, b) => {
+      const aPaymentRank = paymentStateRank(a.paymentState)
+      const bPaymentRank = paymentStateRank(b.paymentState)
+      if (aPaymentRank !== bPaymentRank) return aPaymentRank - bPaymentRank
+
+      const aPriorityRank = allocationPriorityRank(a.allocationPriority)
+      const bPriorityRank = allocationPriorityRank(b.allocationPriority)
+      if (aPriorityRank !== bPriorityRank) return aPriorityRank - bPriorityRank
+
       if (a.unresolved !== b.unresolved) return a.unresolved ? -1 : 1
       const aTime = a.submittedAt ?? 0
       const bTime = b.submittedAt ?? 0
@@ -781,7 +1173,12 @@ export const getRoomAllocationBoard = query({
         label: rt.label,
         defaultCapacity: rt.defaultCapacity,
       })),
-      rooms: mappedRooms,
+      // RMG-02: room-level mixed-group flag applied after the mixed sets are
+      // computed (they depend on orderAssignments/slot loading).
+      rooms: mappedRooms.map((room) => ({
+        ...room,
+        mixedCategoryGroup: mixedGroupRoomIds.has(String(room.id)),
+      })),
       buyerSuggestions,
       unassignedAttendees: mappedUnassignedAttendees,
       submissionQueueRows,
@@ -805,6 +1202,7 @@ export const getRoomAllocationBoard = query({
 export const getHotels = query({
   args: {},
   handler: async (ctx) => {
+    await requireIdentity(ctx)
     // Bounded: small number of hotels
     return await ctx.db.query("accommodationHotels").take(200)
   },
@@ -813,6 +1211,7 @@ export const getHotels = query({
 export const getRoomTypesWithCount = query({
   args: {},
   handler: async (ctx) => {
+    await requireIdentity(ctx)
     // Bounded: small config tables
     const roomTypes = await ctx.db.query("accommodationRoomTypes").take(100)
     const rooms = await ctx.db.query("accommodationRooms").take(500)
@@ -940,6 +1339,7 @@ export const listAccommodationInventory = query({
         id: hotel._id,
         name: hotel.name,
         city: hotel.city ?? null,
+        address: hotel.address ?? null,
         notes: hotel.notes ?? null,
         roomCount: roomsByHotel[hotel._id]?.length ?? 0,
         assignedEventIds: eventHotelsByHotel[hotel._id] ?? [],
@@ -990,6 +1390,7 @@ export const listAccommodationInventory = query({
 export const getHotelById = query({
   args: { hotelId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     return await getAccommodationHotelByStringId(ctx, args.hotelId)
   },
 })
@@ -1000,6 +1401,7 @@ export const getRooms = query({
     roomTypeId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     if (args.hotelId) {
       // Bounded: one hotel has limited rooms
       const rooms = await ctx.db
@@ -1016,6 +1418,7 @@ export const getRooms = query({
 export const getRoomById = query({
   args: { roomId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     return await getAccommodationRoomByStringId(ctx, args.roomId)
   },
 })
@@ -1023,6 +1426,7 @@ export const getRoomById = query({
 export const getRoomTypes = query({
   args: {},
   handler: async (ctx) => {
+    await requireIdentity(ctx)
     // Bounded: small config table
     return await ctx.db.query("accommodationRoomTypes").take(200)
   },
@@ -1031,6 +1435,7 @@ export const getRoomTypes = query({
 export const getRoomTypeById = query({
   args: { roomTypeId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     return await getAccommodationRoomTypeByStringId(ctx, args.roomTypeId)
   },
 })
@@ -1039,6 +1444,7 @@ export const createHotel = mutation({
   args: {
     name: v.string(),
     city: v.optional(v.string()),
+    address: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -1183,10 +1589,42 @@ export const createRoomType = mutation({
     label: v.string(),
     defaultCapacity: v.number(),
     notes: v.optional(v.string()),
+    count: v.optional(v.number()),
+    description: v.optional(v.string()),
+    categoryId: v.optional(v.id("accommodationCategories")),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const id = await ctx.db.insert("accommodationRoomTypes", args)
+    const label = args.label.trim()
+    if (!label) {
+      throw new Error("Room type label is required")
+    }
+    if (args.count !== undefined && !isNonNegativeInteger(args.count)) {
+      throw new Error("count must be a non-negative integer")
+    }
+    if (
+      !Number.isInteger(args.defaultCapacity) ||
+      args.defaultCapacity < 1
+    ) {
+      throw new Error("defaultCapacity must be a positive integer")
+    }
+    if (args.categoryId !== undefined) {
+      const category = await ctx.db.get(
+        "accommodationCategories",
+        args.categoryId
+      )
+      if (!category) {
+        throw new Error("Category not found")
+      }
+    }
+    const id = await ctx.db.insert("accommodationRoomTypes", {
+      label,
+      defaultCapacity: args.defaultCapacity,
+      notes: normalizeOptionalString(args.notes) ?? undefined,
+      count: args.count,
+      description: normalizeOptionalString(args.description) ?? undefined,
+      categoryId: args.categoryId,
+    })
     return id
   },
 })
@@ -1246,6 +1684,22 @@ export const assignRoomToAttendee = mutation({
     if (occupiedCount.length >= room.capacity) {
       throw new Error("Room is already full")
     }
+
+    // RMG-03: event-resource inventory guard (no-op when the event has no
+    // resource rows for this room type).
+    const orderForInventory = await ctx.db.get("orders", attendee.orderId)
+    await assertEventRoomInventoryAvailable(
+      ctx,
+      orderForInventory,
+      room,
+      occupiedCount.length > 0
+    )
+
+    // Phase 44 lock boundary: the first assignment for an order with
+    // unconfirmed options-only selections persists the accommodation
+    // confirmation snapshot atomically with the assignment write. Legacy
+    // orders with no selection rows skip cleanly.
+    await persistOrderAccommodationConfirmation(ctx, attendee.orderId)
 
     await ctx.db.patch("orderAttendees", attendeeId, {
       assignedRoomId: args.roomId,
@@ -1315,6 +1769,21 @@ export const assignAttendeeToRoom = mutation({
       throw new Error("Room is already full")
     }
 
+    // RMG-03: event-resource inventory guard (no-op when the event has no
+    // resource rows for this room type).
+    const orderForInventory = await ctx.db.get("orders", attendee.orderId)
+    await assertEventRoomInventoryAvailable(
+      ctx,
+      orderForInventory,
+      room,
+      occupiedCount.length > 0
+    )
+
+    // Phase 44 lock boundary: first assignment for an order with unconfirmed
+    // options-only selections persists the confirmation snapshot atomically
+    // with the assignment write; legacy orders skip cleanly.
+    await persistOrderAccommodationConfirmation(ctx, attendee.orderId)
+
     await ctx.db.patch("orderAttendees", attendeeId, {
       assignedRoomId: args.roomId,
     })
@@ -1374,6 +1843,7 @@ export const unassignAttendeeFromRoom = mutation({
 export const getEventHotels = query({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     // Bounded: one event links to limited hotels
     const eventHotels = await ctx.db
       .query("accommodationEventHotels")
@@ -1554,6 +2024,7 @@ export const updateHotel = mutation({
     hotelId: v.string(),
     name: v.optional(v.string()),
     city: v.optional(v.string()),
+    address: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -1670,16 +2141,44 @@ export const updateRoomType = mutation({
     label: v.optional(v.string()),
     defaultCapacity: v.optional(v.number()),
     notes: v.optional(v.string()),
+    count: v.optional(v.number()),
+    description: v.optional(v.string()),
+    categoryId: v.optional(v.id("accommodationCategories")),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const { roomTypeId, ...data } = args
+    const { roomTypeId, count, description, categoryId, ...rest } = args
     const normalizedRoomTypeId = normalizeDocId(
       ctx,
       "accommodationRoomTypes",
       roomTypeId,
       "Room type not found"
     )
+    if (count !== undefined && !isNonNegativeInteger(count)) {
+      throw new Error("count must be a non-negative integer")
+    }
+    if (
+      args.defaultCapacity !== undefined &&
+      (!Number.isInteger(args.defaultCapacity) || args.defaultCapacity < 1)
+    ) {
+      throw new Error("defaultCapacity must be a positive integer")
+    }
+    if (categoryId !== undefined) {
+      const category = await ctx.db.get("accommodationCategories", categoryId)
+      if (!category) {
+        throw new Error("Category not found")
+      }
+    }
+    const data: Partial<Doc<"accommodationRoomTypes">> = { ...rest }
+    if (count !== undefined) {
+      data.count = count
+    }
+    if (description !== undefined) {
+      data.description = normalizeOptionalString(description) ?? undefined
+    }
+    if (categoryId !== undefined) {
+      data.categoryId = categoryId
+    }
     await ctx.db.patch("accommodationRoomTypes", normalizedRoomTypeId, data)
     return await ctx.db.get("accommodationRoomTypes", normalizedRoomTypeId)
   },
@@ -1713,6 +2212,7 @@ export const deleteRoomType = mutation({
 export const getEventByProviderId = query({
   args: { providerEventId: v.string() },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const event = await ctx.db
       .query("ticketTailorEvents")
       .withIndex("providerEventId", (q) =>
@@ -1897,6 +2397,7 @@ export const generateSlotsForRoom = mutation({
 export const getSlotsForEvent = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const slots = await ctx.db
       .query("accommodationSlots")
       .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
@@ -1941,6 +2442,7 @@ export const getSlotsForEvent = query({
 export const getAccommodationSummaryForEvent = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx)
     const event = await ctx.db.get("events", args.eventId)
     if (!event) {
       throw new Error("Event not found")
@@ -2092,6 +2594,16 @@ export const confirmBuyerAssignment = mutation({
       }
     }
 
+    // RMG-03: event-resource inventory guard on the board Confirm path
+    // (no-op when the event has no resource rows for this room type).
+    await assertEventRoomInventoryAvailable(ctx, order, room, occupantCount > 0)
+
+    // Phase 44 lock boundary: persisting the accommodation confirmation
+    // happens after room/capacity validation but before the assignment write,
+    // so a full room never locks the buyer's configuration. A resolver
+    // failure aborts the whole transaction before any assignment patch.
+    await persistOrderAccommodationConfirmation(ctx, order._id)
+
     // Get current user identity for confirmedBy
     const identity = await ctx.auth.getUserIdentity()
     if (!identity) {
@@ -2161,6 +2673,1378 @@ export const removeBuyerAssignment = mutation({
       success: true,
       assignmentId: args.assignmentId,
       attendeeId: assignment.attendeeId,
+    }
+  },
+})
+
+// ---------------------------------------------------------------------------
+// Phase 39: Accommodation catalog & event configuration
+//
+// Reusable catalog tables (categories, options, age bands) and event-scoped
+// configuration (stay config, rates, options, resources, age pricing) with
+// authenticated, bounded, validated reads and mutations. Purely additive:
+// existing hotels/rooms/room-type/assignment exports above are preserved.
+// ---------------------------------------------------------------------------
+
+export const DAY_MS = 24 * 60 * 60 * 1000
+export const EVENT_OPTION_DEFAULT_PRICE_MINOR = 1000 // €10
+
+/**
+ * The pending-order LIST returned to the admin UI is bounded for display
+ * while `pendingOrderCount` stays exact (see getEventAccommodationConfig).
+ */
+export const PENDING_ORDERS_DISPLAY_LIMIT = 50
+
+export const categoryCodeValidator = v.union(
+  v.literal("standard"),
+  v.literal("superior"),
+  v.literal("family")
+)
+export const optionCodeValidator = v.string()
+export const occupancyValidator = v.union(
+  v.literal("single"),
+  v.literal("shared"),
+  v.literal("family")
+)
+export const resourceKindValidator = v.union(
+  v.literal("room"),
+  v.literal("cot")
+)
+export const optionKindValidator = v.union(
+  v.literal("addon"),
+  v.literal("upgrade"),
+  v.literal("eligibility")
+)
+export const optionUnitValidator = v.union(
+  v.literal("per_night"),
+  v.literal("per_person")
+)
+
+function isNonNegativeInteger(value: number): boolean {
+  return Number.isInteger(value) && value >= 0
+}
+
+/**
+ * Minor-unit money must always be a whole number of the smallest currency
+ * unit. Fractional values such as 1000.5 are not valid minor units and could
+ * produce non-currency amounts in downstream billing, so they are rejected.
+ */
+function isNonNegativePrice(value: number): boolean {
+  return Number.isInteger(value) && value >= 0
+}
+
+/**
+ * Derives the night count for a stay window from its timestamps. The night
+ * count is never hardcoded or client-supplied: it is always computed from the
+ * configured check-in/check-out timestamps.
+ */
+export function deriveNightCount(checkInAt: number, checkOutAt: number): number {
+  if (!Number.isFinite(checkInAt) || !Number.isFinite(checkOutAt)) {
+    throw new Error("Invalid stay window: timestamps must be finite numbers")
+  }
+  if (checkOutAt <= checkInAt) {
+    throw new Error("Invalid stay window: check-out must be after check-in")
+  }
+  return Math.max(1, Math.round((checkOutAt - checkInAt) / DAY_MS))
+}
+
+/**
+ * The locked initial stay window for a newly initialized event config: one
+ * night before the event (check-in the day before the event starts, check-out
+ * on the event start day), so the initial derived nightCount is 1.
+ */
+export function deriveInitialStayWindow(eventStartsAt: number): {
+  baseCheckInAt: number
+  baseCheckOutAt: number
+} {
+  if (!Number.isFinite(eventStartsAt)) {
+    throw new Error("Invalid event start time")
+  }
+  return {
+    baseCheckInAt: eventStartsAt - DAY_MS,
+    baseCheckOutAt: eventStartsAt,
+  }
+}
+
+/**
+ * Omitted upgrade/cot per-night prices default to €10 (1000 minor units).
+ * Explicit €0 and any other supplied price are preserved.
+ */
+export function resolveEventOptionPriceMinor(
+  priceMinor: number | null | undefined
+): number {
+  return priceMinor ?? EVENT_OPTION_DEFAULT_PRICE_MINOR
+}
+
+/**
+ * Sellable beds for a room resource = physical count × room type
+ * defaultCapacity. Room resources must reference a linked room type with a
+ * positive-integer default capacity — there is deliberately no capacity-1
+ * fallback for a room, because silently misrepresenting a multi-bed room
+ * corrupts event availability. Cot resources count one bed per physical item.
+ */
+export function deriveResourceSellableBeds(input: {
+  count: number
+  kind: "room" | "cot"
+  roomTypeDefaultCapacity?: number | null
+}): number {
+  if (input.kind === "room") {
+    const capacity = input.roomTypeDefaultCapacity
+    if (capacity === null || capacity === undefined) {
+      throw new Error(
+        "Room resources require a linked room type to derive sellable beds"
+      )
+    }
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      throw new Error(
+        "Room type defaultCapacity must be a positive integer to derive sellable beds"
+      )
+    }
+    return input.count * capacity
+  }
+  // Cot resources count one bed per physical item.
+  return input.count
+}
+
+/**
+ * Active categories are derived solely from eventAccommodationRates rows:
+ * a category is active for an event when at least one rate row exists for
+ * that (eventId, categoryId). No separate active-categories list/flag exists.
+ */
+export function deriveActiveCategoryIds(
+  rateRows: ReadonlyArray<{ categoryId: string }>
+): string[] {
+  const seen = new Set<string>()
+  const ids: string[] = []
+  for (const row of rateRows) {
+    if (!seen.has(row.categoryId)) {
+      seen.add(row.categoryId)
+      ids.push(row.categoryId)
+    }
+  }
+  return ids
+}
+
+/**
+ * Absent `ticketTypes.accommodationIncluded` is treated as false; only an
+ * explicit true marks a ticket as covering the base stay nights.
+ */
+export function isAccommodationIncluded(ticket: {
+  accommodationIncluded?: boolean | null
+}): boolean {
+  return ticket.accommodationIncluded === true
+}
+
+/**
+ * Age-band bounds must be non-negative integers with maxAge (when defined)
+ * greater than or equal to minAge. 18+ bands may omit maxAge.
+ */
+export function isValidAgeBandRange(
+  minAge: number,
+  maxAge: number | null | undefined
+): boolean {
+  if (!Number.isInteger(minAge) || minAge < 0) {
+    return false
+  }
+  if (maxAge === null || maxAge === undefined) {
+    return true
+  }
+  return Number.isInteger(maxAge) && maxAge >= minAge
+}
+
+function sortBySortOrder<T extends { sortOrder: number }>(
+  rows: readonly T[]
+): T[] {
+  return [...rows].sort((a, b) => a.sortOrder - b.sortOrder)
+}
+
+async function getEventOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  eventId: Id<"events">
+) {
+  const event = await ctx.db.get("events", eventId)
+  if (!event) {
+    throw new Error("Event not found")
+  }
+  return event
+}
+
+async function getAccommodationCatalogData(ctx: QueryCtx | MutationCtx) {
+  const [categories, options, roomTypes] = await Promise.all([
+    ctx.db.query("accommodationCategories").take(50),
+    ctx.db.query("accommodationOptions").take(50),
+    ctx.db.query("accommodationRoomTypes").take(100),
+  ])
+  return { categories, options, roomTypes }
+}
+
+export const getAccommodationCatalog = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireIdentity(ctx)
+    const catalog = await getAccommodationCatalogData(ctx)
+    return {
+      categories: sortBySortOrder(catalog.categories),
+      options: catalog.options,
+      roomTypes: catalog.roomTypes,
+    }
+  },
+})
+
+export const getEventAccommodationConfig = query({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const event = await ctx.db.get("events", args.eventId)
+    if (!event) {
+      throw new Error("Event not found")
+    }
+
+    const [
+      configRow,
+      rateRows,
+      eventOptionRows,
+      resourceRows,
+    ] = await Promise.all([
+      ctx.db
+        .query("eventAccommodationConfig")
+        .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+        .unique(),
+      ctx.db
+        .query("eventAccommodationRates")
+        .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+        .take(200),
+      ctx.db
+        .query("eventAccommodationOptions")
+        .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+        .take(100),
+      ctx.db
+        .query("eventAccommodationResources")
+        .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+        .take(100),
+    ])
+
+    // Fetch every referenced catalog row by ID instead of relying on the
+    // bounded catalog listing. A category, option or room type beyond the
+    // 50/100-row limits would otherwise silently drop labels and corrupt
+    // derived availability (e.g. a room resource falling back to a wrong
+    // capacity). Referenced rows are few per event, so per-ID reads stay
+    // bounded.
+    const referencedCategoryIds = [
+      ...new Set(rateRows.map((rate) => rate.categoryId as string)),
+    ]
+    const referencedOptionIds = [
+      ...new Set(eventOptionRows.map((row) => row.optionId as string)),
+    ]
+    const referencedRoomTypeIds = [
+      ...new Set(
+        resourceRows
+          .filter((row) => row.roomTypeId !== undefined)
+          .map((row) => row.roomTypeId as string)
+      ),
+    ]
+    const [referencedCategories, referencedOptions, referencedRoomTypes] =
+      await Promise.all([
+        Promise.all(
+          referencedCategoryIds.map((id) =>
+            ctx.db.get(
+              "accommodationCategories",
+              id as Id<"accommodationCategories">
+            )
+          )
+        ),
+        Promise.all(
+          referencedOptionIds.map((id) =>
+            ctx.db.get("accommodationOptions", id as Id<"accommodationOptions">)
+          )
+        ),
+        Promise.all(
+          referencedRoomTypeIds.map((id) =>
+            ctx.db.get(
+              "accommodationRoomTypes",
+              id as Id<"accommodationRoomTypes">
+            )
+          )
+        ),
+      ])
+
+    const categoryById = new Map(
+      referencedCategories
+        .filter((category): category is NonNullable<typeof category> => {
+          return category !== null
+        })
+        .map((category) => [category._id, category])
+    )
+    const optionById = new Map(
+      referencedOptions
+        .filter((option): option is NonNullable<typeof option> => {
+          return option !== null
+        })
+        .map((option) => [option._id, option])
+    )
+    const roomTypeById = new Map(
+      referencedRoomTypes
+        .filter((roomType): roomType is NonNullable<typeof roomType> => {
+          return roomType !== null
+        })
+        .map((roomType) => [roomType._id, roomType])
+    )
+
+    // The full reusable catalog choices are returned alongside the event
+    // configuration so the editor can render add/configure controls for an
+    // event that has no rates, options, or resources yet (CR-05). A fresh
+    // event must not dead-end on "no active categories" when the catalog is
+    // seeded — the admin needs the catalog rows to create the first ones.
+    const catalogData = await getAccommodationCatalogData(ctx)
+
+    const activeCategoryIds = deriveActiveCategoryIds(rateRows)
+    const activeCategories = activeCategoryIds
+      .map((id) => categoryById.get(id as Id<"accommodationCategories">))
+      .filter((category): category is NonNullable<typeof category> => {
+        return category !== undefined
+      })
+
+    // Pending buyer impact: exact, event-scoped projection of orders that
+    // carry at least one unconfirmed accommodation selection row. A confirmed
+    // order (every row has `confirmedAt`) is never counted as pending, and an
+    // order with no selection rows is not pending either (pre-Phase 42). The
+    // count and list are server-derived; the UI never computes them.
+    // `hasAccommodationSelections` distinguishes the pre-Phase-42 empty state
+    // (no selection rows at all) from an all-confirmed event so the admin UI
+    // can show the honest signup-empty copy instead of a fake zero state.
+    //
+    // The COUNT must never be derived from a bounded order fetch: capping the
+    // order scan at N would silently drop pending orders beyond N and report
+    // a lower repricing impact. The full indexed event order set is streamed
+    // via bounded async iteration (never `.collect()`), while only a bounded
+    // display list is returned to the admin UI.
+    const pendingOrders: Array<{
+      orderId: Id<"orders">
+      bookingRef: string | null
+      bookerName: string | null
+      selectionCount: number
+    }> = []
+    let pendingOrderCount = 0
+    let hasAccommodationSelections = false
+    for await (const order of ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))) {
+      let hasUnconfirmedRow = false
+      let selectionCount = 0
+      for await (const row of ctx.db
+        .query("orderAccommodationSelections")
+        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))) {
+        selectionCount += 1
+        hasAccommodationSelections = true
+        if (row.confirmedAt === undefined || row.confirmedAt === null) {
+          hasUnconfirmedRow = true
+        }
+      }
+      if (hasUnconfirmedRow) {
+        pendingOrderCount += 1
+        if (pendingOrders.length < PENDING_ORDERS_DISPLAY_LIMIT) {
+          pendingOrders.push({
+            orderId: order._id,
+            bookingRef: order.bookingRef ?? null,
+            bookerName: order.bookerName ?? null,
+            selectionCount,
+          })
+        }
+      }
+    }
+
+    const rates = rateRows.map((rate) => {
+      const category = categoryById.get(rate.categoryId)
+      return {
+        ...rate,
+        categoryCode: category?.code ?? null,
+        categoryLabel: category?.label ?? null,
+      }
+    })
+
+    const options = eventOptionRows.map((row) => {
+      const option = optionById.get(row.optionId)
+      return {
+        ...row,
+        optionCode: option?.code ?? null,
+        optionLabel: option?.label ?? null,
+        kind: option?.kind ?? null,
+        unit: option?.unit ?? null,
+      }
+    })
+
+    const resources = resourceRows.map((row) => {
+      const roomType = row.roomTypeId
+        ? roomTypeById.get(row.roomTypeId)
+        : undefined
+      return {
+        ...row,
+        roomTypeLabel: roomType?.label ?? null,
+        sellableBeds: deriveResourceSellableBeds({
+          count: row.count,
+          kind: row.kind,
+          roomTypeDefaultCapacity: roomType?.defaultCapacity ?? null,
+        }),
+      }
+    })
+
+    return {
+      event: {
+        eventId: event._id,
+        slug: event.slug,
+        title: event.title,
+        startsAt: event.startsAt,
+        timezone: event.timezone,
+      },
+      config: configRow ?? null,
+      activeCategories,
+      rates,
+      options,
+      resources,
+      pendingOrders,
+      pendingOrderCount,
+      hasAccommodationSelections,
+      catalogCategories: sortBySortOrder(catalogData.categories),
+      catalogOptions: catalogData.options,
+      catalogRoomTypes: catalogData.roomTypes,
+    }
+  },
+})
+
+export const createAccommodationCategory = mutation({
+  args: {
+    code: categoryCodeValidator,
+    label: v.string(),
+    description: v.optional(v.string()),
+    sortOrder: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const label = args.label.trim()
+    if (!label) {
+      throw new Error("Category label is required")
+    }
+    if (!isNonNegativeInteger(args.sortOrder)) {
+      throw new Error("sortOrder must be a non-negative integer")
+    }
+    const existing = await ctx.db
+      .query("accommodationCategories")
+      .withIndex("by_code", (q) => q.eq("code", args.code))
+      .first()
+    if (existing) {
+      throw new Error(`Category code "${args.code}" already exists`)
+    }
+    return await ctx.db.insert("accommodationCategories", {
+      code: args.code,
+      label,
+      description: normalizeOptionalString(args.description) ?? undefined,
+      sortOrder: args.sortOrder,
+    })
+  },
+})
+
+export const updateAccommodationCategory = mutation({
+  args: {
+    categoryId: v.id("accommodationCategories"),
+    label: v.optional(v.string()),
+    description: v.optional(v.string()),
+    sortOrder: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const category = await ctx.db.get("accommodationCategories", args.categoryId)
+    if (!category) {
+      throw new Error("Category not found")
+    }
+    const patch: Partial<Doc<"accommodationCategories">> = {}
+    if (args.label !== undefined) {
+      const label = args.label.trim()
+      if (!label) {
+        throw new Error("Category label is required")
+      }
+      patch.label = label
+    }
+    if (args.description !== undefined) {
+      patch.description = normalizeOptionalString(args.description) ?? undefined
+    }
+    if (args.sortOrder !== undefined) {
+      if (!isNonNegativeInteger(args.sortOrder)) {
+        throw new Error("sortOrder must be a non-negative integer")
+      }
+      patch.sortOrder = args.sortOrder
+    }
+    await ctx.db.patch("accommodationCategories", args.categoryId, patch)
+    return await ctx.db.get("accommodationCategories", args.categoryId)
+  },
+})
+
+/**
+ * Locked catalog semantics for the built-in option codes. The event option
+ * mutation always stores a per-unit price, so the cot code must be `per_night`
+ * with the addon kind or the catalog would describe an option whose unit
+ * disagrees with the pricing contract. Custom option codes are free-form.
+ */
+export const LOCKED_OPTION_SEMANTICS: Record<
+  string,
+  {
+    kind: "addon" | "upgrade" | "eligibility"
+    unit: "per_night" | "per_person"
+  }
+> = {
+  cot: { kind: "addon", unit: "per_night" },
+}
+
+export function isValidOptionSemantics(input: {
+  code: string
+  kind: string
+  unit: string
+}): boolean {
+  const locked = LOCKED_OPTION_SEMANTICS[input.code]
+  if (!locked) {
+    return true
+  }
+  return input.kind === locked.kind && input.unit === locked.unit
+}
+
+export const createAccommodationOption = mutation({
+  args: {
+    code: optionCodeValidator,
+    label: v.string(),
+    description: v.optional(v.string()),
+    kind: optionKindValidator,
+    unit: optionUnitValidator,
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const label = args.label.trim()
+    if (!label) {
+      throw new Error("Option label is required")
+    }
+    if (!isValidOptionSemantics({ code: args.code, kind: args.kind, unit: args.unit })) {
+      const locked = LOCKED_OPTION_SEMANTICS[args.code]
+      throw new Error(
+        `Option code "${args.code}" requires kind "${locked?.kind}" and unit "${locked?.unit}"`
+      )
+    }
+    const existing = await ctx.db
+      .query("accommodationOptions")
+      .withIndex("by_code", (q) => q.eq("code", args.code))
+      .first()
+    if (existing) {
+      throw new Error(`Option code "${args.code}" already exists`)
+    }
+    return await ctx.db.insert("accommodationOptions", {
+      code: args.code,
+      label,
+      description: normalizeOptionalString(args.description) ?? undefined,
+      kind: args.kind,
+      unit: args.unit,
+    })
+  },
+})
+
+export const updateAccommodationOption = mutation({
+  args: {
+    optionId: v.id("accommodationOptions"),
+    label: v.optional(v.string()),
+    description: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const option = await ctx.db.get("accommodationOptions", args.optionId)
+    if (!option) {
+      throw new Error("Option not found")
+    }
+    const patch: Partial<Doc<"accommodationOptions">> = {}
+    if (args.label !== undefined) {
+      const label = args.label.trim()
+      if (!label) {
+        throw new Error("Option label is required")
+      }
+      patch.label = label
+    }
+    if (args.description !== undefined) {
+      patch.description = normalizeOptionalString(args.description) ?? undefined
+    }
+    await ctx.db.patch("accommodationOptions", args.optionId, patch)
+    return await ctx.db.get("accommodationOptions", args.optionId)
+  },
+})
+
+/**
+ * Extended-stay policy is stored as three booleans. `allowExtendedStayBoth`
+ * must imply both directional flags, otherwise consumers would read a
+ * contradictory policy ("both" while neither direction is allowed). This
+ * normalizes the trio so `both` forces both directions to true.
+ */
+export function normalizeExtendedStayFlags(input: {
+  allowExtendedStayBefore: boolean
+  allowExtendedStayAfter: boolean
+  allowExtendedStayBoth: boolean
+}): {
+  allowExtendedStayBefore: boolean
+  allowExtendedStayAfter: boolean
+  allowExtendedStayBoth: boolean
+} {
+  const { allowExtendedStayBoth } = input
+  return {
+    allowExtendedStayBefore:
+      allowExtendedStayBoth || input.allowExtendedStayBefore,
+    allowExtendedStayAfter: allowExtendedStayBoth || input.allowExtendedStayAfter,
+    allowExtendedStayBoth,
+  }
+}
+
+/**
+ * Returns a strictly monotonic config version: `Date.now()` when there is no
+ * previous version, or at least `previous + 1` so two successful writes in
+ * the same millisecond can never share a version. The single version boundary
+ * must strictly advance for a confirmation to record an unambiguous
+ * `configVersion`.
+ */
+function nextConfigVersion(
+  previousUpdatedAt: number | null | undefined
+): number {
+  return Math.max(Date.now(), (previousUpdatedAt ?? 0) + 1)
+}
+
+/**
+ * Advances the single event accommodation config version boundary after an
+ * event-scoped pricing/config write (rates, options, resources, age pricing).
+ * The version lives on `eventAccommodationConfig.updatedAt` — there is
+ * deliberately no second version field. When no config row exists yet (e.g.
+ * an admin saves a rate before ever saving the stay window), the singleton is
+ * initialized from the existing default one-night-before-event window so a
+ * later confirmation always has a `configVersion` to record. This never
+ * touches orders, selection rows, totals, or payment links.
+ */
+async function touchEventAccommodationConfigVersion(
+  ctx: MutationCtx,
+  eventId: Id<"events">
+) {
+  const existing = await ctx.db
+    .query("eventAccommodationConfig")
+    .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+    .unique()
+
+  if (existing) {
+    await ctx.db.patch("eventAccommodationConfig", existing._id, {
+      updatedAt: nextConfigVersion(existing.updatedAt),
+    })
+    return
+  }
+
+  const event = await getEventOrThrow(ctx, eventId)
+  const window = deriveInitialStayWindow(event.startsAt)
+  const nightCount = deriveNightCount(window.baseCheckInAt, window.baseCheckOutAt)
+  await ctx.db.insert("eventAccommodationConfig", {
+    eventId,
+    baseCheckInAt: window.baseCheckInAt,
+    baseCheckOutAt: window.baseCheckOutAt,
+    allowExtendedStayBefore: false,
+    allowExtendedStayAfter: false,
+    allowExtendedStayBoth: false,
+    breakfastIncluded: false,
+    nightCount,
+    updatedAt: nextConfigVersion(null),
+  })
+}
+
+export const upsertEventAccommodationConfig = mutation({
+  args: {
+    eventId: v.id("events"),
+    baseCheckInAt: v.optional(v.number()),
+    baseCheckOutAt: v.optional(v.number()),
+    allowExtendedStayBefore: v.optional(v.boolean()),
+    allowExtendedStayAfter: v.optional(v.boolean()),
+    allowExtendedStayBoth: v.optional(v.boolean()),
+    defaultCategoryId: v.optional(v.id("accommodationCategories")),
+    breakfastIncluded: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const event = await getEventOrThrow(ctx, args.eventId)
+    if (
+      (args.baseCheckInAt === undefined) !== (args.baseCheckOutAt === undefined)
+    ) {
+      throw new Error("Both baseCheckInAt and baseCheckOutAt are required")
+    }
+    if (args.defaultCategoryId !== undefined) {
+      const category = await ctx.db.get(
+        "accommodationCategories",
+        args.defaultCategoryId
+      )
+      if (!category) {
+        throw new Error("Category not found")
+      }
+    }
+
+    const existing = await ctx.db
+      .query("eventAccommodationConfig")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .unique()
+
+    if (existing) {
+      const baseCheckInAt = args.baseCheckInAt ?? existing.baseCheckInAt
+      const baseCheckOutAt = args.baseCheckOutAt ?? existing.baseCheckOutAt
+      const nightCount = deriveNightCount(baseCheckInAt, baseCheckOutAt)
+      const extendedStay = normalizeExtendedStayFlags({
+        allowExtendedStayBefore:
+          args.allowExtendedStayBefore ?? existing.allowExtendedStayBefore,
+        allowExtendedStayAfter:
+          args.allowExtendedStayAfter ?? existing.allowExtendedStayAfter,
+        allowExtendedStayBoth:
+          args.allowExtendedStayBoth ?? existing.allowExtendedStayBoth,
+      })
+      await ctx.db.patch("eventAccommodationConfig", existing._id, {
+        baseCheckInAt,
+        baseCheckOutAt,
+        allowExtendedStayBefore: extendedStay.allowExtendedStayBefore,
+        allowExtendedStayAfter: extendedStay.allowExtendedStayAfter,
+        allowExtendedStayBoth: extendedStay.allowExtendedStayBoth,
+        defaultCategoryId:
+          args.defaultCategoryId === undefined
+            ? existing.defaultCategoryId
+            : args.defaultCategoryId,
+        breakfastIncluded: args.breakfastIncluded ?? existing.breakfastIncluded,
+        nightCount,
+        updatedAt: nextConfigVersion(existing.updatedAt),
+      })
+      return await ctx.db.get("eventAccommodationConfig", existing._id)
+    }
+
+    // Newly initialized: default to the locked initial one-night-before-event
+    // window when no explicit timestamps are supplied.
+    const window =
+      args.baseCheckInAt !== undefined && args.baseCheckOutAt !== undefined
+        ? {
+            baseCheckInAt: args.baseCheckInAt,
+            baseCheckOutAt: args.baseCheckOutAt,
+          }
+        : deriveInitialStayWindow(event.startsAt)
+    const nightCount = deriveNightCount(window.baseCheckInAt, window.baseCheckOutAt)
+    const extendedStay = normalizeExtendedStayFlags({
+      allowExtendedStayBefore: args.allowExtendedStayBefore ?? false,
+      allowExtendedStayAfter: args.allowExtendedStayAfter ?? false,
+      allowExtendedStayBoth: args.allowExtendedStayBoth ?? false,
+    })
+    const id = await ctx.db.insert("eventAccommodationConfig", {
+      eventId: args.eventId,
+      baseCheckInAt: window.baseCheckInAt,
+      baseCheckOutAt: window.baseCheckOutAt,
+      allowExtendedStayBefore: extendedStay.allowExtendedStayBefore,
+      allowExtendedStayAfter: extendedStay.allowExtendedStayAfter,
+      allowExtendedStayBoth: extendedStay.allowExtendedStayBoth,
+      defaultCategoryId: args.defaultCategoryId,
+      breakfastIncluded: args.breakfastIncluded ?? false,
+      nightCount,
+      updatedAt: nextConfigVersion(null),
+    })
+    return await ctx.db.get("eventAccommodationConfig", id)
+  },
+})
+
+export const upsertEventAccommodationRate = mutation({
+  args: {
+    eventId: v.id("events"),
+    categoryId: v.id("accommodationCategories"),
+    occupancy: occupancyValidator,
+    pricePerPersonMinor: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    await getEventOrThrow(ctx, args.eventId)
+    const category = await ctx.db.get("accommodationCategories", args.categoryId)
+    if (!category) {
+      throw new Error("Category not found")
+    }
+    if (!isNonNegativePrice(args.pricePerPersonMinor)) {
+      throw new Error("pricePerPersonMinor must be a non-negative number")
+    }
+    const existing = await ctx.db
+      .query("eventAccommodationRates")
+      .withIndex("by_eventId_and_categoryId_and_occupancy", (q) =>
+        q
+          .eq("eventId", args.eventId)
+          .eq("categoryId", args.categoryId)
+          .eq("occupancy", args.occupancy)
+      )
+      .first()
+    if (existing) {
+      await ctx.db.patch("eventAccommodationRates", existing._id, {
+        pricePerPersonMinor: args.pricePerPersonMinor,
+      })
+      await touchEventAccommodationConfigVersion(ctx, args.eventId)
+      return await ctx.db.get("eventAccommodationRates", existing._id)
+    }
+    const id = await ctx.db.insert("eventAccommodationRates", args)
+    await touchEventAccommodationConfigVersion(ctx, args.eventId)
+    return await ctx.db.get("eventAccommodationRates", id)
+  },
+})
+
+export const upsertEventAccommodationOption = mutation({
+  args: {
+    eventId: v.id("events"),
+    optionId: v.id("accommodationOptions"),
+    enabled: v.optional(v.boolean()),
+    priceMinor: v.optional(v.number()),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    await getEventOrThrow(ctx, args.eventId)
+    const option = await ctx.db.get("accommodationOptions", args.optionId)
+    if (!option) {
+      throw new Error("Option not found")
+    }
+    if (args.priceMinor !== undefined && !isNonNegativePrice(args.priceMinor)) {
+      throw new Error("priceMinor must be a non-negative number")
+    }
+
+    const existing = await ctx.db
+      .query("eventAccommodationOptions")
+      .withIndex("by_eventId_and_optionId", (q) =>
+        q.eq("eventId", args.eventId).eq("optionId", args.optionId)
+      )
+      .first()
+
+    if (existing) {
+      await ctx.db.patch("eventAccommodationOptions", existing._id, {
+        enabled: args.enabled ?? existing.enabled,
+        priceMinor: args.priceMinor ?? existing.priceMinor,
+        notes:
+          args.notes === undefined
+            ? existing.notes
+            : normalizeOptionalString(args.notes) ?? undefined,
+      })
+      await touchEventAccommodationConfigVersion(ctx, args.eventId)
+      return await ctx.db.get("eventAccommodationOptions", existing._id)
+    }
+
+    const id = await ctx.db.insert("eventAccommodationOptions", {
+      eventId: args.eventId,
+      optionId: args.optionId,
+      enabled: args.enabled ?? false,
+      priceMinor: resolveEventOptionPriceMinor(args.priceMinor),
+      notes: normalizeOptionalString(args.notes) ?? undefined,
+    })
+    await touchEventAccommodationConfigVersion(ctx, args.eventId)
+    return await ctx.db.get("eventAccommodationOptions", id)
+  },
+})
+
+export const upsertEventAccommodationResource = mutation({
+  args: {
+    eventId: v.id("events"),
+    kind: resourceKindValidator,
+    roomTypeId: v.optional(v.id("accommodationRoomTypes")),
+    count: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    await getEventOrThrow(ctx, args.eventId)
+    if (!isNonNegativeInteger(args.count)) {
+      throw new Error("count must be a non-negative integer")
+    }
+    if (args.kind === "cot" && args.roomTypeId !== undefined) {
+      throw new Error("Cot resources cannot reference a room type")
+    }
+    if (args.kind === "room" && args.roomTypeId === undefined) {
+      throw new Error("Room resources require a room type")
+    }
+    if (args.roomTypeId !== undefined) {
+      const roomType = await ctx.db.get("accommodationRoomTypes", args.roomTypeId)
+      if (!roomType) {
+        throw new Error("Room type not found")
+      }
+    }
+    const existing = await ctx.db
+      .query("eventAccommodationResources")
+      .withIndex("by_eventId_and_kind_and_roomTypeId", (q) =>
+        q
+          .eq("eventId", args.eventId)
+          .eq("kind", args.kind)
+          .eq("roomTypeId", args.roomTypeId ?? undefined)
+      )
+      .first()
+    if (existing) {
+      await ctx.db.patch("eventAccommodationResources", existing._id, {
+        count: args.count,
+      })
+      await touchEventAccommodationConfigVersion(ctx, args.eventId)
+      return await ctx.db.get("eventAccommodationResources", existing._id)
+    }
+    const id = await ctx.db.insert("eventAccommodationResources", args)
+    await touchEventAccommodationConfigVersion(ctx, args.eventId)
+    return await ctx.db.get("eventAccommodationResources", id)
+  },
+})
+
+// ---------------------------------------------------------------------------
+// Phase 41: Per-order accommodation configuration confirmation
+//
+// An explicit, authenticated confirmation persists the Phase 40 snapshot
+// boundary (`confirmedAt` + `configVersion = eventAccommodationConfig.updatedAt`
+// + the pure module's immutable `priceSnapshot`) on every unconfirmed
+// `orderAccommodationSelections` row atomically. Confirmation accepts only an
+// order ID — every rate, option price, category, night count and ticket
+// inclusion flag is resolved server-side, and no client amount is ever
+// accepted. Configuration saves never eagerly re-price or rewrite orders; the
+// confirmation boundary is the only place selection rows are locked.
+// ---------------------------------------------------------------------------
+
+type SelectionConfirmationPatch = {
+  selectionId: Id<"orderAccommodationSelections">
+  confirmedAt: number
+  configVersion: number
+  priceSnapshot: AccommodationPriceSnapshot
+}
+
+/**
+ * Resolves every unconfirmed accommodation selection of an order into a
+ * Phase 40 snapshot patch using current server-side configuration. Throws for
+ * missing config, an order with no selection rows, already-confirmed rows,
+ * unknown selection references, or rows that cannot be priced from a complete
+ * event configuration. Exported so Phase 44 assignment confirmation reuses
+ * the exact snapshot-boundary code path instead of inventing a second one.
+ */
+export async function resolveOrderAccommodationConfirmation(
+  ctx: MutationCtx,
+  orderId: Id<"orders">
+): Promise<{
+  configVersion: number
+  patches: SelectionConfirmationPatch[]
+}> {
+  const order = await ctx.db.get("orders", orderId)
+  if (!order) {
+    throw new Error("Order not found")
+  }
+  if (!order.eventId) {
+    throw new Error("Order is not linked to an event")
+  }
+  const eventId = order.eventId
+
+  const config = await ctx.db
+    .query("eventAccommodationConfig")
+    .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+    .unique()
+  if (!config) {
+    throw new Error(
+      "Event accommodation configuration is required before confirming an order"
+    )
+  }
+  const configVersion = config.updatedAt
+
+  // All selection rows through bounded async iteration — a fixed `.take(100)`
+  // would silently truncate large orders and lock only part of the order.
+  const selectionRows: Array<Doc<"orderAccommodationSelections">> = []
+  for await (const row of ctx.db
+    .query("orderAccommodationSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", orderId))) {
+    selectionRows.push(row)
+  }
+  if (selectionRows.length === 0) {
+    throw new Error("Order has no accommodation selections to confirm")
+  }
+  for (const row of selectionRows) {
+    if (row.confirmedAt !== undefined && row.confirmedAt !== null) {
+      throw new Error(
+        "Order already has confirmed accommodation selections"
+      )
+    }
+  }
+
+  // Attendee ticket selections: accommodationIncluded is resolved from the
+  // attendee's ticket type (absent = false), exactly like the canonical
+  // loader's live derivation. Fail-closed ownership checks: every attendee
+  // must have at most one ticket selection row, and the referenced ticket
+  // type must exist and belong to the order's event — a ticket type from a
+  // different event must never influence this order's snapshot.
+  const ticketTypeIdByAttendeeId = new Map<
+    Id<"orderAttendees">,
+    Id<"ticketTypes">
+  >()
+  for await (const ticketSelection of ctx.db
+    .query("orderTicketSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", orderId))) {
+    // Fail closed: every ticket row must reference a real attendee of this
+    // order, and each attendee may have at most one ticket selection row —
+    // duplicates of the same ticket type are malformed and must never be
+    // silently collapsed.
+    const ticketAttendee = await ctx.db.get(
+      "orderAttendees",
+      ticketSelection.attendeeId
+    )
+    if (!ticketAttendee) {
+      throw new Error("Ticket selection references an unknown attendee")
+    }
+    if (ticketAttendee.orderId !== orderId) {
+      throw new Error("Ticket selection attendee does not belong to the order")
+    }
+    if (ticketTypeIdByAttendeeId.has(ticketSelection.attendeeId)) {
+      throw new Error(
+        "Attendee has more than one ticket selection and cannot be confirmed"
+      )
+    }
+    ticketTypeIdByAttendeeId.set(
+      ticketSelection.attendeeId,
+      ticketSelection.ticketTypeId
+    )
+  }
+  const ticketTypeIds = [...new Set(ticketTypeIdByAttendeeId.values())]
+  const ticketTypes = await Promise.all(
+    ticketTypeIds.map((ticketTypeId) => ctx.db.get("ticketTypes", ticketTypeId))
+  )
+  const ticketTypeById = new Map<
+    string,
+    Doc<"ticketTypes">
+  >()
+  for (const ticketType of ticketTypes) {
+    if (!ticketType) continue
+    ticketTypeById.set(String(ticketType._id), ticketType)
+  }
+  const ticketAccommodationIncludedByType = new Map<
+    string,
+    boolean
+  >()
+  for (const [, ticketTypeId] of ticketTypeIdByAttendeeId) {
+    const ticketType = ticketTypeById.get(String(ticketTypeId))
+    if (!ticketType) {
+      throw new Error("Attendee references an unknown ticket type")
+    }
+    if (ticketType.eventId !== eventId) {
+      throw new Error(
+        "Attendee ticket type does not belong to the order's event"
+      )
+    }
+    ticketAccommodationIncludedByType.set(
+      String(ticketTypeId),
+      ticketType.accommodationIncluded === true
+    )
+  }
+
+  // Event rates keyed by `${categoryId}:${occupancy}` and enabled option
+  // prices keyed by option code — the same resolution the canonical loader
+  // uses, so a confirmed snapshot always matches live pricing at confirmation.
+  const rateByKey = new Map<string, number>()
+  for await (const rate of ctx.db
+    .query("eventAccommodationRates")
+    .withIndex("by_eventId", (q) => q.eq("eventId", eventId))) {
+    rateByKey.set(`${String(rate.categoryId)}:${rate.occupancy}`, rate.pricePerPersonMinor)
+  }
+
+  const eventOptionRows: Array<Doc<"eventAccommodationOptions">> = []
+  for await (const optionRow of ctx.db
+    .query("eventAccommodationOptions")
+    .withIndex("by_eventId", (q) => q.eq("eventId", eventId))) {
+    eventOptionRows.push(optionRow)
+  }
+  const optionDefinitionById = new Map<string, Doc<"accommodationOptions">>()
+  for (const optionRow of eventOptionRows) {
+    const definition = await ctx.db.get(
+      "accommodationOptions",
+      optionRow.optionId
+    )
+    if (definition) {
+      optionDefinitionById.set(String(optionRow.optionId), definition)
+    }
+  }
+  // Enabled event options resolved to typed per-unit prices keyed by option
+  // code — the same resolution the canonical loader uses, so a confirmed
+  // snapshot always matches live pricing at confirmation.
+  const optionsByKey = new Map<
+    string,
+    { label: string; priceMinor: number; unit: "per_night" | "per_person" }
+  >()
+  for (const optionRow of eventOptionRows) {
+    if (!optionRow.enabled) continue
+    const definition = optionDefinitionById.get(String(optionRow.optionId))
+    if (!definition) continue
+    optionsByKey.set(definition.code, {
+      label: definition.label,
+      priceMinor: optionRow.priceMinor,
+      unit: definition.unit,
+    })
+  }
+
+  const optionSelectionsBySelectionId = new Map<
+    string,
+    Array<{ optionKey: string; quantity: number; nights: number }>
+  >()
+  for await (const optionRow of ctx.db
+    .query("orderAccommodationOptionSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", orderId))) {
+    const selectionId = String(optionRow.selectionId)
+    const existing = optionSelectionsBySelectionId.get(selectionId) ?? []
+    existing.push({
+      optionKey: optionRow.optionKey,
+      quantity: optionRow.quantity,
+      nights: optionRow.nights,
+    })
+    optionSelectionsBySelectionId.set(selectionId, existing)
+  }
+
+  const patches: SelectionConfirmationPatch[] = []
+  const confirmedAt = Date.now()
+
+  for (const row of selectionRows) {
+    if (!row.categoryId || !row.occupancy) {
+      throw new Error(
+        "Selection is missing a category or occupancy and cannot be priced"
+      )
+    }
+    if (
+      row.nightCount === undefined ||
+      row.nightCount === null ||
+      !Number.isInteger(row.nightCount) ||
+      row.nightCount < 0
+    ) {
+      throw new Error(
+        "Selection night count must be a non-negative integer"
+      )
+    }
+    // Every attendee reference must resolve to a real attendee of this
+    // order — a cross-order attendee ID must never be priced or locked.
+    const attendee = await ctx.db.get("orderAttendees", row.attendeeId)
+    if (!attendee) {
+      throw new Error("Selection references an unknown attendee")
+    }
+    if (attendee.orderId !== orderId) {
+      throw new Error("Selection attendee does not belong to the order")
+    }
+    const category = await ctx.db.get(
+      "accommodationCategories",
+      row.categoryId
+    )
+    if (!category) {
+      throw new Error("Selection references an unknown category")
+    }
+    const baseRatePerNightMinor =
+      rateByKey.get(`${String(row.categoryId)}:${row.occupancy}`) ?? null
+    if (baseRatePerNightMinor === null) {
+      throw new Error(
+        "No rate is configured for the selected category and occupancy"
+      )
+    }
+    const nightBeforeOccupancy =
+      row.nightBeforeOccupancy ??
+      (row.occupancy === "single" || row.occupancy === "shared"
+        ? row.occupancy
+        : null)
+    const nightBeforeRatePerNightMinor = nightBeforeOccupancy
+      ? rateByKey.get(
+          `${String(row.categoryId)}:${nightBeforeOccupancy}`
+        ) ?? null
+      : null
+    if (row.nightBeforeLevel && nightBeforeRatePerNightMinor === null) {
+      throw new Error(
+        "No rate is configured for the selected night-before occupancy"
+      )
+    }
+
+    // Every selected option must be a key in the event's enabled option set.
+    // Unknown/disabled keys fail closed; quantity and nights are normalized.
+    const selectedOptionKeys = optionSelectionsBySelectionId.get(String(row._id)) ?? []
+    const seenKeys = new Set<string>()
+    const resolvedOptions: Array<{
+      optionKey: string
+      label: string
+      pricePerUnitMinor: number
+      quantity: number
+      nights: number
+      unit: "per_night" | "per_person"
+    }> = []
+    for (const selected of selectedOptionKeys) {
+      if (seenKeys.has(selected.optionKey)) {
+        throw new Error(
+          `Selection selects option '${selected.optionKey}' more than once`
+        )
+      }
+      seenKeys.add(selected.optionKey)
+      const option = optionsByKey.get(selected.optionKey)
+      if (!option) {
+        throw new Error(
+          `Selected option '${selected.optionKey}' is not enabled for this event`
+        )
+      }
+      if (!Number.isInteger(selected.quantity) || selected.quantity <= 0) {
+        throw new Error(
+          `Selected option '${selected.optionKey}' has an invalid quantity`
+        )
+      }
+      if (!Number.isInteger(selected.nights) || selected.nights <= 0) {
+        throw new Error(
+          `Selected option '${selected.optionKey}' has an invalid night count`
+        )
+      }
+      resolvedOptions.push({
+        optionKey: selected.optionKey,
+        label: option.label,
+        pricePerUnitMinor: option.priceMinor,
+        quantity: selected.quantity,
+        nights: selected.nights,
+        unit: option.unit,
+      })
+    }
+
+    const attendeeTicketTypeId = ticketTypeIdByAttendeeId.get(row.attendeeId)
+    if (attendeeTicketTypeId === undefined) {
+      throw new Error(
+        "Selection attendee has no ticket selection and cannot be confirmed"
+      )
+    }
+    const ticketAccommodationIncluded =
+      ticketAccommodationIncludedByType.get(String(attendeeTicketTypeId)) ??
+      false
+
+    const priceSnapshot = buildAccommodationPriceSnapshot({
+      selection: {
+        attendeeId: String(row.attendeeId),
+        categoryCode: category.code,
+        occupancy: row.occupancy,
+        nightCount: row.nightCount,
+        nightBeforeLevel: row.nightBeforeLevel ?? null,
+        nightBeforeOccupancy,
+        optionSelections: resolvedOptions,
+      },
+      pricing: {
+        baseRatePerNightMinor,
+        nightBeforeRatePerNightMinor,
+        options: resolvedOptions,
+        ticketAccommodationIncluded,
+        eventBaseNights: config.nightCount,
+      },
+    })
+
+    patches.push({
+      selectionId: row._id,
+      confirmedAt,
+      configVersion,
+      priceSnapshot,
+    })
+  }
+
+  return { configVersion, patches }
+}
+
+/**
+ * Assignment-confirmation boundary (Phase 44, D-08/D-09): persists the Phase
+ * 41 `confirmedAt`/`configVersion`/`priceSnapshot` boundary through the shared
+ * `resolveOrderAccommodationConfirmation` resolver in the SAME Convex
+ * transaction as the assignment write that follows. Every admin assignment
+ * entry point that can finalize a room placement calls this before patching
+ * the attendee or assignment.
+ *
+ * Path decisions:
+ *   - No selection rows        -> legacy order, skip cleanly (nothing to lock)
+ *   - Every row already confirmed -> idempotent no-op; a repeat assignment is
+ *                                   allowed to proceed without re-confirming
+ *   - Mixed confirmed/unconfirmed -> fail closed; an order is never half-locked
+ *   - None confirmed           -> resolve + patch all rows atomically
+ *
+ * The resolver keeps every rate, night, timestamp, and snapshot
+ * server-resolved; this wrapper never accepts client money or confirmation
+ * fields and never duplicates the snapshot formula.
+ */
+export async function persistOrderAccommodationConfirmation(
+  ctx: MutationCtx,
+  orderId: Id<"orders">
+): Promise<void> {
+  const selectionRows: Array<Doc<"orderAccommodationSelections">> = []
+  for await (const row of ctx.db
+    .query("orderAccommodationSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", orderId))) {
+    selectionRows.push(row)
+  }
+
+  if (selectionRows.length === 0) {
+    // Legacy order with no options-only selection rows: existing assignment
+    // behavior is preserved and nothing is locked.
+    return
+  }
+
+  // Classify each row as completely unconfirmed, completely confirmed, or
+  // malformed. A confirmed row is only complete when it carries a valid
+  // positive `confirmedAt`, a positive finite `configVersion`, and a complete
+  // price snapshot — matching the canonical finance loader's fail-closed
+  // checks exactly (any `<= 0`/non-finite value is malformed).
+  const isFullyConfirmed = (row: Doc<"orderAccommodationSelections">) =>
+    typeof row.confirmedAt === "number" &&
+    Number.isFinite(row.confirmedAt) &&
+    row.confirmedAt > 0 &&
+    typeof row.configVersion === "number" &&
+    Number.isFinite(row.configVersion) &&
+    row.configVersion > 0 &&
+    row.priceSnapshot !== undefined &&
+    row.priceSnapshot !== null &&
+    isCompleteAccommodationPriceSnapshot(row.priceSnapshot)
+
+  const isCompletelyUnconfirmed = (row: Doc<"orderAccommodationSelections">) =>
+    (row.confirmedAt === undefined || row.confirmedAt === null) &&
+    (row.configVersion === undefined || row.configVersion === null) &&
+    row.priceSnapshot === undefined
+
+  let confirmedCount = 0
+  let malformedCount = 0
+  for (const row of selectionRows) {
+    if (isFullyConfirmed(row)) {
+      confirmedCount += 1
+    } else if (!isCompletelyUnconfirmed(row)) {
+      // Partial fields (e.g. confirmedAt present without a complete
+      // snapshot, or a snapshot without confirmedAt) are malformed.
+      malformedCount += 1
+    }
+  }
+
+  if (malformedCount > 0) {
+    throw new Error(
+      "Order has malformed accommodation confirmation state and cannot be assigned"
+    )
+  }
+  if (confirmedCount === selectionRows.length) {
+    // Already fully confirmed: repeat assignment is an idempotent no-op.
+    return
+  }
+  if (confirmedCount > 0) {
+    throw new Error(
+      "Order has partially confirmed accommodation selections and cannot be assigned"
+    )
+  }
+
+  const { patches } = await resolveOrderAccommodationConfirmation(ctx, orderId)
+  for (const patch of patches) {
+    await ctx.db.patch("orderAccommodationSelections", patch.selectionId, {
+      confirmedAt: patch.confirmedAt,
+      configVersion: patch.configVersion,
+      priceSnapshot: patch.priceSnapshot,
+    })
+  }
+}
+
+export const confirmAccommodationOrderConfiguration = mutation({
+  args: { orderId: v.id("orders") },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const { configVersion, patches } = await resolveOrderAccommodationConfirmation(
+      ctx,
+      args.orderId
+    )
+    for (const patch of patches) {
+      await ctx.db.patch(
+        "orderAccommodationSelections",
+        patch.selectionId,
+        {
+          confirmedAt: patch.confirmedAt,
+          configVersion: patch.configVersion,
+          priceSnapshot: patch.priceSnapshot,
+        }
+      )
+    }
+    return {
+      orderId: args.orderId,
+      configVersion,
+      confirmedSelectionCount: patches.length,
     }
   },
 })

@@ -29,8 +29,8 @@ import {
   useAttendeesForEvent,
   useTicketTypesForEvent,
   useCreateManualAttendee,
-  useEventBySlug,
 } from "@/lib/convex/hooks/events"
+import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 import { Id } from "@/convex/_generated/dataModel"
 
 type AttendeeRow = {
@@ -76,7 +76,7 @@ export default function EventAttendeesPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = use(params)
-  const event = useEventBySlug(slug)
+  const { event } = useEventDashboard()
   
   const [isAddingAttendee, setIsAddingAttendee] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>("family")
