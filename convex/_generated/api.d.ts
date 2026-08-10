@@ -774,20 +774,6 @@ export declare const api: {
       },
       any
     >;
-    upsertTicketTailorEvent: FunctionReference<
-      "mutation",
-      "public",
-      {
-        currency?: string;
-        endsAt?: number;
-        name?: string;
-        providerEventId: string;
-        rawPayload: any;
-        startsAt?: number;
-        timezone?: string;
-      },
-      any
-    >;
   };
   orders: {
     createOrder: FunctionReference<
@@ -1712,16 +1698,6 @@ export declare const api: {
       },
       Id<"attendeeFamilyMembers">
     >;
-    archiveMissingOrdersForEvent: FunctionReference<
-      "mutation",
-      "public",
-      {
-        providerEventId: string;
-        reason?: string;
-        seenProviderOrderIds: Array<string>;
-      },
-      { archived: number; scanned: number }
-    >;
     attendees: {
       getTicketTailorAttendeesByOrderId: FunctionReference<
         "query",
@@ -1729,61 +1705,12 @@ export declare const api: {
         { orderId: Id<"orders"> },
         any
       >;
-      upsertTicketTailorAttendee: FunctionReference<
-        "mutation",
-        "public",
-        {
-          ageGroup?: string;
-          allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
-          attendeeId?: Id<"orderAttendees">;
-          customAnswers?: any;
-          email?: string;
-          eventId: Id<"events"> | string;
-          genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
-          name?: string;
-          orderId: Id<"orders">;
-          priorityReason?: string;
-          providerAttendeeId?: string;
-          providerEventId: string;
-          providerIssuedTicketId?: string;
-          providerOrderId: string;
-          providerTicketTypeId?: string;
-          rawPayload: any;
-          ticketCategory?: string;
-          ticketStatus?: string;
-          ticketTypeLabel?: string;
-        },
-        Id<"ticketTailorAttendees">
-      >;
     };
-    completeSyncRun: FunctionReference<
-      "mutation",
-      "public",
-      {
-        diagnostics?: any;
-        errorSummary?: string;
-        eventsScanned?: number;
-        failedItems?: number;
-        normalizedFallbackCount?: number;
-        ordersArchived?: number;
-        ordersFetched?: number;
-        ordersUpserted?: number;
-        runId: Id<"ticketTailorSyncRuns">;
-        status: "success" | "partial" | "failed";
-      },
-      Id<"ticketTailorSyncRuns">
-    >;
     createAttendeeFamilyGroup: FunctionReference<
       "mutation",
       "public",
       { label?: string; primaryAttendeeId: string },
       Id<"attendeeFamilyGroups">
-    >;
-    createWebhookEvent: FunctionReference<
-      "mutation",
-      "public",
-      { eventType: string; payload: any; providerEventId: string },
-      Id<"ticketTailorWebhookEvents">
     >;
     events: {
       getTicketTailorEventByProviderId: FunctionReference<
@@ -1791,20 +1718,6 @@ export declare const api: {
         "public",
         { providerEventId: string },
         any
-      >;
-      upsertTicketTailorEvent: FunctionReference<
-        "mutation",
-        "public",
-        {
-          currency?: string;
-          endsAt?: number;
-          name?: string;
-          providerEventId: string;
-          rawPayload: any;
-          startsAt?: number;
-          timezone?: string;
-        },
-        Id<"ticketTailorEvents">
       >;
     };
     families: {
@@ -1849,20 +1762,6 @@ export declare const api: {
       { familyGroupId: Id<"attendeeFamilyGroups"> },
       any
     >;
-    getLatestSyncRun: FunctionReference<"query", "public", {}, any>;
-    getPendingWebhookEvents: FunctionReference<
-      "query",
-      "public",
-      { limit?: number },
-      any
-    >;
-    getSyncRunById: FunctionReference<
-      "query",
-      "public",
-      { runId: Id<"ticketTailorSyncRuns"> },
-      any
-    >;
-    getSyncRuns: FunctionReference<"query", "public", {}, any>;
     getTicketTailorAttendeesByOrderId: FunctionReference<
       "query",
       "public",
@@ -1881,280 +1780,11 @@ export declare const api: {
       { providerOrderId: string },
       any
     >;
-    getWebhookEventById: FunctionReference<
-      "query",
-      "public",
-      { eventId: Id<"ticketTailorWebhookEvents"> },
-      any
-    >;
-    getWebhookEventByProviderId: FunctionReference<
-      "query",
-      "public",
-      { providerEventId: string },
-      any
-    >;
-    getWebhookEvents: FunctionReference<
-      "query",
-      "public",
-      { status?: "pending" | "processed" | "failed" },
-      any
-    >;
     orders: {
-      archiveMissingOrdersForEvent: FunctionReference<
-        "mutation",
-        "public",
-        {
-          providerEventId: string;
-          reason?: string;
-          seenProviderOrderIds: Array<string>;
-        },
-        { archived: number; scanned: number }
-      >;
       getTicketTailorOrderByProviderId: FunctionReference<
         "query",
         "public",
         { providerOrderId: string },
-        any
-      >;
-      upsertTicketTailorOrder: FunctionReference<
-        "mutation",
-        "public",
-        {
-          buyerEmail?: string;
-          buyerName?: string;
-          cancelledAt?: number;
-          currency?: string;
-          eventId: Id<"events"> | string;
-          normalizationNote?: string;
-          normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
-          orderedAt?: number;
-          providerEventId: string;
-          providerOrderId: string;
-          providerStatus?: string;
-          rawPayload: any;
-          refundedAt?: number;
-          totalAmountMinor?: number;
-        },
-        Id<"ticketTailorOrders">
-      >;
-    };
-    processWebhookEvent: FunctionReference<
-      "mutation",
-      "public",
-      {
-        error?: string;
-        eventId: Id<"ticketTailorWebhookEvents">;
-        status: "processed" | "failed";
-      },
-      any
-    >;
-    runs: {
-      completeSyncRun: FunctionReference<
-        "mutation",
-        "public",
-        {
-          diagnostics?: any;
-          errorSummary?: string;
-          eventsScanned?: number;
-          failedItems?: number;
-          normalizedFallbackCount?: number;
-          ordersArchived?: number;
-          ordersFetched?: number;
-          ordersUpserted?: number;
-          runId: Id<"ticketTailorSyncRuns">;
-          status: "success" | "partial" | "failed";
-        },
-        Id<"ticketTailorSyncRuns">
-      >;
-      getLatestSyncRun: FunctionReference<"query", "public", {}, any>;
-      getSyncRunById: FunctionReference<
-        "query",
-        "public",
-        { runId: Id<"ticketTailorSyncRuns"> },
-        any
-      >;
-      getSyncRuns: FunctionReference<"query", "public", {}, any>;
-      startSyncRun: FunctionReference<
-        "mutation",
-        "public",
-        {},
-        Id<"ticketTailorSyncRuns">
-      >;
-      updateSyncRun: FunctionReference<
-        "mutation",
-        "public",
-        {
-          diagnostics?: any;
-          errorSummary?: string;
-          eventsScanned?: number;
-          failedItems?: number;
-          normalizedFallbackCount?: number;
-          ordersArchived?: number;
-          ordersFetched?: number;
-          ordersUpserted?: number;
-          runId: Id<"ticketTailorSyncRuns">;
-        },
-        Id<"ticketTailorSyncRuns">
-      >;
-    };
-    startSyncRun: FunctionReference<
-      "mutation",
-      "public",
-      {},
-      Id<"ticketTailorSyncRuns">
-    >;
-    updateSyncRun: FunctionReference<
-      "mutation",
-      "public",
-      {
-        diagnostics?: any;
-        errorSummary?: string;
-        eventsScanned?: number;
-        failedItems?: number;
-        normalizedFallbackCount?: number;
-        ordersArchived?: number;
-        ordersFetched?: number;
-        ordersUpserted?: number;
-        runId: Id<"ticketTailorSyncRuns">;
-      },
-      Id<"ticketTailorSyncRuns">
-    >;
-    updateWebhookEvent: FunctionReference<
-      "mutation",
-      "public",
-      {
-        attempts?: number;
-        canonicalFetchedAt?: number;
-        canonicalPayload?: any;
-        deliveryCount?: number;
-        eventId: Id<"ticketTailorWebhookEvents">;
-        lastError?: string;
-        lastReceivedAt?: number;
-        nextRetryAt?: number;
-        payload?: any;
-        processedAt?: number;
-        status?: "pending" | "processed" | "failed";
-      },
-      any
-    >;
-    upsertTicketTailorAttendee: FunctionReference<
-      "mutation",
-      "public",
-      {
-        ageGroup?: string;
-        allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
-        attendeeId?: Id<"orderAttendees">;
-        customAnswers?: any;
-        email?: string;
-        eventId: Id<"events"> | string;
-        genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
-        name?: string;
-        orderId: Id<"orders">;
-        priorityReason?: string;
-        providerAttendeeId?: string;
-        providerEventId: string;
-        providerIssuedTicketId?: string;
-        providerOrderId: string;
-        providerTicketTypeId?: string;
-        rawPayload: any;
-        ticketCategory?: string;
-        ticketStatus?: string;
-        ticketTypeLabel?: string;
-      },
-      Id<"ticketTailorAttendees">
-    >;
-    upsertTicketTailorEvent: FunctionReference<
-      "mutation",
-      "public",
-      {
-        currency?: string;
-        endsAt?: number;
-        name?: string;
-        providerEventId: string;
-        rawPayload: any;
-        startsAt?: number;
-        timezone?: string;
-      },
-      Id<"ticketTailorEvents">
-    >;
-    upsertTicketTailorOrder: FunctionReference<
-      "mutation",
-      "public",
-      {
-        buyerEmail?: string;
-        buyerName?: string;
-        cancelledAt?: number;
-        currency?: string;
-        eventId: Id<"events"> | string;
-        normalizationNote?: string;
-        normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
-        orderedAt?: number;
-        providerEventId: string;
-        providerOrderId: string;
-        providerStatus?: string;
-        rawPayload: any;
-        refundedAt?: number;
-        totalAmountMinor?: number;
-      },
-      Id<"ticketTailorOrders">
-    >;
-    webhooks: {
-      createWebhookEvent: FunctionReference<
-        "mutation",
-        "public",
-        { eventType: string; payload: any; providerEventId: string },
-        Id<"ticketTailorWebhookEvents">
-      >;
-      getPendingWebhookEvents: FunctionReference<
-        "query",
-        "public",
-        { limit?: number },
-        any
-      >;
-      getWebhookEventById: FunctionReference<
-        "query",
-        "public",
-        { eventId: Id<"ticketTailorWebhookEvents"> },
-        any
-      >;
-      getWebhookEventByProviderId: FunctionReference<
-        "query",
-        "public",
-        { providerEventId: string },
-        any
-      >;
-      getWebhookEvents: FunctionReference<
-        "query",
-        "public",
-        { status?: "pending" | "processed" | "failed" },
-        any
-      >;
-      processWebhookEvent: FunctionReference<
-        "mutation",
-        "public",
-        {
-          error?: string;
-          eventId: Id<"ticketTailorWebhookEvents">;
-          status: "processed" | "failed";
-        },
-        any
-      >;
-      updateWebhookEvent: FunctionReference<
-        "mutation",
-        "public",
-        {
-          attempts?: number;
-          canonicalFetchedAt?: number;
-          canonicalPayload?: any;
-          deliveryCount?: number;
-          eventId: Id<"ticketTailorWebhookEvents">;
-          lastError?: string;
-          lastReceivedAt?: number;
-          nextRetryAt?: number;
-          payload?: any;
-          processedAt?: number;
-          status?: "pending" | "processed" | "failed";
-        },
         any
       >;
     };
@@ -2429,7 +2059,6 @@ export declare const internal: {
     >;
   };
   autoSync: {
-    autoSyncTicketTailor: FunctionReference<"action", "internal", {}, any>;
     autoSyncTikkiePayments: FunctionReference<"action", "internal", {}, any>;
   };
   backfillLegacyAccommodationPreferences: {
@@ -2447,6 +2076,40 @@ export declare const internal: {
         ordersUnresolved: number;
         slug: string;
         unresolved: Array<{ orderId: string; reason: string }>;
+      }
+    >;
+  };
+  correctUnprovenPaidOrders: {
+    correctUnprovenPaidOrders: FunctionReference<
+      "mutation",
+      "internal",
+      { allowedDeploymentUrl?: string; authorize: boolean; slug?: string },
+      {
+        alreadyPending: number;
+        flipped: number;
+        ordersScanned: number;
+        skippedWithProof: number;
+      }
+    >;
+    reconcileUnprovenPaidOrdersReport: FunctionReference<
+      "query",
+      "internal",
+      { slug?: string },
+      {
+        byCanonicalStatus: {
+          cancelled: number;
+          paid: number;
+          pending: number;
+          refunded: number;
+        };
+        eventId?: string;
+        ordersScanned: number;
+        ordersToFlip: Array<{
+          amountDueMinor: number | null;
+          buyerName: string | null;
+          orderId: string;
+        }>;
+        slug: string;
       }
     >;
   };
@@ -2567,51 +2230,6 @@ export declare const internal: {
         { orderId: Id<"orders"> },
         any
       >;
-      internalUpsertTicketTailorAttendee: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          ageGroup?: string;
-          attendeeId: Id<"orderAttendees">;
-          checkedInAt?: number;
-          customAnswers?: any;
-          genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
-          orderId: Id<"orders">;
-          providerAttendeeId?: string;
-          providerEventId: string;
-          providerIssuedTicketId?: string;
-          providerOrderId: string;
-          providerTicketTypeId?: string;
-          rawPayload: any;
-          ticketCategory?: string;
-          ticketStatus?: string;
-          ticketTypeLabel?: string;
-          tikkieAmountOverrideMinor?: number;
-        },
-        {
-          attendeeId: Id<"orderAttendees">;
-          ticketTailorAttendeeId: Id<"ticketTailorAttendees">;
-        }
-      >;
-    };
-    events: {
-      internalUpsertTicketTailorEvent: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currency?: string;
-          endsAt?: number;
-          name?: string;
-          providerEventId: string;
-          rawPayload: any;
-          startsAt?: number;
-          timezone?: string;
-        },
-        {
-          canonicalEventId: Id<"events">;
-          ticketTailorEventId: Id<"ticketTailorEvents">;
-        }
-      >;
     };
     families: {
       internalAddAttendeeToFamilyGroup: FunctionReference<
@@ -2674,33 +2292,6 @@ export declare const internal: {
       },
       Id<"attendeeFamilyMembers">
     >;
-    internalArchiveMissingOrdersForEvent: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        providerEventId: string;
-        reason?: string;
-        seenProviderOrderIds: Array<string>;
-      },
-      { archived: number; scanned: number }
-    >;
-    internalCompleteSyncRun: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        diagnostics?: any;
-        errorSummary?: string;
-        eventsScanned?: number;
-        failedItems?: number;
-        normalizedFallbackCount?: number;
-        ordersArchived?: number;
-        ordersFetched?: number;
-        ordersUpserted?: number;
-        runId: Id<"ticketTailorSyncRuns">;
-        status: "success" | "partial" | "failed";
-      },
-      Id<"ticketTailorSyncRuns">
-    >;
     internalCreateAttendeeFamilyGroup: FunctionReference<
       "mutation",
       "internal",
@@ -2744,126 +2335,6 @@ export declare const internal: {
       {},
       any
     >;
-    internalStartSyncRun: FunctionReference<
-      "mutation",
-      "internal",
-      {},
-      Id<"ticketTailorSyncRuns">
-    >;
-    internalUpsertTicketTailorAttendee: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        ageGroup?: string;
-        attendeeId: Id<"orderAttendees">;
-        checkedInAt?: number;
-        customAnswers?: any;
-        genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
-        orderId: Id<"orders">;
-        providerAttendeeId?: string;
-        providerEventId: string;
-        providerIssuedTicketId?: string;
-        providerOrderId: string;
-        providerTicketTypeId?: string;
-        rawPayload: any;
-        ticketCategory?: string;
-        ticketStatus?: string;
-        ticketTypeLabel?: string;
-        tikkieAmountOverrideMinor?: number;
-      },
-      {
-        attendeeId: Id<"orderAttendees">;
-        ticketTailorAttendeeId: Id<"ticketTailorAttendees">;
-      }
-    >;
-    internalUpsertTicketTailorEvent: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        currency?: string;
-        endsAt?: number;
-        name?: string;
-        providerEventId: string;
-        rawPayload: any;
-        startsAt?: number;
-        timezone?: string;
-      },
-      {
-        canonicalEventId: Id<"events">;
-        ticketTailorEventId: Id<"ticketTailorEvents">;
-      }
-    >;
-    internalUpsertTicketTailorOrder: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        isArchived?: boolean;
-        normalizationNote?: string;
-        normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
-        providerEventId: string;
-        providerOrderId: string;
-        providerStatus?: string;
-        rawPayload: any;
-      },
-      { orderId: Id<"orders">; ticketTailorOrderId: Id<"ticketTailorOrders"> }
-    >;
-    orders: {
-      internalArchiveMissingOrdersForEvent: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          providerEventId: string;
-          reason?: string;
-          seenProviderOrderIds: Array<string>;
-        },
-        { archived: number; scanned: number }
-      >;
-      internalBackfillMissingOrderTotals: FunctionReference<
-        "mutation",
-        "internal",
-        { limit?: number },
-        { patched: number; scanned: number; unchanged: number }
-      >;
-      internalUpsertTicketTailorOrder: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          isArchived?: boolean;
-          normalizationNote?: string;
-          normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
-          providerEventId: string;
-          providerOrderId: string;
-          providerStatus?: string;
-          rawPayload: any;
-        },
-        { orderId: Id<"orders">; ticketTailorOrderId: Id<"ticketTailorOrders"> }
-      >;
-    };
-    runs: {
-      internalCompleteSyncRun: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          diagnostics?: any;
-          errorSummary?: string;
-          eventsScanned?: number;
-          failedItems?: number;
-          normalizedFallbackCount?: number;
-          ordersArchived?: number;
-          ordersFetched?: number;
-          ordersUpserted?: number;
-          runId: Id<"ticketTailorSyncRuns">;
-          status: "success" | "partial" | "failed";
-        },
-        Id<"ticketTailorSyncRuns">
-      >;
-      internalStartSyncRun: FunctionReference<
-        "mutation",
-        "internal",
-        {},
-        Id<"ticketTailorSyncRuns">
-      >;
-    };
   };
   verifyDivineRedesignAccommodationMigration: {
     default: FunctionReference<

@@ -50,6 +50,22 @@ describe("production-deployment-runbook (RUN-03)", () => {
     expect(runbook).toContain("done: true")
   })
 
+  it("documents the read-only zero-proof paid-order report and correction command as NOT EXECUTED", () => {
+    expect(runbook).toContain(
+      "correctUnprovenPaidOrders:reconcileUnprovenPaidOrdersReport"
+    )
+    expect(runbook).toContain(
+      "correctUnprovenPaidOrders:correctUnprovenPaidOrders"
+    )
+    expect(runbook).toContain("auto_matched")
+    expect(runbook).toContain("manual_assignment")
+    expect(runbook).toContain("ordersScanned")
+    expect(runbook).toContain("alreadyPending")
+    expect(runbook).toContain("skippedWithProof")
+    expect(runbook).toContain("authorize: true")
+    expect(runbook).toContain("NOT EXECUTED")
+  })
+
   it("explicitly states that this task performs no production execution and never auto-invokes a migration", () => {
     expect(runbook).toContain("no production execution")
     expect(runbook).toContain("NOT EXECUTED")

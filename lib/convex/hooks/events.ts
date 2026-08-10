@@ -37,10 +37,6 @@ export function useTicketTailorEventByProviderId(providerEventId: string) {
   })
 }
 
-export function useUpsertTicketTailorEvent() {
-  return useMutation(api.events.upsertTicketTailorEvent)
-}
-
 // Canonical event mutations
 export function useCreateEvent() {
   return useMutation(api.events.createEvent)

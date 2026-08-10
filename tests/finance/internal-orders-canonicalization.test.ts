@@ -5,7 +5,6 @@ vi.mock("@/lib/convex/server", () => ({
   convexQuery: vi.fn(),
 }))
 
-import { resolveBackfillTotalAmountMinor } from "@/convex/sync/orders"
 import {
   assignPaymentToOrder,
   createBankTransferPayment,
@@ -16,24 +15,6 @@ import { convexMutation, convexQuery } from "@/lib/convex/server"
 describe("internal orders canonicalization", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-  })
-
-  it("resolves missing canonical totals from legacy provider payload", () => {
-    const amount = resolveBackfillTotalAmountMinor({
-      currentTotalAmountMinor: undefined,
-      rawPayload: { total: "12.34" },
-    })
-
-    expect(amount).toBe(1234)
-  })
-
-  it("does not backfill totals when canonical amount already exists", () => {
-    const amount = resolveBackfillTotalAmountMinor({
-      currentTotalAmountMinor: 5000,
-      rawPayload: { total: "12.34" },
-    })
-
-    expect(amount).toBeNull()
   })
 
   it("writes payments using canonical order ids from provider order inputs", async () => {

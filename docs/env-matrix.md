@@ -22,7 +22,6 @@ Legend:
 | `CLERK_JWT_ISSUER_DOMAIN` | — | ✅ | ✅ | Convex `convex/auth.config.ts` issuer (must be the Clerk custom domain). |
 | `RESEND_API_KEY` | — | — | ✅ | Email actions (`convex/emailActions.ts`). |
 | `RESEND_FROM_EMAIL` / `RESEND_FROM_NAME` | — | — | ✅ | Email sender identity. |
-| `TICKET_TAILOR_API_KEY` / `TICKET_TAILOR_BASE_URL` | — | — | ✅ | Ticket Tailor sync. |
 | `TIKKIE_API_KEY` / `TIKKIE_APP_TOKEN` / `TIKKIE_BASE_URL` | — | ✅ | ✅ | Tikkie payments. Webhook routes on Next need the secrets at runtime too. |
 | `MAGIC_LINK_FROM_EMAIL` | — | — | ✅ | Legacy magic-link sender. |
 | `INTEGRATION_PING_TIMEOUT_MS` | — | — | ✅ | Health-check timeout. |
