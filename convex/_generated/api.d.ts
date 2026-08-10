@@ -444,6 +444,29 @@ export declare const api: {
       { eventId?: string },
       any
     >;
+    moveAttendeeToOrder: FunctionReference<
+      "mutation",
+      "public",
+      { attendeeId: string; targetOrderId: Id<"orders"> },
+      any
+    >;
+    setAttendeeAccommodation: FunctionReference<
+      "mutation",
+      "public",
+      {
+        attendeeId: string;
+        eventId: Id<"events">;
+        nightBeforeLevel?: "standard" | "superior";
+        nightBeforeOccupancy?: "single" | "shared";
+        occupancy?: "single" | "shared";
+        optionSelections?: Array<{
+          nights: number;
+          optionKey: string;
+          quantity: number;
+        }>;
+      },
+      any
+    >;
     unassignRoom: FunctionReference<
       "mutation",
       "public",

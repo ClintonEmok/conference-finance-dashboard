@@ -3,9 +3,15 @@ import { v } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import { requireIdentity } from "./auth"
 import { api } from "./_generated/api"
-import type { Id } from "./_generated/dataModel"
+import type { Doc, Id } from "./_generated/dataModel"
 import type { MutationCtx, QueryCtx } from "./_generated/server"
 import { loadOrderAmountDueBreakdowns } from "./finance"
+import {
+  loadPublicSignupAccommodationContext,
+  resolvePublicSignupSelection,
+  resolveTicketCategoryById,
+  type PublicSignupSelectionResolved,
+} from "./signupCatalog"
 
 type AttendeeResolveCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">
 
@@ -797,6 +803,402 @@ export const getAttendeeByStringId = query({
       ticketCategory: ticketTailorAttendee?.ticketCategory ?? null,
       tikkieAmountOverrideMinor:
         ticketTailorAttendee?.tikkieAmountOverrideMinor ?? null,
+    }
+  },
+})
+
+/**
+ * Admin accommodation edit for one attendee (server-authoritative).
+ *
+ * The dashboard route accepts only the attendee/event scope plus the
+ * simplified-contract choices: occupancy (`single`/`shared`), option
+ * selections (optionKey + integer quantity + integer nights), and the
+ * optional one-night night-before level/occupancy. The mutation never
+ * accepts client money, category, room, or amount fields: the event-owned
+ * context is loaded server-side and the choices are resolved through the
+ * shared `resolvePublicSignupSelection` rule set (the same authority used
+ * by quote, submission, edit, and confirmation). The one base
+ * `orderAccommodationSelections` row is upserted and its option child rows
+ * are replaced with the resolved server selection, so a repeat write is
+ * logically idempotent and can never produce duplicate children. The
+ * canonical amount due for the attendee's order is recomputed by
+ * `loadOrderAmountDueBreakdowns` before returning.
+ */
+export const setAttendeeAccommodation = mutation({
+  args: {
+    attendeeId: v.string(),
+    eventId: v.id("events"),
+    occupancy: v.optional(
+      v.union(v.literal("single"), v.literal("shared"))
+    ),
+    optionSelections: v.optional(
+      v.array(
+        v.object({
+          optionKey: v.string(),
+          quantity: v.number(),
+          nights: v.number(),
+        })
+      )
+    ),
+    nightBeforeLevel: v.optional(
+      v.union(v.literal("standard"), v.literal("superior"))
+    ),
+    nightBeforeOccupancy: v.optional(
+      v.union(v.literal("single"), v.literal("shared"))
+    ),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const resolved = await resolveAttendeeRecordByStringId(ctx, args.attendeeId)
+
+    if (!resolved?.canonicalAttendee) {
+      throw new Error("Attendee not found.")
+    }
+
+    const attendee = resolved.canonicalAttendee
+    const order = await ctx.db.get("orders", attendee.orderId)
+
+    if (!order) {
+      throw new Error("Attendee order not found.")
+    }
+
+    if (String(order.eventId) !== String(args.eventId)) {
+      throw new Error("Attendee does not belong to the supplied event.")
+    }
+
+    const ticketSelection = await ctx.db
+      .query("orderTicketSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", attendee.orderId))
+      .take(100)
+      .then(
+        (rows) =>
+          rows.find(
+            (row) => String(row.attendeeId) === String(attendee._id)
+          ) ?? null
+      )
+
+    if (!ticketSelection) {
+      throw new Error("Ticket selection not found for attendee.")
+    }
+
+    const ticketType = await ctx.db.get(
+      "ticketTypes",
+      ticketSelection.ticketTypeId
+    )
+
+    if (!ticketType) {
+      throw new Error("Ticket type not found.")
+    }
+
+    // Ticket-derived occupancy constraint: a present but unresolvable
+    // `ticketTypes.roomTypeId` fails closed, and a constrained occupancy can
+    // never be overridden by the caller (CR-02 contract).
+    const ticketCategoryById = await resolveTicketCategoryById(
+      ctx,
+      new Map([[String(ticketType._id), ticketType]])
+    )
+    const ticketEntitlement = ticketCategoryById.get(String(ticketType._id))
+
+    if (ticketEntitlement === null) {
+      throw new Error(
+        "The selected ticket's room type is no longer available."
+      )
+    }
+
+    const occupancy =
+      ticketEntitlement?.occupancy ?? args.occupancy ?? null
+
+    if (
+      ticketEntitlement?.occupancy &&
+      args.occupancy &&
+      args.occupancy !== ticketEntitlement.occupancy
+    ) {
+      throw new Error("Occupancy is determined by the selected ticket.")
+    }
+
+    const context = await loadPublicSignupAccommodationContext(
+      ctx,
+      args.eventId
+    )
+
+    let resolvedSelection: PublicSignupSelectionResolved
+    try {
+      resolvedSelection = resolvePublicSignupSelection({
+        context,
+        selection: {
+          occupancy,
+          optionSelections: args.optionSelections ?? [],
+          nightBeforeLevel: args.nightBeforeLevel ?? null,
+          nightBeforeOccupancy: args.nightBeforeOccupancy ?? null,
+        },
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ""
+      if (message.startsWith("QUOTE_INVALID:")) {
+        throw new Error(
+          `Invalid accommodation selection:${message.slice("QUOTE_INVALID:".length)}`
+        )
+      }
+      throw error
+    }
+
+    // Upsert the one base selection row; confirmed rows are never touched
+    // (a confirmed snapshot is immutable and priced from the snapshot).
+    const existingSelection = await ctx.db
+      .query("orderAccommodationSelections")
+      .withIndex("by_orderId_and_attendeeId", (q) =>
+        q.eq("orderId", attendee.orderId).eq("attendeeId", attendee._id)
+      )
+      .first()
+
+    const baseRow = {
+      orderId: attendee.orderId,
+      attendeeId: attendee._id,
+      categoryId: (resolvedSelection.categoryId ??
+        undefined) as Id<"accommodationCategories"> | undefined,
+      occupancy: resolvedSelection.occupancy ?? undefined,
+      checkInAt: context.config?.baseCheckInAt,
+      checkOutAt: context.config?.baseCheckOutAt,
+      nightCount: resolvedSelection.nightCount ?? undefined,
+      nightBeforeLevel: resolvedSelection.nightBeforeLevel ?? undefined,
+      nightBeforeOccupancy:
+        resolvedSelection.nightBeforeOccupancy ?? undefined,
+    }
+
+    let selectionId: Id<"orderAccommodationSelections">
+    if (existingSelection) {
+      selectionId = existingSelection._id
+      await ctx.db.replace(
+        "orderAccommodationSelections",
+        existingSelection._id,
+        baseRow
+      )
+    } else {
+      selectionId = await ctx.db.insert(
+        "orderAccommodationSelections",
+        baseRow
+      )
+    }
+
+    // Replace the option child rows with the resolved server selection so a
+    // repeat write never duplicates children.
+    const existingOptionRows = await ctx.db
+      .query("orderAccommodationOptionSelections")
+      .withIndex("by_selectionId", (q) => q.eq("selectionId", selectionId))
+      .collect()
+
+    for (const optionRow of existingOptionRows) {
+      await ctx.db.delete("orderAccommodationOptionSelections", optionRow._id)
+    }
+
+    for (const [sortOrder, option] of resolvedSelection.options.entries()) {
+      await ctx.db.insert("orderAccommodationOptionSelections", {
+        orderId: attendee.orderId,
+        attendeeId: attendee._id,
+        selectionId,
+        optionKey: option.optionKey,
+        quantity: option.quantity,
+        nights: option.nights,
+        sortOrder,
+      })
+    }
+
+    const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [order])
+    const breakdown = breakdowns.get(String(order._id))
+
+    return {
+      attendeeId: String(attendee._id),
+      orderId: String(order._id),
+      selection: {
+        categoryId: resolvedSelection.categoryId ?? null,
+        categoryCode: resolvedSelection.categoryCode ?? null,
+        categoryLabel: resolvedSelection.categoryLabel ?? null,
+        occupancy: resolvedSelection.occupancy ?? null,
+        nightCount: resolvedSelection.nightCount ?? null,
+        nightBeforeLevel: resolvedSelection.nightBeforeLevel ?? null,
+        nightBeforeOccupancy: resolvedSelection.nightBeforeOccupancy ?? null,
+        options: resolvedSelection.options.map((option) => ({
+          optionKey: option.optionKey,
+          label: option.label,
+          pricePerUnitMinor: option.pricePerUnitMinor,
+          quantity: option.quantity,
+          nights: option.nights,
+        })),
+      },
+      amountDueMinor: breakdown?.amountDueMinor ?? null,
+    }
+  },
+})
+
+/**
+ * Admin attendee move between orders in the same event (server-authoritative).
+ *
+ * Re-links the attendee's canonical row, ticket selection, accommodation
+ * selection and option child rows, any room assignment rows, and the
+ * ticket-tailor extension rows by patching their `orderId` fields — never
+ * duplicating rows, altering ticket inventory, or merging order-level
+ * fields. Fails closed before any write when the attendee, ticket selection,
+ * accommodation rows, or assignment rows are missing or inconsistent, or
+ * when the target order is missing or belongs to another event. Both the
+ * source and target orders are recomputed with the canonical
+ * `loadOrderAmountDueBreakdowns` loader in the same transaction.
+ */
+export const moveAttendeeToOrder = mutation({
+  args: {
+    attendeeId: v.string(),
+    targetOrderId: v.id("orders"),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const resolved = await resolveAttendeeRecordByStringId(ctx, args.attendeeId)
+
+    if (!resolved?.canonicalAttendee) {
+      throw new Error("Attendee not found.")
+    }
+
+    const attendee = resolved.canonicalAttendee
+    const sourceOrderId = attendee.orderId
+
+    if (sourceOrderId === args.targetOrderId) {
+      throw new Error("Source and target orders must be different")
+    }
+
+    const sourceOrder = await ctx.db.get("orders", sourceOrderId)
+    if (!sourceOrder) {
+      throw new Error("Source order not found")
+    }
+
+    const targetOrder = await ctx.db.get("orders", args.targetOrderId)
+    if (!targetOrder) {
+      throw new Error("Target order not found")
+    }
+
+    if (String(sourceOrder.eventId ?? "") !== String(targetOrder.eventId ?? "")) {
+      throw new Error("Orders must belong to the same event")
+    }
+
+    // Fail closed on inconsistent child rows before any write.
+    const ticketSelections = await ctx.db
+      .query("orderTicketSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", sourceOrderId))
+      .take(100)
+    const attendeeTicketSelections = ticketSelections.filter(
+      (row) => String(row.attendeeId) === String(attendee._id)
+    )
+
+    if (attendeeTicketSelections.length !== 1) {
+      throw new Error("Attendee ticket selection is missing or inconsistent.")
+    }
+
+    const accommodationSelections = await ctx.db
+      .query("orderAccommodationSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", sourceOrderId))
+      .take(100)
+    const attendeeAccommodationSelections = accommodationSelections.filter(
+      (row) => String(row.attendeeId) === String(attendee._id)
+    )
+
+    if (attendeeAccommodationSelections.length > 1) {
+      throw new Error("Attendee accommodation selection is inconsistent.")
+    }
+
+    let attendeeOptionChildren: Array<
+      Doc<"orderAccommodationOptionSelections">
+    > = []
+    if (attendeeAccommodationSelections.length === 1) {
+      const baseSelection = attendeeAccommodationSelections[0]
+      const optionChildren = await ctx.db
+        .query("orderAccommodationOptionSelections")
+        .withIndex("by_selectionId", (q) =>
+          q.eq("selectionId", baseSelection._id)
+        )
+        .collect()
+
+      const inconsistent = optionChildren.some(
+        (row) => String(row.attendeeId) !== String(attendee._id)
+      )
+      if (inconsistent) {
+        throw new Error(
+          "Attendee accommodation option rows are inconsistent."
+        )
+      }
+      attendeeOptionChildren = optionChildren
+    }
+
+    const assignments = await ctx.db
+      .query("orderAssignments")
+      .withIndex("by_attendeeId", (q) => q.eq("attendeeId", attendee._id))
+      .collect()
+
+    const inconsistentAssignment = assignments.some(
+      (row) => String(row.orderId) !== String(sourceOrderId)
+    )
+    if (inconsistentAssignment) {
+      throw new Error("Attendee assignment rows are inconsistent.")
+    }
+
+    const extensionRows = await ctx.db
+      .query("ticketTailorAttendees")
+      .withIndex("attendeeId", (q) => q.eq("attendeeId", attendee._id))
+      .collect()
+
+    const inconsistentExtension = extensionRows.some(
+      (row) => String(row.orderId) !== String(sourceOrderId)
+    )
+    if (inconsistentExtension) {
+      throw new Error("Attendee extension rows are inconsistent.")
+    }
+
+    // Re-link every canonical child row to the target order.
+    await ctx.db.patch("orderAttendees", attendee._id, {
+      orderId: args.targetOrderId,
+    })
+
+    await ctx.db.patch(
+      "orderTicketSelections",
+      attendeeTicketSelections[0]._id,
+      { orderId: args.targetOrderId }
+    )
+
+    for (const extensionRow of extensionRows) {
+      await ctx.db.patch("ticketTailorAttendees", extensionRow._id, {
+        orderId: args.targetOrderId,
+      })
+    }
+
+    if (attendeeAccommodationSelections.length === 1) {
+      const baseSelection = attendeeAccommodationSelections[0]
+      await ctx.db.patch("orderAccommodationSelections", baseSelection._id, {
+        orderId: args.targetOrderId,
+      })
+
+      for (const optionChild of attendeeOptionChildren) {
+        await ctx.db.patch("orderAccommodationOptionSelections", optionChild._id, {
+          orderId: args.targetOrderId,
+        })
+      }
+    }
+
+    for (const assignment of assignments) {
+      await ctx.db.patch("orderAssignments", assignment._id, {
+        orderId: args.targetOrderId,
+      })
+    }
+
+    // Recompute both orders with the canonical loader in the same mutation.
+    const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [
+      sourceOrder,
+      targetOrder,
+    ])
+
+    return {
+      orderId: String(args.targetOrderId),
+      sourceAmountDueMinor:
+        breakdowns.get(String(sourceOrderId))?.amountDueMinor ?? null,
+      targetAmountDueMinor:
+        breakdowns.get(String(args.targetOrderId))?.amountDueMinor ?? null,
     }
   },
 })
