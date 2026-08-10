@@ -53,11 +53,13 @@ signups run degraded with a Convex warning. Provision both, then verify.
 3. **Run the Phase 47 legacy backfill (costly write):**
    ```bash
    npx convex run backfillLegacyAccommodationPreferences \
-     --args '{"slug":"divine-redesign","preview":true,"allowedDeploymentUrl":"https://acoustic-tiger-876.convex.site"}'
+     --args '{"slug":"divine-redesign","authorize":true,"allowedDeploymentUrl":"https://acoustic-tiger-876.convex.site"}'
    ```
    Expected first run: `ordersResolved: 38`, `attendeesHandled: 72`,
-   `ordersAlreadyHandled: 13`, `ordersUnresolved: 0`.
-   Expected re-run: `ordersAlreadyHandled: 51`, `attendeesHandled: 0` (no-op).
+   `ordersAlreadyHandled: 13`, `ordersUnresolved: 0`,
+   `assignmentsConverted: 44`.
+   Expected re-run: `ordersAlreadyHandled: 51`, `attendeesHandled: 0`,
+   `assignmentsConverted: 0` (no-op).
 
 4. **Rehearse signup, manage-booking, and allocation** against the preview:
    submit a signup, edit accommodation via `/booking/[bookingRef]/manage`
@@ -84,25 +86,65 @@ Turnstile + Resend are already configured. After provisioning, confirm a
 signup with a valid token succeeds and a token-less signup is rejected
 (`CAPTCHA_REQUIRED`).
 
-### 3.2 Legacy backfill migration on production (authorization gate B)
-> ⛔ **OPERATOR AUTHORIZATION REQUIRED** (gate B).
-> The backfill's `preview` argument is the explicit **write-authorization
-> marker** (named "preview" for historical reasons); the deployment-URL guard
-> is what binds the write to a target. The guard requires an EXACT match
-> between the detected deployment URL and the `allowedDeploymentUrl` below —
-> a suffix, selector, or partial value fails closed before any write. Passing
-> `preview: true` with the EXACT production URL
-> (`https://grateful-pelican-605.convex.cloud`) is the ONLY way the shipped
-> guard permits a production write — there is no `preview: false` production
-> path by design.
-Run the backfill against production with the production selector:
+### 3.2 Accommodation migration on production (authorization gate B)
+> ⛔ **OPERATOR AUTHORIZATION REQUIRED** (gate B). This task performs no production execution — every command below is documented for the operator
+> to run later, and each command re-validates authorization on every run.
+> The migrations' `authorize` argument is the explicit **write-authorization
+> marker**; the deployment-URL guard binds the write to a target. The guard
+> requires `authorize: true` AND an EXACT deployment-slug match between the
+> detected `CONVEX_SITE_URL` and the `allowedDeploymentUrl` — both
+> `https://grateful-pelican-605.convex.cloud` and
+> `https://grateful-pelican-605.convex.site` are accepted as the same
+> deployment. A suffix, selector, malformed URL, or mismatched slug fails
+> closed before any write.
+
+**Step 0/1 — locked tickets + configuration:**
+```bash
+npx convex run applySimplifiedDivineConferenceAccommodation \
+  --args '{"slug":"divine-redesign","authorize":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}'
+```
+Renames the four entry tickets to `under 3` / `3-11` / `12-17` / `18+` at
+€0/€125/€150/€250, keeps `Single Room` at €350, anchors every ticket to the
+existing `Double Room` / `Single Room` room anchors with accommodation
+included, and upserts the three categories, ten locked room types, four
+per-person/night rates, Standard default config, and the enabled
+`superior_upgrade` + `cot` event options. Never touches orders, assignments,
+payments, or inventory. Re-run is a no-op.
+
+**Step 2 — preferences + legacy assignment conversion:**
 ```bash
 npx convex run backfillLegacyAccommodationPreferences \
-  --args '{"slug":"divine-redesign","preview":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}'
+  --args '{"slug":"divine-redesign","authorize":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}'
 ```
 > ⚠ This writes `orderAccommodationSelections` rows (no delete-undone path).
-> Expected: 38 resolved / 72 handled, 13 already handled, 0 unresolved.
-> Re-run is a no-op. Rehearse on preview (section 2) FIRST.
+> Expected: 38 resolved / 72 handled, 13 already handled, 0 unresolved,
+> 44 assignments converted to status `converted` (slot references retained;
+> converted rows no longer surface as pending buyer suggestions). Re-run is a
+> no-op. Rehearse on preview (section 2) FIRST.
+
+**Step 3 — Koningshof inventory replacement (bounded/resumable):**
+```bash
+npx convex run applyKoningshofAccommodationInventory \
+  --args '{"slug":"divine-redesign","authorize":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}'
+```
+Re-run the command until it reports `done: true` (each run is bounded and
+idempotent). Creates the NH Eindhoven Conference Centre Koningshof hotel and
+event link, upserts the eleven event resources, materializes 374 rooms and
+648 mixed/assignable slots from the locked counts, then — only after the new
+inventory is complete and a reference preflight is clear — deletes the old
+Holiday Inn Express / Ibis Styles Almere slots, rooms, event-hotel links, and
+hotel rows. The preflight fails closed (`OLD_SLOT_REFERENCED`, reporting the
+blocking assignment IDs) if ANY assignment — including converted audit rows —
+still references an old slot; clear those references first, then re-run.
+
+**Read-only verification (no writes):**
+```bash
+npx convex run verifyDivineRedesignAccommodationMigration --args '{}'
+```
+Returns the event ID and bounded counts for tickets (locked prices/anchors),
+categories, room types, room/cot resources, rates, event options, stay config,
+event accommodation preferences, converted assignments, linked hotels, rooms,
+slots, and the absence of the two old hotels. Never mutates data.
 
 ### 3.3 Frontend deploy (authorization gate C)
 > ⛔ **OPERATOR AUTHORIZATION REQUIRED** (gate C).
@@ -137,5 +179,8 @@ allocation board in production after deploy.
 
 Phase 49 (this milestone window) performs **no production deploy, no
 production write, no production migration, no rollback, and no announcement
-broadcast**. All of the above are gated behind explicit operator authorization
-at gates A-D and are for the operator to execute later.
+broadcast**. The guarded accommodation migration (Steps 0-3 above) and the
+read-only verification query are documented but **not executed** — no
+production execution is performed by this task. All of the above are gated
+behind explicit operator authorization at gates A-D and are for the operator
+to execute later.

@@ -39,6 +39,25 @@ describe("production-deployment-runbook (RUN-03)", () => {
     expect(runbook).toContain("116 attendees")
   })
 
+  it("documents the guarded Step 0-3 accommodation migration commands and read-only verification with explicit authorization", () => {
+    expect(runbook).toContain("applySimplifiedDivineConferenceAccommodation")
+    expect(runbook).toContain("backfillLegacyAccommodationPreferences")
+    expect(runbook).toContain("applyKoningshofAccommodationInventory")
+    expect(runbook).toContain("verifyDivineRedesignAccommodationMigration")
+    expect(runbook).toContain("authorize: true")
+    expect(runbook).toContain("https://grateful-pelican-605.convex.cloud")
+    expect(runbook).toContain("OLD_SLOT_REFERENCED")
+    expect(runbook).toContain("done: true")
+  })
+
+  it("explicitly states that this task performs no production execution and never auto-invokes a migration", () => {
+    expect(runbook).toContain("no production execution")
+    expect(runbook).toContain("NOT EXECUTED")
+    expect(runbook).toContain("no production deploy")
+    // The guarded commands are operator-run only; no automatic invocation.
+    expect(runbook).toContain("reports `done: true`")
+  })
+
   it("gates every production operation behind explicit operator authorization", () => {
     const gates = runbook.match(/OPERATOR AUTHORIZATION REQUIRED/g) ?? []
     // Gates A (secrets), B (backfill), C (frontend), D (broadcast).

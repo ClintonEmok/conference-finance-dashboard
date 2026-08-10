@@ -9,6 +9,16 @@ import type { Id } from "./_generated/dataModel"
 
 const modules = import.meta.glob("./**/*.ts")
 
+// The production-deployment guard requires a detectable deployment URL and
+// an exact deployment-slug match, so every success-path call stubs the
+// detected URL and passes an exactly-matching allowed deployment URL.
+const TEST_DEPLOYMENT_URL = "https://test-preview.convex.site"
+process.env.CONVEX_SITE_URL = TEST_DEPLOYMENT_URL
+const productionGuard = {
+  authorize: true,
+  allowedDeploymentUrl: TEST_DEPLOYMENT_URL,
+}
+
 function fresh() {
   return convexTest(schema, modules)
 }
@@ -252,16 +262,18 @@ test("re-running init is idempotent", async () => {
   expect(catalogOptions).toHaveLength(2)
 })
 
-test("applySimplifiedDivineConferenceAccommodation is idempotent and leaves admin inventory intact", async () => {
+test("applySimplifiedDivineConferenceAccommodation converges the locked tickets/config/catalog idempotently and leaves admin inventory intact", async () => {
   const t = fresh()
 
-  // A divine-like event: standard + superior categories with rates, a cot
-  // option, and a configured stay. No superior_upgrade event option yet and
-  // no defaultCategoryId — exactly the state the migration must converge.
+  // A divine-redesign-like event in the pre-migration state: five entry
+  // tickets, the two room anchors, standard + superior categories, a cot
+  // option, a stay config, and Standard rates — but no superior rates, no
+  // family category, and no superior_upgrade event option yet. Exactly the
+  // state the migration must converge.
   const eventId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("events", {
-      slug: "divine-conference",
-      title: "Divine Conference",
+      slug: "divine-redesign",
+      title: "Divine Redesign",
       startsAt: 1_750_000_000_000,
       timezone: "Europe/Amsterdam",
       currency: "EUR",
@@ -279,7 +291,7 @@ test("applySimplifiedDivineConferenceAccommodation is idempotent and leaves admi
       sortOrder: 0,
     })
   })
-  await t.mutation(async (ctx) => {
+  const superiorCategoryId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("accommodationCategories", {
       code: "superior",
       label: "Superior",
@@ -331,99 +343,237 @@ test("applySimplifiedDivineConferenceAccommodation is idempotent and leaves admi
       priceMinor: 1000,
     })
   })
+  const doubleAnchorId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("accommodationRoomTypes", {
+      label: "Double Room",
+      defaultCapacity: 2,
+    })
+  })
+  const singleAnchorId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("accommodationRoomTypes", {
+      label: "Single Room",
+      defaultCapacity: 1,
+    })
+  })
+  const entryTicketLabels = ["0-2 Entry", "3-11 Entry", "12-17 Entry", "18+ Entry"]
+  const entryTicketPrices = [1000, 10000, 14000, 24000]
+  for (let index = 0; index < 4; index += 1) {
+    await t.mutation(async (ctx) => {
+      return await ctx.db.insert("ticketTypes", {
+        eventId: eventId as never,
+        label: entryTicketLabels[index],
+        priceMinor: entryTicketPrices[index],
+        isActive: true,
+        visibility: "public" as const,
+        availabilityState: "selectable" as const,
+        sortOrder: index,
+        updatedAt: 1_750_000_000_000,
+      })
+    })
+  }
+  await t.mutation(async (ctx) => {
+    return await ctx.db.insert("ticketTypes", {
+      eventId: eventId as never,
+      label: "Single Room",
+      priceMinor: 34000,
+      isActive: true,
+      visibility: "public" as const,
+      availabilityState: "selectable" as const,
+      sortOrder: 4,
+      updatedAt: 1_750_000_000_000,
+    })
+  })
 
   const first = await t.mutation(
     internal.applySimplifiedDivineConferenceAccommodation.default,
-    {}
+    productionGuard
   )
   expect(first).toMatchObject({
-    slug: "divine-conference",
-    defaultCategoryId: String(standardCategoryId),
+    slug: "divine-redesign",
+    entryTicketsRenamed: 4,
+    entryTicketsPriced: 4,
+    ticketsAnchored: 5,
+    ticketsIncluded: 5,
+    singleRoomTicketPriced: 1,
+    categoriesCreated: 1,
+    categoriesUpdated: 2,
+    roomTypesCreated: 10,
+    roomTypesUpdated: 0,
+    anchorsPatched: 2,
+    ratesCreated: 2,
+    ratesUpdated: 0,
+    configCreated: 0,
     configUpdated: 1,
-    superiorUpgrade: {
-      catalogOptionCreated: 1,
-      optionEnabled: 1,
-      optionPriceUpdated: 0,
-      priceMinor: 1000,
-    },
+    catalogOptionsCreated: 1,
+    eventOptionsEnabled: 1,
+    eventOptionPricesUpdated: 0,
   })
 
-  // The migration converged: exactly one enabled superior_upgrade row at 1000
-  // minor units and the config defaults to Standard.
-  const eventOptions = await t.mutation(async (ctx) => {
-    return await ctx.db
-      .query("eventAccommodationOptions")
+  // Tickets converged: under 3 / 3-11 / 12-17 / 18+ at €0/€125/€150/€250,
+  // Single Room kept at €350, all anchored with accommodation included.
+  const tickets = await t.query(async (ctx) => {
+    const rows = await ctx.db.query("ticketTypes").take(50)
+    return rows
+      .map((row) => ({
+        label: row.label,
+        priceMinor: row.priceMinor,
+        roomTypeId: String(row.roomTypeId ?? ""),
+        accommodationIncluded: row.accommodationIncluded,
+        sortOrder: row.sortOrder ?? row._creationTime,
+      }))
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+  })
+  expect(tickets).toHaveLength(5)
+  expect(tickets.map((row) => row.label)).toEqual([
+    "under 3",
+    "3-11",
+    "12-17",
+    "18+",
+    "Single Room",
+  ])
+  expect(tickets.map((row) => row.priceMinor)).toEqual([
+    0, 12500, 15000, 25000, 35000,
+  ])
+  expect(tickets.map((row) => row.roomTypeId)).toEqual([
+    String(doubleAnchorId),
+    String(doubleAnchorId),
+    String(doubleAnchorId),
+    String(doubleAnchorId),
+    String(singleAnchorId),
+  ])
+  for (const ticket of tickets) {
+    expect(ticket.accommodationIncluded).toBe(true)
+  }
+
+  // Rates converged to the two Standard + two Superior per-person/night rows.
+  const rates = await t.query(async (ctx) => {
+    const rows = await ctx.db
+      .query("eventAccommodationRates")
       .withIndex("by_eventId", (q) => q.eq("eventId", eventId as never))
       .take(100)
+    return rows
+      .map((row) => ({
+        occupancy: row.occupancy,
+        pricePerPersonMinor: row.pricePerPersonMinor,
+      }))
+      .sort((a, b) =>
+        a.occupancy === b.occupancy
+          ? a.pricePerPersonMinor - b.pricePerPersonMinor
+          : a.occupancy.localeCompare(b.occupancy)
+      )
   })
-  const catalogOptions = await t.mutation(async (ctx) => {
-    return await ctx.db.query("accommodationOptions").take(100)
-  })
-  const superiorUpgradeOption = catalogOptions.find(
-    (o) => o.code === "superior_upgrade"
-  )
-  expect(superiorUpgradeOption).toBeDefined()
-  const upgradeEventRow = eventOptions.find(
-    (row) =>
-      String((row as unknown as { optionId: unknown }).optionId) ===
-      String(superiorUpgradeOption!._id)
-  )
-  expect(upgradeEventRow?.enabled).toBe(true)
-  expect(upgradeEventRow?.priceMinor).toBe(1000)
+  expect(rates).toEqual([
+    { occupancy: "shared", pricePerPersonMinor: 6000 },
+    { occupancy: "shared", pricePerPersonMinor: 7000 },
+    { occupancy: "single", pricePerPersonMinor: 9000 },
+    { occupancy: "single", pricePerPersonMinor: 10000 },
+  ])
 
-  const config = await t.mutation(async (ctx) => {
+  // The config defaults to the Standard category with the locked stay.
+  const config = await t.query(async (ctx) => {
     return await ctx.db
       .query("eventAccommodationConfig")
       .withIndex("by_eventId", (q) => q.eq("eventId", eventId as never))
       .unique()
   })
-  expect(config?.defaultCategoryId).toBe(standardCategoryId)
+  expect(config).toMatchObject({
+    baseCheckInAt: 1_750_000_000_000,
+    baseCheckOutAt: 1_750_000_000_000 + 2 * 24 * 60 * 60 * 1000,
+    allowExtendedStayBefore: false,
+    allowExtendedStayAfter: false,
+    allowExtendedStayBoth: false,
+    defaultCategoryId: standardCategoryId,
+    breakfastIncluded: true,
+    nightCount: 2,
+  })
 
-  // Re-running produces no duplicate option/config rows and no changed money.
-  const second = await t.mutation(
-    internal.applySimplifiedDivineConferenceAccommodation.default,
-    {}
-  )
-  expect(second.configUpdated).toBe(0)
-  expect(second.superiorUpgrade.catalogOptionCreated).toBe(0)
-  expect(second.superiorUpgrade.optionEnabled).toBe(0)
-  expect(second.superiorUpgrade.optionPriceUpdated).toBe(0)
-
-  const eventOptionsAfter = await t.mutation(async (ctx) => {
-    return await ctx.db
+  // Both catalog options exist and both event options are enabled at €10.
+  const eventOptions = await t.query(async (ctx) => {
+    const rows = await ctx.db
       .query("eventAccommodationOptions")
       .withIndex("by_eventId", (q) => q.eq("eventId", eventId as never))
       .take(100)
+    const catalog = await ctx.db.query("accommodationOptions").take(100)
+    const codeByOptionId = new Map(
+      catalog.map((row) => [String(row._id), row.code])
+    )
+    return rows.map((row) => ({
+      code: codeByOptionId.get(String(row.optionId)),
+      enabled: row.enabled,
+      priceMinor: row.priceMinor,
+    }))
   })
-  expect(eventOptionsAfter).toHaveLength(eventOptions.length)
-  const upgradeRowsAfter = eventOptionsAfter.filter(
-    (row) =>
-      String((row as unknown as { optionId: unknown }).optionId) ===
-      String(superiorUpgradeOption!._id)
+  expect(eventOptions).toHaveLength(2)
+  const optionByCode = new Map(
+    eventOptions.map((row) => [row.code, row])
   )
-  expect(upgradeRowsAfter).toHaveLength(1)
-  expect(upgradeRowsAfter[0]?.priceMinor).toBe(1000)
+  expect(optionByCode.get("superior_upgrade")).toMatchObject({
+    enabled: true,
+    priceMinor: 1000,
+  })
+  expect(optionByCode.get("cot")).toMatchObject({
+    enabled: true,
+    priceMinor: 1000,
+  })
 
-  // The migration never touches admin room/category/rate inventory or orders.
-  const rates = await t.mutation(async (ctx) => {
-    return await ctx.db
-      .query("eventAccommodationRates")
-      .withIndex("by_eventId", (q) => q.eq("eventId", eventId as never))
-      .take(100)
+  // Admin inventory (resources, hotels, rooms, slots) is never touched.
+  const inventoryCounts = await t.query(async (ctx) => {
+    let resources = 0
+    let hotels = 0
+    let rooms = 0
+    let slots = 0
+    for await (const _row of ctx.db.query("eventAccommodationResources"))
+      resources += 1
+    for await (const _row of ctx.db.query("accommodationHotels")) hotels += 1
+    for await (const _row of ctx.db.query("accommodationRooms")) rooms += 1
+    for await (const _row of ctx.db.query("accommodationSlots")) slots += 1
+    return { resources, hotels, rooms, slots }
   })
-  expect(rates.map((r) => r.pricePerPersonMinor).sort()).toEqual([6000, 9000])
-  const orders = await t.mutation(async (ctx) => {
-    return await ctx.db.query("orders").take(10)
+  expect(inventoryCounts).toEqual({
+    resources: 0,
+    hotels: 0,
+    rooms: 0,
+    slots: 0,
   })
-  expect(orders).toHaveLength(0)
+
+  // Re-running produces no duplicate option/config/ticket/rate rows and no
+  // changed money.
+  const second = await t.mutation(
+    internal.applySimplifiedDivineConferenceAccommodation.default,
+    productionGuard
+  )
+  expect(second).toMatchObject({
+    entryTicketsRenamed: 0,
+    entryTicketsPriced: 0,
+    ticketsAnchored: 0,
+    ticketsIncluded: 0,
+    singleRoomTicketPriced: 0,
+    categoriesCreated: 0,
+    categoriesUpdated: 0,
+    roomTypesCreated: 0,
+    roomTypesUpdated: 0,
+    anchorsPatched: 0,
+    ratesCreated: 0,
+    ratesUpdated: 0,
+    configCreated: 0,
+    configUpdated: 0,
+    catalogOptionsCreated: 0,
+    eventOptionsEnabled: 0,
+    eventOptionPricesUpdated: 0,
+  })
+  const ticketsAfter = await t.query(async (ctx) => {
+    return (await ctx.db.query("ticketTypes").take(50)).length
+  })
+  expect(ticketsAfter).toBe(5)
+  expect(superiorCategoryId).toBeTruthy()
 })
 
-test("applyKoningshofAccommodationInventory creates the hotel link and exact resource caps idempotently", async () => {
+test("applyKoningshofAccommodationInventory creates the hotel link, exact resource caps, rooms, and slots idempotently", async () => {
   const t = fresh()
   const eventId = await t.mutation(async (ctx) =>
     await ctx.db.insert("events", {
-      slug: "divine-conference",
-      title: "Divine Conference",
+      slug: "divine-redesign",
+      title: "Divine Redesign",
       startsAt: 1_750_000_000_000,
       timezone: "Europe/Amsterdam",
       currency: "EUR",
@@ -478,18 +628,26 @@ test("applyKoningshofAccommodationInventory creates the hotel link and exact res
     }
   })
 
+  // The migration is bounded/resumable: re-run the command until it reports
+  // `done`. The first invocation covers the hotel/link/resources stage.
   const first = await t.mutation(
     internal.applyKoningshofAccommodationInventory.default,
-    {}
+    productionGuard
   )
   expect(first).toMatchObject({
-    slug: "divine-conference",
+    slug: "divine-redesign",
     hotelCreated: 1,
     eventHotelLinked: 1,
-    roomResources: 10,
-    cotResourceCount: 10,
     resourcesCreated: 11,
   })
+  let result = first
+  while (!result.done) {
+    result = await t.mutation(
+      internal.applyKoningshofAccommodationInventory.default,
+      productionGuard
+    )
+  }
+  expect(result.done).toBe(true)
 
   const hotel = await t.mutation(async (ctx) =>
     await ctx.db
@@ -519,23 +677,38 @@ test("applyKoningshofAccommodationInventory creates the hotel link and exact res
       .sort((a, b) => a - b)
   ).toEqual([4, 6, 15, 21, 29, 33, 50, 60, 61, 95])
 
-  const second = await t.mutation(
+  // Physical rooms and mixed/assignable slots from the resource counts.
+  const roomCount = await t.query(async (ctx) => {
+    let count = 0
+    for await (const _row of ctx.db.query("accommodationRooms")) count += 1
+    return count
+  })
+  expect(roomCount).toBe(374)
+  const slotCount = await t.query(async (ctx) => {
+    let count = 0
+    for await (const _row of ctx.db.query("accommodationSlots")) count += 1
+    return count
+  })
+  expect(slotCount).toBe(648)
+
+  // A re-run after cleanup creates/duplicates/deletes nothing.
+  const rerun = await t.mutation(
     internal.applyKoningshofAccommodationInventory.default,
-    {}
+    productionGuard
   )
-  expect(second).toMatchObject({
+  expect(rerun).toMatchObject({
+    done: true,
     hotelCreated: 0,
     hotelUpdated: 0,
     eventHotelLinked: 0,
     resourcesCreated: 0,
     resourcesUpdated: 0,
+    roomsCreated: 0,
+    slotsCreated: 0,
+    staleResourcesRemoved: 0,
+    oldSlotsDeleted: 0,
+    oldRoomsDeleted: 0,
+    oldLinksDeleted: 0,
+    oldHotelsDeleted: 0,
   })
-
-  const resourcesAfter = await t.mutation(async (ctx) =>
-    await ctx.db
-      .query("eventAccommodationResources")
-      .withIndex("by_eventId", (q) => q.eq("eventId", eventId as never))
-      .take(100)
-  )
-  expect(resourcesAfter).toHaveLength(11)
 })

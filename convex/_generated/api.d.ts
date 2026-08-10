@@ -2373,7 +2373,32 @@ export declare const internal: {
     >;
   };
   applyKoningshofAccommodationInventory: {
-    default: FunctionReference<"mutation", "internal", { slug?: string }, any>;
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      { allowedDeploymentUrl?: string; authorize: boolean; slug?: string },
+      {
+        done: boolean;
+        eventHotelLinked: number;
+        eventId: string;
+        hotelCreated: number;
+        hotelId: string;
+        hotelUpdated: number;
+        oldHotelsDeleted: number;
+        oldLinksDeleted: number;
+        oldRoomsDeleted: number;
+        oldSlotsDeleted: number;
+        resourcesCreated: number;
+        resourcesUpdated: number;
+        roomsCreated: number;
+        roomsRemaining: number;
+        slotsCreated: number;
+        slotsRemaining: number;
+        slug: string;
+        staleResourcesRemaining: number;
+        staleResourcesRemoved: number;
+      }
+    >;
   };
   applySimplifiedDivineConferenceAccommodation: {
     default: FunctionReference<
@@ -2411,8 +2436,9 @@ export declare const internal: {
     default: FunctionReference<
       "mutation",
       "internal",
-      { allowedDeploymentUrl?: string; preview: boolean; slug?: string },
+      { allowedDeploymentUrl?: string; authorize: boolean; slug?: string },
       {
+        assignmentsConverted: number;
         attendeesHandled: number;
         eventId: string;
         ordersAlreadyHandled: number;
@@ -2830,6 +2856,47 @@ export declare const internal: {
         Id<"ticketTailorSyncRuns">
       >;
     };
+  };
+  verifyDivineRedesignAccommodationMigration: {
+    default: FunctionReference<
+      "query",
+      "internal",
+      { slug?: string },
+      {
+        categories: number;
+        config: null | {
+          baseCheckInAt: number;
+          baseCheckOutAt: number;
+          breakfastIncluded: boolean;
+          defaultCategoryCode?: string;
+          nightCount: number;
+        };
+        convertedAssignments: number;
+        cotResources: number;
+        eventId?: string;
+        eventOptions: number;
+        linkedHotels: number;
+        oldHotels: number;
+        preferences: number;
+        rates: number;
+        roomResources: number;
+        roomTypes: number;
+        rooms: number;
+        slots: number;
+        slug: string;
+        tickets: {
+          byLabel: Record<
+            string,
+            {
+              accommodationIncluded: boolean;
+              priceMinor: number;
+              roomAnchor?: string;
+            }
+          >;
+          count: number;
+        };
+      }
+    >;
   };
 };
 

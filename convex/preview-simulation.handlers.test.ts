@@ -13,12 +13,14 @@ import { loadOrderAmountDueBreakdowns } from "./finance"
 
 const modules = import.meta.glob("./**/*.ts")
 
-// The deployment guard now requires a detectable deployment URL and an exact
-// match, so every success-path call stubs the detected URL and passes an
-// exactly-matching allowed deployment URL.
+// The seed keeps the preview-only deployment guard; the backfill now uses the
+// production-deployment guard. Both require a detectable deployment URL and
+// an exact match, so every success-path call stubs the detected URL and
+// passes an exactly-matching allowed deployment URL.
 const TEST_DEPLOYMENT_URL = "https://test-preview.convex.site"
 process.env.CONVEX_SITE_URL = TEST_DEPLOYMENT_URL
 const previewGuard = { preview: true, allowedDeploymentUrl: TEST_DEPLOYMENT_URL }
+const authorizeGuard = { authorize: true, allowedDeploymentUrl: TEST_DEPLOYMENT_URL }
 
 function fresh() {
   return convexTest(schema, modules)
@@ -107,7 +109,7 @@ test("RUN-01 tracer: a single sanitized legacy order seeds, backfills, and price
   // Deferred Phase 47 backfill runs against the seeded preview.
   const backfill = await t.mutation(
     internal.backfillLegacyAccommodationPreferences.default,
-    { slug: LEGACY_EVENT_SLUG, ...previewGuard }
+    { slug: LEGACY_EVENT_SLUG, ...authorizeGuard }
   )
   expect(backfill.ordersResolved).toBe(1)
   expect(backfill.attendeesHandled).toBe(1)
@@ -335,7 +337,7 @@ test("RUN-01 guards: the seed fails closed on missing preview, unknown deploymen
   expect(await countRows(t, "orders")).toBe(1)
 })
 
-test("RUN-01: the deferred full backfill runs idempotently on the seeded preview and surfaces 44 board suggestions", async () => {
+test("RUN-01: the deferred full backfill runs idempotently on the seeded preview, converts legacy assignments, and surfaces no buyer suggestions", async () => {
   const t = fresh().withIdentity(adminIdentity)
   await t.mutation(internal.seedPreviewSimulation.default, {
     scope: "full",
@@ -344,7 +346,7 @@ test("RUN-01: the deferred full backfill runs idempotently on the seeded preview
 
   const first = await t.mutation(
     internal.backfillLegacyAccommodationPreferences.default,
-    { slug: LEGACY_EVENT_SLUG, ...previewGuard }
+    { slug: LEGACY_EVENT_SLUG, ...authorizeGuard }
   )
   expect(first.ordersResolved).toBe(LEGACY_AUDIT_COUNTS.noSelectionOrders)
   expect(first.attendeesHandled).toBe(
@@ -354,18 +356,24 @@ test("RUN-01: the deferred full backfill runs idempotently on the seeded preview
     LEGACY_AUDIT_COUNTS.legacyAssignmentOrders
   )
   expect(first.ordersUnresolved).toBe(0)
+  expect(first.assignmentsConverted).toBe(
+    LEGACY_AUDIT_COUNTS.legacyAssignmentAttendees
+  )
 
   const second = await t.mutation(
     internal.backfillLegacyAccommodationPreferences.default,
-    { slug: LEGACY_EVENT_SLUG, ...previewGuard }
+    { slug: LEGACY_EVENT_SLUG, ...authorizeGuard }
   )
   expect(second.ordersResolved).toBe(0)
   expect(second.attendeesHandled).toBe(0)
+  expect(second.assignmentsConverted).toBe(0)
   expect(second.ordersAlreadyHandled).toBe(LEGACY_AUDIT_COUNTS.orders)
   expect(await countRows(t, "orderAccommodationSelections")).toBe(
     LEGACY_AUDIT_COUNTS.attendees
   )
 
+  // Legacy assignments are retained with status converted, so they no longer
+  // surface as pending buyer suggestions.
   const eventId = await t.query(async (ctx) => {
     const event = await ctx.db
       .query("events")
@@ -377,7 +385,5 @@ test("RUN-01: the deferred full backfill runs idempotently on the seeded preview
   const board = await t.query(api.accommodation.getRoomAllocationBoard, {
     eventId: String(eventId),
   })
-  expect(board.buyerSuggestions ?? []).toHaveLength(
-    LEGACY_AUDIT_COUNTS.legacyAssignmentAttendees
-  )
+  expect(board.buyerSuggestions ?? []).toHaveLength(0)
 })
