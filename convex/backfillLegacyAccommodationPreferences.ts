@@ -228,9 +228,12 @@ export default internalMutation({
       ordersResolved += 1
     }
 
-    // Convert every still-pending legacy assignment to `converted`
-    // (idempotent), retaining its slot reference and audit fields so the
-    // converted rows no longer surface as pending buyer suggestions.
+    // Convert every still-active legacy assignment to `converted` (idempotent),
+    // retaining its slot reference and audit fields so the converted rows no
+    // longer surface as pending buyer suggestions. Any status other than
+    // `converted` (undefined, pending, confirmed, declined) is retired: every
+    // legacy attendee now has a backfilled preference, and the legacy slots
+    // are removed with the old inventory.
     let assignmentsConverted = 0
     for (const order of orders) {
       const assignmentRows = await ctx.db
@@ -238,7 +241,7 @@ export default internalMutation({
         .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
         .take(ORDER_BATCH)
       for (const assignment of assignmentRows) {
-        if (assignment.status !== undefined && assignment.status !== "pending") {
+        if (assignment.status === "converted") {
           continue
         }
         await ctx.db.patch("orderAssignments", assignment._id, {

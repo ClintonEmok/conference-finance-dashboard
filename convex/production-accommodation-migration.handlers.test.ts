@@ -966,6 +966,47 @@ test("Step 3 fails closed before deleting old inventory while any assignment ref
   expect(koningshofRooms).toBe(374)
 })
 
+test("Step 2 converts confirmed/declined legacy assignments too, so Step 3 completes", async () => {
+  const t = fresh()
+  const idMap = await seedMigrationFixture(t)
+
+  await t.mutation(
+    internal.applySimplifiedDivineConferenceAccommodation.default,
+    productionGuard
+  )
+
+  // Simulate a legacy CONFIRMED placement still referencing an old slot: it
+  // must also be retired to `converted` so Step 3's preflight passes and the
+  // old inventory can be removed without losing the audit row.
+  await t.mutation(async (ctx) => {
+    for await (const row of ctx.db.query("orderAssignments")) {
+      await ctx.db.patch("orderAssignments", row._id, {
+        status: "confirmed",
+      })
+    }
+  })
+
+  const backfill = await t.mutation(
+    internal.backfillLegacyAccommodationPreferences.default,
+    productionGuard
+  )
+  expect(backfill.assignmentsConverted).toBe(
+    LEGACY_AUDIT_COUNTS.legacyAssignmentAttendees
+  )
+
+  const converted = await t.query(async (ctx) => {
+    let count = 0
+    for await (const row of ctx.db.query("orderAssignments")) {
+      if (row.status === "converted") count += 1
+    }
+    return count
+  })
+  expect(converted).toBe(LEGACY_AUDIT_COUNTS.legacyAssignmentAttendees)
+
+  const { done } = await runStep3UntilDoneOrBlocked(t)
+  expect(done).toBe(true)
+})
+
 // ---------------------------------------------------------------------------
 // Verification query: locked post-migration counts + stable re-runs
 // ---------------------------------------------------------------------------
