@@ -347,8 +347,8 @@ test("report exposes per-canonical-status counts and only zero-proof paid candid
 
   expect(report.eventId).toBe(String(fixture.eventId))
   expect(report.slug).toBe("divine-redesign")
-  // TT-paid extension rows: A, B, C, D, E
-  expect(report.ordersScanned).toBe(5)
+  // All event orders are scanned (A..H; I belongs to the other event).
+  expect(report.ordersScanned).toBe(8)
   // All event orders by canonical status: paid A/B/C/F, pending D/E/G,
   // refunded H (I belongs to the other event).
   expect(report.byCanonicalStatus).toEqual({
@@ -398,9 +398,9 @@ test("mutation flips only the zero-proof paid order and never creates, patches, 
     productionGuard
   )
   expect(result).toEqual({
-    ordersScanned: 5,
+    ordersScanned: 8,
     flipped: 1,
-    alreadyPending: 1,
+    alreadyPending: 4,
     skippedWithProof: 3,
   })
 
@@ -433,17 +433,17 @@ test("second authorized run is a no-op and counts the flipped row as already pen
 
   const first = await t.mutation(ref, productionGuard)
   expect(first).toEqual({
-    ordersScanned: 5,
+    ordersScanned: 8,
     flipped: 1,
-    alreadyPending: 1,
+    alreadyPending: 4,
     skippedWithProof: 3,
   })
 
   const second = await t.mutation(ref, productionGuard)
   expect(second).toEqual({
-    ordersScanned: 5,
+    ordersScanned: 8,
     flipped: 0,
-    alreadyPending: 2,
+    alreadyPending: 5,
     skippedWithProof: 3,
   })
 })

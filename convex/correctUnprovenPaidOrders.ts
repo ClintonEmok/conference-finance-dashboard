@@ -10,16 +10,16 @@ const ORDER_LIMIT = 2000
 const PAYMENT_PROOF_LIMIT = 200
 
 /**
- * Operator-gated correction for event-scoped Ticket Tailor orders whose
- * canonical status is `paid` but whose ledger has no applied-payment proof.
- * Proof is present only when a `payments` row carries the exact canonical
- * order ID with status `auto_matched` or `manual_assignment`; unassigned,
- * ambiguous, and standalone-donation rows never prove an order.
+ * Operator-gated correction for event-scoped orders whose canonical status is
+ * `paid` but whose ledger has no applied-payment proof. The orders-row
+ * `status: "paid"` is the authoritative paid signal (it is what the Ticket
+ * Tailor sync wrote); proof is present only when a `payments` row carries the
+ * exact canonical order ID with status `auto_matched` or `manual_assignment`;
+ * unassigned, ambiguous, and standalone-donation rows never prove an order.
  *
  * The mutation only flips `orders.status` from `paid` to `pending` for
- * zero-proof orders and never creates, patches, or deletes payment rows. The
- * historical `ticketTailorOrders` extension `normalizedStatus` is left
- * unchanged so the correction stays auditable and a re-run counts the row as
+ * zero-proof orders and never creates, patches, or deletes payment rows. It
+ * scans every event order; orders already in a non-paid state are counted as
  * already pending.
  *
  * Run (operator-gated, production): see docs/production-deployment-runbook.md.
@@ -63,16 +63,12 @@ export const correctUnprovenPaidOrders = internalMutation({
     for await (const order of ctx.db
       .query("orders")
       .withIndex("by_eventId", (q) => q.eq("eventId", event._id))) {
-      const extension = await ctx.db
-        .query("ticketTailorOrders")
-        .withIndex("orderId", (q) => q.eq("orderId", order._id))
-        .first()
+      ordersScanned += 1
 
-      if (extension?.normalizedStatus !== "paid") {
+      if (order.status !== "paid") {
+        alreadyPending += 1
         continue
       }
-
-      ordersScanned += 1
 
       const payments = await ctx.db
         .query("payments")
@@ -90,12 +86,8 @@ export const correctUnprovenPaidOrders = internalMutation({
         continue
       }
 
-      if (order.status === "paid") {
-        await ctx.db.patch("orders", order._id, { status: "pending" })
-        flipped += 1
-      } else {
-        alreadyPending += 1
-      }
+      await ctx.db.patch("orders", order._id, { status: "pending" })
+      flipped += 1
     }
 
     return {
@@ -184,7 +176,6 @@ export const reconcileUnprovenPaidOrdersReport = internalQuery({
 
     const amountDueByOrderId = await loadOrderAmountDueBreakdowns(ctx, orders)
 
-    let ordersScanned = 0
     const ordersToFlip: Array<{
       orderId: string
       buyerName: string | null
@@ -192,17 +183,6 @@ export const reconcileUnprovenPaidOrdersReport = internalQuery({
     }> = []
 
     for (const order of orders) {
-      const extension = await ctx.db
-        .query("ticketTailorOrders")
-        .withIndex("orderId", (q) => q.eq("orderId", order._id))
-        .first()
-
-      if (extension?.normalizedStatus !== "paid") {
-        continue
-      }
-
-      ordersScanned += 1
-
       if (order.status !== "paid") {
         continue
       }
@@ -236,7 +216,7 @@ export const reconcileUnprovenPaidOrdersReport = internalQuery({
     return {
       eventId: String(event._id),
       slug,
-      ordersScanned,
+      ordersScanned: orders.length,
       byCanonicalStatus,
       ordersToFlip,
     }
