@@ -54,7 +54,7 @@ export default async function IntegrationsPage() {
       <header>
         <h2 className="text-xl font-semibold">Integrations</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Runtime status for Ticket Tailor and Tikkie environment configuration.
+          Runtime status for Tikkie environment configuration.
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
           Last checked: {status.generatedAt}

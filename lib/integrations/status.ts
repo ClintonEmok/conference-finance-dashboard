@@ -1,4 +1,3 @@
-import { getTicketTailorConfig } from "@/lib/integrations/ticket-tailor/config"
 import { getTikkieConfig } from "@/lib/integrations/tikkie/config"
 
 export type IntegrationState = "configured" | "misconfigured" | "unreachable"
@@ -12,8 +11,8 @@ type ConnectivityStatus = {
 }
 
 export type IntegrationStatusRecord = {
-  provider: "ticket-tailor" | "tikkie"
-  name: "Ticket Tailor" | "Tikkie"
+  provider: "tikkie"
+  name: "Tikkie"
   state: IntegrationState
   configured: boolean
   validationErrors: string[]
@@ -84,36 +83,6 @@ function deriveState(configured: boolean, validationErrors: string[], connectivi
   return "configured" as const
 }
 
-async function buildTicketTailorStatus(): Promise<IntegrationStatusRecord> {
-  const config = getTicketTailorConfig()
-
-  const connectivity = config.configured
-    ? await pingUrl(`${config.values.baseUrl}/events`, {
-        Authorization: `Bearer ${config.values.apiKey}`,
-      })
-    : {
-        attempted: false,
-        reachable: false,
-        statusCode: null,
-        ok: false,
-        message: "Connectivity check skipped until configuration is valid",
-      }
-
-  return {
-    provider: "ticket-tailor",
-    name: "Ticket Tailor",
-    state: deriveState(config.configured, config.errors, connectivity),
-    configured: config.configured,
-    validationErrors: config.errors,
-    diagnostics: {
-      baseUrl: config.metadata.baseUrl,
-      apiKeyConfigured: config.metadata.hasApiKey,
-      apiKeyPreview: config.metadata.keyPreview,
-    },
-    connectivity,
-  }
-}
-
 async function buildTikkieStatus(): Promise<IntegrationStatusRecord> {
   const config = getTikkieConfig()
 
@@ -147,13 +116,10 @@ async function buildTikkieStatus(): Promise<IntegrationStatusRecord> {
 }
 
 export async function getIntegrationStatus(): Promise<IntegrationStatusPayload> {
-  const [ticketTailor, tikkie] = await Promise.all([
-    buildTicketTailorStatus(),
-    buildTikkieStatus(),
-  ])
+  const tikkie = await buildTikkieStatus()
 
   return {
     generatedAt: new Date().toISOString(),
-    providers: [ticketTailor, tikkie],
+    providers: [tikkie],
   }
 }

@@ -283,7 +283,7 @@ export default function TicketTypesSettingsPage() {
             <p className="text-sm text-muted-foreground">Loading events...</p>
           ) : uniqueEvents.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No events found. Sync Ticket Tailor data first.
+              No events found yet.
             </p>
           ) : (
             <div className="rounded-md border border-border/70 bg-muted/20 p-3 text-sm">

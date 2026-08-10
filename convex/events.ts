@@ -308,34 +308,6 @@ export const getTicketTailorEventByProviderId = query({
   },
 })
 
-export const upsertTicketTailorEvent = mutation({
-  args: {
-    providerEventId: v.string(),
-    name: v.optional(v.string()),
-    startsAt: v.optional(v.number()),
-    endsAt: v.optional(v.number()),
-    timezone: v.optional(v.string()),
-    currency: v.optional(v.string()),
-    rawPayload: v.any(),
-  },
-  handler: async (ctx, args) => {
-    await requireIdentity(ctx)
-    const existing = await ctx.db
-      .query("ticketTailorEvents")
-      .withIndex("providerEventId", (q) =>
-        q.eq("providerEventId", args.providerEventId)
-      )
-      .collect()
-
-    if (existing[0]) {
-      await ctx.db.patch("ticketTailorEvents", existing[0]._id, args)
-      return existing[0]._id
-    }
-
-    return await ctx.db.insert("ticketTailorEvents", args)
-  },
-})
-
 // =============================================================================
 // TICKET TYPES - Queries and mutations for event ticket management
 // =============================================================================
