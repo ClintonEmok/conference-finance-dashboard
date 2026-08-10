@@ -1007,6 +1007,91 @@ test("Step 2 converts confirmed/declined legacy assignments too, so Step 3 compl
   expect(done).toBe(true)
 })
 
+test("Step 3 retires orphaned legacy assignments referencing old slots before deletion", async () => {
+  const t = fresh()
+  const idMap = await seedMigrationFixture(t)
+
+  await t.mutation(
+    internal.applySimplifiedDivineConferenceAccommodation.default,
+    productionGuard
+  )
+  // Retire the in-event legacy assignments first (as the runbook sequence
+  // does), so only the foreign orphan remains to be handled by Step 3.
+  await t.mutation(
+    internal.backfillLegacyAccommodationPreferences.default,
+    productionGuard
+  )
+
+  // Insert an ORPHANED assignment: its order belongs to ANOTHER event (so
+  // Step 2 never reaches it), its slot is an OLD (pre-Koningshof) slot, status
+  // confirmed. Step 3 must retire it itself before deleting old inventory.
+  const oldSlotId = await t.query(async (ctx) => {
+    for await (const slot of ctx.db.query("accommodationSlots")) {
+      const room = slot.roomId ? await ctx.db.get("accommodationRooms", slot.roomId) : null
+      if (!room) continue
+      const hotel = await ctx.db.get(
+        "accommodationHotels",
+        room.hotelId as never
+      )
+      if (hotel && hotel.name !== "NH Eindhoven Conference Centre Koningshof") {
+        return slot._id
+      }
+    }
+    throw new Error("no old slot found")
+  }) as never
+  const attendeeId = await t.query(async (ctx) => {
+    const a = await ctx.db.query("orderAttendees").first()
+    return a?._id ?? null
+  }) as never
+  const foreignOrderId = await t.mutation(async (ctx) => {
+    const foreignEventId = await ctx.db.insert("events", {
+      slug: "foreign-event",
+      title: "Foreign Event",
+      startsAt: LEGACY_BASE_CHECK_IN_AT,
+      timezone: "Europe/Amsterdam",
+      currency: "EUR",
+      isPublished: false,
+      isSignupOpen: false,
+      accommodationEnabled: false,
+      primarySourceKind: "internal",
+      updatedAt: LEGACY_BASE_CHECK_IN_AT,
+    })
+    return await ctx.db.insert("orders", {
+      eventId: foreignEventId,
+      source: "internal",
+      bookingRef: "BK-FOREIGN-0001",
+      bookerName: "Foreign",
+      bookerEmail: "foreign@example.org",
+    })
+  })
+  await t.mutation(async (ctx) => {
+    return await ctx.db.insert("orderAssignments", {
+      orderId: foreignOrderId,
+      attendeeId,
+      slotId: oldSlotId,
+      assignmentIntent: "assign",
+      sortOrder: 0,
+      status: "confirmed",
+    })
+  })
+
+  const { done, blocked } = await runStep3UntilDoneOrBlocked(t)
+  expect(blocked).toBeNull()
+  expect(done).toBe(true)
+
+  // The orphaned assignment was preserved as an audit row (not deleted).
+  const orphanStatus = await t.query(async (ctx) => {
+    const row = await ctx.db
+      .query("orderAssignments")
+      .withIndex("by_slotId", (q) =>
+        q.eq("slotId", oldSlotId as never)
+      )
+      .take(100)
+    return row.map((r) => r.status)
+  })
+  expect(orphanStatus).toContain("converted")
+})
+
 // ---------------------------------------------------------------------------
 // Verification query: locked post-migration counts + stable re-runs
 // ---------------------------------------------------------------------------

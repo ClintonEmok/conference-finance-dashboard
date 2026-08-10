@@ -425,6 +425,31 @@ export default internalMutation({
       roomsCreated === 0 &&
       slotsCreated === 0
     ) {
+      // Retire dangling legacy assignments that reference doomed old slots but
+      // belong to orders OUTSIDE the migrated event (orphaned/foreign rows —
+      // e.g. a legacy assignment whose order was removed or lives under
+      // another event). They cannot survive the deletion, so they are
+      // converted to `converted` audit rows. Genuine in-event active
+      // placements remain protected below: Step 2 retires them, and if it has
+      // not run they still block the deletion.
+      for (const slot of oldSlots) {
+        const referencing = await ctx.db
+          .query("orderAssignments")
+          .withIndex("by_slotId", (q) => q.eq("slotId", slot._id))
+          .take(100)
+        for (const assignment of referencing) {
+          if (assignment.status === "converted") {
+            continue
+          }
+          const order = await ctx.db.get("orders", assignment.orderId)
+          if (!order || String(order.eventId) !== String(event._id)) {
+            await ctx.db.patch("orderAssignments", assignment._id, {
+              status: "converted",
+            })
+          }
+        }
+      }
+
       // Fail closed BEFORE deleting anything when any ACTIVE assignment
       // (pending/undefined/confirmed/declined) still references an old slot.
       // `converted` rows are inert audit rows (their rooming intent now lives
