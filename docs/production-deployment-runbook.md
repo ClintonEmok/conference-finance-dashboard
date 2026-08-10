@@ -148,6 +148,37 @@ categories, room types, room/cot resources, rates, event options, stay config,
 event accommodation preferences, converted assignments, linked hotels, rooms,
 slots, and the absence of the two old hotels. Never mutates data.
 
+**Zero-proof paid-order report and correction (NOT EXECUTED — operator-gated):**
+> ⛔ **OPERATOR AUTHORIZATION REQUIRED**. The report and correction below are
+> documented but **not executed** by this task. The correction flips
+> `orders.status` from `paid` to `pending` only for event-scoped Ticket Tailor
+> orders (extension `normalizedStatus` = `paid`) whose ledger has no
+> applied-payment proof — proof being a `payments` row with the exact canonical
+> order ID and status `auto_matched` or `manual_assignment`. It never creates,
+> patches, or deletes payment rows, leaves the extension's historical
+> `normalizedStatus` unchanged (so a re-run is a no-op), and returns
+> `ordersScanned`, `flipped`, `alreadyPending`, and `skippedWithProof`. The
+> same deployment guard as the accommodation migrations applies: `authorize:
+> true` AND an exact deployment-slug match.
+
+```bash
+npx convex run correctUnprovenPaidOrders:reconcileUnprovenPaidOrdersReport \
+  --args '{"slug":"divine-redesign"}'
+```
+Read-only, event-scoped reconciliation report: per-canonical-status counts for
+the event's orders plus the order IDs, buyer names, and canonical amount due
+for the zero-proof currently-paid Ticket Tailor orders the correction would
+flip. Never mutates data; returns an empty well-typed report when the slug has
+no event.
+
+```bash
+npx convex run correctUnprovenPaidOrders:correctUnprovenPaidOrders \
+  --args '{"slug":"divine-redesign","authorize":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}'
+```
+Correction command — flips only the zero-proof paid orders to `pending`.
+**NOT EXECUTED**; for the operator to run later against production with
+explicit authorization.
+
 ### 3.3 Frontend deploy (authorization gate C)
 > ⛔ **OPERATOR AUTHORIZATION REQUIRED** (gate C).
 Deploy the Next.js frontend to `https://conference.dclm-nl.org` per the

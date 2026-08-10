@@ -2079,6 +2079,40 @@ export declare const internal: {
       }
     >;
   };
+  correctUnprovenPaidOrders: {
+    correctUnprovenPaidOrders: FunctionReference<
+      "mutation",
+      "internal",
+      { allowedDeploymentUrl?: string; authorize: boolean; slug?: string },
+      {
+        alreadyPending: number;
+        flipped: number;
+        ordersScanned: number;
+        skippedWithProof: number;
+      }
+    >;
+    reconcileUnprovenPaidOrdersReport: FunctionReference<
+      "query",
+      "internal",
+      { slug?: string },
+      {
+        byCanonicalStatus: {
+          cancelled: number;
+          paid: number;
+          pending: number;
+          refunded: number;
+        };
+        eventId?: string;
+        ordersScanned: number;
+        ordersToFlip: Array<{
+          amountDueMinor: number | null;
+          buyerName: string | null;
+          orderId: string;
+        }>;
+        slug: string;
+      }
+    >;
+  };
   emailActions: {
     sendSignupConfirmation: FunctionReference<
       "action",
