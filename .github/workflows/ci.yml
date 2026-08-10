@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests (unit / api / lib)
+        run: npm test
+      - name: Tests (Convex)
+        run: npx vitest run --config vitest.convex.config.ts
+      - name: Tests (components)
+        run: npx vitest run --config vitest.components.config.ts
+      - name: Whitespace / conflict markers
+        run: git diff --check
