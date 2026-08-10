@@ -1,44 +1,43 @@
 import { v } from "convex/values"
-import { internalMutation, type MutationCtx } from "./_generated/server"
+import { internalMutation } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
-import {
-  loadPublicSignupAccommodationContext,
-  resolveIncludedStayCategory,
-  resolvePublicSignupSelection,
-} from "./signupCatalog"
-import { assertPreviewDeployment } from "../lib/domain/legacy/preview-deployment-guard"
+import { assertProductionDeployment } from "../lib/domain/legacy/production-deployment-guard"
 
 /**
- * LEG-01 idempotent, operator-run first-preference backfill for the
- * `divine-redesign` production event. Run with:
+ * LEG-01 guarded, operator-run first-preference backfill for the
+ * `divine-redesign` production event (Step 2 of the accommodation cutover).
+ * Run with:
  *
  *   npx convex run backfillLegacyAccommodationPreferences \
- *     --args '{"slug":"divine-redesign","preview":true,"allowedDeploymentUrl":"https://acoustic-tiger-876.convex.site"}'
+ *     --args '{"slug":"divine-redesign","authorize":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}'
  *
  * Behavior:
- * - Locates the event by slug and loads the shared accommodation context.
+ * - Locates the event by slug and resolves the event's Standard category and
+ *   stay config directly (never through a pricing/rate lookup).
  * - For every order that has ZERO `orderAccommodationSelections` rows, creates
  *   exactly one included-Standard preference per ticketed attendee with
- *   ticket-derived occupancy (single/shared), the event config's stay
- *   timestamps and base night count, and no night-before / options.
+ *   ticket-derived occupancy (capacity-1 room types are `single`, everything
+ *   else `shared`), the event config's check-in/check-out timestamps and base
+ *   night count, and no night-before / options.
  * - An order that already has any selection row is skipped as a unit
  *   (idempotent re-run). An order with any unresolvable attendee (no ticket
- *   selection, missing ticket/room type, unresolvable rate) is rejected as a
- *   unit — zero partial inserts — and reported under `unresolved`.
- * - Never touches confirmed rows, other events, payments, assignments, order
- *   totals, or Tikkie links.
+ *   selection, missing ticket/room type) is rejected as a unit — zero partial
+ *   inserts — and reported under `unresolved`.
+ * - For every legacy event assignment still pending (no status or `pending`),
+ *   patches the status to `converted` while retaining the slot reference and
+ *   audit fields, so converted assignments no longer appear as pending buyer
+ *   suggestions. Re-running sees existing preferences and converted statuses
+ *   as no-ops.
+ * - Never touches confirmed rows, other events, payments, order totals, or
+ *   Tikkie links.
  *
- * Safety (LEG-03, shared preview-deployment guard):
- * - Requires `preview: true` AND an exactly-matching, explicitly allowed
- *   deployment URL (`allowedDeploymentUrl` or `PREVIEW_DEPLOYMENT_URL`),
- *   compared to the detected `CONVEX_SITE_URL` in canonical form — no
- *   prefix/suffix matching. The guard fails closed BEFORE any database read
- *   or write when the deployment identity or allowlist is unavailable.
- * - Production execution is only possible when an operator explicitly passes
- *   the exact production deployment URL as the allowed deployment (documented
- *   gate B in docs/production-deployment-runbook.md).
- * - The category is always the event's included Standard category resolved
- *   server-side — never a legacy room type's (absent) categoryId.
+ * Safety (shared production-deployment guard):
+ * - Requires `authorize: true` AND an exactly-matching, explicitly allowed
+ *   production deployment URL (`allowedDeploymentUrl`), compared to the
+ *   detected `CONVEX_SITE_URL` as a deployment slug (`.convex.cloud` and
+ *   `.convex.site` are the same identity) — no prefix/suffix matching, no
+ *   selector or environment fallback. The guard fails closed BEFORE any
+ *   database read or write.
  * - This mutation is the `costly` write: Convex has no delete-undone path for
  *   the inserted selection rows. Rehearse on the sanitized preview first.
  */
@@ -46,13 +45,20 @@ import { assertPreviewDeployment } from "../lib/domain/legacy/preview-deployment
 const SELECTION_BATCH = 500
 const ORDER_BATCH = 500
 
+const DEFAULT_SLUG = "divine-redesign"
+
+type ResolvedPreference = {
+  attendeeId: Id<"orderAttendees">
+  occupancy: "single" | "shared"
+}
+
 export default internalMutation({
   args: {
     /** Event slug to backfill; defaults to the production divine-redesign. */
     slug: v.optional(v.string()),
-    /** Explicit preview-only authorization marker (required). */
-    preview: v.boolean(),
-    /** Allowed preview deployment URL/selector for the deployment guard. */
+    /** Explicit production write-authorization marker (required). */
+    authorize: v.boolean(),
+    /** Allowed production deployment URL for the deployment guard. */
     allowedDeploymentUrl: v.optional(v.string()),
   },
   returns: v.object({
@@ -66,18 +72,20 @@ export default internalMutation({
     unresolved: v.array(
       v.object({ orderId: v.string(), reason: v.string() })
     ),
+    assignmentsConverted: v.number(),
   }),
   handler: async (ctx, args) => {
-    // Deployment guard: shared fail-closed check runs BEFORE any database
-    // read/write. Requires `preview: true` and an exactly-matching, explicitly
-    // allowed deployment URL against the detected CONVEX_SITE_URL.
-    assertPreviewDeployment({
-      preview: args.preview,
+    // Production-deployment guard: shared fail-closed check runs BEFORE any
+    // database read/write. Requires `authorize: true` and an exactly-matching,
+    // explicitly allowed production deployment URL against the detected
+    // CONVEX_SITE_URL (deployment-slug equality).
+    assertProductionDeployment({
+      authorize: args.authorize,
       allowedDeploymentUrl: args.allowedDeploymentUrl,
-      operation: "backfill",
+      operation: "preference backfill",
     })
 
-    const slug = args.slug?.trim() || "divine-redesign"
+    const slug = args.slug?.trim() || DEFAULT_SLUG
 
     const event = await ctx.db
       .query("events")
@@ -87,16 +95,38 @@ export default internalMutation({
       throw new Error(`Event with slug '${slug}' not found`)
     }
 
-    const context = await loadPublicSignupAccommodationContext(ctx, event._id)
-    if (!context.hasConfiguredAccommodation) {
+    // The event's included Standard category and stay config are resolved
+    // directly: the config's default category when it is Standard, otherwise
+    // the catalog Standard category. Fails closed when either is missing.
+    const configRow = await ctx.db
+      .query("eventAccommodationConfig")
+      .withIndex("by_eventId", (q) => q.eq("eventId", event._id))
+      .unique()
+    if (!configRow) {
       throw new Error(
-        "CONFIG_REQUIRED: The event does not offer configured accommodation; refusing to fabricate preferences."
+        "CONFIG_REQUIRED: The event has no accommodation config; refusing to fabricate preferences."
       )
     }
-    const included = resolveIncludedStayCategory(context)
-    if (!included) {
+    let standardCategoryId: Id<"accommodationCategories"> | null = null
+    if (configRow.defaultCategoryId) {
+      const defaultCategory = await ctx.db.get(
+        "accommodationCategories",
+        configRow.defaultCategoryId
+      )
+      if (defaultCategory?.code === "standard") {
+        standardCategoryId = defaultCategory._id
+      }
+    }
+    if (!standardCategoryId) {
+      const standardCategory = await ctx.db
+        .query("accommodationCategories")
+        .withIndex("by_code", (q) => q.eq("code", "standard"))
+        .first()
+      standardCategoryId = standardCategory?._id ?? null
+    }
+    if (!standardCategoryId) {
       throw new Error(
-        "CONFIG_REQUIRED: No included accommodation category is configured for this event."
+        "CONFIG_REQUIRED: No Standard accommodation category is configured for this event."
       )
     }
 
@@ -141,11 +171,7 @@ export default internalMutation({
 
       // Resolve every attendee's preference before inserting anything, so a
       // single unresolvable attendee fails the whole order closed.
-      const resolvedPerAttendee: Array<{
-        attendeeId: Id<"orderAttendees">
-        occupancy: "single" | "shared"
-        nightCount: number | null
-      }> = []
+      const resolvedPerAttendee: Array<ResolvedPreference> = []
       let orderFailureReason: string | null = null
 
       for (const attendee of attendeeRows) {
@@ -177,27 +203,7 @@ export default internalMutation({
           // Room occupancy, so shared is the conservative default.
           occupancy = "shared"
         }
-        let resolved: ReturnType<typeof resolvePublicSignupSelection>
-        try {
-          resolved = resolvePublicSignupSelection({
-            context,
-            selection: { occupancy, optionSelections: [] },
-          })
-        } catch (error) {
-          orderFailureReason = `attendee '${attendee.name}': ${
-            error instanceof Error ? error.message.replace(/^QUOTE_INVALID:\s*/, "") : "unresolvable selection"
-          }`
-          break
-        }
-        if (!resolved.categoryId || !resolved.occupancy) {
-          orderFailureReason = `attendee '${attendee.name}' could not be resolved to an included preference`
-          break
-        }
-        resolvedPerAttendee.push({
-          attendeeId: attendee._id,
-          occupancy: resolved.occupancy,
-          nightCount: resolved.nightCount,
-        })
+        resolvedPerAttendee.push({ attendeeId: attendee._id, occupancy })
       }
 
       if (orderFailureReason) {
@@ -211,15 +217,35 @@ export default internalMutation({
           attendeeId: preference.attendeeId,
           // The server-resolved included-stay Standard category, never a
           // legacy room type's (absent) categoryId.
-          categoryId: included.categoryId as Id<"accommodationCategories">,
+          categoryId: standardCategoryId,
           occupancy: preference.occupancy,
-          checkInAt: context.config?.baseCheckInAt,
-          checkOutAt: context.config?.baseCheckOutAt,
-          nightCount: preference.nightCount ?? undefined,
+          checkInAt: configRow.baseCheckInAt,
+          checkOutAt: configRow.baseCheckOutAt,
+          nightCount: configRow.nightCount,
         })
         attendeesHandled += 1
       }
       ordersResolved += 1
+    }
+
+    // Convert every still-pending legacy assignment to `converted`
+    // (idempotent), retaining its slot reference and audit fields so the
+    // converted rows no longer surface as pending buyer suggestions.
+    let assignmentsConverted = 0
+    for (const order of orders) {
+      const assignmentRows = await ctx.db
+        .query("orderAssignments")
+        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+        .take(ORDER_BATCH)
+      for (const assignment of assignmentRows) {
+        if (assignment.status !== undefined && assignment.status !== "pending") {
+          continue
+        }
+        await ctx.db.patch("orderAssignments", assignment._id, {
+          status: "converted",
+        })
+        assignmentsConverted += 1
+      }
     }
 
     return {
@@ -231,6 +257,7 @@ export default internalMutation({
       attendeesHandled,
       ordersUnresolved: unresolved.length,
       unresolved,
+      assignmentsConverted,
     }
   },
 })
