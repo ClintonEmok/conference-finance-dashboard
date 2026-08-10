@@ -13,7 +13,8 @@ Convex agent skills for common tasks can be installed by running `npx convex ai-
 - **Branches:** `main` is the canonical integration branch. The repo also tracks `master`; after merging into `main`, mirror the result:
   `git push origin main:master`
 - **Deployment:**
-  - Frontend auto-deploys to https://conference.dclm-nl.org via Vercel (project `conference-finance-dashboard`) on pushes to the production branch.
+  - Frontend auto-deploys to https://conference.dclm-nl.org via Vercel (project `conference-finance-dashboard`, **production branch `master`**). Pushes to `main` create preview deployments.
+  - Vercel build command is `bash scripts/vercel-build.sh`: production builds run `npx convex deploy --cmd 'npm run build'` (deploys Convex functions to production); previews build the frontend only.
   - Convex production deployment: https://grateful-pelican-605.convex.cloud (project `conference-finance-dashboard`, team `clintonneemok11`).
   - Push Convex functions with `npx convex deploy` (or the Vercel build command `npx convex deploy --cmd 'npm run build'` once wired).
   - Manage production Convex env vars with `npx convex env set NAME 'value' --prod` / `npx convex env list --prod`.
