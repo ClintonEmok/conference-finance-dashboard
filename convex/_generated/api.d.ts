@@ -2489,6 +2489,14 @@ export declare const internal: {
       any
     >;
   };
+  fixDivineRedesignTicketLabels: {
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      { allowedDeploymentUrl?: string; authorize: boolean },
+      { ticketsChecked: number; ticketsFixed: number }
+    >;
+  };
   init: {
     default: FunctionReference<"mutation", "internal", any, any>;
   };
