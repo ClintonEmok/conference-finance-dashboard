@@ -30,7 +30,7 @@ import { assertProductionDeployment } from "../lib/domain/legacy/production-depl
  * 4. Before ANY old-inventory deletion, collect the old Holiday Inn Express /
  *    Ibis Styles Almere hotel, room, and slot IDs and fail closed when any
  *    `orderAssignments.slotId` still references one of those old slots
- *    (including converted audit rows) — leaving old inventory intact and
+ *    (excluding converted audit rows) — leaving old inventory intact and
  *    reporting the blocking assignment IDs.
  * 5. Only after the complete new inventory exists and the preflight is clear,
  *    delete old slots, old rooms, old event-hotel links, and the two old
@@ -425,19 +425,28 @@ export default internalMutation({
       roomsCreated === 0 &&
       slotsCreated === 0
     ) {
-      // Fail closed BEFORE deleting anything when any assignment (including
-      // converted audit rows) still references an old slot.
+      // Fail closed BEFORE deleting anything when any ACTIVE assignment
+      // (pending/undefined/confirmed/declined) still references an old slot.
+      // `converted` rows are inert audit rows (their rooming intent now lives
+      // in the backfilled accommodation preferences) and deliberately do NOT
+      // block the cleanup.
       const blockingAssignmentIds: Array<string> = []
       for (const slot of oldSlots) {
-        const assignment = await ctx.db
+        const referencing = await ctx.db
           .query("orderAssignments")
           .withIndex("by_slotId", (q) => q.eq("slotId", slot._id))
-          .take(1)
-        if (assignment[0]) {
-          blockingAssignmentIds.push(String(assignment[0]._id))
+          .take(100)
+        for (const assignment of referencing) {
+          if (assignment.status === "converted") {
+            continue
+          }
+          blockingAssignmentIds.push(String(assignment._id))
           if (blockingAssignmentIds.length >= 100) {
             break
           }
+        }
+        if (blockingAssignmentIds.length >= 100) {
+          break
         }
       }
       if (blockingAssignmentIds.length > 0) {

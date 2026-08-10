@@ -134,8 +134,10 @@ event link, upserts the eleven event resources, materializes 374 rooms and
 inventory is complete and a reference preflight is clear — deletes the old
 Holiday Inn Express / Ibis Styles Almere slots, rooms, event-hotel links, and
 hotel rows. The preflight fails closed (`OLD_SLOT_REFERENCED`, reporting the
-blocking assignment IDs) if ANY assignment — including converted audit rows —
-still references an old slot; clear those references first, then re-run.
+blocking assignment IDs) if any ACTIVE assignment (pending/undefined/
+confirmed/declined) — but not a `converted` audit row — still references an
+old slot; `converted` rows are inert (their rooming intent lives in the
+backfilled preferences) and do not block the cleanup.
 
 **Read-only verification (no writes):**
 ```bash

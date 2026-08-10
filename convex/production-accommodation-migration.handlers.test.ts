@@ -982,13 +982,9 @@ test("the verification query reports the locked post-migration counts and re-run
     internal.backfillLegacyAccommodationPreferences.default,
     productionGuard
   )
-  // The operator clears the converted audit rows (still referencing old
-  // slots) before Step 3 may delete the old inventory.
-  await t.mutation(async (ctx) => {
-    for await (const row of ctx.db.query("orderAssignments")) {
-      await ctx.db.delete("orderAssignments", row._id)
-    }
-  })
+  // The converted audit rows still reference the old slots and are RETAINED:
+  // Step 3's deletion preflight exempts `converted` rows, so the cleanup
+  // proceeds without deleting them.
   const { done } = await runStep3UntilDoneOrBlocked(t)
   expect(done).toBe(true)
 
@@ -1038,7 +1034,11 @@ test("the verification query reports the locked post-migration counts and re-run
     defaultCategoryCode: "standard",
   })
   expect(report.preferences).toBe(LEGACY_AUDIT_COUNTS.attendees)
-  expect(report.convertedAssignments).toBe(0)
+  // Converted audit rows are retained after old inventory is deleted (they
+  // no longer block the preflight).
+  expect(report.convertedAssignments).toBe(
+    LEGACY_AUDIT_COUNTS.legacyAssignmentAttendees
+  )
   expect(report.linkedHotels).toBe(1)
   expect(report.rooms).toBe(374)
   expect(report.slots).toBe(648)
