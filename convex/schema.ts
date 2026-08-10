@@ -229,7 +229,8 @@ export default defineSchema({
         v.union(
           v.literal("pending"),
           v.literal("confirmed"),
-          v.literal("declined")
+          v.literal("declined"),
+          v.literal("converted")
         )
       ),
       confirmedAt: v.optional(v.number()),

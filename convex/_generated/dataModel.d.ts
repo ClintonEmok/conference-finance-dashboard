@@ -652,7 +652,7 @@ export type DataModel = {
       orderId: Id<"orders">;
       slotId: Id<"accommodationSlots">;
       sortOrder: number;
-      status?: "pending" | "confirmed" | "declined";
+      status?: "pending" | "confirmed" | "declined" | "converted";
       _id: Id<"orderAssignments">;
       _creationTime: number;
     };

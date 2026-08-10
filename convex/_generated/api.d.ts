@@ -2376,7 +2376,32 @@ export declare const internal: {
     default: FunctionReference<"mutation", "internal", { slug?: string }, any>;
   };
   applySimplifiedDivineConferenceAccommodation: {
-    default: FunctionReference<"mutation", "internal", { slug?: string }, any>;
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      { allowedDeploymentUrl?: string; authorize: boolean; slug?: string },
+      {
+        anchorsPatched: number;
+        catalogOptionsCreated: number;
+        categoriesCreated: number;
+        categoriesUpdated: number;
+        configCreated: number;
+        configUpdated: number;
+        entryTicketsPriced: number;
+        entryTicketsRenamed: number;
+        eventId: string;
+        eventOptionPricesUpdated: number;
+        eventOptionsEnabled: number;
+        ratesCreated: number;
+        ratesUpdated: number;
+        roomTypesCreated: number;
+        roomTypesUpdated: number;
+        singleRoomTicketPriced: number;
+        slug: string;
+        ticketsAnchored: number;
+        ticketsIncluded: number;
+      }
+    >;
   };
   autoSync: {
     autoSyncTicketTailor: FunctionReference<"action", "internal", {}, any>;
