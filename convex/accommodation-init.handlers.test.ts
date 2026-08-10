@@ -355,7 +355,7 @@ test("applySimplifiedDivineConferenceAccommodation converges the locked tickets/
       defaultCapacity: 1,
     })
   })
-  const entryTicketLabels = ["0-2 Entry", "3-11 Entry", "12-17 Entry", "18+ Entry"]
+  const entryTicketLabels = ["0-4", "5-12", "13-17", "18+"]
   const entryTicketPrices = [1000, 10000, 14000, 24000]
   for (let index = 0; index < 4; index += 1) {
     await t.mutation(async (ctx) => {
@@ -390,7 +390,9 @@ test("applySimplifiedDivineConferenceAccommodation converges the locked tickets/
   )
   expect(first).toMatchObject({
     slug: "divine-redesign",
-    entryTicketsRenamed: 4,
+    // Label-based mapping: "18+" is already the correct label, so only three
+    // entry tickets are renamed (0-4/5-12/13-17 -> under 3/3-11/12-17).
+    entryTicketsRenamed: 3,
     entryTicketsPriced: 4,
     ticketsAnchored: 5,
     ticketsIncluded: 5,

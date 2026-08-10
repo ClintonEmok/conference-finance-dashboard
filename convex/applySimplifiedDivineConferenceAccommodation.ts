@@ -46,9 +46,6 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const SINGLE_ROOM_TICKET_LABEL = "Single Room"
 const SINGLE_ROOM_TICKET_PRICE_MINOR = 35000
 
-const ENTRY_TICKET_NAMES = ["under 3", "3-11", "12-17", "18+"] as const
-const ENTRY_TICKET_PRICES_MINOR = [0, 12500, 15000, 25000] as const
-
 const DOUBLE_ROOM_ANCHOR_LABEL = "Double Room"
 const SINGLE_ROOM_ANCHOR_LABEL = "Single Room"
 
@@ -311,26 +308,48 @@ export default internalMutation({
       )
     }
 
+    // Age-band ticket contract: map each entry ticket by its CURRENT label so
+    // the migration converges from the original synced labels OR an
+    // already-updated state. It can never scramble the age bands by relying on
+    // creation/sort order (production's synced rows are not age-ordered).
+    const AGE_BAND_TICKETS: Record<
+      string,
+      { label: string; priceMinor: number }
+    > = {
+      // Original synced labels.
+      "0-4": { label: "under 3", priceMinor: 0 },
+      "5-12": { label: "3-11", priceMinor: 12500 },
+      "13-17": { label: "12-17", priceMinor: 15000 },
+      "18+": { label: "18+", priceMinor: 25000 },
+      // Already-migrated labels (idempotent re-runs).
+      "under 3": { label: "under 3", priceMinor: 0 },
+      "3-11": { label: "3-11", priceMinor: 12500 },
+      "12-17": { label: "12-17", priceMinor: 15000 },
+    }
+
     let entryTicketsRenamed = 0
     let entryTicketsPriced = 0
     let ticketsAnchored = 0
     let ticketsIncluded = 0
-    for (let index = 0; index < entryTickets.length; index += 1) {
-      const ticket = entryTickets[index]
-      const lockedLabel = ENTRY_TICKET_NAMES[index]
-      const lockedPrice = ENTRY_TICKET_PRICES_MINOR[index]
+    for (const ticket of entryTickets) {
+      const target = AGE_BAND_TICKETS[ticket.label]
+      if (!target) {
+        throw new Error(
+          `TICKET_POPULATION_AMBIGUOUS: Entry ticket '${ticket.label}' is not a known age band for '${slug}'.`
+        )
+      }
       const patch: {
         label?: string
         priceMinor?: number
         roomTypeId?: Id<"accommodationRoomTypes">
         accommodationIncluded?: boolean
       } = {}
-      if (ticket.label !== lockedLabel) {
-        patch.label = lockedLabel
+      if (ticket.label !== target.label) {
+        patch.label = target.label
         entryTicketsRenamed += 1
       }
-      if (ticket.priceMinor !== lockedPrice) {
-        patch.priceMinor = lockedPrice
+      if (ticket.priceMinor !== target.priceMinor) {
+        patch.priceMinor = target.priceMinor
         entryTicketsPriced += 1
       }
       if (String(ticket.roomTypeId ?? "") !== String(doubleRoomAnchor._id)) {

@@ -150,7 +150,10 @@ async function seedMigrationFixture(
   idMap.set("rt_double_anchor", String(doubleAnchorId))
   idMap.set("rt_single_anchor", String(singleAnchorId))
 
-  const entryLabels = ["0-2 Entry", "3-11 Entry", "12-17 Entry", "18+ Entry"]
+  // Original synced age-band labels, deliberately assigned in a SCRAMBLED
+  // creation/sort order (18+ first, 0-4 second, ...). The migration must map
+  // by label, not by sort order, so the final contract is always correct.
+  const entryLabels = ["18+", "0-4", "13-17", "5-12"]
   const snapshotTicketIds = [
     "ticket_standard_shared",
     "ticket_standard_single",
@@ -283,7 +286,10 @@ test("Step 0/1 converges the locked tickets/categories/room types/rates/config/o
   )
   expect(first).toMatchObject({
     slug: LEGACY_EVENT_SLUG,
-    entryTicketsRenamed: 4,
+    // Label-based mapping: "18+" is already the correct label, so only three
+    // entry tickets are renamed (0-4/5-12/13-17 -> under 3/3-11/12-17), while
+    // all four are re-priced to the locked values.
+    entryTicketsRenamed: 3,
     entryTicketsPriced: 4,
     ticketsAnchored: 5,
     ticketsIncluded: 1,
@@ -318,26 +324,35 @@ test("Step 0/1 converges the locked tickets/categories/room types/rates/config/o
       .sort((a, b) => a.sortOrder - b.sortOrder)
   })
   expect(tickets).toHaveLength(5)
-  expect(tickets.map((row) => row.label)).toEqual([
-    "under 3",
-    "3-11",
-    "12-17",
-    "18+",
-    "Single Room",
-  ])
-  expect(tickets.map((row) => row.priceMinor)).toEqual([
-    0, 12500, 15000, 25000, 35000,
-  ])
-  expect(tickets.map((row) => row.roomTypeId)).toEqual([
-    doubleAnchorId,
-    doubleAnchorId,
-    doubleAnchorId,
-    doubleAnchorId,
-    singleAnchorId,
-  ])
-  for (const ticket of tickets) {
-    expect(ticket.accommodationIncluded).toBe(true)
-  }
+  // Assert by label (order-independent): the fixture intentionally scrambles
+  // creation/sort order, and the migration must converge on the locked
+  // label -> price/anchor/included contract regardless of that order.
+  const byLabel = Object.fromEntries(tickets.map((t) => [t.label, t]))
+  expect(byLabel["under 3"]).toMatchObject({
+    priceMinor: 0,
+    roomTypeId: doubleAnchorId,
+    accommodationIncluded: true,
+  })
+  expect(byLabel["3-11"]).toMatchObject({
+    priceMinor: 12500,
+    roomTypeId: doubleAnchorId,
+    accommodationIncluded: true,
+  })
+  expect(byLabel["12-17"]).toMatchObject({
+    priceMinor: 15000,
+    roomTypeId: doubleAnchorId,
+    accommodationIncluded: true,
+  })
+  expect(byLabel["18+"]).toMatchObject({
+    priceMinor: 25000,
+    roomTypeId: doubleAnchorId,
+    accommodationIncluded: true,
+  })
+  expect(byLabel["Single Room"]).toMatchObject({
+    priceMinor: 35000,
+    roomTypeId: singleAnchorId,
+    accommodationIncluded: true,
+  })
 
   const standardCategoryId = idMap.get("cat_standard")
   const categories = await t.query(async (ctx) => {
