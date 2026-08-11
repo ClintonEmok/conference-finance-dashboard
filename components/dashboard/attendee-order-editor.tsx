@@ -780,23 +780,23 @@ export function AttendeeOrderEditor({
       )
     }
 
-    if (editContext.locked) {
-      return (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200">
-          <Info className="mt-0.5 size-4 shrink-0" />
-          <p>
-            Accommodation changes are closed because the organizer has
-            confirmed this configuration.
-          </p>
-        </div>
-      )
-    }
+    const lockedNote = editContext.locked ? (
+      <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200">
+        <Info className="mt-0.5 size-4 shrink-0" />
+        <p>
+          The organizer has confirmed this configuration. As an admin you can
+          still update it — saving will re-open the selection for live
+          repricing.
+        </p>
+      </div>
+    ) : null
 
     const hasSelection = currentSelection !== null
     const baseNights = editContext.accommodation.config?.nightCount ?? 1
 
     return (
       <div className="space-y-4">
+        {lockedNote}
         {!hasSelection && (
           <div className="flex items-start gap-3 rounded-xl border border-border/50 bg-muted/20 p-4 text-sm text-muted-foreground">
             <Info className="mt-0.5 size-4 shrink-0" />

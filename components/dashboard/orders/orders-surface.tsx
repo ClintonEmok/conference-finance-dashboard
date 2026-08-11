@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react"
 import { useQuery } from "convex/react"
 import {
@@ -155,6 +156,7 @@ function OrderAttendeeRows({ orderId }: { orderId: string }) {
 }
 
 export function OrdersSurface({ slug, event }: PageProps) {
+  const router = useRouter()
   const eventLocations = useQuery(
     api.reports.getEventLocations,
     event?._id ? { eventId: event._id } : ("skip" as const)
@@ -441,7 +443,12 @@ export function OrdersSurface({ slug, event }: PageProps) {
               ) : (
                 visibleRows.map((row) => (
                   <Fragment key={row.orderId}>
-                    <TableRow className="transition-colors hover:bg-muted/30">
+                    <TableRow
+                      onClick={() => {
+                        router.push(`/dashboard/events/${slug}/orders/${row.orderId}`)
+                      }}
+                      className="cursor-pointer transition-colors hover:bg-muted/30"
+                    >
                       <TableCell className="px-6 py-5">
                         <div className="flex items-center gap-2">
                           <Link

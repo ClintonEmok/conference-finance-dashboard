@@ -943,8 +943,10 @@ export const setAttendeeAccommodation = mutation({
       throw error
     }
 
-    // Upsert the one base selection row; confirmed rows are never touched
-    // (a confirmed snapshot is immutable and priced from the snapshot).
+    // Upsert the one base selection row. An admin set is authoritative even
+    // after the organizer confirms: `replace` drops the confirmation fields
+    // (confirmedAt/configVersion/priceSnapshot), re-opening the selection for
+    // live server repricing.
     const existingSelection = await ctx.db
       .query("orderAccommodationSelections")
       .withIndex("by_orderId_and_attendeeId", (q) =>
