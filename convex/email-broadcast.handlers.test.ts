@@ -74,8 +74,8 @@ async function seedBooker(
       attendeeKey: `AT-${options.ref}`,
       name: `${options.name ?? "Booker"} 1`,
       gender: "unknown",
-      location: options.location,
       sortOrder: 0,
+      ...(options.location ? { location: options.location } : {}),
     })
 
     if (options.ticketLabel) {
@@ -216,7 +216,9 @@ test("previewAudience returns all matching bookers and dedupes by email", async 
     ...baseFilters,
   })
   expect(preview.total).toBe(2)
-  const emails = preview.recipients.map((r) => r.bookerEmail).sort()
+  const emails = preview.recipients
+    .map((r: { bookerEmail: string }) => r.bookerEmail)
+    .sort()
   expect(emails).toEqual(["alice@example.com", "bob@example.com"])
 })
 
@@ -326,7 +328,9 @@ test("previewAudience filters by ticket type", async () => {
   const ticketTypes = await t.query(api.events.getTicketTypesForEvent, {
     eventId: eventId as never,
   })
-  const adultType = ticketTypes.find((tt) => tt.label === "18+")!
+  const adultType = (ticketTypes as Array<{ label: string; _id: string }>).find(
+    (tt) => tt.label === "18+"
+  )!
   const preview = await t.query(api.emailBroadcasts.previewAudience, {
     eventId: eventId as never,
     ticketTypeId: adultType._id as never,
