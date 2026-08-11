@@ -7,6 +7,7 @@ import {
   CreditCard,
   ExternalLink,
   ListOrdered,
+  Mail,
   Settings,
   Users,
   Ticket,
@@ -175,6 +176,11 @@ function SidebarContentInner({
       href: `/dashboard/events/${slug}/orders`,
     },
     {
+      label: "Communications",
+      icon: Mail,
+      href: `/dashboard/events/${slug}/communications`,
+    },
+    {
       label: "Accommodation",
       icon: BedDouble,
       href: `/dashboard/events/${slug}/accommodation`,
@@ -281,6 +287,9 @@ function getSectionActive(label: string, pathname: string, slug: string) {
   }
   if (label === "Orders") {
     return pathname === `${eventRoot}/orders` || pathname.startsWith(`${eventRoot}/orders/`)
+  }
+  if (label === "Communications") {
+    return pathname === `${eventRoot}/communications` || pathname.startsWith(`${eventRoot}/communications/`)
   }
   if (label === "Accommodation") {
     return pathname === `${eventRoot}/accommodation` || pathname.startsWith(`${eventRoot}/accommodation/`)

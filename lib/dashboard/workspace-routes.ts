@@ -58,6 +58,9 @@ export const ordersHref = (slug: string, intent?: { orderId?: string }) => {
   return `/dashboard/events/${encodeURIComponent(slug)}/orders${query ? `?${query}` : ""}`
 }
 
+export const communicationsHref = (slug: string) =>
+  `/dashboard/events/${encodeURIComponent(slug)}/communications`
+
 export const legacyFinanceHref = (slug: string, tab: FinanceTab) => financeHref(slug, tab)
 export const legacyAccommodationHref = (slug: string, tab: AccommodationTab, intent?: { roomId?: string }) => accommodationHref(slug, tab, intent)
 

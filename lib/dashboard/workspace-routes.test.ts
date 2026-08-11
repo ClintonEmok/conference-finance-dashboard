@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   accommodationHref,
+  communicationsHref,
   defaultAccommodationTab,
   defaultFinanceTab,
   defaultOrdersTab,
@@ -93,6 +94,15 @@ describe("workspace route contracts", () => {
       legacyAccommodationHref("event", "allocation", { roomId: "room/9" })
     ).toBe(
       "/dashboard/events/event/accommodation?tab=allocation&roomId=room%2F9"
+    )
+  })
+
+  it("builds the canonical event Communications URL", () => {
+    expect(communicationsHref("event")).toBe(
+      "/dashboard/events/event/communications"
+    )
+    expect(communicationsHref("spring retreat")).toBe(
+      "/dashboard/events/spring%20retreat/communications"
     )
   })
 })
