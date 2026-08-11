@@ -351,9 +351,13 @@ export default function AttendeesPage() {
                               .slice(0, 2)}
                           </div>
                           <div className="min-w-0">
-                            <p className="truncate font-bold text-foreground">
+                            <Link
+                              href={`/dashboard/attendees/${row.attendeeId}?search=${encodeURIComponent(appliedSearch || row.attendeeName || "")}&eventId=${appliedEventId || row.eventId}&source=${source ?? "attendee-ledger"}`}
+                              className="block truncate font-bold text-foreground underline-offset-2 hover:text-primary hover:underline"
+                              onClick={(event) => event.stopPropagation()}
+                            >
                               {row.attendeeName}
-                            </p>
+                            </Link>
                             <div className="mt-1 flex items-center gap-2 text-[10px] font-medium text-muted-foreground/60">
                               <Mail className="size-3" /> {row.attendeeEmail}
                             </div>

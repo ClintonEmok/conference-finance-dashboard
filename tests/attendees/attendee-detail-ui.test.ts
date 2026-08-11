@@ -63,4 +63,21 @@ describe("attendee detail edit surface", () => {
       'from "@/app/dashboard/attendees/[attendeeId]/page"'
     )
   })
+
+  it("links attendee detail back to the event attendee list and order detail", () => {
+    const page = readSource("app/dashboard/attendees/[attendeeId]/page.tsx")
+    expect(page).toContain("/dashboard/events/${eventSlug}/attendees")
+    expect(page).toContain(
+      "/dashboard/events/${eventSlug}/orders/${payload.order.id}"
+    )
+    expect(page).toContain("/dashboard/attendees")
+  })
+
+  it("preserves the accommodation board URL and its query parameters", () => {
+    const page = readSource("app/dashboard/attendees/[attendeeId]/page.tsx")
+    expect(page).toContain(
+      "/dashboard/accommodation?attendeeId=${payload.attendee.id}"
+    )
+    expect(page).toContain("search=")
+  })
 })
