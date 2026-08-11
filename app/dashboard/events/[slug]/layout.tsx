@@ -6,6 +6,7 @@ import {
   ChevronRight,
   CreditCard,
   ExternalLink,
+  ListOrdered,
   Settings,
   Users,
   Ticket,
@@ -169,6 +170,11 @@ function SidebarContentInner({
       href: `/dashboard/events/${slug}/finance`,
     },
     {
+      label: "Orders",
+      icon: ListOrdered,
+      href: `/dashboard/events/${slug}/orders`,
+    },
+    {
       label: "Accommodation",
       icon: BedDouble,
       href: `/dashboard/events/${slug}/accommodation`,
@@ -269,9 +275,12 @@ function getSectionActive(label: string, pathname: string, slug: string) {
 
   if (label === "Overview") return pathname === eventRoot
   if (label === "Finance") {
-    return ["finance", "payments", "orders", "donation", "reconciliation"].some(
+    return ["finance", "payments", "donation", "reconciliation"].some(
       (section) => pathname === `${eventRoot}/${section}` || pathname.startsWith(`${eventRoot}/${section}/`)
     )
+  }
+  if (label === "Orders") {
+    return pathname === `${eventRoot}/orders` || pathname.startsWith(`${eventRoot}/orders/`)
   }
   if (label === "Accommodation") {
     return pathname === `${eventRoot}/accommodation` || pathname.startsWith(`${eventRoot}/accommodation/`)

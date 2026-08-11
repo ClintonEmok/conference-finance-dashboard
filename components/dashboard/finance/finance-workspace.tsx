@@ -3,15 +3,15 @@
 import { useMemo } from "react"
 import { useSearchParams } from "next/navigation"
 import { useQuery } from "convex/react"
+import Link from "next/link"
 import { WorkspaceFrame } from "@/components/dashboard/workspace-frame"
 import { WorkspaceTabs } from "@/components/dashboard/workspace-tabs"
 import { WorkspaceAttentionQueue } from "@/components/dashboard/workspace-attention-queue"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { FinanceOrdersTab } from "./orders-tab"
 import { FinancePaymentsTab } from "./payments-tab"
 import { FinanceDonationsTab } from "./donations-tab"
 import { FinanceReconciliationTab } from "./reconciliation-tab"
-import { financeHref, parseFinanceTab } from "@/lib/dashboard/workspace-routes"
+import { financeHref, ordersHref, parseFinanceTab } from "@/lib/dashboard/workspace-routes"
 import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 import { api } from "@/lib/convex/api"
 import {
@@ -30,9 +30,11 @@ function toQueryState<T>(value: T | Error | undefined): AttentionQueryState<T> {
 }
 
 function FinanceSummaryCards({
+  slug,
   reconciliation,
   payments,
 }: {
+  slug: string
   reconciliation: AttentionQueryState<ReadonlyArray<ReconciliationOrderRow>>
   payments: AttentionQueryState<ReadonlyArray<Doc<"payments">>>
 }) {
@@ -74,27 +76,39 @@ function FinanceSummaryCards({
 
   const value = (amount: number) => summary ? formatMoney(amount) : hasError ? "Unavailable" : "Loading…"
   const count = (amount: number, label: string) => summary ? `${amount} ${label}` : hasError ? "Unavailable" : "Loading…"
-  const cards = [
-    { label: "Order value", value: value(summary?.orderValueMinor ?? 0), detail: count(summary?.orderCount ?? 0, "orders") },
+  const ordersHrefForSlug = ordersHref(slug)
+  const cards: Array<{ label: string; value: string; detail: string; href?: string }> = [
+    { label: "Order value", value: value(summary?.orderValueMinor ?? 0), detail: count(summary?.orderCount ?? 0, "orders"), href: ordersHrefForSlug },
     { label: "Paid", value: value(summary?.paidMinor ?? 0), detail: "Applied to orders" },
     { label: "Donations", value: value(summary?.donationsMinor ?? 0), detail: "Overpayments and standalone" },
-    { label: "Outstanding", value: value(summary?.outstandingMinor ?? 0), detail: count(summary?.outstandingOrderCount ?? 0, "orders") },
-    { label: "Pending", value: summary ? summary.pendingCount.toLocaleString() : hasError ? "Unavailable" : "Loading…", detail: "Awaiting payment" },
+    { label: "Outstanding", value: value(summary?.outstandingMinor ?? 0), detail: count(summary?.outstandingOrderCount ?? 0, "orders"), href: ordersHrefForSlug },
+    { label: "Pending", value: summary ? summary.pendingCount.toLocaleString() : hasError ? "Unavailable" : "Loading…", detail: "Awaiting payment", href: ordersHrefForSlug },
   ]
 
   return (
     <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-      {cards.map((card) => (
-        <Card key={card.label} className="min-w-0 border-border/60 bg-card shadow-none">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{card.label}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold tracking-tight">{card.value}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{card.detail}</p>
-          </CardContent>
-        </Card>
-      ))}
+      {cards.map((card) => {
+        const inner = (
+          <Card className="min-w-0 border-border/60 bg-card shadow-none">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{card.label}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-semibold tracking-tight">{card.value}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{card.detail}</p>
+            </CardContent>
+          </Card>
+        )
+        return card.href ? (
+          <Link key={card.label} href={card.href} className="min-w-0 transition-opacity hover:opacity-80">
+            {inner}
+          </Link>
+        ) : (
+          <div key={card.label} className="min-w-0">
+            {inner}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -103,7 +117,6 @@ export function FinanceWorkspace({ slug }: { slug: string }) {
   const { event } = useEventDashboard()
   const searchParams = useSearchParams()
   const activeTab = parseFinanceTab(searchParams)
-  const orderId = searchParams.get("orderId") ?? undefined
 
   const reconciliationResult = useQuery(
     api.orders.getOrdersForReconciliation,
@@ -138,7 +151,6 @@ export function FinanceWorkspace({ slug }: { slug: string }) {
     }
   ), [reconciliationState, unassignedPaymentsState, slug])
   const tabs = useMemo(() => [
-    { value: "orders", label: "Orders", href: financeHref(slug, "orders") },
     { value: "payments", label: "Payments", href: financeHref(slug, "payments") },
     { value: "donations", label: "Donations", href: financeHref(slug, "donations") },
     { value: "reconciliation", label: "Reconciliation", href: financeHref(slug, "reconciliation") },
@@ -153,13 +165,12 @@ export function FinanceWorkspace({ slug }: { slug: string }) {
      activeTab={activeTab}
       summary={
         <div className="space-y-4">
-          <FinanceSummaryCards reconciliation={reconciliationState} payments={eventPaymentsState} />
+          <FinanceSummaryCards slug={slug} reconciliation={reconciliationState} payments={eventPaymentsState} />
           <WorkspaceAttentionQueue {...attention} />
         </div>
       }
      tabs={<WorkspaceTabs workspaceId="finance" tabs={tabs} activeTab={activeTab} />}
   >
-     {activeTab === "orders" && <FinanceOrdersTab slug={slug} event={event} orderId={orderId} />}
      {activeTab === "payments" && <FinancePaymentsTab slug={slug} event={event} unassignedPayments={unassignedPaymentsState} />}
      {activeTab === "donations" && <FinanceDonationsTab slug={slug} event={event} />}
      {activeTab === "reconciliation" && <FinanceReconciliationTab slug={slug} event={event} reconciliation={reconciliationState} unassignedPayments={unassignedPaymentsState} />}

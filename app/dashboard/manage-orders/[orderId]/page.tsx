@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/convex/api"
 import { useEventsForLedger } from "@/lib/convex/hooks/events"
+import { ordersHref } from "@/lib/dashboard/workspace-routes"
 
 type PageProps = {
   params: Promise<{ orderId: string }>
@@ -36,7 +37,7 @@ function RedirectTarget({ orderId }: { orderId: string }) {
 
     if (!event) return null
 
-    return `/dashboard/events/${event.slug}/orders/${orderId}`
+    return ordersHref(event.slug, { orderId })
   }, [eventById, events, order?.order.eventId, orderId])
 
   useEffect(() => {
