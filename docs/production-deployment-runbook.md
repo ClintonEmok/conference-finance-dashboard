@@ -187,15 +187,40 @@ allocation board in production after deploy.
 
 ## 4. Announcement Broadcast (authorization gate D)
 
-> ⛔ **OPERATOR AUTHORIZATION REQUIRED** (gate D). Broadcasting to the full
-> audience is a separate, explicitly gated step — the `sendAnnouncementTest`
-> action is single-recipient by design and CANNOT broadcast.
+> ⛔ **OPERATOR AUTHORIZATION REQUIRED** (gate D). Production broadcasts remain
+> operator-gated and are executed **inside the app** through the Communications
+> Center at `/dashboard/events/{slug}/communications` — there is no CLI command
+> that broadcasts, and `sendAnnouncementTest` remains a single-recipient
+> diagnostic that CANNOT broadcast.
 
-1. Confirm the test-send from section 2.5 rendered correctly.
-2. Provision a broadcast path (recipient list / queue) OUTSIDE this
-   application's email actions — the app ships no broadcast action by design.
-3. Authorize and execute the broadcast. Record the send batch + open/click
-   verification.
+The in-app flow enforces the operator gate:
+
+1. **Compose + review** — an authenticated operator composes the announcement
+   (title, message, event details, optional Tikkie payment URL and
+   night-before note) and reviews the rendered `AnnouncementEmail`.
+2. **Audience + preview** — filters (location, order status, submitted date
+   range, has-accommodation-selection, ticket type) build the order-booker
+   audience with a live count and recipient preview. Bookers without an email
+   or booking reference are skipped and reported.
+3. **Controlled test-send** — send to exactly one controlled inbox first
+   (emailType `announcement_test`); re-send until the render is correct.
+4. **Explicit Send confirmation** — the Send button opens a confirmation
+   dialog showing the recipient count and applied filters. Confirming calls
+   `scheduleEmailBroadcast`, which **snapshots the audience and schedules
+   delivery**; it never sends inline.
+5. **Async delivery + history** — a scheduler-driven batch loop delivers in
+   bounded batches (25/step), tracking the job status
+   (`queued`/`sending`/`completed`/`failed`/`cancelled`) and per-recipient
+   status (`pending`/`sent`/`failed`) with sent/failed/pending counters.
+   Successful sends log `emailType: "announcement_broadcast"` with event and
+   broadcast IDs. The History panel shows live progress reactively; the
+   operator can **Cancel** while queued/sending and **Retry failed** recipients
+   after completion.
+
+This supersedes the earlier "provision a broadcast path OUTSIDE this
+application" guidance: the app now ships the operator-gated broadcast, and
+delivery is asynchronous by design. The legacy backfill (`Step 2`) remains
+separately guarded and is not part of the broadcast flow.
 
 ## 5. Rollback & Stop Conditions
 

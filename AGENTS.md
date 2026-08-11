@@ -21,4 +21,4 @@ Convex agent skills for common tasks can be installed by running `npx convex ai-
 - **Environment-variable rules:**
   - `NEXT_PUBLIC_SITE_URL` and `NEXT_PUBLIC_APP_URL` MUST be set on the Convex production runtime (not just Vercel) — email templates render inside Convex actions and use them for the logo URL and booking links.
   - `SIGNUP_SUBMISSION_SECRET` must be identical on BOTH the Vercel/Next runtime AND the Convex runtime whenever the signup token gate is enabled.
-- **Keep operator-gated (do NOT automate):** the production legacy backfill and the announcement broadcast — see `docs/production-deployment-runbook.md`.
+- **Keep operator-gated (do NOT automate):** the production legacy backfill. Announcement broadcasts are executed by an authenticated operator inside the app via the event **Communications Center** (`/dashboard/events/{slug}/communications`) with an explicit Send confirmation and async delivery — never automated via CLI; see `docs/production-deployment-runbook.md` §4.
