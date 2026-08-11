@@ -280,6 +280,104 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  emailBroadcastRecipients: {
+    document: {
+      attempts: number;
+      bookerName?: string;
+      bookingRef?: string;
+      broadcastId: Id<"emailBroadcasts">;
+      emailId?: string;
+      error?: string;
+      manageBookingUrl?: string;
+      orderId: Id<"orders">;
+      sentAt?: number;
+      status: "pending" | "sent" | "failed";
+      to: string;
+      _id: Id<"emailBroadcastRecipients">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "attempts"
+      | "bookerName"
+      | "bookingRef"
+      | "broadcastId"
+      | "emailId"
+      | "error"
+      | "manageBookingUrl"
+      | "orderId"
+      | "sentAt"
+      | "status"
+      | "to";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_broadcastId: ["broadcastId", "_creationTime"];
+      by_broadcastId_and_status: ["broadcastId", "status", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  emailBroadcasts: {
+    document: {
+      cancelledAt?: number;
+      completedAt?: number;
+      createdAt: number;
+      createdBy?: string;
+      error?: string;
+      eventDate: string;
+      eventId: Id<"events">;
+      eventLocation: string;
+      eventName: string;
+      failedCount: number;
+      filters: any;
+      message: string;
+      nightBeforeNote?: string;
+      paymentUrl?: string;
+      pendingCount: number;
+      sentCount: number;
+      signupUrl: string;
+      startedAt?: number;
+      status: "queued" | "sending" | "completed" | "failed" | "cancelled";
+      title: string;
+      totalRecipients: number;
+      _id: Id<"emailBroadcasts">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "cancelledAt"
+      | "completedAt"
+      | "createdAt"
+      | "createdBy"
+      | "error"
+      | "eventDate"
+      | "eventId"
+      | "eventLocation"
+      | "eventName"
+      | "failedCount"
+      | "filters"
+      | "message"
+      | "nightBeforeNote"
+      | "paymentUrl"
+      | "pendingCount"
+      | "sentCount"
+      | "signupUrl"
+      | "startedAt"
+      | "status"
+      | "title"
+      | "totalRecipients";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+      by_eventId_and_status: ["eventId", "status", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   eventAccommodationConfig: {
     document: {
       allowExtendedStayAfter: boolean;
@@ -958,8 +1056,10 @@ export type DataModel = {
   sentEmails: {
     document: {
       bookingRef: string;
+      broadcastId?: Id<"emailBroadcasts">;
       emailId?: string;
       emailType: string;
+      eventId?: Id<"events">;
       recipient: string;
       sentAt: number;
       _id: Id<"sentEmails">;
@@ -969,14 +1069,18 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "bookingRef"
+      | "broadcastId"
       | "emailId"
       | "emailType"
+      | "eventId"
       | "recipient"
       | "sentAt";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_bookingRef: ["bookingRef", "_creationTime"];
+      by_broadcastId: ["broadcastId", "_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

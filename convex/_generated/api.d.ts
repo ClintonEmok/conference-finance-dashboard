@@ -563,6 +563,86 @@ export declare const api: {
       { emailId?: string; error?: string; success: boolean }
     >;
   };
+  emailBroadcasts: {
+    cancelEmailBroadcast: FunctionReference<
+      "mutation",
+      "public",
+      { broadcastId: Id<"emailBroadcasts"> },
+      { cancelled: boolean }
+    >;
+    getBroadcastById: FunctionReference<
+      "query",
+      "public",
+      { broadcastId: Id<"emailBroadcasts"> },
+      any
+    >;
+    getBroadcastHistory: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
+    getBroadcastRecipients: FunctionReference<
+      "query",
+      "public",
+      {
+        broadcastId: Id<"emailBroadcasts">;
+        limit?: number;
+        status?: "pending" | "sent" | "failed";
+      },
+      any
+    >;
+    previewAudience: FunctionReference<
+      "query",
+      "public",
+      {
+        eventId: Id<"events">;
+        from?: number;
+        hasAccommodationSelection?: boolean;
+        limit?: number;
+        location?: string;
+        status?: "paid" | "refunded" | "cancelled" | "pending";
+        ticketTypeId?: Id<"ticketTypes">;
+        to?: number;
+      },
+      any
+    >;
+    retryFailedEmailBroadcast: FunctionReference<
+      "mutation",
+      "public",
+      { broadcastId: Id<"emailBroadcasts"> },
+      { requeued: number }
+    >;
+    scheduleEmailBroadcast: FunctionReference<
+      "mutation",
+      "public",
+      {
+        authorize: boolean;
+        eventDate: string;
+        eventId: Id<"events">;
+        eventLocation: string;
+        eventName: string;
+        filters: {
+          from?: number;
+          hasAccommodationSelection?: boolean;
+          location?: string;
+          status?: "paid" | "refunded" | "cancelled" | "pending";
+          ticketTypeId?: Id<"ticketTypes">;
+          to?: number;
+        };
+        message: string;
+        nightBeforeNote?: string;
+        paymentUrl?: string;
+        title: string;
+      },
+      {
+        broadcastId: Id<"emailBroadcasts">;
+        skippedNoEmail: number;
+        skippedNoRef: number;
+        totalRecipients: number;
+      }
+    >;
+  };
   emailMutations: {
     triggerSignupConfirmationEmail: FunctionReference<
       "mutation",
@@ -2162,14 +2242,71 @@ export declare const internal: {
       { emailId?: string; error?: string; success: boolean }
     >;
   };
+  emailBroadcastActions: {
+    processBatch: FunctionReference<
+      "action",
+      "internal",
+      { broadcastId: Id<"emailBroadcasts"> },
+      any
+    >;
+  };
+  emailBroadcasts: {
+    finalizeBroadcast: FunctionReference<
+      "mutation",
+      "internal",
+      { broadcastId: Id<"emailBroadcasts"> },
+      any
+    >;
+    getJob: FunctionReference<
+      "query",
+      "internal",
+      { broadcastId: Id<"emailBroadcasts"> },
+      any
+    >;
+    getPendingRecipients: FunctionReference<
+      "query",
+      "internal",
+      { broadcastId: Id<"emailBroadcasts">; limit: number },
+      any
+    >;
+    markSending: FunctionReference<
+      "mutation",
+      "internal",
+      { broadcastId: Id<"emailBroadcasts">; startedAt: number },
+      any
+    >;
+    recordRecipientFailure: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        broadcastId: Id<"emailBroadcasts">;
+        error: string;
+        recipientId: Id<"emailBroadcastRecipients">;
+      },
+      any
+    >;
+    recordRecipientSuccess: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        broadcastId: Id<"emailBroadcasts">;
+        emailId: string;
+        recipientId: Id<"emailBroadcastRecipients">;
+        sentAt: number;
+      },
+      any
+    >;
+  };
   emailMutations: {
     logSentEmail: FunctionReference<
       "mutation",
       "internal",
       {
         bookingRef: string;
+        broadcastId?: Id<"emailBroadcasts">;
         emailId?: string;
         emailType: string;
+        eventId?: Id<"events">;
         recipient: string;
       },
       any

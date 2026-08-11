@@ -8,6 +8,8 @@ export const logSentEmail = internalMutation({
     bookingRef: v.string(),
     emailId: v.optional(v.string()),
     emailType: v.string(),
+    eventId: v.optional(v.id("events")),
+    broadcastId: v.optional(v.id("emailBroadcasts")),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("sentEmails", {

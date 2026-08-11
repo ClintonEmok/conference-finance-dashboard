@@ -859,6 +859,67 @@ export default defineSchema({
       emailId: v.optional(v.string()),
       emailType: v.string(),
       sentAt: v.number(),
+      eventId: v.optional(v.id("events")),
+      broadcastId: v.optional(v.id("emailBroadcasts")),
     })
-  ).index("by_bookingRef", ["bookingRef"]),
+  )
+    .index("by_bookingRef", ["bookingRef"])
+    .index("by_eventId", ["eventId"])
+    .index("by_broadcastId", ["broadcastId"]),
+
+  emailBroadcasts: defineTable(
+    v.object({
+      eventId: v.id("events"),
+      status: v.union(
+        v.literal("queued"),
+        v.literal("sending"),
+        v.literal("completed"),
+        v.literal("failed"),
+        v.literal("cancelled")
+      ),
+      title: v.string(),
+      message: v.string(),
+      eventName: v.string(),
+      eventDate: v.string(),
+      eventLocation: v.string(),
+      paymentUrl: v.optional(v.string()),
+      nightBeforeNote: v.optional(v.string()),
+      signupUrl: v.string(),
+      filters: v.any(),
+      totalRecipients: v.number(),
+      sentCount: v.number(),
+      failedCount: v.number(),
+      pendingCount: v.number(),
+      createdBy: v.optional(v.string()),
+      createdAt: v.number(),
+      startedAt: v.optional(v.number()),
+      completedAt: v.optional(v.number()),
+      cancelledAt: v.optional(v.number()),
+      error: v.optional(v.string()),
+    })
+  )
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_and_status", ["eventId", "status"]),
+
+  emailBroadcastRecipients: defineTable(
+    v.object({
+      broadcastId: v.id("emailBroadcasts"),
+      orderId: v.id("orders"),
+      to: v.string(),
+      bookerName: v.optional(v.string()),
+      bookingRef: v.optional(v.string()),
+      manageBookingUrl: v.optional(v.string()),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("sent"),
+        v.literal("failed")
+      ),
+      error: v.optional(v.string()),
+      emailId: v.optional(v.string()),
+      sentAt: v.optional(v.number()),
+      attempts: v.number(),
+    })
+  )
+    .index("by_broadcastId", ["broadcastId"])
+    .index("by_broadcastId_and_status", ["broadcastId", "status"]),
 })

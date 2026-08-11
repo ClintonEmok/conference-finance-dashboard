@@ -253,79 +253,107 @@ const announcementTestReturns = v.object({
   error: v.optional(v.string()),
 })
 
+export type AnnouncementEmailArgs = {
+  to: string
+  title: string
+  message: string
+  eventName: string
+  eventDate: string
+  eventLocation: string
+  manageBookingUrl: string
+  signupUrl: string
+  paymentUrl?: string
+  nightBeforeNote?: string
+}
+
+/**
+ * Shared announcement sender used by the single-recipient diagnostic
+ * (`sendAnnouncementTest`) and the async broadcast batch loop. Renders
+ * `AnnouncementEmail` and sends through the shared Resend component.
+ * Returns a send result; callers are responsible for audit logging.
+ */
+export async function sendAnnouncementEmail(
+  ctx: ActionCtx,
+  args: AnnouncementEmailArgs
+): Promise<{ success: boolean; emailId?: string; error?: string }> {
+  try {
+    const html = await render(
+      AnnouncementEmail({
+        title: args.title,
+        message: args.message,
+        eventName: args.eventName,
+        eventDate: args.eventDate,
+        eventLocation: args.eventLocation,
+        manageBookingUrl: args.manageBookingUrl,
+        signupUrl: args.signupUrl,
+        paymentUrl: args.paymentUrl || null,
+        nightBeforeNote: args.nightBeforeNote || null,
+      })
+    )
+
+    const text = `${args.title}
+
+${args.message}
+
+${args.eventName} | ${args.eventDate} | ${args.eventLocation}
+
+${
+  args.nightBeforeNote ? `Night before: ${args.nightBeforeNote}\n\n` : ""
+}${
+  args.paymentUrl ? `Payments are handled via Tikkie: ${args.paymentUrl}\n\n` : ""
+}Manage your booking: ${args.manageBookingUrl}
+Sign up: ${args.signupUrl}
+
+This email was sent by DCLM NL Conference.`.trim()
+
+    const fromName = process.env.RESEND_FROM_NAME || "DCLM NL Conference"
+    const fromEmail = process.env.RESEND_FROM_EMAIL || "noreply@example.com"
+
+    const emailId = await resend.sendEmail(ctx, {
+      from: `${fromName} <${fromEmail}>`,
+      to: args.to,
+      subject: args.title,
+      html,
+      text,
+    })
+
+    if (!emailId) {
+      console.error("Failed to send announcement: no emailId returned")
+      return { success: false, error: "Failed to send email" }
+    }
+
+    return { success: true, emailId }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error"
+    console.error("Announcement email send threw:", error)
+    return { success: false, error: message }
+  }
+}
+
 /**
  * RUN-02 announcement email test-send. Renders `AnnouncementEmail` and sends
  * to exactly ONE supplied controlled recipient through the shared Resend
- * component, then logs the send as `announcement_test`. This is the ONLY
- * announcement path: there is no recipient list, scheduler, queue, or
- * broadcast action — an announcement broadcast is a later runbook step
- * requiring explicit operator authorization.
+ * component, then logs the send as `announcement_test`. The controlled
+ * broadcast path lives in the Communications Center (`scheduleEmailBroadcast`
+ * + `processBatch`), which is operator-gated and never sends inline.
  */
 export const sendAnnouncementTest = action({
   args: announcementTestArgs,
   returns: announcementTestReturns,
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    try {
-      const html = await render(
-        AnnouncementEmail({
-          title: args.title,
-          message: args.message,
-          eventName: args.eventName,
-          eventDate: args.eventDate,
-          eventLocation: args.eventLocation,
-          manageBookingUrl: args.manageBookingUrl,
-          signupUrl: args.signupUrl,
-          paymentUrl: args.paymentUrl || null,
-          nightBeforeNote: args.nightBeforeNote || null,
-        })
-      )
+    const result = await sendAnnouncementEmail(ctx, args)
 
-      const text = `${args.title}
-
-${args.message}
-
-${args.eventName} | ${args.eventDate} | ${args.eventLocation}
-
-${args.nightBeforeNote ? `Night before: ${args.nightBeforeNote}\n\n` : ""}${
-        args.paymentUrl
-          ? `Payments are handled via Tikkie: ${args.paymentUrl}\n\n`
-          : ""
-      }Manage your booking: ${args.manageBookingUrl}
-Sign up: ${args.signupUrl}
-
-This email was sent by DCLM NL Conference.`.trim()
-
-      const fromName = process.env.RESEND_FROM_NAME || "DCLM NL Conference"
-      const fromEmail = process.env.RESEND_FROM_EMAIL || "noreply@example.com"
-
-      const emailId = await resend.sendEmail(ctx, {
-        from: `${fromName} <${fromEmail}>`,
-        to: args.to,
-        subject: args.title,
-        html,
-        text,
-      })
-
-      if (!emailId) {
-        console.error("Failed to send announcement test: no emailId returned")
-        return { success: false, error: "Failed to send email" }
-      }
-
+    if (result.success) {
       await ctx.runMutation(internal.emailMutations.logSentEmail, {
         recipient: args.to,
         bookingRef: "ANNOUNCEMENT_TEST",
-        emailId,
+        emailId: result.emailId,
         emailType: "announcement_test",
       })
-
-      return { success: true, emailId }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unknown error"
-      console.error("Announcement test action threw:", error)
-      return { success: false, error: message }
     }
+
+    return result
   },
 })
 
