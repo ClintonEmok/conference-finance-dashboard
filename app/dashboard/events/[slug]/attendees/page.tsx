@@ -354,6 +354,9 @@ export default function EventAttendeesPage({
           <Button asChild variant="outline" size="sm" className="rounded-xl">
             <Link href={`/dashboard/events/${slug}/attendees/${attendee._id}`}>Details</Link>
           </Button>
+          <Button asChild variant="outline" size="sm" className="rounded-xl">
+            <Link href={`/dashboard/events/${slug}/orders/${attendee.orderId}`}>Order</Link>
+          </Button>
 
           {!attendee.familyGroupId ? (
             <Button type="button" size="sm" className="rounded-xl" onClick={() => openFamilyDialog(attendee)}>

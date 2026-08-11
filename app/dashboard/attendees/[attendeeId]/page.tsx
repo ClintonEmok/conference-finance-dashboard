@@ -9,6 +9,14 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { formatMoney } from "@/lib/format"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { AttendeeOrderEditor } from "@/components/dashboard/attendee-order-editor"
+import {
   BedDouble,
   ChevronRight,
   CreditCard,
@@ -16,6 +24,7 @@ import {
   Flag,
   Mail,
   MapPin,
+  Pencil,
   ReceiptText,
   Tag,
   UserRound,
@@ -37,6 +46,7 @@ type AttendeeDetailPayload = {
     id: string
     name: string | null
     email: string | null
+    ticketTypeId: string | null
     ticketTypeLabel: string | null
     amountDueMinor: number
     ticketStatus: string | null
@@ -49,6 +59,7 @@ type AttendeeDetailPayload = {
   }
   order: {
     id: string
+    bookingRef: string | null
     buyerName: string | null
     buyerEmail: string | null
     normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
@@ -104,8 +115,6 @@ type AttendeeDetailPayload = {
   }
 }
 
-type GenderType = "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
-
 export default function AttendeeDetailPage({
   params,
 }: {
@@ -116,8 +125,7 @@ export default function AttendeeDetailPage({
   const [payload, setPayload] = useState<AttendeeDetailPayload | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [selectedGender, setSelectedGender] = useState<"" | GenderType>("")
-  const [isSavingGender, setIsSavingGender] = useState(false)
+  const [isEditorOpen, setIsEditorOpen] = useState(false)
   
   const attendeeId = rawAttendeeId?.trim() ?? ""
   const eventSlug = pathname.match(/^\/dashboard\/events\/([^/]+)\/attendees\//)?.[1] ?? null
@@ -136,7 +144,6 @@ export default function AttendeeDetailPage({
         if (!res.ok) throw new Error("Failed to load")
         const data = await res.json()
         setPayload(data)
-        setSelectedGender(data.signals.genderType ?? "")
       } catch {
         setErrorMessage("Failed to load attendee information.")
       } finally {
@@ -151,22 +158,6 @@ export default function AttendeeDetailPage({
       loadAttendeeDetail(attendeeId)
     }
   }, [attendeeId, loadAttendeeDetail])
-
-  const handleSaveGender = async () => {
-    if (!attendeeId) return
-    setIsSavingGender(true)
-    try {
-      const res = await fetch(`/api/dashboard/attendees/${attendeeId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ genderType: selectedGender || null }),
-      })
-      if (!res.ok) throw new Error()
-      loadAttendeeDetail(attendeeId, true)
-    } finally {
-      setIsSavingGender(false)
-    }
-  }
 
   if (isLoading) {
     return (
@@ -459,27 +450,19 @@ export default function AttendeeDetailPage({
                   Gender Identification
                 </label>
                 <div className="flex gap-2">
-                  <select
-                    value={selectedGender}
-                    onChange={(e) => setSelectedGender(e.target.value as any)}
-                    className="h-10 flex-1 rounded-xl border border-white/40 bg-white/50 px-3 text-xs font-bold transition-all focus:ring-2 focus:ring-primary/20 dark:bg-black/20"
-                  >
-                    <option value="">Not set</option>
-                    <option value="MALE">Male</option>
-                    <option value="FEMALE">Female</option>
-                    <option value="MIXED">Mixed</option>
-                    <option value="UNKNOWN">Unknown</option>
-                  </select>
+                  <span className="flex h-10 flex-1 items-center rounded-xl border border-white/40 bg-white/50 px-3 text-xs font-bold dark:bg-black/20">
+                    {payload.signals.genderType
+                      ? payload.signals.genderType.charAt(0).toUpperCase() +
+                        payload.signals.genderType.slice(1).toLowerCase()
+                      : "Not set"}
+                  </span>
                   <Button
                     size="sm"
-                    onClick={handleSaveGender}
-                    disabled={
-                      isSavingGender ||
-                      payload.signals.genderType === selectedGender
-                    }
+                    onClick={() => setIsEditorOpen(true)}
                     className="h-10 rounded-xl px-5 font-bold transition-all active:scale-95"
                   >
-                    {isSavingGender ? "..." : "Save"}
+                    <Pencil className="mr-2 size-3.5" />
+                    Edit attendee
                   </Button>
                 </div>
               </div>
@@ -549,6 +532,32 @@ export default function AttendeeDetailPage({
           )}
         </div>
       </div>
+
+      <Dialog open={isEditorOpen} onOpenChange={setIsEditorOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit attendee</DialogTitle>
+            <DialogDescription>
+              Update ticket, location, gender, accommodation preferences, or
+              move this attendee to another order.
+            </DialogDescription>
+          </DialogHeader>
+          <AttendeeOrderEditor
+            attendee={{
+              id: payload.attendee.id,
+              name: payload.attendee.name ?? "Attendee",
+              ticketTypeId: payload.attendee.ticketTypeId,
+              ticketTypeLabel: payload.attendee.ticketTypeLabel,
+              genderType: payload.signals.genderType,
+              location: payload.signals.location,
+              orderId: payload.order.id,
+              bookingRef: payload.order.bookingRef,
+              eventId: payload.event.id,
+            }}
+            onSaved={() => loadAttendeeDetail(attendeeId, true)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

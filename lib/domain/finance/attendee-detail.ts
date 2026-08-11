@@ -69,6 +69,7 @@ type OrderWithAttendeesOrder = {
   id: string
   providerOrderId: string | null
   providerEventId: string | null
+  bookingRef: string | null
   buyerName: string | null
   buyerEmail: string | null
   normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
@@ -136,6 +137,7 @@ export type AttendeeDetail = {
     id: string
     providerOrderId: string | null
     providerEventId: string | null
+    bookingRef: string | null
     buyerName: string | null
     buyerEmail: string | null
     normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
@@ -578,6 +580,7 @@ export async function getAttendeeDetail(
       id: order.id,
       providerOrderId: order.providerOrderId,
       providerEventId: order.providerEventId,
+      bookingRef: order.bookingRef ?? null,
       buyerName: order.buyerName,
       buyerEmail: order.buyerEmail,
       normalizedStatus: order.normalizedStatus,

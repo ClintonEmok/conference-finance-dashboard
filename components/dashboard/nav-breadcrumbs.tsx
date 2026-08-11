@@ -21,6 +21,10 @@ const routeMap: Record<string, string> = {
   settings: "Settings",
 }
 
+function shortId(segment: string) {
+  return segment.length > 12 ? segment.slice(0, 12) : segment
+}
+
 export function NavBreadcrumbs() {
   const pathname = usePathname()
   const segments = pathname.split("/").filter(Boolean)
@@ -33,16 +37,29 @@ export function NavBreadcrumbs() {
       {segments.map((segment, index) => {
         const href = `/${segments.slice(0, index + 1).join("/")}`
         const isLast = index === segments.length - 1
-        
+        const previousSegment = segments[index - 1]
+
         // Handle dynamic slug (usually a UUID or conference-slug)
         // If it's not in our map and it's after 'events', it's likely a slug
-        const isEventSlug = segments[index - 1] === "events"
-        const label = routeMap[segment] || (isEventSlug ? segment.toUpperCase() : segment.charAt(0).toUpperCase() + segment.slice(1))
+        const isEventSlug = previousSegment === "events"
+
+        let label = routeMap[segment]
+        if (!label) {
+          if (isEventSlug) {
+            label = segment.toUpperCase()
+          } else if (previousSegment === "attendees") {
+            label = `Attendee ${shortId(segment)}`
+          } else if (previousSegment === "orders" || previousSegment === "manage-orders") {
+            label = `Order ${shortId(segment)}`
+          } else {
+            label = segment.charAt(0).toUpperCase() + segment.slice(1)
+          }
+        }
 
         return (
-          <BreadcrumbItem 
-            key={href} 
-            href={isLast ? undefined : href} 
+          <BreadcrumbItem
+            key={href}
+            href={isLast ? undefined : href}
             isLast={isLast}
           >
             {label}
