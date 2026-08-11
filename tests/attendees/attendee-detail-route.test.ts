@@ -94,6 +94,7 @@ describe("/api/dashboard/attendees/[attendeeId] route", () => {
         id: "order_1",
         providerOrderId: null,
         providerEventId: null,
+        bookingRef: "BK-20260330-ABC123",
         buyerName: "Ada Lovelace",
         buyerEmail: "ada@example.com",
         normalizedStatus: "pending" as const,
