@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/convex/api"
 import { useEventsForLedger } from "@/lib/convex/hooks/events"
+import { ordersHref } from "@/lib/dashboard/workspace-routes"
 
 function RedirectTarget() {
   const router = useRouter()
@@ -26,7 +27,7 @@ function RedirectTarget() {
     params.delete("eventId")
     const query = params.toString()
 
-    return `/dashboard/events/${event.slug}/orders${query ? `?${query}` : ""}`
+    return `${ordersHref(event.slug)}${query ? `?${query}` : ""}`
   }, [eventById, events, searchParams])
 
   useEffect(() => {
