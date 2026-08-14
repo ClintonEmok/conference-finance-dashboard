@@ -378,6 +378,44 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  emailTemplates: {
+    document: {
+      createdAt: number;
+      eventDate: string;
+      eventId: Id<"events">;
+      eventLocation: string;
+      eventName: string;
+      message: string;
+      name: string;
+      nightBeforeNote?: string;
+      paymentUrl?: string;
+      title: string;
+      updatedAt: number;
+      _id: Id<"emailTemplates">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "eventDate"
+      | "eventId"
+      | "eventLocation"
+      | "eventName"
+      | "message"
+      | "name"
+      | "nightBeforeNote"
+      | "paymentUrl"
+      | "title"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   eventAccommodationConfig: {
     document: {
       allowExtendedStayAfter: boolean;

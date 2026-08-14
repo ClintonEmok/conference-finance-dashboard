@@ -252,7 +252,7 @@ export const previewAudience = query({
       eventId,
       filters
     )
-    const previewLimit = Math.min(limit ?? 100, 200)
+    const previewLimit = Math.min(limit ?? 200, 200)
     return {
       total: recipients.length,
       skippedNoEmail,

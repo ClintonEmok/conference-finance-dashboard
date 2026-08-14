@@ -677,6 +677,37 @@ export declare const api: {
       any
     >;
   };
+  emailTemplates: {
+    deleteTemplate: FunctionReference<
+      "mutation",
+      "public",
+      { eventId: Id<"events">; templateId: Id<"emailTemplates"> },
+      { deleted: boolean }
+    >;
+    getTemplatesForEvent: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
+    saveTemplate: FunctionReference<
+      "mutation",
+      "public",
+      {
+        eventDate: string;
+        eventId: Id<"events">;
+        eventLocation: string;
+        eventName: string;
+        message: string;
+        name: string;
+        nightBeforeNote?: string;
+        paymentUrl?: string;
+        templateId?: Id<"emailTemplates">;
+        title: string;
+      },
+      Id<"emailTemplates">
+    >;
+  };
   events: {
     createEvent: FunctionReference<
       "mutation",
