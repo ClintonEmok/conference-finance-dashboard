@@ -33,15 +33,16 @@ describe("Communications workspace structure", () => {
     expect(source).not.toContain("Confirm broadcast")
   })
 
-  it("covers all five audience filters", () => {
+  it("finds the audience with a single search bar and no filter controls", () => {
     const source = readSource(WORKSPACE)
-    expect(source).toContain('value="paid"')
-    expect(source).toContain("aud-location")
-    expect(source).toContain("aud-from")
-    expect(source).toContain("aud-to")
-    expect(source).toContain("hasAccommodationSelection")
-    expect(source).toContain("aud-ticket")
-    expect(source).toContain("getTicketTypesForEvent")
+    expect(source).toContain("audience-search")
+    expect(source).toContain("placeholder=\"Search by name, email, or booking reference\"")
+    expect(source).toContain("search: audienceSearch")
+    expect(source).not.toContain("aud-status")
+    expect(source).not.toContain("aud-location")
+    expect(source).not.toContain("aud-from")
+    expect(source).not.toContain("aud-to")
+    expect(source).not.toContain("aud-ticket")
   })
 
   it("reads the audience preview and history reactively via useQuery", () => {
@@ -52,12 +53,8 @@ describe("Communications workspace structure", () => {
     expect(source).toContain("MAX_PREVIEW_RECIPIENTS = 200")
   })
 
-  it("searches the audience client-side and progressively reveals rows to 200", () => {
+  it("progressively reveals rows up to 200", () => {
     const source = readSource(WORKSPACE)
-    expect(source).toContain("audienceSearch")
-    expect(source).toContain('bookerName ?? ""')
-    expect(source).toContain("bookerEmail.toLowerCase()")
-    expect(source).toContain('bookingRef ?? ""')
     expect(source).toContain("visibleCount")
     expect(source).toContain("AUDIENCE_PAGE")
     expect(source).toContain("Show more")

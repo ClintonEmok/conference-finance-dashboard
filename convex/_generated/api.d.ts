@@ -601,6 +601,7 @@ export declare const api: {
         hasAccommodationSelection?: boolean;
         limit?: number;
         location?: string;
+        search?: string;
         status?: "paid" | "refunded" | "cancelled" | "pending";
         ticketTypeId?: Id<"ticketTypes">;
         to?: number;

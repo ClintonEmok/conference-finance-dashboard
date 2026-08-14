@@ -441,6 +441,41 @@ test("previewAudience caps an oversized requested limit at 200", async () => {
   expect(defaulted.recipients.length).toBe(200)
 }, 60_000)
 
+test("previewAudience search filters across the whole audience", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await seedEvent(t)
+  await seedBooker(t, eventId, { name: "Alice van Dijk", email: "alice@example.com", ref: "BK-ALICE" })
+  await seedBooker(t, eventId, { name: "Bob Peters", email: "bob@example.com", ref: "BK-BOB" })
+
+  const byName = await t.query(api.emailBroadcasts.previewAudience, {
+    eventId: eventId as never,
+    search: "alice",
+  })
+  expect(byName.total).toBe(1)
+  expect(byName.recipients[0].bookerEmail).toBe("alice@example.com")
+
+  const byEmail = await t.query(api.emailBroadcasts.previewAudience, {
+    eventId: eventId as never,
+    search: "BOB@",
+  })
+  expect(byEmail.total).toBe(1)
+  expect(byEmail.recipients[0].bookerEmail).toBe("bob@example.com")
+
+  const byRef = await t.query(api.emailBroadcasts.previewAudience, {
+    eventId: eventId as never,
+    search: "bk-bob",
+  })
+  expect(byRef.total).toBe(1)
+  expect(byRef.recipients[0].bookerEmail).toBe("bob@example.com")
+
+  const noMatch = await t.query(api.emailBroadcasts.previewAudience, {
+    eventId: eventId as never,
+    search: "nobody",
+  })
+  expect(noMatch.total).toBe(0)
+  expect(noMatch.recipients.length).toBe(0)
+})
+
 // ---------------------------------------------------------------------------
 // Scheduling
 // ---------------------------------------------------------------------------

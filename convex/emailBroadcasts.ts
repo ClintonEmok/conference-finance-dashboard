@@ -238,6 +238,7 @@ export const previewAudience = query({
   args: {
     eventId: v.id("events"),
     ...emailAudienceFiltersValidator.fields,
+    search: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -246,18 +247,27 @@ export const previewAudience = query({
     if (!event) {
       return { total: 0, skippedNoEmail: 0, skippedNoRef: 0, recipients: [] }
     }
-    const { eventId, limit, ...filters } = args
+    const { eventId, limit, search, ...filters } = args
     const { recipients, skippedNoEmail, skippedNoRef } = await computeAudience(
       ctx,
       eventId,
       filters
     )
+    const query = (search ?? "").trim().toLowerCase()
+    const matched = query
+      ? recipients.filter(
+          (recipient) =>
+            (recipient.bookerName ?? "").toLowerCase().includes(query) ||
+            recipient.bookerEmail.toLowerCase().includes(query) ||
+            (recipient.bookingRef ?? "").toLowerCase().includes(query)
+        )
+      : recipients
     const previewLimit = Math.min(limit ?? 200, 200)
     return {
-      total: recipients.length,
+      total: matched.length,
       skippedNoEmail,
       skippedNoRef,
-      recipients: recipients.slice(0, previewLimit),
+      recipients: matched.slice(0, previewLimit),
     }
   },
 })
