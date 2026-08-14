@@ -372,6 +372,76 @@ test("previewAudience skips bookers without email or booking ref and reports cou
 })
 
 // ---------------------------------------------------------------------------
+// Audience preview limits (200-row contract)
+// ---------------------------------------------------------------------------
+
+async function seedManyBookers(
+  t: TestConvexForDataModel<GenericDataModel>,
+  eventId: string,
+  count: number
+) {
+  const BATCH = 100
+  for (let start = 0; start < count; start += BATCH) {
+    const end = Math.min(start + BATCH, count)
+    await t.mutation(async (ctx) => {
+      for (let i = start; i < end; i++) {
+        const orderId = await ctx.db.insert("orders", {
+          source: "internal",
+          eventId: eventId as never,
+          bookingRef: `BK-MANY-${String(i).padStart(4, "0")}`,
+          bookerName: `Booker ${i}`,
+          bookerEmail: `booker${i}@example.com`,
+          status: "paid",
+          submittedAt: Date.now() - count + i,
+          totalAmountMinor: 25000,
+          currency: "EUR",
+        })
+        await ctx.db.insert("orderAttendees", {
+          orderId: orderId as never,
+          attendeeKey: `AT-MANY-${i}`,
+          name: `Booker ${i}`,
+          gender: "unknown",
+          sortOrder: 0,
+        })
+      }
+    })
+  }
+}
+
+test("previewAudience default limit returns more than the old 100 rows", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await seedEvent(t)
+  await seedManyBookers(t, eventId, 150)
+
+  const preview = await t.query(api.emailBroadcasts.previewAudience, {
+    eventId: eventId as never,
+    ...baseFilters,
+  })
+  expect(preview.total).toBe(150)
+  expect(preview.recipients.length).toBe(150)
+}, 60_000)
+
+test("previewAudience caps an oversized requested limit at 200", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await seedEvent(t)
+  await seedManyBookers(t, eventId, 250)
+
+  const capped = await t.query(api.emailBroadcasts.previewAudience, {
+    eventId: eventId as never,
+    ...baseFilters,
+    limit: 500,
+  })
+  expect(capped.total).toBe(250)
+  expect(capped.recipients.length).toBe(200)
+
+  const defaulted = await t.query(api.emailBroadcasts.previewAudience, {
+    eventId: eventId as never,
+    ...baseFilters,
+  })
+  expect(defaulted.recipients.length).toBe(200)
+}, 60_000)
+
+// ---------------------------------------------------------------------------
 // Scheduling
 // ---------------------------------------------------------------------------
 
