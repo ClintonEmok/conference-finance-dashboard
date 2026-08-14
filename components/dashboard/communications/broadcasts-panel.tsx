@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -228,12 +227,8 @@ export function BroadcastsPanel(props: {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <History className="size-4 text-primary" />
-          Broadcast history &amp; tracking
+          Broadcasts
         </CardTitle>
-        <CardDescription>
-          Delivery progress for every broadcast of this event, including live
-          recipient status while an async send is running.
-        </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(260px,0.9fr)_minmax(0,1.4fr)]">

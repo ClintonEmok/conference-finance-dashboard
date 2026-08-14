@@ -922,27 +922,4 @@ export default defineSchema({
   )
     .index("by_broadcastId", ["broadcastId"])
     .index("by_broadcastId_and_status", ["broadcastId", "status"]),
-
-  /**
-   * Event-scoped saved announcement templates (Communications Center). A
-   * template snapshots the AnnouncementEmail compose fields so an operator
-   * can reuse a previously written announcement for the same event. This is
-   * announcement-only by design — the template never carries a second email
-   * type or broadcast kind.
-   */
-  emailTemplates: defineTable(
-    v.object({
-      eventId: v.id("events"),
-      name: v.string(),
-      title: v.string(),
-      message: v.string(),
-      eventName: v.string(),
-      eventDate: v.string(),
-      eventLocation: v.string(),
-      paymentUrl: v.optional(v.string()),
-      nightBeforeNote: v.optional(v.string()),
-      createdAt: v.number(),
-      updatedAt: v.number(),
-    })
-  ).index("by_eventId", ["eventId"]),
 })

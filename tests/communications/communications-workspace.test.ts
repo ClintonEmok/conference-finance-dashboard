@@ -10,7 +10,6 @@ function readSource(relativePath: string): string {
 
 const WORKSPACE = "components/dashboard/communications/communications-workspace.tsx"
 const PANEL = "components/dashboard/communications/broadcasts-panel.tsx"
-const DRAFTS = "lib/dashboard/communications/drafts.ts"
 
 describe("Communications workspace structure", () => {
   it("exposes the CommunicationsWorkspace component inside the WorkspaceFrame", () => {
@@ -23,15 +22,15 @@ describe("Communications workspace structure", () => {
     expect(source).toContain("useEventDashboard")
   })
 
-  it("renders the real AnnouncementEmail template in a debounced iframe preview", () => {
+  it("is audience-only and does not expose the compose/send surface", () => {
     const source = readSource(WORKSPACE)
-    expect(source).toContain('import { render } from "@react-email/render"')
-    expect(source).toContain("import AnnouncementEmail")
-    expect(source).toContain("<iframe")
-    expect(source).toContain("srcDoc={previewHtml}")
-    expect(source).toContain("setTimeout")
-    expect(source).toContain("BK-EXAMPLE/manage")
-    expect(source).toContain("signup/${event.slug}")
+    expect(source).toContain("AudienceCard")
+    expect(source).toContain("BroadcastsPanel")
+    expect(source).not.toContain("AnnouncementEmail")
+    expect(source).not.toContain("ComposeCard")
+    expect(source).not.toContain("TemplateCard")
+    expect(source).not.toContain("Send test email")
+    expect(source).not.toContain("Confirm broadcast")
   })
 
   it("covers all five audience filters", () => {
@@ -63,40 +62,10 @@ describe("Communications workspace structure", () => {
     expect(source).toContain("AUDIENCE_PAGE")
     expect(source).toContain("Show more")
   })
-
-  it("persists event-keyed compose drafts and restores them on mount", () => {
-    const source = readSource(WORKSPACE)
-    const drafts = readSource(DRAFTS)
-    expect(source).toContain("readComposeDraft(String(event._id))")
-    expect(source).toContain("writeComposeDraft(String(event._id)")
-    expect(source).toContain("removeComposeDraft(String(event._id))")
-    expect(drafts).toContain("localStorage")
-    expect(drafts).toContain("export function readComposeDraft")
-    expect(drafts).toContain("export function writeComposeDraft")
-    expect(drafts).toContain("export function removeComposeDraft")
-  })
-
-  it("wires event-scoped saved announcement templates into compose", () => {
-    const source = readSource(WORKSPACE)
-    expect(source).toContain("api.emailTemplates.getTemplatesForEvent")
-    expect(source).toContain("api.emailTemplates.saveTemplate")
-    expect(source).toContain("api.emailTemplates.deleteTemplate")
-    expect(source).toContain("Save as template")
-    expect(source).toContain("Discard template")
-  })
-
-  it("summarizes the audience with human-readable ticket labels", () => {
-    const workspace = readSource(WORKSPACE)
-    const panel = readSource(PANEL)
-    expect(workspace).toContain("describeFilters(filters, ticketTypes)")
-    expect(panel).toContain("export function describeFilters")
-    expect(panel).toContain("ticketTypeId")
-    expect(panel).toContain("label ?? String(filters.ticketTypeId)")
-  })
 })
 
-describe("unified broadcast master-detail panel", () => {
-  it("keeps the four broadcast queries wired across the workspace and panel", () => {
+describe("unified broadcast delivery-status panel", () => {
+  it("keeps the broadcast queries wired across the workspace and panel", () => {
     const workspace = readSource(WORKSPACE)
     const panel = readSource(PANEL)
     expect(workspace).toContain("api.emailBroadcasts.previewAudience")
@@ -105,7 +74,7 @@ describe("unified broadcast master-detail panel", () => {
     expect(panel).toContain("api.emailBroadcasts.getBroadcastRecipients")
   })
 
-  it("renders a status-filterable history list with human-readable labels", () => {
+  it("renders a status-filterable history list with human-readable delivery labels", () => {
     const panel = readSource(PANEL)
     expect(panel).toContain("historyStatusFilter")
     expect(panel).toContain("Queued")
@@ -115,7 +84,7 @@ describe("unified broadcast master-detail panel", () => {
     expect(panel).toContain("Cancelled")
   })
 
-  it("shows detail progress, timestamps, stored filters, and status-filtered recipients", () => {
+  it("shows delivery progress, timestamps, stored filters, and recipient statuses", () => {
     const panel = readSource(PANEL)
     expect(panel).toContain("progress")
     expect(panel).toContain("sentCount")
@@ -124,39 +93,15 @@ describe("unified broadcast master-detail panel", () => {
     expect(panel).toContain("Stored audience filters")
     expect(panel).toContain("recipientStatus")
     expect(panel).toContain("recipient-status-filter")
+    expect(panel).toContain("Pending")
+    expect(panel).toContain("Sent")
+    expect(panel).toContain("Failed")
   })
 
   it("selects an initial history item without polling", () => {
     const source = readSource(WORKSPACE)
     expect(source).toContain("history[0]._id")
     expect(source).toContain("setSelectedBroadcastId")
-  })
-})
-
-describe("no synchronous bulk send contract", () => {
-  it("schedules broadcasts through the mutation and never loops client-side", () => {
-    const workspace = readSource(WORKSPACE)
-    const panel = readSource(PANEL)
-    expect(workspace).toContain("scheduleEmailBroadcast")
-    expect(workspace).toContain("authorize: true")
-    for (const source of [workspace, panel]) {
-      expect(source).not.toContain("window.confirm")
-      expect(source).not.toContain("setInterval")
-      expect(source).not.toContain("/api/dashboard/")
-    }
-  })
-
-  it("requires explicit confirmation before scheduling", () => {
-    const source = readSource(WORKSPACE)
-    expect(source).toContain("Confirm broadcast")
-    expect(source).toContain('setConfirmOpen(true)')
-    expect(source).toContain("handleConfirmSend")
-  })
-
-  it("uses the shared single-recipient diagnostic for test-sends", () => {
-    const source = readSource(WORKSPACE)
-    expect(source).toContain("sendAnnouncementTest")
-    expect(source).toContain("api.emailActions.sendAnnouncementTest")
   })
 
   it("supports cancel and retry-failed against the live job", () => {
@@ -166,6 +111,18 @@ describe("no synchronous bulk send contract", () => {
     expect(workspace).toContain("retryFailedEmailBroadcast")
     expect(panel).toContain("Cancel broadcast")
     expect(panel).toContain("Retry")
+  })
+})
+
+describe("no synchronous bulk send contract", () => {
+  it("never loops client-side or hits the dashboard API directly", () => {
+    const workspace = readSource(WORKSPACE)
+    const panel = readSource(PANEL)
+    for (const source of [workspace, panel]) {
+      expect(source).not.toContain("window.confirm")
+      expect(source).not.toContain("setInterval")
+      expect(source).not.toContain("/api/dashboard/")
+    }
   })
 })
 
