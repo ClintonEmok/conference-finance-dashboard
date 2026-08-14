@@ -2,9 +2,13 @@
 gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: Dynamic Event Accommodation
+current_phase: 46
+current_phase_name: Event-Owned Setup Schema, Generalized Pricing & Shared Contract
 status: planning
-last_updated: "2026-08-07T08:50:00.000Z"
-last_activity: 2026-08-07
+stopped_at: Phase 46 planning complete; implementation has not started
+last_updated: "2026-08-15T00:00:00.000Z"
+last_activity: 2026-08-15
+last_activity_desc: "Completed quick task 260815-0g5: Communications Center redesign — two-column composer with sticky live AnnouncementEmail preview (react-email render into iframe srcDoc), audience drill-down (search + chunked reveal to 200), ticket-ID→label confirm summaries, unified master-detail broadcasts panel, per-event localStorage draft autosave + discard, event-scoped saved announcement templates (emailTemplates + getTemplatesForEvent/saveTemplate/deleteTemplate); 542 unit + 210 convex tests + typecheck + build green"
 progress:
   total_phases: 6
   completed_phases: 0
@@ -27,7 +31,7 @@ See: `.planning/PROJECT.md`.
 Phase: 46 of 51 (Event-Owned Setup Schema, Generalized Pricing & Shared Contract) — planned, not started
 Plan: 5 plans in 5 sequential waves (46-01 through 46-05)
 Status: Phase 46 executable plans written — ready for execution
-Last activity: 2026-08-07 — Completed quick task 260807-uel: hid the allocation-board Generate Suggestions button and surfaced buyer accommodation preferences (occupancy, night-before, Superior upgrade, cot) as server-driven chips on the allocation tab
+Last activity: 2026-08-15 — Completed quick task 260815-0g5: Communications Center redesign — two-column composer with sticky live AnnouncementEmail preview, audience drill-down (search + reveal to 200), ticket-ID→label filter summaries, unified master-detail broadcasts panel, per-event draft autosave, event-scoped saved announcement templates; 542 unit + 210 convex tests + typecheck + build green
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -89,6 +93,10 @@ Progress: [░░░░░░░░░░] 0%
 | 260807-ka4 | Repointed the manage-booking permalink to `/booking/[bookingRef]/manage` with `/booking` as canonical search entry; `/manage*` and `/track-payment*` became full-query-preserving legacy redirects; all buyer-facing link producers repointed | 2026-08-07 | a22e470 | [260807-ka4-repoint-the-manage-booking-permalink-to-booking](./quick/260807-ka4-repoint-the-manage-booking-permalink-to-/) |
 | 260807-f6r | Manage booking page permalink — renamed the track-payment surface to "Manage booking" at `/manage`, booking summary + payment tracking + accommodation edit + Tikkie retained, edit-token permalink builder + email links moved, legacy `/track-payment*` redirects | 2026-08-07 | d6dac52 | [260807-f6r-add-a-manage-booking-page-with-a-permali](./quick/260807-f6r-add-a-manage-booking-page-with-a-permali/) |
 | 260807-ejn | Buyer-facing optional extended night-before accommodation purchase (per-attendee nights stepper, server-authoritative nights validation shared by quote + submission, review/sidebar display, full test matrix) | 2026-08-07 | 490ea43 | [260807-ejn-add-buyer-facing-optional-extended-night](./quick/260807-ejn-add-buyer-facing-optional-extended-night/) |
+| 260810-ts5 | Prod migration: accommodation config + legacy transform | 2026-08-10 | 6b4ceb3 | [260810-ts5-prod-migration-accommodation-config-lega](./quick/260810-ts5-prod-migration-accommodation-config-lega/) |
+| 260811-0lg | Disconnect Ticket Tailor ingestion (Phase 1A: cron/fetch/webhook/routes/env removed, extension tables+readers kept) + guarded zero-proof paid-order correction migration + read-only report + tests | 2026-08-11 | 41f5fa7 | [260811-0lg-disconnect-ticket-tailor-phase-1a-and-co](./quick/260811-0lg-disconnect-ticket-tailor-phase-1a-and-co/) |
+| 260811-dtj | Communications Center: async broadcast email workspace — filterable order-booker audience (location/status/date-range/has-accommodation/ticket-type), live count + preview, controlled test-send, scheduler-driven async delivery with queued/sending/completed/failed/cancelled job status + per-recipient pending/sent/failed rows and counters, cancel + retry-failed, reactive History UI at /dashboard/events/{slug}/communications, sentEmails event/broadcast linkage, runbook §4 + AGENTS.md updated; 197 convex + 534 unit tests + typecheck + build green | 2026-08-11 | 907ba25 | [260811-dtj-build-the-communications-center-an-async](./quick/260811-dtj-build-the-communications-center-an-async/) |
+| 260815-0g5 | Communications Center redesign: two-column composer with sticky live AnnouncementEmail preview (react-email render into iframe srcDoc, 300ms debounce + stale-render guard), audience drill-down (client search by name/email/ref + chunked reveal 25→200, preview default 100→200), ticket-ID→label resolution in confirm summaries, unified master-detail broadcasts-panel (status-filterable history + detail progress/timestamps/stored-filter summary + status-filtered recipients + cancel/retry-failed), per-event localStorage draft autosave + discard, event-scoped saved announcement templates (emailTemplates table + getTemplatesForEvent/saveTemplate/deleteTemplate), rewritten structural tests + convex template/limit coverage; 542 unit + 210 convex tests + typecheck + build green | 2026-08-15 | a2bf83e | [260815-0g5-redesign-the-communications-center-two-c](./quick/260815-0g5-redesign-the-communications-center-two-c/) |
 
 ## Deferred Verification
 
@@ -109,7 +117,7 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-08-07
-Last activity: Completed quick task 260807-ka4: manage-booking permalink at /booking/[bookingRef]/manage (canonical /booking search, legacy /manage* + /track-payment* redirects, all producers repointed; 455/502/116 tests + tsc green)
+Last session: 2026-08-15
+Last activity: Completed quick task 260815-0g5: Communications Center redesign — two-column composer with sticky live AnnouncementEmail preview, audience drill-down (search + reveal to 200), ticket-ID→label filter summaries, unified master-detail broadcasts panel, per-event draft autosave, event-scoped saved announcement templates; 542 unit + 210 convex tests + typecheck + build green
 Stopped at: Phase 46 planning complete; implementation has not started
 Resume file: None (next: /gsd/execute-phase 46)
