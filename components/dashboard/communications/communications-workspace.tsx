@@ -1,23 +1,41 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useAction, useMutation, useQuery } from "convex/react"
+import { render } from "@react-email/render"
 import {
   AlertCircle,
   CheckCircle2,
+  Eye,
   Filter,
   Loader2,
   Mail,
   RotateCcw,
+  Save,
+  Search,
   Send,
+  Trash2,
+  Undo2,
+  X,
 } from "lucide-react"
 
 import { api } from "@/lib/convex/api"
 import type { Id } from "@/convex/_generated/dataModel"
+import AnnouncementEmail from "@/lib/email/templates/announcement"
 import { WorkspaceFrame } from "@/components/dashboard/workspace-frame"
 import { WorkspaceTabs } from "@/components/dashboard/workspace-tabs"
 import { communicationsHref } from "@/lib/dashboard/workspace-routes"
 import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
+import {
+  readComposeDraft,
+  removeComposeDraft,
+  writeComposeDraft,
+} from "@/lib/dashboard/communications/drafts"
+import {
+  BroadcastsPanel,
+  describeFilters,
+  type BroadcastHistoryItem,
+} from "./broadcasts-panel"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -64,20 +82,50 @@ type AudienceFilters = {
   ticketTypeId?: Id<"ticketTypes">
 }
 
-type BroadcastStatus =
-  | "queued"
-  | "sending"
-  | "completed"
-  | "failed"
-  | "cancelled"
-
-type RecipientStatus = "pending" | "sent" | "failed"
-
 type SendState =
   | { status: "idle" }
   | { status: "sending" }
   | { status: "success"; broadcastId?: string }
   | { status: "error"; message: string }
+
+type TemplateState =
+  | { status: "idle" }
+  | { status: "saving" }
+  | { status: "error"; message: string }
+
+type AudiencePreview = {
+  total: number
+  skippedNoEmail: number
+  skippedNoRef: number
+  recipients: Array<{
+    orderId: string
+    bookerName: string | null
+    bookerEmail: string
+    bookingRef: string | null
+    status: string | null
+    location: string | null
+    hasAccommodationSelection: boolean
+    ticketTypeLabels: string[]
+    submittedAt: number | null
+  }>
+}
+
+type SavedTemplate = {
+  _id: Id<"emailTemplates">
+  name: string
+  title: string
+  message: string
+  eventName: string
+  eventDate: string
+  eventLocation: string
+  paymentUrl?: string
+  nightBeforeNote?: string
+}
+
+const AUDIENCE_PAGE = 25
+const MAX_PREVIEW_RECIPIENTS = 200
+const PREVIEW_DEBOUNCE_MS = 300
+const DRAFT_DEBOUNCE_MS = 500
 
 function toDayTimestamp(dateStr: string, boundary: "start" | "end") {
   if (!dateStr) return undefined
@@ -94,38 +142,6 @@ function formatEventDate(timestamp: number) {
     month: "long",
     day: "numeric",
   })
-}
-
-function broadcastStatusStyles(status: BroadcastStatus) {
-  switch (status) {
-    case "completed":
-      return {
-        variant: "outline" as const,
-        className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700",
-      }
-    case "failed":
-      return { variant: "destructive" as const, className: "" }
-    case "queued":
-      return { variant: "secondary" as const, className: "" }
-    case "sending":
-      return { variant: "default" as const, className: "" }
-    case "cancelled":
-      return { variant: "outline" as const, className: "" }
-  }
-}
-
-function recipientStatusStyles(status: RecipientStatus) {
-  switch (status) {
-    case "sent":
-      return {
-        variant: "outline" as const,
-        className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700",
-      }
-    case "failed":
-      return { variant: "destructive" as const, className: "" }
-    case "pending":
-      return { variant: "secondary" as const, className: "" }
-  }
 }
 
 export function CommunicationsWorkspace({ slug }: { slug: string }) {
@@ -150,14 +166,29 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   const [accommodationFilter, setAccommodationFilter] = useState("all")
   const [ticketTypeFilter, setTicketTypeFilter] = useState<string>("all")
 
-  // --- Send / active broadcast state ---------------------------------------
+  // --- Audience search + progressive reveal --------------------------------
+  const [audienceSearch, setAudienceSearch] = useState("")
+  const [visibleCount, setVisibleCount] = useState(AUDIENCE_PAGE)
+
+  // --- Send / tracking state -----------------------------------------------
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [sendState, setSendState] = useState<SendState>({ status: "idle" })
-  const [activeBroadcastId, setActiveBroadcastId] = useState<string | null>(
+  const [selectedBroadcastId, setSelectedBroadcastId] = useState<string | null>(
     null
   )
   const [testRecipient, setTestRecipient] = useState("")
   const [testState, setTestState] = useState<SendState>({ status: "idle" })
+
+  // --- Saved template state -------------------------------------------------
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("none")
+  const [templateName, setTemplateName] = useState("")
+  const [templateState, setTemplateState] = useState<TemplateState>({
+    status: "idle",
+  })
+
+  // --- Live preview state ---------------------------------------------------
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const previewRenderSeq = useRef(0)
 
   const eventLocations = useQuery(
     api.reports.getEventLocations,
@@ -186,26 +217,19 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   const preview = useQuery(
     api.emailBroadcasts.previewAudience,
     event?._id
-      ? { eventId: event._id, ...filters, limit: 100 }
+      ? { eventId: event._id, ...filters, limit: MAX_PREVIEW_RECIPIENTS }
       : ("skip" as const)
-  )
+  ) as AudiencePreview | undefined
 
   const history = useQuery(
     api.emailBroadcasts.getBroadcastHistory,
     event?._id ? { eventId: event._id } : ("skip" as const)
-  )
+  ) as BroadcastHistoryItem[] | undefined
 
-  const activeBroadcast = useQuery(
-    api.emailBroadcasts.getBroadcastById,
-    activeBroadcastId ? { broadcastId: activeBroadcastId as Id<"emailBroadcasts"> } : ("skip" as const)
-  )
-
-  const activeRecipients = useQuery(
-    api.emailBroadcasts.getBroadcastRecipients,
-    activeBroadcastId
-      ? { broadcastId: activeBroadcastId as Id<"emailBroadcasts">, limit: 300 }
-      : ("skip" as const)
-  )
+  const templates = useQuery(
+    api.emailTemplates.getTemplatesForEvent,
+    event?._id ? { eventId: event._id } : ("skip" as const)
+  ) as SavedTemplate[] | undefined
 
   const scheduleEmailBroadcast = useMutation(
     api.emailBroadcasts.scheduleEmailBroadcast
@@ -217,11 +241,98 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
     api.emailBroadcasts.retryFailedEmailBroadcast
   )
   const sendAnnouncementTest = useAction(api.emailActions.sendAnnouncementTest)
+  const saveTemplate = useMutation(api.emailTemplates.saveTemplate)
+  const deleteTemplate = useMutation(api.emailTemplates.deleteTemplate)
 
   const audienceTotal = preview?.total ?? 0
   const canBroadcast = Boolean(
     title.trim() && message.trim() && audienceTotal > 0 && sendState.status !== "sending"
   )
+
+  // --- Draft restore on mount (SSR-safe: localStorage is client-only) -------
+  useEffect(() => {
+    const draft = readComposeDraft(String(event._id))
+    if (!draft) return
+    setTitle(draft.title)
+    setMessage(draft.message)
+    setEventName(draft.eventName)
+    setEventDate(draft.eventDate)
+    setEventLocation(draft.eventLocation)
+    setPaymentUrl(draft.paymentUrl)
+    setNightBeforeNote(draft.nightBeforeNote)
+  }, [event._id])
+
+  // --- Debounced draft autosave ---------------------------------------------
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      writeComposeDraft(String(event._id), {
+        title,
+        message,
+        eventName,
+        eventDate,
+        eventLocation,
+        paymentUrl,
+        nightBeforeNote,
+        updatedAt: Date.now(),
+      })
+    }, DRAFT_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [event._id, eventDate, eventLocation, eventName, message, nightBeforeNote, paymentUrl, title])
+
+  // --- Debounced live preview with stale-render protection ------------------
+  useEffect(() => {
+    const origin =
+      typeof window === "undefined"
+        ? "http://localhost:3000"
+        : window.location.origin
+    const seq = ++previewRenderSeq.current
+    const timer = setTimeout(() => {
+      void render(
+        AnnouncementEmail({
+          title: title.trim() || "Announcement title",
+          message: message.trim() || "Write the announcement body…",
+          eventName: eventName.trim(),
+          eventDate: eventDate.trim(),
+          eventLocation: eventLocation.trim(),
+          manageBookingUrl: `${origin}/booking/BK-EXAMPLE/manage`,
+          signupUrl: `${origin}/signup/${event.slug}`,
+          paymentUrl: paymentUrl.trim() || null,
+          nightBeforeNote: nightBeforeNote.trim() || null,
+        })
+      ).then((html) => {
+        if (previewRenderSeq.current === seq) setPreviewHtml(html)
+      })
+    }, PREVIEW_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [event.slug, eventDate, eventLocation, eventName, message, nightBeforeNote, paymentUrl, title])
+
+  // --- Reset audience search/reveal when the filters change -----------------
+  useEffect(() => {
+    setAudienceSearch("")
+    setVisibleCount(AUDIENCE_PAGE)
+  }, [filters])
+
+  // --- Select a sensible initial broadcast without polling ------------------
+  useEffect(() => {
+    if (!selectedBroadcastId && history && history.length > 0) {
+      setSelectedBroadcastId(String(history[0]._id))
+    }
+  }, [history, selectedBroadcastId])
+
+  const searchedRecipients = useMemo(() => {
+    const rows = preview?.recipients ?? []
+    const query = audienceSearch.trim().toLowerCase()
+    if (!query) return rows
+    return rows.filter(
+      (recipient) =>
+        (recipient.bookerName ?? "").toLowerCase().includes(query) ||
+        recipient.bookerEmail.toLowerCase().includes(query) ||
+        (recipient.bookingRef ?? "").toLowerCase().includes(query)
+    )
+  }, [audienceSearch, preview])
+
+  const visibleRecipients = searchedRecipients.slice(0, visibleCount)
+  const canRevealMore = visibleRecipients.length < searchedRecipients.length
 
   async function handleTestSend() {
     const to = testRecipient.trim()
@@ -274,7 +385,7 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
         filters: filters as never,
         authorize: true,
       })
-      setActiveBroadcastId(String(result.broadcastId))
+      setSelectedBroadcastId(String(result.broadcastId))
       setSendState({ status: "success", broadcastId: String(result.broadcastId) })
     } catch (error) {
       setSendState({
@@ -285,13 +396,107 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   }
 
   async function handleCancel() {
-    if (!activeBroadcastId) return
-    await cancelEmailBroadcast({ broadcastId: activeBroadcastId as Id<"emailBroadcasts"> })
+    if (!selectedBroadcastId) return
+    await cancelEmailBroadcast({ broadcastId: selectedBroadcastId as Id<"emailBroadcasts"> })
   }
 
   async function handleRetry() {
-    if (!activeBroadcastId) return
-    await retryFailedEmailBroadcast({ broadcastId: activeBroadcastId as Id<"emailBroadcasts"> })
+    if (!selectedBroadcastId) return
+    await retryFailedEmailBroadcast({ broadcastId: selectedBroadcastId as Id<"emailBroadcasts"> })
+  }
+
+  function handleLoadTemplate(id: string) {
+    if (id === "none") {
+      setSelectedTemplateId("none")
+      setTemplateName("")
+      return
+    }
+    const template = (templates ?? []).find(
+      (item) => String(item._id) === id
+    )
+    if (!template) return
+    setTitle(template.title)
+    setMessage(template.message)
+    setEventName(template.eventName)
+    setEventDate(template.eventDate)
+    setEventLocation(template.eventLocation)
+    setPaymentUrl(template.paymentUrl ?? "")
+    setNightBeforeNote(template.nightBeforeNote ?? "")
+    setSelectedTemplateId(id)
+    setTemplateName(template.name)
+    setTemplateState({ status: "idle" })
+  }
+
+  function handleDiscardTemplate() {
+    setSelectedTemplateId("none")
+    setTemplateName("")
+    setTemplateState({ status: "idle" })
+  }
+
+  async function handleSaveAsTemplate() {
+    if (!event) return
+    const name = templateName.trim()
+    if (!name) {
+      setTemplateState({
+        status: "error",
+        message: "Enter a template name to save.",
+      })
+      return
+    }
+    setTemplateState({ status: "saving" })
+    try {
+      const id = await saveTemplate({
+        eventId: event._id,
+        templateId:
+          selectedTemplateId !== "none"
+            ? (selectedTemplateId as Id<"emailTemplates">)
+            : undefined,
+        name,
+        title: title.trim(),
+        message: message.trim(),
+        eventName: eventName.trim(),
+        eventDate: eventDate.trim(),
+        eventLocation: eventLocation.trim(),
+        paymentUrl: paymentUrl.trim() || undefined,
+        nightBeforeNote: nightBeforeNote.trim() || undefined,
+      })
+      setSelectedTemplateId(String(id))
+      setTemplateState({ status: "idle" })
+    } catch (error) {
+      setTemplateState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Save failed.",
+      })
+    }
+  }
+
+  async function handleDeleteTemplate() {
+    if (!event || selectedTemplateId === "none") return
+    try {
+      await deleteTemplate({
+        eventId: event._id,
+        templateId: selectedTemplateId as Id<"emailTemplates">,
+      })
+      setSelectedTemplateId("none")
+      setTemplateName("")
+      setTemplateState({ status: "idle" })
+    } catch (error) {
+      setTemplateState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Delete failed.",
+      })
+    }
+  }
+
+  function handleDiscardDraft() {
+    removeComposeDraft(String(event._id))
+    setTitle("")
+    setMessage("")
+    setEventName(event.title)
+    setEventDate(formatEventDate(event.startsAt))
+    setEventLocation("")
+    setPaymentUrl("")
+    setNightBeforeNote("")
   }
 
   const tabs = useMemo(
@@ -315,141 +520,167 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
         />
       }
     >
-      <div className="min-w-0 space-y-6">
-        <ComposeCard
-          title={title}
-          onTitleChange={setTitle}
-          message={message}
-          onMessageChange={setMessage}
-          eventName={eventName}
-          onEventNameChange={setEventName}
-          eventDate={eventDate}
-          onEventDateChange={setEventDate}
-          eventLocation={eventLocation}
-          onEventLocationChange={setEventLocation}
-          paymentUrl={paymentUrl}
-          onPaymentUrlChange={setPaymentUrl}
-          nightBeforeNote={nightBeforeNote}
-          onNightBeforeNoteChange={setNightBeforeNote}
-        />
-
-        <AudienceCard
-          eventId={event._id}
-          statusFilter={statusFilter}
-          onStatusFilterChange={setStatusFilter}
-          locationFilter={locationFilter}
-          onLocationFilterChange={setLocationFilter}
-          fromFilter={fromFilter}
-          onFromFilterChange={setFromFilter}
-          toFilter={toFilter}
-          onToFilterChange={setToFilter}
-          accommodationFilter={accommodationFilter}
-          onAccommodationFilterChange={setAccommodationFilter}
-          ticketTypeFilter={ticketTypeFilter}
-          onTicketTypeFilterChange={setTicketTypeFilter}
-          eventLocations={eventLocations}
-          ticketTypes={ticketTypes}
-          preview={preview}
-        />
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Send className="size-4 text-primary" />
-              Send
-            </CardTitle>
-            <CardDescription>
-              First send a diagnostic to a controlled inbox, then broadcast to
-              the {audienceTotal} selected booker{audienceTotal === 1 ? "" : "s"}.
-              Broadcasting requires explicit confirmation and is delivered
-              asynchronously.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex min-w-0 flex-wrap items-end gap-3">
-              <div className="min-w-0 flex-1 space-y-2">
-                <Label htmlFor="test-recipient">Test recipient email</Label>
-                <Input
-                  id="test-recipient"
-                  type="email"
-                  placeholder="your@inbox.com"
-                  value={testRecipient}
-                  onChange={(e) => setTestRecipient(e.target.value)}
-                />
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleTestSend}
-                disabled={testState.status === "sending"}
-              >
-                {testState.status === "sending" ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Mail className="size-4" />
-                )}
-                Send test email
-              </Button>
-            </div>
-
-            {testState.status === "success" && (
-              <Alert>
-                <CheckCircle2 className="size-4" />
-                <AlertTitle>Test sent</AlertTitle>
-                <AlertDescription>
-                  The announcement was delivered to {testRecipient}.
-                </AlertDescription>
-              </Alert>
-            )}
-            {testState.status === "error" && (
-              <Alert variant="destructive">
-                <AlertCircle className="size-4" />
-                <AlertTitle>Test failed</AlertTitle>
-                <AlertDescription>{testState.message}</AlertDescription>
-              </Alert>
-            )}
-
-            <div className="flex min-w-0 flex-wrap items-center gap-3 border-t border-border/60 pt-4">
-              <Button
-                type="button"
-                onClick={() => setConfirmOpen(true)}
-                disabled={!canBroadcast}
-              >
-                {sendState.status === "sending" ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Send className="size-4" />
-                )}
-                Send to {audienceTotal} booker{audienceTotal === 1 ? "" : "s"}
-              </Button>
-              {sendState.status === "error" && (
-                <span className="text-sm text-destructive">{sendState.message}</span>
-              )}
-              {sendState.status === "success" && sendState.broadcastId && (
-                <span className="flex items-center gap-1.5 text-sm text-emerald-600">
-                  <CheckCircle2 className="size-4" />
-                  Broadcast scheduled — tracking below.
-                </span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {(activeBroadcastId || (history ?? []).length > 0) && (
-          <ActiveBroadcastCard
-            broadcastId={activeBroadcastId}
-            broadcast={activeBroadcast}
-            recipients={activeRecipients}
-            onSelect={(id) => setActiveBroadcastId(id)}
-            onCancel={handleCancel}
-            onRetry={handleRetry}
+      <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(380px,0.95fr)]">
+        {/* Left rail: compose, templates, audience, send */}
+        <div className="min-w-0 space-y-6">
+          <ComposeCard
+            title={title}
+            onTitleChange={setTitle}
+            message={message}
+            onMessageChange={setMessage}
+            eventName={eventName}
+            onEventNameChange={setEventName}
+            eventDate={eventDate}
+            onEventDateChange={setEventDate}
+            eventLocation={eventLocation}
+            onEventLocationChange={setEventLocation}
+            paymentUrl={paymentUrl}
+            onPaymentUrlChange={setPaymentUrl}
+            nightBeforeNote={nightBeforeNote}
+            onNightBeforeNoteChange={setNightBeforeNote}
+            onDiscardDraft={handleDiscardDraft}
           />
-        )}
 
-        <HistoryCard
+          <TemplateCard
+            templates={templates}
+            selectedTemplateId={selectedTemplateId}
+            onSelectTemplate={handleLoadTemplate}
+            onDiscardTemplate={handleDiscardTemplate}
+            templateName={templateName}
+            onTemplateNameChange={setTemplateName}
+            onSaveTemplate={handleSaveAsTemplate}
+            onDeleteTemplate={handleDeleteTemplate}
+            templateState={templateState}
+          />
+
+          <AudienceCard
+            eventId={event._id}
+            statusFilter={statusFilter}
+            onStatusFilterChange={setStatusFilter}
+            locationFilter={locationFilter}
+            onLocationFilterChange={setLocationFilter}
+            fromFilter={fromFilter}
+            onFromFilterChange={setFromFilter}
+            toFilter={toFilter}
+            onToFilterChange={setToFilter}
+            accommodationFilter={accommodationFilter}
+            onAccommodationFilterChange={setAccommodationFilter}
+            ticketTypeFilter={ticketTypeFilter}
+            onTicketTypeFilterChange={setTicketTypeFilter}
+            eventLocations={eventLocations}
+            ticketTypes={ticketTypes}
+            preview={preview}
+            audienceSearch={audienceSearch}
+            onAudienceSearchChange={setAudienceSearch}
+            visibleRecipients={visibleRecipients}
+            canRevealMore={canRevealMore}
+            revealCount={searchedRecipients.length - visibleRecipients.length}
+            onRevealMore={() =>
+              setVisibleCount((count) => count + AUDIENCE_PAGE)
+            }
+          />
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Send className="size-4 text-primary" />
+                Send
+              </CardTitle>
+              <CardDescription>
+                First send a diagnostic to a controlled inbox, then broadcast to
+                the {audienceTotal} selected booker{audienceTotal === 1 ? "" : "s"}.
+                Broadcasting requires explicit confirmation and is delivered
+                asynchronously.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex min-w-0 flex-wrap items-end gap-3">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Label htmlFor="test-recipient">Test recipient email</Label>
+                  <Input
+                    id="test-recipient"
+                    type="email"
+                    placeholder="your@inbox.com"
+                    value={testRecipient}
+                    onChange={(e) => setTestRecipient(e.target.value)}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleTestSend}
+                  disabled={testState.status === "sending"}
+                >
+                  {testState.status === "sending" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Mail className="size-4" />
+                  )}
+                  Send test email
+                </Button>
+              </div>
+
+              {testState.status === "success" && (
+                <Alert>
+                  <CheckCircle2 className="size-4" />
+                  <AlertTitle>Test sent</AlertTitle>
+                  <AlertDescription>
+                    The announcement was delivered to {testRecipient}.
+                  </AlertDescription>
+                </Alert>
+              )}
+              {testState.status === "error" && (
+                <Alert variant="destructive">
+                  <AlertCircle className="size-4" />
+                  <AlertTitle>Test failed</AlertTitle>
+                  <AlertDescription>{testState.message}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="flex min-w-0 flex-wrap items-center gap-3 border-t border-border/60 pt-4">
+                <Button
+                  type="button"
+                  onClick={() => setConfirmOpen(true)}
+                  disabled={!canBroadcast}
+                >
+                  {sendState.status === "sending" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
+                  Send to {audienceTotal} booker{audienceTotal === 1 ? "" : "s"}
+                </Button>
+                {sendState.status === "error" && (
+                  <span className="text-sm text-destructive">{sendState.message}</span>
+                )}
+                {sendState.status === "success" && sendState.broadcastId && (
+                  <span className="flex items-center gap-1.5 text-sm text-emerald-600">
+                    <CheckCircle2 className="size-4" />
+                    Broadcast scheduled — tracking below.
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right rail: sticky live email preview */}
+        <div className="min-w-0">
+          <div className="space-y-6 xl:sticky xl:top-6">
+            <PreviewCard previewHtml={previewHtml} />
+          </div>
+        </div>
+      </div>
+
+      {/* Below the fold: unified broadcast history + tracking */}
+      <div className="mt-6 min-w-0">
+        <BroadcastsPanel
           history={history}
-          activeBroadcastId={activeBroadcastId}
-          onSelect={(id) => setActiveBroadcastId(id)}
+          broadcastId={selectedBroadcastId}
+          onSelect={setSelectedBroadcastId}
+          onCancel={handleCancel}
+          onRetry={handleRetry}
+          ticketTypes={ticketTypes}
         />
       </div>
 
@@ -470,7 +701,7 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
             </p>
             <p>
               <span className="font-semibold">Audience filters:</span>{" "}
-              {describeFilters(filters)}
+              {describeFilters(filters, ticketTypes)}
             </p>
           </div>
           <DialogFooter>
@@ -494,19 +725,6 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   )
 }
 
-function describeFilters(filters: AudienceFilters) {
-  const parts: string[] = []
-  if (filters.status) parts.push(`status: ${filters.status}`)
-  if (filters.location) parts.push(`location: ${filters.location}`)
-  if (filters.from !== undefined)
-    parts.push(`from: ${new Date(filters.from).toLocaleDateString("en-GB")}`)
-  if (filters.to !== undefined)
-    parts.push(`to: ${new Date(filters.to).toLocaleDateString("en-GB")}`)
-  if (filters.hasAccommodationSelection) parts.push("with accommodation selection")
-  if (filters.ticketTypeId) parts.push(`ticket: ${String(filters.ticketTypeId)}`)
-  return parts.length > 0 ? parts.join(" · ") : "all bookers"
-}
-
 function ComposeCard(props: {
   title: string
   onTitleChange: (value: string) => void
@@ -522,18 +740,33 @@ function ComposeCard(props: {
   onPaymentUrlChange: (value: string) => void
   nightBeforeNote: string
   onNightBeforeNoteChange: (value: string) => void
+  onDiscardDraft: () => void
 }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Mail className="size-4 text-primary" />
-          Compose announcement
-        </CardTitle>
-        <CardDescription>
-          Rendered with the standard AnnouncementEmail template, including
-          Manage Booking and Register links.
-        </CardDescription>
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="size-4 text-primary" />
+              Compose announcement
+            </CardTitle>
+            <CardDescription>
+              Rendered with the standard AnnouncementEmail template, including
+              Manage Booking and Register links. Autosaved as a draft while you
+              type.
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={props.onDiscardDraft}
+          >
+            <Undo2 className="size-3.5" />
+            Discard draft
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="grid min-w-0 gap-4 lg:grid-cols-2">
         <div className="space-y-2">
@@ -605,6 +838,112 @@ function ComposeCard(props: {
   )
 }
 
+function TemplateCard(props: {
+  templates:
+    | Array<{
+        _id: Id<"emailTemplates">
+        name: string
+      }>
+    | undefined
+  selectedTemplateId: string
+  onSelectTemplate: (id: string) => void
+  onDiscardTemplate: () => void
+  templateName: string
+  onTemplateNameChange: (value: string) => void
+  onSaveTemplate: () => void
+  onDeleteTemplate: () => void
+  templateState: TemplateState
+}) {
+  const hasSelection = props.selectedTemplateId !== "none"
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Save className="size-4 text-primary" />
+          Saved templates
+        </CardTitle>
+        <CardDescription>
+          Load a previously saved announcement for this event, save the current
+          compose state as a template, or remove a template.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="space-y-2">
+            <Label htmlFor="ann-template-picker">Template</Label>
+            <Select
+              value={props.selectedTemplateId}
+              onValueChange={props.onSelectTemplate}
+            >
+              <SelectTrigger id="ann-template-picker">
+                <SelectValue placeholder="No template" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No template</SelectItem>
+                {(props.templates ?? []).map((template) => (
+                  <SelectItem key={String(template._id)} value={String(template._id)}>
+                    {template.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {hasSelection && (
+            <div className="flex items-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={props.onDiscardTemplate}
+              >
+                <X className="size-3.5" />
+                Discard template
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={props.onDeleteTemplate}
+              >
+                <Trash2 className="size-3.5" />
+                Delete
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <div className="flex min-w-0 flex-wrap items-end gap-3 border-t border-border/60 pt-4">
+          <div className="min-w-0 flex-1 space-y-2">
+            <Label htmlFor="ann-template-name">Template name</Label>
+            <Input
+              id="ann-template-name"
+              value={props.templateName}
+              onChange={(e) => props.onTemplateNameChange(e.target.value)}
+              placeholder={hasSelection ? "Update template name…" : "e.g. Options announcement"}
+            />
+          </div>
+          <Button
+            type="button"
+            onClick={props.onSaveTemplate}
+            disabled={props.templateState.status === "saving"}
+          >
+            {props.templateState.status === "saving" ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Save className="size-4" />
+            )}
+            {hasSelection ? "Update template" : "Save as template"}
+          </Button>
+        </div>
+
+        {props.templateState.status === "error" && (
+          <p className="text-sm text-destructive">{props.templateState.message}</p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function AudienceCard(props: {
   eventId: Id<"events">
   statusFilter: string
@@ -636,6 +975,19 @@ function AudienceCard(props: {
         }>
       }
     | undefined
+  audienceSearch: string
+  onAudienceSearchChange: (value: string) => void
+  visibleRecipients: Array<{
+    bookerName: string | null
+    bookerEmail: string
+    bookingRef: string | null
+    status: string | null
+    location: string | null
+    ticketTypeLabels: string[]
+  }>
+  canRevealMore: boolean
+  revealCount: number
+  onRevealMore: () => void
 }) {
   const locations = props.eventLocations ?? []
   return (
@@ -647,7 +999,7 @@ function AudienceCard(props: {
         </CardTitle>
         <CardDescription>
           Order bookers matching all selected filters. Live count updates as you
-          filter.
+          filter; search and reveal rows up to 200.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -771,41 +1123,72 @@ function AudienceCard(props: {
                 No bookers match these filters.
               </p>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-border/60">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Booking ref</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Tickets</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {props.preview.recipients.slice(0, 25).map((recipient) => (
-                      <TableRow key={recipient.bookerEmail}>
-                        <TableCell className="font-medium">
-                          {recipient.bookerName ?? "—"}
-                        </TableCell>
-                        <TableCell>{recipient.bookerEmail}</TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {recipient.bookingRef ?? "—"}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{recipient.status ?? "—"}</Badge>
-                        </TableCell>
-                        <TableCell>{recipient.location ?? "—"}</TableCell>
-                        <TableCell>
-                          {recipient.ticketTypeLabels.length > 0
-                            ? recipient.ticketTypeLabels.join(", ")
-                            : "—"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <div className="space-y-3">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="audience-search"
+                    type="search"
+                    value={props.audienceSearch}
+                    onChange={(e) => props.onAudienceSearchChange(e.target.value)}
+                    placeholder="Search by name, email, or booking reference"
+                    className="pl-9"
+                  />
+                </div>
+
+                {props.visibleRecipients.length === 0 ? (
+                  <p className="rounded-xl border border-border/60 bg-muted/30 p-4 text-sm text-muted-foreground">
+                    No bookers match your search.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-border/60">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Booking ref</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Tickets</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {props.visibleRecipients.map((recipient) => (
+                          <TableRow key={recipient.bookerEmail}>
+                            <TableCell className="font-medium">
+                              {recipient.bookerName ?? "—"}
+                            </TableCell>
+                            <TableCell>{recipient.bookerEmail}</TableCell>
+                            <TableCell className="font-mono text-xs">
+                              {recipient.bookingRef ?? "—"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{recipient.status ?? "—"}</Badge>
+                            </TableCell>
+                            <TableCell>{recipient.location ?? "—"}</TableCell>
+                            <TableCell>
+                              {recipient.ticketTypeLabels.length > 0
+                                ? recipient.ticketTypeLabels.join(", ")
+                                : "—"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+
+                {props.canRevealMore && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={props.onRevealMore}
+                  >
+                    Show more ({props.revealCount} more)
+                  </Button>
+                )}
               </div>
             )}
           </>
@@ -815,176 +1198,33 @@ function AudienceCard(props: {
   )
 }
 
-function ActiveBroadcastCard(props: {
-  broadcastId: string | null
-  broadcast:
-    | {
-        status: BroadcastStatus
-        title: string
-        totalRecipients: number
-        sentCount: number
-        failedCount: number
-        pendingCount: number
-        error?: string | null
-        cancelledAt?: number | null
-      }
-    | null
-    | undefined
-  recipients: Array<{
-    to: string
-    bookerName?: string | null
-    status: RecipientStatus
-    error?: string | null
-    emailId?: string | null
-  }> | undefined
-  onSelect: (id: string) => void
-  onCancel: () => void
-  onRetry: () => void
-}) {
-  if (!props.broadcast) return null
-  const total =
-    props.broadcast.sentCount +
-    props.broadcast.failedCount +
-    props.broadcast.pendingCount
-  const done =
-    props.broadcast.sentCount + props.broadcast.failedCount
-  const progress = total > 0 ? Math.round((done / total) * 100) : 0
-  const isActive =
-    props.broadcast.status === "queued" || props.broadcast.status === "sending"
-
+function PreviewCard({ previewHtml }: { previewHtml: string | null }) {
   return (
-    <Card>
-      <CardHeader>
+    <Card className="overflow-hidden">
+      <CardHeader className="border-b border-border/60 bg-muted/20">
         <CardTitle className="flex items-center gap-2">
-          <CheckCircle2 className="size-4 text-primary" />
-          Live broadcast
+          <Eye className="size-4 text-primary" />
+          Live preview
         </CardTitle>
-        <CardDescription className="flex min-w-0 flex-wrap items-center gap-2">
-          <Badge
-            variant={broadcastStatusStyles(props.broadcast.status).variant}
-            className={broadcastStatusStyles(props.broadcast.status).className}
-          >
-            {props.broadcast.status}
-          </Badge>
-          <span>{props.broadcast.title}</span>
+        <CardDescription>
+          Real AnnouncementEmail rendering of the compose values, refreshed as
+          you type.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 text-sm">
-            <span className="text-muted-foreground">
-              {props.broadcast.sentCount} sent · {props.broadcast.failedCount}{" "}
-              failed · {props.broadcast.pendingCount} pending
-            </span>
-            <span className="tabular-nums">{progress}%</span>
+      <CardContent className="p-0">
+        {previewHtml === null ? (
+          <div className="flex h-[560px] items-center justify-center bg-white p-6">
+            <p className="text-center text-sm text-muted-foreground">
+              The preview appears here as you compose.
+            </p>
           </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-primary transition-all"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </div>
-
-        {(isActive || props.broadcast.status === "cancelled") && (
-          <Button type="button" variant="outline" onClick={props.onCancel} disabled={!isActive}>
-            Cancel broadcast
-          </Button>
+        ) : (
+          <iframe
+            title="Announcement email live preview"
+            srcDoc={previewHtml}
+            className="h-[760px] w-full bg-white"
+          />
         )}
-        {(props.broadcast.status === "completed" ||
-          props.broadcast.status === "failed" ||
-          props.broadcast.status === "cancelled") &&
-          props.broadcast.failedCount > 0 && (
-            <Button type="button" variant="outline" onClick={props.onRetry}>
-              <RotateCcw className="size-4" />
-              Retry {props.broadcast.failedCount} failed
-            </Button>
-          )}
-
-        {props.recipients && props.recipients.length > 0 && (
-          <div className="overflow-x-auto rounded-xl border border-border/60">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Recipient</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Detail</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {props.recipients.slice(0, 50).map((recipient) => (
-                  <TableRow key={recipient.to}>
-                    <TableCell className="font-medium">{recipient.to}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={recipientStatusStyles(recipient.status).variant}
-                        className={recipientStatusStyles(recipient.status).className}
-                      >
-                        {recipient.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {recipient.error ?? recipient.emailId ?? "—"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function HistoryCard(props: {
-  history: Array<{
-    _id: string
-    status: BroadcastStatus
-    title: string
-    createdAt: number
-    totalRecipients: number
-    sentCount: number
-    failedCount: number
-    pendingCount: number
-  }> | undefined
-  activeBroadcastId: string | null
-  onSelect: (id: string) => void
-}) {
-  if (!props.history || props.history.length === 0) return null
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>History</CardTitle>
-        <CardDescription>Previous broadcasts for this event.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          {props.history.map((item) => (
-            <button
-              key={item._id}
-              type="button"
-              onClick={() => props.onSelect(String(item._id))}
-              className="flex min-w-0 w-full items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3 text-left transition-colors hover:bg-muted/40"
-            >
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-semibold">
-                  {item.title}
-                </span>
-                <span className="block text-xs text-muted-foreground">
-                  {new Date(item.createdAt).toLocaleString("en-GB")} ·{" "}
-                  {item.totalRecipients} recipients
-                </span>
-              </span>
-              <Badge
-                variant={broadcastStatusStyles(item.status).variant}
-                className={broadcastStatusStyles(item.status).className}
-              >
-                {item.status}
-              </Badge>
-            </button>
-          ))}
-        </div>
       </CardContent>
     </Card>
   )
