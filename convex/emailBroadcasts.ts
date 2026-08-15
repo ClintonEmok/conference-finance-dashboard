@@ -247,6 +247,7 @@ export const previewAudience = query({
     if (!event) {
       return { total: 0, skippedNoEmail: 0, skippedNoRef: 0, recipients: [] }
     }
+    assertInternalEvent(event)
     const { eventId, limit, search, ...filters } = args
     const { recipients, skippedNoEmail, skippedNoRef } = await computeAudience(
       ctx,
@@ -262,7 +263,10 @@ export const previewAudience = query({
             (recipient.bookingRef ?? "").toLowerCase().includes(query)
         )
       : recipients
-    const previewLimit = Math.min(limit ?? 200, 200)
+    const previewLimit = Math.max(
+      0,
+      Math.min(Math.floor(limit ?? 200), 200)
+    )
     return {
       total: matched.length,
       skippedNoEmail,

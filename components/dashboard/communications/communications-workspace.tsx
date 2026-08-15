@@ -62,6 +62,10 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   const [selectedBroadcastId, setSelectedBroadcastId] = useState<string | null>(
     null
   )
+  const [broadcastActionError, setBroadcastActionError] = useState<string | null>(
+    null
+  )
+  const [broadcastActionPending, setBroadcastActionPending] = useState(false)
 
   const ticketTypes = useQuery(
     api.events.getTicketTypesForEvent,
@@ -96,6 +100,11 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
     setVisibleCount(AUDIENCE_PAGE)
   }, [audienceSearch])
 
+  // --- Clear the selected broadcast when the event changes ------------------
+  useEffect(() => {
+    setSelectedBroadcastId(null)
+  }, [event._id])
+
   // --- Select a sensible initial broadcast without polling ------------------
   useEffect(() => {
     if (!selectedBroadcastId && history && history.length > 0) {
@@ -111,13 +120,33 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   const canRevealMore = visibleRecipients.length < recipients.length
 
   async function handleCancel() {
-    if (!selectedBroadcastId) return
-    await cancelEmailBroadcast({ broadcastId: selectedBroadcastId as Id<"emailBroadcasts"> })
+    if (!selectedBroadcastId || broadcastActionPending) return
+    setBroadcastActionPending(true)
+    setBroadcastActionError(null)
+    try {
+      await cancelEmailBroadcast({ broadcastId: selectedBroadcastId as Id<"emailBroadcasts"> })
+    } catch (error) {
+      setBroadcastActionError(
+        error instanceof Error ? error.message : "Could not cancel broadcast."
+      )
+    } finally {
+      setBroadcastActionPending(false)
+    }
   }
 
   async function handleRetry() {
-    if (!selectedBroadcastId) return
-    await retryFailedEmailBroadcast({ broadcastId: selectedBroadcastId as Id<"emailBroadcasts"> })
+    if (!selectedBroadcastId || broadcastActionPending) return
+    setBroadcastActionPending(true)
+    setBroadcastActionError(null)
+    try {
+      await retryFailedEmailBroadcast({ broadcastId: selectedBroadcastId as Id<"emailBroadcasts"> })
+    } catch (error) {
+      setBroadcastActionError(
+        error instanceof Error ? error.message : "Could not retry broadcast."
+      )
+    } finally {
+      setBroadcastActionPending(false)
+    }
   }
 
   const tabs = useMemo(
@@ -159,6 +188,8 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
           onSelect={setSelectedBroadcastId}
           onCancel={handleCancel}
           onRetry={handleRetry}
+          actionPending={broadcastActionPending}
+          actionError={broadcastActionError}
           ticketTypes={ticketTypes}
         />
       </div>

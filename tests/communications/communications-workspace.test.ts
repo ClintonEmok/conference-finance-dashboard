@@ -109,6 +109,23 @@ describe("unified broadcast delivery-status panel", () => {
     expect(panel).toContain("Cancel broadcast")
     expect(panel).toContain("Retry")
   })
+
+  it("guards cancel/retry against unhandled failures and races", () => {
+    const workspace = readSource(WORKSPACE)
+    const panel = readSource(PANEL)
+    expect(workspace).toContain("broadcastActionPending")
+    expect(workspace).toContain("broadcastActionError")
+    expect(workspace).toContain("catch (error)")
+    expect(workspace).toContain("finally")
+    expect(panel).toContain("actionPending")
+    expect(panel).toContain("actionError")
+  })
+
+  it("clears the selected broadcast when the event changes", () => {
+    const source = readSource(WORKSPACE)
+    expect(source).toContain("setSelectedBroadcastId(null)")
+    expect(source).toContain("[event._id]")
+  })
 })
 
 describe("no synchronous bulk send contract", () => {

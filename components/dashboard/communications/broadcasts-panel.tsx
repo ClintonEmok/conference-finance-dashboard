@@ -179,6 +179,8 @@ export function BroadcastsPanel(props: {
   onSelect: (id: string) => void
   onCancel: () => void
   onRetry: () => void
+  actionPending?: boolean
+  actionError?: string | null
   ticketTypes: Array<{ _id: Id<"ticketTypes">; label: string }> | undefined
 }) {
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all")
@@ -398,8 +400,11 @@ export function BroadcastsPanel(props: {
                       type="button"
                       variant="outline"
                       onClick={props.onCancel}
-                      disabled={!isActive}
+                      disabled={!isActive || props.actionPending}
                     >
+                      {props.actionPending ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : null}
                       Cancel broadcast
                     </Button>
                   )}
@@ -411,12 +416,23 @@ export function BroadcastsPanel(props: {
                         type="button"
                         variant="outline"
                         onClick={props.onRetry}
+                        disabled={props.actionPending}
                       >
-                        <RotateCcw className="size-4" />
+                        {props.actionPending ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <RotateCcw className="size-4" />
+                        )}
                         Retry {broadcast.failedCount} failed
                       </Button>
                     )}
                 </div>
+
+                {props.actionError && (
+                  <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+                    {props.actionError}
+                  </p>
+                )}
 
                 <div className="space-y-2">
                   <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">

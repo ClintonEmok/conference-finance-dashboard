@@ -476,6 +476,85 @@ test("previewAudience search filters across the whole audience", async () => {
   expect(noMatch.recipients.length).toBe(0)
 })
 
+test("previewAudience search runs before the 200-row limit", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await seedEvent(t)
+  await seedManyBookers(t, eventId, 250)
+  // Rename the oldest order (last in desc order, beyond the 200 preview cap)
+  // to a distinctive value; search must still find it across the whole audience.
+  await t.mutation(async (ctx) => {
+    const oldest = await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", eventId as never))
+      .order("asc")
+      .first()
+    if (oldest) {
+      await ctx.db.patch(oldest._id, { bookerEmail: "needle@example.com" })
+    }
+  })
+
+  const needle = await t.query(api.emailBroadcasts.previewAudience, {
+    eventId: eventId as never,
+    search: "needle",
+  })
+  expect(needle.total).toBe(1)
+  expect(needle.recipients.length).toBe(1)
+  expect(needle.recipients[0].bookerEmail).toBe("needle@example.com")
+
+  const broad = await t.query(api.emailBroadcasts.previewAudience, {
+    eventId: eventId as never,
+    search: "booker",
+  })
+  expect(broad.total).toBe(250)
+  expect(broad.recipients.length).toBe(200)
+}, 60_000)
+
+test("previewAudience rejects integration events", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("events", {
+      slug: "integration-event",
+      title: "Integration Event",
+      startsAt: Date.now(),
+      timezone: "Europe/Amsterdam",
+      currency: "EUR",
+      isPublished: true,
+      isSignupOpen: true,
+      accommodationEnabled: false,
+      primarySourceKind: "integration",
+      updatedAt: Date.now(),
+    })
+  })
+  await seedBooker(t, eventId, { email: "pii@example.com", ref: "BK-PII" })
+
+  await expect(
+    t.query(api.emailBroadcasts.previewAudience, {
+      eventId: eventId as never,
+    })
+  ).rejects.toThrow("Broadcasts are only available for internal events")
+})
+
+test("previewAudience clamps invalid limits to the bounded range", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await seedEvent(t)
+  await seedManyBookers(t, eventId, 250)
+
+  const negative = await t.query(api.emailBroadcasts.previewAudience, {
+    eventId: eventId as never,
+    ...baseFilters,
+    limit: -1,
+  })
+  expect(negative.total).toBe(250)
+  expect(negative.recipients.length).toBe(0)
+
+  const oversized = await t.query(api.emailBroadcasts.previewAudience, {
+    eventId: eventId as never,
+    ...baseFilters,
+    limit: 10_000,
+  })
+  expect(oversized.recipients.length).toBe(200)
+}, 60_000)
+
 // ---------------------------------------------------------------------------
 // Scheduling
 // ---------------------------------------------------------------------------
