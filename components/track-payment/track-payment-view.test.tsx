@@ -327,9 +327,11 @@ describe("submitTrackPaymentEdit", () => {
   })
 
   it("posts an options-only body and returns the server canonical result", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: serverResult }), { status: 200 })
-    )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ data: serverResult }), { status: 200 })
+      )
     globalThis.fetch = fetchMock as never
 
     const outcome = await submitTrackPaymentEdit({
@@ -356,7 +358,7 @@ describe("submitTrackPaymentEdit", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0] as [
       string,
-      { method: string; headers: Record<string, string>; body: string }
+      { method: string; headers: Record<string, string>; body: string },
     ]
     expect(url).toBe(`/api/track-payment/${BOOKING_REF}`)
     expect(init.method).toBe("POST")
@@ -388,12 +390,16 @@ describe("submitTrackPaymentEdit", () => {
     })
     expect(confirmed).toEqual({ ok: false, code: "EDIT_CONFIRMED" })
 
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({ error: { code: "RATE_LIMITED", message: "slow down" } }),
-        { status: 429 }
-      )
-    ) as never
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: { code: "RATE_LIMITED", message: "slow down" },
+          }),
+          { status: 429 }
+        )
+      ) as never
     const limited = await submitTrackPaymentEdit({
       bookingRef: BOOKING_REF,
       bookerEmail: "booker@example.com",
@@ -468,11 +474,10 @@ describe("TrackPaymentView routing and states", () => {
     // The ownership email is never rendered — it is input-only proof, and
     // returning it from a public query would defeat the email ownership gate.
     expect(html).not.toContain("booker@example.com")
-    // The edit token from the email link is consumed locally only — it is
-    // prefilled into the edit-link input (in-memory state from the URL),
-    // never returned by a public query or rendered outside that input.
-    expect(html).toContain('value="token-from-email"')
-    expect(html.match(/token-from-email/g)?.length).toBe(1)
+    // The edit token from the email link is consumed locally only. Token-based
+    // arrivals do not need to see an ownership form or the token itself.
+    expect(html).not.toContain('id="track-edit-email"')
+    expect(html).not.toContain("token-from-email")
   })
 
   it("not-found renders the booking-not-found state without edit controls", () => {
@@ -494,8 +499,9 @@ describe("TrackPaymentView routing and states", () => {
       })
     )
     expect(mocks.useQuery).toHaveBeenCalled()
-    const calls = mocks.useQuery.mock
-      .calls as Array<[unknown, { bookingRef: string } | "skip"]>
+    const calls = mocks.useQuery.mock.calls as Array<
+      [unknown, { bookingRef: string } | "skip"]
+    >
     const queryArgs = calls
       .map(([, args]) => args)
       .filter((args): args is { bookingRef: string } => args !== "skip")
@@ -534,8 +540,23 @@ describe("TrackPaymentAccommodationEditor states", () => {
     expect(html).toContain("40,00 / night")
     // Save action is present; narrow-layout classes are applied.
     expect(html).toContain("Save preferences")
+    expect(html).toContain('id="track-edit-email"')
     expect(html).toContain("min-w-0")
     expect(html).toContain("flex-wrap")
+  })
+
+  it("hides the email ownership form when reached through an edit token", () => {
+    const html = render(
+      createElement(TrackPaymentAccommodationEditor, {
+        bookingRef: BOOKING_REF,
+        currency: "EUR",
+        editContext: buildEditContext(),
+        initialEditToken: "token-from-email",
+      })
+    )
+    expect(html).not.toContain('id="track-edit-email"')
+    expect(html).not.toContain("To save changes, confirm ownership")
+    expect(html).toContain("Save preferences")
   })
 
   it("renders a locked state without mutation controls", () => {

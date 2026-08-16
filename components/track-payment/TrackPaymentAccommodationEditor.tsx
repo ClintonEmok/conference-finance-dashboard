@@ -152,7 +152,7 @@ export function buildTrackPaymentEditBody(input: {
 function messageForEditError(code: string): string {
   switch (code) {
     case "EDIT_OWNERSHIP":
-      return "We couldn't verify ownership of this booking. Check the booking email or the edit link in your confirmation email and try again."
+      return "We couldn't verify ownership of this booking. Check the booking email used for this booking and try again."
     case "EDIT_CONFIRMED":
       return "Accommodation changes are closed because the organizer has confirmed this configuration."
     case "EDIT_INVALID":
@@ -169,7 +169,7 @@ function messageForEditError(code: string): string {
     case "INCOMPLETE":
       return "Complete every attendee's accommodation preferences before saving."
     case "OWNERSHIP_MISSING":
-      return "Enter the booking email or the edit link to verify ownership before saving."
+      return "Enter the booking email used for this booking to verify ownership before saving."
     default:
       return "Something went wrong while saving. Please try again."
   }
@@ -199,7 +199,7 @@ export function TrackPaymentAccommodationEditor({
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const [bookerEmail, setBookerEmail] = useState("")
-  const [editToken, setEditToken] = useState(initialEditToken ?? "")
+  const editToken = initialEditToken?.trim() ?? ""
   const [status, setStatus] = useState<SubmitStatus>({ kind: "idle" })
   const idempotencyKeyRef = useRef<string | null>(null)
 
@@ -298,7 +298,7 @@ export function TrackPaymentAccommodationEditor({
               </span>
               <span className="min-w-0 text-muted-foreground">
                 {selection.ticketLabel} · Included (Standard)
-                {selection.ticketOccupancy ?? selection.occupancy
+                {(selection.ticketOccupancy ?? selection.occupancy)
                   ? ` · ${selection.ticketOccupancy ?? selection.occupancy}`
                   : ""}
                 {selection.nightBeforeLevel
@@ -316,20 +316,30 @@ export function TrackPaymentAccommodationEditor({
     editContext.selections.length > 0 &&
     editContext.selections.every((selection) => {
       const draft = drafts[selection.attendeeKey]
-      return Boolean(selection.ticketOccupancy ?? draft?.occupancy ?? selection.occupancy)
+      return Boolean(
+        selection.ticketOccupancy ?? draft?.occupancy ?? selection.occupancy
+      )
     })
-  const ownershipReady =
-    Boolean(bookerEmail.trim()) || Boolean(editToken.trim())
+  const ownershipReady = Boolean(bookerEmail.trim()) || Boolean(editToken)
+  const requiresEmail = !editToken
   const saving = status.kind === "saving"
 
   const handleSave = async () => {
     if (saving || !bookingRef) return
     if (!allComplete) {
-      setStatus({ kind: "error", code: "INCOMPLETE", message: messageForEditError("INCOMPLETE") })
+      setStatus({
+        kind: "error",
+        code: "INCOMPLETE",
+        message: messageForEditError("INCOMPLETE"),
+      })
       return
     }
     if (!ownershipReady) {
-      setStatus({ kind: "error", code: "OWNERSHIP_MISSING", message: messageForEditError("OWNERSHIP_MISSING") })
+      setStatus({
+        kind: "error",
+        code: "OWNERSHIP_MISSING",
+        message: messageForEditError("OWNERSHIP_MISSING"),
+      })
       return
     }
 
@@ -338,10 +348,9 @@ export function TrackPaymentAccommodationEditor({
         const draft = drafts[selection.attendeeKey]
         return {
           attendeeKey: selection.attendeeKey,
-          occupancy: (selection.ticketOccupancy ?? draft?.occupancy ?? "shared") as
-            | "single"
-            | "shared"
-            | "family",
+          occupancy: (selection.ticketOccupancy ??
+            draft?.occupancy ??
+            "shared") as "single" | "shared" | "family",
           nightBeforeLevel: draft?.nightBeforeLevel,
           nightBeforeOccupancy: draft?.nightBeforeOccupancy,
           optionSelections: draft?.optionSelections ?? [],
@@ -408,45 +417,35 @@ export function TrackPaymentAccommodationEditor({
         ))}
       </div>
 
-      <div className="mt-6 space-y-4 rounded-xl border border-border/50 bg-muted/20 p-4">
-        <p className="text-xs text-muted-foreground">
-          To verify ownership, enter the email address used for this booking
-          or the edit link from your confirmation email.
-        </p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="min-w-0 space-y-2">
-            <Label htmlFor="track-edit-email" className="text-sm font-medium">
-              Booking email
-            </Label>
-            <Input
-              id="track-edit-email"
-              type="email"
-              autoComplete="email"
-              value={bookerEmail}
-              onChange={(event) => setBookerEmail(event.target.value)}
-              placeholder="you@example.com"
-              className="min-w-0"
-            />
-          </div>
-          <div className="min-w-0 space-y-2">
-            <Label htmlFor="track-edit-token" className="text-sm font-medium">
-              Edit link
-              <span className="ml-1 font-normal text-muted-foreground">
-                (optional)
-              </span>
-            </Label>
-            <Input
-              id="track-edit-token"
-              type="text"
-              autoComplete="off"
-              spellCheck={false}
-              value={editToken}
-              onChange={(event) => setEditToken(event.target.value)}
-              placeholder="Paste the edit link from your email"
-              className="min-w-0 font-mono text-xs"
-            />
-          </div>
-        </div>
+      <div
+        className={
+          requiresEmail
+            ? "mt-6 space-y-4 rounded-xl border border-border/50 bg-muted/20 p-4"
+            : "mt-6"
+        }
+      >
+        {requiresEmail ? (
+          <>
+            <p className="text-xs text-muted-foreground">
+              To save changes, confirm ownership with the email address used for
+              this booking.
+            </p>
+            <div className="min-w-0 space-y-2">
+              <Label htmlFor="track-edit-email" className="text-sm font-medium">
+                Booking email
+              </Label>
+              <Input
+                id="track-edit-email"
+                type="email"
+                autoComplete="email"
+                value={bookerEmail}
+                onChange={(event) => setBookerEmail(event.target.value)}
+                placeholder="you@example.com"
+                className="min-w-0"
+              />
+            </div>
+          </>
+        ) : null}
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div
@@ -586,127 +585,127 @@ function AttendeePreferenceFieldset({
                     ) : null}
                     <div
                       className={`flex min-w-0 flex-col gap-2 rounded-lg border p-3 transition-colors ${
-                      isSelected
-                        ? "border-primary bg-primary/5"
-                        : "border-border/60"
+                        isSelected
+                          ? "border-primary bg-primary/5"
+                          : "border-border/60"
                       }`}
                     >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-foreground">
-                          {option.label}
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          {isIncludedStayUpgrade
-                            ? `${formatPrice(
-                                option.priceMinor,
-                                editContext.event.currency
-                              )} / person / night for the included stay`
-                            : `${formatPrice(
-                                option.priceMinor,
-                                editContext.event.currency
-                              )} / unit / night`}
-                        </span>
-                      </span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        aria-pressed={isSelected}
-                        onClick={() => {
-                          if (isSelected) {
-                            updateOption(option.optionKey, 0, 0)
-                          } else if (isIncludedStayUpgrade) {
-                            updateOption(option.optionKey, 1, baseNights)
-                          } else {
-                            updateOption(option.optionKey, 1, baseNights)
-                          }
-                        }}
-                        className="shrink-0"
-                      >
-                        {isSelected ? "Remove" : "Add"}
-                      </Button>
-                    </div>
-                    {isSelected && !isIncludedStayUpgrade ? (
-                      <div className="flex items-center justify-between gap-2">
-                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>How many</span>
-                          <span className="flex items-center gap-1">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon-sm"
-                              aria-label={`Decrease quantity of ${option.label}`}
-                              onClick={() =>
-                                updateOption(
-                                  option.optionKey,
-                                  Math.max(0, quantity - 1),
-                                  nights
-                                )
-                              }
-                            >
-                              <Minus className="size-3" aria-hidden="true" />
-                            </Button>
-                            <span className="w-8 text-center font-mono text-sm tabular-nums text-foreground">
-                              {quantity}
-                            </span>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon-sm"
-                              aria-label={`Increase quantity of ${option.label}`}
-                              onClick={() =>
-                                updateOption(
-                                  option.optionKey,
-                                  quantity + 1,
-                                  nights
-                                )
-                              }
-                            >
-                              <Plus className="size-3" aria-hidden="true" />
-                            </Button>
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="min-w-0">
+                          <span className="block text-sm font-medium text-foreground">
+                            {option.label}
                           </span>
-                        </label>
-                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>Nights</span>
-                          <span className="flex items-center gap-1">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon-sm"
-                              aria-label={`Decrease nights for ${option.label}`}
-                              onClick={() =>
-                                updateOption(
-                                  option.optionKey,
-                                  quantity,
-                                  Math.max(0, nights - 1)
-                                )
-                              }
-                            >
-                              <Minus className="size-3" aria-hidden="true" />
-                            </Button>
-                            <span className="w-8 text-center font-mono text-sm tabular-nums text-foreground">
-                              {nights}
-                            </span>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon-sm"
-                              aria-label={`Increase nights for ${option.label}`}
-                              onClick={() =>
-                                updateOption(
-                                  option.optionKey,
-                                  quantity,
-                                  nights + 1
-                                )
-                              }
-                            >
-                              <Plus className="size-3" aria-hidden="true" />
-                            </Button>
+                          <span className="block text-xs text-muted-foreground">
+                            {isIncludedStayUpgrade
+                              ? `${formatPrice(
+                                  option.priceMinor,
+                                  editContext.event.currency
+                                )} / person / night for the included stay`
+                              : `${formatPrice(
+                                  option.priceMinor,
+                                  editContext.event.currency
+                                )} / unit / night`}
                           </span>
-                        </label>
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          aria-pressed={isSelected}
+                          onClick={() => {
+                            if (isSelected) {
+                              updateOption(option.optionKey, 0, 0)
+                            } else if (isIncludedStayUpgrade) {
+                              updateOption(option.optionKey, 1, baseNights)
+                            } else {
+                              updateOption(option.optionKey, 1, baseNights)
+                            }
+                          }}
+                          className="shrink-0"
+                        >
+                          {isSelected ? "Remove" : "Add"}
+                        </Button>
                       </div>
-                    ) : null}
+                      {isSelected && !isIncludedStayUpgrade ? (
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>How many</span>
+                            <span className="flex items-center gap-1">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon-sm"
+                                aria-label={`Decrease quantity of ${option.label}`}
+                                onClick={() =>
+                                  updateOption(
+                                    option.optionKey,
+                                    Math.max(0, quantity - 1),
+                                    nights
+                                  )
+                                }
+                              >
+                                <Minus className="size-3" aria-hidden="true" />
+                              </Button>
+                              <span className="w-8 text-center font-mono text-sm text-foreground tabular-nums">
+                                {quantity}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon-sm"
+                                aria-label={`Increase quantity of ${option.label}`}
+                                onClick={() =>
+                                  updateOption(
+                                    option.optionKey,
+                                    quantity + 1,
+                                    nights
+                                  )
+                                }
+                              >
+                                <Plus className="size-3" aria-hidden="true" />
+                              </Button>
+                            </span>
+                          </label>
+                          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>Nights</span>
+                            <span className="flex items-center gap-1">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon-sm"
+                                aria-label={`Decrease nights for ${option.label}`}
+                                onClick={() =>
+                                  updateOption(
+                                    option.optionKey,
+                                    quantity,
+                                    Math.max(0, nights - 1)
+                                  )
+                                }
+                              >
+                                <Minus className="size-3" aria-hidden="true" />
+                              </Button>
+                              <span className="w-8 text-center font-mono text-sm text-foreground tabular-nums">
+                                {nights}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon-sm"
+                                aria-label={`Increase nights for ${option.label}`}
+                                onClick={() =>
+                                  updateOption(
+                                    option.optionKey,
+                                    quantity,
+                                    nights + 1
+                                  )
+                                }
+                              >
+                                <Plus className="size-3" aria-hidden="true" />
+                              </Button>
+                            </span>
+                          </label>
+                        </div>
+                      ) : null}
                     </div>
                   </Fragment>
                 )
@@ -748,9 +747,7 @@ function AttendeePreferenceFieldset({
                   }
                   className="size-4 accent-primary"
                 />
-                <span className="text-sm text-foreground">
-                  No night before
-                </span>
+                <span className="text-sm text-foreground">No night before</span>
               </label>
               {(
                 [
@@ -786,12 +783,13 @@ function AttendeePreferenceFieldset({
                       }
                       className="size-4 accent-primary"
                     />
-                    <span className="text-sm capitalize text-foreground">
-                      {level} · {optionOccupancy === "single" ? "Single" : "Shared"}
+                    <span className="text-sm text-foreground capitalize">
+                      {level} ·{" "}
+                      {optionOccupancy === "single" ? "Single" : "Shared"}
                     </span>
-                    <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                      {formatPrice(rateMinor, editContext.event.currency)}{" "}
-                      / night
+                    <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                      {formatPrice(rateMinor, editContext.event.currency)} /
+                      night
                     </span>
                   </label>
                 )
@@ -851,8 +849,7 @@ export async function submitTrackPaymentEdit(input: {
     const body = (await response.json()) as Record<string, unknown>
     if (!response.ok) {
       const error = body?.error as Record<string, unknown> | undefined
-      const code =
-        typeof error?.code === "string" ? error.code : "EDIT_FAILED"
+      const code = typeof error?.code === "string" ? error.code : "EDIT_FAILED"
       return { ok: false, code }
     }
     const data = body?.data as Record<string, unknown> | undefined
@@ -880,19 +877,19 @@ export function TrackPaymentEditResultPanel({
     <div className="space-y-2 rounded-xl border border-border/50 bg-background/50 p-4 text-sm">
       <div className="flex items-center justify-between gap-2">
         <span className="text-muted-foreground">Amount due</span>
-        <span className="font-mono font-semibold tabular-nums text-foreground">
+        <span className="font-mono font-semibold text-foreground tabular-nums">
           {formatMoney(result.amountDueMinor, currency)}
         </span>
       </div>
       <div className="flex items-center justify-between gap-2">
         <span className="text-muted-foreground">Paid</span>
-        <span className="font-mono tabular-nums text-foreground">
+        <span className="font-mono text-foreground tabular-nums">
           {formatMoney(result.totalPaidMinor, currency)}
         </span>
       </div>
       <div className="flex items-center justify-between gap-2">
         <span className="text-muted-foreground">Remaining</span>
-        <span className="font-mono tabular-nums text-foreground">
+        <span className="font-mono text-foreground tabular-nums">
           {formatMoney(result.remainingMinor, currency)}
         </span>
       </div>
