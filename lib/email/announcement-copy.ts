@@ -10,10 +10,10 @@
  */
 
 export const ANNOUNCEMENT_TITLE =
-  "Night-before accommodation is now available"
+  "Upgrades and options are now available"
 
 export const ANNOUNCEMENT_MESSAGE =
-  "Add an optional night before the conference at a discounted rate."
+  "Accommodation upgrades and options are now available for your stay, including upgrades to your included accommodation, an optional night before the conference, and cots."
 
 export const ANNOUNCEMENT_NOTE =
-  "Choose Standard or Superior for the night before when you manage your booking."
+  "Manage your booking to choose the available accommodation options for your stay, including Standard or Superior upgrades, night-before accommodation, and a cot."

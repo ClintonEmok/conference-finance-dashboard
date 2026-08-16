@@ -38,16 +38,21 @@ export default function AnnouncementEmail({
     <Html lang="en">
       <Head>
         <style>{`
-          :root { color-scheme: light; }
+          :root { color-scheme: light dark; }
           @media (prefers-color-scheme: dark) {
-            .email-body { background-color: #252225 !important; }
-            .email-container { background-color: #302b30 !important; border-color: rgba(255,255,255,.1) !important; }
-            .email-header { background-color: #1f1c1f !important; }
-            .email-panel { background-color: #302b30 !important; border-color: #6356d9 !important; }
-            .email-panel p, .email-panel strong { color: #fafafa !important; }
-            .email-callout { background-color: #3d3540 !important; border-color: #6356d9 !important; color: #e7e2ff !important; }
-            .email-button-primary { background-color: #5146c7 !important; color: #ffffff !important; }
-            .email-button-secondary { border-color: #8175e8 !important; color: #c9c2ff !important; }
+            .email-body { background-color: #11131a !important; }
+            .email-container { background-color: #1c1f29 !important; border-color: #343947 !important; }
+            .email-header { background-color: #11131a !important; }
+            .email-muted, .email-section-copy { color: #c2cada !important; }
+            .email-event-details { border-color: #454c5e !important; }
+            .email-event-label { color: #aeb5ff !important; }
+            .email-event-name { color: #f8faff !important; }
+            .email-event-date { color: #d9dfec !important; }
+            .email-callout { background-color: #282d3d !important; border-color: #7775f2 !important; color: #edf0ff !important; }
+            .email-button-primary { background-color: #5b57e8 !important; color: #ffffff !important; }
+            .email-button-secondary { background-color: #282d3d !important; border-color: #8985f4 !important; color: #e5e7ff !important; }
+            .email-footer { border-color: #343947 !important; }
+            .email-footer-copy { color: #aeb8c8 !important; }
           }
           @media only screen and (max-width: 600px) {
             .email-body { padding: 16px 8px !important; }
@@ -73,7 +78,7 @@ export default function AnnouncementEmail({
           style={{
             maxWidth: "600px",
             margin: "0 auto",
-            backgroundColor: "#ffffff",
+            backgroundColor: "#eef1f6",
             padding: 0,
             borderRadius: "16px",
             overflow: "hidden",
@@ -136,24 +141,27 @@ export default function AnnouncementEmail({
           </Section>
 
           <Section style={{ padding: "24px 28px 8px" }}>
-            <Text style={{ margin: 0, color: "#475569", fontSize: "14px" }}>
+            <Text
+              className="email-muted"
+              style={{ margin: 0, color: "#475569", fontSize: "14px" }}
+            >
               Keep this information handy for registration, payment, and
               accommodation updates.
             </Text>
           </Section>
 
-          <Section style={{ padding: "16px 28px 0" }}>
+          <Section style={{ padding: "20px 28px 0" }}>
             <Section
-              className="email-panel"
+              className="email-event-details"
               style={{
-                backgroundColor: "#eef2ff",
-                padding: "20px 28px",
+                padding: "16px 0 15px",
                 margin: 0,
-                borderRadius: "14px",
-                border: "1px solid #c7d2fe",
+                borderTop: "1px solid #d9deea",
+                borderBottom: "1px solid #d9deea",
               }}
             >
             <Text
+              className="email-event-label"
               style={{
                 margin: "0 0 10px",
                 color: "#6366f1",
@@ -165,9 +173,10 @@ export default function AnnouncementEmail({
               Event Details
             </Text>
             <Text
+              className="email-event-name"
               style={{
                 margin: 0,
-                color: "#312e81",
+                color: "#172033",
                 fontSize: "18px",
                 fontWeight: 700,
               }}
@@ -175,9 +184,10 @@ export default function AnnouncementEmail({
               {eventName}
             </Text>
             <Text
+              className="email-event-date"
               style={{
                 margin: "10px 0 0",
-                color: "#334155",
+                color: "#536174",
                 fontSize: "14px",
               }}
             >
@@ -188,13 +198,14 @@ export default function AnnouncementEmail({
 
           {nightBeforeNote && (
             <Text
+              className="email-callout"
               style={{
                 margin: "24px 28px 0",
-                padding: "16px 18px",
+                padding: "15px 17px",
                 color: "#334155",
-                backgroundColor: "#eff6ff",
-                border: "1px solid #bfdbfe",
-                borderRadius: "12px",
+                backgroundColor: "#f1f4ff",
+                borderLeft: "3px solid #5b57e8",
+                borderRadius: "0 10px 10px 0",
                 fontSize: "14px",
                 lineHeight: 1.6,
               }}
@@ -208,29 +219,22 @@ export default function AnnouncementEmail({
               style={{
                 margin: "24px 28px 0",
                 padding: 0,
+                textAlign: "center",
               }}
             >
-              <Text
-                style={{
-                  margin: "0 0 12px",
-                  fontSize: "14px",
-                  lineHeight: 1.6,
-                  color: "#334155",
-                }}
-              >
-                Payments are handled separately via Tikkie.
-              </Text>
               <Button
                 className="email-button-primary"
                 href={paymentUrl}
                 style={{
-                  backgroundColor: "#0f172a",
+                  backgroundColor: "#4f46e5",
                   color: "#ffffff",
-                  padding: "12px 20px",
+                  padding: "13px 20px",
                   textDecoration: "none",
                   borderRadius: "10px",
                   display: "block",
-                  margin: "4px 8px 0",
+                  width: "100%",
+                  boxSizing: "border-box",
+                  margin: 0,
                   textAlign: "center",
                   fontSize: "14px",
                   fontWeight: 600,
@@ -245,9 +249,11 @@ export default function AnnouncementEmail({
             style={{
               margin: "24px 28px 0",
               padding: 0,
+              textAlign: "center",
             }}
           >
             <Text
+              className="email-section-copy"
               style={{
                 margin: "0 0 12px",
                 fontSize: "14px",
@@ -262,13 +268,15 @@ export default function AnnouncementEmail({
               className="email-button-primary"
               href={manageBookingUrl}
               style={{
-                backgroundColor: "#2563eb",
+                backgroundColor: "#4f46e5",
                 color: "#ffffff",
-                padding: "12px 20px",
+                padding: "13px 20px",
                 textDecoration: "none",
                 borderRadius: "10px",
                 display: "block",
-                margin: "4px 8px 0",
+                width: "100%",
+                boxSizing: "border-box",
+                margin: 0,
                 textAlign: "center",
                 fontSize: "14px",
                 fontWeight: 600,
@@ -282,9 +290,11 @@ export default function AnnouncementEmail({
             style={{
               margin: "24px 28px 0",
               padding: 0,
+              textAlign: "center",
             }}
           >
             <Text
+              className="email-section-copy"
               style={{
                 margin: "0 0 12px",
                 fontSize: "14px",
@@ -298,13 +308,16 @@ export default function AnnouncementEmail({
               className="email-button-secondary"
               href={signupUrl}
               style={{
-                border: "1px solid #2563eb",
-                color: "#2563eb",
-                padding: "11px 20px",
+                backgroundColor: "#f8f9ff",
+                border: "1px solid #a5b4fc",
+                color: "#4338ca",
+                padding: "12px 20px",
                 textDecoration: "none",
                 borderRadius: "10px",
                 display: "block",
-                margin: "4px 8px 0",
+                width: "100%",
+                boxSizing: "border-box",
+                margin: 0,
                 textAlign: "center",
                 fontSize: "14px",
                 fontWeight: 600,
@@ -315,6 +328,7 @@ export default function AnnouncementEmail({
           </Section>
 
           <Section
+            className="email-footer"
             style={{
               padding: "24px 28px 28px",
               marginTop: "24px",
@@ -322,6 +336,7 @@ export default function AnnouncementEmail({
             }}
           >
             <Text
+              className="email-footer-copy"
               style={{
                 fontSize: "12px",
                 lineHeight: 1.5,
@@ -330,7 +345,7 @@ export default function AnnouncementEmail({
               }}
             >
               This email was sent by DCLM NL Conference. If you have any
-              questions, please contact the event organizers.
+              questions, please contact us at it-support@deeperlife.nl.
             </Text>
           </Section>
         </Container>

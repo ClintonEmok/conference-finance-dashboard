@@ -8,20 +8,20 @@ import {
 } from "../announcement-copy"
 
 const baseProps = {
-  title: "Night-before accommodation is now available",
+  title: "Upgrades and options are now available",
   message:
-    "Add an optional night before the conference at a discounted rate.",
+    "Accommodation upgrades and options are now available for your stay, including upgrades to your included accommodation, an optional night before the conference, and cots.",
   eventName: "Divine Conference",
   eventDate: "Sat 15 Aug 2026",
   manageBookingUrl: "https://conference.dclm-nl.org/booking/BK-EXAMPLE/manage",
   signupUrl: "https://conference.dclm-nl.org/signup",
   paymentUrl: "https://pay.example.com/example",
   nightBeforeNote:
-    "Choose Standard or Superior for the night before when you manage your booking.",
+    "Manage your booking to choose the available accommodation options for your stay, including Standard or Superior upgrades, night-before accommodation, and a cot.",
 }
 
 describe("announcement email (RUN-02)", () => {
-  it("renders final event details, night-before, manage-booking, and payment content", async () => {
+  it("renders final event details, links, and support contact", async () => {
     const html = await render(AnnouncementEmail(baseProps))
     expect(html).toContain(baseProps.title)
     expect(html).toContain(baseProps.message)
@@ -31,6 +31,13 @@ describe("announcement email (RUN-02)", () => {
     expect(html).toContain(baseProps.manageBookingUrl)
     expect(html).toContain(baseProps.paymentUrl)
     expect(html).toContain(baseProps.signupUrl)
+    expect(html).toContain("Review Payment")
+    expect(html).toContain("it-support@deeperlife.nl")
+    expect(html).not.toContain("Payments are handled separately via Tikkie.")
+    expect(html).toContain("email-event-details")
+    expect(html).toContain("email-callout")
+    expect(html).toContain("width:100%")
+    expect(html).toContain("box-sizing:border-box")
   })
 
   it("renders the shared standard announcement copy without a venue/location", async () => {

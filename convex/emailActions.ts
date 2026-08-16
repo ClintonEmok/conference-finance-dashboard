@@ -297,11 +297,11 @@ ${args.eventName} | ${args.eventDate}
 ${
   args.nightBeforeNote ? `Night before: ${args.nightBeforeNote}\n\n` : ""
 }${
-  args.paymentUrl ? `Payments are handled via Tikkie: ${args.paymentUrl}\n\n` : ""
+  args.paymentUrl ? `Review payment: ${args.paymentUrl}\n\n` : ""
 }Manage your booking: ${args.manageBookingUrl}
 Sign up: ${args.signupUrl}
 
-This email was sent by DCLM NL Conference.`.trim()
+This email was sent by DCLM NL Conference. If you have any questions, please contact us at it-support@deeperlife.nl.`.trim()
 
     const fromName = process.env.RESEND_FROM_NAME || "DCLM NL Conference"
     const fromEmail = process.env.RESEND_FROM_EMAIL || "noreply@example.com"

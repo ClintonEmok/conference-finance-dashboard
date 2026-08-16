@@ -6,9 +6,9 @@ current_phase: 46
 current_phase_name: Event-Owned Setup Schema, Generalized Pricing & Shared Contract
 status: planning
 stopped_at: Phase 46 planning complete; implementation has not started
-last_updated: "2026-08-15T00:00:00.000Z"
-last_activity: 2026-08-15
-last_activity_desc: "Completed quick task 260815-0g5: Communications Center — audience-only surface (five filters, live count, search + reveal to 200, unified broadcasts panel with delivery statuses); compose/templates/preview removed per scope, meta copy stripped, dead emailTemplates + drafts lib removed; 537 unit tests + typecheck + build green"
+last_updated: "2026-08-16T00:00:00.000Z"
+last_activity: 2026-08-16
+last_activity_desc: "Completed quick task 260816-fgu: Communications Center — fixed standard announcement (shared copy module, no venue/location in template), event/search-scoped scheduleEmailBroadcast (server-derived copy/metadata, search-scoped recipient snapshot, queued-only), standard announcement card with real-template iframe preview + explicit confirm send dialog (authorize: true); rendered email screenshot captured at quick artifact path; 546 unit + 34 convex tests + typecheck + build green"
 progress:
   total_phases: 6
   completed_phases: 0
@@ -31,7 +31,7 @@ See: `.planning/PROJECT.md`.
 Phase: 46 of 51 (Event-Owned Setup Schema, Generalized Pricing & Shared Contract) — planned, not started
 Plan: 5 plans in 5 sequential waves (46-01 through 46-05)
 Status: Phase 46 executable plans written — ready for execution
-Last activity: 2026-08-15 — Completed quick task 260815-0g5: Communications Center — audience-only surface (five filters, live count, search + reveal to 200, unified broadcasts panel with delivery statuses); compose/templates/preview removed per scope, meta copy stripped, dead emailTemplates + drafts lib removed; 537 unit tests + typecheck + build green
+Last activity: 2026-08-16 — Completed quick task 260816-fgu: Communications Center — fixed standard announcement (shared copy module, no venue/location in template), event/search-scoped scheduleEmailBroadcast (server-derived copy/metadata, search-scoped recipient snapshot, queued-only), standard announcement card with real-template iframe preview + explicit confirm send dialog (authorize: true); rendered email screenshot captured at quick artifact path; 546 unit + 34 convex tests + typecheck + build green
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -97,6 +97,7 @@ Progress: [░░░░░░░░░░] 0%
 | 260811-0lg | Disconnect Ticket Tailor ingestion (Phase 1A: cron/fetch/webhook/routes/env removed, extension tables+readers kept) + guarded zero-proof paid-order correction migration + read-only report + tests | 2026-08-11 | 41f5fa7 | [260811-0lg-disconnect-ticket-tailor-phase-1a-and-co](./quick/260811-0lg-disconnect-ticket-tailor-phase-1a-and-co/) |
 | 260811-dtj | Communications Center: async broadcast email workspace — filterable order-booker audience (location/status/date-range/has-accommodation/ticket-type), live count + preview, controlled test-send, scheduler-driven async delivery with queued/sending/completed/failed/cancelled job status + per-recipient pending/sent/failed rows and counters, cancel + retry-failed, reactive History UI at /dashboard/events/{slug}/communications, sentEmails event/broadcast linkage, runbook §4 + AGENTS.md updated; 197 convex + 534 unit tests + typecheck + build green | 2026-08-11 | 907ba25 | [260811-dtj-build-the-communications-center-an-async](./quick/260811-dtj-build-the-communications-center-an-async/) |
 | 260815-0g5 | Communications Center: audience search + delivery statuses — single search bar (server-side by name/email/booking ref across the whole audience), live count, chunked reveal to 200, unified master-detail broadcasts panel with delivery statuses (queued/sending/completed/failed/cancelled, per-recipient pending/sent/failed, progress/timestamps/stored-filter summary, cancel/retry-failed). Filters/compose/templates/preview/test-send removed (not needed), meta copy stripped, dead emailTemplates backend + drafts lib removed; 537 unit tests + typecheck + build green | 2026-08-15 | a2bf83e | [260815-0g5-redesign-the-communications-center-two-c](./quick/260815-0g5-redesign-the-communications-center-two-c/) |
+| 260816-fgu | Communications Center: fixed standard announcement send — lib/email/announcement-copy.ts shared copy, AnnouncementEmail no venue/location, scheduleEmailBroadcast tightened to eventId+search+authorize (server-derived copy/title/date/signup URL, previewAudience search semantics, stored search scope, queued-only scheduler), standard announcement card with real-template iframe preview + explicit confirm dialog selecting the returned broadcast; rendered email screenshot captured (untracked); 546 unit + 34 convex tests + typecheck + build green, no production broadcast | 2026-08-16 | 983f956 | [260816-fgu-implement-and-send-me-a-screenshot-of-th](./quick/260816-fgu-implement-and-send-me-a-screenshot-of-th/) |
 
 ## Deferred Verification
 
@@ -117,7 +118,7 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-08-15
-Last activity: Completed quick task 260815-0g5: Communications Center — audience-only surface (five filters, live count, search + reveal to 200, unified broadcasts panel with delivery statuses); compose/templates/preview removed per scope, meta copy stripped, dead emailTemplates + drafts lib removed; 537 unit tests + typecheck + build green
+Last session: 2026-08-16
+Last activity: Completed quick task 260816-fgu: Communications Center — fixed standard announcement send (shared copy module, template without venue/location, event/search-scoped queued-only scheduleEmailBroadcast, standard announcement card with real-template preview + explicit confirm dialog); rendered email screenshot captured at quick artifact path; no production broadcast sent
 Stopped at: Phase 46 planning complete; implementation has not started
 Resume file: None (next: /gsd/execute-phase 46)
