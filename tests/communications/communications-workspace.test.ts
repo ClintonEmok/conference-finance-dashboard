@@ -10,6 +10,7 @@ function readSource(relativePath: string): string {
 
 const WORKSPACE = "components/dashboard/communications/communications-workspace.tsx"
 const PANEL = "components/dashboard/communications/broadcasts-panel.tsx"
+const COPY = "lib/email/announcement-copy.ts"
 
 describe("Communications workspace structure", () => {
   it("exposes the CommunicationsWorkspace component inside the WorkspaceFrame", () => {
@@ -22,22 +23,41 @@ describe("Communications workspace structure", () => {
     expect(source).toContain("useEventDashboard")
   })
 
-  it("is audience-only and does not expose the compose/send surface", () => {
+  it("renders the fixed standard announcement from the real React Email template", () => {
     const source = readSource(WORKSPACE)
-    expect(source).toContain("AudienceCard")
-    expect(source).toContain("BroadcastsPanel")
-    expect(source).not.toContain("AnnouncementEmail")
+    expect(source).toContain("StandardAnnouncementCard")
+    expect(source).toContain('from "@/lib/email/templates/announcement"')
+    expect(source).toContain("AnnouncementEmail({")
+    expect(source).toContain("render(")
+    expect(source).toContain("srcDoc={previewHtml}")
+    expect(source).toContain('title: ANNOUNCEMENT_TITLE')
+  })
+
+  it("shares one fixed standard copy module with no compose/venue/location controls", () => {
+    const source = readSource(WORKSPACE)
+    const copy = readSource(COPY)
+    expect(copy).toContain(
+      "Night-before accommodation is now available"
+    )
+    expect(copy).toContain(
+      "Add an optional night before the conference at a discounted rate."
+    )
+    expect(copy).toContain(
+      "Choose Standard or Superior for the night before when you manage your booking."
+    )
+    // No manual compose fields, no template CRUD, no venue/location input.
     expect(source).not.toContain("ComposeCard")
     expect(source).not.toContain("TemplateCard")
     expect(source).not.toContain("Send test email")
-    expect(source).not.toContain("Confirm broadcast")
+    expect(source).not.toContain("eventLocation")
+    expect(source).not.toContain('placeholder="Subject')
   })
 
   it("finds the audience with a single search bar and no filter controls", () => {
     const source = readSource(WORKSPACE)
     expect(source).toContain("audience-search")
     expect(source).toContain("placeholder=\"Search by name, email, or booking reference\"")
-    expect(source).toContain("search: audienceSearch")
+    expect(source).toContain("search: audienceSearch.trim()")
     expect(source).not.toContain("aud-status")
     expect(source).not.toContain("aud-location")
     expect(source).not.toContain("aud-from")
@@ -58,6 +78,38 @@ describe("Communications workspace structure", () => {
     expect(source).toContain("visibleCount")
     expect(source).toContain("AUDIENCE_PAGE")
     expect(source).toContain("Show more")
+  })
+})
+
+describe("standard announcement send flow", () => {
+  it("requires an explicit confirmation dialog before scheduling", () => {
+    const source = readSource(WORKSPACE)
+    expect(source).toContain("Dialog")
+    expect(source).toContain("Send standard announcement?")
+    expect(source).toContain("Confirm send")
+    expect(source).toContain("setSendDialogOpen(true)")
+    expect(source).not.toContain("window.confirm")
+  })
+
+  it("schedules the exact searched audience with explicit authorization", () => {
+    const source = readSource(WORKSPACE)
+    expect(source).toContain("api.emailBroadcasts.scheduleEmailBroadcast")
+    expect(source).toContain("search: trimmedSearch || undefined")
+    expect(source).toContain("authorize: true")
+    expect(source).toContain("setSelectedBroadcastId(String(result.broadcastId))")
+  })
+
+  it("never sends when the audience is empty", () => {
+    const source = readSource(WORKSPACE)
+    expect(source).toContain("canSend = audienceTotal > 0")
+    expect(source).toContain("disabled={!props.canSend}")
+    expect(source).toContain("audienceTotal === 0")
+  })
+
+  it("disables duplicate submissions while a send is pending", () => {
+    const source = readSource(WORKSPACE)
+    expect(source).toContain("sendPending")
+    expect(source).toContain("disabled={sendPending}")
   })
 })
 
@@ -93,6 +145,12 @@ describe("unified broadcast delivery-status panel", () => {
     expect(panel).toContain("Pending")
     expect(panel).toContain("Sent")
     expect(panel).toContain("Failed")
+  })
+
+  it("explains the stored search scope of a standard announcement job", () => {
+    const panel = readSource(PANEL)
+    expect(panel).toContain("filters.search")
+    expect(panel).toContain("search:")
   })
 
   it("selects an initial history item without polling", () => {

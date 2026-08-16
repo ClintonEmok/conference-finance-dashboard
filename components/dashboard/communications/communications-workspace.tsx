@@ -2,10 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery } from "convex/react"
-import { Search, Users } from "lucide-react"
+import { Megaphone, Search, Send, Users } from "lucide-react"
+import { render } from "@react-email/render"
 
 import { api } from "@/lib/convex/api"
 import type { Id } from "@/convex/_generated/dataModel"
+import AnnouncementEmail from "@/lib/email/templates/announcement"
+import {
+  ANNOUNCEMENT_MESSAGE,
+  ANNOUNCEMENT_NOTE,
+  ANNOUNCEMENT_TITLE,
+} from "@/lib/email/announcement-copy"
 import { WorkspaceFrame } from "@/components/dashboard/workspace-frame"
 import { WorkspaceTabs } from "@/components/dashboard/workspace-tabs"
 import { communicationsHref } from "@/lib/dashboard/workspace-routes"
@@ -22,6 +29,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -67,6 +83,11 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   )
   const [broadcastActionPending, setBroadcastActionPending] = useState(false)
 
+  // --- Standard announcement send state ------------------------------------
+  const [sendDialogOpen, setSendDialogOpen] = useState(false)
+  const [sendPending, setSendPending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
+
   const ticketTypes = useQuery(
     api.events.getTicketTypesForEvent,
     event?._id ? { eventId: event._id } : ("skip" as const)
@@ -93,6 +114,9 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   )
   const retryFailedEmailBroadcast = useMutation(
     api.emailBroadcasts.retryFailedEmailBroadcast
+  )
+  const scheduleEmailBroadcast = useMutation(
+    api.emailBroadcasts.scheduleEmailBroadcast
   )
 
   // --- Reset progressive reveal when the search changes ---------------------
@@ -149,6 +173,32 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
     }
   }
 
+  // --- Send the fixed standard announcement to the exact searched audience --
+  const trimmedSearch = audienceSearch.trim()
+  const audienceTotal = preview?.total ?? 0
+  const canSend = audienceTotal > 0 && !sendPending
+
+  async function handleSend() {
+    if (sendPending || audienceTotal === 0) return
+    setSendPending(true)
+    setSendError(null)
+    try {
+      const result = await scheduleEmailBroadcast({
+        eventId: event._id,
+        search: trimmedSearch || undefined,
+        authorize: true,
+      })
+      setSelectedBroadcastId(String(result.broadcastId))
+      setSendDialogOpen(false)
+    } catch (error) {
+      setSendError(
+        error instanceof Error ? error.message : "Could not schedule the announcement."
+      )
+    } finally {
+      setSendPending(false)
+    }
+  }
+
   const tabs = useMemo(
     () => [{ value: "communications", label: "Broadcast", href: communicationsHref(slug) }],
     [slug]
@@ -170,6 +220,16 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
       }
     >
       <div className="min-w-0 space-y-6">
+        <StandardAnnouncementCard
+          eventTitle={event.title}
+          eventStartsAt={event.startsAt}
+          eventSlug={event.slug}
+          audienceTotal={audienceTotal}
+          trimmedSearch={trimmedSearch}
+          canSend={canSend}
+          onSendRequest={() => setSendDialogOpen(true)}
+        />
+
         <AudienceCard
           preview={preview}
           audienceSearch={audienceSearch}
@@ -193,7 +253,148 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
           ticketTypes={ticketTypes}
         />
       </div>
+
+      <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send standard announcement?</DialogTitle>
+            <DialogDescription>
+              This queues “{ANNOUNCEMENT_TITLE}” for {audienceTotal}{" "}
+              booker{audienceTotal === 1 ? "" : "s"}
+              {trimmedSearch ? ` matching “${trimmedSearch}”` : " (all bookers)"}
+              . Delivery is asynchronous and tracked in the broadcasts panel
+              below — it cannot be undone after it is queued.
+            </DialogDescription>
+          </DialogHeader>
+          {sendError && (
+            <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+              {sendError}
+            </p>
+          )}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline" disabled={sendPending}>
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="button" onClick={handleSend} disabled={sendPending}>
+              {sendPending ? (
+                <span className="flex items-center gap-2">
+                  <Skeleton className="size-3 animate-pulse rounded-full" />
+                  Queuing…
+                </span>
+              ) : (
+                "Confirm send"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </WorkspaceFrame>
+  )
+}
+
+function StandardAnnouncementCard(props: {
+  eventTitle: string
+  eventStartsAt: number
+  eventSlug: string
+  audienceTotal: number
+  trimmedSearch: string
+  canSend: boolean
+  onSendRequest: () => void
+}) {
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+
+  // Render the REAL AnnouncementEmail template client-side. The manage URL is
+  // a placeholder for preview only — personalized links are server-derived at
+  // schedule time. No venue/location field exists in the template.
+  useEffect(() => {
+    let cancelled = false
+    setPreviewHtml(null)
+    setPreviewError(null)
+    const origin =
+      typeof window === "undefined"
+        ? "http://localhost:3000"
+        : window.location.origin
+    render(
+      AnnouncementEmail({
+        title: ANNOUNCEMENT_TITLE,
+        message: ANNOUNCEMENT_MESSAGE,
+        eventName: props.eventTitle,
+        eventDate: props.eventStartsAt
+          ? new Date(props.eventStartsAt).toLocaleDateString("en-GB")
+          : "",
+        manageBookingUrl: `${origin}/booking/BK-EXAMPLE/manage`,
+        signupUrl: `${origin}/signup/${props.eventSlug}`,
+        paymentUrl: null,
+        nightBeforeNote: ANNOUNCEMENT_NOTE,
+      })
+    )
+      .then((html) => {
+        if (!cancelled) setPreviewHtml(html)
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setPreviewError(
+            error instanceof Error ? error.message : "Could not render the preview."
+          )
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [props.eventTitle, props.eventStartsAt, props.eventSlug])
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Megaphone className="size-4 text-primary" />
+          Standard announcement
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="overflow-hidden rounded-xl border border-border/60 bg-white">
+          {previewError ? (
+            <p className="p-4 text-sm text-destructive">{previewError}</p>
+          ) : previewHtml ? (
+            <iframe
+              title="Standard announcement email preview"
+              srcDoc={previewHtml}
+              className="h-[520px] w-full bg-white"
+            />
+          ) : (
+            <div className="space-y-3 p-4">
+              <Skeleton className="h-6 w-48" />
+              <Skeleton className="h-28 w-full" />
+              <Skeleton className="h-28 w-full" />
+            </div>
+          )}
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <p className="max-w-md text-sm text-muted-foreground">
+            One fixed announcement: event title, date, and booking/register
+            links come from this event. Sent to exactly the searched audience
+            below after explicit confirmation.
+          </p>
+          <Button
+            type="button"
+            onClick={props.onSendRequest}
+            disabled={!props.canSend}
+          >
+            <Send className="size-4" />
+            Send announcement
+          </Button>
+        </div>
+        {props.audienceTotal === 0 && (
+          <p className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+            No bookers match the current search — nothing can be sent until the
+            audience is non-empty.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

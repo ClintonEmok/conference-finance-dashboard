@@ -47,6 +47,8 @@ type AudienceFilters = {
   to?: number
   hasAccommodationSelection?: boolean
   ticketTypeId?: Id<"ticketTypes">
+  /** Search scope stored by the standard announcement send flow. */
+  search?: string
 }
 
 export type BroadcastHistoryItem = {
@@ -152,6 +154,7 @@ export function describeFilters(
   ticketTypes: Array<{ _id: Id<"ticketTypes">; label: string }> | undefined
 ) {
   const parts: string[] = []
+  if (filters.search) parts.push(`search: “${filters.search}”`)
   if (filters.status) parts.push(`status: ${filters.status}`)
   if (filters.location) parts.push(`location: ${filters.location}`)
   if (filters.from !== undefined)
