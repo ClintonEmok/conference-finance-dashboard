@@ -526,7 +526,6 @@ export declare const api: {
       "public",
       {
         eventDate: string;
-        eventLocation: string;
         eventName: string;
         manageBookingUrl: string;
         message: string;
@@ -617,25 +616,7 @@ export declare const api: {
     scheduleEmailBroadcast: FunctionReference<
       "mutation",
       "public",
-      {
-        authorize: boolean;
-        eventDate: string;
-        eventId: Id<"events">;
-        eventLocation: string;
-        eventName: string;
-        filters: {
-          from?: number;
-          hasAccommodationSelection?: boolean;
-          location?: string;
-          status?: "paid" | "refunded" | "cancelled" | "pending";
-          ticketTypeId?: Id<"ticketTypes">;
-          to?: number;
-        };
-        message: string;
-        nightBeforeNote?: string;
-        paymentUrl?: string;
-        title: string;
-      },
+      { authorize: boolean; eventId: Id<"events">; search?: string },
       {
         broadcastId: Id<"emailBroadcasts">;
         skippedNoEmail: number;

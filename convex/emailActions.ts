@@ -240,7 +240,6 @@ const announcementTestArgs = {
   message: v.string(),
   eventName: v.string(),
   eventDate: v.string(),
-  eventLocation: v.string(),
   manageBookingUrl: v.string(),
   signupUrl: v.string(),
   paymentUrl: v.optional(v.string()),
@@ -259,7 +258,6 @@ export type AnnouncementEmailArgs = {
   message: string
   eventName: string
   eventDate: string
-  eventLocation: string
   manageBookingUrl: string
   signupUrl: string
   paymentUrl?: string
@@ -283,7 +281,6 @@ export async function sendAnnouncementEmail(
         message: args.message,
         eventName: args.eventName,
         eventDate: args.eventDate,
-        eventLocation: args.eventLocation,
         manageBookingUrl: args.manageBookingUrl,
         signupUrl: args.signupUrl,
         paymentUrl: args.paymentUrl || null,
@@ -295,7 +292,7 @@ export async function sendAnnouncementEmail(
 
 ${args.message}
 
-${args.eventName} | ${args.eventDate} | ${args.eventLocation}
+${args.eventName} | ${args.eventDate}
 
 ${
   args.nightBeforeNote ? `Night before: ${args.nightBeforeNote}\n\n` : ""

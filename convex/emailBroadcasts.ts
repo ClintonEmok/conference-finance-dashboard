@@ -10,6 +10,11 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
 import { internal } from "./_generated/api"
+import {
+  ANNOUNCEMENT_MESSAGE,
+  ANNOUNCEMENT_NOTE,
+  ANNOUNCEMENT_TITLE,
+} from "../lib/email/announcement-copy"
 
 export const emailBroadcastStatuses = [
   "queued",
@@ -50,6 +55,8 @@ export type EmailAudienceFilters = {
   to?: number
   hasAccommodationSelection?: boolean
   ticketTypeId?: Id<"ticketTypes">
+  /** Stored search scope used by the standard announcement send flow. */
+  search?: string
 }
 
 export const MAX_BROADCAST_RECIPIENTS = 2000
@@ -343,17 +350,20 @@ export const getBroadcastRecipients = query({
   },
 })
 
+/**
+ * Queues the single fixed standard announcement for a search-scoped audience.
+ * The copy, event title, formatted start date, and signup URL are derived
+ * server-side from the shared announcement-copy module and the event row —
+ * nothing is client-editable. The audience is snapshotted with exactly the
+ * same case-insensitive name/email/booking-reference search semantics as
+ * `previewAudience`, and the stored search scope is persisted on the job for
+ * the delivery-status panel. Delivery stays scheduler-driven
+ * (`processBatch`); this mutation never sends inline.
+ */
 export const scheduleEmailBroadcast = mutation({
   args: {
     eventId: v.id("events"),
-    title: v.string(),
-    message: v.string(),
-    eventName: v.string(),
-    eventDate: v.string(),
-    eventLocation: v.string(),
-    paymentUrl: v.optional(v.string()),
-    nightBeforeNote: v.optional(v.string()),
-    filters: emailAudienceFiltersValidator,
+    search: v.optional(v.string()),
     authorize: v.boolean(),
   },
   returns: v.object({
@@ -373,51 +383,62 @@ export const scheduleEmailBroadcast = mutation({
     if (!args.authorize) {
       throw new Error("Broadcast requires explicit authorization")
     }
-    const title = args.title.trim()
-    const message = args.message.trim()
-    if (!title || !message) {
-      throw new Error("Title and message are required")
-    }
 
+    // Same search semantics as previewAudience: trim, lowercase, substring
+    // match against booker name, email, or booking reference over the whole
+    // computed audience (not just a preview page).
+    const query = (args.search ?? "").trim().toLowerCase()
     const { recipients, skippedNoEmail, skippedNoRef } = await computeAudience(
       ctx,
       args.eventId,
-      args.filters
+      {}
     )
-    if (recipients.length === 0) {
-      throw new Error("No bookers match the selected audience filters")
+    const matched = query
+      ? recipients.filter(
+          (recipient) =>
+            (recipient.bookerName ?? "").toLowerCase().includes(query) ||
+            recipient.bookerEmail.toLowerCase().includes(query) ||
+            (recipient.bookingRef ?? "").toLowerCase().includes(query)
+        )
+      : recipients
+    if (matched.length === 0) {
+      throw new Error("No bookers match the selected audience")
     }
-    if (recipients.length > MAX_BROADCAST_RECIPIENTS) {
+    if (matched.length > MAX_BROADCAST_RECIPIENTS) {
       throw new Error(
-        `Audience too large (${recipients.length}). Maximum is ${MAX_BROADCAST_RECIPIENTS}.`
+        `Audience too large (${matched.length}). Maximum is ${MAX_BROADCAST_RECIPIENTS}.`
       )
     }
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
     const baseUrl = appUrl.replace(/\/+$/, "")
     const signupUrl = `${baseUrl}/signup/${encodeURIComponent(event.slug)}`
+    const eventDate = event.startsAt
+      ? new Date(event.startsAt).toLocaleDateString("en-GB")
+      : ""
 
     const broadcastId = await ctx.db.insert("emailBroadcasts", {
       eventId: args.eventId,
       status: "queued",
-      title,
-      message,
-      eventName: args.eventName,
-      eventDate: args.eventDate,
-      eventLocation: args.eventLocation,
-      paymentUrl: args.paymentUrl,
-      nightBeforeNote: args.nightBeforeNote,
+      title: ANNOUNCEMENT_TITLE,
+      message: ANNOUNCEMENT_MESSAGE,
+      eventName: event.title,
+      eventDate,
+      // The template no longer requires or renders a venue/location; the
+      // field stays on the stored row for compatibility with older jobs.
+      eventLocation: "",
+      nightBeforeNote: ANNOUNCEMENT_NOTE,
       signupUrl,
-      filters: args.filters,
-      totalRecipients: recipients.length,
+      filters: { search: query },
+      totalRecipients: matched.length,
       sentCount: 0,
       failedCount: 0,
-      pendingCount: recipients.length,
+      pendingCount: matched.length,
       createdBy: identity.email ?? identity.subject,
       createdAt: Date.now(),
     })
 
-    for (const recipient of recipients) {
+    for (const recipient of matched) {
       await ctx.db.insert("emailBroadcastRecipients", {
         broadcastId,
         orderId: recipient.orderId,
@@ -440,7 +461,7 @@ export const scheduleEmailBroadcast = mutation({
 
     return {
       broadcastId,
-      totalRecipients: recipients.length,
+      totalRecipients: matched.length,
       skippedNoEmail,
       skippedNoRef,
     }

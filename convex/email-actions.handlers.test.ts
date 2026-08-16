@@ -40,7 +40,6 @@ const announcementTestArgs = {
   message: "Test message body",
   eventName: "Test Event",
   eventDate: "2026-01-01",
-  eventLocation: "Amsterdam",
   manageBookingUrl: "http://localhost:3000/booking/BK-TEST-001/manage",
   signupUrl: "http://localhost:3000/signup/test-event",
 }

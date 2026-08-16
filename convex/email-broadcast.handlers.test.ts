@@ -8,6 +8,11 @@ import type { GenericDataModel } from "convex/server"
 
 import { api, internal } from "./_generated/api"
 import schema from "./schema"
+import {
+  ANNOUNCEMENT_MESSAGE,
+  ANNOUNCEMENT_NOTE,
+  ANNOUNCEMENT_TITLE,
+} from "../lib/email/announcement-copy"
 
 const modules = import.meta.glob("./**/*.ts")
 
@@ -130,12 +135,6 @@ test("scheduleEmailBroadcast rejects anonymous callers", async () => {
   await expect(
     t.mutation(api.emailBroadcasts.scheduleEmailBroadcast, {
       eventId: eventId as never,
-      title: "Announcement",
-      message: "Body",
-      eventName: "Test Event",
-      eventDate: "2026-10-23",
-      eventLocation: "Eindhoven",
-      filters: {},
       authorize: true,
     })
   ).rejects.toThrow("Unauthorized")
@@ -566,12 +565,6 @@ test("scheduleEmailBroadcast requires explicit authorization", async () => {
   await expect(
     t.mutation(api.emailBroadcasts.scheduleEmailBroadcast, {
       eventId: eventId as never,
-      title: "Announcement",
-      message: "Body",
-      eventName: "Test Event",
-      eventDate: "2026-10-23",
-      eventLocation: "Eindhoven",
-      filters: {},
       authorize: false,
     })
   ).rejects.toThrow("explicit authorization")
@@ -583,12 +576,6 @@ test("scheduleEmailBroadcast rejects an empty audience", async () => {
   await expect(
     t.mutation(api.emailBroadcasts.scheduleEmailBroadcast, {
       eventId: eventId as never,
-      title: "Announcement",
-      message: "Body",
-      eventName: "Test Event",
-      eventDate: "2026-10-23",
-      eventLocation: "Eindhoven",
-      filters: {},
       authorize: true,
     })
   ).rejects.toThrow("No bookers match")
@@ -604,14 +591,6 @@ test("scheduleEmailBroadcast creates a queued job and pending recipients without
     api.emailBroadcasts.scheduleEmailBroadcast,
     {
       eventId: eventId as never,
-      title: "New Options Available",
-      message: "We have added new options.",
-      eventName: "Test Event",
-      eventDate: "2026-10-23",
-      eventLocation: "Eindhoven",
-      paymentUrl: "https://tikkie.me/pay/abc",
-      nightBeforeNote: "Extra night available.",
-      filters: { status: "paid" },
       authorize: true,
     }
   )
@@ -627,7 +606,7 @@ test("scheduleEmailBroadcast creates a queued job and pending recipients without
   expect(job!.sentCount).toBe(0)
   expect(job!.failedCount).toBe(0)
   expect(job!.pendingCount).toBe(2)
-  expect(job!.filters).toEqual({ status: "paid" })
+  expect(job!.filters).toEqual({ search: "" })
   expect(job!.signupUrl).toContain("/signup/test-event")
 
   const recipients = await t.run(async (ctx) => {
@@ -646,6 +625,77 @@ test("scheduleEmailBroadcast creates a queued job and pending recipients without
   }
 })
 
+test("scheduleEmailBroadcast derives the fixed standard copy and event metadata server-side", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await seedEvent(t)
+  await seedBooker(t, eventId, { email: "a@example.com", ref: "BK-A" })
+
+  const { broadcastId } = await t.mutation(
+    api.emailBroadcasts.scheduleEmailBroadcast,
+    {
+      eventId: eventId as never,
+      authorize: true,
+    }
+  )
+
+  const job = await t.run(async (ctx) => {
+    return await ctx.db.get("emailBroadcasts", broadcastId as never)
+  })
+  // Fixed standard announcement copy — nothing client-editable.
+  expect(job!.title).toBe(ANNOUNCEMENT_TITLE)
+  expect(job!.message).toBe(ANNOUNCEMENT_MESSAGE)
+  expect(job!.nightBeforeNote).toBe(ANNOUNCEMENT_NOTE)
+  // Event-derived metadata, formatted on the server.
+  expect(job!.eventName).toBe("Test Event")
+  expect(job!.eventDate).toBe(
+    new Date(Date.UTC(2026, 9, 23)).toLocaleDateString("en-GB")
+  )
+  expect(job!.signupUrl).toContain("/signup/test-event")
+  // The template no longer requires or renders a venue/location; the stored
+  // field stays empty for backward compatibility with older rows.
+  expect(job!.eventLocation).toBe("")
+  // Queued-only: nothing is sent inline by the mutation.
+  expect(job!.status).toBe("queued")
+  expect(job!.sentCount).toBe(0)
+})
+
+test("scheduleEmailBroadcast snapshots exactly the searched audience", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await seedEvent(t)
+  await seedBooker(t, eventId, { email: "alice@example.com", ref: "BK-ALICE" })
+  await seedBooker(t, eventId, { email: "bob@example.com", ref: "BK-BOB" })
+
+  const { broadcastId, totalRecipients } = await t.mutation(
+    api.emailBroadcasts.scheduleEmailBroadcast,
+    {
+      eventId: eventId as never,
+      search: "ALICE@",
+      authorize: true,
+    }
+  )
+  expect(totalRecipients).toBe(1)
+
+  const job = await t.run(async (ctx) => {
+    return await ctx.db.get("emailBroadcasts", broadcastId as never)
+  })
+  // The stored search scope explains the job in the delivery-status panel.
+  expect(job!.filters).toEqual({ search: "alice@" })
+
+  const recipients = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("emailBroadcastRecipients")
+      .withIndex("by_broadcastId", (q) =>
+        q.eq("broadcastId", broadcastId as never)
+      )
+      .collect()
+  })
+  expect(recipients).toHaveLength(1)
+  expect(recipients[0].to).toBe("alice@example.com")
+  // Personalized manage-booking link for the matched booking reference.
+  expect(recipients[0].manageBookingUrl).toContain("/booking/BK-ALICE/manage")
+  expect(recipients[0].bookingRef).toBe("BK-ALICE")
+})
+
 test("scheduleEmailBroadcast rejects integration-source events", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const eventId = await seedEvent(t)
@@ -658,12 +708,6 @@ test("scheduleEmailBroadcast rejects integration-source events", async () => {
   await expect(
     t.mutation(api.emailBroadcasts.scheduleEmailBroadcast, {
       eventId: eventId as never,
-      title: "Announcement",
-      message: "Body",
-      eventName: "Test Event",
-      eventDate: "2026-10-23",
-      eventLocation: "Eindhoven",
-      filters: {},
       authorize: true,
     })
   ).rejects.toThrow("internal events")
@@ -683,12 +727,6 @@ test("processBatch drains recipients, records failures, counters, and finalizes"
     api.emailBroadcasts.scheduleEmailBroadcast,
     {
       eventId: eventId as never,
-      title: "Announcement",
-      message: "Body",
-      eventName: "Test Event",
-      eventDate: "2026-10-23",
-      eventLocation: "Eindhoven",
-      filters: {},
       authorize: true,
     }
   )
@@ -744,12 +782,6 @@ test("cancelling a queued broadcast stops the loop without sending", async () =>
     api.emailBroadcasts.scheduleEmailBroadcast,
     {
       eventId: eventId as never,
-      title: "Announcement",
-      message: "Body",
-      eventName: "Test Event",
-      eventDate: "2026-10-23",
-      eventLocation: "Eindhoven",
-      filters: {},
       authorize: true,
     }
   )
@@ -801,12 +833,6 @@ test("retryFailedEmailBroadcast requeues only failed recipients and increments a
     api.emailBroadcasts.scheduleEmailBroadcast,
     {
       eventId: eventId as never,
-      title: "Announcement",
-      message: "Body",
-      eventName: "Test Event",
-      eventDate: "2026-10-23",
-      eventLocation: "Eindhoven",
-      filters: {},
       authorize: true,
     }
   )
@@ -851,12 +877,6 @@ test("getBroadcastHistory and getBroadcastById surface the job", async () => {
     api.emailBroadcasts.scheduleEmailBroadcast,
     {
       eventId: eventId as never,
-      title: "New Options Available",
-      message: "Body",
-      eventName: "Test Event",
-      eventDate: "2026-10-23",
-      eventLocation: "Eindhoven",
-      filters: {},
       authorize: true,
     }
   )
@@ -872,6 +892,6 @@ test("getBroadcastHistory and getBroadcastById surface the job", async () => {
   const job = await t.query(api.emailBroadcasts.getBroadcastById, {
     broadcastId: broadcastId as never,
   })
-  expect(job!.title).toBe("New Options Available")
-  expect(job!.filters).toEqual({})
+  expect(job!.title).toBe(ANNOUNCEMENT_TITLE)
+  expect(job!.filters).toEqual({ search: "" })
 })

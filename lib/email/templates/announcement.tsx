@@ -18,11 +18,10 @@ export interface AnnouncementEmailProps {
   message: string
   eventName: string
   eventDate: string
-  eventLocation: string
   manageBookingUrl: string
   signupUrl: string
-  paymentUrl: string | null
-  nightBeforeNote: string | null
+  paymentUrl?: string | null
+  nightBeforeNote?: string | null
 }
 
 export default function AnnouncementEmail({
@@ -30,7 +29,6 @@ export default function AnnouncementEmail({
   message,
   eventName,
   eventDate,
-  eventLocation,
   manageBookingUrl,
   signupUrl,
   paymentUrl,
@@ -184,15 +182,6 @@ export default function AnnouncementEmail({
               }}
             >
               <strong>Date:</strong> {eventDate}
-            </Text>
-            <Text
-              style={{
-                margin: "8px 0 0",
-                color: "#334155",
-                fontSize: "14px",
-              }}
-            >
-              <strong>Location:</strong> {eventLocation}
             </Text>
             </Section>
           </Section>

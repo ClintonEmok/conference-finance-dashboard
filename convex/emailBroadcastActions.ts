@@ -61,7 +61,6 @@ export const processBatch = internalAction({
         message: job.message,
         eventName: job.eventName,
         eventDate: job.eventDate,
-        eventLocation: job.eventLocation,
         manageBookingUrl: recipient.manageBookingUrl ?? job.signupUrl,
         signupUrl: job.signupUrl,
         paymentUrl: job.paymentUrl,
