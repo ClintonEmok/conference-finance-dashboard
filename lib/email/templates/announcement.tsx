@@ -217,8 +217,8 @@ export default function AnnouncementEmail({
           {paymentUrl && (
             <Section
               style={{
-                margin: "24px 28px 0",
-                padding: 0,
+                margin: 0,
+                padding: "24px 28px 0",
                 textAlign: "center",
               }}
             >
@@ -247,8 +247,8 @@ export default function AnnouncementEmail({
 
           <Section
             style={{
-              margin: "24px 28px 0",
-              padding: 0,
+              margin: 0,
+              padding: "24px 28px 0",
               textAlign: "center",
             }}
           >
@@ -288,8 +288,8 @@ export default function AnnouncementEmail({
 
           <Section
             style={{
-              margin: "24px 28px 0",
-              padding: 0,
+              margin: 0,
+              padding: "24px 28px 0",
               textAlign: "center",
             }}
           >

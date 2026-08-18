@@ -38,6 +38,8 @@ describe("announcement email (RUN-02)", () => {
     expect(html).toContain("email-callout")
     expect(html).toContain("width:100%")
     expect(html).toContain("box-sizing:border-box")
+    expect(html).toContain("padding:24px 28px 0")
+    expect(html).toContain("margin:0")
   })
 
   it("renders the shared standard announcement copy without a venue/location", async () => {
