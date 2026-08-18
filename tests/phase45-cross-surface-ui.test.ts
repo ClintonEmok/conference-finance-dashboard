@@ -76,6 +76,8 @@ describe("Phase 45 cross-surface UI source audit", () => {
     // client category picker or any physical room detail.
     expect(step).toMatch(/occupancy|nightBeforeLevel|optionSelections/)
     expect(step).not.toMatch(/name="category-|ageBandCode|upgradeSelected|cotSelected/)
+    expect(step).toContain("OPTION_DESCRIPTIONS")
+    expect(step).toContain("View the hotel&apos;s room descriptions and photos")
   })
 
   test("Allocation renders server payment state as text-plus-icon, never derives it", () => {

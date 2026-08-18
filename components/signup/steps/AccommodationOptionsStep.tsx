@@ -41,6 +41,12 @@ function formatStayDate(epoch: number, timeZone: string): string {
   }).format(new Date(epoch))
 }
 
+const OPTION_DESCRIPTIONS: Record<string, string> = {
+  superior_upgrade:
+    "Upgrade your included Standard room to the hotel's Superior room category, with improved comfort and amenities. This applies to the included stay and is charged per person, per night.",
+  cot: "Add a cot for a child staying in the room. Cots are charged per cot, per night.",
+}
+
 /**
  * The independent night-before choice. The buyer never derives money: the
  * per-night display rates come from the server catalog (`nightBefore`). The
@@ -202,11 +208,20 @@ export function AccommodationOptionsStep({
                   Included accommodation (Standard)
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                   The included stay is always a Standard room. Your ticket sets
-                   the occupancy; you only choose add-ons and whether you want
-                   the night before.
+                  Your ticket includes a Standard room. Superior is the hotel&apos;s
+                  upgraded room category; choose the upgrade below if you prefer
+                  that room type. Your ticket sets the occupancy, and you can
+                  choose add-ons or a night-before stay separately.
                   Final room placement is confirmed by the organizer.
                 </p>
+                <a
+                  href="https://www.nh-hotels.com/nl/hotel/nh-eindhoven-conference-centre-koningshof/kamers"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-block text-sm font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  View the hotel&apos;s room descriptions and photos
+                </a>
               </div>
               <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                 <div className="flex items-center justify-between gap-2">
@@ -336,10 +351,15 @@ export function AccommodationOptionsStep({
                           >
                           <div className="flex items-start justify-between gap-2">
                             <span className="min-w-0">
-                              <span className="block text-sm font-medium text-foreground">
-                                {option.label}
-                              </span>
-                              <span className="block text-xs text-muted-foreground">
+                               <span className="block text-sm font-medium text-foreground">
+                                 {option.label}
+                               </span>
+                               {OPTION_DESCRIPTIONS[option.optionKey] ? (
+                                 <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                                   {OPTION_DESCRIPTIONS[option.optionKey]}
+                                 </span>
+                               ) : null}
+                               <span className="block text-xs text-muted-foreground">
                                 {isIncludedStayUpgrade
                                   ? `${formatPrice(
                                       option.priceMinor,
