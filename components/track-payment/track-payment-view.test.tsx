@@ -663,6 +663,9 @@ describe("deep-link and single-shell source contracts (Phase 45)", () => {
     // The token handed to the view is consumed locally (edit-link prefill),
     // never serialized into query data or rendered twice.
     expect(view).toContain("initialEditToken")
+    // The purchaser card stays in normal flow so it cannot overlap sidebar
+    // content while the long booking page scrolls.
+    expect(view).not.toContain("sticky top-8")
   })
 
   it("confirmation email links prefill the booking reference and verify ownership by booking email", () => {

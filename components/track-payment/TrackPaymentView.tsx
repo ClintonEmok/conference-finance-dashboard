@@ -405,7 +405,7 @@ export function TrackPaymentView({
                 </div>
 
                 <div className="space-y-6 lg:col-span-1">
-                  <article className="sticky top-8 rounded-3xl border border-border/40 bg-card/40 p-6 shadow-sm backdrop-blur-xl transition-colors hover:border-border/80 sm:p-8">
+                  <article className="self-start rounded-3xl border border-border/40 bg-card/40 p-6 shadow-sm backdrop-blur-xl transition-colors hover:border-border/80 sm:p-8">
                     <h3 className="mb-6 text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase">
                       Purchaser
                     </h3>
