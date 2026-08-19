@@ -99,7 +99,9 @@ export async function fetchTikkiePaymentsForLink(link: {
 
   return {
     payments,
-    checkedAt: Date.now(),
+    // The requested window ends at pollStartedAt. Persisting a later time
+    // could skip payments created while this action was fetching pages.
+    checkedAt: pollStartedAt,
   }
 }
 

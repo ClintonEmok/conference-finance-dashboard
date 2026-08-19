@@ -2,7 +2,7 @@ import { query, mutation, internalMutation } from "./_generated/server"
 import { v } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import { requireIdentity } from "./auth"
-import type { Id } from "./_generated/dataModel"
+import type { Doc, Id } from "./_generated/dataModel"
 import type { MutationCtx } from "./_generated/server"
 import {
   evaluateOrderPaymentMatch,
@@ -771,18 +771,42 @@ export const getPaymentSummary = query({
   args: { orderId: v.string() },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    // Bounded: indexed by orderId instead of full table scan
-    const orderPayments = await ctx.db
-      .query("payments")
-      .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
-      .take(100)
+    const requestedOrderId = args.orderId.trim()
+    const normalizedOrderId = ctx.db.normalizeId("orders", requestedOrderId)
+    const order = normalizedOrderId
+      ? await ctx.db.get("orders", normalizedOrderId)
+      : await ctx.db
+          .query("orders")
+          .withIndex("by_providerOrderId", (q) =>
+            q.eq("providerOrderId", requestedOrderId)
+          )
+          .first()
+
+    // Payment assignments historically used both the canonical Convex order
+    // id and the provider order id. Read both indexed aliases and deduplicate
+    // by payment id so the order detail UI reports the complete payment set.
+    const paymentAliases = new Set<string>([requestedOrderId])
+    if (order) {
+      paymentAliases.add(String(order._id))
+      if (order.providerOrderId?.trim()) {
+        paymentAliases.add(order.providerOrderId.trim())
+      }
+    }
+
+    const paymentsById = new Map<string, Doc<"payments">>()
+    for (const alias of paymentAliases) {
+      for await (const payment of ctx.db
+        .query("payments")
+        .withIndex("orderId", (q) => q.eq("orderId", alias))) {
+        paymentsById.set(String(payment._id), payment)
+      }
+    }
+    const orderPayments = [...paymentsById.values()]
 
     const totalPaid = orderPayments
       .filter((p) => isOrderAppliedPayment(p))
       .reduce((sum, p) => sum + p.amountMinor, 0)
 
-    const orderId = ctx.db.normalizeId("orders", args.orderId)
-    const order = orderId ? await ctx.db.get("orders", orderId) : null
     const amountDueBreakdownByOrderId = order
       ? await loadOrderAmountDueBreakdowns(ctx, [order])
       : new Map()

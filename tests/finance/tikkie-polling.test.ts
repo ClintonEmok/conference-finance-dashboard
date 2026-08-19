@@ -5,6 +5,7 @@ import { fetchTikkiePaymentsForLink } from "@/convex/autoSync"
 describe("Tikkie polling", () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.useRealTimers()
   })
 
   it("uses the checkpoint window and consumes every API page", async () => {
@@ -68,5 +69,30 @@ describe("Tikkie polling", () => {
     expect(result.payments).toHaveLength(1)
     expect(requests).toHaveLength(1)
     expect(requests[0]?.searchParams.has("fromDateTime")).toBe(false)
+  })
+
+  it("checkpoints the requested window boundary, not post-fetch completion", async () => {
+    const pollStartedAt = new Date("2026-08-20T10:00:00.000Z").getTime()
+    vi.useFakeTimers()
+    vi.setSystemTime(pollStartedAt)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        vi.setSystemTime(pollStartedAt + 10 * 60 * 1000)
+        return {
+          ok: true,
+          json: async () => ({
+            payments: [{ paymentToken: "payment-1" }],
+            totalElementCount: 1,
+          }),
+        } as Response
+      })
+    )
+
+    const result = await fetchTikkiePaymentsForLink({
+      paymentRequestToken: "request-3",
+    })
+
+    expect(result.checkedAt).toBe(pollStartedAt)
   })
 })
