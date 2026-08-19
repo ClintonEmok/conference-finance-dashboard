@@ -89,7 +89,7 @@ export function buildSubmissionBodyFromDraft(
         return {
           attendeeKey: attendee.attendeeKey,
           occupancy,
-          ...(selection.nightBeforeLevel !== undefined
+          ...(selection?.nightBeforeLevel !== undefined
             ? { nightBeforeLevel: selection.nightBeforeLevel }
             : {}),
           optionSelections: selection?.optionSelections ?? [],

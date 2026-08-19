@@ -72,6 +72,30 @@ afterEach(() => {
 })
 
 describe("signup-flow submission client", () => {
+  it("omits night-before fields when a ticket supplies occupancy without a draft selection", () => {
+    const body = buildSubmissionBodyFromDraft({
+      ...draftFixture,
+      ticketSelections: draftFixture.ticketSelections.map((selection) => ({
+        ...selection,
+        occupancy: "shared",
+      })),
+      accommodationSelections: {},
+    })
+
+    expect(body.accommodationSelections).toEqual([
+      {
+        attendeeKey: "ticket_1-1",
+        occupancy: "shared",
+        optionSelections: [],
+      },
+      {
+        attendeeKey: "ticket_1-2",
+        occupancy: "shared",
+        optionSelections: [],
+      },
+    ])
+  })
+
   it("returns successful submit references", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(
