@@ -990,6 +990,12 @@ export type DataModel = {
         "_creationTime",
       ];
       by_donationKind_and_paidAt: ["donationKind", "paidAt", "_creationTime"];
+      by_eventId_and_status_and_source: [
+        "eventId",
+        "status",
+        "source",
+        "_creationTime",
+      ];
       eventId: ["eventId", "_creationTime"];
       orderId: ["orderId", "_creationTime"];
       paidAt: ["paidAt", "_creationTime"];

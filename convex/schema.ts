@@ -827,6 +827,11 @@ export default defineSchema({
     .index("eventId", ["eventId"])
     .index("source_sourceId", ["source", "sourceId"])
     .index("status", ["status"])
+    .index("by_eventId_and_status_and_source", [
+      "eventId",
+      "status",
+      "source",
+    ])
     .index("by_donationKind_and_paidAt", ["donationKind", "paidAt"])
     .index("by_donationKind_and_eventId_and_paidAt", [
       "donationKind",

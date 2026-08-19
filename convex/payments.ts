@@ -20,6 +20,30 @@ import {
 } from "../lib/types/payment"
 import { loadOrderAmountDueBreakdowns } from "./finance"
 
+type TikkiePaymentUpsert = {
+  eventId?: Id<"events">
+  payerName: string
+  payerAccountNumber?: string
+  amountMinor: number
+  paidAt: number
+  providerPayload?: unknown
+}
+
+type TikkiePaymentPatch = Partial<TikkiePaymentUpsert>
+
+function buildTikkiePaymentPatch(existing: TikkiePaymentUpsert, next: TikkiePaymentUpsert) {
+  const updates: TikkiePaymentPatch = {}
+  if (existing.payerName !== next.payerName) updates.payerName = next.payerName
+  if (next.payerAccountNumber !== undefined && existing.payerAccountNumber !== next.payerAccountNumber) {
+    updates.payerAccountNumber = next.payerAccountNumber
+  }
+  if (!existing.eventId && next.eventId) updates.eventId = next.eventId
+  if (existing.amountMinor !== next.amountMinor) updates.amountMinor = next.amountMinor
+  if (existing.paidAt !== next.paidAt) updates.paidAt = next.paidAt
+  if (next.providerPayload !== undefined) updates.providerPayload = next.providerPayload
+  return updates
+}
+
 // ---------------------------------------------------------------------------
 // Shared cleanup helper for legacy Tikkie payment records.
 // Both the public and internal cleanup mutations delegate to this function.
@@ -306,13 +330,9 @@ export const upsertTikkiePayment = mutation({
       .first()
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
-        payerName: args.payerName,
-        payerAccountNumber: args.payerAccountNumber,
-        amountMinor: args.amountMinor,
-        paidAt: args.paidAt,
-        providerPayload: args.providerPayload,
-      })
+      const updates = buildTikkiePaymentPatch(existing, args)
+      if (Object.keys(updates).length === 0) return { id: existing._id, inserted: false, updated: false }
+      await ctx.db.patch(existing._id, updates)
 
       return { id: existing._id, inserted: false, updated: true }
     }
@@ -602,9 +622,12 @@ export const autoMatchPayments = mutation({
     )
 
     // Bounded: capped batch for auto-match
-    const payments = await ctx.db.query("payments").take(1000)
-
-    const unassignedPayments = payments.filter((p) => p.status === "unassigned")
+    const eventTikkiePayments = await ctx.db.query("payments")
+      .withIndex("by_eventId_and_status_and_source", (q) => q.eq("eventId", args.eventId as Id<"events">).eq("status", "unassigned").eq("source", "tikkie"))
+      .take(1000)
+    const bankPayments = (await ctx.db.query("payments").withIndex("status", (q) => q.eq("status", "unassigned")).take(1000))
+      .filter((payment) => payment.source === "bank_transfer")
+    const unassignedPayments = [...eventTikkiePayments, ...bankPayments]
     const matched: string[] = []
 
     const orderIds = orders.map((o) => o._id)
@@ -624,8 +647,9 @@ export const autoMatchPayments = mutation({
       }
     }
 
-    const orderMatchCandidates: OrderPaymentMatchCandidate[] = orders.map(
-      (order) => ({
+    const orderMatchCandidates: OrderPaymentMatchCandidate[] = await Promise.all(orders.map(async (order) => {
+      const priorPayments = await ctx.db.query("payments").withIndex("orderId", (q) => q.eq("orderId", String(order._id))).take(100)
+      return {
         orderId: String(order._id),
         bookerName: order.bookerName ?? null,
         attendeeNames: attendeesByOrder.get(String(order._id)) ?? [],
@@ -633,14 +657,16 @@ export const autoMatchPayments = mutation({
           amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
           order.totalAmountMinor ??
           0,
-      })
-    )
+        payerAccountNumbers: priorPayments.filter((payment) => payment.source === "tikkie" && payment.payerAccountNumber).map((payment) => payment.payerAccountNumber as string),
+      }
+    }))
 
     for (const payment of unassignedPayments) {
       const match = evaluateOrderPaymentMatch(
         payment.payerName,
         payment.amountMinor,
-        orderMatchCandidates
+        orderMatchCandidates,
+        payment.payerAccountNumber
       )
 
       if (match?.status === "auto_matched") {
@@ -711,6 +737,7 @@ export const getPaymentSummary = query({
 export const internalUpsertTikkiePayment = internalMutation({
   args: {
     sourceId: v.string(),
+    eventId: v.optional(v.string()),
     payerName: v.string(),
     payerAccountNumber: v.optional(v.string()),
     amountMinor: v.number(),
@@ -718,6 +745,7 @@ export const internalUpsertTikkiePayment = internalMutation({
     providerPayload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    const eventId = args.eventId ? ctx.db.normalizeId("events", args.eventId) ?? undefined : undefined
     const existing = await ctx.db
       .query("payments")
       .withIndex("source_sourceId", (q) =>
@@ -726,19 +754,16 @@ export const internalUpsertTikkiePayment = internalMutation({
       .first()
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
-        payerName: args.payerName,
-        payerAccountNumber: args.payerAccountNumber,
-        amountMinor: args.amountMinor,
-        paidAt: args.paidAt,
-        providerPayload: args.providerPayload,
-      })
+      const updates = buildTikkiePaymentPatch(existing, { ...args, eventId })
+      if (Object.keys(updates).length === 0) return { id: existing._id, inserted: false, updated: false }
+      await ctx.db.patch(existing._id, updates)
       return { id: existing._id, inserted: false, updated: true }
     }
 
     const id = await ctx.db.insert("payments", {
       source: "tikkie",
       sourceId: args.sourceId,
+      eventId,
       payerName: args.payerName,
       payerAccountNumber: args.payerAccountNumber,
       amountMinor: args.amountMinor,

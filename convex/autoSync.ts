@@ -42,38 +42,51 @@ async function tikkieFetch<T>(
 async function autoMatchUnassignedPayments(ctx: {
   runQuery: Function
   runMutation: Function
-}): Promise<number> {
-  // Query unassigned payments, paid orders, and attendees for matching
-  const unassignedPayments = await ctx.runQuery(
-    internal.sync.internalGetUnassignedPayments,
-    {}
-  )
-  const paidOrders = await ctx.runQuery(internal.sync.internalGetPaidOrders, {})
+}, eventIds: string[]): Promise<number> {
+  const scopedEventIds = [...new Set(eventIds)].filter(Boolean)
+  if (scopedEventIds.length === 0) return 0
+  const payments = await ctx.runQuery(internal.sync.internalGetUnassignedPayments, {
+    eventIds: scopedEventIds,
+  })
+  if (payments.length === 0) return 0
+  const paidOrders = await ctx.runQuery(internal.sync.internalGetPaidOrders, {
+    eventIds: scopedEventIds,
+  })
   const attendeesByOrder: Record<string, string[]> = await ctx.runQuery(
     internal.sync.internalGetAttendeesByOrder,
-    {}
+    { orderIds: paidOrders.map((order: { _id: string }) => order._id) }
   )
 
+  const candidatesByEvent = new Map<string, OrderPaymentMatchCandidate[]>()
   const orderMatchCandidates: OrderPaymentMatchCandidate[] = paidOrders.map(
     (order: {
       _id: string
+      eventId?: string
       bookerName: string | null
       amountDueMinor?: number | null
       totalAmountMinor?: number | null
+      payerAccountNumbers?: string[]
     }) => ({
       orderId: order._id,
       bookerName: order.bookerName,
       attendeeNames: attendeesByOrder[order._id] ?? [],
       amountDueMinor: order.amountDueMinor ?? order.totalAmountMinor ?? 0,
+      payerAccountNumbers: order.payerAccountNumbers ?? [],
     })
   )
+  for (const [index, order] of paidOrders.entries()) {
+    const candidates = candidatesByEvent.get(String(order.eventId)) ?? []
+    candidates.push(orderMatchCandidates[index])
+    candidatesByEvent.set(String(order.eventId), candidates)
+  }
 
   let matched = 0
-  for (const payment of unassignedPayments) {
+  for (const payment of payments) {
     const match = evaluateOrderPaymentMatch(
       payment.payerName,
       payment.amountMinor,
-      orderMatchCandidates
+      candidatesByEvent.get(String(payment.eventId)) ?? [],
+      payment.payerAccountNumber
     )
 
     if (match?.status === "auto_matched") {
@@ -84,11 +97,6 @@ async function autoMatchUnassignedPayments(ctx: {
         matchedBy: "auto",
       })
       matched++
-      continue
-    }
-
-    if (match?.status === "ambiguous") {
-      continue
     }
   }
   return matched
@@ -208,6 +216,7 @@ async function runTikkieAutoSync(ctx: {
             internal.payments.internalUpsertTikkiePayment,
             {
               sourceId,
+              eventId: link.eventId,
               payerName,
               payerAccountNumber,
               amountMinor,
@@ -231,7 +240,12 @@ async function runTikkieAutoSync(ctx: {
     }
 
     // 4. Auto-match unassigned payments
-    matched = await autoMatchUnassignedPayments(ctx)
+    matched = await autoMatchUnassignedPayments(
+      ctx,
+      paymentLinks
+        .map((link: { eventId?: string }) => link.eventId)
+        .filter((eventId: string | undefined): eventId is string => Boolean(eventId))
+    )
 
     console.log("Tikkie auto-sync completed", {
       status: errors.length > 0 ? "partial" : "success",

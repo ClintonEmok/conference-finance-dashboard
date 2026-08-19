@@ -2336,6 +2336,7 @@ export declare const internal: {
       "internal",
       {
         amountMinor: number;
+        eventId?: string;
         paidAt: number;
         payerAccountNumber?: string;
         payerName: string;
@@ -2410,7 +2411,12 @@ export declare const internal: {
         {},
         any
       >;
-      internalGetPaidOrders: FunctionReference<"query", "internal", {}, any>;
+      internalGetPaidOrders: FunctionReference<
+        "query",
+        "internal",
+        { eventIds: Array<Id<"events">> },
+        any
+      >;
       internalGetTikkiePaymentLinks: FunctionReference<
         "query",
         "internal",
@@ -2420,7 +2426,7 @@ export declare const internal: {
       internalGetUnassignedPayments: FunctionReference<
         "query",
         "internal",
-        {},
+        { eventIds: Array<Id<"events">> },
         any
       >;
     };

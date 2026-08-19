@@ -7,6 +7,11 @@ export type OrderPaymentMatchCandidate = {
   bookerName?: string | null
   attendeeNames?: string[]
   amountDueMinor?: number | null
+  payerAccountNumbers?: string[]
+}
+
+function normalizeAccountNumber(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "")
 }
 
 export type BookerOnlyMatchCandidate = {
@@ -170,7 +175,8 @@ export function selectBestBookerMatch(
 export function evaluateOrderPaymentMatch(
   payerName: string,
   amountMinor: number,
-  candidates: OrderPaymentMatchCandidate[]
+  candidates: OrderPaymentMatchCandidate[],
+  payerAccountNumber?: string | null
 ): PaymentMatchDecision | null {
   const scoredCandidates = candidates
     .map((candidate) => {
@@ -210,6 +216,31 @@ export function evaluateOrderPaymentMatch(
   )
 
   const best = scoredCandidates[0]
+
+  // An account is only a tie-breaker between otherwise strong, amount-compatible
+  // booker candidates. It cannot create confidence, bypass amount safety, or
+  // resolve a shared account.
+  const normalizedPayerAccount = normalizeAccountNumber(payerAccountNumber)
+  if (
+    normalizedPayerAccount &&
+    best.bookerScore >= BOOKER_AUTO_THRESHOLD &&
+    best.amountCompatible
+  ) {
+    const competingStrong = scoredCandidates.filter(
+      (candidate) =>
+        candidate.bookerScore >= BOOKER_AUTO_THRESHOLD &&
+        candidate.bookerScore >= best.bookerScore - 5 &&
+        candidate.amountCompatible
+    )
+    const accountMatches = competingStrong.filter((candidate) =>
+      (candidate.payerAccountNumbers ?? []).some(
+        (account) => normalizeAccountNumber(account) === normalizedPayerAccount
+      )
+    )
+    if (competingStrong.length > 1 && accountMatches.length === 1) {
+      return { status: "auto_matched", orderId: accountMatches[0].orderId }
+    }
+  }
 
   if (
     best.bookerScore >= BOOKER_AUTO_THRESHOLD &&
