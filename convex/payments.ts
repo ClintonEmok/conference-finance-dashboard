@@ -31,16 +31,66 @@ type TikkiePaymentUpsert = {
 
 type TikkiePaymentPatch = Partial<TikkiePaymentUpsert>
 
-function buildTikkiePaymentPatch(existing: TikkiePaymentUpsert, next: TikkiePaymentUpsert) {
+function stableSerialize(value: unknown): string | undefined {
+  try {
+    return JSON.stringify(value, (_key, nestedValue) => {
+      if (
+        !nestedValue ||
+        typeof nestedValue !== "object" ||
+        Array.isArray(nestedValue)
+      ) {
+        return nestedValue
+      }
+
+      return Object.fromEntries(
+        Object.entries(nestedValue).sort(([left], [right]) =>
+          left.localeCompare(right)
+        )
+      )
+    })
+  } catch {
+    return undefined
+  }
+}
+
+function providerPayloadsEqual(left: unknown, right: unknown) {
+  if (Object.is(left, right)) return true
+
+  const leftSerialized = stableSerialize(left)
+  const rightSerialized = stableSerialize(right)
+  return (
+    leftSerialized !== undefined &&
+    rightSerialized !== undefined &&
+    leftSerialized === rightSerialized
+  )
+}
+
+function buildTikkiePaymentPatch(
+  existing: TikkiePaymentUpsert,
+  next: TikkiePaymentUpsert
+) {
   const updates: TikkiePaymentPatch = {}
-  if (existing.payerName !== next.payerName) updates.payerName = next.payerName
-  if (next.payerAccountNumber !== undefined && existing.payerAccountNumber !== next.payerAccountNumber) {
+
+  if (existing.payerName !== next.payerName) {
+    updates.payerName = next.payerName
+  }
+  if (
+    next.payerAccountNumber !== undefined &&
+    existing.payerAccountNumber !== next.payerAccountNumber
+  ) {
     updates.payerAccountNumber = next.payerAccountNumber
   }
   if (!existing.eventId && next.eventId) updates.eventId = next.eventId
-  if (existing.amountMinor !== next.amountMinor) updates.amountMinor = next.amountMinor
-  if (existing.paidAt !== next.paidAt) updates.paidAt = next.paidAt
-  if (next.providerPayload !== undefined) updates.providerPayload = next.providerPayload
+  if (existing.amountMinor !== next.amountMinor) {
+    updates.amountMinor = next.amountMinor
+  }
+  if (existing.paidAt !== next.paidAt) {
+    updates.paidAt = next.paidAt
+  }
+  if (!providerPayloadsEqual(existing.providerPayload, next.providerPayload)) {
+    updates.providerPayload = next.providerPayload
+  }
+
   return updates
 }
 
@@ -331,7 +381,10 @@ export const upsertTikkiePayment = mutation({
 
     if (existing) {
       const updates = buildTikkiePaymentPatch(existing, args)
-      if (Object.keys(updates).length === 0) return { id: existing._id, inserted: false, updated: false }
+      if (Object.keys(updates).length === 0) {
+        return { id: existing._id, inserted: false, updated: false }
+      }
+
       await ctx.db.patch(existing._id, updates)
 
       return { id: existing._id, inserted: false, updated: true }
@@ -621,11 +674,23 @@ export const autoMatchPayments = mutation({
       orders
     )
 
-    // Bounded: capped batch for auto-match
-    const eventTikkiePayments = await ctx.db.query("payments")
-      .withIndex("by_eventId_and_status_and_source", (q) => q.eq("eventId", args.eventId as Id<"events">).eq("status", "unassigned").eq("source", "tikkie"))
+    // Event-scoped canonical Tikkie rows only; legacy unscoped rows remain
+    // explicit manual-review work instead of crossing event boundaries.
+    const eventTikkiePayments = await ctx.db
+      .query("payments")
+      .withIndex("by_eventId_and_status_and_source", (q) =>
+        q
+          .eq("eventId", args.eventId as Id<"events">)
+          .eq("status", "unassigned")
+          .eq("source", "tikkie")
+      )
       .take(1000)
-    const bankPayments = (await ctx.db.query("payments").withIndex("status", (q) => q.eq("status", "unassigned")).take(1000))
+    // Keep the existing bank-transfer dashboard behavior independent of the
+    // event-scoped Tikkie optimization.
+    const bankPayments = (await ctx.db
+      .query("payments")
+      .withIndex("status", (q) => q.eq("status", "unassigned"))
+      .take(1000))
       .filter((payment) => payment.source === "bank_transfer")
     const unassignedPayments = [...eventTikkiePayments, ...bankPayments]
     const matched: string[] = []
@@ -647,9 +712,13 @@ export const autoMatchPayments = mutation({
       }
     }
 
-    const orderMatchCandidates: OrderPaymentMatchCandidate[] = await Promise.all(orders.map(async (order) => {
-      const priorPayments = await ctx.db.query("payments").withIndex("orderId", (q) => q.eq("orderId", String(order._id))).take(100)
-      return {
+    const orderMatchCandidates: OrderPaymentMatchCandidate[] = await Promise.all(
+      orders.map(async (order) => {
+        const priorPayments = await ctx.db
+          .query("payments")
+          .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))
+          .take(100)
+        return {
         orderId: String(order._id),
         bookerName: order.bookerName ?? null,
         attendeeNames: attendeesByOrder.get(String(order._id)) ?? [],
@@ -657,9 +726,12 @@ export const autoMatchPayments = mutation({
           amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
           order.totalAmountMinor ??
           0,
-        payerAccountNumbers: priorPayments.filter((payment) => payment.source === "tikkie" && payment.payerAccountNumber).map((payment) => payment.payerAccountNumber as string),
-      }
-    }))
+        payerAccountNumbers: priorPayments
+          .filter((payment) => payment.source === "tikkie" && payment.payerAccountNumber)
+          .map((payment) => payment.payerAccountNumber as string),
+        }
+      })
+    )
 
     for (const payment of unassignedPayments) {
       const match = evaluateOrderPaymentMatch(
@@ -745,7 +817,9 @@ export const internalUpsertTikkiePayment = internalMutation({
     providerPayload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    const eventId = args.eventId ? ctx.db.normalizeId("events", args.eventId) ?? undefined : undefined
+    const eventId = args.eventId
+      ? ctx.db.normalizeId("events", args.eventId) ?? undefined
+      : undefined
     const existing = await ctx.db
       .query("payments")
       .withIndex("source_sourceId", (q) =>
@@ -754,8 +828,14 @@ export const internalUpsertTikkiePayment = internalMutation({
       .first()
 
     if (existing) {
-      const updates = buildTikkiePaymentPatch(existing, { ...args, eventId })
-      if (Object.keys(updates).length === 0) return { id: existing._id, inserted: false, updated: false }
+      const updates = buildTikkiePaymentPatch(existing, {
+        ...args,
+        eventId,
+      })
+      if (Object.keys(updates).length === 0) {
+        return { id: existing._id, inserted: false, updated: false }
+      }
+
       await ctx.db.patch(existing._id, updates)
       return { id: existing._id, inserted: false, updated: true }
     }

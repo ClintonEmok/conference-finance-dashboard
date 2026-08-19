@@ -525,6 +525,7 @@ export declare const api: {
       "action",
       "public",
       {
+        bookingRef?: string;
         eventDate: string;
         eventName: string;
         manageBookingUrl: string;
@@ -2405,16 +2406,22 @@ export declare const internal: {
       >;
     };
     internal: {
+      internalGetAmountDueByOrderIds: FunctionReference<
+        "query",
+        "internal",
+        { orderIds: Array<Id<"orders">> },
+        any
+      >;
       internalGetAttendeesByOrder: FunctionReference<
         "query",
         "internal",
-        {},
+        { orderIds: Array<Id<"orders">> },
         any
       >;
       internalGetPaidOrders: FunctionReference<
         "query",
         "internal",
-        { eventIds: Array<Id<"events">> },
+        { eventIds?: Array<Id<"events">>; includeAmountDue?: boolean },
         any
       >;
       internalGetTikkiePaymentLinks: FunctionReference<
@@ -2426,7 +2433,23 @@ export declare const internal: {
       internalGetUnassignedPayments: FunctionReference<
         "query",
         "internal",
-        { eventIds: Array<Id<"events">> },
+        {
+          eventIds?: Array<Id<"events">>;
+          paginationOpts?: {
+            cursor: string | null;
+            endCursor?: string | null;
+            id?: number;
+            maximumBytesRead?: number;
+            maximumRowsRead?: number;
+            numItems: number;
+          };
+        },
+        any
+      >;
+      internalMarkTikkiePaymentLinkChecked: FunctionReference<
+        "mutation",
+        "internal",
+        { checkedAt: number; linkId: Id<"tikkiePaymentLinks"> },
         any
       >;
     };
@@ -2446,6 +2469,12 @@ export declare const internal: {
       { label?: string; primaryAttendeeId: string },
       Id<"attendeeFamilyGroups">
     >;
+    internalGetAmountDueByOrderIds: FunctionReference<
+      "query",
+      "internal",
+      { orderIds: Array<Id<"orders">> },
+      any
+    >;
     internalGetAttendeeFamilyGroupByPrimaryId: FunctionReference<
       "query",
       "internal",
@@ -2455,7 +2484,7 @@ export declare const internal: {
     internalGetAttendeesByOrder: FunctionReference<
       "query",
       "internal",
-      {},
+      { orderIds: Array<Id<"orders">> },
       any
     >;
     internalGetFamilyMembersByGroupId: FunctionReference<
@@ -2464,7 +2493,12 @@ export declare const internal: {
       { familyGroupId: Id<"attendeeFamilyGroups"> },
       any
     >;
-    internalGetPaidOrders: FunctionReference<"query", "internal", {}, any>;
+    internalGetPaidOrders: FunctionReference<
+      "query",
+      "internal",
+      { eventIds?: Array<Id<"events">>; includeAmountDue?: boolean },
+      any
+    >;
     internalGetTicketTailorAttendeesByOrderId: FunctionReference<
       "query",
       "internal",
@@ -2480,7 +2514,23 @@ export declare const internal: {
     internalGetUnassignedPayments: FunctionReference<
       "query",
       "internal",
-      {},
+      {
+        eventIds?: Array<Id<"events">>;
+        paginationOpts?: {
+          cursor: string | null;
+          endCursor?: string | null;
+          id?: number;
+          maximumBytesRead?: number;
+          maximumRowsRead?: number;
+          numItems: number;
+        };
+      },
+      any
+    >;
+    internalMarkTikkiePaymentLinkChecked: FunctionReference<
+      "mutation",
+      "internal",
+      { checkedAt: number; linkId: Id<"tikkiePaymentLinks"> },
       any
     >;
   };

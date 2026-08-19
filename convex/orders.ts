@@ -488,19 +488,22 @@ export const syncFullyPaidOrders = internalMutation({
     const activeOrders = orders.filter(
       (order) => order.status !== "refunded" && order.status !== "cancelled"
     )
+    const ordersToReconcile = activeOrders.filter(
+      (order) => order.status !== "paid"
+    )
 
     const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
       ctx,
-      activeOrders
+      ordersToReconcile
     )
     const matchedTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
       ctx,
-      activeOrders
+      ordersToReconcile
     )
 
     let updated = 0
 
-    for (const order of activeOrders) {
+    for (const order of ordersToReconcile) {
       const extension = await ctx.db
         .query("ticketTailorOrders")
         .withIndex("orderId", (q) => q.eq("orderId", order._id))
@@ -517,7 +520,7 @@ export const syncFullyPaidOrders = internalMutation({
         0
       const currentPaidAmountMinor = matchedTotalsByOrderId.get(String(order._id)) ?? 0
 
-      if (currentPaidAmountMinor < currentAmountDueMinor || order.status === "paid") {
+      if (currentPaidAmountMinor < currentAmountDueMinor) {
         continue
       }
 

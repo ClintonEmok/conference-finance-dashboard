@@ -1449,6 +1449,12 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_linkType_and_status_and_statusUpdatedAt: [
+        "linkType",
+        "status",
+        "statusUpdatedAt",
+        "_creationTime",
+      ];
       eventId: ["eventId", "_creationTime"];
       eventId_linkType: ["eventId", "linkType", "_creationTime"];
       linkType: ["linkType", "_creationTime"];
