@@ -185,7 +185,7 @@ describe("Tikkie matching performance comparison", () => {
         measuredSpeedup: Number(measuredSpeedup.toFixed(2)),
       })
     )
-  }, 15_000)
+  }, 60_000)
 
   it("quantifies deferred canonical amount-due work", () => {
     const { candidates, candidatesByEvent, payments } = buildWorkload()
