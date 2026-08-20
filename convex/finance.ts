@@ -22,6 +22,7 @@ type FinanceDbCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">
 type OrderRef = {
   _id: Id<"orders">
   eventId?: Id<"events"> | string | null
+  providerOrderId?: string | null
 }
 
 type OrderSelectionDoc = {
@@ -632,50 +633,44 @@ export async function loadMatchedPaymentTotalsByOrderId(
   ctx: FinanceDbCtx,
   orders: OrderRef[]
 ): Promise<Map<string, number>> {
-  // Read the complete applied-payment set through bounded async iteration.
-  // A fixed `.take(2000)` would silently truncate payments beyond the page and
-  // make a paid/partial attendee render as unpaid/partial.
-  const payments: MatchedPaymentRecord[] = []
-  for await (const payment of ctx.db.query("payments")) {
-    payments.push(payment as MatchedPaymentRecord)
-  }
-  const canonicalOrderIdsByAlias = new Map<string, string>()
+  // Payment rows are indexed by their assigned order key. Read only the
+  // aliases for the requested orders instead of rescanning the entire payment
+  // table for every ledger, report, and reconciliation call.
+  const paymentsByOrderId = await Promise.all(
+    orders.map(async (order) => {
+      const aliases = new Set<string>([String(order._id)])
+      const providerOrderId = order.providerOrderId?.trim()
+      if (providerOrderId) aliases.add(providerOrderId)
 
-  for (const order of orders) {
-    canonicalOrderIdsByAlias.set(String(order._id), String(order._id))
-  }
+      const payments: MatchedPaymentRecord[] = []
+      for (const alias of aliases) {
+        for await (const payment of ctx.db
+          .query("payments")
+          .withIndex("orderId", (q) => q.eq("orderId", alias))) {
+          payments.push(payment as MatchedPaymentRecord)
+        }
+      }
 
-  const orderByProviderId = new Map<string, string>()
-  for (const order of orders as Array<OrderRef & { providerOrderId?: string | null }>) {
-    const providerOrderId = order.providerOrderId?.trim()
-    if (providerOrderId) {
-      orderByProviderId.set(providerOrderId, String(order._id))
-    }
-  }
-
+      return [String(order._id), payments] as const
+    })
+  )
   const totalsByOrderId = new Map<string, number>()
 
-  for (const payment of payments) {
-    if (
-      !payment ||
-      !isOrderAppliedPayment(payment) ||
-      !Number.isFinite(payment.amountMinor) ||
-      payment.amountMinor <= 0
-    ) {
-      continue
+  for (const [orderId, payments] of paymentsByOrderId) {
+    for (const payment of payments) {
+      if (
+        !isOrderAppliedPayment(payment) ||
+        !Number.isFinite(payment.amountMinor) ||
+        payment.amountMinor <= 0
+      ) {
+        continue
+      }
+
+      totalsByOrderId.set(
+        orderId,
+        (totalsByOrderId.get(orderId) ?? 0) + payment.amountMinor
+      )
     }
-
-    const rawOrderId = typeof payment.orderId === "string" ? payment.orderId.trim() : ""
-    if (!rawOrderId) continue
-
-    const canonicalOrderId =
-      canonicalOrderIdsByAlias.get(rawOrderId) ?? orderByProviderId.get(rawOrderId)
-    if (!canonicalOrderId) continue
-
-    totalsByOrderId.set(
-      canonicalOrderId,
-      (totalsByOrderId.get(canonicalOrderId) ?? 0) + payment.amountMinor
-    )
   }
 
   return totalsByOrderId

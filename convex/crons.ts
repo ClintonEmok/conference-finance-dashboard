@@ -11,6 +11,13 @@ crons.interval(
 )
 
 crons.interval(
+  "tikkie-legacy-payment-cleanup",
+  { hours: 1 },
+  internal.payments.internalCleanupLegacyTikkiePayments,
+  {}
+)
+
+crons.interval(
   "fully-paid-orders-sync",
   { minutes: 15 },
   internal.orders.syncFullyPaidOrders,

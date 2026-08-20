@@ -34,6 +34,8 @@ export {
 export {
   internalGetUnassignedPayments,
   internalGetPaidOrders,
+  internalGetAmountDueByOrderIds,
   internalGetAttendeesByOrder,
   internalGetTikkiePaymentLinks,
+  internalMarkTikkiePaymentLinkChecked,
 } from "./sync/internal"

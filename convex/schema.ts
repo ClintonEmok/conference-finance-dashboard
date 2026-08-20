@@ -679,6 +679,11 @@ export default defineSchema({
     .index("paymentRequestToken", ["paymentRequestToken"])
     .index("providerOrderEvent", ["providerOrderId", "providerEventId"])
     .index("status_updated", ["status", "statusUpdatedAt"])
+    .index("by_linkType_and_status_and_statusUpdatedAt", [
+      "linkType",
+      "status",
+      "statusUpdatedAt",
+    ])
     .index("orderId", ["orderId"])
     .index("eventId_linkType", ["eventId", "linkType"])
     .index("eventId", ["eventId"])
@@ -827,6 +832,11 @@ export default defineSchema({
     .index("eventId", ["eventId"])
     .index("source_sourceId", ["source", "sourceId"])
     .index("status", ["status"])
+    .index("by_eventId_and_status_and_source", [
+      "eventId",
+      "status",
+      "source",
+    ])
     .index("by_donationKind_and_paidAt", ["donationKind", "paidAt"])
     .index("by_donationKind_and_eventId_and_paidAt", [
       "donationKind",

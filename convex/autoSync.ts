@@ -1,7 +1,10 @@
-import { internalAction } from "./_generated/server"
+import { internalAction, type ActionCtx } from "./_generated/server"
+import type { Id } from "./_generated/dataModel"
 import { internal } from "./_generated/api"
 import {
   evaluateOrderPaymentMatch,
+  scoreAttendeeMatch,
+  scoreNameMatch,
   type OrderPaymentMatchCandidate,
 } from "../lib/domain/finance/payment-matching"
 
@@ -14,6 +17,15 @@ const TIKKIE_BASE_URL =
   process.env.TIKKIE_BASE_URL?.trim() || "https://api.tikkie.me"
 const TIKKIE_API_KEY = process.env.TIKKIE_API_KEY?.trim() ?? ""
 const TIKKIE_APP_TOKEN = process.env.TIKKIE_APP_TOKEN?.trim() ?? ""
+const TIKKIE_PAGE_SIZE = 50
+const TIKKIE_POLL_OVERLAP_MS = 5 * 60 * 1000
+
+type AutoSyncCtx = Pick<ActionCtx, "runQuery" | "runMutation">
+
+type TikkiePaymentListResponse = {
+  payments: unknown[]
+  totalElementCount: number
+}
 
 async function tikkieFetch<T>(
   path: string,
@@ -39,65 +51,175 @@ async function tikkieFetch<T>(
   return (await res.json()) as T
 }
 
-async function autoMatchUnassignedPayments(ctx: {
-  runQuery: Function
-  runMutation: Function
-}): Promise<number> {
-  // Query unassigned payments, paid orders, and attendees for matching
-  const unassignedPayments = await ctx.runQuery(
+export async function fetchTikkiePaymentsForLink(link: {
+  paymentRequestToken: string
+  providerLastCheckedAt?: number
+}) {
+  const pollStartedAt = Date.now()
+  const fromDateTime =
+    typeof link.providerLastCheckedAt === "number" &&
+    Number.isFinite(link.providerLastCheckedAt) &&
+    link.providerLastCheckedAt > 0
+      ? new Date(
+          Math.min(
+            pollStartedAt,
+            Math.max(0, link.providerLastCheckedAt - TIKKIE_POLL_OVERLAP_MS)
+          )
+        ).toISOString()
+      : undefined
+  const toDateTime = new Date(pollStartedAt).toISOString()
+  const payments: unknown[] = []
+  let pageNumber = 0
+  let totalElementCount = 0
+
+  do {
+    const response = await tikkieFetch<TikkiePaymentListResponse>(
+      `/paymentrequests/${encodeURIComponent(link.paymentRequestToken)}/payments`,
+      {
+        pageNumber,
+        pageSize: TIKKIE_PAGE_SIZE,
+        fromDateTime,
+        toDateTime,
+      }
+    )
+
+    if (
+      !Number.isInteger(response.totalElementCount) ||
+      response.totalElementCount < 0
+    ) {
+      throw new Error(
+        `Tikkie response missing a valid totalElementCount for request ${link.paymentRequestToken}`
+      )
+    }
+
+    payments.push(...response.payments)
+    totalElementCount = response.totalElementCount
+    pageNumber += 1
+  } while (payments.length < totalElementCount)
+
+  return {
+    payments,
+    // The requested window ends at pollStartedAt. Persisting a later time
+    // could skip payments created while this action was fetching pages.
+    checkedAt: pollStartedAt,
+  }
+}
+
+async function autoMatchUnassignedPayments(
+  ctx: AutoSyncCtx,
+  eventIds: Id<"events">[]
+): Promise<number> {
+  const scopedEventIds = [...new Set(eventIds)].filter(Boolean)
+  if (scopedEventIds.length === 0) return 0
+
+  const payments = await ctx.runQuery(
     internal.sync.internalGetUnassignedPayments,
-    {}
+    {
+      eventIds: scopedEventIds,
+    }
   )
-  const paidOrders = await ctx.runQuery(internal.sync.internalGetPaidOrders, {})
-  const attendeesByOrder: Record<string, string[]> = await ctx.runQuery(
+  if (payments.length === 0) return 0
+
+  // Query paid orders and their attendees only when there is work to match.
+  const paidOrders = await ctx.runQuery(internal.sync.internalGetPaidOrders, {
+    eventIds: scopedEventIds,
+    includeAmountDue: false,
+  })
+  const attendeesByOrder = await ctx.runQuery(
     internal.sync.internalGetAttendeesByOrder,
-    {}
+    {
+      orderIds: paidOrders.map(
+        (order: { _id: Id<"orders"> }) => order._id
+      ),
+    }
   )
 
+  const ordersByEvent = new Map<string, typeof paidOrders>()
+  for (const order of paidOrders) {
+    const eventOrders = ordersByEvent.get(String(order.eventId)) ?? []
+    eventOrders.push(order)
+    ordersByEvent.set(String(order.eventId), eventOrders)
+  }
+
+  // Canonical amount-due loading is the expensive part of this path. Only
+  // orders whose booker or attendee name can score against an incoming
+  // payment can ever reach the matcher, so defer those reads until after the
+  // cheap in-memory name prefilter.
+  const amountDueOrderIds = new Set<typeof paidOrders[number]["_id"]>()
+  for (const payment of payments) {
+    const eventOrders = ordersByEvent.get(String(payment.eventId)) ?? []
+    for (const order of eventOrders) {
+      const attendeeNames = attendeesByOrder[order._id] ?? []
+      if (
+        scoreNameMatch(payment.payerName, order.bookerName) > 0 ||
+        scoreAttendeeMatch(payment.payerName, attendeeNames) > 0
+      ) {
+        amountDueOrderIds.add(order._id)
+      }
+    }
+  }
+
+  const amountDueRows: Array<{
+    _id: Id<"orders">
+    amountDueMinor: number | null
+  }> =
+    amountDueOrderIds.size > 0
+      ? await ctx.runQuery(internal.sync.internalGetAmountDueByOrderIds, {
+          orderIds: [...amountDueOrderIds],
+        })
+      : []
+  const amountDueByOrderId = new Map(
+    amountDueRows.map((row) => [String(row._id), row.amountDueMinor])
+  )
+
+  const candidatesByEvent = new Map<string, OrderPaymentMatchCandidate[]>()
   const orderMatchCandidates: OrderPaymentMatchCandidate[] = paidOrders.map(
     (order: {
       _id: string
+      eventId?: string
       bookerName: string | null
       amountDueMinor?: number | null
       totalAmountMinor?: number | null
+      payerAccountNumbers?: string[]
     }) => ({
       orderId: order._id,
       bookerName: order.bookerName,
       attendeeNames: attendeesByOrder[order._id] ?? [],
-      amountDueMinor: order.amountDueMinor ?? order.totalAmountMinor ?? 0,
+      amountDueMinor:
+        amountDueByOrderId.get(order._id) ?? order.totalAmountMinor ?? 0,
+      payerAccountNumbers: order.payerAccountNumbers ?? [],
     })
   )
+  for (const [index, order] of paidOrders.entries()) {
+    const eventCandidates = candidatesByEvent.get(String(order.eventId)) ?? []
+    eventCandidates.push(orderMatchCandidates[index])
+    candidatesByEvent.set(String(order.eventId), eventCandidates)
+  }
 
   let matched = 0
-  for (const payment of unassignedPayments) {
+  for (const payment of payments) {
     const match = evaluateOrderPaymentMatch(
       payment.payerName,
       payment.amountMinor,
-      orderMatchCandidates
+      candidatesByEvent.get(String(payment.eventId)) ?? [],
+      payment.payerAccountNumber
     )
 
     if (match?.status === "auto_matched") {
       await ctx.runMutation(internal.payments.internalAssignPaymentToOrder, {
         paymentId: payment._id,
-        orderId: match.orderId,
+        orderId: match.orderId as Id<"orders">,
         status: "auto_matched",
         matchedBy: "auto",
       })
       matched++
-      continue
-    }
-
-    if (match?.status === "ambiguous") {
-      continue
     }
   }
+
   return matched
 }
 
-async function runTikkieAutoSync(ctx: {
-  runQuery: Function
-  runMutation: Function
-}) {
+async function runTikkieAutoSync(ctx: AutoSyncCtx) {
   if (!TIKKIE_API_KEY || !TIKKIE_APP_TOKEN) {
     console.warn(
       "Tikkie auto-sync skipped: TIKKIE_API_KEY or TIKKIE_APP_TOKEN not configured"
@@ -114,13 +236,7 @@ async function runTikkieAutoSync(ctx: {
   const errors: string[] = []
 
   try {
-    // 1. Cleanup legacy payment payloads
-    await ctx.runMutation(
-      internal.payments.internalCleanupLegacyTikkiePayments,
-      {}
-    )
-
-    // 2. Fetch payment links from Convex
+    // 1. Fetch active event payment links from Convex
     const allLinks = await ctx.runQuery(
       internal.sync.internalGetTikkiePaymentLinks,
       {}
@@ -154,14 +270,10 @@ async function runTikkieAutoSync(ctx: {
 
     linksScanned = paymentLinks.length
 
-    // 3. For each link, fetch payments from Tikkie API and upsert
+    // 2. For each link, fetch payments from Tikkie API and upsert
     for (const link of paymentLinks) {
       try {
-        const response = await tikkieFetch<{ payments: unknown[] }>(
-          `/paymentrequests/${encodeURIComponent(link.paymentRequestToken)}/payments`,
-          { pageNumber: 0, pageSize: 50 }
-        )
-
+        const response = await fetchTikkiePaymentsForLink(link)
         const tikkiePayments = response.payments as Array<
           Record<string, unknown>
         >
@@ -208,6 +320,7 @@ async function runTikkieAutoSync(ctx: {
             internal.payments.internalUpsertTikkiePayment,
             {
               sourceId,
+              eventId: link.eventId,
               payerName,
               payerAccountNumber,
               amountMinor,
@@ -225,13 +338,29 @@ async function runTikkieAutoSync(ctx: {
             if (result.updated) updatedPayments++
           }
         }
+
+        await ctx.runMutation(
+          internal.sync.internalMarkTikkiePaymentLinkChecked,
+          {
+            linkId: link._id,
+            checkedAt: response.checkedAt,
+          }
+        )
       } catch (error) {
         errors.push(error instanceof Error ? error.message : "Sync failed")
       }
     }
 
-    // 4. Auto-match unassigned payments
-    matched = await autoMatchUnassignedPayments(ctx)
+    // 3. Auto-match unassigned payments
+    matched = await autoMatchUnassignedPayments(
+      ctx,
+      paymentLinks
+        .map((link: { eventId?: string }) => link.eventId)
+          .filter(
+            (eventId: Id<"events"> | undefined): eventId is Id<"events"> =>
+            Boolean(eventId)
+          )
+    )
 
     console.log("Tikkie auto-sync completed", {
       status: errors.length > 0 ? "partial" : "success",
@@ -240,6 +369,7 @@ async function runTikkieAutoSync(ctx: {
       newPayments,
       updatedPayments,
       matched,
+      skippedInvalid,
       errors: errors.length,
     })
   } catch (error) {

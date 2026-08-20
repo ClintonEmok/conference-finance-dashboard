@@ -13,6 +13,7 @@ const baseProps = {
     "Accommodation upgrades and options are now available for your stay, including upgrades to your included accommodation, an optional night before the conference, and cots.",
   eventName: "Divine Conference",
   eventDate: "Sat 15 Aug 2026",
+  bookingRef: "BK-EXAMPLE",
   manageBookingUrl: "https://conference.dclm-nl.org/booking/BK-EXAMPLE/manage",
   signupUrl: "https://conference.dclm-nl.org/signup",
   paymentUrl: "https://pay.example.com/example",
@@ -31,6 +32,9 @@ describe("announcement email (RUN-02)", () => {
     expect(html).toContain(baseProps.manageBookingUrl)
     expect(html).toContain(baseProps.paymentUrl)
     expect(html).toContain(baseProps.signupUrl)
+    expect(html).toContain("Booking reference")
+    expect(html).toContain(baseProps.bookingRef)
+    expect(html).toContain("Keep this reference handy")
     expect(html).toContain("Review Payment")
     expect(html).toContain("it-support@deeperlife.nl")
     expect(html).not.toContain("Payments are handled separately via Tikkie.")

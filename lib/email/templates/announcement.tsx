@@ -18,6 +18,7 @@ export interface AnnouncementEmailProps {
   message: string
   eventName: string
   eventDate: string
+  bookingRef?: string | null
   manageBookingUrl: string
   signupUrl: string
   paymentUrl?: string | null
@@ -29,6 +30,7 @@ export default function AnnouncementEmail({
   message,
   eventName,
   eventDate,
+  bookingRef,
   manageBookingUrl,
   signupUrl,
   paymentUrl,
@@ -49,6 +51,9 @@ export default function AnnouncementEmail({
             .email-event-name { color: #f8faff !important; }
             .email-event-date { color: #d9dfec !important; }
             .email-callout { background-color: #282d3d !important; border-color: #7775f2 !important; color: #edf0ff !important; }
+            .email-booking-ref { background-color: #282d3d !important; border-color: #7775f2 !important; }
+            .email-booking-ref-label, .email-booking-ref-help { color: #aeb5ff !important; }
+            .email-booking-ref-value { color: #ffffff !important; }
             .email-button-primary { background-color: #5b57e8 !important; color: #ffffff !important; }
             .email-button-secondary { background-color: #282d3d !important; border-color: #8985f4 !important; color: #e5e7ff !important; }
             .email-footer { border-color: #343947 !important; }
@@ -264,6 +269,58 @@ export default function AnnouncementEmail({
               Review payment progress and update your accommodation
               preferences.
             </Text>
+            {bookingRef ? (
+              <Section
+                className="email-booking-ref"
+                style={{
+                  margin: "0 0 14px",
+                  padding: "14px 16px",
+                  backgroundColor: "#eef2ff",
+                  border: "1px solid #c7d2fe",
+                  borderRadius: "10px",
+                  textAlign: "center",
+                }}
+              >
+                <Text
+                  className="email-booking-ref-label"
+                  style={{
+                    margin: 0,
+                    color: "#4f46e5",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Booking reference
+                </Text>
+                <Text
+                  className="email-booking-ref-value"
+                  style={{
+                    margin: "6px 0 0",
+                    color: "#312e81",
+                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                    fontSize: "26px",
+                    fontWeight: 700,
+                    letterSpacing: "0.04em",
+                    lineHeight: 1.2,
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {bookingRef}
+                </Text>
+                <Text
+                  className="email-booking-ref-help"
+                  style={{
+                    margin: "6px 0 0",
+                    color: "#64748b",
+                    fontSize: "12px",
+                  }}
+                >
+                  Keep this reference handy when managing your booking.
+                </Text>
+              </Section>
+            ) : null}
             <Button
               className="email-button-primary"
               href={manageBookingUrl}

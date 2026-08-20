@@ -990,6 +990,12 @@ export type DataModel = {
         "_creationTime",
       ];
       by_donationKind_and_paidAt: ["donationKind", "paidAt", "_creationTime"];
+      by_eventId_and_status_and_source: [
+        "eventId",
+        "status",
+        "source",
+        "_creationTime",
+      ];
       eventId: ["eventId", "_creationTime"];
       orderId: ["orderId", "_creationTime"];
       paidAt: ["paidAt", "_creationTime"];
@@ -1443,6 +1449,12 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_linkType_and_status_and_statusUpdatedAt: [
+        "linkType",
+        "status",
+        "statusUpdatedAt",
+        "_creationTime",
+      ];
       eventId: ["eventId", "_creationTime"];
       eventId_linkType: ["eventId", "linkType", "_creationTime"];
       linkType: ["linkType", "_creationTime"];
