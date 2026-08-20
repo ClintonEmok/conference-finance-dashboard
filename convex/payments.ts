@@ -242,7 +242,7 @@ export const getPayments = query({
     }
 
     if (args.eventId) {
-      const paymentsById = new Map<string, any>()
+      const paymentsById = new Map<string, Doc<"payments">>()
 
       const directPayments = await ctx.db
         .query("payments")
@@ -295,9 +295,7 @@ export const getPayments = query({
     // Growing result set: paginated
     const base = ctx.db.query("payments")
     if (args.paginationOpts) {
-      // Note: paginate returns {page, isDone, continueCursor} not an array
-      // so callers requesting pagination must handle the shape
-      return (await base.paginate(args.paginationOpts)) as any
+      return (await base.paginate(args.paginationOpts)).page
     }
 
     // Backward-compatible: bounded fallback
