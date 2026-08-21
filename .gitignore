@@ -17,6 +17,7 @@
 
 # production
 /build
+/video/divine-signup/out/
 
 # misc
 .DS_Store

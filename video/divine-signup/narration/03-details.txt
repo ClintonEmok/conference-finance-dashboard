@@ -1,0 +1,1 @@
+Next, enter the buyer's full name, email address, and phone number. Then complete each attendee's name, gender, location, and any optional contact or room details.

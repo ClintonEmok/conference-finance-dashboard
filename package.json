@@ -10,7 +10,14 @@
     "lint": "eslint",
     "test": "vitest run",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "video:studio": "remotion studio video/divine-signup/src/index.tsx",
+    "video:voiceover": "bash video/divine-signup/scripts/generate-voiceover.sh",
+    "video:smoke": "bash video/divine-signup/scripts/smoke-render.sh",
+    "video:verify": "vitest run video/divine-signup/src/data.test.ts && remotion compositions video/divine-signup/src/index.tsx && npm run video:smoke",
+    "video:render:landscape": "remotion render video/divine-signup/src/index.tsx DivineSignupLandscape video/divine-signup/out/divine-signup-16x9.mp4 --codec=h264 --crf=18",
+    "video:render:portrait": "remotion render video/divine-signup/src/index.tsx DivineSignupPortrait video/divine-signup/out/divine-signup-9x16.mp4 --codec=h264 --crf=18",
+    "video:render": "npm run video:render:landscape && npm run video:render:portrait"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.0.7",
@@ -39,6 +46,10 @@
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",
     "@eslint/eslintrc": "^3",
+    "@remotion/cli": "^4.0.515",
+    "@remotion/google-fonts": "^4.0.515",
+    "@remotion/media": "^4.0.515",
+    "@remotion/media-parser": "^4.0.515",
     "@tailwindcss/postcss": "^4.2.1",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
@@ -49,6 +60,7 @@
     "postcss": "^8",
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.7.2",
+    "remotion": "^4.0.515",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.9.3",
     "vercel": "^58.9.0",
