@@ -29,16 +29,16 @@ render_frame() {
 }
 
 render_frame DivineSignupLandscape 0 landscape-start 480x270
-render_frame DivineSignupLandscape 1604 landscape-options 480x270
-render_frame DivineSignupLandscape 2335 landscape-review-details 480x270
-render_frame DivineSignupLandscape 2385 landscape-review-verification 480x270
-render_frame DivineSignupLandscape 2685 landscape-confirmation 480x270
-render_frame DivineSignupLandscape 2950 landscape-end 480x270
+render_frame DivineSignupLandscape 1503 landscape-options 480x270
+render_frame DivineSignupLandscape 2234 landscape-review-details 480x270
+render_frame DivineSignupLandscape 2284 landscape-review-verification 480x270
+render_frame DivineSignupLandscape 2584 landscape-confirmation 480x270
+render_frame DivineSignupLandscape 2849 landscape-end 480x270
 render_frame DivineSignupPortrait 0 portrait-start 270x480
-render_frame DivineSignupPortrait 1604 portrait-options 270x480
-render_frame DivineSignupPortrait 2335 portrait-review-details 270x480
-render_frame DivineSignupPortrait 2385 portrait-review-verification 270x480
-render_frame DivineSignupPortrait 2685 portrait-confirmation 270x480
-render_frame DivineSignupPortrait 2950 portrait-end 270x480
+render_frame DivineSignupPortrait 1503 portrait-options 270x480
+render_frame DivineSignupPortrait 2234 portrait-review-details 270x480
+render_frame DivineSignupPortrait 2284 portrait-review-verification 270x480
+render_frame DivineSignupPortrait 2584 portrait-confirmation 270x480
+render_frame DivineSignupPortrait 2849 portrait-end 270x480
 
 shasum -a 256 -c "$SNAPSHOTS"

@@ -124,8 +124,8 @@ describe("Divine signup video contract", () => {
   it("keeps all eight scenes and the Heart narration runtime", () => {
     expect(storyScenes).toHaveLength(8)
     expect(AUDIO_DELAY_FRAMES).toBe(20)
-    expect(totalDurationInFrames).toBe(2_951)
-    expect(totalDurationInFrames / VIDEO_FPS).toBeCloseTo(98.37, 2)
+    expect(totalDurationInFrames).toBe(2_850)
+    expect(totalDurationInFrames / VIDEO_FPS).toBe(95)
   })
 
   it("keeps smoke frames inside their named scenes", () => {

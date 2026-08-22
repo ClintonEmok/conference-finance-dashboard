@@ -132,19 +132,19 @@ export const storyScenes: StoryScene[] = [
   },
   {
     id: "tickets",
-    durationInFrames: 364,
+    durationInFrames: 263,
     audioFile: "02-tickets.mp3",
-    audioDurationSeconds: 10.5,
+    audioDurationSeconds: 7.125,
     captions: [
       {
-        text: "Start by choosing one ticket for each attendee.",
+        text: "Select the number of tickets you need.",
         startSeconds: 0,
-        endSeconds: 4,
+        endSeconds: 2.8,
       },
       {
-        text: "Tickets range from free admission for children under three to three hundred and fifty euros for a Single Room ticket.",
-        startSeconds: 4,
-        endSeconds: 10.4,
+        text: "Use the quantity controls to adjust each ticket type before continuing.",
+        startSeconds: 2.8,
+        endSeconds: 7.02,
       },
     ],
   },
