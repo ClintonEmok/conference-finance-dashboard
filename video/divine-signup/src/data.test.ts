@@ -9,9 +9,12 @@ import {
   AUDIO_DELAY_FRAMES,
   calculatedRegistrationTotalMinor,
   divineRegistration,
+  INTRO_DURATION_IN_FRAMES,
+  OUTRO_DURATION_IN_FRAMES,
   REVIEW_VERIFICATION_FRAME,
   selectedTicket,
   storyScenes,
+  storyDurationInFrames,
   totalDurationInFrames,
   VIDEO_FPS,
 } from "./data"
@@ -124,8 +127,11 @@ describe("Divine signup video contract", () => {
   it("keeps all eight scenes and the Heart narration runtime", () => {
     expect(storyScenes).toHaveLength(8)
     expect(AUDIO_DELAY_FRAMES).toBe(20)
-    expect(totalDurationInFrames).toBe(2_850)
-    expect(totalDurationInFrames / VIDEO_FPS).toBe(95)
+    expect(INTRO_DURATION_IN_FRAMES).toBe(75)
+    expect(OUTRO_DURATION_IN_FRAMES).toBe(90)
+    expect(storyDurationInFrames).toBe(2_755)
+    expect(totalDurationInFrames).toBe(2_920)
+    expect(totalDurationInFrames / VIDEO_FPS).toBeCloseTo(97.33, 2)
   })
 
   it("keeps smoke frames inside their named scenes", () => {
@@ -134,29 +140,42 @@ describe("Divine signup video contract", () => {
       "utf8"
     )
     const expectedSceneByShot = {
+      intro: "intro",
       start: "welcome",
       options: "options",
       "review-details": "review",
       "review-verification": "review",
       confirmation: "confirmation",
-      end: "confirmation",
+      outro: "outro",
+      end: "outro",
     } as const
-    const sceneRanges = storyScenes.map((scene, index) => {
-      const start = storyScenes
+    const storyRanges = storyScenes.map((scene, index) => {
+      const start = INTRO_DURATION_IN_FRAMES + storyScenes
         .slice(0, index)
         .reduce((total, item) => total + item.durationInFrames, 0)
       return { id: scene.id, start, end: start + scene.durationInFrames }
     })
+    const sceneRanges = [
+      { id: "intro", start: 0, end: INTRO_DURATION_IN_FRAMES },
+      ...storyRanges,
+      {
+        id: "outro",
+        start: INTRO_DURATION_IN_FRAMES + storyDurationInFrames,
+        end: totalDurationInFrames,
+      },
+    ]
     const sceneStarts = Object.fromEntries(
-      sceneRanges.map((scene) => [scene.id, scene.start])
+      storyRanges.map((scene) => [scene.id, scene.start])
     ) as Record<(typeof storyScenes)[number]["id"], number>
     const expectedFrameByShot = {
-      start: 0,
+      intro: 30,
+      start: INTRO_DURATION_IN_FRAMES,
       options: sceneStarts.options + 156,
       "review-details": sceneStarts.review + REVIEW_VERIFICATION_FRAME - 16,
       "review-verification":
         sceneStarts.review + REVIEW_VERIFICATION_FRAME + 34,
       confirmation: sceneStarts.confirmation + 157,
+      outro: totalDurationInFrames - OUTRO_DURATION_IN_FRAMES + 45,
       end: totalDurationInFrames - 1,
     } as const
     const smokeFrames = Array.from(
@@ -165,7 +184,7 @@ describe("Divine signup video contract", () => {
       )
     )
 
-    expect(smokeFrames).toHaveLength(12)
+    expect(smokeFrames).toHaveLength(16)
     for (const [, , frameText, shot] of smokeFrames) {
       const frame = Number(frameText)
       const shotName = shot as keyof typeof expectedSceneByShot

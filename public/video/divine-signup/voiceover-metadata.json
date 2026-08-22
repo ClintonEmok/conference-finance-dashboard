@@ -23,43 +23,43 @@
   },
   "files": {
     "01-welcome.mp3": {
-      "durationSeconds": 9.2,
-      "sha256": "2296ce16b1ba0046c90fe3f39c9ced037e2dffb8cdd1c055e74c0970a791cb8e",
-      "sizeBytes": 148653
+      "durationSeconds": 8.8,
+      "sha256": "38a0006c8a6d5d03ecde6d3186e259a63091116dcd82e9d6f4c19b2b71812b2d",
+      "sizeBytes": 142125
     },
     "02-tickets.mp3": {
-      "durationSeconds": 7.125,
-      "sha256": "94fb2296faed37f9a9c038190b13cab2a93a741cdff400311428d725a7e8ce16",
-      "sizeBytes": 115245
+      "durationSeconds": 4.375,
+      "sha256": "c25aff5d931cf536377c9326af5e71d8a89ce97d4f34b7963450613542d51251",
+      "sizeBytes": 71469
     },
     "03-details.mp3": {
       "durationSeconds": 11.625,
-      "sha256": "f8de421f95ce519b2ce231aa8345872c62a44995de3e598aa78bd8611764d3fe",
+      "sha256": "616d0043e752e86e6c815a979a3f725b1f2e958c387e9df764ebe82be7778c11",
       "sizeBytes": 187437
     },
     "04-included-stay.mp3": {
       "durationSeconds": 10.4,
-      "sha256": "578fd50918c4623679d7f20480af3240e584153448b9e85476cb2360a84f894a",
+      "sha256": "4633db88e5d404981e2e78058de56daceebdcaefcfdce8fd05bdaa98f3a8f753",
       "sizeBytes": 167853
     },
     "05-options.mp3": {
-      "durationSeconds": 10.875,
-      "sha256": "16ddc8570a461c59bb386a210083238406890fe80a2d44194d5fdbc40623a03b",
-      "sizeBytes": 175533
+      "durationSeconds": 11.3,
+      "sha256": "6e91e240e483f8a8bbc4a3cb1d48f98392e7a9d8fd8c7957f744b04883679cad",
+      "sizeBytes": 182061
     },
     "06-night-before.mp3": {
-      "durationSeconds": 10.1,
-      "sha256": "d710bfa839821c2c02b7e51f5ad4eec115a814bba5019a2f134f4e9a877beadd",
-      "sizeBytes": 162861
+      "durationSeconds": 10.45,
+      "sha256": "dd1cc58addf6f41e48bdeee928a7f33be4ff5795a99669706495da46441a87e6",
+      "sizeBytes": 168621
     },
     "07-review.mp3": {
       "durationSeconds": 10.075,
-      "sha256": "db35e5053f52c988c749e8363594678289267eeb1f06fe1fce62ae422dc3cefc",
+      "sha256": "48d79fb40a01119415553a712488b129f35237ee6ff0196ddc05f23e41e21e52",
       "sizeBytes": 162477
     },
     "08-confirmation.mp3": {
       "durationSeconds": 12.45,
-      "sha256": "917a818903059f5a95affff9d9615fb62abdcaffca9cebba8d368438be195980",
+      "sha256": "5938917acc348b08c8244f0f341754d740115b772609d1bf42eac18d6dd61da0",
       "sizeBytes": 200493
     }
   }

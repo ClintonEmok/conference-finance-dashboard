@@ -1,6 +1,8 @@
 export const VIDEO_FPS = 30
 export const AUDIO_DELAY_FRAMES = 20
 export const REVIEW_VERIFICATION_FRAME = 175
+export const INTRO_DURATION_IN_FRAMES = 75
+export const OUTRO_DURATION_IN_FRAMES = 90
 
 export type VideoFormat = "landscape" | "portrait"
 
@@ -114,37 +116,37 @@ export type StoryScene = {
 export const storyScenes: StoryScene[] = [
   {
     id: "welcome",
-    durationInFrames: 325,
+    durationInFrames: 300,
     audioFile: "01-welcome.mp3",
-    audioDurationSeconds: 9.2,
+    audioDurationSeconds: 8.8,
     captions: [
       {
-        text: "Welcome to the Divine Redesign signup guide.",
+        text: "In this example, we'll walk through signing up for Divine Redesign 2026,",
         startSeconds: 0,
-        endSeconds: 3.6,
+        endSeconds: 5.35,
       },
       {
-        text: "We will walk through each live registration step, from choosing a ticket to completing your payment.",
-        startSeconds: 3.6,
-        endSeconds: 9.1,
+        text: "using one Single Room ticket for one attendee.",
+        startSeconds: 5.35,
+        endSeconds: 8.7,
       },
     ],
   },
   {
     id: "tickets",
-    durationInFrames: 263,
+    durationInFrames: 181,
     audioFile: "02-tickets.mp3",
-    audioDurationSeconds: 7.125,
+    audioDurationSeconds: 4.375,
     captions: [
       {
-        text: "Select the number of tickets you need.",
+        text: "Select one Single Room ticket,",
         startSeconds: 0,
-        endSeconds: 2.8,
+        endSeconds: 2.25,
       },
       {
-        text: "Use the quantity controls to adjust each ticket type before continuing.",
-        startSeconds: 2.8,
-        endSeconds: 7.02,
+        text: "then continue to the next step.",
+        startSeconds: 2.25,
+        endSeconds: 4.28,
       },
     ],
   },
@@ -186,19 +188,19 @@ export const storyScenes: StoryScene[] = [
   },
   {
     id: "options",
-    durationInFrames: 376,
+    durationInFrames: 388,
     audioFile: "05-options.mp3",
-    audioDurationSeconds: 10.875,
+    audioDurationSeconds: 11.3,
     captions: [
       {
-        text: "On the accommodation step, add a cot by choosing the quantity and number of nights.",
+        text: "On the accommodation step, you can add a cot by choosing the quantity and number of nights.",
         startSeconds: 0,
-        endSeconds: 5.4,
+        endSeconds: 5.75,
       },
       {
         text: "You may also upgrade the included stay to Superior for ten euros per person, per night.",
-        startSeconds: 5.4,
-        endSeconds: 10.78,
+        startSeconds: 5.75,
+        endSeconds: 11.2,
       },
     ],
   },
@@ -206,17 +208,17 @@ export const storyScenes: StoryScene[] = [
     id: "nightBefore",
     durationInFrames: 352,
     audioFile: "06-night-before.mp3",
-    audioDurationSeconds: 10.1,
+    audioDurationSeconds: 10.45,
     captions: [
       {
-        text: "If you need the night before, choose Standard or Superior, then Single or Shared occupancy.",
+        text: "If you want to come a night before, choose Standard or Superior, then Single or Shared occupancy.",
         startSeconds: 0,
-        endSeconds: 6,
+        endSeconds: 6.3,
       },
       {
         text: "Breakfast is included with the selected night-before stay.",
-        startSeconds: 6,
-        endSeconds: 10,
+        startSeconds: 6.3,
+        endSeconds: 10.4,
       },
     ],
   },
@@ -258,7 +260,10 @@ export const storyScenes: StoryScene[] = [
   },
 ]
 
-export const totalDurationInFrames = storyScenes.reduce(
+export const storyDurationInFrames = storyScenes.reduce(
   (total, scene) => total + scene.durationInFrames,
   0
 )
+
+export const totalDurationInFrames =
+  INTRO_DURATION_IN_FRAMES + storyDurationInFrames + OUTRO_DURATION_IN_FRAMES

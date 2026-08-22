@@ -28,17 +28,21 @@ render_frame() {
   fi
 }
 
-render_frame DivineSignupLandscape 0 landscape-start 480x270
-render_frame DivineSignupLandscape 1503 landscape-options 480x270
-render_frame DivineSignupLandscape 2234 landscape-review-details 480x270
-render_frame DivineSignupLandscape 2284 landscape-review-verification 480x270
-render_frame DivineSignupLandscape 2584 landscape-confirmation 480x270
-render_frame DivineSignupLandscape 2849 landscape-end 480x270
-render_frame DivineSignupPortrait 0 portrait-start 270x480
-render_frame DivineSignupPortrait 1503 portrait-options 270x480
-render_frame DivineSignupPortrait 2234 portrait-review-details 270x480
-render_frame DivineSignupPortrait 2284 portrait-review-verification 270x480
-render_frame DivineSignupPortrait 2584 portrait-confirmation 270x480
-render_frame DivineSignupPortrait 2849 portrait-end 270x480
+render_frame DivineSignupLandscape 30 landscape-intro 480x270
+render_frame DivineSignupLandscape 75 landscape-start 480x270
+render_frame DivineSignupLandscape 1471 landscape-options 480x270
+render_frame DivineSignupLandscape 2214 landscape-review-details 480x270
+render_frame DivineSignupLandscape 2264 landscape-review-verification 480x270
+render_frame DivineSignupLandscape 2564 landscape-confirmation 480x270
+render_frame DivineSignupLandscape 2875 landscape-outro 480x270
+render_frame DivineSignupLandscape 2919 landscape-end 480x270
+render_frame DivineSignupPortrait 30 portrait-intro 270x480
+render_frame DivineSignupPortrait 75 portrait-start 270x480
+render_frame DivineSignupPortrait 1471 portrait-options 270x480
+render_frame DivineSignupPortrait 2214 portrait-review-details 270x480
+render_frame DivineSignupPortrait 2264 portrait-review-verification 270x480
+render_frame DivineSignupPortrait 2564 portrait-confirmation 270x480
+render_frame DivineSignupPortrait 2875 portrait-outro 270x480
+render_frame DivineSignupPortrait 2919 portrait-end 270x480
 
 shasum -a 256 -c "$SNAPSHOTS"
