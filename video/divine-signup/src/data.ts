@@ -1,5 +1,6 @@
 export const VIDEO_FPS = 30
 export const AUDIO_DELAY_FRAMES = 20
+export const REVIEW_VERIFICATION_FRAME = 175
 
 export type VideoFormat = "landscape" | "portrait"
 
@@ -113,109 +114,109 @@ export type StoryScene = {
 export const storyScenes: StoryScene[] = [
   {
     id: "welcome",
-    durationInFrames: 291,
+    durationInFrames: 325,
     audioFile: "01-welcome.mp3",
-    audioDurationSeconds: 8.071156,
+    audioDurationSeconds: 9.2,
     captions: [
       {
         text: "Welcome to the Divine Redesign signup guide.",
         startSeconds: 0,
-        endSeconds: 3.2,
+        endSeconds: 3.6,
       },
       {
         text: "We will walk through each live registration step, from choosing a ticket to completing your payment.",
-        startSeconds: 3.2,
-        endSeconds: 8,
+        startSeconds: 3.6,
+        endSeconds: 9.1,
       },
     ],
   },
   {
     id: "tickets",
-    durationInFrames: 326,
+    durationInFrames: 364,
     audioFile: "02-tickets.mp3",
-    audioDurationSeconds: 9.242404,
+    audioDurationSeconds: 10.5,
     captions: [
       {
         text: "Start by choosing one ticket for each attendee.",
         startSeconds: 0,
-        endSeconds: 3.5,
+        endSeconds: 4,
       },
       {
         text: "Tickets range from free admission for children under three to three hundred and fifty euros for a Single Room ticket.",
-        startSeconds: 3.5,
-        endSeconds: 9.18,
+        startSeconds: 4,
+        endSeconds: 10.4,
       },
     ],
   },
   {
     id: "details",
-    durationInFrames: 388,
+    durationInFrames: 398,
     audioFile: "03-details.mp3",
-    audioDurationSeconds: 11.339274,
+    audioDurationSeconds: 11.625,
     captions: [
       {
         text: "Next, enter the buyer's full name, email address, and phone number.",
         startSeconds: 0,
-        endSeconds: 5.3,
+        endSeconds: 5.5,
       },
       {
         text: "Then complete each attendee's name, gender, location, and any optional contact or room details.",
-        startSeconds: 5.3,
-        endSeconds: 11.27,
+        startSeconds: 5.5,
+        endSeconds: 11.52,
       },
     ],
   },
   {
     id: "included",
-    durationInFrames: 319,
+    durationInFrames: 361,
     audioFile: "04-included-stay.mp3",
-    audioDurationSeconds: 9.030159,
+    audioDurationSeconds: 10.4,
     captions: [
       {
         text: "The Single Room ticket includes a Standard single room for two nights.",
         startSeconds: 0,
-        endSeconds: 4.65,
+        endSeconds: 5.3,
       },
       {
         text: "Your ticket sets the occupancy, and the organizer confirms the final room placement.",
-        startSeconds: 4.65,
-        endSeconds: 8.96,
+        startSeconds: 5.3,
+        endSeconds: 10.3,
       },
     ],
   },
   {
     id: "options",
-    durationInFrames: 356,
+    durationInFrames: 376,
     audioFile: "05-options.mp3",
-    audioDurationSeconds: 10.243175,
+    audioDurationSeconds: 10.875,
     captions: [
       {
         text: "On the accommodation step, add a cot by choosing the quantity and number of nights.",
         startSeconds: 0,
-        endSeconds: 5.1,
+        endSeconds: 5.4,
       },
       {
         text: "You may also upgrade the included stay to Superior for ten euros per person, per night.",
-        startSeconds: 5.1,
-        endSeconds: 10.18,
+        startSeconds: 5.4,
+        endSeconds: 10.78,
       },
     ],
   },
   {
     id: "nightBefore",
-    durationInFrames: 311,
+    durationInFrames: 352,
     audioFile: "06-night-before.mp3",
-    audioDurationSeconds: 8.745488,
+    audioDurationSeconds: 10.1,
     captions: [
       {
         text: "If you need the night before, choose Standard or Superior, then Single or Shared occupancy.",
         startSeconds: 0,
-        endSeconds: 5.2,
+        endSeconds: 6,
       },
       {
         text: "Breakfast is included with the selected night-before stay.",
-        startSeconds: 5.2,
-        endSeconds: 8.68,
+        startSeconds: 6,
+        endSeconds: 10,
       },
     ],
   },
@@ -223,7 +224,7 @@ export const storyScenes: StoryScene[] = [
     id: "review",
     durationInFrames: 352,
     audioFile: "07-review.mp3",
-    audioDurationSeconds: 10.137959,
+    audioDurationSeconds: 10.075,
     captions: [
       {
         text: "Before submitting, review the buyer, attendee, ticket, and every accommodation charge.",
@@ -233,25 +234,25 @@ export const storyScenes: StoryScene[] = [
       {
         text: "Confirm the live total, then complete the verification challenge.",
         startSeconds: 5.1,
-        endSeconds: 10.07,
+        endSeconds: 9.98,
       },
     ],
   },
   {
     id: "confirmation",
-    durationInFrames: 375,
+    durationInFrames: 423,
     audioFile: "08-confirmation.mp3",
-    audioDurationSeconds: 10.889297,
+    audioDurationSeconds: 12.45,
     captions: [
       {
         text: "After submission, save your booking reference and complete payment through Tikkie.",
         startSeconds: 0,
-        endSeconds: 5.2,
+        endSeconds: 6,
       },
       {
         text: "A confirmation email will arrive, and Manage Booking lets you review payment progress and booking details later.",
-        startSeconds: 5.2,
-        endSeconds: 10.82,
+        startSeconds: 6,
+        endSeconds: 12.35,
       },
     ],
   },

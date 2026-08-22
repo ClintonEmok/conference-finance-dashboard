@@ -1,0 +1,66 @@
+{
+  "engine": {
+    "name": "mlx-audio",
+    "version": "0.5.0"
+  },
+  "encoder": {
+    "name": "ffmpeg",
+    "version": "ffmpeg version 8.1.2 Copyright (c) 2000-2026 the FFmpeg developers",
+    "format": "mp3",
+    "bitrate": "128k",
+    "sampleRate": 24000
+  },
+  "model": {
+    "repository": "mlx-community/Kokoro-82M-bf16",
+    "revision": "a71e4d38b236d968966a2002c4c895dbd12b1c3c"
+  },
+  "voice": {
+    "repository": "prince-canuma/Kokoro-82M",
+    "revision": "e02c9eada7ce7416798af36b190a8a2dd2ecd566",
+    "id": "af_heart",
+    "languageCode": "a",
+    "speed": 0.96
+  },
+  "files": {
+    "01-welcome.mp3": {
+      "durationSeconds": 9.2,
+      "sha256": "b961da39168b328a932d2b142b27775e8fccd640b487eb23213ba8240bfe794a",
+      "sizeBytes": 148653
+    },
+    "02-tickets.mp3": {
+      "durationSeconds": 10.5,
+      "sha256": "e596e24db1dcb0188c59f51b495c8d0d9177fb567f25bb40353fbf03006b8e05",
+      "sizeBytes": 169389
+    },
+    "03-details.mp3": {
+      "durationSeconds": 11.625,
+      "sha256": "a94a7785047533dbb1e565609c1b362f3927ee6d48bbfc723d1c9b0a3a77e66d",
+      "sizeBytes": 187437
+    },
+    "04-included-stay.mp3": {
+      "durationSeconds": 10.4,
+      "sha256": "46227a9d816400c52ad5e3cc300cd7ce3f044224b436faa02641a0d22401ade2",
+      "sizeBytes": 167853
+    },
+    "05-options.mp3": {
+      "durationSeconds": 10.875,
+      "sha256": "3eac7631845a65e1172756d5ea89e5cee0469049f76d845d5ba71ed52d77911c",
+      "sizeBytes": 175533
+    },
+    "06-night-before.mp3": {
+      "durationSeconds": 10.1,
+      "sha256": "35901a272c62faffc0a809dd3348b6d29211e746e8059532764965ade6b7f50a",
+      "sizeBytes": 162861
+    },
+    "07-review.mp3": {
+      "durationSeconds": 10.075,
+      "sha256": "26cd9f21b1e70e364d22a2d3a8a5bfbe5108fbf418eab69dac50b97e6eb48df2",
+      "sizeBytes": 162477
+    },
+    "08-confirmation.mp3": {
+      "durationSeconds": 12.45,
+      "sha256": "9949ea716975ae2d6b4c84fa02a46a5184f49d60b88e77ad7c4bb020ae5d712a",
+      "sizeBytes": 200493
+    }
+  }
+}

@@ -24,6 +24,7 @@ import {
   formatCatalogEuro,
   formatEuro,
   includedStayOptionsTotalMinor,
+  REVIEW_VERIFICATION_FRAME,
   selectedTicket,
   signupSteps,
   type SignupStep,
@@ -1010,7 +1011,7 @@ export function NightBeforeScene({ format, durationInFrames }: SceneProps) {
 export function ReviewScene({ format, durationInFrames }: SceneProps) {
   const portrait = format === "portrait"
   const frame = useCurrentFrame()
-  const verificationFocus = frame >= 175
+  const verificationFocus = frame >= REVIEW_VERIFICATION_FRAME
   return (
     <SceneReveal durationInFrames={durationInFrames}>
       <RegistrationLayout
