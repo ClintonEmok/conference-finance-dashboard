@@ -7,8 +7,8 @@ current_phase_name: Event-Owned Setup Schema, Generalized Pricing & Shared Contr
 status: planning
 stopped_at: Phase 46 planning complete; implementation has not started
 last_updated: "2026-08-19T19:09:04.000Z"
-last_activity: 2026-08-19
-last_activity_desc: "Completed quick task 260819-rpv: persisted canonical Tikkie event and payer-account data, bounded matching by event, added a non-authoritative account tie-breaker, and passed focused/full validation"
+last_activity: 2026-08-23
+last_activity_desc: "Completed quick task 260823-ht1: preserved booking references during safe multi-source merge with alias-aware resolution, fail-closed guards, and order-detail UI wiring; 229 convex + 571 unit tests + typecheck + build green"
 progress:
   total_phases: 6
   completed_phases: 0
@@ -99,6 +99,7 @@ Progress: [░░░░░░░░░░] 0%
 | 260815-0g5 | Communications Center: audience search + delivery statuses — single search bar (server-side by name/email/booking ref across the whole audience), live count, chunked reveal to 200, unified master-detail broadcasts panel with delivery statuses (queued/sending/completed/failed/cancelled, per-recipient pending/sent/failed, progress/timestamps/stored-filter summary, cancel/retry-failed). Filters/compose/templates/preview/test-send removed (not needed), meta copy stripped, dead emailTemplates backend + drafts lib removed; 537 unit tests + typecheck + build green | 2026-08-15 | a2bf83e |  | [260815-0g5-redesign-the-communications-center-two-c](./quick/260815-0g5-redesign-the-communications-center-two-c/) |
 | 260816-fgu | Communications Center: fixed standard announcement send — lib/email/announcement-copy.ts shared copy, AnnouncementEmail no venue/location, scheduleEmailBroadcast tightened to eventId+search+authorize (server-derived copy/title/date/signup URL, previewAudience search semantics, stored search scope, queued-only scheduler), standard announcement card with real-template iframe preview + explicit confirm dialog selecting the returned broadcast; rendered email screenshot captured (untracked); 546 unit + 34 convex tests + typecheck + build green, no production broadcast | 2026-08-16 | 983f956 |  | [260816-fgu-implement-and-send-me-a-screenshot-of-th](./quick/260816-fgu-implement-and-send-me-a-screenshot-of-th/) |
 | 260819-rpv | Persisted canonical Tikkie event and payer-account data, bounded matching by event, and added a non-authoritative account tie-breaker; focused and full validation passed | 2026-08-19 | e2ffabc | Verified | [260819-rpv-optimize-tikkie-payment-matching-by-usin](./quick/260819-rpv-optimize-tikkie-payment-matching-by-usin/) |
+| 260823-ht1 | Preserve booking references during safe multi-source merge: alias-aware booking resolution (convex/bookingRefs.ts), orderBookingRefAliases table, core merge markers on orders, fail-closed multi-source whole-order merge mutation with preflight guards, authenticated array-based API route, order-detail Merge action wired to existing dialog, 229 convex + 571 unit tests + typecheck + build green | 2026-08-23 | e8e478c | Verified | [260823-ht1-preserve-booking-references-during-safe-](./quick/260823-ht1-preserve-booking-references-during-safe-/) |
 
 ## Deferred Verification
 
@@ -119,7 +120,7 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-08-19
-Last activity: Completed quick task 260819-rpv: optimized canonical Tikkie payment matching with persisted payer-account hints and event-scoped candidate indexes; focused and full validation green
-Stopped at: Phase 46 planning complete; implementation has not started
+Last session: 2026-08-23
+Last activity: Completed quick task 260823-ht1: preserved booking references during safe multi-source merge with alias-aware resolution, fail-closed guards, and order-detail UI wiring; 229 convex + 571 unit tests + typecheck + build green
+Stopped at: Quick task 260823-ht1 complete; Phase 46 implementation ready to resume
 Resume file: None (next: /gsd/execute-phase 46)

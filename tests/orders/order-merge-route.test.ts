@@ -68,8 +68,18 @@ describe("MergeOrderDialog contract", () => {
     const dialog = readSource(
       "components/dashboard/orders/panels/merge-order-dialog.tsx"
     )
-    expect(dialog).toContain("sourceOrderIds: [orderId]")
+    expect(dialog).toContain("sourceOrderIds: [")
+    expect(dialog).toContain("selectedSourceOrderIds")
     expect(dialog).toContain("targetOrderId")
+  })
+
+  it("supports selecting additional source orders without changing the target flow", () => {
+    const dialog = readSource(
+      "components/dashboard/orders/panels/merge-order-dialog.tsx"
+    )
+    expect(dialog).toContain("Additional source orders")
+    expect(dialog).toContain("setSelectedSourceOrderIds")
+    expect(dialog).toContain("sourceSearchResults")
   })
 
   it("navigates to the target order after successful merge", () => {

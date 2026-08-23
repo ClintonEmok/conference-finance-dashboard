@@ -824,6 +824,34 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  orderBookingRefAliases: {
+    document: {
+      bookingRef: string;
+      canonicalBookingRef?: string;
+      createdAt: number;
+      sourceOrderId: Id<"orders">;
+      targetOrderId: Id<"orders">;
+      _id: Id<"orderBookingRefAliases">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "bookingRef"
+      | "canonicalBookingRef"
+      | "createdAt"
+      | "sourceOrderId"
+      | "targetOrderId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_bookingRef: ["bookingRef", "_creationTime"];
+      by_sourceOrderId: ["sourceOrderId", "_creationTime"];
+      by_targetOrderId: ["targetOrderId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   orderIdempotency: {
     document: {
       eventId: Id<"events">;
@@ -866,6 +894,9 @@ export type DataModel = {
       eventId?: Id<"events">;
       honeypotSeen?: boolean;
       idempotencyKey?: string;
+      mergeReason?: string;
+      mergedAt?: number;
+      mergedIntoOrderId?: Id<"orders">;
       notes?: string;
       orderedAt?: number;
       providerEventId?: string;
@@ -888,6 +919,9 @@ export type DataModel = {
       | "eventId"
       | "honeypotSeen"
       | "idempotencyKey"
+      | "mergedAt"
+      | "mergedIntoOrderId"
+      | "mergeReason"
       | "notes"
       | "orderedAt"
       | "providerEventId"
