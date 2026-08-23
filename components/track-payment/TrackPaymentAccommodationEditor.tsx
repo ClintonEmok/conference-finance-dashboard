@@ -198,7 +198,6 @@ export function TrackPaymentAccommodationEditor({
   initialEditToken?: string
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
-  const [bookerEmail, setBookerEmail] = useState("")
   const editToken = initialEditToken?.trim() ?? ""
   const [status, setStatus] = useState<SubmitStatus>({ kind: "idle" })
   const idempotencyKeyRef = useRef<string | null>(null)
@@ -320,8 +319,6 @@ export function TrackPaymentAccommodationEditor({
         selection.ticketOccupancy ?? draft?.occupancy ?? selection.occupancy
       )
     })
-  const ownershipReady = Boolean(bookerEmail.trim()) || Boolean(editToken)
-  const requiresEmail = !editToken
   const saving = status.kind === "saving"
 
   const handleSave = async () => {
@@ -334,15 +331,6 @@ export function TrackPaymentAccommodationEditor({
       })
       return
     }
-    if (!ownershipReady) {
-      setStatus({
-        kind: "error",
-        code: "OWNERSHIP_MISSING",
-        message: messageForEditError("OWNERSHIP_MISSING"),
-      })
-      return
-    }
-
     const selections: TrackPaymentEditSelection[] = editContext.selections.map(
       (selection) => {
         const draft = drafts[selection.attendeeKey]
@@ -362,7 +350,7 @@ export function TrackPaymentAccommodationEditor({
     const requestIdempotencyKey = idempotencyKey()
     const outcome = await submitTrackPaymentEdit({
       bookingRef,
-      bookerEmail,
+      bookerEmail: "",
       editToken,
       idempotencyKey: requestIdempotencyKey,
       selections,
@@ -417,36 +405,11 @@ export function TrackPaymentAccommodationEditor({
         ))}
       </div>
 
-      <div
-        className={
-          requiresEmail
-            ? "mt-6 space-y-4 rounded-xl border border-border/50 bg-muted/20 p-4"
-            : "mt-6"
-        }
-      >
-        {requiresEmail ? (
-          <>
-            <p className="text-xs text-muted-foreground">
-              To save changes, confirm ownership with the email address used for
-              this booking.
-            </p>
-            <div className="min-w-0 space-y-2">
-              <Label htmlFor="track-edit-email" className="text-sm font-medium">
-                Booking email
-              </Label>
-              <Input
-                id="track-edit-email"
-                type="email"
-                autoComplete="email"
-                value={bookerEmail}
-                onChange={(event) => setBookerEmail(event.target.value)}
-                placeholder="you@example.com"
-                className="min-w-0"
-              />
-            </div>
-          </>
-        ) : null}
-
+      <div className="mt-6 space-y-4">
+        <p className="rounded-xl border border-border/50 bg-muted/20 p-4 text-xs text-muted-foreground">
+          This booking link grants access to update accommodation preferences.
+          Your changes are still validated and priced by the server.
+        </p>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div
             aria-live="polite"
@@ -473,7 +436,7 @@ export function TrackPaymentAccommodationEditor({
           <Button
             type="button"
             onClick={handleSave}
-            disabled={saving || !allComplete || !ownershipReady}
+            disabled={saving || !allComplete}
             className="shrink-0"
           >
             <Save className="mr-2 size-4" />

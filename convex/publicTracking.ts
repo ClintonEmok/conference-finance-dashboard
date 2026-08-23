@@ -719,9 +719,10 @@ export const getTrackPaymentEditContext = query({
  * 1. A valid route-issued request signature over the exact normalized
  *    envelope (booking ref, ownership fields, idempotency key, honeypot
  *    marker, complete selections) — direct invocation fails closed.
- * 2. Ownership: normalized booker-email match OR an HMAC edit token bound to
- *    the booking ref and booker email; re-checked here, never trusted from
- *    the route or the UI.
+ * 2. Ownership: normalized booker-email match, an HMAC edit token bound to
+ *    the booking ref and booker email, or the booking reference from the
+ *    manage-booking link itself; re-checked here, never trusted from the
+ *    route or the UI.
  * 3. The order must have selection rows and none may be confirmed; any
  *    confirmed/malformed/missing row rejects the whole request atomically.
  * 4. The replacement set must match the existing selection rows exactly and
@@ -807,7 +808,7 @@ export const updateAccommodation = mutation({
 
     // Ownership is re-checked here, before any editable detail is loaded, so
     // a failed ownership check never reveals editability or selection data.
-    let ownershipMethod: "email" | "token" | null = null
+    let ownershipMethod: "email" | "token" | "link" | null = null
     const normalizedOrderEmail = order.bookerEmail
       ? normalizeBookerEmail(order.bookerEmail)
       : null
@@ -821,6 +822,11 @@ export const updateAccommodation = mutation({
       if (tokenValid) {
         ownershipMethod = "token"
       }
+    } else if (!bookerEmail) {
+      // The durable manage-booking link is the buyer-facing access credential.
+      // The route-issued request signature still protects the write from
+      // direct Convex invocation and request tampering.
+      ownershipMethod = "link"
     }
     if (!ownershipMethod) {
       throwEditError(

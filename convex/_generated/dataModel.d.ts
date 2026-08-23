@@ -595,7 +595,7 @@ export type DataModel = {
       idempotencyKey: string;
       orderId: Id<"orders">;
       overpaymentDeltaMinor: number;
-      ownershipMethod: "email" | "token";
+      ownershipMethod: "email" | "token" | "link";
       progressPercent: number;
       remainingMinor: number;
       requestDigest: string;

@@ -183,8 +183,8 @@ async function sendOrderConfirmationResendEmail(
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
 
-  // Booking-specific confirmation links prefill the reference and let the
-  // buyer verify ownership with the booking email in the manage form.
+  // Booking-specific confirmation links carry the booking reference used as
+  // the buyer-facing access credential in the manage form.
   const trackPaymentUrl = `${appUrl.replace(/\/+$/, "")}/booking/${encodeURIComponent(
     order.order.bookingRef
   )}/manage`

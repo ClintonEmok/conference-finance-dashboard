@@ -471,8 +471,7 @@ describe("TrackPaymentView routing and states", () => {
     // Receipt rows come from the server payload.
     expect(html).toContain("Unconstrained ticket")
     expect(html).toContain("Accommodation")
-    // The ownership email is never rendered — it is input-only proof, and
-    // returning it from a public query would defeat the email ownership gate.
+    // The ownership email is never rendered; the durable link grants access.
     expect(html).not.toContain("booker@example.com")
     // The edit token from the email link is consumed locally only. Token-based
     // arrivals do not need to see an ownership form or the token itself.
@@ -540,22 +539,21 @@ describe("TrackPaymentAccommodationEditor states", () => {
     expect(html).toContain("40,00 / night")
     // Save action is present; narrow-layout classes are applied.
     expect(html).toContain("Save preferences")
-    expect(html).toContain('id="track-edit-email"')
+    expect(html).not.toContain('id="track-edit-email"')
     expect(html).toContain("min-w-0")
     expect(html).toContain("flex-wrap")
   })
 
-  it("hides the email ownership form when reached through an edit token", () => {
+  it("does not render an email ownership form for link-based access", () => {
     const html = render(
       createElement(TrackPaymentAccommodationEditor, {
         bookingRef: BOOKING_REF,
         currency: "EUR",
         editContext: buildEditContext(),
-        initialEditToken: "token-from-email",
       })
     )
     expect(html).not.toContain('id="track-edit-email"')
-    expect(html).not.toContain("To save changes, confirm ownership")
+    expect(html).toContain("This booking link grants access")
     expect(html).toContain("Save preferences")
   })
 

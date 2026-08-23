@@ -562,6 +562,53 @@ test("HMAC edit token ownership succeeds without email", async () => {
   expect(allAudits[0].orderId).toBe(order.orderId)
 })
 
+test("booking-reference link ownership succeeds without email or edit token", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  const order = await createOrderWithSelections(t, seed)
+
+  const selections = [
+    replacement({
+      attendeeKey: "a-1",
+      occupancy: "shared",
+      nightBeforeLevel: "standard",
+    }),
+    replacement({
+      attendeeKey: "a-2",
+      occupancy: "shared",
+      nightBeforeLevel: "standard",
+    }),
+  ]
+  const idempotencyKey = uniqueIdempotencyKey()
+  const requestSignature = await signEditEnvelope({
+    bookingRef: BOOKING_REF,
+    bookerEmail: null,
+    editToken: null,
+    idempotencyKey,
+    selections,
+  })
+
+  const result = await t.mutation(api.publicTracking.updateAccommodation, {
+    bookingRef: BOOKING_REF,
+    requestSignature,
+    idempotencyKey,
+    selections,
+  })
+
+  expect(result.status).toBe("applied")
+
+  const audits = await t.query(async (ctx) => {
+    const rows = []
+    for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
+      rows.push(row)
+    }
+    return rows
+  })
+  expect(audits).toHaveLength(1)
+  expect(audits[0].ownershipMethod).toBe("link")
+  expect(audits[0].orderId).toBe(order.orderId)
+})
+
 test("unsigned and mis-signed direct calls are rejected before any write", async () => {
   const t = fresh()
   const seed = await createConfiguredEvent(t)

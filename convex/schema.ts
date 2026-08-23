@@ -379,7 +379,11 @@ export default defineSchema({
       orderId: v.id("orders"),
       idempotencyKey: v.string(),
       requestDigest: v.string(),
-      ownershipMethod: v.union(v.literal("email"), v.literal("token")),
+      ownershipMethod: v.union(
+        v.literal("email"),
+        v.literal("token"),
+        v.literal("link")
+      ),
       beforeSelectionDigest: v.string(),
       afterSelectionDigest: v.string(),
       amountDueBeforeMinor: v.number(),
