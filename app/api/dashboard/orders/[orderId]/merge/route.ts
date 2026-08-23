@@ -19,12 +19,10 @@ function badRequest(message: string) {
   )
 }
 
-function normalizeOrderId(context: { params: Promise<{ orderId: string }> }) {
-  return context.params.then(({ orderId }) => {
-    const normalized = orderId.trim()
-    if (!normalized) throw new Error("Invalid orderId")
-    return normalized
-  })
+function normalizeOrderId(value: string | undefined): string {
+  const normalized = (value ?? "").trim()
+  if (!normalized) throw new Error("Invalid orderId")
+  return normalized
 }
 
 export async function POST(
@@ -38,7 +36,9 @@ export async function POST(
   }
 
   try {
-    const sourceOrderId = await normalizeOrderId(context)
+    const routeOrderId = normalizeOrderId(
+      (await context.params).orderId
+    )
     const body = (await request.json()) as unknown
 
     if (!body || typeof body !== "object") {
@@ -55,8 +55,30 @@ export async function POST(
       return badRequest("targetOrderId is required")
     }
 
+    // Array-based whole-order merge: when sourceOrderIds is supplied, use it
+    // directly; when omitted, fall back to the URL orderId as a single-source
+    // backward-compatible default.
+    let sourceOrderIds: string[]
+    if (Array.isArray(input.sourceOrderIds)) {
+      sourceOrderIds = (input.sourceOrderIds as unknown[])
+        .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+        .map((v) => v.trim())
+    } else {
+      sourceOrderIds = [routeOrderId]
+    }
+
+    if (sourceOrderIds.length === 0) {
+      return badRequest("sourceOrderIds must contain at least one non-empty string")
+    }
+
+    // Normalize every ID
+    const normalizedSourceIds = sourceOrderIds.map((id) => {
+      if (!id) throw new Error("Invalid source order ID")
+      return id
+    })
+
     const result = await convexMutation(api.orders.mergeOrders, {
-      sourceOrderId: sourceOrderId as Id<"orders">,
+      sourceOrderIds: normalizedSourceIds as Id<"orders">[],
       targetOrderId: targetOrderId as Id<"orders">,
     })
 
@@ -68,11 +90,19 @@ export async function POST(
     console.error("Error merging order:", error)
     const message = error instanceof Error ? error.message : "Invalid request"
 
-    if (message === "Invalid orderId") {
-      return badRequest("Invalid orderId")
+    if (message === "Invalid orderId" || message === "Invalid source order ID") {
+      return badRequest(message)
     }
 
-    if (message.startsWith("Source") || message.startsWith("Target") || message.startsWith("Orders")) {
+    if (
+      message.startsWith("Source") ||
+      message.startsWith("Target") ||
+      message.startsWith("Orders") ||
+      message.startsWith("At least") ||
+      message.startsWith("Duplicate") ||
+      message.startsWith("A source") ||
+      message.startsWith("Booking reference")
+    ) {
       return badRequest(message)
     }
 

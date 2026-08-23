@@ -67,12 +67,14 @@ describe("OrderDetailSurface panel decomposition", () => {
       "components/dashboard/orders/panels/order-actions-panel.tsx"
     )
     expect(actions).toContain("Send email")
+    expect(actions).toContain("Merge order")
     expect(actions).toContain("Delete Order")
     const merge = readSource(
       "components/dashboard/orders/panels/merge-order-dialog.tsx"
     )
     expect(merge).toContain("Merge into another order")
     expect(merge).toContain("/api/dashboard/orders/")
+    expect(merge).toContain("sourceOrderIds")
     expect(merge).toContain("targetOrderId")
   })
 
@@ -83,6 +85,20 @@ describe("OrderDetailSurface panel decomposition", () => {
     expect(panel).toContain("AttendeeOrderEditor")
     expect(panel).toContain("getTrackPaymentEditContext")
     expect(panel).toContain("/dashboard/events/${slug}/attendees/")
+  })
+
+  it("wires the Merge order action from the actions panel to the dialog", () => {
+    const surface = readSource(
+      "components/dashboard/orders/order-detail-surface.tsx"
+    )
+    expect(surface).toContain("onOpenMergeDialog")
+    expect(surface).toContain("isMergeDialogOpen")
+    expect(surface).toContain("setIsMergeDialogOpen(true)")
+
+    const actions = readSource(
+      "components/dashboard/orders/panels/order-actions-panel.tsx"
+    )
+    expect(actions).toContain("onOpenMergeDialog")
   })
 })
 

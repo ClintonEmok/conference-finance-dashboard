@@ -429,6 +429,7 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
             isDeleting={isDeleting}
             deleteError={deleteError}
             onDelete={() => void deleteOrder()}
+            onOpenMergeDialog={() => setIsMergeDialogOpen(true)}
           />
         }
       />

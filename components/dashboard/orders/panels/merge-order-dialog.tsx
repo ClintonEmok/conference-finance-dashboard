@@ -80,7 +80,10 @@ export function MergeOrderDialog({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ targetOrderId }),
+          body: JSON.stringify({
+            sourceOrderIds: [orderId],
+            targetOrderId,
+          }),
         }
       )
 
@@ -118,7 +121,9 @@ export function MergeOrderDialog({
           <DialogTitle>Merge into another order</DialogTitle>
           <DialogDescription>
             Search for the target order to merge this order into. All
-            attendees, payments, and ticket selections will be moved.
+            attendees, ticket selections, accommodation rows, assignments,
+            payments, payment links, and booking-reference aliases will be
+            moved to the target order.
           </DialogDescription>
         </DialogHeader>
 
