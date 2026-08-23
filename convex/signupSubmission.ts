@@ -21,6 +21,7 @@ import {
   isSignupSubmissionSecretConfigured,
   verifySignupSubmissionToken,
 } from "../lib/domain/signup/submission-token"
+import { loadOrderByBookingRef } from "./bookingRefs"
 
 const IDEMPOTENCY_WINDOW_MS = 2 * 60 * 60 * 1000
 
@@ -1194,10 +1195,8 @@ export const getByBookingRef = query({
     // Normalize the reference the same way the public tracking queries do, so
     // a lower/mixed-case permalink resolves to the canonical order (CR-07).
     const bookingRef = args.bookingRef.trim().toUpperCase()
-    const submission = await ctx.db
-      .query("orders")
-      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", bookingRef))
-      .first()
+    // Alias-aware: old source refs resolve to the merged target order.
+    const submission = await loadOrderByBookingRef(ctx, bookingRef)
 
     if (!submission || !submission.eventId) {
       return null

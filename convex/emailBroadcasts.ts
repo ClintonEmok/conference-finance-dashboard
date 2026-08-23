@@ -83,13 +83,16 @@ function normalizeLocationLabel(value: string | null | undefined) {
   return trimmed || null
 }
 
-/** A core order is removed only when its Ticket Tailor extension says so. */
+/** A core order is removed when its Ticket Tailor extension says so, or when it has core merge markers. */
 async function isOrderRemoved(ctx: QueryCtx, orderId: Id<"orders">) {
   const extension = await ctx.db
     .query("ticketTailorOrders")
     .withIndex("orderId", (q) => q.eq("orderId", orderId))
     .first()
-  return typeof extension?.removedAt === "number"
+  if (typeof extension?.removedAt === "number") return true
+  // Core merge markers: merged source orders are also treated as removed.
+  const order = await ctx.db.get("orders", orderId)
+  return typeof order?.mergedIntoOrderId === "string"
 }
 
 /**

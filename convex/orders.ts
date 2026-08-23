@@ -23,6 +23,11 @@ function isOrderRemoved(ttOrder: any) {
   return typeof ttOrder?.removedAt === "number"
 }
 
+/** An order merged via the core merge markers is treated as removed. */
+function isOrderMergedCore(order: Doc<"orders">) {
+  return typeof order?.mergedIntoOrderId === "string"
+}
+
 function isOrderVisible(ttOrder: any) {
   return !isOrderRemoved(ttOrder)
 }
@@ -72,7 +77,7 @@ export const getOrders = query({
 
     // Join with extension data for visibility/status filtering
     const visibleOrders = (await loadOrdersWithExtensions(ctx, orders))
-      .filter(({ extension }) => extension && isOrderVisible(extension))
+      .filter(({ order, extension }) => extension && isOrderVisible(extension) && !isOrderMergedCore(order))
     const eventSourceKindsById = await loadEventSourceKindsById(ctx)
 
     // Map back to order objects with merged extension data
@@ -105,7 +110,7 @@ export const getOrderById = query({
       }
 
       const combined = await loadOrderWithExtension(ctx, orderId)
-      if (!combined || !isOrderVisible(combined.extension)) {
+      if (!combined || !isOrderVisible(combined.extension) || isOrderMergedCore(combined.order)) {
         return null
       }
 
@@ -746,6 +751,9 @@ async function listCandidateOrders(
     ...extension,
     _id: order._id,
     _creationTime: order._creationTime,
+    // Preserve core merge markers so visibility checks can exclude merged orders.
+    mergedIntoOrderId: order.mergedIntoOrderId,
+    mergedAt: order.mergedAt,
   }))
 }
 
@@ -871,6 +879,7 @@ export const getOrdersWithFilters = query({
     const location = normalizeLocationLabel(args.location)
     let orders = candidates
       .filter((order) => !isOrderRemoved(order))
+      .filter((order) => !(order as any).mergedIntoOrderId)
       .filter((order) => isInternalEvent(eventSourceKindsById, order.eventId))
       .filter((order) => matchesOrderFilters(order, args))
       .sort(sortOrdersByNewest)
@@ -882,20 +891,23 @@ export const getOrdersWithFilters = query({
       )
     }
 
+    // Filter out core-merged orders for totals and pagination
+    const visibleOrders = orders.filter((o) => !(o as any).mergedIntoOrderId)
+
     const page = args.page ?? 1
     const pageSize = args.pageSize ?? 25
-    const totalRows = orders.length
+    const totalRows = visibleOrders.length
     const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
     const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
       ctx,
-      orders
+      visibleOrders
     )
     const matchedPaymentTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
       ctx,
-      orders
+      visibleOrders
     )
 
-    const totals = orders.reduce(
+    const totals = visibleOrders.reduce(
       (acc, order) => {
         const amountDueMinor =
           amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
@@ -918,7 +930,7 @@ export const getOrdersWithFilters = query({
     )
 
     const skip = (page - 1) * pageSize
-    const paginatedOrders = orders.slice(skip, skip + pageSize)
+    const paginatedOrders = visibleOrders.slice(skip, skip + pageSize)
 
     const eventNamesById = await loadEventNamesById(ctx)
     const eventSlugsById = await loadEventSlugsById(ctx)
@@ -1001,6 +1013,7 @@ export const getOrderCount = query({
 
     let filtered = mergedOrders
       .filter((o) => !isOrderRemoved(o))
+      .filter((o) => !(o as any).mergedIntoOrderId)
       .filter((o) => isInternalEvent(eventSourceKindsById, o.eventId))
 
     if (args.eventId) {
@@ -1065,6 +1078,8 @@ export const getOrdersForReconciliation = query({
     // Filter by date range in memory (orderedAt is not indexed)
     const filtered = orders.filter((order) => {
       if (isOrderRemoved(order)) return false
+      // Exclude core-merged orders
+      if (typeof order.mergedIntoOrderId === "string") return false
 
       const orderedAt = order.orderedAt ?? order.submittedAt ?? 0
       if (orderedAt < fromMs || orderedAt > toMs) return false
@@ -1240,6 +1255,7 @@ export const searchOrdersForMerge = query({
       .filter(
         ({ order, extension }) =>
           !isOrderRemoved(extension) &&
+          !isOrderMergedCore(order) &&
           isInternalEvent(eventSourceKindsById, order.eventId) &&
           (!needle ||
             (order.bookerName?.toLowerCase().includes(needle)) ||
@@ -1316,6 +1332,9 @@ export const getOrderWithAttendees = query({
     const extension = (await loadOrderWithExtension(ctx, order._id))?.extension ?? null
 
     if (extension && isOrderRemoved(extension)) return null
+
+    // Also treat core-merged orders as removed
+    if (isOrderMergedCore(order)) return null
 
     const eventSourceKindsById = await loadEventSourceKindsById(ctx)
     if (!isInternalEvent(eventSourceKindsById, order.eventId)) {
@@ -1403,8 +1422,10 @@ export const getOrderPaymentStatus = query({
 
     const eventSourceKindsById = await loadEventSourceKindsById(ctx)
 
-    const canonicalVisibleOrders = visibleOrders.filter((o) =>
-      isInternalEvent(eventSourceKindsById, o.eventId)
+    const canonicalVisibleOrders = visibleOrders.filter(
+      (o) =>
+        isInternalEvent(eventSourceKindsById, o.eventId) &&
+        !(o as any).mergedIntoOrderId
     )
 
     const payments = await ctx.db.query("payments").order("desc").take(1000)
