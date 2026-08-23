@@ -8,8 +8,8 @@
  *   already-required `SIGNUP_SUBMISSION_SECRET`. No new secret is introduced
  *   and no raw bearer token is ever persisted. New confirmation/resend emails
  *   embed the token in a `/booking/{bookingRef}/manage?token=...` link;
- *   The durable booking link is also accepted as the buyer-facing access
- *   credential; email and token checks remain supported for compatibility.
+ *   legacy links without a token remain editable through the normalized
+ *   booker-email match.
  * - The **request signature** is a short-lived HMAC token minted by the
  *   Next.js route after its rate-limit + honeypot checks and bound to the
  *   normalized edit envelope (booking reference, ownership fields,

@@ -303,6 +303,14 @@ export async function POST(
     })
   }
 
+  if (!bookerEmail && !editToken) {
+    return jsonError(
+      "EDIT_OWNERSHIP",
+      "Verify ownership of this booking to edit it.",
+      403
+    )
+  }
+
   let requestSignature: string
   try {
     requestSignature = await mintEditRequestSignature({

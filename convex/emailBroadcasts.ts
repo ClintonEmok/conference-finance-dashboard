@@ -73,6 +73,13 @@ type AudienceRecipient = {
   submittedAt: number | null
 }
 
+function stripManageBookingUrl(
+  recipient: Doc<"emailBroadcastRecipients">
+) {
+  const { manageBookingUrl: _manageBookingUrl, ...safeRecipient } = recipient
+  return safeRecipient
+}
+
 function normalizeEmail(value: string | null | undefined) {
   const trimmed = typeof value === "string" ? value.trim().toLowerCase() : ""
   return trimmed || null
@@ -339,17 +346,19 @@ export const getBroadcastRecipients = query({
     const limit = Math.min(args.limit ?? 500, 500)
     const base = ctx.db.query("emailBroadcastRecipients")
     if (args.status) {
-      return await base
+      const rows = await base
         .withIndex("by_broadcastId_and_status", (q) =>
           q
             .eq("broadcastId", args.broadcastId)
             .eq("status", args.status as "pending")
         )
         .take(limit)
+      return rows.map(stripManageBookingUrl)
     }
-    return await base
+    const rows = await base
       .withIndex("by_broadcastId", (q) => q.eq("broadcastId", args.broadcastId))
       .take(limit)
+    return rows.map(stripManageBookingUrl)
   },
 })
 
@@ -448,9 +457,6 @@ export const scheduleEmailBroadcast = mutation({
         to: recipient.bookerEmail,
         bookerName: recipient.bookerName ?? undefined,
         bookingRef: recipient.bookingRef ?? undefined,
-        manageBookingUrl: recipient.bookingRef
-          ? `${baseUrl}/booking/${encodeURIComponent(recipient.bookingRef)}/manage`
-          : undefined,
         status: "pending",
         attempts: 0,
       })

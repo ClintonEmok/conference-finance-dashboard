@@ -21,6 +21,7 @@ import {
   isSignupSubmissionSecretConfigured,
   verifySignupSubmissionToken,
 } from "../lib/domain/signup/submission-token"
+import { buildTrackPaymentPermalink } from "../lib/domain/track-payment/edit-token"
 import { loadOrderByBookingRef } from "./bookingRefs"
 
 const IDEMPOTENCY_WINDOW_MS = 2 * 60 * 60 * 1000
@@ -1046,11 +1047,18 @@ export const submitSignupEnvelope = mutation({
         args.assignments
       )
 
-      // Booking-specific confirmation links carry the booking reference used
-      // as the buyer-facing access credential in the manage form.
-      const trackPaymentUrl = `${appUrl.replace(/\/+$/, "")}/booking/${encodeURIComponent(
-        bookingRef
-      )}/manage`
+      // Booking-specific confirmation links include an edit token when the
+      // shared secret is configured; otherwise the manage form verifies the
+      // booking email.
+      const trackPaymentUrl =
+        (await buildTrackPaymentPermalink({
+          bookingRef,
+          bookerEmail,
+          appUrl,
+        })) ??
+        `${appUrl.replace(/\/+$/, "")}/booking/${encodeURIComponent(
+          bookingRef
+        )}/manage`
 
       await ctx.scheduler.runAfter(
         0,

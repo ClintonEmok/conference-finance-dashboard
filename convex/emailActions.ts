@@ -9,6 +9,7 @@ import type { Id } from "./_generated/dataModel"
 import { render } from "@react-email/render"
 import SignupConfirmationEmail from "../lib/email/templates/signup-confirmation"
 import AnnouncementEmail from "../lib/email/templates/announcement"
+import { buildTrackPaymentPermalink } from "../lib/domain/track-payment/edit-token"
 
 const resend = new Resend(components.resend, {
   testMode: false,
@@ -183,11 +184,17 @@ async function sendOrderConfirmationResendEmail(
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
 
-  // Booking-specific confirmation links carry the booking reference used as
-  // the buyer-facing access credential in the manage form.
-  const trackPaymentUrl = `${appUrl.replace(/\/+$/, "")}/booking/${encodeURIComponent(
-    order.order.bookingRef
-  )}/manage`
+  // Booking-specific confirmation links include an edit token when the shared
+  // secret is configured; otherwise the manage form verifies the booking email.
+  const trackPaymentUrl =
+    (await buildTrackPaymentPermalink({
+      bookingRef: order.order.bookingRef,
+      bookerEmail: order.order.bookerEmail,
+      appUrl,
+    })) ??
+    `${appUrl.replace(/\/+$/, "")}/booking/${encodeURIComponent(
+      order.order.bookingRef
+    )}/manage`
 
   const result = await sendSignupConfirmationEmail(ctx, {
     to: order.order.bookerEmail,

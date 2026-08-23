@@ -131,8 +131,10 @@ describe("canonical /booking wrappers", () => {
     // tracking queries and forwards the optional edit token.
     expect(permalink).toContain("normalizeBookingRefForEdit")
     expect(permalink).toContain("initialBookingRef={bookingRef}")
-    expect(permalink).toContain("initialEditToken={token}")
-    expect(permalink).toContain("searchParams: Promise<{ token?: string }>")
+    expect(permalink).toContain("initialEditToken={editToken}")
+    expect(permalink).toContain(
+      "searchParams: Promise<{ token?: string | string[] }>"
+    )
     // Thin wrapper only: no search hero, no second shell, no query munging.
     expect(permalink).not.toContain("Track Booking")
     expect(permalink).not.toContain("Search another booking")

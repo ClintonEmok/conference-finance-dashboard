@@ -621,7 +621,7 @@ test("scheduleEmailBroadcast creates a queued job and pending recipients without
   for (const recipient of recipients) {
     expect(recipient.status).toBe("pending")
     expect(recipient.attempts).toBe(0)
-    expect(recipient.manageBookingUrl).toContain("/booking/")
+    expect(recipient.manageBookingUrl).toBeUndefined()
   }
 })
 
@@ -691,9 +691,16 @@ test("scheduleEmailBroadcast snapshots exactly the searched audience", async () 
   })
   expect(recipients).toHaveLength(1)
   expect(recipients[0].to).toBe("alice@example.com")
-  // Personalized manage-booking link for the matched booking reference.
-  expect(recipients[0].manageBookingUrl).toContain("/booking/BK-ALICE/manage")
+  // The booking reference is persisted, but bearer manage-link credentials are
+  // minted only by the send-time action.
+  expect(recipients[0].manageBookingUrl).toBeUndefined()
   expect(recipients[0].bookingRef).toBe("BK-ALICE")
+
+  const visibleRecipients = await t.query(
+    api.emailBroadcasts.getBroadcastRecipients,
+    { broadcastId: broadcastId as never }
+  )
+  expect(visibleRecipients[0]).not.toHaveProperty("manageBookingUrl")
 })
 
 test("scheduleEmailBroadcast rejects integration-source events", async () => {

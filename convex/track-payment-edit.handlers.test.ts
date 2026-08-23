@@ -391,7 +391,7 @@ function uniqueIdempotencyKey(): string {
 test("edit-context projection returns bounded selections, choices, and lock state without credentials", async () => {
   const t = fresh()
   const seed = await createConfiguredEvent(t)
-  const order = await createOrderWithSelections(t, seed)
+  await createOrderWithSelections(t, seed)
 
   const context = await t.query(api.publicTracking.getTrackPaymentEditContext, {
     bookingRef: "  bk-20260806-test01  ",
@@ -562,7 +562,7 @@ test("HMAC edit token ownership succeeds without email", async () => {
   expect(allAudits[0].orderId).toBe(order.orderId)
 })
 
-test("booking-reference link ownership succeeds without email or edit token", async () => {
+test("booking-reference-only ownership is rejected without email or edit token", async () => {
   const t = fresh()
   const seed = await createConfiguredEvent(t)
   const order = await createOrderWithSelections(t, seed)
@@ -588,14 +588,14 @@ test("booking-reference link ownership succeeds without email or edit token", as
     selections,
   })
 
-  const result = await t.mutation(api.publicTracking.updateAccommodation, {
-    bookingRef: BOOKING_REF,
-    requestSignature,
-    idempotencyKey,
-    selections,
-  })
-
-  expect(result.status).toBe("applied")
+  await expect(
+    t.mutation(api.publicTracking.updateAccommodation, {
+      bookingRef: BOOKING_REF,
+      requestSignature,
+      idempotencyKey,
+      selections,
+    })
+  ).rejects.toThrow("EDIT_OWNERSHIP")
 
   const audits = await t.query(async (ctx) => {
     const rows = []
@@ -604,9 +604,7 @@ test("booking-reference link ownership succeeds without email or edit token", as
     }
     return rows
   })
-  expect(audits).toHaveLength(1)
-  expect(audits[0].ownershipMethod).toBe("link")
-  expect(audits[0].orderId).toBe(order.orderId)
+  expect(audits).toHaveLength(0)
 })
 
 test("unsigned and mis-signed direct calls are rejected before any write", async () => {

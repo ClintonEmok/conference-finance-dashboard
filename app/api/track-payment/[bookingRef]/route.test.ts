@@ -289,16 +289,17 @@ describe("POST /api/track-payment/[bookingRef]", () => {
     expect(mocks.convexMutation).not.toHaveBeenCalled()
   })
 
-  it("allows link-only ownership without asking for the booking email", async () => {
+  it("rejects missing ownership before calling Convex", async () => {
     const response = await POST(
       editRequest({
         body: validBody({ bookerEmail: "", editToken: "" }),
       }),
       { params: Promise.resolve({ bookingRef: BOOKING_REF }) }
     )
-    expect(response.status).toBe(200)
-    expect((await response.json()).data).toEqual(serverResult)
-    expect(mocks.convexMutation).toHaveBeenCalledTimes(1)
+    expect(response.status).toBe(403)
+    const payload = await response.json()
+    expect(payload.error.code).toBe("EDIT_OWNERSHIP")
+    expect(mocks.convexMutation).not.toHaveBeenCalled()
   })
 
   it("maps confirmed-lock and stale-option failures to stable 409 codes", async () => {

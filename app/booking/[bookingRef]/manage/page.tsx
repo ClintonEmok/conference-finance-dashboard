@@ -18,12 +18,16 @@ export default async function BookingManagePermalinkPage({
   searchParams,
 }: {
   params: Promise<{ bookingRef: string }>
-  searchParams: Promise<{ token?: string }>
+  searchParams: Promise<{ token?: string | string[] }>
 }) {
   const { bookingRef: rawBookingRef } = await params
   const { token } = await searchParams
   const bookingRef = normalizeBookingRefForEdit(rawBookingRef)
+  const editToken = typeof token === "string" ? token : undefined
   return (
-    <TrackPaymentView initialBookingRef={bookingRef} initialEditToken={token} />
+    <TrackPaymentView
+      initialBookingRef={bookingRef}
+      initialEditToken={editToken}
+    />
   )
 }

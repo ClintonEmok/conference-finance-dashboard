@@ -304,6 +304,27 @@ describe("buildTrackPaymentEditBody", () => {
     expect(body.bookerEmail).toBeUndefined()
     expect(body.editToken).toBeUndefined()
   })
+
+  it("omits night-before occupancy when no night-before stay is selected", () => {
+    const body = buildTrackPaymentEditBody({
+      bookingRef: BOOKING_REF,
+      bookerEmail: "",
+      editToken: "",
+      idempotencyKey: "idem-no-night-before",
+      selections: [
+        {
+          attendeeKey: "a-1",
+          occupancy: "shared",
+          nightBeforeLevel: undefined,
+          nightBeforeOccupancy: "shared",
+          optionSelections: [],
+        },
+      ],
+    })
+    const selection = (body.selections as Array<Record<string, unknown>>)[0]
+    expect(selection.nightBeforeLevel).toBeUndefined()
+    expect(selection.nightBeforeOccupancy).toBeUndefined()
+  })
 })
 
 describe("messageForEditError", () => {
@@ -471,7 +492,7 @@ describe("TrackPaymentView routing and states", () => {
     // Receipt rows come from the server payload.
     expect(html).toContain("Unconstrained ticket")
     expect(html).toContain("Accommodation")
-    // The ownership email is never rendered; the durable link grants access.
+    // The ownership email is never rendered for a signed email link.
     expect(html).not.toContain("booker@example.com")
     // The edit token from the email link is consumed locally only. Token-based
     // arrivals do not need to see an ownership form or the token itself.
@@ -539,21 +560,22 @@ describe("TrackPaymentAccommodationEditor states", () => {
     expect(html).toContain("40,00 / night")
     // Save action is present; narrow-layout classes are applied.
     expect(html).toContain("Save preferences")
-    expect(html).not.toContain('id="track-edit-email"')
+    expect(html).toContain('id="track-edit-email"')
     expect(html).toContain("min-w-0")
     expect(html).toContain("flex-wrap")
   })
 
-  it("does not render an email ownership form for link-based access", () => {
+  it("hides the email ownership form when reached through an edit token", () => {
     const html = render(
       createElement(TrackPaymentAccommodationEditor, {
         bookingRef: BOOKING_REF,
         currency: "EUR",
         editContext: buildEditContext(),
+        initialEditToken: "token-from-email",
       })
     )
     expect(html).not.toContain('id="track-edit-email"')
-    expect(html).toContain("This booking link grants access")
+    expect(html).toContain("This signed booking link grants access")
     expect(html).toContain("Save preferences")
   })
 
