@@ -1628,42 +1628,42 @@ export const removeOrderLocally = mutation({
 
 export const mergeOrders = mutation({
   args: {
-    sourceOrderId: v.id("orders"),
+    sourceOrderIds: v.array(v.id("orders")),
     targetOrderId: v.id("orders"),
   },
   returns: v.object({
     targetOrderId: v.id("orders"),
+    targetBookingRef: v.optional(v.string()),
+    amountDueMinor: v.number(),
     movedAttendees: v.number(),
     movedPayments: v.number(),
+    movedSources: v.number(),
+    aliasCount: v.number(),
   }),
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
 
-    if (args.sourceOrderId === args.targetOrderId) {
-      throw new Error("Source and target orders must be different")
+    const now = Date.now()
+
+    // ── Input guardrails ──────────────────────────────────────────────
+    if (args.sourceOrderIds.length === 0) {
+      throw new Error("At least one source order is required")
     }
 
-    const source = await ctx.db.get("orders", args.sourceOrderId)
-    if (!source) throw new Error("Source order not found")
+    const uniqueSourceIds = new Set(args.sourceOrderIds.map(String))
+    if (uniqueSourceIds.size !== args.sourceOrderIds.length) {
+      throw new Error("Duplicate source order IDs are not allowed")
+    }
+
+    if (uniqueSourceIds.has(String(args.targetOrderId))) {
+      throw new Error("A source order cannot also be the target")
+    }
 
     const target = await ctx.db.get("orders", args.targetOrderId)
     if (!target) throw new Error("Target order not found")
 
-    if (String(source.eventId ?? "") !== String(target.eventId ?? "")) {
-      throw new Error("Orders must belong to the same event")
-    }
-
-    const sourceExt = await ctx.db
-      .query("ticketTailorOrders")
-      .withIndex("orderId", (q) => q.eq("orderId", args.sourceOrderId))
-      .first()
-
-    if (!sourceExt) {
-      throw new Error("Source order extension not found")
-    }
-
-    if (isOrderRemoved(sourceExt)) {
-      throw new Error("Source order has already been removed")
+    if (typeof target.mergedIntoOrderId === "string") {
+      throw new Error("Target order has already been merged")
     }
 
     const targetExt = await ctx.db
@@ -1675,82 +1675,282 @@ export const mergeOrders = mutation({
       throw new Error("Target order has been removed")
     }
 
-    const sourceAttendees = await ctx.db
-      .query("orderAttendees")
-      .withIndex("by_orderId", (q) => q.eq("orderId", args.sourceOrderId))
-      .collect()
+    // ── Load and validate every source ─────────────────────────────────
+    type SourceDoc = Doc<"orders">
+    type SourceExt = Doc<"ticketTailorOrders"> | null
 
-    for (const attendee of sourceAttendees) {
-      await ctx.db.patch("orderAttendees", attendee._id, {
-        orderId: args.targetOrderId,
+    const sources: Array<{
+      order: SourceDoc
+      extension: SourceExt
+      attendees: Doc<"orderAttendees">[]
+      ticketSelections: Doc<"orderTicketSelections">[]
+      accommodationSelections: Doc<"orderAccommodationSelections">[]
+      accommodationOptionSelections: Doc<"orderAccommodationOptionSelections">[]
+      assignments: Doc<"orderAssignments">[]
+      ticketTailorAttendees: Doc<"ticketTailorAttendees">[]
+      payments: Doc<"payments">[]
+      tikkiePaymentLinks: Doc<"tikkiePaymentLinks">[]
+    }> = []
+
+    for (const sourceId of args.sourceOrderIds) {
+      const source = await ctx.db.get("orders", sourceId)
+      if (!source) throw new Error(`Source order ${sourceId} not found`)
+
+      if (typeof source.mergedIntoOrderId === "string") {
+        throw new Error(`Source order ${sourceId} has already been merged`)
+      }
+
+      if (String(source.eventId ?? "") !== String(target.eventId ?? "")) {
+        throw new Error(
+          `Source order ${sourceId} belongs to a different event`
+        )
+      }
+
+      const extension = await ctx.db
+        .query("ticketTailorOrders")
+        .withIndex("orderId", (q) => q.eq("orderId", sourceId))
+        .first()
+
+      if (extension && isOrderRemoved(extension)) {
+        throw new Error(`Source order ${sourceId} has been removed`)
+      }
+
+      // Load all canonical child rows for ownership preflight.
+      const attendees = await ctx.db
+        .query("orderAttendees")
+        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))
+        .take(500)
+
+      const ticketSelections = await ctx.db
+        .query("orderTicketSelections")
+        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))
+        .take(500)
+
+      const accommodationSelections = await ctx.db
+        .query("orderAccommodationSelections")
+        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))
+        .take(500)
+
+      const accommodationOptionSelections = await ctx.db
+        .query("orderAccommodationOptionSelections")
+        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))
+        .take(500)
+
+      const assignments = await ctx.db
+        .query("orderAssignments")
+        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))
+        .take(500)
+
+      const ticketTailorAttendees = await ctx.db
+        .query("ticketTailorAttendees")
+        .withIndex("orderId", (q) => q.eq("orderId", sourceId))
+        .take(500)
+
+      const payments = await ctx.db
+        .query("payments")
+        .withIndex("orderId", (q) => q.eq("orderId", String(sourceId)))
+        .take(500)
+
+      const tikkiePaymentLinks = await ctx.db
+        .query("tikkiePaymentLinks")
+        .withIndex("orderId", (q) => q.eq("orderId", String(sourceId)))
+        .take(500)
+
+      // Preflight: attendee cardinality
+      const attendeeIds = new Set(attendees.map((a) => String(a._id)))
+      for (const sel of ticketSelections) {
+        if (!attendeeIds.has(String(sel.attendeeId))) {
+          throw new Error(
+            `Source order ${sourceId}: ticket selection references non-existent attendee ${sel.attendeeId}`
+          )
+        }
+      }
+      // One ticket per attendee
+      const ticketCountByAttendee = new Map<string, number>()
+      for (const sel of ticketSelections) {
+        const key = String(sel.attendeeId)
+        ticketCountByAttendee.set(key, (ticketCountByAttendee.get(key) ?? 0) + 1)
+      }
+      for (const [attendeeId, count] of ticketCountByAttendee) {
+        if (count > 1) {
+          throw new Error(
+            `Source order ${sourceId}: attendee ${attendeeId} has ${count} ticket selections (expected 1)`
+          )
+        }
+      }
+
+      // Preflight: accommodation option child ownership
+      for (const optionRow of accommodationOptionSelections) {
+        if (!attendeeIds.has(String(optionRow.attendeeId))) {
+          throw new Error(
+            `Source order ${sourceId}: accommodation option row references non-existent attendee ${optionRow.attendeeId}`
+          )
+        }
+      }
+
+      sources.push({
+        order: source,
+        extension,
+        attendees,
+        ticketSelections,
+        accommodationSelections,
+        accommodationOptionSelections,
+        assignments,
+        ticketTailorAttendees,
+        payments,
+        tikkiePaymentLinks,
       })
     }
 
-    const sourceSelections = await ctx.db
-      .query("orderTicketSelections")
-      .withIndex("by_orderId", (q) => q.eq("orderId", args.sourceOrderId))
-      .collect()
+    // ── Booking-ref collision checks ───────────────────────────────────
+    // The target's booking ref is canonical; source refs become aliases.
+    const targetBookingRef = target.bookingRef
 
-    for (const selection of sourceSelections) {
-      await ctx.db.patch("orderTicketSelections", selection._id, {
-        orderId: args.targetOrderId,
-      })
+    for (const source of sources) {
+      const sourceRef = source.order.bookingRef
+      if (!sourceRef) continue
+      const normalizedRef = sourceRef.trim().toUpperCase()
+
+      // Collision with target's canonical ref
+      if (targetBookingRef && normalizedRef === targetBookingRef.trim().toUpperCase()) {
+        throw new Error(
+          `Source order ${source.order._id} has the same booking reference as the target`
+        )
+      }
+
+      // Collision with another source's ref
+      for (const other of sources) {
+        if (other.order._id === source.order._id) continue
+        const otherRef = other.order.bookingRef
+        if (!otherRef) continue
+        if (normalizedRef === otherRef.trim().toUpperCase()) {
+          throw new Error(
+            `Source orders ${source.order._id} and ${other.order._id} have the same booking reference`
+          )
+        }
+      }
+
+      // Collision with an existing alias mapped elsewhere
+      const existingAlias = await ctx.db
+        .query("orderBookingRefAliases")
+        .withIndex("by_bookingRef", (q) => q.eq("bookingRef", normalizedRef))
+        .first()
+      if (existingAlias && String(existingAlias.targetOrderId) !== String(args.targetOrderId)) {
+        throw new Error(
+          `Booking reference ${normalizedRef} is already mapped to another order`
+        )
+      }
     }
 
-    const sourceTtAttendees = await ctx.db
-      .query("ticketTailorAttendees")
-      .withIndex("orderId", (q) => q.eq("orderId", args.sourceOrderId))
-      .collect()
+    // ── Execute writes ─────────────────────────────────────────────────
+    let movedAttendees = 0
+    let movedPayments = 0
+    let aliasCount = 0
 
-    for (const ttAttendee of sourceTtAttendees) {
-      await ctx.db.patch("ticketTailorAttendees", ttAttendee._id, {
-        orderId: args.targetOrderId,
+    for (const source of sources) {
+      // Re-link every canonical child ownership row
+      for (const row of source.attendees) {
+        await ctx.db.patch("orderAttendees", row._id, {
+          orderId: args.targetOrderId,
+        })
+        movedAttendees++
+      }
+
+      for (const row of source.ticketSelections) {
+        await ctx.db.patch("orderTicketSelections", row._id, {
+          orderId: args.targetOrderId,
+        })
+      }
+
+      for (const row of source.accommodationSelections) {
+        await ctx.db.patch("orderAccommodationSelections", row._id, {
+          orderId: args.targetOrderId,
+        })
+      }
+
+      for (const row of source.accommodationOptionSelections) {
+        await ctx.db.patch("orderAccommodationOptionSelections", row._id, {
+          orderId: args.targetOrderId,
+        })
+      }
+
+      for (const row of source.assignments) {
+        await ctx.db.patch("orderAssignments", row._id, {
+          orderId: args.targetOrderId,
+        })
+      }
+
+      for (const row of source.ticketTailorAttendees) {
+        await ctx.db.patch("ticketTailorAttendees", row._id, {
+          orderId: args.targetOrderId,
+        })
+      }
+
+      // Move payment rows by patching the indexed order key
+      for (const row of source.payments) {
+        await ctx.db.patch("payments", row._id, {
+          orderId: String(args.targetOrderId),
+        })
+        movedPayments++
+      }
+
+      // Move tikkie payment link rows
+      for (const row of source.tikkiePaymentLinks) {
+        await ctx.db.patch("tikkiePaymentLinks", row._id, {
+          orderId: String(args.targetOrderId),
+        })
+      }
+
+      // Create alias row for preserved source booking ref
+      const sourceRef = source.order.bookingRef
+      if (sourceRef) {
+        const normalizedRef = sourceRef.trim().toUpperCase()
+        // Idempotent: skip if alias already exists for this source
+        const existingAlias = await ctx.db
+          .query("orderBookingRefAliases")
+          .withIndex("by_bookingRef", (q) => q.eq("bookingRef", normalizedRef))
+          .first()
+        if (!existingAlias) {
+          await ctx.db.insert("orderBookingRefAliases", {
+            bookingRef: normalizedRef,
+            sourceOrderId: source.order._id,
+            targetOrderId: args.targetOrderId,
+            canonicalBookingRef: targetBookingRef ?? undefined,
+            createdAt: now,
+          })
+          aliasCount++
+        }
+      }
+
+      // Mark source order as merged (core merge markers)
+      await ctx.db.patch(source.order._id, {
+        mergedIntoOrderId: args.targetOrderId,
+        mergedAt: now,
+        mergeReason: `Merged into ${String(args.targetOrderId)}`,
       })
+
+      // Mark Ticket Tailor extension removed when present
+      if (source.extension) {
+        await ctx.db.patch("ticketTailorOrders", source.extension._id, {
+          removedAt: now,
+          removedReason: `merged_into_${String(args.targetOrderId)}`,
+        })
+      }
     }
 
-    const sourceAssignments = await ctx.db
-      .query("orderAssignments")
-      .withIndex("by_orderId", (q) => q.eq("orderId", args.sourceOrderId))
-      .collect()
-
-    for (const assignment of sourceAssignments) {
-      await ctx.db.patch("orderAssignments", assignment._id, {
-        orderId: args.targetOrderId,
-      })
-    }
-
-    const sourcePayments = await ctx.db
-      .query("payments")
-      .withIndex("orderId", (q) => q.eq("orderId", args.sourceOrderId))
-      .collect()
-
-    for (const payment of sourcePayments) {
-      await ctx.db.patch("payments", payment._id, {
-        orderId: String(args.targetOrderId),
-      })
-    }
-
-    const sourceTikkieLinks = await ctx.db
-      .query("tikkiePaymentLinks")
-      .withIndex("orderId", (q) => q.eq("orderId", args.sourceOrderId))
-      .collect()
-
-    for (const link of sourceTikkieLinks) {
-      await ctx.db.patch("tikkiePaymentLinks", link._id, {
-        orderId: String(args.targetOrderId),
-      })
-    }
-
-    const removedAt = Date.now()
-    await ctx.db.patch("ticketTailorOrders", sourceExt._id, {
-      removedAt,
-      removedReason: "merged_into_" + String(args.targetOrderId),
-    })
+    // ── Recompute target canonical amount due ──────────────────────────
+    const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [target])
+    const amountDueMinor =
+      breakdowns.get(String(args.targetOrderId))?.amountDueMinor ?? 0
 
     return {
       targetOrderId: args.targetOrderId,
-      movedAttendees: sourceAttendees.length,
-      movedPayments: sourcePayments.length,
+      targetBookingRef: targetBookingRef ?? undefined,
+      amountDueMinor,
+      movedAttendees,
+      movedPayments,
+      movedSources: sources.length,
+      aliasCount,
     }
   },
 })
