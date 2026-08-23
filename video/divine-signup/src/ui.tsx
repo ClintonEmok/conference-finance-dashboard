@@ -774,12 +774,15 @@ export function ActionCursor({
 export function CaptionOverlay({
   captions,
   format,
+  size = "standard",
 }: {
   captions: CaptionChunk[]
   format: VideoFormat
+  size?: "standard" | "large"
 }) {
   const frame = useCurrentFrame()
   const portrait = format === "portrait"
+  const large = size === "large"
   const localSeconds = (frame - AUDIO_DELAY_FRAMES) / VIDEO_FPS
   const active = captions.find(
     (caption) =>
@@ -805,11 +808,11 @@ export function CaptionOverlay({
       style={{
         position: "absolute",
         zIndex: 50,
-        left: portrait ? 54 : "50%",
-        right: portrait ? 54 : undefined,
-        bottom: portrait ? 58 : 38,
+        left: portrait ? (large ? 38 : 54) : large ? "60%" : "50%",
+        right: portrait ? (large ? 38 : 54) : undefined,
+        bottom: portrait ? (large ? 48 : 58) : large ? 42 : 38,
         transform: portrait ? undefined : "translateX(-50%)",
-        width: portrait ? undefined : 1180,
+        width: portrait ? undefined : large ? 1400 : 1180,
         display: "flex",
         justifyContent: "center",
         opacity,
@@ -822,11 +825,17 @@ export function CaptionOverlay({
           background: "rgba(10, 8, 12, 0.9)",
           border: "1px solid rgba(255, 255, 255, 0.16)",
           boxShadow: "0 18px 50px rgba(0, 0, 0, 0.38)",
-          borderRadius: portrait ? 24 : 15,
-          padding: portrait ? "22px 28px" : "14px 24px",
-          fontSize: portrait ? 30 : 23,
+          borderRadius: portrait ? (large ? 28 : 24) : large ? 18 : 15,
+          padding: portrait
+            ? large
+              ? "26px 32px"
+              : "22px 28px"
+            : large
+              ? "17px 28px"
+              : "14px 24px",
+          fontSize: portrait ? (large ? 40 : 30) : large ? 50 : 23,
           fontWeight: 650,
-          lineHeight: 1.3,
+          lineHeight: large ? 1.24 : 1.3,
           textAlign: "center",
           maxWidth: "100%",
         }}

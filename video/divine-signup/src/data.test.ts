@@ -129,9 +129,9 @@ describe("Divine signup video contract", () => {
     expect(AUDIO_DELAY_FRAMES).toBe(20)
     expect(INTRO_DURATION_IN_FRAMES).toBe(75)
     expect(OUTRO_DURATION_IN_FRAMES).toBe(90)
-    expect(storyDurationInFrames).toBe(2_755)
-    expect(totalDurationInFrames).toBe(2_920)
-    expect(totalDurationInFrames / VIDEO_FPS).toBeCloseTo(97.33, 2)
+    expect(storyDurationInFrames).toBe(2_965)
+    expect(totalDurationInFrames).toBe(3_130)
+    expect(totalDurationInFrames / VIDEO_FPS).toBeCloseTo(104.33, 2)
   })
 
   it("keeps smoke frames inside their named scenes", () => {

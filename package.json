@@ -15,9 +15,12 @@
     "video:voiceover": "bash video/divine-signup/scripts/generate-voiceover.sh",
     "video:smoke": "bash video/divine-signup/scripts/smoke-render.sh",
     "video:verify": "vitest run video/divine-signup/src/data.test.ts && remotion compositions video/divine-signup/src/index.tsx && npm run video:smoke",
-    "video:render:landscape": "remotion render video/divine-signup/src/index.tsx DivineSignupLandscape video/divine-signup/out/divine-signup-16x9.mp4 --codec=h264 --crf=18",
-    "video:render:portrait": "remotion render video/divine-signup/src/index.tsx DivineSignupPortrait video/divine-signup/out/divine-signup-9x16.mp4 --codec=h264 --crf=18",
-    "video:render": "npm run video:render:landscape && npm run video:render:portrait"
+    "video:render:landscape": "remotion render video/divine-signup/src/index.tsx DivineSignupLandscape video/divine-signup/out/divine-signup-16x9.mp4 --codec=h264 --crf=14",
+    "video:render:portrait": "remotion render video/divine-signup/src/index.tsx DivineSignupPortrait video/divine-signup/out/divine-signup-9x16.mp4 --codec=h264 --crf=14",
+    "video:render": "npm run video:render:landscape && npm run video:render:portrait",
+    "video:render:large-subtitles:landscape": "remotion render video/divine-signup/src/index.tsx DivineSignupLandscapeLargeSubtitles video/divine-signup/out/divine-signup-16x9-large-subtitles.mp4 --codec=h264 --crf=14",
+    "video:render:large-subtitles:portrait": "remotion render video/divine-signup/src/index.tsx DivineSignupPortraitLargeSubtitles video/divine-signup/out/divine-signup-9x16-large-subtitles.mp4 --codec=h264 --crf=14",
+    "video:render:large-subtitles": "npm run video:render:large-subtitles:landscape && npm run video:render:large-subtitles:portrait"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.0.7",

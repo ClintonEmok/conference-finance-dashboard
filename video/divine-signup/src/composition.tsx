@@ -279,7 +279,13 @@ function BrandOutro({ format }: { format: VideoFormat }) {
   )
 }
 
-export function DivineSignupVideo({ format }: { format: VideoFormat }) {
+export function DivineSignupVideo({
+  format,
+  captionSize = "standard",
+}: {
+  format: VideoFormat
+  captionSize?: "standard" | "large"
+}) {
   return (
     <AbsoluteFill
       style={{
@@ -316,7 +322,11 @@ export function DivineSignupVideo({ format }: { format: VideoFormat }) {
                 src={staticFile(`video/divine-signup/${scene.audioFile}`)}
               />
             </Sequence>
-            <CaptionOverlay captions={scene.captions} format={format} />
+            <CaptionOverlay
+              captions={scene.captions}
+              format={format}
+              size={captionSize}
+            />
           </Sequence>
         )
       })}
@@ -340,4 +350,12 @@ export function DivineSignupLandscape() {
 
 export function DivineSignupPortrait() {
   return <DivineSignupVideo format="portrait" />
+}
+
+export function DivineSignupLandscapeLargeSubtitles() {
+  return <DivineSignupVideo format="landscape" captionSize="large" />
+}
+
+export function DivineSignupPortraitLargeSubtitles() {
+  return <DivineSignupVideo format="portrait" captionSize="large" />
 }

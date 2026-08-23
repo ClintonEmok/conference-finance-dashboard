@@ -1,0 +1,155 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=0.58in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[scaled=0.96]{helvet}
+\usepackage{textcomp}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{hyperref}
+
+\renewcommand{\familydefault}{\sfdefault}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\tabcolsep}{0pt}
+\setlist[itemize]{leftmargin=1.25em,itemsep=0.25em,topsep=0.35em}
+
+\definecolor{ink}{HTML}{0C090E}
+\definecolor{panel}{HTML}{1A141C}
+\definecolor{panelraised}{HTML}{211923}
+\definecolor{line}{HTML}{352B38}
+\definecolor{white}{HTML}{FAF8FB}
+\definecolor{muted}{HTML}{ACA2AE}
+\definecolor{subtle}{HTML}{716777}
+\definecolor{violet}{HTML}{6B52F2}
+\definecolor{violetsoft}{HTML}{251B4D}
+\definecolor{mint}{HTML}{00D9A3}
+
+\pagecolor{ink}
+\color{white}
+\hypersetup{colorlinks=true,urlcolor=violet,linkcolor=violet}
+
+\newcommand{\eyebrow}[1]{%
+  {\color{violet}\fontsize{8}{10}\selectfont\bfseries\uppercase{#1}}%
+}
+
+\newcommand{\ruleline}{%
+  \vspace{0.12in}\noindent\color{violet}\rule{0.72in}{2pt}\par\vspace{0.16in}%
+}
+
+\newcommand{\infoBox}[1]{%
+  \vspace{0.18in}%
+  \noindent\colorbox{panel}{\parbox{\dimexpr\linewidth-2\fboxsep\relax}{\vspace{0.12in}#1\vspace{0.12in}}}%
+}
+
+\newcommand{\stepPage}[4]{%
+  \clearpage
+  \eyebrow{Step #1\hspace{0.12in}/\hspace{0.12in} Divine Redesign 2026}\par
+  \vspace{0.12in}
+  {\fontsize{25}{29}\selectfont\bfseries #2}\par
+  \vspace{0.07in}
+  {\color{muted}\fontsize{11}{15}\selectfont #3}\par
+  \vspace{0.24in}
+  \fcolorbox{line}{panel}{\includegraphics[width=\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax]{#4}}\par
+}
+
+\begin{document}
+
+% Cover
+\vspace*{0.42in}
+\begin{center}
+  \includegraphics[width=1.18in]{../../../public/dlbc-logo.png}\par
+  \vspace{0.24in}
+  \eyebrow{Participant signup guide}\par
+  \vspace{0.12in}
+  {\fontsize{31}{35}\selectfont\bfseries Divine Redesign 2026}\par
+  \ruleline
+  {\color{muted}\fontsize{13}{18}\selectfont A visual guide to tickets, accommodation, review, and payment.}\par
+\end{center}
+
+\vspace{0.28in}
+\fcolorbox{line}{panel}{\includegraphics[width=\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax]{../out/pdf-stills/00-cover.png}}\par
+
+\infoBox{%
+  \begin{tabularx}{\linewidth}{>{\color{muted}\bfseries}l@{\hspace{0.18in}} X @{\hspace{0.18in}} >{\color{white}\bfseries\raggedleft\arraybackslash}l}
+    WALKTHROUGH & One illustrative signup for one attendee & SINGLE ROOM\\[0.12in]
+    TOTAL SHOWN & Includes ticket, cot, Superior upgrade, and night-before stay & \texteuro\,460.00
+  \end{tabularx}%
+}
+
+\vfill
+{\color{subtle}\fontsize{9}{12}\selectfont Values shown are an illustrative walkthrough. Confirm live availability, pricing, and payment status on the signup site before submitting.}
+
+% Step pages
+\stepPage{1}{Start with the event signup}{Begin with the Divine Redesign 2026 registration flow. This example follows one attendee selecting a Single Room ticket. The same steps apply to families and other configurations; choose the options that match your group.}{../out/pdf-stills/01-welcome.png}
+\infoBox{%
+  \eyebrow{What this step covers}\par\vspace{0.08in}
+  The walkthrough follows the live flow from ticket selection through accommodation choices, review, verification, and payment guidance.
+}
+
+\stepPage{2}{Select one ticket}{Choose the ticket category and quantity for the attendee. In this example, select one Single Room ticket.}{../out/pdf-stills/02-tickets.png}
+\infoBox{%
+  \eyebrow{Example selection}\par\vspace{0.08in}
+  One Single Room ticket at \texteuro\,350.00. Use the quantity controls if you are registering more than one attendee.
+}
+
+\stepPage{3}{Enter buyer and attendee details}{Complete the buyer contact details, then enter the attendee information required for the registration.}{../out/pdf-stills/03-details.png}
+\infoBox{%
+  \eyebrow{Have these ready}\par\vspace{0.08in}
+  Full name, email address, phone number, gender, location, dietary information, and any relevant room preferences.
+}
+
+\stepPage{4}{Review the included stay}{The Single Room ticket includes a Standard single room for two nights. The final room placement is confirmed by the organizer.}{../out/pdf-stills/04-included-stay.png}
+\infoBox{%
+  \eyebrow{Included accommodation}\par\vspace{0.08in}
+  The included stay covers two nights. Breakfast is associated with the separately selected night-before stay, not the included accommodation.
+}
+
+\stepPage{5}{Add accommodation options}{On the accommodation step, add a cot by choosing its quantity and number of nights. You can also upgrade the included stay to Superior.}{../out/pdf-stills/05-options.png}
+\infoBox{%
+  \eyebrow{Example options}\par\vspace{0.08in}
+  One cot for two nights: \texteuro\,20.00. Superior upgrade for one attendee across two nights: \texteuro\,20.00.
+}
+
+\stepPage{6}{Choose a night-before stay}{If you want to come a night before, choose Standard or Superior, then Single or Shared occupancy.}{../out/pdf-stills/06-night-before.png}
+\infoBox{%
+  \eyebrow{Example selection}\par\vspace{0.08in}
+  The example uses Superior \textperiodcentered\ Shared at \texteuro\,70.00. Breakfast is included with the selected night-before stay.
+}
+
+\stepPage{7}{Review before submitting}{Check the buyer, attendee, ticket, and every accommodation charge before completing the verification challenge.}{../out/pdf-stills/07-review.png}
+\infoBox{%
+  \eyebrow{Final review checklist}\par\vspace{0.08in}
+  Confirm the live total, attendee count, accommodation selections, dates, and contact details before submitting.
+}
+
+\stepPage{8}{Submit and manage the booking}{After submission, save the booking reference and complete payment through Tikkie. A confirmation email will arrive.}{../out/pdf-stills/08-confirmation.png}
+\infoBox{%
+  \eyebrow{After submission}\par\vspace{0.08in}
+  Use Manage Booking later to review payment progress and booking details. The walkthrough itself does not create a production booking.
+}
+
+% Closing page
+\clearpage
+\vspace*{1.3in}
+\begin{center}
+  \includegraphics[width=1.35in]{../../../public/dlbc-logo.png}\par
+  \vspace{0.28in}
+  \eyebrow{Divine Redesign 2026}\par
+  \vspace{0.16in}
+  {\fontsize{29}{34}\selectfont\bfseries Walkthrough complete.}\par
+  \vspace{0.13in}
+  {\color{muted}\fontsize{13}{18}\selectfont Thanks for following along.}\par
+  \vspace{0.42in}
+  \fcolorbox{line}{panel}{\includegraphics[width=\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax]{../out/pdf-stills/09-closing.png}}\par
+\end{center}
+
+\vfill
+\begin{center}
+  {\color{subtle}\fontsize{9}{12}\selectfont Use the live signup flow for final availability, pricing, and submission.}
+\end{center}
+
+\end{document}

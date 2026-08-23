@@ -1,6 +1,11 @@
 import { Composition } from "remotion"
 
-import { DivineSignupLandscape, DivineSignupPortrait } from "./composition"
+import {
+  DivineSignupLandscape,
+  DivineSignupLandscapeLargeSubtitles,
+  DivineSignupPortrait,
+  DivineSignupPortraitLargeSubtitles,
+} from "./composition"
 import { totalDurationInFrames, VIDEO_FPS } from "./data"
 
 export function RemotionRoot() {
@@ -17,6 +22,22 @@ export function RemotionRoot() {
       <Composition
         id="DivineSignupPortrait"
         component={DivineSignupPortrait}
+        durationInFrames={totalDurationInFrames}
+        fps={VIDEO_FPS}
+        width={1080}
+        height={1920}
+      />
+      <Composition
+        id="DivineSignupLandscapeLargeSubtitles"
+        component={DivineSignupLandscapeLargeSubtitles}
+        durationInFrames={totalDurationInFrames}
+        fps={VIDEO_FPS}
+        width={1920}
+        height={1080}
+      />
+      <Composition
+        id="DivineSignupPortraitLargeSubtitles"
+        component={DivineSignupPortraitLargeSubtitles}
         durationInFrames={totalDurationInFrames}
         fps={VIDEO_FPS}
         width={1080}

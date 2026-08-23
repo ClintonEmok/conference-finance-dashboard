@@ -116,9 +116,9 @@ export type StoryScene = {
 export const storyScenes: StoryScene[] = [
   {
     id: "welcome",
-    durationInFrames: 300,
+    durationInFrames: 510,
     audioFile: "01-welcome.mp3",
-    audioDurationSeconds: 8.8,
+    audioDurationSeconds: 15.4,
     captions: [
       {
         text: "In this example, we'll walk through signing up for Divine Redesign 2026,",
@@ -126,9 +126,14 @@ export const storyScenes: StoryScene[] = [
         endSeconds: 5.35,
       },
       {
-        text: "using one Single Room ticket for one attendee.",
+        text: "using one Single Room ticket for one attendee. The same steps apply to families and other configurations;",
         startSeconds: 5.35,
-        endSeconds: 8.7,
+        endSeconds: 12.6,
+      },
+      {
+        text: "just choose the options that match your group.",
+        startSeconds: 12.6,
+        endSeconds: 15.3,
       },
     ],
   },

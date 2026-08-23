@@ -23,43 +23,43 @@
   },
   "files": {
     "01-welcome.mp3": {
-      "durationSeconds": 8.8,
-      "sha256": "38a0006c8a6d5d03ecde6d3186e259a63091116dcd82e9d6f4c19b2b71812b2d",
-      "sizeBytes": 142125
+      "durationSeconds": 15.4,
+      "sha256": "2ee39f551be63341a60b6553031b25e54b12b5cd0d8f0dc841b250b7b7e48c61",
+      "sizeBytes": 247725
     },
     "02-tickets.mp3": {
       "durationSeconds": 4.375,
-      "sha256": "c25aff5d931cf536377c9326af5e71d8a89ce97d4f34b7963450613542d51251",
+      "sha256": "e8b2a8c25b6ef1e986f45fc34d991faea46c2c1f3137279fb8029a4d0e19f8fc",
       "sizeBytes": 71469
     },
     "03-details.mp3": {
       "durationSeconds": 11.625,
-      "sha256": "616d0043e752e86e6c815a979a3f725b1f2e958c387e9df764ebe82be7778c11",
+      "sha256": "3a77e1b964ab5e2ac674a54502d26da6d3482210c9e85a4478ae7c3ecf43419d",
       "sizeBytes": 187437
     },
     "04-included-stay.mp3": {
       "durationSeconds": 10.4,
-      "sha256": "4633db88e5d404981e2e78058de56daceebdcaefcfdce8fd05bdaa98f3a8f753",
+      "sha256": "376f61f5782a40d769f17127037cd8360168e82378352337a69e640328ba47f6",
       "sizeBytes": 167853
     },
     "05-options.mp3": {
       "durationSeconds": 11.3,
-      "sha256": "6e91e240e483f8a8bbc4a3cb1d48f98392e7a9d8fd8c7957f744b04883679cad",
+      "sha256": "47fd5364d03308eb78f627f163497af52ddf688bd3cf0c3fe5e90fff0aeab75a",
       "sizeBytes": 182061
     },
     "06-night-before.mp3": {
       "durationSeconds": 10.45,
-      "sha256": "dd1cc58addf6f41e48bdeee928a7f33be4ff5795a99669706495da46441a87e6",
+      "sha256": "c48aebbc877886df6bf1e0ba9b35a72a9512e5fe70043071502addf77bf35ef9",
       "sizeBytes": 168621
     },
     "07-review.mp3": {
       "durationSeconds": 10.075,
-      "sha256": "48d79fb40a01119415553a712488b129f35237ee6ff0196ddc05f23e41e21e52",
+      "sha256": "42ce0112f9b60fb8f45daa09172c7107d97f3ed90d9446690b8ab2d37a76a6e8",
       "sizeBytes": 162477
     },
     "08-confirmation.mp3": {
       "durationSeconds": 12.45,
-      "sha256": "5938917acc348b08c8244f0f341754d740115b772609d1bf42eac18d6dd61da0",
+      "sha256": "05f0a17ecc1f9f275e6b7a677641fd3cd6c5c9b49c33e07bf11914fffc231c03",
       "sizeBytes": 200493
     }
   }
