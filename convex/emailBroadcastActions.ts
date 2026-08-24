@@ -5,6 +5,7 @@ import { v } from "convex/values"
 import { internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import { sendAnnouncementEmail } from "./emailActions"
+import { buildTrackPaymentPermalink } from "../lib/domain/track-payment/edit-token"
 
 const BATCH_SIZE = 25
 
@@ -54,7 +55,23 @@ export const processBatch = internalAction({
       return { done: true }
     }
 
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(
+      /\/+$/,
+      ""
+    )
+
     for (const recipient of recipients) {
+      // Mint bearer links immediately before delivery. Recipient rows contain
+      // booking metadata, never the bearer credentials themselves.
+      const manageBookingUrl = recipient.bookingRef
+        ? (await buildTrackPaymentPermalink({
+            bookingRef: recipient.bookingRef,
+            bookerEmail: recipient.to,
+            appUrl,
+          })) ??
+          `${appUrl}/booking/${encodeURIComponent(recipient.bookingRef)}/manage`
+        : job.signupUrl
+
       const result = await sendAnnouncementEmail(ctx, {
         to: recipient.to,
         title: job.title,
@@ -62,7 +79,7 @@ export const processBatch = internalAction({
         eventName: job.eventName,
         eventDate: job.eventDate,
         bookingRef: recipient.bookingRef,
-        manageBookingUrl: recipient.manageBookingUrl ?? job.signupUrl,
+        manageBookingUrl,
         signupUrl: job.signupUrl,
         paymentUrl: job.paymentUrl,
         nightBeforeNote: job.nightBeforeNote,

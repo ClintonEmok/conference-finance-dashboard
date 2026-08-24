@@ -391,7 +391,7 @@ function uniqueIdempotencyKey(): string {
 test("edit-context projection returns bounded selections, choices, and lock state without credentials", async () => {
   const t = fresh()
   const seed = await createConfiguredEvent(t)
-  const order = await createOrderWithSelections(t, seed)
+  await createOrderWithSelections(t, seed)
 
   const context = await t.query(api.publicTracking.getTrackPaymentEditContext, {
     bookingRef: "  bk-20260806-test01  ",
@@ -560,6 +560,51 @@ test("HMAC edit token ownership succeeds without email", async () => {
   expect(allAudits).toHaveLength(1)
   expect(allAudits[0].ownershipMethod).toBe("token")
   expect(allAudits[0].orderId).toBe(order.orderId)
+})
+
+test("booking-reference-only ownership is rejected without email or edit token", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  const order = await createOrderWithSelections(t, seed)
+
+  const selections = [
+    replacement({
+      attendeeKey: "a-1",
+      occupancy: "shared",
+      nightBeforeLevel: "standard",
+    }),
+    replacement({
+      attendeeKey: "a-2",
+      occupancy: "shared",
+      nightBeforeLevel: "standard",
+    }),
+  ]
+  const idempotencyKey = uniqueIdempotencyKey()
+  const requestSignature = await signEditEnvelope({
+    bookingRef: BOOKING_REF,
+    bookerEmail: null,
+    editToken: null,
+    idempotencyKey,
+    selections,
+  })
+
+  await expect(
+    t.mutation(api.publicTracking.updateAccommodation, {
+      bookingRef: BOOKING_REF,
+      requestSignature,
+      idempotencyKey,
+      selections,
+    })
+  ).rejects.toThrow("EDIT_OWNERSHIP")
+
+  const audits = await t.query(async (ctx) => {
+    const rows = []
+    for await (const row of ctx.db.query("orderAccommodationEditAudits")) {
+      rows.push(row)
+    }
+    return rows
+  })
+  expect(audits).toHaveLength(0)
 })
 
 test("unsigned and mis-signed direct calls are rejected before any write", async () => {
@@ -993,7 +1038,7 @@ test("applied edits persist server-resolved preferences and stay fields and leav
       attendeeKey: "a-1",
       occupancy: "shared",
       nightBeforeLevel: "standard",
-      optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
+      optionSelections: [{ optionKey: "cot", quantity: 2, nights: 2 }],
     }),
     replacement({
       attendeeKey: "a-2",
@@ -1018,9 +1063,9 @@ test("applied edits persist server-resolved preferences and stay fields and leav
   })
 
   expect(result.status).toBe("applied")
-  // a-1: 2000 + 3×3000 (night before) + cot 2×500 = 12000; a-2: 2500 +
-  // 3×3000 = 11500 → 23500.
-  expect(result.amountDueMinor).toBe(23500)
+  // a-1: 2000 + 3×3000 (night before) + 2 cots × 2 nights × 500 = 13000; a-2: 2500 +
+  // 3×3000 = 11500 → 24500.
+  expect(result.amountDueMinor).toBe(24500)
 
   // The persisted selection rows carry the server-resolved stay fields.
   const rows = await t.query(async (ctx) => {
@@ -1037,6 +1082,21 @@ test("applied edits persist server-resolved preferences and stay fields and leav
     expect(row.checkOutAt).toBe(BASE_EVENT_AT)
     expect(row.confirmedAt).toBeUndefined()
   }
+  const optionRows = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orderAccommodationOptionSelections")
+      .withIndex("by_orderId", (q) =>
+        q.eq("orderId", String(order.orderId) as never)
+      )
+      .collect()
+  })
+  expect(optionRows).toContainEqual(
+    expect.objectContaining({
+      optionKey: "cot",
+      quantity: 2,
+      nights: 2,
+    })
+  )
   const attendeeKeys = new Map<string, string>()
   for (const attendee of await t.query(async (ctx) => {
     return await ctx.db

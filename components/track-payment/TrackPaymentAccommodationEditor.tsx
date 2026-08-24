@@ -141,7 +141,8 @@ export function buildTrackPaymentEditBody(input: {
       ...(selection.nightBeforeLevel !== undefined
         ? { nightBeforeLevel: selection.nightBeforeLevel }
         : {}),
-      ...(selection.nightBeforeOccupancy !== undefined
+      ...(selection.nightBeforeLevel !== undefined &&
+      selection.nightBeforeOccupancy !== undefined
         ? { nightBeforeOccupancy: selection.nightBeforeOccupancy }
         : {}),
       optionSelections: selection.optionSelections,
@@ -200,6 +201,7 @@ export function TrackPaymentAccommodationEditor({
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const [bookerEmail, setBookerEmail] = useState("")
   const editToken = initialEditToken?.trim() ?? ""
+  const [useEmailFallback, setUseEmailFallback] = useState(false)
   const [status, setStatus] = useState<SubmitStatus>({ kind: "idle" })
   const idempotencyKeyRef = useRef<string | null>(null)
 
@@ -227,12 +229,13 @@ export function TrackPaymentAccommodationEditor({
       next[selection.attendeeKey] = {
         occupancy: selection.ticketOccupancy ?? selection.occupancy ?? "",
         nightBeforeLevel: selection.nightBeforeLevel,
-        nightBeforeOccupancy:
-          selection.nightBeforeOccupancy ??
-          (selection.ticketOccupancy === "single" ||
-          selection.ticketOccupancy === "shared"
-            ? selection.ticketOccupancy
-            : undefined),
+        nightBeforeOccupancy: selection.nightBeforeLevel
+          ? selection.nightBeforeOccupancy ??
+            (selection.ticketOccupancy === "single" ||
+            selection.ticketOccupancy === "shared"
+              ? selection.ticketOccupancy
+              : undefined)
+          : undefined,
         optionSelections: selection.optionSelections,
       }
     }
@@ -320,8 +323,9 @@ export function TrackPaymentAccommodationEditor({
         selection.ticketOccupancy ?? draft?.occupancy ?? selection.occupancy
       )
     })
-  const ownershipReady = Boolean(bookerEmail.trim()) || Boolean(editToken)
-  const requiresEmail = !editToken
+  const activeEditToken = useEmailFallback ? "" : editToken
+  const ownershipReady = Boolean(bookerEmail.trim()) || Boolean(activeEditToken)
+  const requiresEmail = !activeEditToken
   const saving = status.kind === "saving"
 
   const handleSave = async () => {
@@ -342,7 +346,6 @@ export function TrackPaymentAccommodationEditor({
       })
       return
     }
-
     const selections: TrackPaymentEditSelection[] = editContext.selections.map(
       (selection) => {
         const draft = drafts[selection.attendeeKey]
@@ -352,7 +355,9 @@ export function TrackPaymentAccommodationEditor({
             draft?.occupancy ??
             "shared") as "single" | "shared" | "family",
           nightBeforeLevel: draft?.nightBeforeLevel,
-          nightBeforeOccupancy: draft?.nightBeforeOccupancy,
+          ...(draft?.nightBeforeLevel
+            ? { nightBeforeOccupancy: draft.nightBeforeOccupancy }
+            : {}),
           optionSelections: draft?.optionSelections ?? [],
         }
       }
@@ -363,11 +368,14 @@ export function TrackPaymentAccommodationEditor({
     const outcome = await submitTrackPaymentEdit({
       bookingRef,
       bookerEmail,
-      editToken,
+      editToken: activeEditToken,
       idempotencyKey: requestIdempotencyKey,
       selections,
     })
     if (!outcome.ok) {
+      if (outcome.code === "EDIT_OWNERSHIP" && editToken) {
+        setUseEmailFallback(true)
+      }
       if (outcome.code === "EDIT_IDEMPOTENCY_CONFLICT") {
         idempotencyKeyRef.current = null
       }
@@ -445,6 +453,23 @@ export function TrackPaymentAccommodationEditor({
               />
             </div>
           </>
+        ) : null}
+
+        {!requiresEmail ? (
+          <div className="rounded-xl border border-border/50 bg-muted/20 p-4 text-xs text-muted-foreground">
+            <p>
+              This signed booking link grants access to update accommodation
+              preferences. Your changes are still validated and priced by the
+              server.
+            </p>
+            <button
+              type="button"
+              className="mt-2 font-medium text-foreground underline underline-offset-4"
+              onClick={() => setUseEmailFallback(true)}
+            >
+              Use the booking email instead
+            </button>
+          </div>
         ) : null}
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

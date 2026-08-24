@@ -25,10 +25,10 @@ import {
   verifyEditRequestSignature,
   verifyTrackPaymentEditToken,
 } from "../lib/domain/track-payment/edit-token"
-
-function normalizeBookingRef(bookingRef: string): string {
-  return bookingRef.trim().toUpperCase()
-}
+import {
+  normalizeBookingRef,
+  loadOrderByBookingRef,
+} from "./bookingRefs"
 
 function computeProgress(
   totalPaidMinor: number,
@@ -228,12 +228,7 @@ export const getByBookingRef = query({
     })
   ),
   handler: async (ctx, args) => {
-    const bookingRef = normalizeBookingRef(args.bookingRef)
-
-    const order = await ctx.db
-      .query("orders")
-      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", bookingRef))
-      .first()
+    const order = await loadOrderByBookingRef(ctx, args.bookingRef)
 
     if (!order || !order.eventId) {
       return null
@@ -291,12 +286,8 @@ export const getByEmailOrBookingRef = query({
   handler: async (ctx, args) => {
     const input = args.emailOrBookingRef.trim()
 
-    // First try booking ref
-    const bookingRef = normalizeBookingRef(input)
-    const orderByRef = await ctx.db
-      .query("orders")
-      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", bookingRef))
-      .first()
+    // First try booking ref (alias-aware: old source refs resolve to target)
+    const orderByRef = await loadOrderByBookingRef(ctx, input)
 
     if (orderByRef) {
       return await loadTrackingByOrder(ctx, orderByRef)
@@ -597,10 +588,8 @@ export const getTrackPaymentEditContext = query({
   handler: async (ctx, args) => {
     const bookingRef = normalizeBookingRefForEdit(args.bookingRef)
 
-    const order = await ctx.db
-      .query("orders")
-      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", bookingRef))
-      .first()
+    // Alias-aware: old source refs resolve to the merged target order.
+    const order = await loadOrderByBookingRef(ctx, bookingRef)
 
     if (!order || !order.eventId) {
       return null
@@ -810,17 +799,15 @@ export const updateAccommodation = mutation({
       )
     }
 
-    const order = await ctx.db
-      .query("orders")
-      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", bookingRef))
-      .first()
+    // Alias-aware: old source refs resolve to the merged target order.
+    const order = await loadOrderByBookingRef(ctx, bookingRef)
     if (!order || !order.eventId) {
       throwEditError("EDIT_NOT_FOUND", "Booking not found.")
     }
 
     // Ownership is re-checked here, before any editable detail is loaded, so
     // a failed ownership check never reveals editability or selection data.
-    let ownershipMethod: "email" | "token" | null = null
+    let ownershipMethod: "email" | "token" | "link" | null = null
     const normalizedOrderEmail = order.bookerEmail
       ? normalizeBookerEmail(order.bookerEmail)
       : null

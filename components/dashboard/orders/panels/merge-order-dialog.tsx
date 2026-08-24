@@ -50,9 +50,14 @@ export function MergeOrderDialog({
 }: MergeOrderDialogProps) {
   const [mergeSearch, setMergeSearch] = useState("")
   const [debouncedMergeSearch, setDebouncedMergeSearch] = useState("")
+  const [sourceSearch, setSourceSearch] = useState("")
+  const [debouncedSourceSearch, setDebouncedSourceSearch] = useState("")
   const [selectedMergeTargetId, setSelectedMergeTargetId] = useState<
     string | null
   >(null)
+  const [selectedSourceOrderIds, setSelectedSourceOrderIds] = useState<string[]>(
+    []
+  )
   const [isMerging, setIsMerging] = useState(false)
   const [mergeError, setMergeError] = useState<string | null>(null)
 
@@ -61,10 +66,22 @@ export function MergeOrderDialog({
     return () => clearTimeout(timer)
   }, [mergeSearch])
 
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSourceSearch(sourceSearch), 300)
+    return () => clearTimeout(timer)
+  }, [sourceSearch])
+
   const mergeSearchResults = useQuery(
     api.orders.searchOrdersForMerge,
     debouncedMergeSearch && eventId
       ? { search: debouncedMergeSearch, eventId: eventId as Id<"events"> }
+      : "skip"
+  )
+
+  const sourceSearchResults = useQuery(
+    api.orders.searchOrdersForMerge,
+    debouncedSourceSearch && eventId
+      ? { search: debouncedSourceSearch, eventId: eventId as Id<"events"> }
       : "skip"
   )
 
@@ -79,8 +96,14 @@ export function MergeOrderDialog({
         `/api/dashboard/orders/${encodeURIComponent(orderId)}/merge`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ targetOrderId }),
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sourceOrderIds: [
+                orderId,
+                ...selectedSourceOrderIds.filter((id) => id !== targetOrderId),
+              ],
+              targetOrderId,
+            }),
         }
       )
 
@@ -109,7 +132,13 @@ export function MergeOrderDialog({
       onOpenChange={(open) => {
         if (!open) {
           onOpenChange(false)
+          setMergeSearch("")
+          setDebouncedMergeSearch("")
+          setSourceSearch("")
+          setDebouncedSourceSearch("")
           setSelectedMergeTargetId(null)
+          setSelectedSourceOrderIds([])
+          setMergeError(null)
         }
       }}
     >
@@ -117,12 +146,17 @@ export function MergeOrderDialog({
         <DialogHeader>
           <DialogTitle>Merge into another order</DialogTitle>
           <DialogDescription>
-            Search for the target order to merge this order into. All
-            attendees, payments, and ticket selections will be moved.
+            Choose the target order and optionally add more source orders. All
+            attendees, ticket selections, accommodation rows, assignments,
+            payments, payment links, and booking-reference aliases will be
+            moved to the target order.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
+          <p className="text-[10px] font-black tracking-widest text-muted-foreground uppercase">
+            Target order
+          </p>
           <Input
             placeholder="Search by name, email, or booking ref…"
             value={mergeSearch}
@@ -153,7 +187,12 @@ export function MergeOrderDialog({
                   <button
                     key={result.orderId}
                     type="button"
-                    onClick={() => setSelectedMergeTargetId(result.orderId)}
+                    onClick={() => {
+                      setSelectedMergeTargetId(result.orderId)
+                      setSelectedSourceOrderIds((current) =>
+                        current.filter((id) => id !== result.orderId)
+                      )
+                    }}
                     className={cn(
                       "flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/10",
                       selectedMergeTargetId === result.orderId &&
@@ -187,6 +226,81 @@ export function MergeOrderDialog({
               )}
             </div>
           )}
+
+          <div className="space-y-2 pt-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[10px] font-black tracking-widest text-muted-foreground uppercase">
+                Additional source orders
+              </p>
+              <span className="text-[10px] text-muted-foreground">
+                {selectedSourceOrderIds.length} selected
+              </span>
+            </div>
+            <Input
+              placeholder="Search for more orders to merge…"
+              value={sourceSearch}
+              onChange={(e) => setSourceSearch(e.target.value)}
+            />
+
+            {debouncedSourceSearch && (
+              <div className="max-h-56 overflow-y-auto rounded-xl border border-white/20">
+                {(sourceSearchResults ?? []).length === 0 ? (
+                  <p className="p-4 text-center text-xs text-muted-foreground">
+                    No orders found.
+                  </p>
+                ) : (
+                  (sourceSearchResults ?? []).map((result) => {
+                    const isSelected = selectedSourceOrderIds.includes(
+                      result.orderId
+                    )
+                    const isUnavailable =
+                      result.orderId === (orderId as Id<"orders">) ||
+                      result.orderId === selectedMergeTargetId
+
+                    return (
+                      <button
+                        key={result.orderId}
+                        type="button"
+                        aria-pressed={isSelected}
+                        disabled={isUnavailable}
+                        onClick={() => {
+                          setSelectedSourceOrderIds((current) =>
+                            isSelected
+                              ? current.filter((id) => id !== result.orderId)
+                              : [...current, result.orderId]
+                          )
+                        }}
+                        className={cn(
+                          "flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40",
+                          isSelected && "bg-primary/10 ring-1 ring-primary/20"
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-bold">
+                            {result.bookerName ?? result.bookerEmail ?? "—"}
+                          </p>
+                          <p className="truncate font-mono text-[10px] text-muted-foreground/60">
+                            {result.orderId}
+                            {result.bookingRef ? ` · ${result.bookingRef}` : ""}
+                          </p>
+                        </div>
+                        <div className="ml-3 shrink-0 text-right">
+                          <p className="text-xs font-black tabular-nums">
+                            {typeof result.totalAmountMinor === "number"
+                              ? formatMoney(result.totalAmountMinor)
+                              : "Unavailable"}
+                          </p>
+                          <p className="text-[9px] text-muted-foreground">
+                            {isSelected ? "Selected" : formatDateTime(result.orderedAt)}
+                          </p>
+                        </div>
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <DialogFooter>

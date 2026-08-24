@@ -304,6 +304,27 @@ describe("buildTrackPaymentEditBody", () => {
     expect(body.bookerEmail).toBeUndefined()
     expect(body.editToken).toBeUndefined()
   })
+
+  it("omits night-before occupancy when no night-before stay is selected", () => {
+    const body = buildTrackPaymentEditBody({
+      bookingRef: BOOKING_REF,
+      bookerEmail: "",
+      editToken: "",
+      idempotencyKey: "idem-no-night-before",
+      selections: [
+        {
+          attendeeKey: "a-1",
+          occupancy: "shared",
+          nightBeforeLevel: undefined,
+          nightBeforeOccupancy: "shared",
+          optionSelections: [],
+        },
+      ],
+    })
+    const selection = (body.selections as Array<Record<string, unknown>>)[0]
+    expect(selection.nightBeforeLevel).toBeUndefined()
+    expect(selection.nightBeforeOccupancy).toBeUndefined()
+  })
 })
 
 describe("messageForEditError", () => {
@@ -471,8 +492,7 @@ describe("TrackPaymentView routing and states", () => {
     // Receipt rows come from the server payload.
     expect(html).toContain("Unconstrained ticket")
     expect(html).toContain("Accommodation")
-    // The ownership email is never rendered — it is input-only proof, and
-    // returning it from a public query would defeat the email ownership gate.
+    // The ownership email is never rendered for a signed email link.
     expect(html).not.toContain("booker@example.com")
     // The edit token from the email link is consumed locally only. Token-based
     // arrivals do not need to see an ownership form or the token itself.
@@ -555,7 +575,7 @@ describe("TrackPaymentAccommodationEditor states", () => {
       })
     )
     expect(html).not.toContain('id="track-edit-email"')
-    expect(html).not.toContain("To save changes, confirm ownership")
+    expect(html).toContain("This signed booking link grants access")
     expect(html).toContain("Save preferences")
   })
 
@@ -641,8 +661,10 @@ describe("deep-link and single-shell source contracts (Phase 45)", () => {
     const permalink = readSource("app/booking/[bookingRef]/manage/page.tsx")
     expect(permalink).toContain("normalizeBookingRefForEdit")
     expect(permalink).toContain("initialBookingRef={bookingRef}")
-    expect(permalink).toContain("initialEditToken={token}")
-    expect(permalink).toContain("Promise<{ token?: string }>")
+    expect(permalink).toContain("initialEditToken={editToken}")
+    expect(permalink).toContain(
+      "Promise<{ token?: string | string[] }>"
+    )
     // The permalink is a thin wrapper — it never renders search/hero markup
     // or a second shell.
     expect(permalink).not.toContain("Track Booking")

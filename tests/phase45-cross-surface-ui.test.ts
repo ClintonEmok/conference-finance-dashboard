@@ -80,6 +80,35 @@ describe("Phase 45 cross-surface UI source audit", () => {
     expect(step).toContain("View the hotel&apos;s room descriptions and photos")
   })
 
+  test("COT quantity stays attendee-specific across signup and manage booking", () => {
+    const signup = readSource(
+      "components/signup/steps/AccommodationOptionsStep.tsx"
+    )
+    const manage = readSource(
+      "components/track-payment/TrackPaymentAccommodationEditor.tsx"
+    )
+
+    for (const [surface, source] of [
+      ["signup", signup],
+      ["manage booking", manage],
+    ] as const) {
+      expect(source, `${surface} does not carry option selections`).toContain(
+        "optionSelections"
+      )
+      expect(source, `${surface} does not increment option quantity`).toContain(
+        "quantity + 1"
+      )
+      expect(source, `${surface} does not decrement option quantity`).toContain(
+        "quantity - 1"
+      )
+    }
+
+    expect(signup).toContain("accommodationSelections[attendee.attendeeKey]")
+    expect(signup).toContain("onChange(attendee.attendeeKey, patchValue)")
+    expect(manage).toContain("drafts[selection.attendeeKey]")
+    expect(manage).toContain("attendee.attendeeKey")
+  })
+
   test("Allocation renders server payment state as text-plus-icon, never derives it", () => {
     const allocation = readSource(
       "components/dashboard/accommodation/legacy-allocation-surface.tsx"

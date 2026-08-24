@@ -161,6 +161,13 @@ export default defineSchema({
       providerOrderId: v.optional(v.string()),
       providerEventId: v.optional(v.string()),
       orderedAt: v.optional(v.number()),
+      // Core merge markers: when an order is merged into a target, these
+      // fields mark the source as removed. Internal signup orders without a
+      // Ticket Tailor extension are marked merged through these fields rather
+      // than through extension-level `removedAt`.
+      mergedIntoOrderId: v.optional(v.id("orders")),
+      mergedAt: v.optional(v.number()),
+      mergeReason: v.optional(v.string()),
     })
   )
     .index("by_eventId", ["eventId"])
@@ -170,6 +177,31 @@ export default defineSchema({
     .index("by_providerEventId", ["providerEventId"])
     .index("by_status", ["status"])
     .index("by_email", ["bookerEmail"]),
+
+  /**
+   * Booking-reference alias table: one row per source order bookingRef that
+   * was preserved when a whole-order merge moved it into a target. The
+   * alias-first resolver checks this table before falling back to the
+   * orders.by_bookingRef index, so old public tracking links, manage-booking
+   * edit-context lookups, and signup-submission booking-ref lookups continue
+   * to resolve to the merged target.
+   */
+  orderBookingRefAliases: defineTable(
+    v.object({
+      /** The normalized (trim+uppercase) source booking reference. */
+      bookingRef: v.string(),
+      /** The source order whose booking ref produced this alias. */
+      sourceOrderId: v.id("orders"),
+      /** The canonical target order that owns all data. */
+      targetOrderId: v.id("orders"),
+      /** The target order's canonical booking ref (for reference). */
+      canonicalBookingRef: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+  )
+    .index("by_bookingRef", ["bookingRef"])
+    .index("by_sourceOrderId", ["sourceOrderId"])
+    .index("by_targetOrderId", ["targetOrderId"]),
 
   orderAttendees: defineTable(
     v.object({
@@ -347,7 +379,11 @@ export default defineSchema({
       orderId: v.id("orders"),
       idempotencyKey: v.string(),
       requestDigest: v.string(),
-      ownershipMethod: v.union(v.literal("email"), v.literal("token")),
+      ownershipMethod: v.union(
+        v.literal("email"),
+        v.literal("token"),
+        v.literal("link")
+      ),
       beforeSelectionDigest: v.string(),
       afterSelectionDigest: v.string(),
       amountDueBeforeMinor: v.number(),
@@ -372,6 +408,7 @@ export default defineSchema({
   )
     .index("by_eventId_and_idempotencyKey", ["eventId", "idempotencyKey"])
     .index("by_eventId_and_fingerprint", ["eventId", "fingerprint"])
+    .index("by_orderId", ["orderId"])
     .index("by_expiresAt", ["expiresAt"]),
 
   ticketTailorWebhookEvents: defineTable(

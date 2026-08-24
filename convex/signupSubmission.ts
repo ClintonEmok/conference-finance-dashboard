@@ -21,6 +21,8 @@ import {
   isSignupSubmissionSecretConfigured,
   verifySignupSubmissionToken,
 } from "../lib/domain/signup/submission-token"
+import { buildTrackPaymentPermalink } from "../lib/domain/track-payment/edit-token"
+import { loadOrderByBookingRef } from "./bookingRefs"
 
 const IDEMPOTENCY_WINDOW_MS = 2 * 60 * 60 * 1000
 
@@ -1045,11 +1047,18 @@ export const submitSignupEnvelope = mutation({
         args.assignments
       )
 
-      // Booking-specific confirmation links prefill the reference and let the
-      // buyer verify ownership with the booking email in the manage form.
-      const trackPaymentUrl = `${appUrl.replace(/\/+$/, "")}/booking/${encodeURIComponent(
-        bookingRef
-      )}/manage`
+      // Booking-specific confirmation links include an edit token when the
+      // shared secret is configured; otherwise the manage form verifies the
+      // booking email.
+      const trackPaymentUrl =
+        (await buildTrackPaymentPermalink({
+          bookingRef,
+          bookerEmail,
+          appUrl,
+        })) ??
+        `${appUrl.replace(/\/+$/, "")}/booking/${encodeURIComponent(
+          bookingRef
+        )}/manage`
 
       await ctx.scheduler.runAfter(
         0,
@@ -1194,10 +1203,8 @@ export const getByBookingRef = query({
     // Normalize the reference the same way the public tracking queries do, so
     // a lower/mixed-case permalink resolves to the canonical order (CR-07).
     const bookingRef = args.bookingRef.trim().toUpperCase()
-    const submission = await ctx.db
-      .query("orders")
-      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", bookingRef))
-      .first()
+    // Alias-aware: old source refs resolve to the merged target order.
+    const submission = await loadOrderByBookingRef(ctx, bookingRef)
 
     if (!submission || !submission.eventId) {
       return null

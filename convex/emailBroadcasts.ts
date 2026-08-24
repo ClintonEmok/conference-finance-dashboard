@@ -73,6 +73,13 @@ type AudienceRecipient = {
   submittedAt: number | null
 }
 
+function stripManageBookingUrl(
+  recipient: Doc<"emailBroadcastRecipients">
+) {
+  const { manageBookingUrl: _manageBookingUrl, ...safeRecipient } = recipient
+  return safeRecipient
+}
+
 function normalizeEmail(value: string | null | undefined) {
   const trimmed = typeof value === "string" ? value.trim().toLowerCase() : ""
   return trimmed || null
@@ -83,13 +90,16 @@ function normalizeLocationLabel(value: string | null | undefined) {
   return trimmed || null
 }
 
-/** A core order is removed only when its Ticket Tailor extension says so. */
+/** A core order is removed when its Ticket Tailor extension says so, or when it has core merge markers. */
 async function isOrderRemoved(ctx: QueryCtx, orderId: Id<"orders">) {
   const extension = await ctx.db
     .query("ticketTailorOrders")
     .withIndex("orderId", (q) => q.eq("orderId", orderId))
     .first()
-  return typeof extension?.removedAt === "number"
+  if (typeof extension?.removedAt === "number") return true
+  // Core merge markers: merged source orders are also treated as removed.
+  const order = await ctx.db.get("orders", orderId)
+  return typeof order?.mergedIntoOrderId === "string"
 }
 
 /**
@@ -336,17 +346,19 @@ export const getBroadcastRecipients = query({
     const limit = Math.min(args.limit ?? 500, 500)
     const base = ctx.db.query("emailBroadcastRecipients")
     if (args.status) {
-      return await base
+      const rows = await base
         .withIndex("by_broadcastId_and_status", (q) =>
           q
             .eq("broadcastId", args.broadcastId)
             .eq("status", args.status as "pending")
         )
         .take(limit)
+      return rows.map(stripManageBookingUrl)
     }
-    return await base
+    const rows = await base
       .withIndex("by_broadcastId", (q) => q.eq("broadcastId", args.broadcastId))
       .take(limit)
+    return rows.map(stripManageBookingUrl)
   },
 })
 
@@ -445,9 +457,6 @@ export const scheduleEmailBroadcast = mutation({
         to: recipient.bookerEmail,
         bookerName: recipient.bookerName ?? undefined,
         bookingRef: recipient.bookingRef ?? undefined,
-        manageBookingUrl: recipient.bookingRef
-          ? `${baseUrl}/booking/${encodeURIComponent(recipient.bookingRef)}/manage`
-          : undefined,
         status: "pending",
         attempts: 0,
       })

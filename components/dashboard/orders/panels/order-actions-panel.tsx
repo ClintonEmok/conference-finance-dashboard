@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Loader2,
   Mail,
+  Merge,
   Trash2,
 } from "lucide-react"
 
@@ -31,6 +32,7 @@ type OrderActionsPanelProps = {
   isDeleting: boolean
   deleteError: string | null
   onDelete: () => void
+  onOpenMergeDialog: () => void
 }
 
 export function OrderActionsPanel({
@@ -45,6 +47,7 @@ export function OrderActionsPanel({
   isDeleting,
   deleteError,
   onDelete,
+  onOpenMergeDialog,
 }: OrderActionsPanelProps) {
   return (
     <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -71,6 +74,15 @@ export function OrderActionsPanel({
             Send email
           </>
         )}
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onOpenMergeDialog}
+        className="h-9 rounded-lg border-white/20 text-[11px] font-bold tracking-wider uppercase"
+      >
+        <Merge className="mr-2 size-3.5" />
+        Merge order
       </Button>
       <Button
         variant="destructive"

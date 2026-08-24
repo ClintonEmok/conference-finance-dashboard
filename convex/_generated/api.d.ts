@@ -1048,10 +1048,14 @@ export declare const api: {
     mergeOrders: FunctionReference<
       "mutation",
       "public",
-      { sourceOrderId: Id<"orders">; targetOrderId: Id<"orders"> },
+      { sourceOrderIds: Array<Id<"orders">>; targetOrderId: Id<"orders"> },
       {
+        aliasCount: number;
+        amountDueMinor: number;
         movedAttendees: number;
         movedPayments: number;
+        movedSources: number;
+        targetBookingRef?: string;
         targetOrderId: Id<"orders">;
       }
     >;
