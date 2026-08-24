@@ -1675,6 +1675,25 @@ export const mergeOrders = mutation({
       throw new Error("Target order has been removed")
     }
 
+    const eventOrders = target.eventId
+      ? await ctx.db
+          .query("orders")
+          .withIndex("by_eventId", (q) => q.eq("eventId", target.eventId!))
+          .collect()
+      : null
+    const directOrderOwnersForRef = async (normalizedRef: string) => {
+      if (eventOrders) {
+        return eventOrders.filter(
+          (order) =>
+            order.bookingRef?.trim().toUpperCase() === normalizedRef
+        )
+      }
+      return await ctx.db
+        .query("orders")
+        .withIndex("by_bookingRef", (q) => q.eq("bookingRef", normalizedRef))
+        .collect()
+    }
+
     // ── Load and validate every source ─────────────────────────────────
     type SourceDoc = Doc<"orders">
     type SourceExt = Doc<"ticketTailorOrders"> | null
@@ -1684,6 +1703,20 @@ export const mergeOrders = mutation({
       .query("orderAttendees")
       .withIndex("by_orderId", (q) => q.eq("orderId", args.targetOrderId))) {
       targetAttendees.push(attendee)
+    }
+    const targetIdempotencyRows: Doc<"orderIdempotency">[] = []
+    for await (const row of ctx.db
+      .query("orderIdempotency")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.targetOrderId))) {
+      targetIdempotencyRows.push(row)
+    }
+    const targetEditAudits: Doc<"orderAccommodationEditAudits">[] = []
+    for await (const row of ctx.db
+      .query("orderAccommodationEditAudits")
+      .withIndex("by_orderId_and_idempotencyKey", (q) =>
+        q.eq("orderId", args.targetOrderId)
+      )) {
+      targetEditAudits.push(row)
     }
 
     const sources: Array<{
@@ -1698,6 +1731,8 @@ export const mergeOrders = mutation({
       payments: Doc<"payments">[]
       tikkiePayments: Doc<"tikkiePayments">[]
       tikkiePaymentLinks: Doc<"tikkiePaymentLinks">[]
+      idempotencyRows: Doc<"orderIdempotency">[]
+      editAudits: Doc<"orderAccommodationEditAudits">[]
     }> = []
 
     for (const sourceId of args.sourceOrderIds) {
@@ -1769,12 +1804,50 @@ export const mergeOrders = mutation({
       // Legacy payment/link rows can be keyed by the canonical Convex order
       // ID or by either provider order ID. Normalize every matching row to the
       // target so historical provider-keyed money is not lost in the merge.
+      const providerOrderIdentifiers = [
+        source.providerOrderId,
+        extension?.providerOrderId,
+      ].filter((value): value is string => Boolean(value))
+      for (const providerOrderId of new Set(providerOrderIdentifiers)) {
+        const coreOwners = await ctx.db
+          .query("orders")
+          .withIndex("by_providerOrderId", (q) =>
+            q.eq("providerOrderId", providerOrderId)
+          )
+          .collect()
+        if (coreOwners.some((owner) => String(owner._id) !== String(sourceId))) {
+          throw new Error(
+            `Provider order ID ${providerOrderId} is owned by another order`
+          )
+        }
+
+        const extensionOwners = await ctx.db
+          .query("ticketTailorOrders")
+          .withIndex("providerOrderId", (q) =>
+            q.eq("providerOrderId", providerOrderId)
+          )
+          .collect()
+        if (
+          extensionOwners.some(
+            (owner) => String(owner.orderId) !== String(sourceId)
+          )
+        ) {
+          throw new Error(
+            `Provider order ID ${providerOrderId} is owned by another order`
+          )
+        }
+      }
+
       const providerOrderKeys = new Set(
         [
           String(sourceId),
-          source.providerOrderId,
-          extension?.providerOrderId,
+          ...providerOrderIdentifiers,
         ].filter((value): value is string => Boolean(value))
+      )
+      const providerEventKeys = new Set(
+        [source.providerEventId, extension?.providerEventId].filter(
+          (value): value is string => Boolean(value)
+        )
       )
       const paymentsById = new Map<string, Doc<"payments">>()
       const tikkiePaymentsById = new Map<string, Doc<"tikkiePayments">>()
@@ -1796,12 +1869,73 @@ export const mergeOrders = mutation({
         for await (const row of ctx.db
           .query("tikkiePaymentLinks")
           .withIndex("orderId", (q) => q.eq("orderId", orderKey))) {
+          if (
+            orderKey !== String(sourceId) &&
+            providerEventKeys.size > 0 &&
+            !providerEventKeys.has(row.providerEventId)
+          ) {
+            throw new Error(
+              `Tikkie link ${row._id} has a provider event outside the source order`
+            )
+          }
           tikkiePaymentLinksById.set(String(row._id), row)
+        }
+      }
+
+      for (const providerOrderId of new Set(providerOrderIdentifiers)) {
+        for await (const row of ctx.db
+          .query("tikkiePaymentLinks")
+          .withIndex("providerOrderEvent", (q) =>
+            q.eq("providerOrderId", providerOrderId)
+          )) {
+          if (
+            providerEventKeys.size === 0 ||
+            providerEventKeys.has(row.providerEventId)
+          ) {
+            tikkiePaymentLinksById.set(String(row._id), row)
+          }
+        }
+      }
+
+      // Legacy Tikkie payments may be linked only by the payment-link ID and
+      // have no orderId at all. Load those rows after collecting the links.
+      for (const link of tikkiePaymentLinksById.values()) {
+        for await (const row of ctx.db
+          .query("tikkiePayments")
+          .withIndex("paymentLinkId", (q) => q.eq("paymentLinkId", String(link._id)))) {
+          tikkiePaymentsById.set(String(row._id), row)
         }
       }
       const payments = Array.from(paymentsById.values())
       const tikkiePayments = Array.from(tikkiePaymentsById.values())
       const tikkiePaymentLinks = Array.from(tikkiePaymentLinksById.values())
+
+      const idempotencyRows: Doc<"orderIdempotency">[] = []
+      for await (const row of ctx.db
+        .query("orderIdempotency")
+        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))) {
+        idempotencyRows.push(row)
+      }
+      const editAudits: Doc<"orderAccommodationEditAudits">[] = []
+      for await (const row of ctx.db
+        .query("orderAccommodationEditAudits")
+        .withIndex("by_orderId_and_idempotencyKey", (q) =>
+          q.eq("orderId", sourceId)
+        )) {
+        editAudits.push(row)
+      }
+
+      for (const payment of payments) {
+        if (
+          payment.eventId &&
+          source.eventId &&
+          String(payment.eventId) !== String(source.eventId)
+        ) {
+          throw new Error(
+            `Payment ${payment._id} belongs to a different event than the source order`
+          )
+        }
+      }
 
       // Preflight: attendee cardinality
       const attendeeIds = new Set(attendees.map((a) => String(a._id)))
@@ -1827,10 +1961,62 @@ export const mergeOrders = mutation({
       }
 
       // Preflight: accommodation option child ownership
+      const accommodationSelectionIds = new Set(
+        accommodationSelections.map((row) => String(row._id))
+      )
+      const accommodationSelectionAttendees = new Map<string, string>()
+      for (const selection of accommodationSelections) {
+        const attendeeId = String(selection.attendeeId)
+        if (!attendeeIds.has(attendeeId)) {
+          throw new Error(
+            `Source order ${sourceId}: accommodation selection references non-existent attendee ${selection.attendeeId}`
+          )
+        }
+        if (accommodationSelectionAttendees.has(attendeeId)) {
+          throw new Error(
+            `Source order ${sourceId}: attendee ${selection.attendeeId} has multiple accommodation selections`
+          )
+        }
+        accommodationSelectionAttendees.set(
+          attendeeId,
+          String(selection._id)
+        )
+      }
       for (const optionRow of accommodationOptionSelections) {
         if (!attendeeIds.has(String(optionRow.attendeeId))) {
           throw new Error(
             `Source order ${sourceId}: accommodation option row references non-existent attendee ${optionRow.attendeeId}`
+          )
+        }
+        const selectionId = String(optionRow.selectionId)
+        if (!accommodationSelectionIds.has(selectionId)) {
+          throw new Error(
+            `Source order ${sourceId}: accommodation option row references a selection from another order`
+          )
+        }
+        if (
+          accommodationSelectionAttendees.get(String(optionRow.attendeeId)) !==
+          selectionId
+        ) {
+          throw new Error(
+            `Source order ${sourceId}: accommodation option row attendee does not match its selection`
+          )
+        }
+      }
+      for (const assignment of assignments) {
+        if (!attendeeIds.has(String(assignment.attendeeId))) {
+          throw new Error(
+            `Source order ${sourceId}: assignment references non-existent attendee ${assignment.attendeeId}`
+          )
+        }
+      }
+      for (const ticketTailorAttendee of ticketTailorAttendees) {
+        if (
+          ticketTailorAttendee.attendeeId &&
+          !attendeeIds.has(String(ticketTailorAttendee.attendeeId))
+        ) {
+          throw new Error(
+            `Source order ${sourceId}: Ticket Tailor attendee references an attendee from another order`
           )
         }
       }
@@ -1847,6 +2033,8 @@ export const mergeOrders = mutation({
         payments,
         tikkiePayments,
         tikkiePaymentLinks,
+        idempotencyRows,
+        editAudits,
       })
     }
 
@@ -1873,9 +2061,71 @@ export const mergeOrders = mutation({
       }
     }
 
+    const targetIdempotencyKeys = new Set(
+      targetIdempotencyRows.map((row) => row.idempotencyKey)
+    )
+    const targetAuditKeys = new Set(
+      targetEditAudits.map((row) => row.idempotencyKey)
+    )
+    const sourceIdempotencyKeys = new Set<string>()
+    const sourceAuditKeys = new Set<string>()
+    for (const source of sources) {
+      for (const row of source.idempotencyRows) {
+        if (
+          targetIdempotencyKeys.has(row.idempotencyKey) ||
+          sourceIdempotencyKeys.has(row.idempotencyKey)
+        ) {
+          throw new Error(
+            `Idempotency key ${row.idempotencyKey} would collide during merge`
+          )
+        }
+        sourceIdempotencyKeys.add(row.idempotencyKey)
+      }
+      for (const row of source.editAudits) {
+        if (
+          targetAuditKeys.has(row.idempotencyKey) ||
+          sourceAuditKeys.has(row.idempotencyKey)
+        ) {
+          throw new Error(
+            `Accommodation edit key ${row.idempotencyKey} would collide during merge`
+          )
+        }
+        sourceAuditKeys.add(row.idempotencyKey)
+      }
+    }
+
     // ── Booking-ref collision checks ───────────────────────────────────
     // The target's booking ref is canonical; source refs become aliases.
     const targetBookingRef = target.bookingRef
+
+    const normalizedTargetRef = targetBookingRef?.trim().toUpperCase()
+    if (normalizedTargetRef) {
+      const directOwners = await directOrderOwnersForRef(normalizedTargetRef)
+      if (
+        directOwners.some(
+          (owner) =>
+            String(owner._id) !== String(args.targetOrderId) &&
+            !uniqueSourceIds.has(String(owner._id))
+        )
+      ) {
+        throw new Error(
+          `Booking reference ${normalizedTargetRef} is already owned by another order`
+        )
+      }
+      const aliasOwners = await ctx.db
+        .query("orderBookingRefAliases")
+        .withIndex("by_bookingRef", (q) => q.eq("bookingRef", normalizedTargetRef))
+        .collect()
+      if (
+        aliasOwners.some(
+          (alias) => String(alias.targetOrderId) !== String(args.targetOrderId)
+        )
+      ) {
+        throw new Error(
+          `Booking reference ${normalizedTargetRef} is already mapped to another order`
+        )
+      }
+    }
 
     for (const source of sources) {
       const sourceRef = source.order.bookingRef
@@ -1901,12 +2151,29 @@ export const mergeOrders = mutation({
         }
       }
 
+      const directOwners = await directOrderOwnersForRef(normalizedRef)
+      if (
+        directOwners.some(
+          (owner) => String(owner._id) !== String(source.order._id)
+        )
+      ) {
+        throw new Error(
+          `Booking reference ${normalizedRef} is already owned by another order`
+        )
+      }
+
       // Collision with an existing alias mapped elsewhere
-      const existingAlias = await ctx.db
+      const existingAliases = await ctx.db
         .query("orderBookingRefAliases")
         .withIndex("by_bookingRef", (q) => q.eq("bookingRef", normalizedRef))
-        .first()
-      if (existingAlias && String(existingAlias.targetOrderId) !== String(args.targetOrderId)) {
+        .collect()
+      if (
+        existingAliases.some(
+          (alias) =>
+            String(alias.sourceOrderId) !== String(source.order._id) ||
+            String(alias.targetOrderId) !== String(args.targetOrderId)
+        )
+      ) {
         throw new Error(
           `Booking reference ${normalizedRef} is already mapped to another order`
         )
@@ -1968,6 +2235,18 @@ export const mergeOrders = mutation({
       for (const row of source.tikkiePayments) {
         await ctx.db.patch("tikkiePayments", row._id, {
           orderId: String(args.targetOrderId),
+        })
+      }
+
+      for (const row of source.idempotencyRows) {
+        await ctx.db.patch("orderIdempotency", row._id, {
+          orderId: args.targetOrderId,
+        })
+      }
+
+      for (const row of source.editAudits) {
+        await ctx.db.patch("orderAccommodationEditAudits", row._id, {
+          orderId: args.targetOrderId,
         })
       }
 

@@ -697,6 +697,31 @@ test("mergeOrders migrates provider-keyed payments and Tikkie records", async ()
       expiryDate: BASE_EVENT_AT + 7 * DAY_MS,
     })
   })
+  const missingOrderIdLinkId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("tikkiePaymentLinks", {
+      providerOrderId: "TT-EXT-1",
+      providerEventId: String(seed.eventId),
+      linkType: "order",
+      paymentRequestToken: "provider-link-token-no-order",
+      paymentRequestUrl: "https://tikkie.example.com/provider-no-order",
+      status: "paid",
+      providerStatus: "paid",
+      amountMinor: 1750,
+      description: "Provider link without canonical order ID",
+      expiryDate: BASE_EVENT_AT + 7 * DAY_MS,
+    })
+  })
+  const linkedLegacyTikkiePaymentId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("tikkiePayments", {
+      paymentLinkId: String(missingOrderIdLinkId),
+      paymentRequestToken: "legacy-request-linked",
+      paymentToken: "legacy-payment-linked",
+      payerName: "Linked Legacy Payer",
+      amountMinor: 1750,
+      paidAt: BASE_EVENT_AT,
+      matchStatus: "auto_matched",
+    })
+  })
 
   await t.mutation(api.orders.mergeOrders, {
     sourceOrderIds: [seed.sourceOrderId1],
@@ -709,13 +734,59 @@ test("mergeOrders migrates provider-keyed payments and Tikkie records", async ()
       "tikkiePayments",
       legacyTikkiePaymentId
     ),
+    linkedLegacyTikkiePayment: await ctx.db.get(
+      "tikkiePayments",
+      linkedLegacyTikkiePaymentId
+    ),
     link: await ctx.db.get("tikkiePaymentLinks", providerLinkId),
+    missingOrderIdLink: await ctx.db.get(
+      "tikkiePaymentLinks",
+      missingOrderIdLinkId
+    ),
   }))
   expect(migrated.payment?.orderId).toBe(String(seed.targetOrderId))
   expect(migrated.legacyTikkiePayment?.orderId).toBe(
     String(seed.targetOrderId)
   )
+  expect(migrated.linkedLegacyTikkiePayment?.orderId).toBe(
+    String(seed.targetOrderId)
+  )
   expect(migrated.link?.orderId).toBe(String(seed.targetOrderId))
+  expect(migrated.missingOrderIdLink?.orderId).toBe(String(seed.targetOrderId))
+})
+
+test("mergeOrders rejects provider identifiers owned by another order", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedMergeOrders(t)
+  const unrelatedOrder = await t.mutation(async (ctx) => {
+    const orderId = await ctx.db.insert("orders", {
+      eventId: seed.eventId,
+      source: "integration",
+      providerOrderId: "UNRELATED-ORDER",
+      bookingRef: "BK-UNRELATED",
+      submittedAt: BASE_EVENT_AT,
+    })
+    await ctx.db.insert("ticketTailorOrders", {
+      providerOrderId: "TT-EXT-1",
+      providerEventId: String(seed.eventId),
+      orderId,
+      rawPayload: {},
+    })
+    return orderId
+  })
+
+  await expect(
+    t.mutation(api.orders.mergeOrders, {
+      sourceOrderIds: [seed.sourceOrderId1],
+      targetOrderId: seed.targetOrderId,
+    })
+  ).rejects.toThrow("owned by another order")
+
+  const source = await t.query(async (ctx) =>
+    ctx.db.get("orders", seed.sourceOrderId1)
+  )
+  expect(source?.mergedIntoOrderId).toBeUndefined()
+  expect(unrelatedOrder).toBeTruthy()
 })
 
 test("mergeOrders loads complete child sets beyond the old 500-row cap", async () => {
@@ -826,6 +897,40 @@ test("old aliases follow a target through a second merge", async () => {
   expect(submission?.bookingRef).toBe("BK-TGT-SECOND")
 })
 
+test("a dangling alias does not fall through to an unrelated direct order", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedMergeOrders(t)
+  const danglingTarget = await t.mutation(async (ctx) => {
+    const id = await ctx.db.insert("orders", {
+      eventId: seed.eventId,
+      source: "internal",
+      bookingRef: "BK-DANGLING-TARGET",
+      submittedAt: BASE_EVENT_AT + 1,
+    })
+    await ctx.db.delete("orders", id)
+    return id
+  })
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("orderBookingRefAliases", {
+      bookingRef: "BK-DANGLING",
+      sourceOrderId: seed.sourceOrderId1,
+      targetOrderId: danglingTarget,
+      createdAt: BASE_EVENT_AT,
+    })
+    await ctx.db.insert("orders", {
+      eventId: seed.eventId,
+      source: "internal",
+      bookingRef: "BK-DANGLING",
+      submittedAt: BASE_EVENT_AT + 1,
+    })
+  })
+
+  const tracking = await t.query(api.publicTracking.getByBookingRef, {
+    bookingRef: "BK-DANGLING",
+  })
+  expect(tracking).toBeNull()
+})
+
 test("mergeOrders rejects attendee-key collisions before any writes", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await seedMergeOrders(t)
@@ -908,6 +1013,131 @@ test("mergeOrders rejects sources with duplicate booking refs", async () => {
       targetOrderId: seed.targetOrderId,
     })
   ).rejects.toThrow("same booking reference")
+})
+
+test("mergeOrders rejects a source ref owned by an unrelated direct order", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedMergeOrders(t)
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("orders", {
+      eventId: seed.eventId,
+      source: "internal",
+      bookingRef: "BK-SRC-ALPHA",
+      bookerName: "Unrelated owner",
+      submittedAt: BASE_EVENT_AT + 1,
+    })
+  })
+
+  await expect(
+    t.mutation(api.orders.mergeOrders, {
+      sourceOrderIds: [seed.sourceOrderId1],
+      targetOrderId: seed.targetOrderId,
+    })
+  ).rejects.toThrow("already owned by another order")
+})
+
+test("mergeOrders rejects a source ref mapped to an unrelated alias", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedMergeOrders(t)
+  const unrelatedTarget = await t.mutation(async (ctx) =>
+    ctx.db.insert("orders", {
+      eventId: seed.eventId,
+      source: "internal",
+      bookingRef: "BK-UNRELATED-ALIAS-TARGET",
+      submittedAt: BASE_EVENT_AT + 1,
+    })
+  )
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("orderBookingRefAliases", {
+      bookingRef: "BK-SRC-ALPHA",
+      sourceOrderId: seed.sourceOrderId2,
+      targetOrderId: unrelatedTarget,
+      canonicalBookingRef: "BK-UNRELATED-ALIAS-TARGET",
+      createdAt: BASE_EVENT_AT,
+    })
+  })
+
+  await expect(
+    t.mutation(api.orders.mergeOrders, {
+      sourceOrderIds: [seed.sourceOrderId1],
+      targetOrderId: seed.targetOrderId,
+    })
+  ).rejects.toThrow("already mapped to another order")
+})
+
+test("mergeOrders migrates replay and accommodation-edit ownership rows", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedMergeOrders(t)
+  const editKey = "merge-edit-key"
+
+  const ids = await t.mutation(async (ctx) => {
+    const idempotencyId = await ctx.db.insert("orderIdempotency", {
+      eventId: seed.eventId,
+      idempotencyKey: "merge-signup-key",
+      fingerprint: "merge-fingerprint",
+      orderId: seed.sourceOrderId1,
+      expiresAt: BASE_EVENT_AT + DAY_MS,
+    })
+    const auditId = await ctx.db.insert("orderAccommodationEditAudits", {
+      orderId: seed.sourceOrderId1,
+      idempotencyKey: editKey,
+      requestDigest: "request-digest",
+      ownershipMethod: "email",
+      beforeSelectionDigest: "before",
+      afterSelectionDigest: "after",
+      amountDueBeforeMinor: 1000,
+      amountDueAfterMinor: 1200,
+      totalPaidMinor: 500,
+      remainingMinor: 700,
+      progressPercent: 42,
+      overpaymentDeltaMinor: 0,
+    })
+    return { idempotencyId, auditId }
+  })
+
+  await t.mutation(api.orders.mergeOrders, {
+    sourceOrderIds: [seed.sourceOrderId1],
+    targetOrderId: seed.targetOrderId,
+  })
+
+  const migrated = await t.query(async (ctx) => ({
+    idempotency: await ctx.db.get("orderIdempotency", ids.idempotencyId),
+    audit: await ctx.db.get("orderAccommodationEditAudits", ids.auditId),
+  }))
+  expect(migrated.idempotency?.orderId).toBe(seed.targetOrderId)
+  expect(migrated.audit?.orderId).toBe(seed.targetOrderId)
+})
+
+test("mergeOrders rejects child rows with foreign attendee ownership", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedMergeOrders(t)
+  const foreignAttendeeId = await t.mutation(async (ctx) =>
+    ctx.db.insert("orderAttendees", {
+      orderId: seed.targetOrderId,
+      attendeeKey: "foreign-target-attendee",
+      name: "Foreign target attendee",
+      gender: "unknown",
+      sortOrder: 0,
+    })
+  )
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("orderAccommodationSelections", {
+      orderId: seed.sourceOrderId1,
+      attendeeId: foreignAttendeeId,
+      categoryId: seed.categoryStandardId,
+      occupancy: "shared",
+      checkInAt: BASE_EVENT_AT - 2 * DAY_MS,
+      checkOutAt: BASE_EVENT_AT,
+      nightCount: 2,
+    })
+  })
+
+  await expect(
+    t.mutation(api.orders.mergeOrders, {
+      sourceOrderIds: [seed.sourceOrderId1],
+      targetOrderId: seed.targetOrderId,
+    })
+  ).rejects.toThrow("accommodation selection references non-existent attendee")
 })
 
 // ── Idempotent merge guard ────────────────────────────────────────────

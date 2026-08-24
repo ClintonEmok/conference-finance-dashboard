@@ -72,6 +72,9 @@ export async function loadOrderByBookingRef(
   if (alias) {
     const targetOrder = await ctx.db.get("orders", alias.targetOrderId)
     if (targetOrder) return resolveMergedOrder(ctx, targetOrder)
+    // An existing alias is authoritative. Falling through to a direct lookup
+    // could resolve a stale alias to an unrelated order with the same ref.
+    return null
   }
 
   // 2. Legacy direct lookup — the original orders.by_bookingRef index.

@@ -408,6 +408,7 @@ export default defineSchema({
   )
     .index("by_eventId_and_idempotencyKey", ["eventId", "idempotencyKey"])
     .index("by_eventId_and_fingerprint", ["eventId", "fingerprint"])
+    .index("by_orderId", ["orderId"])
     .index("by_expiresAt", ["expiresAt"]),
 
   ticketTailorWebhookEvents: defineTable(

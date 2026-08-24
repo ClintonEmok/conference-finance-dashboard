@@ -880,6 +880,7 @@ export type DataModel = {
         "_creationTime",
       ];
       by_expiresAt: ["expiresAt", "_creationTime"];
+      by_orderId: ["orderId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
