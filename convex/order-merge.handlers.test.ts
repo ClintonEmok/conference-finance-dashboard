@@ -654,6 +654,106 @@ test("mergeOrders moves all canonical rows and creates aliases", async () => {
   expect(typeof tt2?.removedAt).toBe("number")
 })
 
+test("mergeOrders migrates provider-keyed payments and Tikkie records", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedMergeOrders(t)
+
+  const providerPaymentId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("payments", {
+      source: "tikkie",
+      sourceId: "provider-payment-1",
+      payerName: "Provider Payer",
+      amountMinor: 2500,
+      paidAt: BASE_EVENT_AT,
+      eventId: seed.eventId,
+      orderId: "TT-EXT-1",
+      status: "auto_matched",
+    })
+  })
+  const legacyTikkiePaymentId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("tikkiePayments", {
+      paymentLinkId: "legacy-link-1",
+      paymentRequestToken: "legacy-request-1",
+      paymentToken: "legacy-payment-1",
+      payerName: "Legacy Payer",
+      amountMinor: 1750,
+      paidAt: BASE_EVENT_AT,
+      orderId: "TT-EXT-1",
+      matchStatus: "auto_matched",
+    })
+  })
+  const providerLinkId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("tikkiePaymentLinks", {
+      providerOrderId: "TT-EXT-1",
+      providerEventId: String(seed.eventId),
+      orderId: "TT-EXT-1",
+      linkType: "order",
+      paymentRequestToken: "provider-link-token",
+      paymentRequestUrl: "https://tikkie.example.com/provider",
+      status: "paid",
+      providerStatus: "paid",
+      amountMinor: 2500,
+      description: "Provider link",
+      expiryDate: BASE_EVENT_AT + 7 * DAY_MS,
+    })
+  })
+
+  await t.mutation(api.orders.mergeOrders, {
+    sourceOrderIds: [seed.sourceOrderId1],
+    targetOrderId: seed.targetOrderId,
+  })
+
+  const migrated = await t.query(async (ctx) => ({
+    payment: await ctx.db.get("payments", providerPaymentId),
+    legacyTikkiePayment: await ctx.db.get(
+      "tikkiePayments",
+      legacyTikkiePaymentId
+    ),
+    link: await ctx.db.get("tikkiePaymentLinks", providerLinkId),
+  }))
+  expect(migrated.payment?.orderId).toBe(String(seed.targetOrderId))
+  expect(migrated.legacyTikkiePayment?.orderId).toBe(
+    String(seed.targetOrderId)
+  )
+  expect(migrated.link?.orderId).toBe(String(seed.targetOrderId))
+})
+
+test("mergeOrders loads complete child sets beyond the old 500-row cap", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedMergeOrders(t)
+
+  await t.mutation(async (ctx) => {
+    for (let index = 0; index < 500; index += 1) {
+      await ctx.db.insert("orderAttendees", {
+        orderId: seed.sourceOrderId1,
+        attendeeKey: `large-${index}`,
+        name: `Large attendee ${index}`,
+        gender: "unknown",
+        sortOrder: index + 1,
+      })
+    }
+  })
+
+  const result = await t.mutation(api.orders.mergeOrders, {
+    sourceOrderIds: [seed.sourceOrderId1],
+    targetOrderId: seed.targetOrderId,
+  })
+
+  expect(result.movedAttendees).toBe(501)
+  const counts = await t.query(async (ctx) => {
+    const targetRows = await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", seed.targetOrderId))
+      .collect()
+    const sourceRows = await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", seed.sourceOrderId1))
+      .collect()
+    return { target: targetRows.length, source: sourceRows.length }
+  })
+  expect(counts).toEqual({ target: 501, source: 0 })
+})
+
 // ── Alias resolution ──────────────────────────────────────────────────
 
 test("old source booking refs resolve to the target through aliases", async () => {
@@ -691,6 +791,75 @@ test("old source booking refs resolve to the target through aliases", async () =
   })
   expect(submission).not.toBeNull()
   expect(submission?.bookingRef).toBe("BK-TGT-CANON")
+})
+
+test("old aliases follow a target through a second merge", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedMergeOrders(t)
+  const secondTarget = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("orders", {
+      eventId: seed.eventId,
+      source: "internal",
+      bookingRef: "BK-TGT-SECOND",
+      bookerName: "Second Target",
+      bookerEmail: "second-target@example.com",
+      submittedAt: BASE_EVENT_AT + 1,
+    })
+  })
+
+  await t.mutation(api.orders.mergeOrders, {
+    sourceOrderIds: [seed.sourceOrderId1],
+    targetOrderId: seed.targetOrderId,
+  })
+  await t.mutation(api.orders.mergeOrders, {
+    sourceOrderIds: [seed.targetOrderId],
+    targetOrderId: secondTarget,
+  })
+
+  const tracking = await t.query(api.publicTracking.getByBookingRef, {
+    bookingRef: "BK-SRC-ALPHA",
+  })
+  expect(tracking?.bookingRef).toBe("BK-TGT-SECOND")
+  const submission = await t.query(api.signupSubmission.getByBookingRef, {
+    bookingRef: "BK-SRC-ALPHA",
+  })
+  expect(submission?.bookingRef).toBe("BK-TGT-SECOND")
+})
+
+test("mergeOrders rejects attendee-key collisions before any writes", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedMergeOrders(t)
+
+  const duplicateAttendeeId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("orderAttendees", {
+      orderId: seed.targetOrderId,
+      attendeeKey: "merge-a1",
+      name: "Duplicate target attendee",
+      gender: "unknown",
+      sortOrder: 0,
+    })
+  })
+
+  await expect(
+    t.mutation(api.orders.mergeOrders, {
+      sourceOrderIds: [seed.sourceOrderId1],
+      targetOrderId: seed.targetOrderId,
+    })
+  ).rejects.toThrow("would collide during merge")
+
+  const state = await t.query(async (ctx) => ({
+    source: await ctx.db.get("orders", seed.sourceOrderId1),
+    sourceAttendee: await ctx.db.get("orderAttendees", seed.attendeeId1),
+    duplicateAttendee: await ctx.db.get("orderAttendees", duplicateAttendeeId),
+    aliases: await ctx.db
+      .query("orderBookingRefAliases")
+      .withIndex("by_bookingRef", (q) => q.eq("bookingRef", "BK-SRC-ALPHA"))
+      .collect(),
+  }))
+  expect(state.source?.mergedIntoOrderId).toBeUndefined()
+  expect(state.sourceAttendee?.orderId).toBe(seed.sourceOrderId1)
+  expect(state.duplicateAttendee?.orderId).toBe(seed.targetOrderId)
+  expect(state.aliases).toHaveLength(0)
 })
 
 // ── Booking-ref collision checks ──────────────────────────────────────

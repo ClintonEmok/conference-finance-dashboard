@@ -1679,6 +1679,13 @@ export const mergeOrders = mutation({
     type SourceDoc = Doc<"orders">
     type SourceExt = Doc<"ticketTailorOrders"> | null
 
+    const targetAttendees: Doc<"orderAttendees">[] = []
+    for await (const attendee of ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.targetOrderId))) {
+      targetAttendees.push(attendee)
+    }
+
     const sources: Array<{
       order: SourceDoc
       extension: SourceExt
@@ -1689,6 +1696,7 @@ export const mergeOrders = mutation({
       assignments: Doc<"orderAssignments">[]
       ticketTailorAttendees: Doc<"ticketTailorAttendees">[]
       payments: Doc<"payments">[]
+      tikkiePayments: Doc<"tikkiePayments">[]
       tikkiePaymentLinks: Doc<"tikkiePaymentLinks">[]
     }> = []
 
@@ -1716,45 +1724,84 @@ export const mergeOrders = mutation({
       }
 
       // Load all canonical child rows for ownership preflight.
-      const attendees = await ctx.db
+      const attendees: Doc<"orderAttendees">[] = []
+      for await (const row of ctx.db
         .query("orderAttendees")
-        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))
-        .take(500)
+        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))) {
+        attendees.push(row)
+      }
 
-      const ticketSelections = await ctx.db
+      const ticketSelections: Doc<"orderTicketSelections">[] = []
+      for await (const row of ctx.db
         .query("orderTicketSelections")
-        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))
-        .take(500)
+        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))) {
+        ticketSelections.push(row)
+      }
 
-      const accommodationSelections = await ctx.db
+      const accommodationSelections: Doc<"orderAccommodationSelections">[] = []
+      for await (const row of ctx.db
         .query("orderAccommodationSelections")
-        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))
-        .take(500)
+        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))) {
+        accommodationSelections.push(row)
+      }
 
-      const accommodationOptionSelections = await ctx.db
+      const accommodationOptionSelections: Doc<"orderAccommodationOptionSelections">[] = []
+      for await (const row of ctx.db
         .query("orderAccommodationOptionSelections")
-        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))
-        .take(500)
+        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))) {
+        accommodationOptionSelections.push(row)
+      }
 
-      const assignments = await ctx.db
+      const assignments: Doc<"orderAssignments">[] = []
+      for await (const row of ctx.db
         .query("orderAssignments")
-        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))
-        .take(500)
+        .withIndex("by_orderId", (q) => q.eq("orderId", sourceId))) {
+        assignments.push(row)
+      }
 
-      const ticketTailorAttendees = await ctx.db
+      const ticketTailorAttendees: Doc<"ticketTailorAttendees">[] = []
+      for await (const row of ctx.db
         .query("ticketTailorAttendees")
-        .withIndex("orderId", (q) => q.eq("orderId", sourceId))
-        .take(500)
+        .withIndex("orderId", (q) => q.eq("orderId", sourceId))) {
+        ticketTailorAttendees.push(row)
+      }
 
-      const payments = await ctx.db
-        .query("payments")
-        .withIndex("orderId", (q) => q.eq("orderId", String(sourceId)))
-        .take(500)
-
-      const tikkiePaymentLinks = await ctx.db
-        .query("tikkiePaymentLinks")
-        .withIndex("orderId", (q) => q.eq("orderId", String(sourceId)))
-        .take(500)
+      // Legacy payment/link rows can be keyed by the canonical Convex order
+      // ID or by either provider order ID. Normalize every matching row to the
+      // target so historical provider-keyed money is not lost in the merge.
+      const providerOrderKeys = new Set(
+        [
+          String(sourceId),
+          source.providerOrderId,
+          extension?.providerOrderId,
+        ].filter((value): value is string => Boolean(value))
+      )
+      const paymentsById = new Map<string, Doc<"payments">>()
+      const tikkiePaymentsById = new Map<string, Doc<"tikkiePayments">>()
+      const tikkiePaymentLinksById = new Map<
+        string,
+        Doc<"tikkiePaymentLinks">
+      >()
+      for (const orderKey of providerOrderKeys) {
+        for await (const row of ctx.db
+          .query("payments")
+          .withIndex("orderId", (q) => q.eq("orderId", orderKey))) {
+          paymentsById.set(String(row._id), row)
+        }
+        for await (const row of ctx.db
+          .query("tikkiePayments")
+          .withIndex("orderId", (q) => q.eq("orderId", orderKey))) {
+          tikkiePaymentsById.set(String(row._id), row)
+        }
+        for await (const row of ctx.db
+          .query("tikkiePaymentLinks")
+          .withIndex("orderId", (q) => q.eq("orderId", orderKey))) {
+          tikkiePaymentLinksById.set(String(row._id), row)
+        }
+      }
+      const payments = Array.from(paymentsById.values())
+      const tikkiePayments = Array.from(tikkiePaymentsById.values())
+      const tikkiePaymentLinks = Array.from(tikkiePaymentLinksById.values())
 
       // Preflight: attendee cardinality
       const attendeeIds = new Set(attendees.map((a) => String(a._id)))
@@ -1798,8 +1845,32 @@ export const mergeOrders = mutation({
         assignments,
         ticketTailorAttendees,
         payments,
+        tikkiePayments,
         tikkiePaymentLinks,
       })
+    }
+
+    // Public accommodation edits key drafts by attendeeKey. Reject any
+    // collision before writes so a merge can never make two attendees share a
+    // mutable preference identity.
+    const attendeeKeys = new Set<string>()
+    for (const attendee of targetAttendees) {
+      if (attendeeKeys.has(attendee.attendeeKey)) {
+        throw new Error(
+          `Target order has duplicate attendee key ${attendee.attendeeKey}`
+        )
+      }
+      attendeeKeys.add(attendee.attendeeKey)
+    }
+    for (const source of sources) {
+      for (const attendee of source.attendees) {
+        if (attendeeKeys.has(attendee.attendeeKey)) {
+          throw new Error(
+            `Attendee key ${attendee.attendeeKey} would collide during merge`
+          )
+        }
+        attendeeKeys.add(attendee.attendeeKey)
+      }
     }
 
     // ── Booking-ref collision checks ───────────────────────────────────
@@ -1892,6 +1963,12 @@ export const mergeOrders = mutation({
           orderId: String(args.targetOrderId),
         })
         movedPayments++
+      }
+
+      for (const row of source.tikkiePayments) {
+        await ctx.db.patch("tikkiePayments", row._id, {
+          orderId: String(args.targetOrderId),
+        })
       }
 
       // Move tikkie payment link rows

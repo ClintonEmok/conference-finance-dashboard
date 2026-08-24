@@ -661,8 +661,10 @@ describe("deep-link and single-shell source contracts (Phase 45)", () => {
     const permalink = readSource("app/booking/[bookingRef]/manage/page.tsx")
     expect(permalink).toContain("normalizeBookingRefForEdit")
     expect(permalink).toContain("initialBookingRef={bookingRef}")
-    expect(permalink).toContain("initialEditToken={token}")
-    expect(permalink).toContain("Promise<{ token?: string }>")
+    expect(permalink).toContain("initialEditToken={editToken}")
+    expect(permalink).toContain(
+      "Promise<{ token?: string | string[] }>"
+    )
     // The permalink is a thin wrapper — it never renders search/hero markup
     // or a second shell.
     expect(permalink).not.toContain("Track Booking")

@@ -1038,7 +1038,7 @@ test("applied edits persist server-resolved preferences and stay fields and leav
       attendeeKey: "a-1",
       occupancy: "shared",
       nightBeforeLevel: "standard",
-      optionSelections: [{ optionKey: "cot", quantity: 1, nights: 2 }],
+      optionSelections: [{ optionKey: "cot", quantity: 2, nights: 2 }],
     }),
     replacement({
       attendeeKey: "a-2",
@@ -1063,9 +1063,9 @@ test("applied edits persist server-resolved preferences and stay fields and leav
   })
 
   expect(result.status).toBe("applied")
-  // a-1: 2000 + 3×3000 (night before) + cot 2×500 = 12000; a-2: 2500 +
-  // 3×3000 = 11500 → 23500.
-  expect(result.amountDueMinor).toBe(23500)
+  // a-1: 2000 + 3×3000 (night before) + 2 cots × 2 nights × 500 = 13000; a-2: 2500 +
+  // 3×3000 = 11500 → 24500.
+  expect(result.amountDueMinor).toBe(24500)
 
   // The persisted selection rows carry the server-resolved stay fields.
   const rows = await t.query(async (ctx) => {
@@ -1082,6 +1082,21 @@ test("applied edits persist server-resolved preferences and stay fields and leav
     expect(row.checkOutAt).toBe(BASE_EVENT_AT)
     expect(row.confirmedAt).toBeUndefined()
   }
+  const optionRows = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orderAccommodationOptionSelections")
+      .withIndex("by_orderId", (q) =>
+        q.eq("orderId", String(order.orderId) as never)
+      )
+      .collect()
+  })
+  expect(optionRows).toContainEqual(
+    expect.objectContaining({
+      optionKey: "cot",
+      quantity: 2,
+      nights: 2,
+    })
+  )
   const attendeeKeys = new Map<string, string>()
   for (const attendee of await t.query(async (ctx) => {
     return await ctx.db
