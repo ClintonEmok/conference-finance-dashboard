@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { expect, test } from "vitest"
+import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { convexTest, type TestConvexForDataModel } from "convex-test"
 import type { GenericDataModel } from "convex/server"
 
@@ -26,8 +26,27 @@ const productionGuard = {
   allowedDeploymentUrl: TEST_DEPLOYMENT_URL,
 }
 
+let activeTestContexts: Array<ReturnType<typeof convexTest>> = []
+
+beforeEach(() => {
+  vi.useFakeTimers()
+})
+
+afterEach(async () => {
+  try {
+    for (const t of activeTestContexts) {
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers())
+    }
+  } finally {
+    activeTestContexts = []
+    vi.useRealTimers()
+  }
+})
+
 function fresh() {
-  return convexTest(schema, modules)
+  const t = convexTest(schema, modules)
+  activeTestContexts.push(t)
+  return t
 }
 
 const adminIdentity = {
