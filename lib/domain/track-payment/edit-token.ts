@@ -328,6 +328,163 @@ function editRequestSignatureMessage(input: {
 }
 
 /**
+ * The normalized removal envelope both sides sign. The route builds it from
+ * the raw HTTP body/path; the mutation rebuilds it from its validated
+ * arguments and recomputes the same digest, so a client-supplied fingerprint
+ * is never trusted.
+ */
+export type TrackPaymentRemoveAttendeeEnvelope = {
+  bookingRef: string
+  bookerEmail?: string | null
+  editToken?: string | null
+  idempotencyKey: string
+  attendeeKey: string
+}
+
+/**
+ * Deterministic canonical JSON of a removal envelope, identical on the
+ * Next.js route and in the Convex mutation.
+ */
+export function canonicalizeRemoveAttendeeEnvelope(
+  input: TrackPaymentRemoveAttendeeEnvelope
+): string {
+  const canonical = {
+    bookingRef: normalizeBookingRefForEdit(input.bookingRef),
+    bookerEmail: input.bookerEmail
+      ? normalizeBookerEmail(input.bookerEmail)
+      : null,
+    editToken: normalizeOptionalString(input.editToken),
+    idempotencyKey: normalizeRequiredString(
+      input.idempotencyKey,
+      "idempotencyKey"
+    ),
+    attendeeKey: normalizeRequiredString(input.attendeeKey, "attendeeKey"),
+  }
+  return JSON.stringify(canonical)
+}
+
+/**
+ * SHA-256 hex digest of the canonicalized removal envelope.
+ */
+export async function digestRemoveAttendeeEnvelope(
+  input: TrackPaymentRemoveAttendeeEnvelope
+): Promise<string> {
+  const encoder = new TextEncoder()
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    encoder.encode(canonicalizeRemoveAttendeeEnvelope(input))
+  )
+  return bytesToHex(new Uint8Array(digest))
+}
+
+function removeAttendeeSignatureMessage(input: {
+  bookingRef: string
+  envelopeDigest: string
+  expiresAt: number
+}): string {
+  return `track-payment-remove:${normalizeRequiredString(
+    input.bookingRef,
+    "bookingRef"
+  )}:${input.envelopeDigest}:${input.expiresAt}`
+}
+
+/**
+ * Mint a short-lived request signature over the normalized removal envelope.
+ * Callers must already have passed the rate-limit + honeypot gate (the
+ * Next.js route). The public Convex mutation recomputes the same digest from
+ * its own arguments and refuses to do any work without a valid signature.
+ */
+export async function mintRemoveAttendeeSignature(input: {
+  bookingRef: string
+  bookerEmail?: string | null
+  editToken?: string | null
+  idempotencyKey: string
+  attendeeKey: string
+  secret?: string
+  now?: number
+  ttlMs?: number
+}): Promise<string> {
+  const secret = input.secret ?? getTrackPaymentSecret()
+  if (!secret) {
+    throw new Error(`${SECRET_ENV_VAR} is not configured`)
+  }
+  const now = input.now ?? Date.now()
+  const expiresAt = now + (input.ttlMs ?? EDIT_REQUEST_SIGNATURE_TTL_MS)
+  const envelopeDigest = await digestRemoveAttendeeEnvelope({
+    bookingRef: input.bookingRef,
+    bookerEmail: input.bookerEmail ?? null,
+    editToken: input.editToken ?? null,
+    idempotencyKey: input.idempotencyKey,
+    attendeeKey: input.attendeeKey,
+  })
+  const signature = await hmacSha256Hex(
+    secret,
+    removeAttendeeSignatureMessage({
+      bookingRef: input.bookingRef,
+      envelopeDigest,
+      expiresAt,
+    })
+  )
+  return `${signature}.${expiresAt}`
+}
+
+/**
+ * Verify a removal request signature against the exact normalized envelope it
+ * was issued for. Returns false (never throws) for missing, expired, tampered
+ * or wrong-binding signatures and when the signing secret is not configured.
+ */
+export async function verifyRemoveAttendeeSignature(
+  token: string | null | undefined,
+  input: {
+    bookingRef: string
+    bookerEmail?: string | null
+    editToken?: string | null
+    idempotencyKey: string
+    attendeeKey: string
+    secret?: string
+    now?: number
+  }
+): Promise<boolean> {
+  if (!token) {
+    return false
+  }
+  const secret = input.secret ?? getTrackPaymentSecret()
+  if (!secret) {
+    return false
+  }
+
+  const dotIndex = token.lastIndexOf(".")
+  if (dotIndex <= 0) {
+    return false
+  }
+  const signature = token.slice(0, dotIndex)
+  const expiresAt = Number(token.slice(dotIndex + 1))
+  if (!Number.isFinite(expiresAt) || expiresAt <= 0) {
+    return false
+  }
+  if ((input.now ?? Date.now()) > expiresAt) {
+    return false
+  }
+
+  const envelopeDigest = await digestRemoveAttendeeEnvelope({
+    bookingRef: input.bookingRef,
+    bookerEmail: input.bookerEmail ?? null,
+    editToken: input.editToken ?? null,
+    idempotencyKey: input.idempotencyKey,
+    attendeeKey: input.attendeeKey,
+  })
+  const expected = await hmacSha256Hex(
+    secret,
+    removeAttendeeSignatureMessage({
+      bookingRef: input.bookingRef,
+      envelopeDigest,
+      expiresAt,
+    })
+  )
+  return timingSafeEqualHex(signature, expected)
+}
+
+/**
  * Mint a short-lived request signature over the normalized edit envelope.
  * Callers must already have passed the rate-limit + honeypot gate (the
  * Next.js route). The Convex mutation recomputes the same envelope digest

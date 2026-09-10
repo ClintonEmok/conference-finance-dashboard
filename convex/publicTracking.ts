@@ -23,12 +23,14 @@ import {
   normalizeBookerEmail,
   normalizeBookingRefForEdit,
   verifyEditRequestSignature,
+  verifyRemoveAttendeeSignature,
   verifyTrackPaymentEditToken,
 } from "../lib/domain/track-payment/edit-token"
 import {
   normalizeBookingRef,
   loadOrderByBookingRef,
 } from "./bookingRefs"
+import { deleteAttendeeScopedRowsAndRecompute } from "./attendees"
 
 function computeProgress(
   totalPaidMinor: number,
@@ -1269,5 +1271,131 @@ export const updateAccommodation = mutation({
     })
 
     return result
+  },
+})
+
+/**
+ * Public buyer-facing attendee removal for the manage-booking permalink.
+ *
+ * Ownership + abuse gates mirror the accommodation edit: a valid route-issued
+ * request signature over the exact normalized removal envelope is required
+ * (direct invocation fails closed), and ownership is re-verified server-side
+ * via the normalized booker-email match or the HMAC edit token. The order is
+ * resolved alias-aware. The attendee is located by its attendee key within
+ * the order, and removal delegates to the shared
+ * `deleteAttendeeScopedRowsAndRecompute` helper (minimum-attendee guard,
+ * row cleanup, ticket-inventory decrement, and exact canonical amount
+ * recompute). Order-level payments stay attached; a lower recalculated amount
+ * surfaces as an overpayment. A retry after a successful removal fails closed
+ * at "attendee not found", which is the natural idempotency for a destructive
+ * op.
+ */
+export const removeAttendeeFromBooking = mutation({
+  args: {
+    bookingRef: v.string(),
+    attendeeKey: v.string(),
+    bookerEmail: v.optional(v.string()),
+    editToken: v.optional(v.string()),
+    requestSignature: v.string(),
+    idempotencyKey: v.string(),
+  },
+  returns: v.object({
+    bookingRef: v.string(),
+    attendeeKey: v.string(),
+    remainingAttendees: v.number(),
+    amountDueMinor: v.union(v.number(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const bookingRef = normalizeBookingRefForEdit(args.bookingRef)
+    const bookerEmail = args.bookerEmail
+      ? normalizeBookerEmail(args.bookerEmail)
+      : null
+    const idempotencyKey = args.idempotencyKey.trim()
+    if (!idempotencyKey) {
+      throwEditError("EDIT_INVALID", "An idempotency key is required.")
+    }
+    const attendeeKey = args.attendeeKey.trim()
+    if (!attendeeKey) {
+      throwEditError("EDIT_INVALID", "An attendee key is required.")
+    }
+
+    // Route-issued request signature: recomputed from the mutation's own
+    // validated arguments so a captured signature cannot be replayed against
+    // a different envelope, and a direct call without a signature fails
+    // closed before any database read of editable detail.
+    const requestSignatureValid = await verifyRemoveAttendeeSignature(
+      args.requestSignature,
+      {
+        bookingRef,
+        bookerEmail,
+        editToken: args.editToken ?? null,
+        idempotencyKey,
+        attendeeKey,
+      }
+    )
+    if (!requestSignatureValid) {
+      throwEditError(
+        "SIGNATURE_REQUIRED",
+        "A valid server-issued request signature is required before editing."
+      )
+    }
+
+    // Alias-aware: old source refs resolve to the merged target order.
+    const order = await loadOrderByBookingRef(ctx, bookingRef)
+    if (!order || !order.eventId) {
+      throwEditError("EDIT_NOT_FOUND", "Booking not found.")
+    }
+
+    // Ownership is re-checked here, before any editable detail is loaded.
+    let ownershipMethod: "email" | "token" | "link" | null = null
+    const normalizedOrderEmail = order.bookerEmail
+      ? normalizeBookerEmail(order.bookerEmail)
+      : null
+    if (bookerEmail && normalizedOrderEmail && bookerEmail === normalizedOrderEmail) {
+      ownershipMethod = "email"
+    } else if (args.editToken) {
+      const tokenValid = await verifyTrackPaymentEditToken(args.editToken, {
+        bookingRef,
+        bookerEmail: normalizedOrderEmail ?? bookerEmail ?? "",
+      })
+      if (tokenValid) {
+        ownershipMethod = "token"
+      }
+    }
+    if (!ownershipMethod) {
+      throwEditError(
+        "EDIT_OWNERSHIP",
+        "Ownership of this booking could not be verified."
+      )
+    }
+
+    const attendeeRows = await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+      .take(500)
+
+    // The buyer-facing projection keys selections by attendee key; find the
+    // exact row the caller wants removed and fail closed if it is absent.
+    const attendee = attendeeRows.find(
+      (row) =>
+        row.attendeeKey === attendeeKey ||
+        String(row._id) === attendeeKey
+    )
+    if (!attendee) {
+      throwEditError(
+        "EDIT_NOT_FOUND",
+        "The attendee to remove could not be found."
+      )
+    }
+
+    const { remainingAttendees, amountDueMinor } =
+      await deleteAttendeeScopedRowsAndRecompute(ctx, attendee)
+
+    return {
+      bookingRef,
+      attendeeKey: attendee.attendeeKey,
+      remainingAttendees,
+      amountDueMinor,
+    }
   },
 })

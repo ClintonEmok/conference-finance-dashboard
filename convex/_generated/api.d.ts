@@ -450,6 +450,12 @@ export declare const api: {
       { attendeeId: string; targetOrderId: Id<"orders"> },
       any
     >;
+    removeAttendeeFromOrder: FunctionReference<
+      "mutation",
+      "public",
+      { attendeeId: string },
+      any
+    >;
     setAttendeeAccommodation: FunctionReference<
       "mutation",
       "public",
@@ -1193,6 +1199,12 @@ export declare const api: {
       },
       any
     >;
+    deletePayment: FunctionReference<
+      "mutation",
+      "public",
+      { paymentId: Id<"payments"> },
+      any
+    >;
     getPaymentById: FunctionReference<
       "query",
       "public",
@@ -1440,6 +1452,24 @@ export declare const api: {
           ticketLabel: string;
           ticketOccupancy?: "single" | "shared" | "family";
         }>;
+      }
+    >;
+    removeAttendeeFromBooking: FunctionReference<
+      "mutation",
+      "public",
+      {
+        attendeeKey: string;
+        bookerEmail?: string;
+        bookingRef: string;
+        editToken?: string;
+        idempotencyKey: string;
+        requestSignature: string;
+      },
+      {
+        amountDueMinor: number | null;
+        attendeeKey: string;
+        bookingRef: string;
+        remainingAttendees: number;
       }
     >;
     updateAccommodation: FunctionReference<

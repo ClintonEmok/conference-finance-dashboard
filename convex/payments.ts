@@ -457,6 +457,34 @@ export const unassignPayment = mutation({
   },
 })
 
+export const deletePayment = mutation({
+  args: {
+    paymentId: v.id("payments"),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const payment = await ctx.db.get("payments", args.paymentId)
+    if (!payment) {
+      throw new Error("Payment not found")
+    }
+
+    // Deletion is limited to manually recorded, unassigned payments so a
+    // finance operator can undo a mistaken manual entry. Tikkie-synced rows
+    // (which re-appear on the next sync) and payments that are assigned,
+    // ambiguous, or classified as donations are never deletable here.
+    if (payment.status !== "unassigned") {
+      throw new Error("Only unassigned payments can be deleted")
+    }
+    if (payment.source !== "cash" && payment.source !== "bank_transfer") {
+      throw new Error("Only manually recorded payments can be deleted")
+    }
+
+    await ctx.db.delete("payments", args.paymentId)
+    return args.paymentId
+  },
+})
+
 export const markPaymentAsDonation = mutation({
   args: {
     paymentId: v.id("payments"),

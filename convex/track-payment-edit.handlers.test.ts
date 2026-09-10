@@ -9,6 +9,7 @@ import type { Id } from "./_generated/dataModel"
 import { loadOrderAmountDueBreakdowns } from "./finance"
 import {
   mintEditRequestSignature,
+  mintRemoveAttendeeSignature,
   mintTrackPaymentEditToken,
   verifyTrackPaymentEditToken,
 } from "../lib/domain/track-payment/edit-token"
@@ -2050,4 +2051,205 @@ test("the canonical loader fails closed on a missing ticket reference (CQ-13)", 
   await expect(loadAmountDue(t, String(danglingOrderId))).rejects.toThrow(
     /does not exist/
   )
+})
+
+// ---------------------------------------------------------------------------
+// removeAttendeeFromBooking: ownership, signature, minimum-attendee guard,
+// exact amount recompute.
+// ---------------------------------------------------------------------------
+
+async function mintRemoveSignature(input: {
+  bookingRef: string
+  attendeeKey: string
+  bookerEmail?: string | null
+  editToken?: string | null
+  idempotencyKey: string
+}) {
+  return await mintRemoveAttendeeSignature({
+    bookingRef: input.bookingRef,
+    attendeeKey: input.attendeeKey,
+    bookerEmail: input.bookerEmail ?? null,
+    editToken: input.editToken ?? null,
+    idempotencyKey: input.idempotencyKey,
+    secret: TEST_TRACK_PAYMENT_SECRET,
+  })
+}
+
+test("removeAttendeeFromBooking removes an attendee and recomputes the order amount due exactly", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  const order = await createOrderWithSelections(t, seed, {
+    bookingRef: BOOKING_REF,
+  })
+
+  const signature = await mintRemoveSignature({
+    bookingRef: BOOKING_REF,
+    attendeeKey: "a-1",
+    bookerEmail: "booker@example.com",
+    idempotencyKey: "idem-remove-1",
+  })
+
+  const result = await t.mutation(api.publicTracking.removeAttendeeFromBooking, {
+    bookingRef: BOOKING_REF,
+    attendeeKey: "a-1",
+    bookerEmail: "booker@example.com",
+    requestSignature: signature,
+    idempotencyKey: "idem-remove-1",
+  })
+
+  expect(result.bookingRef).toBe(BOOKING_REF)
+  expect(result.attendeeKey).toBe("a-1")
+  expect(result.remainingAttendees).toBe(1)
+  // a-2 remains: 2500 ticket + 2×3000 shared standard = 8500.
+  expect(result.amountDueMinor).toBe(8500)
+
+  // The a-1 attendee row is gone; a-2 remains.
+  const attendeeRows = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", order.orderId))
+      .collect()
+  })
+  expect(attendeeRows.map((row) => row.attendeeKey).sort()).toEqual(["a-2"])
+})
+
+test("removeAttendeeFromBooking fails closed without a valid signature", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  await createOrderWithSelections(t, seed, { bookingRef: BOOKING_REF })
+
+  await expect(
+    t.mutation(api.publicTracking.removeAttendeeFromBooking, {
+      bookingRef: BOOKING_REF,
+      attendeeKey: "a-1",
+      bookerEmail: "booker@example.com",
+      requestSignature: "forged-signature.123",
+      idempotencyKey: "idem-remove-1",
+    })
+  ).rejects.toThrow("SIGNATURE_REQUIRED")
+})
+
+test("removeAttendeeFromBooking fails closed on ownership mismatch", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  await createOrderWithSelections(t, seed, { bookingRef: BOOKING_REF })
+
+  const signature = await mintRemoveSignature({
+    bookingRef: BOOKING_REF,
+    attendeeKey: "a-1",
+    bookerEmail: "attacker@example.com",
+    idempotencyKey: "idem-remove-1",
+  })
+
+  await expect(
+    t.mutation(api.publicTracking.removeAttendeeFromBooking, {
+      bookingRef: BOOKING_REF,
+      attendeeKey: "a-1",
+      bookerEmail: "attacker@example.com",
+      requestSignature: signature,
+      idempotencyKey: "idem-remove-1",
+    })
+  ).rejects.toThrow("EDIT_OWNERSHIP")
+})
+
+test("removeAttendeeFromBooking accepts an edit-token proof of ownership", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  await createOrderWithSelections(t, seed, { bookingRef: BOOKING_REF })
+
+  const editToken = await mintTrackPaymentEditToken({
+    bookingRef: BOOKING_REF,
+    bookerEmail: "booker@example.com",
+    secret: TEST_TRACK_PAYMENT_SECRET,
+  })
+  const signature = await mintRemoveSignature({
+    bookingRef: BOOKING_REF,
+    attendeeKey: "a-2",
+    editToken,
+    idempotencyKey: "idem-remove-token",
+  })
+
+  const result = await t.mutation(api.publicTracking.removeAttendeeFromBooking, {
+    bookingRef: BOOKING_REF,
+    attendeeKey: "a-2",
+    editToken,
+    requestSignature: signature,
+    idempotencyKey: "idem-remove-token",
+  })
+
+  expect(result.remainingAttendees).toBe(1)
+  // a-1 remains: 2000 ticket + 2×3000 shared standard = 8000.
+  expect(result.amountDueMinor).toBe(8000)
+})
+
+test("removeAttendeeFromBooking rejects removal of the last attendee", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  const order = await createOrderWithSelections(t, seed, {
+    bookingRef: BOOKING_REF,
+  })
+
+  // Remove a-1 first.
+  const signatureOne = await mintRemoveSignature({
+    bookingRef: BOOKING_REF,
+    attendeeKey: "a-1",
+    bookerEmail: "booker@example.com",
+    idempotencyKey: "idem-remove-1",
+  })
+  await t.mutation(api.publicTracking.removeAttendeeFromBooking, {
+    bookingRef: BOOKING_REF,
+    attendeeKey: "a-1",
+    bookerEmail: "booker@example.com",
+    requestSignature: signatureOne,
+    idempotencyKey: "idem-remove-1",
+  })
+
+  // a-2 is now the only attendee — removal must fail closed.
+  const signatureTwo = await mintRemoveSignature({
+    bookingRef: BOOKING_REF,
+    attendeeKey: "a-2",
+    bookerEmail: "booker@example.com",
+    idempotencyKey: "idem-remove-2",
+  })
+  await expect(
+    t.mutation(api.publicTracking.removeAttendeeFromBooking, {
+      bookingRef: BOOKING_REF,
+      attendeeKey: "a-2",
+      bookerEmail: "booker@example.com",
+      requestSignature: signatureTwo,
+      idempotencyKey: "idem-remove-2",
+    })
+  ).rejects.toThrow("An order must retain at least one attendee.")
+
+  // And a-2 must still exist.
+  const attendeeRows = await t.query(async (ctx) => {
+    return await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", order.orderId))
+      .collect()
+  })
+  expect(attendeeRows.map((row) => row.attendeeKey)).toEqual(["a-2"])
+})
+
+test("removeAttendeeFromBooking rejects an unknown attendee key", async () => {
+  const t = fresh()
+  const seed = await createConfiguredEvent(t)
+  await createOrderWithSelections(t, seed, { bookingRef: BOOKING_REF })
+
+  const signature = await mintRemoveSignature({
+    bookingRef: BOOKING_REF,
+    attendeeKey: "does-not-exist",
+    bookerEmail: "booker@example.com",
+    idempotencyKey: "idem-remove-1",
+  })
+
+  await expect(
+    t.mutation(api.publicTracking.removeAttendeeFromBooking, {
+      bookingRef: BOOKING_REF,
+      attendeeKey: "does-not-exist",
+      bookerEmail: "booker@example.com",
+      requestSignature: signature,
+      idempotencyKey: "idem-remove-1",
+    })
+  ).rejects.toThrow("EDIT_NOT_FOUND")
 })

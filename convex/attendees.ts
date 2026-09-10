@@ -1204,3 +1204,172 @@ export const moveAttendeeToOrder = mutation({
     }
   },
 })
+
+/**
+ * Shared attendee-row deletion + exact amount recompute for both the
+ * dashboard and the public manage-booking removal paths.
+ *
+ * Deletes every attendee-scoped row in one transaction — the canonical
+ * `orderAttendees` row, `ticketTailorAttendees` extension rows, the
+ * attendee's `orderTicketSelections` row, any accommodation selection and
+ * option child rows, room `orderAssignments`, and family-member links — and
+ * safely decrements the affected ticket type's `soldCount`. The order amount
+ * due is recomputed exclusively through the canonical
+ * `loadOrderAmountDueBreakdowns` loader from the remaining rows, so the result
+ * is exactly what the finance/reporting consumers will derive. Order-level
+ * payments are left attached; a lower recalculated amount surfaces as an
+ * overpayment in reconciliation.
+ */
+export async function deleteAttendeeScopedRowsAndRecompute(
+  ctx: MutationCtx,
+  attendee: Doc<"orderAttendees">
+): Promise<{
+  orderId: Id<"orders">
+  remainingAttendees: number
+  amountDueMinor: number | null
+}> {
+  const orderId = attendee.orderId
+
+  const order = await ctx.db.get("orders", orderId)
+  if (!order) {
+    throw new Error("Attendee order not found.")
+  }
+
+  // Minimum-attendee guard: an order must always retain at least one
+  // attendee, so a lone attendee can never be removed here.
+  const remainingAttendees = await ctx.db
+    .query("orderAttendees")
+    .withIndex("by_orderId", (q) => q.eq("orderId", orderId))
+    .take(100)
+  if (remainingAttendees.filter((row) => row._id !== attendee._id).length < 1) {
+    throw new Error("An order must retain at least one attendee.")
+  }
+
+  // Ticket inventory: decrement the affected ticket type's soldCount safely
+  // (never below zero) when the attendee has a ticket selection.
+  const ticketSelections = await ctx.db
+    .query("orderTicketSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", orderId))
+    .take(100)
+  const attendeeTicketSelection = ticketSelections.find(
+    (row) => String(row.attendeeId) === String(attendee._id)
+  )
+  if (attendeeTicketSelection) {
+    await ctx.db.delete("orderTicketSelections", attendeeTicketSelection._id)
+    const ticketType = await ctx.db.get(
+      "ticketTypes",
+      attendeeTicketSelection.ticketTypeId
+    )
+    if (ticketType) {
+      await ctx.db.patch("ticketTypes", ticketType._id, {
+        soldCount: Math.max(
+          0,
+          (ticketType.soldCount ?? 0) - attendeeTicketSelection.quantity
+        ),
+      })
+    }
+  }
+
+  // Accommodation selection + option child rows.
+  const accommodationSelections = await ctx.db
+    .query("orderAccommodationSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", orderId))
+    .take(100)
+  const attendeeAccommodationSelections = accommodationSelections.filter(
+    (row) => String(row.attendeeId) === String(attendee._id)
+  )
+  for (const selection of attendeeAccommodationSelections) {
+    const optionChildren = await ctx.db
+      .query("orderAccommodationOptionSelections")
+      .withIndex("by_selectionId", (q) => q.eq("selectionId", selection._id))
+      .collect()
+    for (const child of optionChildren) {
+      await ctx.db.delete("orderAccommodationOptionSelections", child._id)
+    }
+    await ctx.db.delete("orderAccommodationSelections", selection._id)
+  }
+
+  // Room assignments.
+  const assignments = await ctx.db
+    .query("orderAssignments")
+    .withIndex("by_attendeeId", (q) => q.eq("attendeeId", attendee._id))
+    .collect()
+  for (const assignment of assignments) {
+    await ctx.db.delete("orderAssignments", assignment._id)
+  }
+
+  // Ticket Tailor extension rows.
+  const extensionRows = await ctx.db
+    .query("ticketTailorAttendees")
+    .withIndex("attendeeId", (q) => q.eq("attendeeId", attendee._id))
+    .collect()
+  for (const extensionRow of extensionRows) {
+    await ctx.db.delete("ticketTailorAttendees", extensionRow._id)
+  }
+
+  // Family-member links and any family group the removed attendee was the
+  // primary of (avoid leaving orphan groups).
+  const familyMembers = await ctx.db
+    .query("attendeeFamilyMembers")
+    .withIndex("attendeeId", (q) => q.eq("attendeeId", String(attendee._id)))
+    .collect()
+  for (const member of familyMembers) {
+    await ctx.db.delete("attendeeFamilyMembers", member._id)
+  }
+  const familyGroups = await ctx.db
+    .query("attendeeFamilyGroups")
+    .withIndex("primaryAttendeeId", (q) =>
+      q.eq("primaryAttendeeId", String(attendee._id))
+    )
+    .collect()
+  for (const group of familyGroups) {
+    await ctx.db.delete("attendeeFamilyGroups", group._id)
+  }
+
+  await ctx.db.delete("orderAttendees", attendee._id)
+
+  // Recompute the order amount due exactly through the canonical loader.
+  const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [order])
+
+  return {
+    orderId,
+    remainingAttendees: remainingAttendees.length - 1,
+    amountDueMinor:
+      breakdowns.get(String(orderId))?.amountDueMinor ??
+      order.totalAmountMinor ??
+      null,
+  }
+}
+
+/**
+ * Admin attendee removal from an order (server-authoritative).
+ *
+ * Permanently removes one attendee when the order still has at least one
+ * other attendee. Delegates the row cleanup, ticket-inventory decrement, and
+ * exact canonical amount recompute to the shared helper.
+ */
+export const removeAttendeeFromOrder = mutation({
+  args: {
+    attendeeId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const resolved = await resolveAttendeeRecordByStringId(ctx, args.attendeeId)
+
+    if (!resolved?.canonicalAttendee) {
+      throw new Error("Attendee not found.")
+    }
+
+    const attendee = resolved.canonicalAttendee
+    const { orderId, remainingAttendees, amountDueMinor } =
+      await deleteAttendeeScopedRowsAndRecompute(ctx, attendee)
+
+    return {
+      attendeeId: String(attendee._id),
+      orderId: String(orderId),
+      remainingAttendees,
+      amountDueMinor,
+    }
+  },
+})
