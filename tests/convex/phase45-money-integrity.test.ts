@@ -249,6 +249,23 @@ async function seedOrder(
   }
 }
 
+async function seedOrphanOrder(
+  t: TestConvexForDataModel<GenericDataModel>,
+  seed: AuditSeed,
+  bookingRef: string
+) {
+  return await t.mutation(async (ctx) => {
+    return await ctx.db.insert("orders", {
+      eventId: seed.eventId as never,
+      source: "internal",
+      bookingRef,
+      bookerName: "Orphan Order",
+      bookerEmail: "orphan@example.com",
+      submittedAt: BASE_EVENT_AT,
+    })
+  })
+}
+
 /** Inserts the representative accommodation selections (A = cot child row, B = base). */
 async function seedRepresentativeSelections(
   t: TestConvexForDataModel<GenericDataModel>,
@@ -386,6 +403,7 @@ test("one canonical amount-due and per-attendee breakdown across every consumer"
   const t = fresh().withIdentity(adminIdentity)
   const seed = await seedAuditEvent(t)
   const order = await seedOrder(t, seed, "BK-45-REP01")
+  await seedOrphanOrder(t, seed, "BK-45-ORPHAN")
   await seedRepresentativeSelections(t, seed, order)
   await insertAppliedPayment(t, {
     seed,
@@ -486,9 +504,14 @@ test("one canonical amount-due and per-attendee breakdown across every consumer"
     token: "report-rep01",
   })
   expect(fullReport?.aggregate?.totals.amountDueMinor).toBe(11000)
+  expect(fullReport?.aggregate?.totals.rows).toBe(2)
   expect(fullReport?.aggregate?.totals.paidMinor).toBe(5000)
   expect(fullReport?.aggregate?.totals.outstandingMinor).toBe(6000)
   expect(fullReport?.aggregate?.totals.overpaidMinor).toBe(0)
+  expect(fullReport?.aggregate?.slices.byGender).not.toEqual(
+    expect.arrayContaining([expect.objectContaining({ label: "Unspecified" })])
+  )
+  expect(fullReport?.attendees?.totals.rows).toBe(2)
 
   // 9. Allocation board inputs: tri-state paid projection from canonical due.
   const board = await t.query(api.accommodation.getRoomAllocationBoard, {

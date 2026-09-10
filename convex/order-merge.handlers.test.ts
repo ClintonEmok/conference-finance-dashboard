@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { expect, test } from "vitest"
+import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { convexTest, type TestConvexForDataModel } from "convex-test"
 import type { GenericDataModel } from "convex/server"
 
@@ -9,8 +9,35 @@ import type { Doc, Id } from "./_generated/dataModel"
 
 const modules = import.meta.glob("./**/*.ts")
 
+let activeTestContexts: Array<ReturnType<typeof convexTest>> = []
+type ScheduledFunctionFinisher = (
+  advanceTimers: () => void,
+  maxIterations: number
+) => Promise<void>
+
+beforeEach(() => {
+  vi.useFakeTimers()
+})
+
+afterEach(async () => {
+  try {
+    for (const t of activeTestContexts) {
+      // The large-child-set test intentionally creates more than 500 fanout
+      // jobs, so use a cleanup budget above convex-test's default of 100.
+      const finishAllScheduledFunctions =
+        t.finishAllScheduledFunctions as ScheduledFunctionFinisher
+      await finishAllScheduledFunctions(() => vi.runAllTimers(), 1000)
+    }
+  } finally {
+    activeTestContexts = []
+    vi.useRealTimers()
+  }
+})
+
 function fresh() {
-  return convexTest(schema, modules)
+  const t = convexTest(schema, modules)
+  activeTestContexts.push(t)
+  return t
 }
 
 const adminIdentity = {

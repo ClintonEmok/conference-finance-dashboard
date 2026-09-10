@@ -288,27 +288,16 @@ async function buildSharedEventReportData(
     }
 
     const attendeesWithExtensions = await loadOrderAttendeesWithExtensions(ctx as QueryCtx, order._id)
-    const ticketTypeResolution = await loadOrderTicketTypeResolution(ctx, order._id)
-    const payments = paymentsByOrderId.get(String(order._id)) ?? []
-
-    const totalPaidMinor = payments
-       .filter((payment) => isOrderAppliedPayment(payment))
-      .reduce((sum, payment) => sum + payment.amountMinor, 0)
-
+    // Stakeholder reports describe attendee records, not orphaned orders.
     if (attendeesWithExtensions.length === 0) {
-      rows.push({
-        location: null,
-        genderType: null,
-        ticketTypeLabel: null,
-        amountDueMinor: amountDueBreakdown.amountDueMinor ?? 0,
-         paidAmountMinor: deriveBalanceAmounts(
-           amountDueBreakdown.amountDueMinor,
-           totalPaidMinor
-         ).appliedAmountMinor,
-        createdAt: new Date(order._creationTime).toISOString(),
-      })
       continue
     }
+
+    const ticketTypeResolution = await loadOrderTicketTypeResolution(ctx, order._id)
+    const payments = paymentsByOrderId.get(String(order._id)) ?? []
+    const totalPaidMinor = payments
+      .filter((payment) => isOrderAppliedPayment(payment))
+      .reduce((sum, payment) => sum + payment.amountMinor, 0)
 
     const paidByAttendeeId = allocateReportPaymentsByAttendee({
       totalPaidMinor,
@@ -506,28 +495,16 @@ async function buildReportRows(
     }
 
     const attendeesWithExtensions = await loadOrderAttendeesWithExtensions(ctx as QueryCtx, order._id)
-    const ticketTypeResolution = await loadOrderTicketTypeResolution(ctx, order._id)
-
-    const payments = paymentsByOrderId.get(String(order._id)) ?? []
-
-     const totalPaidMinor = payments
-       .filter((payment) => isOrderAppliedPayment(payment))
-      .reduce((sum, payment) => sum + payment.amountMinor, 0)
-
+    // Stakeholder reports describe attendee records, not orphaned orders.
     if (attendeesWithExtensions.length === 0) {
-      rows.push({
-        location: null,
-        genderType: null,
-        ticketTypeLabel: null,
-        amountDueMinor: amountDueBreakdown.amountDueMinor ?? 0,
-         paidAmountMinor: deriveBalanceAmounts(
-           amountDueBreakdown.amountDueMinor,
-           totalPaidMinor
-         ).appliedAmountMinor,
-        createdAt: new Date(order._creationTime).toISOString(),
-      })
       continue
     }
+
+    const ticketTypeResolution = await loadOrderTicketTypeResolution(ctx, order._id)
+    const payments = paymentsByOrderId.get(String(order._id)) ?? []
+    const totalPaidMinor = payments
+      .filter((payment) => isOrderAppliedPayment(payment))
+      .reduce((sum, payment) => sum + payment.amountMinor, 0)
 
     const paidByAttendeeId = allocateReportPaymentsByAttendee({
       totalPaidMinor,
