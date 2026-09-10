@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { TikkieSection } from "@/components/signup/SuccessPage/TikkieSection"
 import { TrackPaymentAccommodationEditor } from "@/components/track-payment/TrackPaymentAccommodationEditor"
+import { TrackPaymentAttendeeRemoval } from "@/components/track-payment/TrackPaymentAttendeeRemoval"
 import { formatMoney } from "@/lib/format"
 
 function formatDateTime(value: number | null): string {
@@ -450,6 +451,15 @@ export function TrackPaymentView({
                 editContext={editContext}
                 initialEditToken={initialEditToken}
               />
+
+              {/* ATTENDEE REMOVAL (public manage-booking) */}
+              {editContext && bookingRef ? (
+                <TrackPaymentAttendeeRemoval
+                  bookingRef={bookingRef}
+                  selections={editContext.selections}
+                  initialEditToken={initialEditToken}
+                />
+              ) : null}
             </div>
           ) : null}
         </div>

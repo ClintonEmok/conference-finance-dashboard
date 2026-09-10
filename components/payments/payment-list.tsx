@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -52,6 +53,7 @@ type PaymentListProps = {
     source?: PaymentSource
   }
   onAssign?: (payment: Payment) => void
+  onDelete?: (payment: Payment) => void
   refreshKey?: number
 }
 
@@ -139,6 +141,7 @@ function StatusBadge({ status }: { status: PaymentMatchStatus }) {
 export function PaymentList({
   filters,
   onAssign,
+  onDelete,
   refreshKey,
 }: PaymentListProps) {
   const [payments, setPayments] = useState<Payment[]>([])
@@ -341,22 +344,39 @@ export function PaymentList({
                     )}
                   </TableCell>
                   <TableCell className="px-6 py-4 text-right">
-                    {(payment.status === "unassigned" ||
-                      payment.status === "ambiguous") &&
-                      onAssign ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onAssign(payment)}
-                        className="h-8 rounded-lg border-primary/20 text-[10px] font-black tracking-widest uppercase opacity-0 transition-all group-hover:opacity-100 hover:bg-primary/5 hover:text-primary"
-                      >
-                        Assign
-                      </Button>
-                    ) : (
-                      <div className="flex items-center justify-end gap-1.5 text-[10px] font-black tracking-widest text-emerald-600/60 uppercase opacity-0 transition-opacity group-hover:opacity-100">
-                        Verified
-                      </div>
-                    )}
+                    <div className="flex items-center justify-end gap-1.5">
+                      {(payment.status === "unassigned" ||
+                        payment.status === "ambiguous") &&
+                        onAssign ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onAssign(payment)}
+                          className="h-8 rounded-lg border-primary/20 text-[10px] font-black tracking-widest uppercase opacity-0 transition-all group-hover:opacity-100 hover:bg-primary/5 hover:text-primary"
+                        >
+                          Assign
+                        </Button>
+                      ) : (
+                        <div className="flex items-center justify-end gap-1.5 text-[10px] font-black tracking-widest text-emerald-600/60 uppercase opacity-0 transition-opacity group-hover:opacity-100">
+                          Verified
+                        </div>
+                      )}
+                      {payment.status === "unassigned" &&
+                        (payment.source === "cash" ||
+                          payment.source === "bank_transfer") &&
+                        onDelete ? (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete payment ${payment.payerName}`}
+                          title="Delete unassigned manual payment"
+                          onClick={() => onDelete(payment)}
+                          className="h-8 w-8 rounded-lg text-destructive/70 opacity-0 transition-all group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      ) : null}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))

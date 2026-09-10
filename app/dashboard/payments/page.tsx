@@ -23,6 +23,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { formatMoney } from "@/lib/format"
 
 type PaymentSource = "tikkie" | "bank_transfer" | "cash"
 type PaymentMatchStatus =
@@ -142,6 +143,32 @@ export default function PaymentsPage() {
     }
   }
 
+  async function handleDeletePayment(payment: Payment) {
+    const confirmed = window.confirm(
+      `Delete the unassigned ${payment.source === "cash" ? "cash" : "bank transfer"} payment of ${formatMoney(payment.amountMinor)} from ${payment.payerName}? This cannot be undone.`
+    )
+    if (!confirmed) return
+
+    try {
+      const response = await fetch(`/api/payments/${encodeURIComponent(payment.id)}`, {
+        method: "DELETE",
+      })
+      const body = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        const message =
+          body?.error?.message ?? `Failed to delete payment (${response.status}).`
+        setToastMessage({ tone: "danger", text: message })
+        return
+      }
+
+      setRefreshKey((prev) => prev + 1)
+      setToastMessage({ tone: "success", text: "Payment deleted." })
+    } catch {
+      setToastMessage({ tone: "danger", text: "Network error while deleting payment." })
+    }
+  }
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between px-1">
@@ -226,7 +253,7 @@ export default function PaymentsPage() {
           </div>
         </div>
         <div className="p-6">
-          <PaymentList onAssign={(p) => { setSelectedPayment(p); setAssignDialogOpen(true); }} refreshKey={refreshKey} />
+          <PaymentList onAssign={(p) => { setSelectedPayment(p); setAssignDialogOpen(true); }} onDelete={handleDeletePayment} refreshKey={refreshKey} />
         </div>
       </article>
 
