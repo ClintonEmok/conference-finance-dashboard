@@ -7,8 +7,8 @@ current_phase_name: Event-Owned Setup Schema, Generalized Pricing & Shared Contr
 status: planning
 stopped_at: Phase 46 planning complete; implementation has not started
 last_updated: "2026-08-19T19:09:04.000Z"
-last_activity: 2026-08-23
-last_activity_desc: "Completed quick task 260823-ht1: preserved booking references during safe multi-source merge with alias-aware resolution, fail-closed guards, and order-detail UI wiring; 229 convex + 571 unit tests + typecheck + build green"
+last_activity: 2026-09-10
+last_activity_desc: "Completed quick task 260910-tum: closed CRUD gaps — authenticated deletion of unassigned manual cash/bank payments (API route + dashboard row action + confirm/toast/refresh), and attendee removal on both the dashboard (removeAttendeeFromOrder) and the ownership-verified manage-booking permalink (removeAttendeeFromBooking + signed remove route); removal enforces the minimum-attendee guard, cleans every attendee-scoped row, decrements ticket inventory, and recomputes the order amount due exactly via the canonical loader; 588 unit + 251 convex tests + typecheck + build green"
 progress:
   total_phases: 6
   completed_phases: 0
@@ -100,6 +100,7 @@ Progress: [░░░░░░░░░░] 0%
 | 260816-fgu | Communications Center: fixed standard announcement send — lib/email/announcement-copy.ts shared copy, AnnouncementEmail no venue/location, scheduleEmailBroadcast tightened to eventId+search+authorize (server-derived copy/title/date/signup URL, previewAudience search semantics, stored search scope, queued-only scheduler), standard announcement card with real-template iframe preview + explicit confirm dialog selecting the returned broadcast; rendered email screenshot captured (untracked); 546 unit + 34 convex tests + typecheck + build green, no production broadcast | 2026-08-16 | 983f956 |  | [260816-fgu-implement-and-send-me-a-screenshot-of-th](./quick/260816-fgu-implement-and-send-me-a-screenshot-of-th/) |
 | 260819-rpv | Persisted canonical Tikkie event and payer-account data, bounded matching by event, and added a non-authoritative account tie-breaker; focused and full validation passed | 2026-08-19 | e2ffabc | Verified | [260819-rpv-optimize-tikkie-payment-matching-by-usin](./quick/260819-rpv-optimize-tikkie-payment-matching-by-usin/) |
 | 260823-ht1 | Preserve booking references during safe multi-source merge: alias-aware booking resolution (convex/bookingRefs.ts), orderBookingRefAliases table, core merge markers on orders, fail-closed multi-source whole-order merge mutation with preflight guards, authenticated array-based API route, order-detail Merge action wired to existing dialog, 229 convex + 571 unit tests + typecheck + build green | 2026-08-23 | e8e478c | Verified | [260823-ht1-preserve-booking-references-during-safe-](./quick/260823-ht1-preserve-booking-references-during-safe-/) |
+| 260910-tum | Closed CRUD gaps: authenticated deletion of unassigned manual cash/bank payments (DELETE /api/payments/[id] + dashboard row action with confirm/toast/refresh); attendee removal on the dashboard (removeAttendeeFromOrder) and the ownership-verified manage-booking permalink (removeAttendeeFromBooking + signed remove route) — minimum-attendee guard, full attendee-scoped row cleanup, ticket-inventory decrement, and exact canonical amount recompute; 588 unit + 251 convex tests + typecheck + build green | 2026-09-10 | 2438d2c | Verified | [260910-tum-implement-crud-gaps-for-payments-and-att](./quick/260910-tum-implement-crud-gaps-for-payments-and-att/) |
 
 ## Deferred Verification
 
