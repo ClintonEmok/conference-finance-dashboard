@@ -1,6 +1,10 @@
 import { api } from "@/lib/convex/api"
 import { convexQuery, convexMutation } from "@/lib/convex/server"
 import { Id } from "@/convex/_generated/dataModel"
+import {
+  buildPersonSignatures,
+  normalizeRoommateTokens,
+} from "@/lib/domain/accommodation/roommate-preferences"
 
 type RoomAvailability = "all" | "empty" | "available" | "full"
 
@@ -224,24 +228,6 @@ type RoomState = {
   projectedGenders: Set<Exclude<AttendeeGender, null>>
   projectedOrderIds: Set<string>
   projectedOccupantSignatures: Set<string>
-}
-
-function normalizeRoommateTokens(value: string | null | undefined): string[] {
-  if (!value) return []
-  return value
-    .split(/[;,\n]/)
-    .map((token) => token.trim().toLowerCase())
-    .filter(Boolean)
-}
-
-function buildPersonSignatures(
-  attendeeName: string | null | undefined,
-  attendeeEmail: string | null | undefined
-): string[] {
-  const signatures = [attendeeName, attendeeEmail]
-    .map((value) => value?.trim().toLowerCase() ?? "")
-    .filter(Boolean)
-  return [...new Set(signatures)]
 }
 
 function roommatePreferenceRank(

@@ -42,6 +42,7 @@ import {
   syncAllocationFiltersToSearchParams,
   type AllocationFilterState,
 } from "@/app/dashboard/accommodation/filter-state"
+import { matchRoommatePreferences } from "@/lib/domain/accommodation/roommate-preferences"
 
 type Suggestion = {
   attendee: any
@@ -263,11 +264,52 @@ export default function EventAllocationPage({
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null)
   const [isApplying, setIsApplying] = useState(false)
   const [roomPage, setRoomPage] = useState(1)
+  const [activeRoommateAttendeeId, setActiveRoommateAttendeeId] = useState<string | null>(null)
   const roomsPerPage = 12
 
   const rooms = useMemo(() => (board?.rooms as any[]) ?? [], [board])
   const hotels = useMemo(() => (board?.hotels as any[]) ?? [], [board])
   const unassigned = useMemo(() => (board?.unassignedAttendees as any[]) ?? [], [board])
+  const activeRoommateAttendee = unassigned.find(
+    (attendee: any) => attendee.attendeeId === activeRoommateAttendeeId
+  )
+  const roommateCandidates = useMemo(
+    () => [...unassigned, ...rooms.flatMap((room: any) => room.occupants ?? [])].map((candidate: any) => ({
+      attendeeId: candidate.attendeeId,
+      attendeeName: candidate.attendeeName,
+      attendeeEmail: candidate.attendeeEmail,
+    })),
+    [rooms, unassigned]
+  )
+  const roommateMatches = useMemo(
+    () => activeRoommateAttendee
+      ? matchRoommatePreferences({
+          roommatePreference: activeRoommateAttendee.roommatePreference,
+          roommateAvoid: activeRoommateAttendee.roommateAvoid,
+          candidates: roommateCandidates,
+        })
+      : { requestedIds: [], avoidedIds: [] },
+    [activeRoommateAttendee, roommateCandidates]
+  )
+  const requestedIds = useMemo(() => new Set(roommateMatches.requestedIds), [roommateMatches.requestedIds])
+  const avoidedIds = useMemo(() => new Set(roommateMatches.avoidedIds), [roommateMatches.avoidedIds])
+  const displayedUnassigned = useMemo(() => {
+    if (requestedIds.size === 0) return unassigned
+    return [...unassigned].sort((a: any, b: any) => Number(requestedIds.has(b.attendeeId)) - Number(requestedIds.has(a.attendeeId)))
+  }, [requestedIds, unassigned])
+  const displayedRooms = useMemo(() => {
+    if (requestedIds.size === 0 && avoidedIds.size === 0) return rooms
+    return [...rooms].sort((a: any, b: any) => {
+      const score = (room: any) => room.occupants?.some((occupant: any) => requestedIds.has(occupant.attendeeId))
+        ? 2
+        : room.occupants?.some((occupant: any) => avoidedIds.has(occupant.attendeeId)) ? 1 : 0
+      return score(b) - score(a)
+    })
+  }, [avoidedIds, requestedIds, rooms])
+
+  useEffect(() => {
+    if (activeRoommateAttendeeId && !activeRoommateAttendee) setActiveRoommateAttendeeId(null)
+  }, [activeRoommateAttendee, activeRoommateAttendeeId])
   const summary = board?.summary as
     | {
         totalRooms: number
@@ -335,6 +377,14 @@ export default function EventAllocationPage({
 
   function resolveRoomTypeId(attendee: any) {
     return attendee.allocatedRoomTypeId ?? (event as any)?.defaultRoomTypeId ?? null
+  }
+
+  function activateRoommateAttendee(attendee: any) {
+    setActiveRoommateAttendeeId(attendee.attendeeId)
+  }
+
+  function isRoommateMatch(attendeeId: string) {
+    return requestedIds.has(attendeeId) || avoidedIds.has(attendeeId)
   }
 
   function pickFulfillRoom(attendee: any, availableRooms: any[]) {
@@ -794,10 +844,23 @@ export default function EventAllocationPage({
                  <DashboardQueryState state="empty" message="All attendees have been placed." className="rounded-xl border border-dashed border-white/20 bg-white/5 p-8" />
                )
             ) : (
-              unassigned.map((attendee: any) => (
+              displayedUnassigned.map((attendee: any) => (
                   <div
                     key={attendee.attendeeId}
-                    className="flex flex-col rounded-xl border border-border/60 bg-card p-3 transition-colors hover:border-primary/30"
+                    role="group"
+                    tabIndex={0}
+                    aria-label={`Attendee ${attendee.attendeeName ?? "Unnamed"}`}
+                    onMouseEnter={() => activateRoommateAttendee(attendee)}
+                    onFocus={() => activateRoommateAttendee(attendee)}
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest("button")) return
+                      activateRoommateAttendee(attendee)
+                    }}
+                    className={`flex flex-col rounded-xl border bg-card p-3 transition-colors hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      activeRoommateAttendeeId === attendee.attendeeId || isRoommateMatch(attendee.attendeeId)
+                        ? "border-primary/60 ring-1 ring-primary/30"
+                        : "border-border/60"
+                    }`}
                   >
                    <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-sm font-semibold">{attendee.attendeeName ?? "Unnamed"}</p>
@@ -837,6 +900,16 @@ export default function EventAllocationPage({
                     )}
                     <AccommodationPreferenceChips attendee={attendee} />
                   </div>
+                  {(attendee.roommatePreference?.trim() || attendee.roommateAvoid?.trim()) && (
+                    <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+                      {attendee.roommatePreference?.trim() && (
+                        <p><span className="font-semibold text-foreground">Wants to room with:</span>{" "}{attendee.roommatePreference.trim()}</p>
+                      )}
+                      {attendee.roommateAvoid?.trim() && (
+                        <p><span className="font-semibold text-foreground">Avoids rooming with:</span>{" "}{attendee.roommateAvoid.trim()}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -883,7 +956,7 @@ export default function EventAllocationPage({
           ) : (
             <>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {rooms.slice((roomPage - 1) * roomsPerPage, roomPage * roomsPerPage).map((room: any) => {
+                {displayedRooms.slice((roomPage - 1) * roomsPerPage, roomPage * roomsPerPage).map((room: any) => {
                   const isSelected = selectedRoomId === room.id
                   const isFull = room.availability === "full"
                   const isEmpty = room.availability === "empty"
@@ -893,7 +966,9 @@ export default function EventAllocationPage({
                       className={`rounded-2xl border p-4 shadow-sm transition-all ${
                         isSelected
                           ? "border-primary/60 bg-primary/5 ring-2 ring-primary/20"
-                          : "border-border/60 bg-card hover:border-primary/30"
+                          : room.occupants?.some((occupant: any) => isRoommateMatch(occupant.attendeeId))
+                            ? "border-primary/60 bg-primary/5 ring-1 ring-primary/20"
+                            : "border-border/60 bg-card hover:border-primary/30"
                       }`}
                     >
                       <button
@@ -935,9 +1010,12 @@ export default function EventAllocationPage({
                       {room.occupants && room.occupants.length > 0 && (
                         <div className="mt-3 space-y-1 border-t border-border/30 pt-3">
                           {room.occupants.slice(0, 3).map((occ: any) => (
-                            <div key={occ.attendeeId} className="group/occ flex items-center justify-between gap-2 rounded-lg bg-muted/30 px-2 py-1">
+                            <div key={occ.attendeeId} className={`group/occ flex items-center justify-between gap-2 rounded-lg px-2 py-1 ${
+                              requestedIds.has(occ.attendeeId) ? "bg-primary/10 ring-1 ring-primary/30" : avoidedIds.has(occ.attendeeId) ? "bg-amber-100/70 ring-1 ring-amber-400/50 dark:bg-amber-950/30" : "bg-muted/30"
+                            }`}>
                               <span className="flex min-w-0 flex-wrap items-center gap-1.5">
                                 <span className="truncate text-xs text-muted-foreground">{occ.attendeeName ?? "Unnamed"}</span>
+                                {avoidedIds.has(occ.attendeeId) && <span role="alert" className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">Avoided roommate</span>}
                                 <PaymentBadge state={occ.paymentState} />
                                 <OccupancyChip occupancy={occ.occupancy} />
                               </span>
