@@ -42,7 +42,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export type AttendeeRegisterSort = "surname" | "firstName"
 
-const attendeeNameCollator = new Intl.Collator(undefined, { sensitivity: "base" })
+const attendeeNameCollator = new Intl.Collator("en", { sensitivity: "base" })
 
 export function getAttendeeSortKey(name: string, sortBy: AttendeeRegisterSort) {
   const parts = name.trim() ? name.trim().split(/\s+/) : []
