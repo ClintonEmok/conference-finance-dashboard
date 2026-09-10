@@ -71,6 +71,9 @@ describe("allocation roommate preferences", () => {
     )
     expect(surface).toContain("Avoided roommate")
     expect(surface).toContain("requestedIds.has(occ.attendeeId)")
+    expect(surface).toContain("const displayedOccupants = prioritizeRoomOccupants(room)")
+    expect(surface).toContain("displayedOccupants.slice(0, 3)")
+    expect(surface).toContain("const highlightedRoomIndex = useMemo")
     expect(surface).toContain("onClick={() => handleFulfill(attendee)}")
     expect(surface).toContain(
       "onClick={() => handleAssign(attendee.attendeeId)}"
