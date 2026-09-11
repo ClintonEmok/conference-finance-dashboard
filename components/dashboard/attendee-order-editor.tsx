@@ -11,6 +11,7 @@ import {
   Minus,
   MoveRight,
   Plus,
+  Trash2,
 } from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -377,6 +378,7 @@ export function buildEditorSaveRequests(input: {
 
 type AttendeeOrderEditorProps = {
   attendee: AttendeeOrderEditorAttendee
+  canRemove?: boolean
   onSaved?: () => void
 }
 
@@ -388,6 +390,7 @@ type EditorTicketType = {
 
 export function AttendeeOrderEditor({
   attendee,
+  canRemove = true,
   onSaved,
 }: AttendeeOrderEditorProps) {
   const { ticketTypes: rawTicketTypes, isLoading: isTicketTypesLoading } =
@@ -414,6 +417,9 @@ export function AttendeeOrderEditor({
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
   const [isMoving, setIsMoving] = useState(false)
   const [moveStatus, setMoveStatus] = useState<SaveStatus>({ kind: "idle" })
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false)
+  const [isRemoving, setIsRemoving] = useState(false)
+  const [removeStatus, setRemoveStatus] = useState<SaveStatus>({ kind: "idle" })
   const [moveSearch, setMoveSearch] = useState("")
   const [debouncedMoveSearch, setDebouncedMoveSearch] = useState("")
   const [targetOrderId, setTargetOrderId] = useState<string | null>(null)
@@ -743,6 +749,43 @@ export function AttendeeOrderEditor({
       })
     } finally {
       setIsMoving(false)
+    }
+  }
+
+  async function handleRemove() {
+    if (isRemoving || !canRemove) return
+
+    setIsRemoving(true)
+    setRemoveStatus({ kind: "saving" })
+    try {
+      const response = await fetch(
+        `/api/dashboard/attendees/${encodeURIComponent(attendee.id)}/remove`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ eventId: attendee.eventId }),
+        }
+      )
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string }
+        } | null
+        throw new Error(body?.error?.message ?? "Failed to remove attendee.")
+      }
+      setRemoveStatus({
+        kind: "success",
+        message: "Attendee removed. The order totals are now updating.",
+      })
+      setRemoveConfirmOpen(false)
+      onSaved?.()
+    } catch (error) {
+      setRemoveStatus({
+        kind: "error",
+        message:
+          error instanceof Error ? error.message : "Failed to remove attendee.",
+      })
+    } finally {
+      setIsRemoving(false)
     }
   }
 
@@ -1299,6 +1342,52 @@ export function AttendeeOrderEditor({
         </div>
       </section>
 
+      <section className="space-y-3 rounded-xl border border-destructive/30 bg-card/40 p-4">
+        <div className="flex items-center gap-2">
+          <Trash2 className="size-4 text-destructive" />
+          <p className="text-[10px] font-black tracking-widest text-muted-foreground uppercase">
+            Remove attendee
+          </p>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {canRemove
+            ? "Remove this attendee and their ticket, accommodation, room assignment, family, and search records. Existing order payments stay attached."
+            : "This order has only one attendee, so it cannot be removed."}
+        </p>
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={isSaving || isRemoving || !canRemove}
+          onClick={() => {
+            setRemoveStatus({ kind: "idle" })
+            setRemoveConfirmOpen(true)
+          }}
+          className="h-8 rounded-lg px-3 text-[10px] font-bold tracking-wider uppercase"
+        >
+          <Trash2 className="mr-1.5 size-3.5" />
+          {isRemoving ? "Removing…" : "Remove attendee"}
+        </Button>
+        <div aria-live="polite" className="min-w-0 text-sm">
+          {removeStatus.kind === "saving" ? (
+            <span className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Removing attendee…
+            </span>
+          ) : removeStatus.kind === "success" ? (
+            <span className="flex items-center gap-2 font-medium text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="size-4" />
+              {removeStatus.message}
+            </span>
+          ) : removeStatus.kind === "error" ? (
+            <span role="alert" className="flex items-center gap-2 font-medium text-destructive">
+              <AlertCircle className="size-4" />
+              {removeStatus.message}
+            </span>
+          ) : null}
+        </div>
+      </section>
+
       <div className="space-y-3">
         <div aria-live="polite" className="min-w-0 text-sm">
           {saveStatus.kind === "saving" ? (
@@ -1438,6 +1527,44 @@ export function AttendeeOrderEditor({
               className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
             >
               {isMoving ? "Moving…" : "Move attendee"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={removeConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) setRemoveConfirmOpen(false)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove attendee</DialogTitle>
+            <DialogDescription>
+              Remove {attendee.name} from this order? Their ticket,
+              accommodation, room assignment, family, and search records will
+              be deleted and the order amount due recalculated. Existing
+              payments stay on the order.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setRemoveConfirmOpen(false)}
+              className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isRemoving}
+              onClick={() => void handleRemove()}
+              className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
+            >
+              {isRemoving ? "Removing…" : "Remove attendee"}
             </Button>
           </DialogFooter>
         </DialogContent>

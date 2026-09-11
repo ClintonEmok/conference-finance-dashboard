@@ -18,7 +18,10 @@ import {
   paymentStatusValidator,
   paymentDocValidator,
 } from "../lib/types/payment"
-import { loadOrderAmountDueBreakdowns } from "./finance"
+import {
+  loadMatchedPaymentTotalsByOrderId,
+  loadOrderAmountDueBreakdowns,
+} from "./finance"
 
 type TikkiePaymentUpsert = {
   eventId?: Id<"events">
@@ -359,6 +362,94 @@ export const createPayment = mutation({
   },
 })
 
+export const logReconciliationPayment = mutation({
+  args: {
+    eventId: v.id("events"),
+    orderId: v.id("orders"),
+    source: v.union(v.literal("cash"), v.literal("bank_transfer")),
+    payerName: v.string(),
+    amountMinor: v.number(),
+    paidAt: v.optional(v.number()),
+    payerAccountNumber: v.optional(v.string()),
+    reference: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  },
+  returns: v.id("payments"),
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx)
+    const event = await ctx.db.get("events", args.eventId)
+    if (!event) {
+      throw new Error("Event not found")
+    }
+
+    const order = await ctx.db.get("orders", args.orderId)
+    if (!order) {
+      throw new Error("Order not found")
+    }
+    if (order.eventId !== args.eventId) {
+      throw new Error("Order does not belong to this event")
+    }
+
+    if (
+      !Number.isFinite(args.amountMinor) ||
+      !Number.isInteger(args.amountMinor) ||
+      args.amountMinor <= 0
+    ) {
+      throw new Error("Amount must be a positive integer")
+    }
+
+    const payerName = args.payerName.trim()
+    if (!payerName) {
+      throw new Error("Payer name is required")
+    }
+
+    const paidAt = args.paidAt ?? Date.now()
+    if (!Number.isFinite(paidAt) || !Number.isInteger(paidAt) || paidAt <= 0) {
+      throw new Error("Paid date must be a valid timestamp")
+    }
+
+    const [amountDueBreakdowns, matchedTotals] = await Promise.all([
+      loadOrderAmountDueBreakdowns(ctx, [order]),
+      loadMatchedPaymentTotalsByOrderId(ctx, [order]),
+    ])
+    const amountDueMinor =
+      amountDueBreakdowns.get(String(order._id))?.amountDueMinor ??
+      order.totalAmountMinor ??
+      null
+    if (amountDueMinor === null) {
+      throw new Error("Order amount due is unavailable")
+    }
+
+    const balance = deriveBalanceAmounts(
+      amountDueMinor,
+      matchedTotals.get(String(order._id)) ?? 0
+    )
+    if (balance.outstandingAmountMinor <= 0) {
+      throw new Error("Order is no longer outstanding")
+    }
+
+    const optionalText = (value: string | undefined) => {
+      const trimmed = value?.trim()
+      return trimmed || undefined
+    }
+
+    return await ctx.db.insert("payments", {
+      source: args.source,
+      payerName,
+      amountMinor: args.amountMinor,
+      paidAt,
+      eventId: args.eventId,
+      orderId: String(order._id),
+      status: "manual_assignment",
+      matchedAt: Date.now(),
+      matchedBy: identity.tokenIdentifier,
+      payerAccountNumber: optionalText(args.payerAccountNumber),
+      reference: optionalText(args.reference),
+      notes: optionalText(args.notes),
+    })
+  },
+})
+
 export const upsertTikkiePayment = mutation({
   args: {
     sourceId: v.string(),
@@ -453,6 +544,45 @@ export const unassignPayment = mutation({
       matchedAt: undefined,
       matchedBy: undefined,
     })
+    return args.paymentId
+  },
+})
+
+export const deletePayment = mutation({
+  args: {
+    paymentId: v.id("payments"),
+    eventId: v.id("events"),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const event = await ctx.db.get("events", args.eventId)
+    if (!event) {
+      throw new Error("Event not found")
+    }
+
+    const payment = await ctx.db.get("payments", args.paymentId)
+    if (!payment) {
+      throw new Error("Payment not found")
+    }
+
+    if (payment.eventId !== args.eventId) {
+      throw new Error("Payment does not belong to this event")
+    }
+
+    if (
+      payment.status !== "unassigned" ||
+      payment.orderId !== undefined ||
+      payment.donationKind !== undefined
+    ) {
+      throw new Error("Only unassigned payments can be deleted")
+    }
+
+    if (payment.source !== "cash" && payment.source !== "bank_transfer") {
+      throw new Error("Only manually recorded payments can be deleted")
+    }
+
+    await ctx.db.delete("payments", args.paymentId)
     return args.paymentId
   },
 })

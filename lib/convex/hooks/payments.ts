@@ -29,6 +29,10 @@ export function useCreatePayment() {
   return useMutation(api.payments.createPayment)
 }
 
+export function useLogReconciliationPayment() {
+  return useMutation(api.payments.logReconciliationPayment)
+}
+
 export function useAssignPaymentToOrder() {
   return useMutation(api.payments.assignPaymentToOrder)
 }
@@ -39,6 +43,10 @@ export function useMarkPaymentAsDonation() {
 
 export function useUnassignPayment() {
   return useMutation(api.payments.unassignPayment)
+}
+
+export function useDeletePayment() {
+  return useMutation(api.payments.deletePayment)
 }
 
 export function useAutoMatchPayments() {

@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useState } from "react"
-import { ArrowRight, CheckCircle2, Loader2 } from "lucide-react"
+import { ArrowRight, CheckCircle2, Loader2, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,6 +13,7 @@ import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard
 import { financeHref } from "@/lib/dashboard/workspace-routes"
 import type { AttentionQueryState } from "@/lib/dashboard/workspace-attention"
 import {
+  useDeletePayment,
   useMarkPaymentAsDonation,
   usePayments,
   useUnassignedPayments,
@@ -41,8 +42,10 @@ export default function EventPaymentsPage({
       : { status: "ready" as const, data: fallbackUnassignedPayments }
   )
   const markAsDonation = useMarkPaymentAsDonation()
+  const deletePayment = useDeletePayment()
   const [busyPaymentId, setBusyPaymentId] = useState<PaymentRow["_id"] | null>(null)
   const [successPaymentId, setSuccessPaymentId] = useState<PaymentRow["_id"] | null>(null)
+  const [deletedPaymentId, setDeletedPaymentId] = useState<PaymentRow["_id"] | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   async function handleMarkDonation(paymentId: PaymentRow["_id"]) {
@@ -51,6 +54,7 @@ export default function EventPaymentsPage({
     setBusyPaymentId(paymentId)
     setErrorMessage(null)
     setSuccessPaymentId(null)
+    setDeletedPaymentId(null)
 
     try {
       await markAsDonation({
@@ -60,6 +64,37 @@ export default function EventPaymentsPage({
       setSuccessPaymentId(paymentId)
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to mark donation")
+    } finally {
+      setBusyPaymentId(null)
+    }
+  }
+
+  async function handleDeletePayment(payment: PaymentRow) {
+    if (!event?._id || payment.eventId !== event._id) return
+    if (
+      payment.status !== "unassigned" ||
+      (payment.source !== "cash" && payment.source !== "bank_transfer") ||
+      payment.orderId !== undefined ||
+      payment.donationKind !== undefined
+    ) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Delete this ${payment.source === "cash" ? "cash" : "bank transfer"} payment of ${payment.amountMinor} minor units? This cannot be undone.`
+    )
+    if (!confirmed) return
+
+    setBusyPaymentId(payment._id)
+    setErrorMessage(null)
+    setSuccessPaymentId(null)
+    setDeletedPaymentId(null)
+
+    try {
+      await deletePayment({ paymentId: payment._id, eventId: event._id })
+      setDeletedPaymentId(payment._id)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to delete payment")
     } finally {
       setBusyPaymentId(null)
     }
@@ -100,6 +135,11 @@ export default function EventPaymentsPage({
       {successPaymentId && (
         <p role="status" aria-live="polite" className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-700 dark:text-emerald-300">
           Payment marked as a donation.
+        </p>
+      )}
+      {deletedPaymentId && (
+        <p role="status" aria-live="polite" className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-700 dark:text-emerald-300">
+          Payment deleted.
         </p>
       )}
 
@@ -166,13 +206,36 @@ export default function EventPaymentsPage({
             {linkedPayments.length === 0 ? (
               <DashboardQueryState state="empty" message="No payments linked yet." className="rounded-2xl border border-dashed border-border/50 bg-background/40 p-6" />
             ) : (
-              linkedPayments.map((payment) => (
-                <PaymentCard
-                  key={payment._id}
-                  payment={payment}
-                  orderLink={payment.orderId ?? undefined}
-                />
-              ))
+               linkedPayments.map((payment) => (
+                 <PaymentCard
+                   key={payment._id}
+                   payment={payment}
+                   orderLink={payment.orderId ?? undefined}
+                   actions={
+                     payment.eventId === event._id &&
+                     payment.status === "unassigned" &&
+                     (payment.source === "cash" || payment.source === "bank_transfer") &&
+                     payment.orderId === undefined &&
+                     payment.donationKind === undefined ? (
+                       <Button
+                         type="button"
+                         variant="destructive"
+                         size="sm"
+                         className="h-8 rounded-lg text-[10px] font-bold uppercase tracking-wider"
+                         onClick={() => void handleDeletePayment(payment)}
+                         disabled={busyPaymentId === payment._id}
+                       >
+                         {busyPaymentId === payment._id ? (
+                           <Loader2 className="mr-2 size-3.5 animate-spin" aria-hidden="true" />
+                         ) : (
+                           <Trash2 className="mr-2 size-3.5" aria-hidden="true" />
+                         )}
+                         Delete payment
+                       </Button>
+                     ) : undefined
+                   }
+                 />
+               ))
             )}
           </CardContent>
         </Card>

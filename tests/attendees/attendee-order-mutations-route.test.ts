@@ -11,6 +11,7 @@ vi.mock("@/lib/convex/server", () => ({
 import { NextResponse } from "next/server"
 
 import { PATCH as PATCH_ACCOMMODATION } from "@/app/api/dashboard/attendees/[attendeeId]/accommodation/route"
+import { DELETE as DELETE_ATTENDEE } from "@/app/api/dashboard/attendees/[attendeeId]/remove/route"
 import { POST as POST_MOVE } from "@/app/api/dashboard/attendees/[attendeeId]/move/route"
 import { requireApiUser } from "@/lib/auth/server"
 import { api } from "@/lib/convex/api"
@@ -373,5 +374,119 @@ describe("/api/dashboard/attendees/[attendeeId]/move route", () => {
         targetOrderId: "order_2",
       }
     )
+  })
+})
+
+describe("/api/dashboard/attendees/[attendeeId]/remove route", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("returns 401 for unauthenticated DELETE requests", async () => {
+    vi.mocked(requireApiUser).mockResolvedValue(
+      NextResponse.json(
+        {
+          error: {
+            code: "UNAUTHORIZED",
+            message: "Authentication required",
+          },
+        },
+        { status: 401 }
+      )
+    )
+
+    const response = await DELETE_ATTENDEE(
+      new Request("http://localhost/api/dashboard/attendees/attendee_1/remove", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: "event_1" }),
+      }),
+      { params: Promise.resolve({ attendeeId: "attendee_1" }) }
+    )
+
+    expect(response.status).toBe(401)
+    expect(convexMutation).not.toHaveBeenCalled()
+  })
+
+  it("requires eventId and rejects unexpected fields before the mutation call", async () => {
+    vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
+
+    const missingEvent = await DELETE_ATTENDEE(
+      new Request("http://localhost/api/dashboard/attendees/attendee_1/remove", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+      { params: Promise.resolve({ attendeeId: "attendee_1" }) }
+    )
+    expect(missingEvent.status).toBe(400)
+    expect(convexMutation).not.toHaveBeenCalled()
+
+    const unexpected = await DELETE_ATTENDEE(
+      new Request("http://localhost/api/dashboard/attendees/attendee_1/remove", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: "event_1", amountDueMinor: 1 }),
+      }),
+      { params: Promise.resolve({ attendeeId: "attendee_1" }) }
+    )
+    expect(unexpected.status).toBe(400)
+    expect(convexMutation).not.toHaveBeenCalled()
+  })
+
+  it("forwards the normalized attendee id and event scope", async () => {
+    vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
+    vi.mocked(convexMutation).mockResolvedValue({
+      attendeeId: "attendee_1",
+      orderId: "order_1",
+      remainingAttendees: 1,
+      amountDueMinor: 0,
+    })
+
+    const response = await DELETE_ATTENDEE(
+      new Request("http://localhost/api/dashboard/attendees/attendee_1/remove", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: " event_1 " }),
+      }),
+      { params: Promise.resolve({ attendeeId: " attendee_1 " }) }
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ ok: true, amountDueMinor: 0 })
+    expect(convexMutation).toHaveBeenCalledWith(
+      api.attendees.removeAttendeeFromOrder,
+      { attendeeId: "attendee_1", eventId: "event_1" }
+    )
+  })
+
+  it("maps missing records to 404 and destructive guard failures to 400", async () => {
+    vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
+    vi.mocked(convexMutation).mockRejectedValueOnce(
+      new Error("Attendee not found.")
+    )
+
+    const missing = await DELETE_ATTENDEE(
+      new Request("http://localhost/api/dashboard/attendees/attendee_1/remove", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: "event_1" }),
+      }),
+      { params: Promise.resolve({ attendeeId: "attendee_1" }) }
+    )
+    expect(missing.status).toBe(404)
+
+    vi.mocked(convexMutation).mockRejectedValueOnce(
+      new Error("An order must retain at least one attendee.")
+    )
+    const guarded = await DELETE_ATTENDEE(
+      new Request("http://localhost/api/dashboard/attendees/attendee_1/remove", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: "event_1" }),
+      }),
+      { params: Promise.resolve({ attendeeId: "attendee_1" }) }
+    )
+    expect(guarded.status).toBe(400)
   })
 })

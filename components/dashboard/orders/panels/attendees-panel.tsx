@@ -9,6 +9,7 @@ import {
   Loader2,
   MapPin,
   Pencil,
+  Trash2,
   Users,
 } from "lucide-react"
 
@@ -26,6 +27,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -117,6 +119,9 @@ export function AttendeesPanel({
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
   const [editingAttendeeId, setEditingAttendeeId] = useState<string | null>(null)
+  const [removingAttendeeId, setRemovingAttendeeId] = useState<string | null>(null)
+  const [isRemovingAttendee, setIsRemovingAttendee] = useState(false)
+  const [removeError, setRemoveError] = useState<string | null>(null)
 
   useEffect(() => {
     const attendeesKey = attendees.map((attendee) => attendee.id).join("|")
@@ -214,6 +219,40 @@ export function AttendeesPanel({
   const editingRow = attendees.find(
     (attendee) => attendee.id === editingAttendeeId
   )
+  const removingRow = attendees.find(
+    (attendee) => attendee.id === removingAttendeeId
+  )
+
+  async function confirmRemoveAttendee() {
+    if (!removingAttendeeId || isRemovingAttendee) return
+
+    setIsRemovingAttendee(true)
+    setRemoveError(null)
+    try {
+      const response = await fetch(
+        `/api/dashboard/attendees/${encodeURIComponent(removingAttendeeId)}/remove`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ eventId }),
+        }
+      )
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string }
+        } | null
+        throw new Error(body?.error?.message ?? "Failed to remove attendee.")
+      }
+      setRemovingAttendeeId(null)
+      onSaved()
+    } catch (error) {
+      setRemoveError(
+        error instanceof Error ? error.message : "Failed to remove attendee."
+      )
+    } finally {
+      setIsRemovingAttendee(false)
+    }
+  }
 
   return (
     <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur lg:col-span-3 dark:border-white/10 dark:bg-black/20">
@@ -279,26 +318,44 @@ export function AttendeesPanel({
                       <p className="text-sm font-black tabular-nums">
                         {formatMoney(attendee.amountDueMinor)}
                       </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={!detail}
-                        onClick={() => setEditingAttendeeId(attendee.id)}
-                        className="mt-2 h-8 rounded-lg border-white/20 text-[10px] font-bold tracking-wider uppercase"
-                      >
-                        {detail ? (
-                          <>
-                            <Pencil className="mr-1.5 size-3" />
-                            Edit
-                          </>
-                        ) : (
-                          <>
-                            <Loader2 className="mr-1.5 size-3 animate-spin" />
-                            Loading…
-                          </>
-                        )}
-                      </Button>
+                      <div className="mt-2 flex items-center justify-end gap-1.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={!detail}
+                          onClick={() => setEditingAttendeeId(attendee.id)}
+                          className="h-8 rounded-lg border-white/20 text-[10px] font-bold tracking-wider uppercase"
+                        >
+                          {detail ? (
+                            <>
+                              <Pencil className="mr-1.5 size-3" />
+                              Edit
+                            </>
+                          ) : (
+                            <>
+                              <Loader2 className="mr-1.5 size-3 animate-spin" />
+                              Loading…
+                            </>
+                          )}
+                        </Button>
+                        {attendees.length > 1 ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Remove ${attendee.name} from this order`}
+                            title="Remove attendee"
+                            onClick={() => {
+                              setRemoveError(null)
+                              setRemovingAttendeeId(attendee.id)
+                            }}
+                            className="h-8 w-8 rounded-lg text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
 
@@ -353,6 +410,7 @@ export function AttendeesPanel({
           {editorAttendee && editingRow ? (
             <AttendeeOrderEditor
               attendee={editorAttendee}
+              canRemove={attendees.length > 1}
               onSaved={() => {
                 setRefreshKey((key) => key + 1)
                 setDetailByAttendeeId({})
@@ -367,6 +425,60 @@ export function AttendeesPanel({
               <Skeleton className="h-24 w-full rounded-lg" />
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(removingAttendeeId)}
+        onOpenChange={(open) => {
+          if (!open) setRemovingAttendeeId(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove attendee</DialogTitle>
+            <DialogDescription>
+              Remove {removingRow?.name ?? "this attendee"} from this order?
+              Their ticket, accommodation, room assignment, family, and search
+              records will be deleted and the order amount due recalculated.
+              Existing payments stay on the order.
+            </DialogDescription>
+          </DialogHeader>
+          {removeError && (
+            <Alert variant="destructive" className="rounded-xl">
+              <AlertCircle className="size-4" />
+              <AlertTitle className="text-destructive">Remove failed</AlertTitle>
+              <AlertDescription className="text-destructive/80">
+                {removeError}
+              </AlertDescription>
+            </Alert>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setRemovingAttendeeId(null)}
+              className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isRemovingAttendee}
+              onClick={() => void confirmRemoveAttendee()}
+              className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
+            >
+              {isRemovingAttendee ? (
+                <>
+                  <Loader2 className="mr-2 size-3.5 animate-spin" />
+                  Removing…
+                </>
+              ) : (
+                "Remove attendee"
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </Card>
