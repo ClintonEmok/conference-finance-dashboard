@@ -152,13 +152,7 @@ async function assertEventRoomInventoryAvailable(
 
   let usedRooms = 0
   for (const candidate of roomsOfType) {
-    const occupants = await ctx.db
-      .query("orderAttendees")
-      .withIndex("by_assignedRoomId", (q) =>
-        q.eq("assignedRoomId", String(candidate._id))
-      )
-      .take(1)
-    if (occupants.length > 0) {
+    if (await hasPhysicalRoomOccupants(ctx, String(candidate._id))) {
       usedRooms += 1
     }
   }
@@ -169,6 +163,45 @@ async function assertEventRoomInventoryAvailable(
       "No accommodation inventory remains for this room type (event resource limit reached)"
     )
   }
+}
+
+/**
+ * Returns physical presence using the same canonical/provider bridge rule as
+ * loadRoomOccupancy, without loading bed metadata for every room of a type.
+ * A provider row bridged to any canonical attendee is never physical presence
+ * in its stale provider room; the canonical assignment is authoritative.
+ */
+async function hasPhysicalRoomOccupants(
+  ctx: Pick<MutationCtx, "db">,
+  roomId: string
+): Promise<boolean> {
+  const canonicalOccupants = await ctx.db
+    .query("orderAttendees")
+    .withIndex("by_assignedRoomId", (q) => q.eq("assignedRoomId", roomId))
+    .take(1)
+  if (canonicalOccupants.length > 0) {
+    return true
+  }
+
+  const providerOccupants = await ctx.db
+    .query("ticketTailorAttendees")
+    .withIndex("by_assignedRoomId", (q) => q.eq("assignedRoomId", roomId))
+    .take(ROOM_OCCUPANT_LIMIT)
+  if (providerOccupants.length === 0) {
+    return false
+  }
+
+  const bridges = await Promise.all(
+    providerOccupants.map((providerAttendee) =>
+      providerAttendee.attendeeId
+        ? ctx.db.get("orderAttendees", providerAttendee.attendeeId)
+        : Promise.resolve(null)
+    )
+  )
+  return providerOccupants.some((providerAttendee, index) => {
+    // Missing/invalid bridges are provider-only physical occupants.
+    return !providerAttendee.attendeeId || bridges[index] === null
+  })
 }
 
 async function getAttendeeByStringId(ctx: any, attendeeId: string) {
@@ -277,13 +310,18 @@ async function loadRoomOccupancy(
       .take(ROOM_OCCUPANT_LIMIT),
   ])
 
-  const canonicalById = new Map(
-    canonicalOccupants.map((attendee) => [String(attendee._id), attendee])
+  // Resolve provider bridges globally, not just against canonical occupants
+  // already loaded for this room. A stale provider room must not double-count a
+  // canonical attendee that has since moved elsewhere.
+  const providerBridges = await Promise.all(
+    providerOccupants.map((providerAttendee) =>
+      providerAttendee.attendeeId
+        ? ctx.db.get("orderAttendees", providerAttendee.attendeeId)
+        : Promise.resolve(null)
+    )
   )
   const providerOnly = providerOccupants.filter(
-    (providerAttendee) =>
-      !providerAttendee.attendeeId ||
-      !canonicalById.has(String(providerAttendee.attendeeId))
+    (_providerAttendee, index) => providerBridges[index] === null
   )
   const requirements = await resolveAttendeeBedRequirements(
     ctx,
@@ -346,6 +384,12 @@ async function assertRoomCapacityForAttendee(
   const alreadyAssigned = attendee.assignedRoomId === String(room._id)
   const incomingBedDelta =
     alreadyAssigned || !requirement.requiresBed ? 0 : 1
+
+  if (occupancy.incomplete && incomingBedDelta > 0) {
+    throw new Error(
+      "Occupancy data is incomplete; verify before assigning a bed-consuming attendee"
+    )
+  }
 
   if (occupancy.occupiedBeds + incomingBedDelta > room.capacity) {
     throw new Error("Room is already full")

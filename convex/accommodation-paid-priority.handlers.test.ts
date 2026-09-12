@@ -317,6 +317,118 @@ test("foreign-event bed occupancy blocks a bed-consuming assignment", async () =
   ).rejects.toThrow("Room is already full")
 })
 
+test("live bed authority ignores a cross-event ticket selection and keeps the legacy one-bed fallback", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const first = await seedPaidPriorityEvent(t)
+  const second = await seedPaidPriorityEvent(t)
+  const foreignNoBedTicketId = await t.mutation(async (ctx) =>
+    ctx.db.insert("ticketTypes", {
+      eventId: second.eventId,
+      label: "Foreign no-bed ticket",
+      priceMinor: TICKET_PRICE_MINOR,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      accommodationIncluded: true,
+      requiresBed: false,
+      updatedAt: BASE_EVENT_AT,
+    })
+  )
+  const local = await createOrder(t, first, {
+    attendeeKey: "cross-event-ticket",
+    name: "Cross Event Ticket",
+  })
+  const selection = await t.mutation(async (ctx) =>
+    ctx.db
+      .query("orderTicketSelections")
+      .withIndex("by_attendeeId", (q) => q.eq("attendeeId", local.attendeeId))
+      .unique()
+  )
+  await t.mutation(async (ctx) => {
+    await ctx.db.patch("orderTicketSelections", selection!._id, {
+      ticketTypeId: foreignNoBedTicketId,
+    })
+  })
+
+  const board = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: String(first.eventId),
+  })
+  expect(
+    board.unassignedAttendees.find(
+      (row: { attendeeId: string }) => row.attendeeId === String(local.attendeeId)
+    )
+  ).toMatchObject({ requiresBed: true })
+})
+
+test("provider bridges are resolved globally and provider-only occupancy consumes event room inventory", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const bridged = await createOrder(t, seed, {
+    attendeeKey: "stale-provider-bridge",
+    name: "Canonical Bridge",
+  })
+  const providerOnlyOrder = await createOrder(t, seed, {
+    attendeeKey: "provider-only-order",
+    name: "Provider Only Canonical",
+  })
+  await t.mutation(async (ctx) => {
+    await ctx.db.patch("orderAttendees", bridged.attendeeId, {
+      assignedRoomId: String(seed.secondRoomId),
+    })
+    await ctx.db.insert("ticketTailorAttendees", {
+      providerAttendeeId: "provider-bridged",
+      providerEventId: "provider-event",
+      providerOrderId: "provider-order",
+      orderId: bridged.orderId,
+      attendeeId: bridged.attendeeId,
+      assignedRoomId: String(seed.roomId),
+      rawPayload: {},
+    })
+    await ctx.db.insert("ticketTailorAttendees", {
+      providerAttendeeId: "provider-only",
+      providerEventId: "provider-event",
+      providerOrderId: "provider-only-order",
+      orderId: providerOnlyOrder.orderId,
+      assignedRoomId: String(seed.roomId),
+      rawPayload: {},
+    })
+  })
+
+  const board = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: String(seed.eventId),
+  })
+  const firstRoom = board.rooms.find(
+    (room: { id: string }) => room.id === String(seed.roomId)
+  )
+  const secondRoom = board.rooms.find(
+    (room: { id: string }) => room.id === String(seed.secondRoomId)
+  )
+  expect(firstRoom).toMatchObject({
+    occupantCount: 1,
+    occupiedBeds: 1,
+    foreignOccupantCount: 0,
+  })
+  expect(secondRoom).toMatchObject({ occupantCount: 1, occupiedBeds: 1 })
+
+  await t.mutation(api.accommodation.upsertEventAccommodationResource, {
+    eventId: seed.eventId,
+    kind: "room",
+    roomTypeId: seed.roomTypeId,
+    count: 1,
+  })
+  const target = await createOrder(t, seed, {
+    attendeeKey: "resource-target",
+    name: "Resource Target",
+  })
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(target.attendeeId),
+      roomId: String(seed.secondRoomId),
+      eventId: String(seed.eventId),
+    })
+  ).rejects.toThrow(/event resource limit reached/)
+})
+
 test("assignment and unassignment reject foreign events and unlinked hotels", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const first = await seedPaidPriorityEvent(t)
