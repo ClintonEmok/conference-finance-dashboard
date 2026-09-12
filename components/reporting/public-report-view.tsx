@@ -131,7 +131,7 @@ export function PublicReportView({
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap gap-1 rounded-2xl border border-border/60 bg-background/80 p-1 shadow-sm backdrop-blur">
               <TabButton active={effectiveDetailView === "attendees"} onClick={() => setDetailView("attendees")}>
-                Grouped by order
+                Attendee register
               </TabButton>
               {hasLocations && (
                 <TabButton active={effectiveDetailView === "locations"} onClick={() => setDetailView("locations")}>
@@ -141,7 +141,7 @@ export function PublicReportView({
             </div>
 
             {effectiveDetailView === "attendees" && report.attendees && (
-              <ReportRegionDetail report={report.attendees} descriptionLabel="All attendee entries grouped by order." />
+              <ReportRegionDetail report={report.attendees} descriptionLabel="All attendee entries for this report." />
             )}
 
             {effectiveDetailView === "locations" && report.locationGroups && (

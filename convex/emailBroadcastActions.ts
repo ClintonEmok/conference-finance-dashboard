@@ -6,6 +6,7 @@ import { internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import { sendAnnouncementEmail } from "./emailActions"
 import { buildTrackPaymentPermalink } from "../lib/domain/track-payment/edit-token"
+import { PAYMENT_REMINDER_MESSAGE, PAYMENT_REMINDER_NOTE, PAYMENT_REMINDER_TITLE } from "../lib/email/payment-reminder-copy"
 
 const BATCH_SIZE = 25
 
@@ -72,17 +73,18 @@ export const processBatch = internalAction({
           `${appUrl}/booking/${encodeURIComponent(recipient.bookingRef)}/manage`
         : job.signupUrl
 
+      const isPaymentReminder = job.campaignType === "paymentReminder"
       const result = await sendAnnouncementEmail(ctx, {
         to: recipient.to,
-        title: job.title,
-        message: job.message,
+        title: isPaymentReminder ? PAYMENT_REMINDER_TITLE : job.title,
+        message: isPaymentReminder ? PAYMENT_REMINDER_MESSAGE : job.message,
         eventName: job.eventName,
         eventDate: job.eventDate,
         bookingRef: recipient.bookingRef,
         manageBookingUrl,
         signupUrl: job.signupUrl,
         paymentUrl: job.paymentUrl,
-        nightBeforeNote: job.nightBeforeNote,
+        nightBeforeNote: isPaymentReminder ? PAYMENT_REMINDER_NOTE : job.nightBeforeNote,
       })
 
       if (result.success && result.emailId) {
@@ -99,7 +101,7 @@ export const processBatch = internalAction({
           recipient: recipient.to,
           bookingRef: recipient.bookingRef ?? "BROADCAST",
           emailId: result.emailId,
-          emailType: "announcement_broadcast",
+          emailType: isPaymentReminder ? "payment_reminder" : "announcement_broadcast",
           eventId: job.eventId,
           broadcastId: args.broadcastId,
         })

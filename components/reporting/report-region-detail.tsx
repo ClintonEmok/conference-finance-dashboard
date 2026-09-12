@@ -11,6 +11,13 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Table,
@@ -33,6 +40,29 @@ const STATUS_COLORS: Record<string, string> = {
   pending: "bg-sky-500/15 text-sky-600 dark:bg-sky-500/20 dark:text-sky-400",
 }
 
+export type AttendeeRegisterSort = "surname" | "firstName"
+
+const attendeeNameCollator = new Intl.Collator("en", { sensitivity: "base" })
+
+export function getAttendeeSortKey(name: string, sortBy: AttendeeRegisterSort) {
+  const parts = name.trim() ? name.trim().split(/\s+/) : []
+
+  return sortBy === "firstName" ? (parts[0] ?? "") : (parts[parts.length - 1] ?? "")
+}
+
+export function compareAttendeeNames(
+  left: string,
+  right: string,
+  sortBy: AttendeeRegisterSort
+) {
+  return (
+    attendeeNameCollator.compare(
+      getAttendeeSortKey(left, sortBy),
+      getAttendeeSortKey(right, sortBy)
+    ) || attendeeNameCollator.compare(left.trim(), right.trim())
+  )
+}
+
 function StatusBadge({ status }: { status: string }) {
   return (
     <span
@@ -52,6 +82,7 @@ export function ReportRegionDetail({
 }) {
   const orderGroups = getRegionOrderGroups(report)
   const [search, setSearch] = useState("")
+  const [sortBy, setSortBy] = useState<AttendeeRegisterSort>("surname")
 
   const registerEntries = orderGroups
     .flatMap((group) =>
@@ -67,7 +98,7 @@ export function ReportRegionDetail({
       }))
     )
     .filter((entry) => entry.attendeeName.toLowerCase().includes(search.trim().toLowerCase()))
-    .sort((left, right) => left.attendeeName.localeCompare(right.attendeeName))
+    .sort((left, right) => compareAttendeeNames(left.attendeeName, right.attendeeName, sortBy))
 
   return (
     <section className="grid gap-6">
@@ -75,7 +106,7 @@ export function ReportRegionDetail({
         <CardHeader className="space-y-1.5">
           <CardTitle className="text-base">{report.region}</CardTitle>
           <CardDescription>
-            {descriptionLabel ?? "Orders grouped with attendees for this region."} Generated{" "}
+            {descriptionLabel ?? "Attendee entries for this region."} Generated{" "}
             {format(new Date(report.generatedAt), "PP p")}
           </CardDescription>
           <p className="text-xs text-muted-foreground">
@@ -110,7 +141,7 @@ export function ReportRegionDetail({
       <Tabs defaultValue="register" className="gap-4">
         <TabsList className="grid w-full max-w-md grid-cols-2 rounded-2xl bg-muted/60 p-1">
           <TabsTrigger value="register">Register</TabsTrigger>
-          <TabsTrigger value="breakdown">Breakdown</TabsTrigger>
+          <TabsTrigger value="breakdown">Grouped by order</TabsTrigger>
         </TabsList>
 
         <TabsContent value="register" className="m-0">
@@ -122,13 +153,37 @@ export function ReportRegionDetail({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="max-w-sm">
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search attendee"
-                  className="h-10 rounded-lg bg-white/60 text-sm"
-                />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="w-full max-w-sm">
+                  <Input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search attendee"
+                    className="h-10 rounded-lg bg-white/60 text-sm"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">Sorted by</span>
+                  <Select
+                    value={sortBy}
+                    onValueChange={(value) => {
+                      if (value === "surname" || value === "firstName") {
+                        setSortBy(value)
+                      }
+                    }}
+                  >
+                    <SelectTrigger
+                      className="h-10 min-w-36 bg-white/60"
+                      aria-label="Sort attendee register"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="surname">Surname</SelectItem>
+                      <SelectItem value="firstName">First name</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               {registerEntries.length === 0 ? (

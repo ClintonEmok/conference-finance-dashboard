@@ -11,9 +11,30 @@ import {
   PublicReportView,
   ReportUnavailableState,
 } from "@/components/reporting/public-report-view"
+import {
+  compareAttendeeNames,
+  getAttendeeSortKey,
+} from "@/components/reporting/report-region-detail"
 import { buildStakeholderReport } from "@/lib/domain/finance/stakeholder-report"
 
 describe("public report page", () => {
+  it("derives first-name and surname sort keys from attendee names", () => {
+    expect(getAttendeeSortKey("  Mary   Jane Brown  ", "firstName")).toBe("Mary")
+    expect(getAttendeeSortKey("  Mary   Jane Brown  ", "surname")).toBe("Brown")
+    expect(getAttendeeSortKey("", "surname")).toBe("")
+
+    expect(
+      ["Mary Jane Brown", "Aaron Smith", "John Brown"].sort((left, right) =>
+        compareAttendeeNames(left, right, "surname")
+      )
+    ).toEqual(["John Brown", "Mary Jane Brown", "Aaron Smith"])
+    expect(
+      ["Mary Jane Brown", "Aaron Smith", "John Brown"].sort((left, right) =>
+        compareAttendeeNames(left, right, "firstName")
+      )
+    ).toEqual(["Aaron Smith", "John Brown", "Mary Jane Brown"])
+  })
+
   const report = buildStakeholderReport({
     generatedAt: "2026-04-25T17:00:00.000Z",
     event: {
@@ -145,9 +166,13 @@ describe("public report page", () => {
     expect(html).toContain("Conference 2026")
     expect(html).toContain("Alice Brown")
     expect(html).toContain("Register")
-    expect(html).toContain("Breakdown")
+    expect(html).toContain("Grouped by order")
     expect(html).toContain("Attendee register")
+    expect(html).toContain("All attendee entries for this report.")
+    expect(html).not.toContain("All attendee entries grouped by order.")
     expect(html).toContain("Search attendee")
+    expect(html).toContain("Sorted by")
+    expect(html).toContain('aria-label="Sort attendee register"')
     expect(html).toContain("Download CSV")
   })
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   accommodationHref,
   communicationsHref,
+  defaultCommunicationsView,
   defaultAccommodationTab,
   defaultFinanceTab,
   defaultOrdersTab,
@@ -11,6 +12,7 @@ import {
   legacyFinanceHref,
   ordersHref,
   parseAccommodationTab,
+  parseCommunicationsView,
   parseFinanceTab,
   parseOrdersIntent,
   parseOrdersTab,
@@ -85,10 +87,13 @@ describe("workspace route contracts", () => {
     expect(financeHref("event/one", "payments", { orderId: "order/42" })).toBe(
       "/dashboard/events/event%2Fone/finance?tab=payments&orderId=order%2F42"
     )
-    expect(accommodationHref("event", "allocation", { roomId: "room/7" })).toContain(
-      "roomId=room%2F7"
-    )
-    expect(readWorkspaceIntent("orderId=o1&roomId=r1")).toEqual({ orderId: "o1", roomId: "r1" })
+    expect(
+      accommodationHref("event", "allocation", { roomId: "room/7" })
+    ).toContain("roomId=room%2F7")
+    expect(readWorkspaceIntent("orderId=o1&roomId=r1")).toEqual({
+      orderId: "o1",
+      roomId: "r1",
+    })
   })
 
   it("legacy redirect helpers keep the tab and intent so old deep links survive", () => {
@@ -113,6 +118,18 @@ describe("workspace route contracts", () => {
     )
     expect(communicationsHref("spring retreat")).toBe(
       "/dashboard/events/spring%20retreat/communications"
+    )
+  })
+
+  it("keeps communications surfaces addressable as dedicated views", () => {
+    expect(parseCommunicationsView()).toBe(defaultCommunicationsView)
+    expect(parseCommunicationsView("?view=reminders")).toBe("reminders")
+    expect(parseCommunicationsView("?view=templates")).toBe("templates")
+    expect(parseCommunicationsView("?view=unknown")).toBe(
+      defaultCommunicationsView
+    )
+    expect(communicationsHref("event", "history")).toBe(
+      "/dashboard/events/event/communications?view=history"
     )
   })
 })

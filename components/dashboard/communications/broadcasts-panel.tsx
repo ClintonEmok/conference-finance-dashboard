@@ -8,12 +8,7 @@ import { api } from "@/lib/convex/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Select,
   SelectContent,
@@ -51,6 +46,14 @@ type AudienceFilters = {
   search?: string
 }
 
+type StoredAudienceFilters =
+  | AudienceFilters
+  | {
+      selection:
+        | { mode: "explicit"; orderIds: string[] }
+        | { mode: "allMatching"; search?: string }
+    }
+
 export type BroadcastHistoryItem = {
   _id: string
   status: BroadcastStatus
@@ -76,7 +79,7 @@ export type BroadcastDetail = {
   paymentUrl?: string
   nightBeforeNote?: string
   signupUrl: string
-  filters: AudienceFilters
+  filters: StoredAudienceFilters
   totalRecipients: number
   sentCount: number
   failedCount: number
@@ -150,9 +153,17 @@ function recipientStatusStyles(status: RecipientStatus) {
  * ticket type ID to its label so operators never see Convex IDs.
  */
 export function describeFilters(
-  filters: AudienceFilters,
+  filters: StoredAudienceFilters,
   ticketTypes: Array<{ _id: Id<"ticketTypes">; label: string }> | undefined
 ) {
+  if ("selection" in filters) {
+    if (filters.selection.mode === "explicit") {
+      return `${filters.selection.orderIds.length} selected booker${filters.selection.orderIds.length === 1 ? "" : "s"}`
+    }
+    return filters.selection.search
+      ? `all matching bookers · search: “${filters.selection.search}”`
+      : "all bookers"
+  }
   const parts: string[] = []
   if (filters.search) parts.push(`search: “${filters.search}”`)
   if (filters.status) parts.push(`status: ${filters.status}`)
@@ -161,7 +172,8 @@ export function describeFilters(
     parts.push(`from: ${new Date(filters.from).toLocaleDateString("en-GB")}`)
   if (filters.to !== undefined)
     parts.push(`to: ${new Date(filters.to).toLocaleDateString("en-GB")}`)
-  if (filters.hasAccommodationSelection) parts.push("with accommodation selection")
+  if (filters.hasAccommodationSelection)
+    parts.push("with accommodation selection")
   if (filters.ticketTypeId) {
     const label = (ticketTypes ?? []).find(
       (ticketType) => String(ticketType._id) === String(filters.ticketTypeId)
@@ -222,9 +234,7 @@ export function BroadcastsPanel(props: {
   const total = broadcast
     ? broadcast.sentCount + broadcast.failedCount + broadcast.pendingCount
     : 0
-  const done = broadcast
-    ? broadcast.sentCount + broadcast.failedCount
-    : 0
+  const done = broadcast ? broadcast.sentCount + broadcast.failedCount : 0
   const progress = total > 0 ? Math.round((done / total) * 100) : 0
 
   return (
@@ -275,7 +285,7 @@ export function BroadcastsPanel(props: {
                       key={item._id}
                       type="button"
                       onClick={() => props.onSelect(String(item._id))}
-                      className={`flex min-w-0 w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-muted/40 ${
+                      className={`flex w-full min-w-0 items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-muted/40 ${
                         selected
                           ? "border-primary/50 bg-muted/40"
                           : "border-border/60 bg-card"
@@ -337,7 +347,9 @@ export function BroadcastsPanel(props: {
                   </div>
                   <Badge
                     variant={broadcastStatusStyles(broadcast.status).variant}
-                    className={broadcastStatusStyles(broadcast.status).className}
+                    className={
+                      broadcastStatusStyles(broadcast.status).className
+                    }
                   >
                     <Activity className="size-3" />
                     {broadcastStatusLabel[broadcast.status]}
@@ -499,23 +511,19 @@ export function BroadcastsPanel(props: {
                                 <TableCell>
                                   <Badge
                                     variant={
-                                      recipientStatusStyles(
-                                        recipient.status
-                                      ).variant
+                                      recipientStatusStyles(recipient.status)
+                                        .variant
                                     }
                                     className={
-                                      recipientStatusStyles(
-                                        recipient.status
-                                      ).className
+                                      recipientStatusStyles(recipient.status)
+                                        .className
                                     }
                                   >
                                     {recipientStatusLabel[recipient.status]}
                                   </Badge>
                                 </TableCell>
                                 <TableCell className="text-xs text-muted-foreground">
-                                  {recipient.error ??
-                                    recipient.emailId ??
-                                    "—"}
+                                  {recipient.error ?? recipient.emailId ?? "—"}
                                 </TableCell>
                               </TableRow>
                             ))}
