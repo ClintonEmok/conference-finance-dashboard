@@ -1,35 +1,35 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery } from "convex/react"
-import { Megaphone, Search, Send, Users, X } from "lucide-react"
-import { render } from "@react-email/render"
+import {
+  AlarmClock,
+  CreditCard,
+  FileText,
+  History,
+  Mail,
+  Megaphone,
+  Search,
+  Send,
+  Users,
+} from "lucide-react"
 
 import { api } from "@/lib/convex/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import AnnouncementEmail from "@/lib/email/templates/announcement"
-import {
-  ANNOUNCEMENT_MESSAGE,
-  ANNOUNCEMENT_NOTE,
-  ANNOUNCEMENT_TITLE,
-} from "@/lib/email/announcement-copy"
 import { WorkspaceFrame } from "@/components/dashboard/workspace-frame"
 import { WorkspaceTabs } from "@/components/dashboard/workspace-tabs"
-import { communicationsHref } from "@/lib/dashboard/workspace-routes"
+import {
+  communicationsHref,
+  parseCommunicationsView,
+  type CommunicationsView,
+} from "@/lib/dashboard/workspace-routes"
 import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 import { PaymentReminderCard } from "./payment-reminder-card"
-import {
-  BroadcastsPanel,
-  type BroadcastHistoryItem,
-} from "./broadcasts-panel"
+import { BroadcastsPanel, type BroadcastHistoryItem } from "./broadcasts-panel"
+import { TemplateLibrary } from "./template-library"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogClose,
@@ -49,6 +49,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { useSearchParams } from "next/navigation"
 
 type AudiencePreview = {
   total: number
@@ -65,11 +66,17 @@ type AudiencePreview = {
   }>
 }
 
+type AudienceRecipient = AudiencePreview["recipients"][number]
+type EmailKind = "announcement" | "payment"
+type ComposerStep = "type" | "recipients"
+
 const AUDIENCE_PAGE = 25
 const MAX_PREVIEW_RECIPIENTS = 200
 
 export function CommunicationsWorkspace({ slug }: { slug: string }) {
   const { event } = useEventDashboard()
+  const searchParams = useSearchParams()
+  const activeView = parseCommunicationsView(searchParams.toString())
 
   // --- Audience search + progressive reveal --------------------------------
   const [audienceSearch, setAudienceSearch] = useState("")
@@ -79,30 +86,48 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   const [selectedBroadcastId, setSelectedBroadcastId] = useState<string | null>(
     null
   )
-  const [broadcastActionError, setBroadcastActionError] = useState<string | null>(
-    null
-  )
+  const [broadcastActionError, setBroadcastActionError] = useState<
+    string | null
+  >(null)
   const [broadcastActionPending, setBroadcastActionPending] = useState(false)
 
-  // --- Standard announcement send state ------------------------------------
-  const [sendDialogOpen, setSendDialogOpen] = useState(false)
+  // --- Guided email composer state ------------------------------------------
+  const [composerOpen, setComposerOpen] = useState(false)
+  const [composerStep, setComposerStep] = useState<ComposerStep>("type")
+  const [emailKind, setEmailKind] = useState<EmailKind>("announcement")
   const [sendPending, setSendPending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
-  const [selectedAnnouncementIds, setSelectedAnnouncementIds] = useState<Set<string>>(new Set())
-  const [selectedPaymentIds, setSelectedPaymentIds] = useState<Set<string>>(new Set())
-  const [announcementAllMatching, setAnnouncementAllMatching] = useState(false)
-  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
-  const [paymentPending, setPaymentPending] = useState(false)
-  const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState<Set<string>>(
+    new Set()
+  )
+  const [allMatching, setAllMatching] = useState(false)
+
+  const previewAudienceEnabled =
+    activeView === "audience" ||
+    (activeView === "send" && !(composerOpen && emailKind === "payment"))
+  const paymentPreviewEnabled =
+    activeView === "send" && composerOpen && emailKind === "payment"
+  const historyEnabled = activeView === "history"
 
   const ticketTypes = useQuery(
     api.events.getTicketTypesForEvent,
-    event?._id ? { eventId: event._id } : ("skip" as const)
+    event?._id && historyEnabled ? { eventId: event._id } : ("skip" as const)
   )
 
   const preview = useQuery(
     api.emailBroadcasts.previewAudience,
-    event?._id
+    event?._id && previewAudienceEnabled
+      ? {
+          eventId: event._id,
+          search: audienceSearch.trim() || undefined,
+          limit: MAX_PREVIEW_RECIPIENTS,
+        }
+      : ("skip" as const)
+  ) as AudiencePreview | undefined
+
+  const paymentPreview = useQuery(
+    api.paymentReminders.previewPaymentReminderAudience,
+    event?._id && paymentPreviewEnabled
       ? {
           eventId: event._id,
           search: audienceSearch.trim() || undefined,
@@ -113,7 +138,7 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
 
   const history = useQuery(
     api.emailBroadcasts.getBroadcastHistory,
-    event?._id ? { eventId: event._id } : ("skip" as const)
+    event?._id && historyEnabled ? { eventId: event._id } : ("skip" as const)
   ) as BroadcastHistoryItem[] | undefined
 
   const cancelEmailBroadcast = useMutation(
@@ -132,17 +157,15 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   // --- Reset progressive reveal when the search changes ---------------------
   useEffect(() => {
     setVisibleCount(AUDIENCE_PAGE)
-    setSelectedAnnouncementIds(new Set())
-    setSelectedPaymentIds(new Set())
-    setAnnouncementAllMatching(false)
+    setSelectedRecipientIds(new Set())
+    setAllMatching(false)
   }, [audienceSearch])
 
   // --- Clear the selected broadcast when the event changes ------------------
   useEffect(() => {
     setSelectedBroadcastId(null)
-    setSelectedAnnouncementIds(new Set())
-    setSelectedPaymentIds(new Set())
-    setAnnouncementAllMatching(false)
+    setSelectedRecipientIds(new Set())
+    setAllMatching(false)
   }, [event._id])
 
   // --- Select a sensible initial broadcast without polling ------------------
@@ -153,9 +176,15 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   }, [history, selectedBroadcastId])
 
   const recipients = preview?.recipients ?? []
+  const composerPreview = emailKind === "payment" ? paymentPreview : preview
+  const composerRecipients = composerPreview?.recipients ?? []
   const visibleRecipients = useMemo(
     () => recipients.slice(0, visibleCount),
     [recipients, visibleCount]
+  )
+  const visibleComposerRecipients = useMemo(
+    () => composerRecipients.slice(0, visibleCount),
+    [composerRecipients, visibleCount]
   )
   const canRevealMore = visibleRecipients.length < recipients.length
 
@@ -164,7 +193,9 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
     setBroadcastActionPending(true)
     setBroadcastActionError(null)
     try {
-      await cancelEmailBroadcast({ broadcastId: selectedBroadcastId as Id<"emailBroadcasts"> })
+      await cancelEmailBroadcast({
+        broadcastId: selectedBroadcastId as Id<"emailBroadcasts">,
+      })
     } catch (error) {
       setBroadcastActionError(
         error instanceof Error ? error.message : "Could not cancel broadcast."
@@ -179,7 +210,9 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
     setBroadcastActionPending(true)
     setBroadcastActionError(null)
     try {
-      await retryFailedEmailBroadcast({ broadcastId: selectedBroadcastId as Id<"emailBroadcasts"> })
+      await retryFailedEmailBroadcast({
+        broadcastId: selectedBroadcastId as Id<"emailBroadcasts">,
+      })
     } catch (error) {
       setBroadcastActionError(
         error instanceof Error ? error.message : "Could not retry broadcast."
@@ -189,39 +222,104 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
     }
   }
 
-  // --- Send the fixed standard announcement to the exact searched audience --
+  // --- Queue the selected email type for the exact current audience ---------
   const trimmedSearch = audienceSearch.trim()
   const audienceTotal = preview?.total ?? 0
-  const announcementSelectedCount = announcementAllMatching ? audienceTotal : selectedAnnouncementIds.size
-  const paymentSelectedCount = selectedPaymentIds.size
-  const canSend = announcementSelectedCount > 0 && announcementSelectedCount <= 2000 && !sendPending
-  const announcementSelectionFor = (ids: Set<string>, allMatching: boolean) => allMatching
-    ? { mode: "allMatching" as const, search: trimmedSearch || undefined }
-    : { mode: "explicit" as const, orderIds: Array.from(ids) as Id<"orders">[] }
+  const composerAudienceTotal = composerPreview?.total ?? 0
+  const selectedCount = allMatching
+    ? composerAudienceTotal
+    : selectedRecipientIds.size
+  const canSend = selectedCount > 0 && selectedCount <= 2000 && !sendPending
+  const selectionFor = (ids: Set<string>, selectAll: boolean) =>
+    selectAll
+      ? { mode: "allMatching" as const, search: trimmedSearch || undefined }
+      : {
+          mode: "explicit" as const,
+          orderIds: Array.from(ids) as Id<"orders">[],
+        }
 
   async function handleSend() {
-    if (sendPending || announcementSelectedCount === 0 || announcementSelectedCount > 2000) return
+    if (sendPending || selectedCount === 0 || selectedCount > 2000) return
     setSendPending(true)
     setSendError(null)
     try {
-      const result = await scheduleEmailBroadcast({
-        eventId: event._id,
-        selection: announcementSelectionFor(selectedAnnouncementIds, announcementAllMatching),
-        authorize: true,
-      })
-      setSelectedBroadcastId(String(result.broadcastId))
-      setSendDialogOpen(false)
+      const selection = selectionFor(selectedRecipientIds, allMatching)
+      if (emailKind === "announcement") {
+        const result = await scheduleEmailBroadcast({
+          eventId: event._id,
+          selection,
+          authorize: true,
+        })
+        setSelectedBroadcastId(String(result.broadcastId))
+      } else {
+        await scheduleManualPaymentReminders({
+          eventId: event._id,
+          selection,
+          authorize: true,
+        })
+      }
+      setComposerOpen(false)
+      setComposerStep("type")
+      setSelectedRecipientIds(new Set())
+      setAllMatching(false)
     } catch (error) {
       setSendError(
-        error instanceof Error ? error.message : "Could not schedule the announcement."
+        error instanceof Error ? error.message : "Could not queue this email."
       )
     } finally {
       setSendPending(false)
     }
   }
 
-  const tabs = useMemo(
-    () => [{ value: "communications", label: "Broadcast", href: communicationsHref(slug) }],
+  function openComposer() {
+    setComposerStep("type")
+    setEmailKind("announcement")
+    setSelectedRecipientIds(new Set())
+    setAllMatching(false)
+    setSendError(null)
+    setComposerOpen(true)
+  }
+
+  const tabs = useMemo<
+    Array<{
+      value: CommunicationsView
+      label: string
+      href: string
+      icon: ReactNode
+    }>
+  >(
+    () => [
+      {
+        value: "send",
+        label: "Send",
+        href: communicationsHref(slug, "send"),
+        icon: <Mail className="size-4" />,
+      },
+      {
+        value: "templates",
+        label: "Templates",
+        href: communicationsHref(slug, "templates"),
+        icon: <FileText className="size-4" />,
+      },
+      {
+        value: "audience",
+        label: "Audience",
+        href: communicationsHref(slug, "audience"),
+        icon: <Users className="size-4" />,
+      },
+      {
+        value: "reminders",
+        label: "Reminders",
+        href: communicationsHref(slug, "reminders"),
+        icon: <AlarmClock className="size-4" />,
+      },
+      {
+        value: "history",
+        label: "History",
+        href: communicationsHref(slug, "history"),
+        icon: <History className="size-4" />,
+      },
+    ],
     [slug]
   )
 
@@ -236,222 +334,502 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
         <WorkspaceTabs
           workspaceId="communications"
           tabs={tabs}
-          activeTab="communications"
+          activeTab={activeView}
         />
       }
     >
-      <div className="min-w-0 space-y-6">
-        <StandardAnnouncementCard
-          eventTitle={event.title}
-          eventStartsAt={event.startsAt}
-          eventSlug={event.slug}
-          audienceTotal={audienceTotal}
-          selectedCount={announcementSelectedCount}
-          allMatching={announcementAllMatching}
-          onSelectAll={() => setAnnouncementAllMatching(true)}
-          onClear={() => { setAnnouncementAllMatching(false); setSelectedAnnouncementIds(new Set()) }}
-          trimmedSearch={trimmedSearch}
-          canSend={canSend}
-          onSendRequest={() => setSendDialogOpen(true)}
-        />
+      <div id="communications-tabpanel" className="min-w-0 space-y-6">
+        {activeView === "send" && (
+          <SendView audienceTotal={audienceTotal} onOpen={openComposer} />
+        )}
 
-         <PaymentReminderCard eventId={event._id} eventTitle={event.title} eventDate={event.startsAt} audienceTotal={audienceTotal} selectedCount={paymentSelectedCount}
-           canSend={paymentSelectedCount > 0 && paymentSelectedCount <= 2000 && !paymentPending}
-           onClear={() => setSelectedPaymentIds(new Set())}
-           onSendRequest={() => setPaymentDialogOpen(true)} />
+        {activeView === "templates" && (
+          <TemplateLibrary
+            eventTitle={event.title}
+            eventStartsAt={event.startsAt}
+            eventSlug={event.slug}
+          />
+        )}
 
-        <AudienceCard
-          preview={preview}
-          audienceSearch={audienceSearch}
-          onAudienceSearchChange={setAudienceSearch}
-          visibleRecipients={visibleRecipients}
-          selectedAnnouncementIds={selectedAnnouncementIds}
-          selectedPaymentIds={selectedPaymentIds}
-          announcementAllMatching={announcementAllMatching}
-           onToggle={(id, path) => {
-             if (path === "announcement" && announcementAllMatching) return
-            const setter = path === "announcement" ? setSelectedAnnouncementIds : setSelectedPaymentIds
-            setter((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next })
-          }}
-          canRevealMore={canRevealMore}
-          revealCount={recipients.length - visibleRecipients.length}
-          onRevealMore={() =>
-            setVisibleCount((count) => count + AUDIENCE_PAGE)
-          }
-        />
+        {activeView === "audience" && (
+          <AudienceView
+            preview={preview}
+            audienceSearch={audienceSearch}
+            onAudienceSearchChange={setAudienceSearch}
+            visibleRecipients={visibleRecipients}
+            canRevealMore={canRevealMore}
+            revealCount={recipients.length - visibleRecipients.length}
+            onRevealMore={() =>
+              setVisibleCount((count) => count + AUDIENCE_PAGE)
+            }
+          />
+        )}
 
-        <BroadcastsPanel
-          history={history}
-          broadcastId={selectedBroadcastId}
-          onSelect={setSelectedBroadcastId}
-          onCancel={handleCancel}
-          onRetry={handleRetry}
-          actionPending={broadcastActionPending}
-          actionError={broadcastActionError}
-          ticketTypes={ticketTypes}
-        />
+        {activeView === "reminders" && <RemindersView eventId={event._id} />}
+
+        {activeView === "history" && (
+          <HistoryView
+            history={history}
+            broadcastId={selectedBroadcastId}
+            onSelect={setSelectedBroadcastId}
+            onCancel={handleCancel}
+            onRetry={handleRetry}
+            actionPending={broadcastActionPending}
+            actionError={broadcastActionError}
+            ticketTypes={ticketTypes}
+          />
+        )}
       </div>
 
-      <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Send standard announcement?</DialogTitle>
-            <DialogDescription>
-              This queues “{ANNOUNCEMENT_TITLE}” for {announcementSelectedCount}{" "}
-              booker{audienceTotal === 1 ? "" : "s"}
-              {announcementAllMatching ? (trimmedSearch ? ` matching all server matches for “${trimmedSearch}”` : " (all server-matching bookers)") : " (selected bookers)"}
-              . Delivery is asynchronous and tracked in the broadcasts panel
-              below — it cannot be undone after it is queued.
-            </DialogDescription>
-          </DialogHeader>
-          {sendError && (
-            <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
-              {sendError}
-            </p>
-          )}
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline" disabled={sendPending}>
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button type="button" onClick={handleSend} disabled={sendPending}>
-              {sendPending ? (
-                <span className="flex items-center gap-2">
-                  <Skeleton className="size-3 animate-pulse rounded-full" />
-                  Queuing…
-                </span>
-              ) : (
-                "Confirm send"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Send payment reminders?</DialogTitle><DialogDescription>
-             Queue reminders for exactly {paymentSelectedCount} selected booker{paymentSelectedCount === 1 ? "" : "s"}. Balances, lifecycle, and recipient data are rechecked before queueing; ineligible orders are not sent.
-          </DialogDescription></DialogHeader>
-          {paymentError && <p className="rounded-lg border border-destructive/30 p-3 text-xs text-destructive">{paymentError}</p>}
-          <DialogFooter><DialogClose asChild><Button variant="outline" disabled={paymentPending}>Cancel</Button></DialogClose>
-             <Button disabled={paymentPending} onClick={async () => { setPaymentPending(true); setPaymentError(null); try { await scheduleManualPaymentReminders({ eventId: event._id, selection: { mode: "explicit", orderIds: Array.from(selectedPaymentIds) as Id<"orders">[] }, authorize: true }); setSelectedPaymentIds(new Set()); setPaymentDialogOpen(false) } catch (error) { setPaymentError(error instanceof Error ? error.message : "Could not schedule payment reminders.") } finally { setPaymentPending(false) } }}>{paymentPending ? "Queuing…" : "Confirm send"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <EmailComposerDialog
+        open={composerOpen}
+        onOpenChange={setComposerOpen}
+        step={composerStep}
+        kind={emailKind}
+        onKindChange={setEmailKind}
+        onStepChange={setComposerStep}
+        audienceSearch={audienceSearch}
+        onAudienceSearchChange={setAudienceSearch}
+        preview={composerPreview}
+        visibleRecipients={visibleComposerRecipients}
+        selectedRecipientIds={selectedRecipientIds}
+        allMatching={allMatching}
+        selectedCount={selectedCount}
+        canSend={canSend}
+        sendPending={sendPending}
+        sendError={sendError}
+        onSelectAll={() => setAllMatching(true)}
+        onClear={() => {
+          setAllMatching(false)
+          setSelectedRecipientIds(new Set())
+        }}
+        onToggle={(id) => {
+          if (allMatching) return
+          setSelectedRecipientIds((current) => {
+            const next = new Set(current)
+            next.has(id) ? next.delete(id) : next.add(id)
+            return next
+          })
+        }}
+        onSend={handleSend}
+      />
     </WorkspaceFrame>
   )
 }
 
-function StandardAnnouncementCard(props: {
-  eventTitle: string
-  eventStartsAt: number
-  eventSlug: string
-  audienceTotal: number
-  trimmedSearch: string
-  canSend: boolean
-  onSendRequest: () => void
-  selectedCount: number
-  allMatching: boolean
-  onSelectAll: () => void
-  onClear: () => void
+function ViewHeading(props: {
+  eyebrow: string
+  title: string
+  description: string
 }) {
-  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
-  const [previewError, setPreviewError] = useState<string | null>(null)
-
-  // Render the REAL AnnouncementEmail template client-side. The manage URL is
-  // a placeholder for preview only — personalized links are server-derived at
-  // schedule time. No venue/location field exists in the template.
-  useEffect(() => {
-    let cancelled = false
-    setPreviewHtml(null)
-    setPreviewError(null)
-    const origin =
-      typeof window === "undefined"
-        ? "http://localhost:3000"
-        : window.location.origin
-    render(
-      AnnouncementEmail({
-        title: ANNOUNCEMENT_TITLE,
-        message: ANNOUNCEMENT_MESSAGE,
-        eventName: props.eventTitle,
-        eventDate: props.eventStartsAt
-          ? new Date(props.eventStartsAt).toLocaleDateString("en-GB")
-          : "",
-        manageBookingUrl: `${origin}/booking/BK-EXAMPLE/manage`,
-        signupUrl: `${origin}/signup/${props.eventSlug}`,
-        paymentUrl: null,
-        nightBeforeNote: ANNOUNCEMENT_NOTE,
-      })
-    )
-      .then((html) => {
-        if (!cancelled) setPreviewHtml(html)
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setPreviewError(
-            error instanceof Error ? error.message : "Could not render the preview."
-          )
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [props.eventTitle, props.eventStartsAt, props.eventSlug])
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Megaphone className="size-4 text-primary" />
-          Standard announcement
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="overflow-hidden rounded-xl border border-border/60 bg-white">
-          {previewError ? (
-            <p className="p-4 text-sm text-destructive">{previewError}</p>
-          ) : previewHtml ? (
-            <iframe
-              title="Standard announcement email preview"
-              srcDoc={previewHtml}
-              className="h-[520px] w-full bg-white"
-            />
-          ) : (
-            <div className="space-y-3 p-4">
-              <Skeleton className="h-6 w-48" />
-              <Skeleton className="h-28 w-full" />
-              <Skeleton className="h-28 w-full" />
-            </div>
-          )}
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-            <p className="max-w-md text-sm text-muted-foreground">
-            One fixed announcement: event title, date, and booking/register
-            links come from this event. Sent to exactly the searched audience
-            below after explicit confirmation.
-          </p>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground"><span>{props.selectedCount} selected{props.allMatching ? " (all matches)" : ""}</span>
-            <Button type="button" variant="outline" size="sm" onClick={props.onSelectAll}>Select all matches</Button>
-            <Button type="button" variant="ghost" size="sm" onClick={props.onClear}><X className="size-3" /> Clear</Button>
+    <div>
+      <p className="text-xs font-semibold tracking-[0.18em] text-primary uppercase">
+        {props.eyebrow}
+      </p>
+      <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+        {props.title}
+      </h1>
+      <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+        {props.description}
+      </p>
+    </div>
+  )
+}
+
+function SendView(props: { audienceTotal: number; onOpen: () => void }) {
+  return (
+    <div className="space-y-5">
+      <ViewHeading
+        eyebrow="Dispatch desk"
+        title="Send an email"
+        description="Start a deliberate send without mixing message design, audience review, or reminder policy into the same workspace."
+      />
+      <SendEmailCard
+        audienceTotal={props.audienceTotal}
+        onOpen={props.onOpen}
+      />
+      <div className="grid gap-4 md:grid-cols-3">
+        {[
+          [
+            "01",
+            "Choose a message",
+            "Select the fixed announcement or a personalized payment reminder.",
+          ],
+          [
+            "02",
+            "Define the audience",
+            "Pick named bookers or select every eligible booker matching the search.",
+          ],
+          [
+            "03",
+            "Queue and track",
+            "Confirm once, then follow asynchronous delivery in History.",
+          ],
+        ].map(([number, title, description]) => (
+          <div key={number} className="rounded-xl border bg-card p-4">
+            <p className="text-xs font-semibold tracking-[0.16em] text-primary uppercase">
+              {number}
+            </p>
+            <p className="mt-3 font-medium">{title}</p>
+            <p className="mt-1 text-sm leading-5 text-muted-foreground">
+              {description}
+            </p>
           </div>
-          <Button
-            type="button"
-            onClick={props.onSendRequest}
-            disabled={!props.canSend}
-          >
-            <Send className="size-4" />
-            Send announcement
-          </Button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function AudienceView(props: Parameters<typeof AudienceCard>[0]) {
+  return (
+    <div className="space-y-5">
+      <ViewHeading
+        eyebrow="Recipient directory"
+        title="Audience"
+        description="Search the current eligible booker audience independently from message templates and send actions."
+      />
+      <AudienceCard {...props} />
+    </div>
+  )
+}
+
+function RemindersView(props: { eventId: Id<"events"> }) {
+  return (
+    <div className="space-y-5">
+      <ViewHeading
+        eyebrow="Payment operations"
+        title="Payment reminders"
+        description="Configure automatic reminder policy and inspect reminder delivery health here, away from one-off broadcasts."
+      />
+      <PaymentReminderCard eventId={props.eventId} />
+    </div>
+  )
+}
+
+function HistoryView(props: {
+  history: BroadcastHistoryItem[] | undefined
+  broadcastId: string | null
+  onSelect: (id: string) => void
+  onCancel: () => void
+  onRetry: () => void
+  actionPending: boolean
+  actionError: string | null
+  ticketTypes: Array<{ _id: Id<"ticketTypes">; label: string }> | undefined
+}) {
+  return (
+    <div className="space-y-5">
+      <ViewHeading
+        eyebrow="Delivery ledger"
+        title="Broadcast history"
+        description="Inspect queued, sending, completed, failed, and cancelled announcement jobs without competing with the send flow."
+      />
+      <BroadcastsPanel {...props} />
+    </div>
+  )
+}
+
+function SendEmailCard(props: { audienceTotal: number; onOpen: () => void }) {
+  return (
+    <Card className="overflow-hidden border-primary/20 bg-primary/[0.03]">
+      <CardContent className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <div className="flex min-w-0 items-start gap-4">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
+            <Mail className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold tracking-[0.18em] text-primary uppercase">
+              Communications
+            </p>
+            <h2 className="mt-1 text-xl font-semibold tracking-tight">
+              Send an email
+            </h2>
+            <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+              Choose the message first, then select individual bookers or all{" "}
+              {props.audienceTotal} eligible bookers.
+            </p>
+          </div>
         </div>
-        {props.audienceTotal === 0 && (
-          <p className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
-            No bookers match the current search — nothing can be sent until the
-            audience is non-empty.
-          </p>
-        )}
+        <Button
+          type="button"
+          size="lg"
+          onClick={props.onOpen}
+          disabled={props.audienceTotal === 0}
+        >
+          <Send className="size-4" />
+          Start email
+        </Button>
       </CardContent>
     </Card>
+  )
+}
+
+function EmailComposerDialog(props: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  step: ComposerStep
+  kind: EmailKind
+  onKindChange: (kind: EmailKind) => void
+  onStepChange: (step: ComposerStep) => void
+  audienceSearch: string
+  onAudienceSearchChange: (value: string) => void
+  preview: AudiencePreview | undefined
+  visibleRecipients: AudienceRecipient[]
+  selectedRecipientIds: Set<string>
+  allMatching: boolean
+  selectedCount: number
+  canSend: boolean
+  sendPending: boolean
+  sendError: string | null
+  onSelectAll: () => void
+  onClear: () => void
+  onToggle: (id: string) => void
+  onSend: () => void
+}) {
+  const isAnnouncement = props.kind === "announcement"
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="max-h-[min(780px,calc(100vh-2rem))] max-w-[calc(100%-2rem)] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader className="border-b pb-4">
+          <div className="flex items-center gap-2 text-xs font-semibold tracking-[0.16em] text-primary uppercase">
+            <span>Send email</span>
+            <span className="text-muted-foreground">/</span>
+            <span>
+              {props.step === "type" ? "01 Message" : "02 Recipients"}
+            </span>
+          </div>
+          <DialogTitle className="text-xl">
+            {props.step === "type"
+              ? "What kind of email do you want to send?"
+              : "Who should receive it?"}
+          </DialogTitle>
+          <DialogDescription>
+            {props.step === "type"
+              ? "The message copy is fixed and personalized from the event data."
+              : props.kind === "payment"
+                ? "Only bookers with a current outstanding balance are shown. Choose specific bookers, or select all eligible reminder recipients."
+                : "Choose specific bookers, or use all eligible to select the complete current audience."}
+          </DialogDescription>
+        </DialogHeader>
+
+        {props.step === "type" ? (
+          <div className="grid gap-3 py-1 sm:grid-cols-2">
+            <button
+              type="button"
+              aria-pressed={isAnnouncement}
+              onClick={() => props.onKindChange("announcement")}
+              className={`rounded-xl border p-4 text-left transition-colors ${isAnnouncement ? "border-primary bg-primary/[0.06] ring-2 ring-primary/20" : "hover:bg-muted/50"}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Megaphone className="size-4" />
+                </span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Fixed copy
+                </span>
+              </div>
+              <p className="mt-4 font-semibold">Standard announcement</p>
+              <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                Share the event update, registration link, and accommodation
+                options.
+              </p>
+            </button>
+            <button
+              type="button"
+              aria-pressed={!isAnnouncement}
+              onClick={() => props.onKindChange("payment")}
+              className={`rounded-xl border p-4 text-left transition-colors ${!isAnnouncement ? "border-primary bg-primary/[0.06] ring-2 ring-primary/20" : "hover:bg-muted/50"}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className="flex size-9 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700">
+                  <CreditCard className="size-4" />
+                </span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Personalized
+                </span>
+              </div>
+              <p className="mt-4 font-semibold">Payment reminder</p>
+              <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                Remind bookers about an outstanding balance with the correct
+                reminder copy.
+              </p>
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4 py-1">
+            <div className="relative">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="composer-audience-search"
+                type="search"
+                aria-label="Search audience in email composer"
+                value={props.audienceSearch}
+                onChange={(event) =>
+                  props.onAudienceSearchChange(event.target.value)
+                }
+                placeholder="Search by name, email, or booking reference"
+                className="pl-9"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/20 p-3">
+              <div>
+                <p className="font-medium">
+                  {props.selectedCount} selected
+                  <span className="font-normal text-muted-foreground">
+                    {" "}
+                    of {props.preview?.total ?? 0} eligible
+                  </span>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {props.allMatching
+                    ? props.kind === "payment"
+                      ? "Every eligible reminder recipient matching this search will be rechecked on the server."
+                      : "Every eligible booker matching this search will be rechecked on the server."
+                    : props.kind === "payment"
+                      ? "Only bookers with an outstanding balance are listed."
+                      : "Select one or more bookers below."}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={props.onSelectAll}
+                  disabled={!props.preview?.total || props.allMatching}
+                >
+                  All eligible
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={props.onClear}
+                  disabled={!props.selectedCount}
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+
+            {props.preview === undefined ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : props.visibleRecipients.length === 0 ? (
+              <p className="rounded-xl border border-border/60 bg-muted/30 p-4 text-sm text-muted-foreground">
+                {props.kind === "payment"
+                  ? "No bookers with an outstanding balance match this search."
+                  : "No eligible bookers match this search."}
+              </p>
+            ) : (
+              <div className="max-h-72 overflow-y-auto rounded-xl border">
+                <ul className="divide-y">
+                  {props.visibleRecipients.map((recipient) => {
+                    const checked =
+                      props.allMatching ||
+                      props.selectedRecipientIds.has(recipient.orderId)
+                    return (
+                      <li key={recipient.orderId}>
+                        <label className="flex cursor-pointer items-center gap-3 p-3 transition-colors hover:bg-muted/40">
+                          <input
+                            aria-label={`Select ${recipient.bookerEmail}`}
+                            type="checkbox"
+                            checked={checked}
+                            disabled={props.allMatching}
+                            onChange={() => props.onToggle(recipient.orderId)}
+                          />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">
+                              {recipient.bookerName ?? "Unnamed booker"}
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {recipient.bookerEmail} · {recipient.bookingRef}
+                            </span>
+                          </span>
+                          <Badge
+                            variant="outline"
+                            className="ml-auto shrink-0 text-[11px]"
+                          >
+                            {recipient.status ?? "pending"}
+                          </Badge>
+                        </label>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )}
+            {(props.preview?.total ?? 0) > props.visibleRecipients.length && (
+              <p className="text-xs text-muted-foreground">
+                Showing the first {props.visibleRecipients.length} recipients.
+                “All eligible” includes the full server-side audience.
+              </p>
+            )}
+            {props.sendError && (
+              <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+                {props.sendError}
+              </p>
+            )}
+            <p className="rounded-lg border border-amber-500/20 bg-amber-500/[0.06] p-3 text-xs text-amber-900">
+              This queues the email for asynchronous delivery. Recipient
+              eligibility, balances, and lifecycle status are checked again
+              before payment reminders are sent.
+            </p>
+          </div>
+        )}
+
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={props.sendPending}
+            >
+              Cancel
+            </Button>
+          </DialogClose>
+          {props.step === "type" ? (
+            <Button
+              type="button"
+              onClick={() => props.onStepChange("recipients")}
+            >
+              Choose recipients
+            </Button>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => props.onStepChange("type")}
+                disabled={props.sendPending}
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                onClick={props.onSend}
+                disabled={!props.canSend || props.sendPending}
+              >
+                {props.sendPending ? (
+                  <span className="flex items-center gap-2">
+                    <Skeleton className="size-3 animate-pulse rounded-full" />{" "}
+                    Queuing…
+                  </span>
+                ) : (
+                  `Confirm ${isAnnouncement ? "announcement" : "reminder"}`
+                )}
+              </Button>
+            </>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -486,10 +864,6 @@ function AudienceCard(props: {
   canRevealMore: boolean
   revealCount: number
   onRevealMore: () => void
-  selectedAnnouncementIds: Set<string>
-  selectedPaymentIds: Set<string>
-  announcementAllMatching: boolean
-  onToggle: (id: string, path: "announcement" | "payment") => void
 }) {
   return (
     <Card>
@@ -505,6 +879,7 @@ function AudienceCard(props: {
           <Input
             id="audience-search"
             type="search"
+            aria-label="Search audience"
             value={props.audienceSearch}
             onChange={(e) => props.onAudienceSearchChange(e.target.value)}
             placeholder="Search by name, email, or booking reference"
@@ -519,9 +894,10 @@ function AudienceCard(props: {
           </div>
         ) : (
           <>
-           <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
               <Badge variant="secondary" className="text-sm">
-                {props.preview.total} booker{props.preview.total === 1 ? "" : "s"}
+                {props.preview.total} booker
+                {props.preview.total === 1 ? "" : "s"}
               </Badge>
               {props.preview.skippedNoEmail > 0 && (
                 <span className="text-xs text-muted-foreground">
@@ -530,7 +906,8 @@ function AudienceCard(props: {
               )}
               {props.preview.skippedNoRef > 0 && (
                 <span className="text-xs text-muted-foreground">
-                  {props.preview.skippedNoRef} without a booking reference skipped
+                  {props.preview.skippedNoRef} without a booking reference
+                  skipped
                 </span>
               )}
             </div>
@@ -544,7 +921,7 @@ function AudienceCard(props: {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Select</TableHead><TableHead>Name</TableHead>
+                      <TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Booking ref</TableHead>
                       <TableHead>Status</TableHead>
@@ -555,7 +932,6 @@ function AudienceCard(props: {
                   <TableBody>
                     {props.visibleRecipients.map((recipient) => (
                       <TableRow key={recipient.orderId}>
-                        <TableCell><div className="flex gap-1"><input aria-label={`Select announcement ${recipient.bookerEmail}`} type="checkbox" checked={props.announcementAllMatching || props.selectedAnnouncementIds.has(recipient.orderId)} onChange={() => props.onToggle(recipient.orderId, "announcement")} /><input aria-label={`Select payment reminder ${recipient.bookerEmail}`} type="checkbox" checked={props.selectedPaymentIds.has(recipient.orderId)} onChange={() => props.onToggle(recipient.orderId, "payment")} /></div></TableCell>
                         <TableCell className="font-medium">
                           {recipient.bookerName ?? "—"}
                         </TableCell>
@@ -564,7 +940,9 @@ function AudienceCard(props: {
                           {recipient.bookingRef ?? "—"}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">{recipient.status ?? "—"}</Badge>
+                          <Badge variant="outline">
+                            {recipient.status ?? "—"}
+                          </Badge>
                         </TableCell>
                         <TableCell>{recipient.location ?? "—"}</TableCell>
                         <TableCell>

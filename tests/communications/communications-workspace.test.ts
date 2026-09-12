@@ -8,9 +8,12 @@ function readSource(relativePath: string): string {
   return readFileSync(resolve(ROOT, relativePath), "utf8")
 }
 
-const WORKSPACE = "components/dashboard/communications/communications-workspace.tsx"
+const WORKSPACE =
+  "components/dashboard/communications/communications-workspace.tsx"
 const PANEL = "components/dashboard/communications/broadcasts-panel.tsx"
-const REMINDER_CARD = "components/dashboard/communications/payment-reminder-card.tsx"
+const REMINDER_CARD =
+  "components/dashboard/communications/payment-reminder-card.tsx"
+const TEMPLATES = "components/dashboard/communications/template-library.tsx"
 const COPY = "lib/email/announcement-copy.ts"
 
 describe("Communications workspace structure", () => {
@@ -19,27 +22,35 @@ describe("Communications workspace structure", () => {
     expect(source).toContain("export function CommunicationsWorkspace")
     expect(source).toContain("WorkspaceFrame")
     expect(source).toContain("WorkspaceTabs")
-    expect(source).toContain("communicationsHref(slug)")
-    expect(source).toContain('label: "Broadcast"')
+    expect(source).toContain('communicationsHref(slug, "send")')
+    for (const view of [
+      "Send",
+      "Templates",
+      "Audience",
+      "Reminders",
+      "History",
+    ]) {
+      expect(source).toContain(`label: "${view}"`)
+    }
     expect(source).toContain("useEventDashboard")
   })
 
-  it("renders the fixed standard announcement from the real React Email template", () => {
-    const source = readSource(WORKSPACE)
-    expect(source).toContain("StandardAnnouncementCard")
+  it("keeps template previews in a dedicated library", () => {
+    const source = readSource(TEMPLATES)
+    expect(source).toContain("TemplateLibrary")
     expect(source).toContain('from "@/lib/email/templates/announcement"')
     expect(source).toContain("AnnouncementEmail({")
     expect(source).toContain("render(")
-    expect(source).toContain("srcDoc={previewHtml}")
-    expect(source).toContain('title: ANNOUNCEMENT_TITLE')
+    expect(source).toContain("srcDoc={props.html}")
+    expect(source).toContain("title: ANNOUNCEMENT_TITLE")
+    expect(source).toContain("onClick={() => setPreviewOpen(true)}")
+    expect(source).toContain("Preview")
   })
 
   it("shares one fixed standard copy module with no compose/venue/location controls", () => {
-    const source = readSource(WORKSPACE)
+    const source = readSource(TEMPLATES)
     const copy = readSource(COPY)
-    expect(copy).toContain(
-      "Upgrades and options are now available"
-    )
+    expect(copy).toContain("Upgrades and options are now available")
     expect(copy).toContain(
       "Accommodation upgrades and options are now available for your stay, including upgrades to your included accommodation, an optional night before the conference, and cots."
     )
@@ -48,7 +59,6 @@ describe("Communications workspace structure", () => {
     )
     // No manual compose fields, no template CRUD, no venue/location input.
     expect(source).not.toContain("ComposeCard")
-    expect(source).not.toContain("TemplateCard")
     expect(source).not.toContain("Send test email")
     expect(source).not.toContain("eventLocation")
     expect(source).not.toContain('placeholder="Subject')
@@ -57,7 +67,9 @@ describe("Communications workspace structure", () => {
   it("finds the audience with a single search bar and no filter controls", () => {
     const source = readSource(WORKSPACE)
     expect(source).toContain("audience-search")
-    expect(source).toContain("placeholder=\"Search by name, email, or booking reference\"")
+    expect(source).toContain(
+      'placeholder="Search by name, email, or booking reference"'
+    )
     expect(source).toContain("search: audienceSearch.trim()")
     expect(source).not.toContain("aud-status")
     expect(source).not.toContain("aud-location")
@@ -70,8 +82,21 @@ describe("Communications workspace structure", () => {
     const source = readSource(WORKSPACE)
     expect(source).toContain("api.emailBroadcasts.previewAudience")
     expect(source).toContain("api.emailBroadcasts.getBroadcastHistory")
+    expect(source).toContain("previewAudienceEnabled")
+    expect(source).toContain("paymentPreviewEnabled")
+    expect(source).toContain("historyEnabled")
     expect(source).toContain("limit: MAX_PREVIEW_RECIPIENTS")
     expect(source).toContain("MAX_PREVIEW_RECIPIENTS = 200")
+  })
+
+  it("renders dedicated views instead of one mixed communications stream", () => {
+    const source = readSource(WORKSPACE)
+    expect(source).toContain('activeView === "send"')
+    expect(source).toContain('activeView === "templates"')
+    expect(source).toContain('activeView === "audience"')
+    expect(source).toContain('activeView === "reminders"')
+    expect(source).toContain('activeView === "history"')
+    expect(source).toContain("parseCommunicationsView")
   })
 
   it("progressively reveals rows up to 200", () => {
@@ -82,69 +107,74 @@ describe("Communications workspace structure", () => {
   })
 })
 
-describe("standard announcement send flow", () => {
-  it("requires an explicit confirmation dialog before scheduling", () => {
+describe("guided email send flow", () => {
+  it("asks for the email type before opening recipient selection", () => {
     const source = readSource(WORKSPACE)
     expect(source).toContain("Dialog")
-    expect(source).toContain("Send standard announcement?")
-    expect(source).toContain("Confirm send")
-    expect(source).toContain("setSendDialogOpen(true)")
+    expect(source).toContain("What kind of email do you want to send?")
+    expect(source).toContain("Choose recipients")
+    expect(source).toContain("setComposerOpen(true)")
     expect(source).not.toContain("window.confirm")
   })
 
-  it("schedules an explicit order selection or all-matching server scope", () => {
+  it("schedules the selected email type with an explicit or all-matching server scope", () => {
     const source = readSource(WORKSPACE)
     expect(source).toContain("api.emailBroadcasts.scheduleEmailBroadcast")
-    expect(source).toContain("selection: announcementSelectionFor(selectedAnnouncementIds, announcementAllMatching)")
+    expect(source).toContain("selectionFor(selectedRecipientIds, allMatching)")
+    expect(source).toContain('mode: "allMatching"')
+    expect(source).toContain(
+      "api.paymentReminders.scheduleManualPaymentReminders"
+    )
     expect(source).toContain("authorize: true")
-    expect(source).toContain("setSelectedBroadcastId(String(result.broadcastId))")
+    expect(source).toContain(
+      "setSelectedBroadcastId(String(result.broadcastId))"
+    )
   })
 
-  it("provides independent payment-reminder selection and confirmation wiring", () => {
+  it("keeps recipient selection in the shared composer", () => {
     const source = readSource(WORKSPACE)
     expect(source).toContain("PaymentReminderCard")
-    expect(source).toContain("selectedPaymentIds")
-    expect(source).toContain("api.paymentReminders.scheduleManualPaymentReminders")
-    expect(source).toContain('selection: { mode: "explicit", orderIds: Array.from(selectedPaymentIds)')
-    expect(source).toContain("paymentSelectedCount")
-    expect(source).toContain("setSelectedPaymentIds(new Set())")
-    expect(source).toContain("type=\"checkbox\"")
-    expect(source).toContain("selectedAnnouncementIds")
-    expect(source).toContain("announcementAllMatching")
-    expect(source).not.toContain("paymentAllMatching")
-    expect(source).not.toContain("selectionFor(selectedPaymentIds")
+    expect(source).toContain("selectedRecipientIds")
+    expect(source).toContain("All eligible")
+    expect(source).toContain("onToggle={(id) =>")
+    expect(source).toContain('type="checkbox"')
+    expect(source).not.toContain("selectedPaymentIds")
+    expect(source).not.toContain("selectedAnnouncementIds")
   })
 
   it("never sends when the audience is empty", () => {
     const source = readSource(WORKSPACE)
-    expect(source).toContain("announcementSelectedCount > 0")
-    expect(source).toContain("disabled={!props.canSend}")
+    expect(source).toContain("selectedCount === 0")
+    expect(source).toContain("disabled={props.audienceTotal === 0}")
     expect(source).toContain("audienceTotal === 0")
   })
 
   it("disables duplicate submissions while a send is pending", () => {
     const source = readSource(WORKSPACE)
     expect(source).toContain("sendPending")
-    expect(source).toContain("disabled={sendPending}")
+    expect(source).toContain("disabled={!props.canSend || props.sendPending}")
   })
 })
 
 describe("payment reminder card", () => {
-  it("renders all fixed previews and authenticated per-delivery history", () => {
+  it("renders authenticated settings and per-delivery history without templates", () => {
     const source = readSource(REMINDER_CARD)
-    expect(source).toContain("paymentReminderKinds")
-    expect(source).toContain("PREVIEW_DATA")
+    expect(source).toContain("useConvexAuth")
+    expect(source).toContain('("skip" as const)')
     expect(source).toContain("api.paymentReminders.getReminderDeliveryHistory")
+    expect(source).toContain("Payment reminder automation")
     for (const status of ["queued", "sent", "failed", "skipped"]) {
       expect(source).toContain(status)
     }
     expect(source).toContain("STATUS_LABELS[delivery.status]")
+    expect(source).not.toContain("iframe")
   })
 
-  it("does not expose an unsupported all-matching reminder action", () => {
-    const source = readSource(REMINDER_CARD)
-    expect(source).not.toContain("allMatching")
-    expect(source).not.toContain("Select all matches")
+  it("keeps payment variants in the on-demand template library", () => {
+    const source = readSource(TEMPLATES)
+    expect(source).toContain("paymentReminderKinds")
+    expect(source).toContain("Payment reminder templates")
+    expect(source).toContain("setPreviewKind(kind)")
   })
 })
 
@@ -243,9 +273,11 @@ describe("navigation wiring", () => {
   })
 
   it("mounts the workspace from the canonical event route", () => {
-    const page = readSource("app/dashboard/events/[slug]/communications/page.tsx")
+    const page = readSource(
+      "app/dashboard/events/[slug]/communications/page.tsx"
+    )
     expect(page).toContain("CommunicationsWorkspace")
-    expect(page).toContain('useParams<{ slug: string }>()')
+    expect(page).toContain("useParams<{ slug: string }>()")
   })
 
   it("builds the communications route via the workspace-routes helper", () => {

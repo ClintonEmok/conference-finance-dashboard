@@ -1,10 +1,7 @@
 /// <reference types="vite/client" />
 
 import { expect, test } from "vitest"
-import {
-  convexTest,
-  type TestConvexForDataModel,
-} from "convex-test"
+import { convexTest, type TestConvexForDataModel } from "convex-test"
 import type { GenericDataModel } from "convex/server"
 
 import { api, internal } from "./_generated/api"
@@ -121,14 +118,32 @@ test("manual reminders queue only selected eligible IDs and skip a fully paid se
     })
   })
 
-  const result = await t.mutation(api.paymentReminders.scheduleManualPaymentReminders, {
-    eventId,
-    selection: {
-      mode: "explicit",
-      orderIds: [eligibleOrderId, paidOrderId],
-    },
-    authorize: true,
-  })
+  const preview = await t.query(
+    api.paymentReminders.previewPaymentReminderAudience,
+    {
+      eventId,
+    }
+  )
+  expect(preview.total).toBe(1)
+  expect(
+    (preview.recipients as Array<{ orderId: string }>).map(
+      (recipient) => recipient.orderId
+    )
+  ).toEqual([
+    String(eligibleOrderId),
+  ])
+
+  const result = await t.mutation(
+    api.paymentReminders.scheduleManualPaymentReminders,
+    {
+      eventId,
+      selection: {
+        mode: "explicit",
+        orderIds: [eligibleOrderId, paidOrderId],
+      },
+      authorize: true,
+    }
+  )
 
   expect(result.totalRecipients).toBe(1)
   expect(result.skipped).toBe(1)
@@ -148,17 +163,26 @@ test("manual reminders queue only selected eligible IDs and skip a fully paid se
   })
 })
 
-test("manual reminder mutations reject unsupported all-matching selection", async () => {
+test("manual reminders resolve an all-matching audience before checking balances", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const eventId = await createEvent(t)
+  const ticketTypeId = await createTicketType(t, eventId)
+  await createOrder(t, eventId, ticketTypeId, {
+    email: "eligible@example.com",
+    bookingRef: "BK-ELIGIBLE",
+  })
 
-  await expect(
-    t.mutation(api.paymentReminders.scheduleManualPaymentReminders, {
+  const result = await t.mutation(
+    api.paymentReminders.scheduleManualPaymentReminders,
+    {
       eventId,
       selection: { mode: "allMatching" },
       authorize: true,
-    })
-  ).rejects.toThrow("explicit order selection")
+    }
+  )
+
+  expect(result.totalRecipients).toBe(1)
+  expect(result.skipped).toBe(0)
 })
 
 test("manual selection cannot cross event boundaries", async () => {
@@ -233,7 +257,11 @@ test("send-time context skips removed Ticket Tailor orders", async () => {
   const context = await t.query(internal.paymentReminders.getDeliveryContext, {
     deliveryId,
   })
-  expect(context).toMatchObject({ delivery: { eventId, orderId }, order: null, event: null })
+  expect(context).toMatchObject({
+    delivery: { eventId, orderId },
+    order: null,
+    event: null,
+  })
 })
 
 test("send-time context rejects whitespace-only recipients and references", async () => {
@@ -347,16 +375,22 @@ test("delivery history is authenticated and exposes every delivery state", async
         outstandingAmountMinor: 1_000,
         status,
         attempts: status === "queued" ? 0 : 1,
-        error: status === "failed" || status === "skipped" ? `${status} reason` : undefined,
+        error:
+          status === "failed" || status === "skipped"
+            ? `${status} reason`
+            : undefined,
         createdAt: Date.now(),
       })
     }
   })
 
   const authenticated = seed.withIdentity(adminIdentity)
-  const history = await authenticated.query(api.paymentReminders.getReminderDeliveryHistory, {
-    eventId,
-  })
+  const history = await authenticated.query(
+    api.paymentReminders.getReminderDeliveryHistory,
+    {
+      eventId,
+    }
+  )
   expect(history.map((row: { status: string }) => row.status).sort()).toEqual([
     "failed",
     "queued",

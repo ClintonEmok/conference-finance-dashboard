@@ -1164,6 +1164,12 @@ export declare const api: {
         updatedAt: number;
       } | null
     >;
+    previewPaymentReminderAudience: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events">; limit?: number; search?: string },
+      any
+    >;
     scheduleManualPaymentReminders: FunctionReference<
       "mutation",
       "public",
