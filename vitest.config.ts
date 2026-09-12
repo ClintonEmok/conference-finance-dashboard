@@ -6,12 +6,13 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
   test: {
-    environment: "node",
+    environment: "edge-runtime",
     include: [
       "tests/**/*.test.ts",
       "app/**/*.test.ts",
       "lib/**/*.test.ts",
       "video/**/*.test.ts",
+      "convex/**/*.test.ts",
     ],
   },
   resolve: {
