@@ -14,6 +14,7 @@ import {
   loadOrderAttendeePaymentBreakdowns,
 } from "./finance"
 import {
+  resolveAttendeeBedRequirement,
   resolveAttendeeBedRequirements,
 } from "./accommodationBedRequirement"
 
@@ -324,6 +325,33 @@ async function loadRoomOccupancy(
     foreignOccupantCount,
     incomplete,
   }
+}
+
+async function assertRoomCapacityForAttendee(
+  ctx: MutationCtx,
+  attendee: Doc<"orderAttendees">,
+  room: Doc<"accommodationRooms">
+): Promise<{ requirement: Awaited<ReturnType<typeof resolveAttendeeBedRequirement>>; occupancy: RoomOccupancy }> {
+  const requirement = await resolveAttendeeBedRequirement(ctx, attendee._id)
+  if (!requirement.placementEligible) {
+    throw new Error("Attendee is not eligible for accommodation placement")
+  }
+
+  const occupancy = await loadRoomOccupancy(
+    ctx,
+    String(room._id),
+    room.capacity,
+    null
+  )
+  const alreadyAssigned = attendee.assignedRoomId === String(room._id)
+  const incomingBedDelta =
+    alreadyAssigned || !requirement.requiresBed ? 0 : 1
+
+  if (occupancy.occupiedBeds + incomingBedDelta > room.capacity) {
+    throw new Error("Room is already full")
+  }
+
+  return { requirement, occupancy }
 }
 
 export function attendeeMatchesSignalFilters(input: {
@@ -1929,16 +1957,11 @@ export const assignRoomToAttendee = mutation({
       room
     )
 
-    const occupiedCount = await ctx.db
-      .query("orderAttendees")
-      .withIndex("by_assignedRoomId", (q) =>
-        q.eq("assignedRoomId", args.roomId)
-      )
-      .take(room.capacity + 1)
-
-    if (occupiedCount.length >= room.capacity) {
-      throw new Error("Room is already full")
-    }
+    const { occupancy } = await assertRoomCapacityForAttendee(
+      ctx,
+      attendee,
+      room
+    )
 
     // RMG-03: event-resource inventory guard (no-op when the event has no
     // resource rows for this room type).
@@ -1946,7 +1969,7 @@ export const assignRoomToAttendee = mutation({
       ctx,
       order,
       room,
-      occupiedCount.length > 0
+      occupancy.occupantCount > 0
     )
 
     // Phase 44 lock boundary: the first assignment for an order with
@@ -2000,16 +2023,11 @@ export const assignAttendeeToRoom = mutation({
       room
     )
 
-    const occupiedCount = await ctx.db
-      .query("orderAttendees")
-      .withIndex("by_assignedRoomId", (q) =>
-        q.eq("assignedRoomId", args.roomId)
-      )
-      .take(room.capacity + 1)
-
-    if (occupiedCount.length >= room.capacity) {
-      throw new Error("Room is already full")
-    }
+    const { occupancy } = await assertRoomCapacityForAttendee(
+      ctx,
+      attendee,
+      room
+    )
 
     // RMG-03: event-resource inventory guard (no-op when the event has no
     // resource rows for this room type).
@@ -2017,7 +2035,7 @@ export const assignAttendeeToRoom = mutation({
       ctx,
       order,
       room,
-      occupiedCount.length > 0
+      occupancy.occupantCount > 0
     )
 
     // Phase 44 lock boundary: first assignment for an order with unconfirmed
@@ -2815,18 +2833,30 @@ export const confirmBuyerAssignment = mutation({
       throw new Error("Room not found")
     }
 
-    // Count current occupants in this room
-    const occupants = await ctx.db
-      .query("orderAttendees")
-      .withIndex("by_assignedRoomId", (q) =>
-        q.eq("assignedRoomId", slot.roomId)
-      )
-      .take(room.capacity + 1)
-
-    const occupantCount = occupants.length
+    const attendee = await ctx.db.get("orderAttendees", assignment.attendeeId)
+    if (!attendee) {
+      throw new Error("Attendee not found")
+    }
+    const requirement = await resolveAttendeeBedRequirement(
+      ctx,
+      assignment.attendeeId
+    )
+    if (!requirement.placementEligible) {
+      throw new Error("Attendee is not eligible for accommodation placement")
+    }
+    const occupancy = await loadRoomOccupancy(
+      ctx,
+      String(room._id),
+      room.capacity,
+      null
+    )
+    const incomingBedDelta =
+      attendee.assignedRoomId === String(room._id) || !requirement.requiresBed
+        ? 0
+        : 1
 
     // Check if room has capacity
-    if (occupantCount >= room.capacity) {
+    if (occupancy.occupiedBeds + incomingBedDelta > room.capacity) {
       // Room is full - find alternative rooms with capacity
       const allSlots = await ctx.db
         .query("accommodationSlots")
@@ -2850,14 +2880,22 @@ export const confirmBuyerAssignment = mutation({
         const altRoom = await ctx.db.get("accommodationRooms", altSlot.roomId)
         if (!altRoom) continue
 
-        const altOccupants = await ctx.db
-          .query("orderAttendees")
-          .withIndex("by_assignedRoomId", (q) =>
-            q.eq("assignedRoomId", altSlot.roomId)
-          )
-          .take(altRoom.capacity + 1)
+        const altOccupancy = await loadRoomOccupancy(
+          ctx,
+          String(altRoom._id),
+          altRoom.capacity,
+          null
+        )
+        const altIncomingBedDelta =
+          attendee.assignedRoomId === String(altRoom._id) ||
+          !requirement.requiresBed
+            ? 0
+            : 1
 
-        if (altOccupants.length < altRoom.capacity) {
+        if (
+          altOccupancy.occupiedBeds + altIncomingBedDelta <=
+            altRoom.capacity
+        ) {
           const roomType = await ctx.db.get(
             "accommodationRoomTypes",
             altRoom.roomTypeId as Id<"accommodationRoomTypes">
@@ -2869,8 +2907,11 @@ export const confirmBuyerAssignment = mutation({
             roomLabel: altRoom.label,
             roomType: roomType?.label || "Unknown",
             capacity: altRoom.capacity,
-            occupantCount: altOccupants.length,
-            availableSpots: altRoom.capacity - altOccupants.length,
+            occupantCount: altOccupancy.occupantCount,
+            availableSpots: Math.max(
+              0,
+              altRoom.capacity - altOccupancy.occupiedBeds
+            ),
           })
         }
       }
@@ -2885,7 +2926,12 @@ export const confirmBuyerAssignment = mutation({
 
     // RMG-03: event-resource inventory guard on the board Confirm path
     // (no-op when the event has no resource rows for this room type).
-    await assertEventRoomInventoryAvailable(ctx, order, room, occupantCount > 0)
+    await assertEventRoomInventoryAvailable(
+      ctx,
+      order,
+      room,
+      occupancy.occupantCount > 0
+    )
 
     // Phase 44 lock boundary: persisting the accommodation confirmation
     // happens after room/capacity validation but before the assignment write,
