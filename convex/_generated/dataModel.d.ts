@@ -966,6 +966,7 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_attendeeId: ["attendeeId", "_creationTime"];
       by_orderId: ["orderId", "_creationTime"];
       by_ticketTypeId: ["ticketTypeId", "_creationTime"];
     };
@@ -1401,6 +1402,7 @@ export type DataModel = {
       label: string;
       maxQuantity?: number;
       priceMinor: number;
+      requiresBed?: boolean;
       roomTypeId?: Id<"accommodationRoomTypes">;
       soldCount?: number;
       sortOrder?: number;
@@ -1420,6 +1422,7 @@ export type DataModel = {
       | "label"
       | "maxQuantity"
       | "priceMinor"
+      | "requiresBed"
       | "roomTypeId"
       | "soldCount"
       | "sortOrder"
@@ -1684,6 +1687,3 @@ export type Doc<TableName extends TableNames> = DocumentByName<
  */
 export type Id<TableName extends TableNames | SystemTableNames> =
   GenericId<TableName>;
-      by_attendeeId: ["attendeeId", "_creationTime"];
-      requiresBed?: boolean;
-      | "requiresBed"

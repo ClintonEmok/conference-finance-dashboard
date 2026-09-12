@@ -65,6 +65,8 @@ export type PublicSignupAccommodationQuote = {
     nightBeforeOccupancy?: "single" | "shared"
     /** Whether the ticket price covers the event's base accommodation stay. */
     accommodationIncluded: boolean
+    /** Server-resolved capacity metadata; never submitted by the browser. */
+    requiresBed: boolean
     /** Event base-stay night count priced for this attendee. */
     baseNights: number
     accommodationTotalMinor: number

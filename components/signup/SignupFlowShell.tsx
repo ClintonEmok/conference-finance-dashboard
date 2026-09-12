@@ -422,6 +422,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
           quantity: 0,
           selectable: ticket.selectable,
           reason: ticket.reason,
+          requiresBed: ticket.requiresBed,
           roomTypeId: ticket.roomTypeId,
           roomTypeCategoryId: ticket.roomTypeCategoryId,
           occupancy: ticket.occupancy,

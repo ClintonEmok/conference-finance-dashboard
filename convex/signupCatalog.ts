@@ -15,6 +15,7 @@ import {
   NIGHT_BEFORE_SUPERIOR_PREMIUM_MINOR,
   type AccommodationOptionUnit,
 } from "../lib/domain/finance/accommodation-amounts"
+import { resolveRequiresBed } from "./accommodationBedRequirement"
 
 const PUBLIC_EVENT_LIMIT = 50
 const EVENT_TICKET_LIMIT = 100
@@ -45,6 +46,7 @@ const publicSignupTicketValidator = v.object({
   selectable: v.boolean(),
   reason: v.union(ticketUnavailableReasonValidator, v.null()),
   accommodationIncluded: v.optional(v.boolean()),
+  requiresBed: v.boolean(),
   roomTypeId: v.optional(v.id("accommodationRoomTypes")),
   roomTypeCategoryId: v.optional(v.id("accommodationCategories")),
   roomTypeCategoryCode: v.optional(categoryCodeValidator),
@@ -171,6 +173,7 @@ const publicSignupQuoteAttendeeResultValidator = v.object({
     signupAccommodationNightBeforeOccupancyValidator
   ),
   accommodationIncluded: v.boolean(),
+  requiresBed: v.boolean(),
   baseNights: v.number(),
   accommodationTotalMinor: v.number(),
   amountDueMinor: v.number(),
@@ -223,6 +226,7 @@ function mapTicket(
       selectable: true,
       reason: null,
       accommodationIncluded: ticket.accommodationIncluded === true,
+      requiresBed: resolveRequiresBed(ticket),
       roomTypeId: ticket.roomTypeId ?? undefined,
       roomTypeCategoryId: roomTypeCategory?.categoryId ?? undefined,
       roomTypeCategoryCode: roomTypeCategory?.categoryCode ?? undefined,
@@ -247,6 +251,7 @@ function mapTicket(
     selectable: false,
     reason,
     accommodationIncluded: ticket.accommodationIncluded === true,
+    requiresBed: resolveRequiresBed(ticket),
     roomTypeId: ticket.roomTypeId ?? undefined,
     roomTypeCategoryId: roomTypeCategory?.categoryId ?? undefined,
     roomTypeCategoryCode: roomTypeCategory?.categoryCode ?? undefined,
@@ -1386,6 +1391,7 @@ export const getPublicSignupAccommodationQuote = query({
         nightBeforeLevel: resolved.nightBeforeLevel ?? undefined,
         nightBeforeOccupancy: resolved.nightBeforeOccupancy ?? undefined,
         accommodationIncluded: ticket.accommodationIncluded === true,
+        requiresBed: resolveRequiresBed(ticket),
         baseNights: eventBaseNights,
         accommodationTotalMinor: result.totalMinor,
         amountDueMinor: ticket.priceMinor + result.totalMinor,

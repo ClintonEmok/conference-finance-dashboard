@@ -80,6 +80,13 @@ describe("Phase 45 cross-surface UI source audit", () => {
     expect(step).toContain("View the hotel&apos;s room descriptions and photos")
   })
 
+  test("signup carries requiresBed as read-only ticket metadata", () => {
+    const shell = readSource("components/signup/SignupFlowShell.tsx")
+    const submission = readSource("components/signup/submission-client.ts")
+    expect(shell).toContain("requiresBed: ticket.requiresBed")
+    expect(submission).not.toContain("requiresBed")
+  })
+
   test("COT quantity stays attendee-specific across signup and manage booking", () => {
     const signup = readSource(
       "components/signup/steps/AccommodationOptionsStep.tsx"

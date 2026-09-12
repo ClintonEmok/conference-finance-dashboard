@@ -1614,6 +1614,7 @@ export declare const api: {
           nightBeforeLevel?: "standard" | "superior";
           nightBeforeOccupancy?: "single" | "shared";
           occupancy?: "single" | "shared" | "family";
+          requiresBed: boolean;
           ticketLabel: string;
           ticketPriceMinor: number;
           ticketTypeId: Id<"ticketTypes">;
@@ -1685,6 +1686,7 @@ export declare const api: {
           occupancy?: "single" | "shared" | "family";
           priceMinor: number;
           reason: "sold_out" | "disabled" | "hidden" | "not_on_sale" | null;
+          requiresBed: boolean;
           roomTypeCategoryCode?: "standard" | "superior" | "family";
           roomTypeCategoryId?: Id<"accommodationCategories">;
           roomTypeId?: Id<"accommodationRoomTypes">;

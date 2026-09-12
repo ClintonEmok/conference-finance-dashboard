@@ -16,9 +16,10 @@ const draftFixture: SignupDraft = {
       label: "Main ticket",
       priceMinor: 12000,
       quantity: 1,
-      selectable: true,
-      reason: null,
-      roomTypeCategoryId: "cat_1",
+       selectable: true,
+       reason: null,
+       requiresBed: true,
+       roomTypeCategoryId: "cat_1",
     },
   ],
   attendees: [
