@@ -17,6 +17,7 @@ import { WorkspaceFrame } from "@/components/dashboard/workspace-frame"
 import { WorkspaceTabs } from "@/components/dashboard/workspace-tabs"
 import { communicationsHref } from "@/lib/dashboard/workspace-routes"
 import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
+import { PaymentReminderCard } from "./payment-reminder-card"
 import {
   BroadcastsPanel,
   type BroadcastHistoryItem,
@@ -255,7 +256,7 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
           onSendRequest={() => setSendDialogOpen(true)}
         />
 
-        <PaymentReminderCard audienceTotal={audienceTotal} selectedCount={paymentSelectedCount} allMatching={paymentAllMatching}
+         <PaymentReminderCard eventId={event._id} eventTitle={event.title} eventDate={event.startsAt} audienceTotal={audienceTotal} selectedCount={paymentSelectedCount} allMatching={paymentAllMatching}
           canSend={paymentSelectedCount > 0 && paymentSelectedCount <= 2000 && !paymentPending}
           onSelectAll={() => setPaymentAllMatching(true)} onClear={() => { setPaymentAllMatching(false); setSelectedPaymentIds(new Set()) }}
           onSendRequest={() => setPaymentDialogOpen(true)} />
@@ -456,7 +457,7 @@ function StandardAnnouncementCard(props: {
   )
 }
 
-function PaymentReminderCard(props: {
+function LegacyPaymentReminderCard(props: {
   audienceTotal: number
   selectedCount: number
   allMatching: boolean
