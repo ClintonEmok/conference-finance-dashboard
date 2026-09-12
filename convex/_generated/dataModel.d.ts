@@ -1684,3 +1684,6 @@ export type Doc<TableName extends TableNames> = DocumentByName<
  */
 export type Id<TableName extends TableNames | SystemTableNames> =
   GenericId<TableName>;
+      by_attendeeId: ["attendeeId", "_creationTime"];
+      requiresBed?: boolean;
+      | "requiresBed"

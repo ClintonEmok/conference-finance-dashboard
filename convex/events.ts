@@ -633,3 +633,6 @@ export const getAttendeesForEvent = query({
     return attendees.flat()
   },
 })
+    requiresBed: v.optional(v.boolean()),
+      requiresBed: args.requiresBed,
+    requiresBed: v.optional(v.boolean()),

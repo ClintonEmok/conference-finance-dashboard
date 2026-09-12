@@ -730,6 +730,7 @@ export declare const api: {
         label: string;
         maxQuantity?: number;
         priceMinor: number;
+        requiresBed?: boolean;
         roomTypeId?: Id<"accommodationRoomTypes">;
         visibility?: "public" | "hidden";
       },
@@ -876,6 +877,7 @@ export declare const api: {
         label?: string;
         maxQuantity?: number;
         priceMinor?: number;
+        requiresBed?: boolean;
         roomTypeId?: Id<"accommodationRoomTypes">;
         sortOrder?: number;
         ticketTypeId: Id<"ticketTypes">;

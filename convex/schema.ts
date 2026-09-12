@@ -970,3 +970,5 @@ export default defineSchema({
     .index("by_broadcastId", ["broadcastId"])
     .index("by_broadcastId_and_status", ["broadcastId", "status"]),
 })
+      requiresBed: v.optional(v.boolean()),
+    .index("by_attendeeId", ["attendeeId"]),
