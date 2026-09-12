@@ -469,8 +469,9 @@ export default function EventAllocationPage({
         {summary && (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>{summary.totalRooms} rooms</span>
+            <span>{summary.totalOccupants ?? 0} occupants</span>
+            <span>{summary.occupiedBeds} beds used</span>
             <span>{summary.availableBeds} available beds</span>
-            <span>{summary.occupiedBeds} occupied</span>
             <span className="font-semibold text-foreground">{summary.unassignedAttendeesCount} need placement</span>
           </div>
         )}
@@ -718,11 +719,16 @@ export default function EventAllocationPage({
           ) : (
             <>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {rooms.slice((roomPage - 1) * roomsPerPage, roomPage * roomsPerPage).map((room) => {
-                  const isSelected = selectedRoomId === room.id
-                  const isFull = room.availability === "full"
-                  const isEmpty = room.availability === "empty"
-                  return (
+                 {rooms.slice((roomPage - 1) * roomsPerPage, roomPage * roomsPerPage).map((room) => {
+                   const isSelected = selectedRoomId === room.id
+                   const isFull = room.availability === "full"
+                   const isEmpty = room.availability === "empty"
+                   const visibleOccupants = room.occupants?.slice(0, 3) ?? []
+                   const moreOccupantCount = Math.max(
+                     0,
+                     (room.occupantCount ?? 0) - visibleOccupants.length
+                   )
+                   return (
                     <div
                       key={room.id}
                       className={`rounded-2xl border p-4 shadow-sm transition-all ${
@@ -740,8 +746,8 @@ export default function EventAllocationPage({
                       >
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-semibold">{room.label}</p>
-                           <Badge
-                             aria-label={`Room status: ${isFull ? "full" : isEmpty ? "empty" : "available"}; ${room.occupants?.length ?? 0} of ${room.capacity} occupied`}
+                            <Badge
+                              aria-label={`Room status: ${isFull ? "full" : isEmpty ? "empty" : "available"}; ${room.occupantCount ?? 0} occupants; ${room.occupiedBeds} beds used; ${room.availableBeds} beds available`}
                              variant="outline"
                             className={
                               isFull
@@ -751,8 +757,8 @@ export default function EventAllocationPage({
                                   : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-400"
                             }
                           >
-                            {room.occupants?.length ?? 0}/{room.capacity}
-                          </Badge>
+                             {room.occupantCount ?? 0} occupants
+                           </Badge>
                         </div>
                         {room.hotel && (
                           <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground/60">
@@ -761,8 +767,19 @@ export default function EventAllocationPage({
                           </p>
                         )}
                         {room.roomType && <p className="mt-0.5 text-xs text-muted-foreground">{room.roomType.label}</p>}
-                        <p className="mt-2 text-xs font-medium text-foreground">{room.occupiedBeds ?? room.occupants?.length ?? 0} of {room.capacity} occupied</p>
-                        <p className="text-xs text-muted-foreground">{room.availableBeds === 0 ? "Room full" : room.availableBeds === room.capacity ? "Empty" : `${room.availableBeds} bed${room.availableBeds === 1 ? "" : "s"} available`}</p>
+                         <p className="mt-2 text-xs font-medium text-foreground">
+                           {room.occupantCount ?? 0} occupants · {room.occupiedBeds} beds used · {room.availableBeds} beds available
+                         </p>
+                         {room.foreignOccupantCount ? (
+                           <p className="text-xs text-muted-foreground">
+                             {room.foreignOccupantCount} occupant{room.foreignOccupantCount === 1 ? "" : "s"} from another event · identity hidden
+                           </p>
+                         ) : null}
+                         {room.occupancyIncomplete ? (
+                           <p className="text-xs text-amber-700 dark:text-amber-300">
+                             Occupancy data is incomplete; verify before assigning.
+                           </p>
+                         ) : null}
                         {isSelected && (
                           <div className="mt-3 flex items-center gap-1.5 text-[11px] font-bold text-primary">
                             <Check className="size-3" /> Selected
@@ -770,16 +787,17 @@ export default function EventAllocationPage({
                         )}
                         {room.mixedCategoryGroup && <p className="mt-2 flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300"><CircleAlert className="size-3" aria-hidden="true" />Mixed category group</p>}
                       </button>
-                      {room.occupants && room.occupants.length > 0 && (
-                        <div className="mt-3 space-y-1 border-t border-border/30 pt-3">
-                          {room.occupants.slice(0, 3).map((occ) => (
-                            <div key={occ.attendeeId} className="group/occ flex items-center justify-between gap-2 rounded-lg bg-muted/30 px-2 py-1">
-                              <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                <span className="break-words text-xs text-muted-foreground">{occ.attendeeName ?? "Unnamed"}</span>
-                                <PaymentBadge state={occ.paymentState} />
-                                <OccupancyChip occupancy={occ.occupancy} />
-                                {occ.nightBeforeMismatch && <span className="text-[10px] text-amber-700 dark:text-amber-300">Night-before mismatch</span>}
-                              </span>
+                       {visibleOccupants.length > 0 && (
+                         <div className="mt-3 space-y-1 border-t border-border/30 pt-3">
+                           {visibleOccupants.map((occ) => (
+                             <div key={occ.attendeeId} className="group/occ flex items-center justify-between gap-2 rounded-lg bg-muted/30 px-2 py-1">
+                               <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                 <span className="break-words text-xs text-muted-foreground">{occ.attendeeName ?? "Unnamed"}</span>
+                                 <PaymentBadge state={occ.paymentState} />
+                                 <OccupancyChip occupancy={occ.occupancy} />
+                                 {occ.requiresBed === false ? <span className="text-[10px] text-sky-700 dark:text-sky-300">No bed required</span> : occ.requiresBed === true ? <span className="text-[10px] text-muted-foreground">Bed required</span> : null}
+                                 {occ.nightBeforeMismatch && <span className="text-[10px] text-amber-700 dark:text-amber-300">Night-before mismatch</span>}
+                               </span>
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); handleUnassign(occ.attendeeId) }}
@@ -794,9 +812,9 @@ export default function EventAllocationPage({
                               </button>
                             </div>
                           ))}
-                          {room.occupants.length > 3 && (
-                            <p className="text-xs text-muted-foreground/50">+{room.occupants.length - 3} more</p>
-                          )}
+                           {moreOccupantCount > 0 && (
+                             <p className="text-xs text-muted-foreground/50">+{moreOccupantCount} more</p>
+                           )}
                         </div>
                       )}
                     </div>
