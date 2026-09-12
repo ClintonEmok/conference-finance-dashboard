@@ -43,7 +43,9 @@ describe("Communications workspace structure", () => {
     expect(source).toContain("render(")
     expect(source).toContain("srcDoc={props.html}")
     expect(source).toContain("title: ANNOUNCEMENT_TITLE")
-    expect(source).toContain("onClick={() => setPreviewOpen(true)}")
+    expect(source).toContain("setPreviewHtml(null)")
+    expect(source).toContain("setPreviewError(null)")
+    expect(source).toContain("setPreviewOpen(true)")
     expect(source).toContain("Preview")
   })
 
@@ -70,7 +72,7 @@ describe("Communications workspace structure", () => {
     expect(source).toContain(
       'placeholder="Search by name, email, or booking reference"'
     )
-    expect(source).toContain("search: audienceSearch.trim()")
+    expect(source).toContain("search: deferredAudienceSearch.trim()")
     expect(source).not.toContain("aud-status")
     expect(source).not.toContain("aud-location")
     expect(source).not.toContain("aud-from")
@@ -80,6 +82,8 @@ describe("Communications workspace structure", () => {
 
   it("reads the audience preview and history reactively via useQuery", () => {
     const source = readSource(WORKSPACE)
+    expect(source).toContain("useConvexAuth")
+    expect(source).toContain("const canQuery = isAuthenticated && !authLoading")
     expect(source).toContain("api.emailBroadcasts.previewAudience")
     expect(source).toContain("api.emailBroadcasts.getBroadcastHistory")
     expect(source).toContain("previewAudienceEnabled")
@@ -97,6 +101,8 @@ describe("Communications workspace structure", () => {
     expect(source).toContain('activeView === "reminders"')
     expect(source).toContain('activeView === "history"')
     expect(source).toContain("parseCommunicationsView")
+    expect(source).toContain("activeTab={activeView}")
+    expect(source).not.toContain('id="communications-tabpanel"')
   })
 
   it("progressively reveals rows up to 200", () => {
@@ -153,6 +159,9 @@ describe("guided email send flow", () => {
     const source = readSource(WORKSPACE)
     expect(source).toContain("sendPending")
     expect(source).toContain("disabled={!props.canSend || props.sendPending}")
+    expect(source).toContain("function changeEmailKind")
+    expect(source).toContain("setSelectedRecipientIds(new Set())")
+    expect(source).toContain("setAllMatching(false)")
   })
 })
 
@@ -167,6 +176,8 @@ describe("payment reminder card", () => {
       expect(source).toContain(status)
     }
     expect(source).toContain("STATUS_LABELS[delivery.status]")
+    expect(source).toContain("parseUtcDateTimeLocal")
+    expect(source).toContain("Date.UTC")
     expect(source).not.toContain("iframe")
   })
 
@@ -175,6 +186,9 @@ describe("payment reminder card", () => {
     expect(source).toContain("paymentReminderKinds")
     expect(source).toContain("Payment reminder templates")
     expect(source).toContain("setPreviewKind(kind)")
+    expect(source).toContain("eventTimezone")
+    expect(source).toContain("props.currency")
+    expect(source).toContain("timeZone: timezone")
   })
 })
 
@@ -216,6 +230,8 @@ describe("unified broadcast delivery-status panel", () => {
     const panel = readSource(PANEL)
     expect(panel).toContain("filters.search")
     expect(panel).toContain("search:")
+    expect(panel).toContain('"selection" in filters')
+    expect(panel).toContain("selected booker")
   })
 
   it("selects an initial history item without polling", () => {

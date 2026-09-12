@@ -1058,6 +1058,7 @@ export type DataModel = {
       period: string;
       providerEmailId?: string;
       recipient: string;
+      sendingAt?: number;
       sentAt?: number;
       status: "queued" | "sending" | "sent" | "failed" | "skipped";
       _id: Id<"paymentReminderDeliveries">;
@@ -1082,14 +1083,23 @@ export type DataModel = {
       | "period"
       | "providerEmailId"
       | "recipient"
+      | "sendingAt"
       | "sentAt"
       | "status";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_campaignId: ["campaignId", "_creationTime"];
+      by_campaignId_and_status: ["campaignId", "status", "_creationTime"];
+      by_campaignId_and_status_and_sendingAt: [
+        "campaignId",
+        "status",
+        "sendingAt",
+        "_creationTime",
+      ];
       by_eventId: ["eventId", "_creationTime"];
       by_idempotency: ["eventId", "orderId", "kind", "period", "_creationTime"];
+      by_idempotency_period: ["eventId", "orderId", "period", "_creationTime"];
       by_status: ["status", "_creationTime"];
     };
     searchIndexes: {};

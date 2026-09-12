@@ -1,9 +1,6 @@
 /// <reference types="vite/client" />
 import { expect, test } from "vitest"
-import {
-  convexTest,
-  type TestConvexForDataModel,
-} from "convex-test"
+import { convexTest, type TestConvexForDataModel } from "convex-test"
 import type { GenericDataModel } from "convex/server"
 
 import { api, internal } from "./_generated/api"
@@ -13,6 +10,7 @@ import {
   ANNOUNCEMENT_NOTE,
   ANNOUNCEMENT_TITLE,
 } from "../lib/email/announcement-copy"
+import { resolveBroadcastAudience } from "./emailBroadcasts"
 
 const modules = import.meta.glob("./**/*.ts")
 
@@ -61,7 +59,7 @@ async function seedBooker(
   eventId: string,
   options: SeedOptions
 ) {
-  await t.mutation(async (ctx) => {
+  return await t.mutation(async (ctx) => {
     const orderId = await ctx.db.insert("orders", {
       source: "internal",
       eventId: eventId as never,
@@ -133,7 +131,7 @@ test("scheduleEmailBroadcast rejects anonymous callers", async () => {
   const t = fresh()
   const eventId = await seedEvent(t)
   await expect(
-   t.mutation(api.emailBroadcasts.scheduleEmailBroadcast, {
+    t.mutation(api.emailBroadcasts.scheduleEmailBroadcast, {
       eventId: eventId as never,
       selection: { mode: "allMatching" },
       authorize: true,
@@ -437,15 +435,52 @@ test("previewAudience caps an oversized requested limit at 200", async () => {
   const defaulted = await t.query(api.emailBroadcasts.previewAudience, {
     eventId: eventId as never,
     ...baseFilters,
+    limit: Number.NaN,
   })
   expect(defaulted.recipients.length).toBe(200)
 }, 60_000)
 
+test("explicit selections resolve directly instead of using the audience scan cap", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await seedEvent(t)
+  const firstOrderId = await seedBooker(t, eventId, {
+    name: "First Booker",
+    email: "first@example.com",
+    ref: "BK-FIRST",
+  })
+  const selectedOrderId = await seedBooker(t, eventId, {
+    name: "Selected Booker",
+    email: "selected@example.com",
+    ref: "BK-SELECTED",
+  })
+
+  const result = await t.run(async (ctx) =>
+    resolveBroadcastAudience(
+      ctx,
+      eventId as never,
+      { mode: "explicit", orderIds: [selectedOrderId as never] },
+      { maxOrders: 1 }
+    )
+  )
+
+  expect(result.recipients).toHaveLength(1)
+  expect(result.recipients[0].orderId).toBe(selectedOrderId)
+  expect(result.recipients[0].orderId).not.toBe(firstOrderId)
+})
+
 test("previewAudience search filters across the whole audience", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const eventId = await seedEvent(t)
-  await seedBooker(t, eventId, { name: "Alice van Dijk", email: "alice@example.com", ref: "BK-ALICE" })
-  await seedBooker(t, eventId, { name: "Bob Peters", email: "bob@example.com", ref: "BK-BOB" })
+  await seedBooker(t, eventId, {
+    name: "Alice van Dijk",
+    email: "alice@example.com",
+    ref: "BK-ALICE",
+  })
+  await seedBooker(t, eventId, {
+    name: "Bob Peters",
+    email: "bob@example.com",
+    ref: "BK-BOB",
+  })
 
   const byName = await t.query(api.emailBroadcasts.previewAudience, {
     eventId: eventId as never,
@@ -610,7 +645,7 @@ test("scheduleEmailBroadcast creates a queued job and pending recipients without
   expect(job!.sentCount).toBe(0)
   expect(job!.failedCount).toBe(0)
   expect(job!.pendingCount).toBe(2)
-   expect(job!.filters).toEqual({ selection: { mode: "allMatching" } })
+  expect(job!.filters).toEqual({ selection: { mode: "allMatching" } })
   expect(job!.signupUrl).toContain("/signup/test-event")
 
   const recipients = await t.run(async (ctx) => {
@@ -653,7 +688,9 @@ test("scheduleEmailBroadcast derives the fixed standard copy and event metadata 
   // Event-derived metadata, formatted on the server.
   expect(job!.eventName).toBe("Test Event")
   expect(job!.eventDate).toBe(
-    new Date(Date.UTC(2026, 9, 23)).toLocaleDateString("en-GB")
+    new Date(Date.UTC(2026, 9, 23)).toLocaleDateString("en-GB", {
+      timeZone: "Europe/Amsterdam",
+    })
   )
   expect(job!.signupUrl).toContain("/signup/test-event")
   // The template no longer requires or renders a venue/location; the stored
@@ -674,7 +711,7 @@ test("scheduleEmailBroadcast snapshots exactly the searched audience", async () 
     api.emailBroadcasts.scheduleEmailBroadcast,
     {
       eventId: eventId as never,
-       selection: { mode: "allMatching", search: "ALICE@" },
+      selection: { mode: "allMatching", search: "ALICE@" },
       authorize: true,
     }
   )
@@ -684,7 +721,9 @@ test("scheduleEmailBroadcast snapshots exactly the searched audience", async () 
     return await ctx.db.get("emailBroadcasts", broadcastId as never)
   })
   // The stored search scope explains the job in the delivery-status panel.
-   expect(job!.filters).toEqual({ selection: { mode: "allMatching", search: "ALICE@" } })
+  expect(job!.filters).toEqual({
+    selection: { mode: "allMatching", search: "ALICE@" },
+  })
 
   const recipients = await t.run(async (ctx) => {
     return await ctx.db
@@ -750,10 +789,9 @@ test("processBatch drains recipients, records failures, counters, and finalizes"
   let done = false
   let guard = 0
   while (!done && guard < 10) {
-    const result = await t.action(
-      internal.emailBroadcastActions.processBatch,
-      { broadcastId: broadcastId as never }
-    )
+    const result = await t.action(internal.emailBroadcastActions.processBatch, {
+      broadcastId: broadcastId as never,
+    })
     done = result.done
     guard++
   }
@@ -808,10 +846,9 @@ test("cancelling a queued broadcast stops the loop without sending", async () =>
   expect(cancelled).toBe(true)
 
   // processBatch must no-op on a cancelled job.
-  const result = await t.action(
-    internal.emailBroadcastActions.processBatch,
-    { broadcastId: broadcastId as never }
-  )
+  const result = await t.action(internal.emailBroadcastActions.processBatch, {
+    broadcastId: broadcastId as never,
+  })
   expect(result.done).toBe(true)
 
   const job = await t.run(async (ctx) => {
@@ -829,10 +866,9 @@ async function drainBroadcast(
   let done = false
   let guard = 0
   while (!done && guard < 10) {
-    const result = await t.action(
-      internal.emailBroadcastActions.processBatch,
-      { broadcastId: broadcastId as never }
-    )
+    const result = await t.action(internal.emailBroadcastActions.processBatch, {
+      broadcastId: broadcastId as never,
+    })
     done = result.done
     guard++
   }
@@ -910,5 +946,5 @@ test("getBroadcastHistory and getBroadcastById surface the job", async () => {
     broadcastId: broadcastId as never,
   })
   expect(job!.title).toBe(ANNOUNCEMENT_TITLE)
-   expect(job!.filters).toEqual({ selection: { mode: "allMatching" } })
+  expect(job!.filters).toEqual({ selection: { mode: "allMatching" } })
 })

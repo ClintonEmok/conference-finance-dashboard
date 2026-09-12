@@ -1192,7 +1192,7 @@ export declare const api: {
           | { mode: "explicit"; orderIds: Array<Id<"orders">> }
           | { mode: "allMatching"; search?: string };
       },
-      any
+      { campaignId: string; totalRecipients: number }
     >;
     updateSettings: FunctionReference<
       "mutation",
@@ -2413,7 +2413,27 @@ export declare const internal: {
     >;
   };
   paymentReminders: {
-    automaticTick: FunctionReference<"mutation", "internal", {}, any>;
+    automaticTick: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        paginationOpts: {
+          cursor: string | null;
+          endCursor?: string | null;
+          id?: number;
+          maximumBytesRead?: number;
+          maximumRowsRead?: number;
+          numItems: number;
+        };
+      },
+      any
+    >;
+    claimPendingDeliveries: FunctionReference<
+      "mutation",
+      "internal",
+      { campaignId: string; limit: number },
+      any
+    >;
     getDeliveryContext: FunctionReference<
       "query",
       "internal",
@@ -2426,10 +2446,22 @@ export declare const internal: {
       { campaignId: string; limit: number },
       any
     >;
-    markDeliverySending: FunctionReference<
+    processAutomaticEvent: FunctionReference<
       "mutation",
       "internal",
-      { deliveryId: Id<"paymentReminderDeliveries"> },
+      {
+        dueAt: number;
+        eventId: Id<"events">;
+        paginationOpts: {
+          cursor: string | null;
+          endCursor?: string | null;
+          id?: number;
+          maximumBytesRead?: number;
+          maximumRowsRead?: number;
+          numItems: number;
+        };
+        period: string;
+      },
       any
     >;
     recordDelivery: FunctionReference<

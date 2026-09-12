@@ -1,7 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { useMutation, useQuery } from "convex/react"
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react"
+import { useConvexAuth, useMutation, useQuery } from "convex/react"
 import {
   AlarmClock,
   CreditCard,
@@ -75,11 +81,14 @@ const MAX_PREVIEW_RECIPIENTS = 200
 
 export function CommunicationsWorkspace({ slug }: { slug: string }) {
   const { event } = useEventDashboard()
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth()
+  const canQuery = isAuthenticated && !authLoading
   const searchParams = useSearchParams()
   const activeView = parseCommunicationsView(searchParams.toString())
 
   // --- Audience search + progressive reveal --------------------------------
   const [audienceSearch, setAudienceSearch] = useState("")
+  const deferredAudienceSearch = useDeferredValue(audienceSearch)
   const [visibleCount, setVisibleCount] = useState(AUDIENCE_PAGE)
 
   // --- Broadcast tracking state --------------------------------------------
@@ -111,15 +120,17 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
 
   const ticketTypes = useQuery(
     api.events.getTicketTypesForEvent,
-    event?._id && historyEnabled ? { eventId: event._id } : ("skip" as const)
+    canQuery && event?._id && historyEnabled
+      ? { eventId: event._id }
+      : ("skip" as const)
   )
 
   const preview = useQuery(
     api.emailBroadcasts.previewAudience,
-    event?._id && previewAudienceEnabled
+    canQuery && event?._id && previewAudienceEnabled
       ? {
           eventId: event._id,
-          search: audienceSearch.trim() || undefined,
+          search: deferredAudienceSearch.trim() || undefined,
           limit: MAX_PREVIEW_RECIPIENTS,
         }
       : ("skip" as const)
@@ -127,10 +138,10 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
 
   const paymentPreview = useQuery(
     api.paymentReminders.previewPaymentReminderAudience,
-    event?._id && paymentPreviewEnabled
+    canQuery && event?._id && paymentPreviewEnabled
       ? {
           eventId: event._id,
-          search: audienceSearch.trim() || undefined,
+          search: deferredAudienceSearch.trim() || undefined,
           limit: MAX_PREVIEW_RECIPIENTS,
         }
       : ("skip" as const)
@@ -138,7 +149,9 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
 
   const history = useQuery(
     api.emailBroadcasts.getBroadcastHistory,
-    event?._id && historyEnabled ? { eventId: event._id } : ("skip" as const)
+    canQuery && event?._id && historyEnabled
+      ? { eventId: event._id }
+      : ("skip" as const)
   ) as BroadcastHistoryItem[] | undefined
 
   const cancelEmailBroadcast = useMutation(
@@ -175,9 +188,17 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
     }
   }, [history, selectedBroadcastId])
 
-  const recipients = preview?.recipients ?? []
+  const previewRecipients = preview?.recipients
   const composerPreview = emailKind === "payment" ? paymentPreview : preview
-  const composerRecipients = composerPreview?.recipients ?? []
+  const composerPreviewRecipients = composerPreview?.recipients
+  const recipients = useMemo(
+    () => previewRecipients ?? [],
+    [previewRecipients]
+  )
+  const composerRecipients = useMemo(
+    () => composerPreviewRecipients ?? [],
+    [composerPreviewRecipients]
+  )
   const visibleRecipients = useMemo(
     () => recipients.slice(0, visibleCount),
     [recipients, visibleCount]
@@ -280,6 +301,12 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
     setComposerOpen(true)
   }
 
+  function changeEmailKind(kind: EmailKind) {
+    setEmailKind(kind)
+    setSelectedRecipientIds(new Set())
+    setAllMatching(false)
+  }
+
   const tabs = useMemo<
     Array<{
       value: CommunicationsView
@@ -329,7 +356,7 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
       eventLabel={event.title}
       workspaceLabel="Communications"
       workspaceId="communications"
-      activeTab="communications"
+      activeTab={activeView}
       tabs={
         <WorkspaceTabs
           workspaceId="communications"
@@ -338,7 +365,7 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
         />
       }
     >
-      <div id="communications-tabpanel" className="min-w-0 space-y-6">
+      <div className="min-w-0 space-y-6">
         {activeView === "send" && (
           <SendView audienceTotal={audienceTotal} onOpen={openComposer} />
         )}
@@ -348,6 +375,8 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
             eventTitle={event.title}
             eventStartsAt={event.startsAt}
             eventSlug={event.slug}
+            eventTimezone={event.timezone}
+            currency={event.currency}
           />
         )}
 
@@ -386,7 +415,7 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
         onOpenChange={setComposerOpen}
         step={composerStep}
         kind={emailKind}
-        onKindChange={setEmailKind}
+        onKindChange={changeEmailKind}
         onStepChange={setComposerStep}
         audienceSearch={audienceSearch}
         onAudienceSearchChange={setAudienceSearch}
@@ -407,7 +436,8 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
           if (allMatching) return
           setSelectedRecipientIds((current) => {
             const next = new Set(current)
-            next.has(id) ? next.delete(id) : next.add(id)
+            if (next.has(id)) next.delete(id)
+            else next.add(id)
             return next
           })
         }}

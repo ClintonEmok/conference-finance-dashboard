@@ -28,7 +28,7 @@ crons.interval(
   "payment-reminders-dispatch",
   { minutes: 15 },
   internal.paymentReminders.automaticTick,
-  {}
+  { paginationOpts: { numItems: 25, cursor: null } }
 )
 
 export default crons

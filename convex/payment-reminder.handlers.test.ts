@@ -6,6 +6,7 @@ import type { GenericDataModel } from "convex/server"
 
 import { api, internal } from "./_generated/api"
 import schema from "./schema"
+import { automaticPeriod } from "../lib/domain/payment-reminders"
 
 const modules = import.meta.glob("./**/*.ts")
 
@@ -122,6 +123,7 @@ test("manual reminders queue only selected eligible IDs and skip a fully paid se
     api.paymentReminders.previewPaymentReminderAudience,
     {
       eventId,
+      limit: Number.NaN,
     }
   )
   expect(preview.total).toBe(1)
@@ -129,9 +131,7 @@ test("manual reminders queue only selected eligible IDs and skip a fully paid se
     (preview.recipients as Array<{ orderId: string }>).map(
       (recipient) => recipient.orderId
     )
-  ).toEqual([
-    String(eligibleOrderId),
-  ])
+  ).toEqual([String(eligibleOrderId)])
 
   const result = await t.mutation(
     api.paymentReminders.scheduleManualPaymentReminders,
@@ -163,6 +163,27 @@ test("manual reminders queue only selected eligible IDs and skip a fully paid se
   })
 })
 
+test("the legacy reminder mutation returns a distinct campaign ID contract", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await createEvent(t, "legacy-contract-event")
+  const ticketTypeId = await createTicketType(t, eventId)
+  await createOrder(t, eventId, ticketTypeId, {
+    email: "legacy@example.com",
+    bookingRef: "BK-LEGACY",
+  })
+
+  const result = await t.mutation(
+    api.paymentReminders.schedulePaymentReminder,
+    {
+      eventId,
+      selection: { mode: "allMatching" },
+      authorize: true,
+    }
+  )
+  expect(result.campaignId).toMatch(/[0-9a-f-]{36}/)
+  expect(result).not.toHaveProperty("broadcastId")
+})
+
 test("manual reminders resolve an all-matching audience before checking balances", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const eventId = await createEvent(t)
@@ -183,6 +204,27 @@ test("manual reminders resolve an all-matching audience before checking balances
 
   expect(result.totalRecipients).toBe(1)
   expect(result.skipped).toBe(0)
+})
+
+test("refunded orders are excluded from reminder eligibility", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await createEvent(t, "refunded-event")
+  const ticketTypeId = await createTicketType(t, eventId)
+  const orderId = await createOrder(t, eventId, ticketTypeId, {
+    email: "refunded@example.com",
+    bookingRef: "BK-REFUNDED",
+  })
+  await t.mutation(async (ctx) => {
+    await ctx.db.patch("orders", orderId, { status: "refunded" })
+  })
+
+  const preview = await t.query(
+    api.paymentReminders.previewPaymentReminderAudience,
+    {
+      eventId,
+    }
+  )
+  expect(preview.total).toBe(0)
 })
 
 test("manual selection cannot cross event boundaries", async () => {
@@ -334,8 +376,20 @@ test("automatic ticks are idempotent for an event/order/kind/period", async () =
     })
   })
 
-  await t.mutation(internal.paymentReminders.automaticTick, {})
-  await t.mutation(internal.paymentReminders.automaticTick, {})
+  const period = automaticPeriod(Date.now(), 60, "oncePerPeriod")!
+  const paginationOpts = { numItems: 25, cursor: null }
+  await t.mutation(internal.paymentReminders.processAutomaticEvent, {
+    eventId,
+    dueAt: Date.now() + 60 * 60 * 1000,
+    period,
+    paginationOpts,
+  })
+  await t.mutation(internal.paymentReminders.processAutomaticEvent, {
+    eventId,
+    dueAt: Date.now() + 60 * 60 * 1000,
+    period,
+    paginationOpts,
+  })
 
   const rows = await t.run(async (ctx) =>
     ctx.db
@@ -345,6 +399,154 @@ test("automatic ticks are idempotent for an event/order/kind/period", async () =
   )
   expect(rows).toHaveLength(1)
   expect(rows[0]).toMatchObject({ orderId, kind: "unpaid", status: "queued" })
+})
+
+test("automatic idempotency ignores a changed reminder kind in the same period", async () => {
+  const t = fresh()
+  const eventId = await createEvent(t, "kind-change-event")
+  const ticketTypeId = await createTicketType(t, eventId)
+  const orderId = await createOrder(t, eventId, ticketTypeId, {
+    email: "kind-change@example.com",
+    bookingRef: "BK-KIND-CHANGE",
+  })
+  const period = "ever"
+
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("paymentReminderDeliveries", {
+      eventId,
+      orderId,
+      campaignId: "automatic:kind-change",
+      kind: "unpaid",
+      period,
+      recipient: "kind-change@example.com",
+      bookerName: "Booker",
+      bookingRef: "BK-KIND-CHANGE",
+      currency: "EUR",
+      amountDueMinor: 1_000,
+      paidAmountMinor: 0,
+      outstandingAmountMinor: 1_000,
+      status: "queued",
+      attempts: 0,
+      createdAt: Date.now(),
+    })
+    await ctx.db.insert("paymentReminderDeliveries", {
+      eventId,
+      orderId,
+      campaignId: "automatic:kind-change",
+      kind: "partial",
+      period,
+      recipient: "kind-change@example.com",
+      bookerName: "Booker",
+      bookingRef: "BK-KIND-CHANGE",
+      currency: "EUR",
+      amountDueMinor: 1_000,
+      paidAmountMinor: 100,
+      outstandingAmountMinor: 900,
+      status: "queued",
+      attempts: 0,
+      createdAt: Date.now(),
+    })
+    await ctx.db.insert("payments", {
+      source: "bank_transfer",
+      payerName: "Booker",
+      amountMinor: 100,
+      paidAt: Date.now(),
+      eventId,
+      orderId: String(orderId),
+      status: "auto_matched",
+    })
+  })
+
+  await t.mutation(internal.paymentReminders.processAutomaticEvent, {
+    eventId,
+    dueAt: Date.now() + 60 * 60 * 1000,
+    period,
+    paginationOpts: { numItems: 25, cursor: null },
+  })
+
+  const rows = await t.run(async (ctx) =>
+    ctx.db
+      .query("paymentReminderDeliveries")
+      .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+      .collect()
+  )
+  expect(rows).toHaveLength(2)
+  expect(rows.map((row) => row.kind)).toContain("unpaid")
+  expect(rows.map((row) => row.kind)).toContain("partial")
+})
+
+test("delivery claiming skips already claimed rows when a campaign exceeds one batch", async () => {
+  const t = fresh()
+  const { orderId } = await t.mutation(async (ctx) => {
+    const eventId = await ctx.db.insert("events", {
+      slug: "batch-event",
+      title: "Batch Event",
+      startsAt: Date.now(),
+      timezone: "UTC",
+      currency: "EUR",
+      isPublished: true,
+      isSignupOpen: false,
+      accommodationEnabled: false,
+      primarySourceKind: "internal",
+      updatedAt: Date.now(),
+    })
+    const orderId = await ctx.db.insert("orders", {
+      eventId,
+      source: "internal",
+      bookingRef: "BK-BATCH",
+      bookerName: "Batch Booker",
+      bookerEmail: "batch@example.com",
+      status: "pending",
+    })
+    for (let index = 0; index < 30; index++) {
+      await ctx.db.insert("paymentReminderDeliveries", {
+        eventId,
+        orderId,
+        campaignId: "manual:batch",
+        kind: "unpaid",
+        period: `manual:batch:${index}`,
+        recipient: "batch@example.com",
+        bookerName: "Batch Booker",
+        bookingRef: "BK-BATCH",
+        currency: "EUR",
+        amountDueMinor: 1_000,
+        paidAmountMinor: 0,
+        outstandingAmountMinor: 1_000,
+        status: "queued",
+        attempts: 0,
+        createdAt: Date.now(),
+      })
+    }
+    return { orderId }
+  })
+
+  const first = await t.mutation(
+    internal.paymentReminders.claimPendingDeliveries,
+    {
+      campaignId: "manual:batch",
+      limit: 25,
+    }
+  )
+  const second = await t.mutation(
+    internal.paymentReminders.claimPendingDeliveries,
+    {
+      campaignId: "manual:batch",
+      limit: 25,
+    }
+  )
+
+  expect(first).toHaveLength(25)
+  expect(second).toHaveLength(5)
+  const sending = await t.run(async (ctx) =>
+    ctx.db
+      .query("paymentReminderDeliveries")
+      .withIndex("by_campaignId_and_status", (q) =>
+        q.eq("campaignId", "manual:batch").eq("status", "sending")
+      )
+      .collect()
+  )
+  expect(sending).toHaveLength(30)
+  expect(sending.every((row) => row.orderId === orderId)).toBe(true)
 })
 
 test("delivery history is authenticated and exposes every delivery state", async () => {
