@@ -321,6 +321,8 @@ export type DataModel = {
   };
   emailBroadcasts: {
     document: {
+      amountOutstandingMinor?: number;
+      campaignType?: "announcement" | "paymentReminder";
       cancelledAt?: number;
       completedAt?: number;
       createdAt: number;
@@ -335,10 +337,8 @@ export type DataModel = {
       message: string;
       nightBeforeNote?: string;
       paymentUrl?: string;
-      campaignType?: "announcement" | "paymentReminder";
-      reminderKind?: "partial" | "outstanding";
-      amountOutstandingMinor?: number;
       pendingCount: number;
+      reminderKind?: "partial" | "outstanding";
       sentCount: number;
       signupUrl: string;
       startedAt?: number;
@@ -351,6 +351,8 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "amountOutstandingMinor"
+      | "campaignType"
       | "cancelledAt"
       | "completedAt"
       | "createdAt"
@@ -366,6 +368,7 @@ export type DataModel = {
       | "nightBeforeNote"
       | "paymentUrl"
       | "pendingCount"
+      | "reminderKind"
       | "sentCount"
       | "signupUrl"
       | "startedAt"
@@ -505,6 +508,39 @@ export type DataModel = {
         "roomTypeId",
         "_creationTime",
       ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  eventPaymentReminderSettings: {
+    document: {
+      automaticEnabled: boolean;
+      cadenceMinutes: number;
+      dueAt: number;
+      enabled: boolean;
+      eventId: Id<"events">;
+      repeatPolicy: "oncePerPeriod" | "onceEver";
+      timezone: string;
+      updatedAt: number;
+      _id: Id<"eventPaymentReminderSettings">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "automaticEnabled"
+      | "cadenceMinutes"
+      | "dueAt"
+      | "enabled"
+      | "eventId"
+      | "repeatPolicy"
+      | "timezone"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_automaticEnabled: ["automaticEnabled", "_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -971,6 +1007,90 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_orderId: ["orderId", "_creationTime"];
       by_ticketTypeId: ["ticketTypeId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  paymentReminderCampaigns: {
+    document: {
+      campaignId: string;
+      createdAt: number;
+      createdBy?: string;
+      eventId: Id<"events">;
+      mode: "manual" | "automatic";
+      period: string;
+      _id: Id<"paymentReminderCampaigns">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "campaignId"
+      | "createdAt"
+      | "createdBy"
+      | "eventId"
+      | "mode"
+      | "period";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_campaignId: ["campaignId", "_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  paymentReminderDeliveries: {
+    document: {
+      amountDueMinor: number;
+      attempts: number;
+      bookerName: string;
+      bookingRef: string;
+      campaignId: string;
+      createdAt: number;
+      currency: string;
+      error?: string;
+      eventId: Id<"events">;
+      kind: "unpaid" | "partial" | "overdue";
+      orderId: Id<"orders">;
+      outstandingAmountMinor: number;
+      paidAmountMinor: number;
+      period: string;
+      providerEmailId?: string;
+      recipient: string;
+      sentAt?: number;
+      status: "queued" | "sending" | "sent" | "failed" | "skipped";
+      _id: Id<"paymentReminderDeliveries">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "amountDueMinor"
+      | "attempts"
+      | "bookerName"
+      | "bookingRef"
+      | "campaignId"
+      | "createdAt"
+      | "currency"
+      | "error"
+      | "eventId"
+      | "kind"
+      | "orderId"
+      | "outstandingAmountMinor"
+      | "paidAmountMinor"
+      | "period"
+      | "providerEmailId"
+      | "recipient"
+      | "sentAt"
+      | "status";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_campaignId: ["campaignId", "_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
+      by_idempotency: ["eventId", "orderId", "kind", "period", "_creationTime"];
+      by_status: ["status", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
