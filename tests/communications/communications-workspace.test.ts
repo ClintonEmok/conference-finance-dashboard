@@ -91,17 +91,32 @@ describe("standard announcement send flow", () => {
     expect(source).not.toContain("window.confirm")
   })
 
-  it("schedules the exact searched audience with explicit authorization", () => {
+  it("schedules an explicit order selection or all-matching server scope", () => {
     const source = readSource(WORKSPACE)
     expect(source).toContain("api.emailBroadcasts.scheduleEmailBroadcast")
-    expect(source).toContain("search: trimmedSearch || undefined")
+    expect(source).toContain("selection: selectionFor(selectedAnnouncementIds, announcementAllMatching)")
     expect(source).toContain("authorize: true")
     expect(source).toContain("setSelectedBroadcastId(String(result.broadcastId))")
   })
 
+  it("provides independent payment-reminder selection and confirmation wiring", () => {
+    const source = readSource(WORKSPACE)
+    expect(source).toContain("PaymentReminderCard")
+    expect(source).toContain("selectedPaymentIds")
+    expect(source).toContain("api.paymentReminders.schedulePaymentReminder")
+    expect(source).toContain("selectionFor(selectedPaymentIds, paymentAllMatching)")
+    expect(source).toContain("paymentSelectedCount")
+    expect(source).toContain("Select all matches")
+    expect(source).toContain("setSelectedPaymentIds(new Set())")
+    expect(source).toContain("type=\"checkbox\"")
+    expect(source).toContain("selectedAnnouncementIds")
+    expect(source).toContain("announcementAllMatching")
+    expect(source).toContain("paymentAllMatching")
+  })
+
   it("never sends when the audience is empty", () => {
     const source = readSource(WORKSPACE)
-    expect(source).toContain("canSend = audienceTotal > 0")
+    expect(source).toContain("announcementSelectedCount > 0")
     expect(source).toContain("disabled={!props.canSend}")
     expect(source).toContain("audienceTotal === 0")
   })
