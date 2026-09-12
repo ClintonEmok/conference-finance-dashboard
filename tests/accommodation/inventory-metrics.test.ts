@@ -84,4 +84,20 @@ describe("inventory room metrics", () => {
     ])
     expect(Number.isFinite(blocks[0]?.availableBeds)).toBe(true)
   })
+
+  it("clamps impossible available-bed values without replacing server occupancy metrics", () => {
+    expect(
+      sanitizeRoomMetrics({
+        capacity: 2,
+        occupantCount: 5,
+        occupiedBeds: 4,
+        availableBeds: 9,
+      })
+    ).toMatchObject({
+      capacity: 2,
+      occupantCount: 5,
+      occupiedBeds: 4,
+      availableBeds: 2,
+    })
+  })
 })

@@ -51,11 +51,12 @@ export function sanitizeRoomMetrics(
   const capacity = sanitizeFiniteInteger(room.capacity)
   const occupantCount = sanitizeFiniteInteger(room.occupantCount)
   const occupiedBeds = sanitizeFiniteInteger(room.occupiedBeds)
-  const availableBeds =
+  const availableBedValue =
     typeof room.availableBeds === "number" &&
     Number.isFinite(room.availableBeds)
       ? sanitizeFiniteInteger(room.availableBeds)
       : Math.max(0, capacity - occupiedBeds)
+  const availableBeds = Math.min(capacity, availableBedValue)
   const foreignOccupantCount = sanitizeFiniteInteger(room.foreignOccupantCount)
 
   return {
