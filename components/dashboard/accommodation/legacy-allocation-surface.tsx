@@ -639,7 +639,7 @@ export default function EventAllocationPage({
                      <AccommodationPreferenceChips attendee={attendee} />
                    </div>
                     <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                      <p>Order: {attendee.bookingRef ?? attendee.orderId ?? "Unavailable"}</p>
+                      <p>Order: {attendee.bookingRef || attendee.orderId || "Unavailable"}</p>
                       {attendee.bookerName && <p>Booker: {attendee.bookerName}</p>}
                       {attendee.location && <p>Location: {attendee.location}</p>}
                       {attendee.roommatePreference && <p>Roommate preference: {attendee.roommatePreference}</p>}
