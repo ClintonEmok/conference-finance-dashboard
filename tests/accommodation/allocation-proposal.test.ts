@@ -255,6 +255,69 @@ describe("allocation proposal compatibility strategy", () => {
     expect(proposal.summary.familyGroupsKeptTogether).toBe(1)
   })
 
+  it("exposes zero and many child cardinalities only on their parent outcomes", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-1",
+            label: "A-101",
+            capacity: 4,
+            occupiedBeds: 0,
+            availableBeds: 4,
+            availability: "empty",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 4 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+        ],
+        unassignedAttendees: [
+          boardAttendee({ attendeeId: "solo", attendeeName: "Solo" }),
+          boardAttendee({
+            attendeeId: "parent-many",
+            attendeeName: "Parent Many",
+            familyRole: "parent",
+            hasFamily: true,
+            familyGroupId: "family-many",
+            familyParentAttendeeId: "parent-many",
+            eligibleChildren: [
+              {
+                attendeeId: "child-one",
+                attendeeName: "Child One",
+                requiresBed: false,
+                familyRole: "child",
+                familyState: "unresolved",
+              },
+              {
+                attendeeId: "child-two",
+                attendeeName: "Child Two",
+                requiresBed: false,
+                familyRole: "child",
+                familyState: "unresolved",
+              },
+            ],
+            eligibleChildCount: 2,
+          }),
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+    const solo = proposal.suggestions.find((suggestion) => suggestion.attendeeId === "solo")
+    const parent = proposal.suggestions.find((suggestion) => suggestion.attendeeId === "parent-many")
+    expect(solo).toMatchObject({ familyRole: "solo", eligibleChildIds: [], eligibleChildCount: 0 })
+    expect(parent).toMatchObject({
+      familyRole: "parent",
+      eligibleChildIds: ["child-one", "child-two"],
+      eligibleChildCount: 2,
+    })
+    expect(proposal.suggestions.map((suggestion) => suggestion.attendeeId)).not.toEqual(
+      expect.arrayContaining(["child-one", "child-two"])
+    )
+  })
+
   it("rejects clearly incompatible gender mixing when no alternate room exists", async () => {
     vi.mocked(convexQuery).mockResolvedValueOnce(
       buildBoard({
