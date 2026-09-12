@@ -62,6 +62,131 @@ test("allocation board resolves a provider event identifier to its canonical eve
   ).toContain(String(order.attendeeId))
 })
 
+test("allocation board separates occupants from beds and redacts foreign occupancy", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const first = await seedPaidPriorityEvent(t)
+  const second = await seedPaidPriorityEvent(t)
+
+  const bedTicketId = await t.mutation(async (ctx) =>
+    ctx.db.insert("ticketTypes", {
+      eventId: first.eventId,
+      label: "Bed ticket",
+      priceMinor: TICKET_PRICE_MINOR,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      accommodationIncluded: false,
+      requiresBed: true,
+      updatedAt: BASE_EVENT_AT,
+    })
+  )
+  await t.mutation(async (ctx) => {
+    await ctx.db.patch("ticketTypes", first.ticketTypeId, {
+      requiresBed: false,
+    })
+  })
+
+  const noBed = await createOrder(t, first, {
+    attendeeKey: "no-bed",
+    name: "No Bed Occupant",
+  })
+  const bed = await createOrder(t, first, {
+    attendeeKey: "bed-user",
+    name: "Bed User",
+    ticketTypeId: bedTicketId,
+  })
+  const foreign = await createOrder(t, second, {
+    attendeeKey: "foreign-bed-user",
+    name: "Foreign Private Name",
+  })
+  const ticketOnly = await createOrder(t, first, {
+    attendeeKey: "ticket-only",
+    name: "Ticket Only",
+    includeAccommodationSelection: false,
+  })
+
+  await t.mutation(async (ctx) => {
+    await ctx.db.patch("orderAttendees", noBed.attendeeId, {
+      assignedRoomId: String(first.roomId),
+    })
+    await ctx.db.patch("orderAttendees", bed.attendeeId, {
+      assignedRoomId: String(first.roomId),
+    })
+    await ctx.db.patch("orderAttendees", foreign.attendeeId, {
+      assignedRoomId: String(first.roomId),
+    })
+  })
+
+  const board = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: String(first.eventId),
+  })
+  const room = board.rooms.find(
+    (candidate: { id: string }) => String(candidate.id) === String(first.roomId)
+  )
+
+  expect(room).toMatchObject({
+    occupantCount: 3,
+    occupiedBeds: 2,
+    availableBeds: 0,
+    foreignOccupantCount: 1,
+    occupancyIncomplete: false,
+  })
+  expect(room?.occupants).toHaveLength(2)
+  expect(
+    room?.occupants.map(
+      (occupant: { attendeeName: string | null }) => occupant.attendeeName
+    )
+  ).not.toContain("Foreign Private Name")
+  expect(
+    room?.occupants.find(
+      (occupant: { attendeeId: string }) =>
+        occupant.attendeeId === String(noBed.attendeeId)
+    )
+  )
+    .toMatchObject({ requiresBed: false })
+  expect(
+    room?.occupants.find(
+      (occupant: { attendeeId: string }) =>
+        occupant.attendeeId === String(bed.attendeeId)
+    )
+  )
+    .toMatchObject({ requiresBed: true })
+  expect(
+    board.unassignedAttendees.map(
+      (attendee: { attendeeId: string }) => attendee.attendeeId
+    )
+  ).not.toContain(String(ticketOnly.attendeeId))
+  expect(board.summary).toMatchObject({
+    totalOccupants: 3,
+    occupiedBeds: 2,
+    availableBeds: 2,
+    foreignOccupants: 1,
+    occupancyIncomplete: false,
+  })
+
+  const inventory = await t.query(api.accommodation.listAccommodationInventory, {})
+  const inventoryRoom = inventory.rooms.find(
+    (candidate: { id: string }) => String(candidate.id) === String(first.roomId)
+  )
+  expect(inventoryRoom).toMatchObject({
+    occupantCount: 3,
+    occupiedBeds: 2,
+    availableBeds: 0,
+    occupancyIncomplete: false,
+  })
+
+  const roomDetails = await t.query(api.accommodation.getRoomsWithDetails, {})
+  const detailedRoom = roomDetails.find(
+    (candidate: { id: string }) => String(candidate.id) === String(first.roomId)
+  )
+  expect(detailedRoom).toMatchObject({
+    occupantCount: 3,
+    occupiedBeds: 2,
+    availableBeds: 0,
+    occupancyIncomplete: false,
+  })
+})
+
 test("assignment and unassignment reject foreign events and unlinked hotels", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const first = await seedPaidPriorityEvent(t)
@@ -274,6 +399,7 @@ async function createOrder(
   input: {
     attendeeKey: string
     name: string
+    ticketTypeId?: Id<"ticketTypes">
     bookingRef?: string
     bookerName?: string
     bookerEmail?: string
@@ -326,7 +452,7 @@ async function createOrder(
     return await ctx.db.insert("orderTicketSelections", {
       orderId: orderId as never,
       attendeeId: attendeeId as never,
-      ticketTypeId: seed.ticketTypeId as never,
+      ticketTypeId: (input.ticketTypeId ?? seed.ticketTypeId) as never,
       quantity: 1,
       sortOrder: 0,
     })

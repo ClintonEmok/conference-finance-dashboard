@@ -94,6 +94,9 @@ export type RoomAllocationBoard = {
     id: string
     label: string
     capacity: number
+    occupantCount?: number
+    foreignOccupantCount?: number
+    occupancyIncomplete?: boolean
     occupiedBeds: number
     availableBeds: number
     availability: "empty" | "available" | "full"
@@ -126,6 +129,7 @@ export type RoomAllocationBoard = {
       nightBeforeOccupancy?: "single" | "shared" | null
       categoryLabel?: string | null
       optionKeys?: string[]
+      requiresBed?: boolean
       /** RMG-04: server-computed; true only when the night-before choice cannot be satisfied by the assigned room. Fail-safe false. */
       nightBeforeMismatch?: boolean
     }>
@@ -183,6 +187,7 @@ export type RoomAllocationBoard = {
     nightBeforeOccupancy?: "single" | "shared" | null
     categoryLabel?: string | null
     optionKeys?: string[]
+    requiresBed?: boolean
     paymentState: BoardPaymentState
     amountDueMinor: number | null
     paidAmountMinor: number | null
@@ -195,8 +200,11 @@ export type RoomAllocationBoard = {
     availableRooms: number
     fullRooms: number
     totalBeds: number
+    totalOccupants?: number
     occupiedBeds: number
     availableBeds: number
+    foreignOccupants?: number
+    occupancyIncomplete?: boolean
     unassignedAttendeesCount: number
   }
 }

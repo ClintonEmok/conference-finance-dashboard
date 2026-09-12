@@ -24,9 +24,13 @@ export type AccommodationInventory = {
   }>
   rooms: Array<{
     id: string
-    label: string
-    capacity: number
-    occupiedBeds: number
+      label: string
+      capacity: number
+      occupantCount: number
+      occupiedBeds: number
+      availableBeds: number
+      foreignOccupantCount: number
+      occupancyIncomplete: boolean
     notes: string | null
     hotel: {
       id: string
@@ -43,6 +47,10 @@ export type AccommodationInventory = {
     emptyRooms: number
     availableRooms: number
     fullRooms: number
+    totalOccupants: number
+    occupiedBeds: number
+    availableBeds: number
+    occupancyIncomplete: boolean
     unassignedAttendees: number
   }
 }
