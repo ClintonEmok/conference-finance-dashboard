@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery } from "convex/react"
-import { Megaphone, Search, Send, Users } from "lucide-react"
+import { Megaphone, Search, Send, Users, CreditCard, X } from "lucide-react"
 import { render } from "@react-email/render"
 
 import { api } from "@/lib/convex/api"
@@ -87,6 +87,13 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   const [sendDialogOpen, setSendDialogOpen] = useState(false)
   const [sendPending, setSendPending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [selectedAnnouncementIds, setSelectedAnnouncementIds] = useState<Set<string>>(new Set())
+  const [selectedPaymentIds, setSelectedPaymentIds] = useState<Set<string>>(new Set())
+  const [announcementAllMatching, setAnnouncementAllMatching] = useState(false)
+  const [paymentAllMatching, setPaymentAllMatching] = useState(false)
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
+  const [paymentPending, setPaymentPending] = useState(false)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
 
   const ticketTypes = useQuery(
     api.events.getTicketTypesForEvent,
@@ -118,15 +125,24 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   const scheduleEmailBroadcast = useMutation(
     api.emailBroadcasts.scheduleEmailBroadcast
   )
+  const schedulePaymentReminder = useMutation(api.paymentReminders.schedulePaymentReminder)
 
   // --- Reset progressive reveal when the search changes ---------------------
   useEffect(() => {
     setVisibleCount(AUDIENCE_PAGE)
+    setSelectedAnnouncementIds(new Set())
+    setSelectedPaymentIds(new Set())
+    setAnnouncementAllMatching(false)
+    setPaymentAllMatching(false)
   }, [audienceSearch])
 
   // --- Clear the selected broadcast when the event changes ------------------
   useEffect(() => {
     setSelectedBroadcastId(null)
+    setSelectedAnnouncementIds(new Set())
+    setSelectedPaymentIds(new Set())
+    setAnnouncementAllMatching(false)
+    setPaymentAllMatching(false)
   }, [event._id])
 
   // --- Select a sensible initial broadcast without polling ------------------
@@ -176,16 +192,21 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   // --- Send the fixed standard announcement to the exact searched audience --
   const trimmedSearch = audienceSearch.trim()
   const audienceTotal = preview?.total ?? 0
-  const canSend = audienceTotal > 0 && !sendPending
+  const announcementSelectedCount = announcementAllMatching ? audienceTotal : selectedAnnouncementIds.size
+  const paymentSelectedCount = paymentAllMatching ? audienceTotal : selectedPaymentIds.size
+  const canSend = announcementSelectedCount > 0 && announcementSelectedCount <= 2000 && !sendPending
+  const selectionFor = (ids: Set<string>, allMatching: boolean) => allMatching
+    ? { mode: "allMatching" as const, search: trimmedSearch || undefined }
+    : { mode: "explicit" as const, orderIds: Array.from(ids) as Id<"orders">[] }
 
   async function handleSend() {
-    if (sendPending || audienceTotal === 0) return
+    if (sendPending || announcementSelectedCount === 0 || announcementSelectedCount > 2000) return
     setSendPending(true)
     setSendError(null)
     try {
       const result = await scheduleEmailBroadcast({
         eventId: event._id,
-        search: trimmedSearch || undefined,
+        selection: selectionFor(selectedAnnouncementIds, announcementAllMatching),
         authorize: true,
       })
       setSelectedBroadcastId(String(result.broadcastId))
@@ -225,16 +246,34 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
           eventStartsAt={event.startsAt}
           eventSlug={event.slug}
           audienceTotal={audienceTotal}
+          selectedCount={announcementSelectedCount}
+          allMatching={announcementAllMatching}
+          onSelectAll={() => setAnnouncementAllMatching(true)}
+          onClear={() => { setAnnouncementAllMatching(false); setSelectedAnnouncementIds(new Set()) }}
           trimmedSearch={trimmedSearch}
           canSend={canSend}
           onSendRequest={() => setSendDialogOpen(true)}
         />
+
+        <PaymentReminderCard audienceTotal={audienceTotal} selectedCount={paymentSelectedCount} allMatching={paymentAllMatching}
+          canSend={paymentSelectedCount > 0 && paymentSelectedCount <= 2000 && !paymentPending}
+          onSelectAll={() => setPaymentAllMatching(true)} onClear={() => { setPaymentAllMatching(false); setSelectedPaymentIds(new Set()) }}
+          onSendRequest={() => setPaymentDialogOpen(true)} />
 
         <AudienceCard
           preview={preview}
           audienceSearch={audienceSearch}
           onAudienceSearchChange={setAudienceSearch}
           visibleRecipients={visibleRecipients}
+          selectedAnnouncementIds={selectedAnnouncementIds}
+          selectedPaymentIds={selectedPaymentIds}
+          announcementAllMatching={announcementAllMatching}
+          paymentAllMatching={paymentAllMatching}
+          onToggle={(id, path) => {
+            if (path === "announcement" && announcementAllMatching || path === "payment" && paymentAllMatching) return
+            const setter = path === "announcement" ? setSelectedAnnouncementIds : setSelectedPaymentIds
+            setter((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next })
+          }}
           canRevealMore={canRevealMore}
           revealCount={recipients.length - visibleRecipients.length}
           onRevealMore={() =>
@@ -259,9 +298,9 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
           <DialogHeader>
             <DialogTitle>Send standard announcement?</DialogTitle>
             <DialogDescription>
-              This queues “{ANNOUNCEMENT_TITLE}” for {audienceTotal}{" "}
+              This queues “{ANNOUNCEMENT_TITLE}” for {announcementSelectedCount}{" "}
               booker{audienceTotal === 1 ? "" : "s"}
-              {trimmedSearch ? ` matching “${trimmedSearch}”` : " (all bookers)"}
+              {announcementAllMatching ? (trimmedSearch ? ` matching all server matches for “${trimmedSearch}”` : " (all server-matching bookers)") : " (selected bookers)"}
               . Delivery is asynchronous and tracked in the broadcasts panel
               below — it cannot be undone after it is queued.
             </DialogDescription>
@@ -290,6 +329,17 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Send payment reminders?</DialogTitle><DialogDescription>
+            Queue reminders for exactly {paymentSelectedCount} selected booker{paymentSelectedCount === 1 ? "" : "s"}{paymentAllMatching ? " (all server matches)" : ""}. Balances are rechecked before queueing; ineligible orders are not sent.
+          </DialogDescription></DialogHeader>
+          {paymentError && <p className="rounded-lg border border-destructive/30 p-3 text-xs text-destructive">{paymentError}</p>}
+          <DialogFooter><DialogClose asChild><Button variant="outline" disabled={paymentPending}>Cancel</Button></DialogClose>
+            <Button disabled={paymentPending} onClick={async () => { setPaymentPending(true); setPaymentError(null); try { const result = await schedulePaymentReminder({ eventId: event._id, selection: selectionFor(selectedPaymentIds, paymentAllMatching), authorize: true }); setSelectedBroadcastId(String(result.broadcastId)); setPaymentDialogOpen(false) } catch (error) { setPaymentError(error instanceof Error ? error.message : "Could not schedule payment reminders.") } finally { setPaymentPending(false) } }}>{paymentPending ? "Queuing…" : "Confirm send"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </WorkspaceFrame>
   )
 }
@@ -302,6 +352,10 @@ function StandardAnnouncementCard(props: {
   trimmedSearch: string
   canSend: boolean
   onSendRequest: () => void
+  selectedCount: number
+  allMatching: boolean
+  onSelectAll: () => void
+  onClear: () => void
 }) {
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
@@ -373,11 +427,15 @@ function StandardAnnouncementCard(props: {
           )}
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-          <p className="max-w-md text-sm text-muted-foreground">
+            <p className="max-w-md text-sm text-muted-foreground">
             One fixed announcement: event title, date, and booking/register
             links come from this event. Sent to exactly the searched audience
             below after explicit confirmation.
           </p>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground"><span>{props.selectedCount} selected{props.allMatching ? " (all matches)" : ""}</span>
+            <Button type="button" variant="outline" size="sm" onClick={props.onSelectAll}>Select all matches</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={props.onClear}><X className="size-3" /> Clear</Button>
+          </div>
           <Button
             type="button"
             onClick={props.onSendRequest}
@@ -398,6 +456,21 @@ function StandardAnnouncementCard(props: {
   )
 }
 
+function PaymentReminderCard(props: {
+  audienceTotal: number
+  selectedCount: number
+  allMatching: boolean
+  canSend: boolean
+  onSelectAll: () => void
+  onClear: () => void
+  onSendRequest: () => void
+}) {
+  return <Card><CardHeader><CardTitle className="flex items-center gap-2"><CreditCard className="size-4 text-primary" />Payment reminders</CardTitle></CardHeader>
+    <CardContent className="flex flex-wrap items-center justify-between gap-3"><p className="max-w-xl text-sm text-muted-foreground">Remind selected bookers about their server-calculated outstanding balance. Fully paid and ineligible orders are rejected when queued.</p>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground"><span>{props.selectedCount} selected{props.allMatching ? " (all matches)" : ""}</span><Button type="button" variant="outline" size="sm" onClick={props.onSelectAll}>Select all matches</Button><Button type="button" variant="ghost" size="sm" onClick={props.onClear}><X className="size-3" /> Clear</Button><Button type="button" onClick={props.onSendRequest} disabled={!props.canSend}><Send className="size-4" /> Send reminders</Button></div>
+    </CardContent></Card>
+}
+
 function AudienceCard(props: {
   preview:
     | {
@@ -405,6 +478,7 @@ function AudienceCard(props: {
         skippedNoEmail: number
         skippedNoRef: number
         recipients: Array<{
+          orderId: string
           bookerName: string | null
           bookerEmail: string
           bookingRef: string | null
@@ -417,6 +491,7 @@ function AudienceCard(props: {
   audienceSearch: string
   onAudienceSearchChange: (value: string) => void
   visibleRecipients: Array<{
+    orderId: string
     bookerName: string | null
     bookerEmail: string
     bookingRef: string | null
@@ -427,6 +502,11 @@ function AudienceCard(props: {
   canRevealMore: boolean
   revealCount: number
   onRevealMore: () => void
+  selectedAnnouncementIds: Set<string>
+  selectedPaymentIds: Set<string>
+  announcementAllMatching: boolean
+  paymentAllMatching: boolean
+  onToggle: (id: string, path: "announcement" | "payment") => void
 }) {
   return (
     <Card>
@@ -481,7 +561,7 @@ function AudienceCard(props: {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
+                      <TableHead>Select</TableHead><TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Booking ref</TableHead>
                       <TableHead>Status</TableHead>
@@ -491,7 +571,8 @@ function AudienceCard(props: {
                   </TableHeader>
                   <TableBody>
                     {props.visibleRecipients.map((recipient) => (
-                      <TableRow key={recipient.bookerEmail}>
+                      <TableRow key={recipient.orderId}>
+                        <TableCell><div className="flex gap-1"><input aria-label={`Select announcement ${recipient.bookerEmail}`} type="checkbox" checked={props.announcementAllMatching || props.selectedAnnouncementIds.has(recipient.orderId)} onChange={() => props.onToggle(recipient.orderId, "announcement")} /><input aria-label={`Select payment reminder ${recipient.bookerEmail}`} type="checkbox" checked={props.paymentAllMatching || props.selectedPaymentIds.has(recipient.orderId)} onChange={() => props.onToggle(recipient.orderId, "payment")} /></div></TableCell>
                         <TableCell className="font-medium">
                           {recipient.bookerName ?? "—"}
                         </TableCell>
