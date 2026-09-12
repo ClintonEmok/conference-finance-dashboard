@@ -617,13 +617,21 @@ export declare const api: {
     scheduleEmailBroadcast: FunctionReference<
       "mutation",
       "public",
-      { authorize: boolean; eventId: Id<"events">; search?: string },
+       { authorize: boolean; eventId: Id<"events">; selection: { mode: "explicit"; orderIds: Id<"orders">[] } | { mode: "allMatching"; search?: string } },
       {
         broadcastId: Id<"emailBroadcasts">;
         skippedNoEmail: number;
         skippedNoRef: number;
         totalRecipients: number;
       }
+    >;
+  };
+  paymentReminders: {
+    schedulePaymentReminder: FunctionReference<
+      "mutation",
+      "public",
+      { authorize: boolean; eventId: Id<"events">; selection: { mode: "explicit"; orderIds: Id<"orders">[] } | { mode: "allMatching"; search?: string } },
+      { broadcastId: Id<"emailBroadcasts">; totalRecipients: number }
     >;
   };
   emailMutations: {

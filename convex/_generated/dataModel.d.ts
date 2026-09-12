@@ -335,6 +335,9 @@ export type DataModel = {
       message: string;
       nightBeforeNote?: string;
       paymentUrl?: string;
+      campaignType?: "announcement" | "paymentReminder";
+      reminderKind?: "partial" | "outstanding";
+      amountOutstandingMinor?: number;
       pendingCount: number;
       sentCount: number;
       signupUrl: string;

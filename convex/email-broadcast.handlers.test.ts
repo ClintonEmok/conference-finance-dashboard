@@ -133,8 +133,9 @@ test("scheduleEmailBroadcast rejects anonymous callers", async () => {
   const t = fresh()
   const eventId = await seedEvent(t)
   await expect(
-    t.mutation(api.emailBroadcasts.scheduleEmailBroadcast, {
+   t.mutation(api.emailBroadcasts.scheduleEmailBroadcast, {
       eventId: eventId as never,
+      selection: { mode: "allMatching" },
       authorize: true,
     })
   ).rejects.toThrow("Unauthorized")
@@ -565,6 +566,7 @@ test("scheduleEmailBroadcast requires explicit authorization", async () => {
   await expect(
     t.mutation(api.emailBroadcasts.scheduleEmailBroadcast, {
       eventId: eventId as never,
+      selection: { mode: "allMatching" },
       authorize: false,
     })
   ).rejects.toThrow("explicit authorization")
@@ -576,6 +578,7 @@ test("scheduleEmailBroadcast rejects an empty audience", async () => {
   await expect(
     t.mutation(api.emailBroadcasts.scheduleEmailBroadcast, {
       eventId: eventId as never,
+      selection: { mode: "allMatching" },
       authorize: true,
     })
   ).rejects.toThrow("No bookers match")
@@ -591,6 +594,7 @@ test("scheduleEmailBroadcast creates a queued job and pending recipients without
     api.emailBroadcasts.scheduleEmailBroadcast,
     {
       eventId: eventId as never,
+      selection: { mode: "allMatching" },
       authorize: true,
     }
   )
@@ -606,7 +610,7 @@ test("scheduleEmailBroadcast creates a queued job and pending recipients without
   expect(job!.sentCount).toBe(0)
   expect(job!.failedCount).toBe(0)
   expect(job!.pendingCount).toBe(2)
-  expect(job!.filters).toEqual({ search: "" })
+   expect(job!.filters).toEqual({ selection: { mode: "allMatching" } })
   expect(job!.signupUrl).toContain("/signup/test-event")
 
   const recipients = await t.run(async (ctx) => {
@@ -634,6 +638,7 @@ test("scheduleEmailBroadcast derives the fixed standard copy and event metadata 
     api.emailBroadcasts.scheduleEmailBroadcast,
     {
       eventId: eventId as never,
+      selection: { mode: "allMatching" },
       authorize: true,
     }
   )
@@ -669,7 +674,7 @@ test("scheduleEmailBroadcast snapshots exactly the searched audience", async () 
     api.emailBroadcasts.scheduleEmailBroadcast,
     {
       eventId: eventId as never,
-      search: "ALICE@",
+       selection: { mode: "allMatching", search: "ALICE@" },
       authorize: true,
     }
   )
@@ -679,7 +684,7 @@ test("scheduleEmailBroadcast snapshots exactly the searched audience", async () 
     return await ctx.db.get("emailBroadcasts", broadcastId as never)
   })
   // The stored search scope explains the job in the delivery-status panel.
-  expect(job!.filters).toEqual({ search: "alice@" })
+   expect(job!.filters).toEqual({ selection: { mode: "allMatching", search: "ALICE@" } })
 
   const recipients = await t.run(async (ctx) => {
     return await ctx.db
@@ -715,6 +720,7 @@ test("scheduleEmailBroadcast rejects integration-source events", async () => {
   await expect(
     t.mutation(api.emailBroadcasts.scheduleEmailBroadcast, {
       eventId: eventId as never,
+      selection: { mode: "allMatching" },
       authorize: true,
     })
   ).rejects.toThrow("internal events")
@@ -734,6 +740,7 @@ test("processBatch drains recipients, records failures, counters, and finalizes"
     api.emailBroadcasts.scheduleEmailBroadcast,
     {
       eventId: eventId as never,
+      selection: { mode: "allMatching" },
       authorize: true,
     }
   )
@@ -789,6 +796,7 @@ test("cancelling a queued broadcast stops the loop without sending", async () =>
     api.emailBroadcasts.scheduleEmailBroadcast,
     {
       eventId: eventId as never,
+      selection: { mode: "allMatching" },
       authorize: true,
     }
   )
@@ -840,6 +848,7 @@ test("retryFailedEmailBroadcast requeues only failed recipients and increments a
     api.emailBroadcasts.scheduleEmailBroadcast,
     {
       eventId: eventId as never,
+      selection: { mode: "allMatching" },
       authorize: true,
     }
   )
@@ -884,6 +893,7 @@ test("getBroadcastHistory and getBroadcastById surface the job", async () => {
     api.emailBroadcasts.scheduleEmailBroadcast,
     {
       eventId: eventId as never,
+      selection: { mode: "allMatching" },
       authorize: true,
     }
   )
@@ -900,5 +910,5 @@ test("getBroadcastHistory and getBroadcastById surface the job", async () => {
     broadcastId: broadcastId as never,
   })
   expect(job!.title).toBe(ANNOUNCEMENT_TITLE)
-  expect(job!.filters).toEqual({ search: "" })
+   expect(job!.filters).toEqual({ selection: { mode: "allMatching" } })
 })
