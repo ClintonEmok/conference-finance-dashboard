@@ -1,6 +1,6 @@
 "use client"
 
-import { useParams, usePathname } from "next/navigation"
+import { useParams, usePathname, useSearchParams } from "next/navigation"
 import {
   Calendar,
   ChevronRight,
@@ -12,11 +12,16 @@ import {
   Users,
   Ticket,
   BedDouble,
+  Building2,
+  SlidersHorizontal,
 } from "lucide-react"
 import { LogoutButton } from "@/app/dashboard/logout-button"
 import Link from "next/link"
 
 import { useEventBySlug } from "@/lib/convex/hooks/events"
+import { useEventAllocationSummaryForOverview } from "@/lib/convex/hooks/accommodation"
+import { accommodationHref } from "@/lib/dashboard/workspace-routes"
+import { getAllocationNavigationAccessibleLabel, getAllocationNavigationCount, isAccommodationSetupNavigationActive, isAllocationNavigationActive } from "@/lib/dashboard/accommodation-navigation"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -32,6 +37,9 @@ import {
   SidebarProvider,
   SidebarSeparator,
   SidebarTrigger,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarGroupContent,
   useSidebar,
 } from "@/components/ui/sidebar"
 import {
@@ -148,6 +156,12 @@ function SidebarContentInner({
   event: NonNullable<ReturnType<typeof useEventBySlug>>
 }) {
   const { state: sidebarState, isMobile, setOpenMobile } = useSidebar()
+  const searchParams = useSearchParams()
+  const allocationSummary = useEventAllocationSummaryForOverview(event.accommodationEnabled ? event._id : undefined)
+  const allocationCount = getAllocationNavigationCount(allocationSummary)
+  const allocationStatus = allocationSummary?.status === "success" ? allocationCount !== undefined ? "ready" : "unavailable" : allocationSummary?.status === "error" ? "error" : "pending"
+  const allocationActive = isAllocationNavigationActive(pathname, searchParams)
+  const setupActive = isAccommodationSetupNavigationActive(pathname, searchParams)
 
   const menuItems = [
     {
@@ -181,9 +195,9 @@ function SidebarContentInner({
       href: `/dashboard/events/${slug}/communications`,
     },
     {
-      label: "Accommodation",
+      label: "Allocation",
       icon: BedDouble,
-      href: `/dashboard/events/${slug}/accommodation`,
+      href: accommodationHref(slug, "allocation"),
       show: event.accommodationEnabled,
     },
     {
@@ -208,51 +222,46 @@ function SidebarContentInner({
           <nav aria-label="Event navigation" className="space-y-2">
             {menuItems.map((item) => {
               if (item.show === false) return null
-              const isActive = getSectionActive(item.label, pathname, slug)
+              const isActive = item.label === "Allocation" ? allocationActive : getSectionActive(item.label, pathname, slug)
               const Icon = item.icon
 
               const subpage = pathname.startsWith(`${item.href}/`)
                 ? pathname.slice(item.href.length + 1).split("/")[0]
                 : null
 
+              const itemLink = (
+                <Link
+                  href={item.href}
+                  aria-current={isActive ? "page" : undefined}
+                  aria-label={item.label === "Allocation" ? getAllocationNavigationAccessibleLabel(allocationCount, allocationStatus) : undefined}
+                  onClick={() => { if (isMobile) setOpenMobile(false) }}
+                  className={cn(
+                    "flex min-w-0 items-start justify-between gap-3 rounded-lg border px-4 py-3 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                    "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-none group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-1.5 group-data-[collapsible=icon]:shadow-none",
+                    isActive ? "border-primary/25 bg-primary/10 text-foreground shadow-sm" : "border-border/50 bg-background/60 text-muted-foreground hover:border-primary/20 hover:bg-muted/50 hover:text-foreground"
+                  )}
+                >
+                  <span className="flex min-w-0 items-start gap-3 group-data-[collapsible=icon]:gap-0">
+                    <Icon className="mt-0.5 size-4 shrink-0" />
+                    <span className="min-w-0 group-data-[collapsible=icon]:hidden">
+                      <span className="block text-sm font-semibold leading-tight">{item.label}</span>
+                      {item.label === "Allocation" ? <><span className="mt-1 block text-xs text-muted-foreground">Place attendees and resolve needs.</span><span className="mt-1 block text-xs text-muted-foreground">{allocationStatus === "pending" ? "Checking placement count…" : allocationStatus === "error" || allocationStatus === "unavailable" ? "Placement count unavailable" : allocationCount === 0 ? "All attendees placed" : `${allocationCount} ${allocationCount === 1 ? "attendee needs placement" : "attendees need placement"}`}</span></> : subpage && <span className="mt-1 block text-[10px] font-black tracking-[0.2em] text-muted-foreground/50 uppercase">{subpage}</span>}
+                    </span>
+                  </span>
+                  {item.label === "Allocation" && allocationCount !== undefined && <span aria-hidden="true" className="font-mono tabular-nums text-xs font-semibold group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:-right-1 group-data-[collapsible=icon]:-top-1">{allocationCount}</span>}
+                  {isActive && <ChevronRight className="mt-0.5 size-4 shrink-0 text-primary group-data-[collapsible=icon]:hidden" />}
+                </Link>
+              )
+
               return (
-                <Tooltip key={item.href}>
+                <div key={item.href}>
+                <Tooltip>
                   <TooltipTrigger asChild>
-                    <Link
-                      href={item.href}
-                      aria-current={isActive ? "page" : undefined}
-                      onClick={() => {
-                        if (isMobile) setOpenMobile(false)
-                      }}
-                      className={cn(
-                        "flex items-start justify-between gap-3 rounded-lg border px-4 py-3 transition-all duration-200",
-                        "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-none group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-1.5 group-data-[collapsible=icon]:shadow-none",
-                        isActive
-                          ? "border-primary/25 bg-primary/10 text-foreground shadow-sm"
-                          : "border-border/50 bg-background/60 text-muted-foreground hover:border-primary/20 hover:bg-muted/50 hover:text-foreground"
-                      )}
-                    >
-                      <span className="flex min-w-0 items-start gap-3 group-data-[collapsible=icon]:gap-0">
-                        <Icon className="mt-0.5 size-4 shrink-0" />
-                        <span className="min-w-0 group-data-[collapsible=icon]:hidden">
-                          <span className="block text-sm font-semibold leading-none">
-                            {item.label}
-                          </span>
-                          {subpage && (
-                            <span className="mt-1 block text-[10px] font-black tracking-[0.2em] text-muted-foreground/50 uppercase">
-                              {subpage}
-                            </span>
-                          )}
-                        </span>
-                      </span>
-                      {isActive && (
-                        <ChevronRight className="mt-0.5 size-4 shrink-0 text-primary group-data-[collapsible=icon]:hidden" />
-                      )}
-                    </Link>
+                    {itemLink}
                   </TooltipTrigger>
                   <TooltipContent side="right" className="flex items-center gap-2">
                     <Icon className="size-4 shrink-0" />
-                    {item.label}
+                    {item.label === "Allocation" ? getAllocationNavigationAccessibleLabel(allocationCount, allocationStatus) : item.label}
                     {subpage && (
                       <span className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/70 uppercase">
                         /{subpage}
@@ -260,6 +269,21 @@ function SidebarContentInner({
                     )}
                   </TooltipContent>
                 </Tooltip>
+                {item.label === "Allocation" && (
+                  <SidebarGroup className="mt-6 px-0 py-0">
+                    <SidebarGroupLabel className="px-2 text-xs font-semibold">Accommodation Setup</SidebarGroupLabel>
+                    <SidebarGroupContent className="mt-1 space-y-1 pl-3 group-data-[collapsible=icon]:pl-0">
+                      {[
+                        { label: "Hotels & Rooms", icon: Building2, href: accommodationHref(slug, "hotels") },
+                        { label: "Upgrades & Options", icon: SlidersHorizontal, href: accommodationHref(slug, "upgrades-options") },
+                      ].map(({ label, icon: SetupIcon, href }) => {
+                        const active = setupActive && ((label === "Hotels & Rooms" && !searchParams.get("tab")) || (label === "Hotels & Rooms" && searchParams.get("tab") === "hotels") || (label === "Upgrades & Options" && searchParams.get("tab") === "upgrades-options"))
+                        return <Tooltip key={href}><TooltipTrigger asChild><Link href={href} aria-current={active ? "page" : undefined} aria-label={label} onClick={() => { if (isMobile) setOpenMobile(false) }} className={cn("flex min-h-11 min-w-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1", active ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground")}><SetupIcon className="size-4 shrink-0" /><span className="group-data-[collapsible=icon]:hidden">{label}</span></Link></TooltipTrigger><TooltipContent side="right">{label}</TooltipContent></Tooltip>
+                      })}
+                    </SidebarGroupContent>
+                  </SidebarGroup>
+                )}
+                </div>
               )
             })}
           </nav>
@@ -291,9 +315,5 @@ function getSectionActive(label: string, pathname: string, slug: string) {
   if (label === "Communications") {
     return pathname === `${eventRoot}/communications` || pathname.startsWith(`${eventRoot}/communications/`)
   }
-  if (label === "Accommodation") {
-    return pathname === `${eventRoot}/accommodation` || pathname.startsWith(`${eventRoot}/accommodation/`)
-  }
-
   return pathname === `/dashboard/events/${slug}/${label.toLowerCase()}` || pathname.startsWith(`/dashboard/events/${slug}/${label.toLowerCase()}/`)
 }

@@ -3,18 +3,15 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 import LegacyOrderDetailPage from "@/app/dashboard/events/[slug]/orders/[orderId]/page"
-import GlobalOrdersPage from "@/app/dashboard/orders/page"
-import GlobalOrderDetailPage from "@/app/dashboard/orders/[orderId]/page"
 
 /**
  * Route-level regression coverage for the standalone event-scoped Orders
  * workspace (quick task 260811-28n). The canonical surface lives at
  * `/dashboard/events/{slug}/orders`: the list workspace is rendered directly
  * and `?orderId=` selects the detail surface through the query intent. The
- * event `[orderId]` route, the global `/dashboard/orders*` paths, and the
- * `/dashboard/manage-orders*` bridges all land there with existing
- * eventId resolution and query/order intent preserved — none may route
- * through Finance. Finance exposes only Payments/Donations/Reconciliation.
+ * event `[orderId]` route lands there with order intent preserved. Finance
+ * exposes only Payments/Donations/Reconciliation, and root-level event
+ * surfaces are disabled in favor of event-scoped routes.
  *
  * Next's `redirect` boundary is mocked so no Next server is required: the
  * server pages are invoked directly with promise-shaped params/searchParams
@@ -107,55 +104,12 @@ describe("canonical event Orders workspace routes", () => {
   })
 })
 
-describe("global orders bridges", () => {
-  beforeEach(() => {
-    mocks.redirect.mockReset()
-  })
-
-  it("forwards the global /dashboard/orders query to the event-aware bridge", async () => {
-    await GlobalOrdersPage({
-      searchParams: Promise.resolve({ eventId: "event_1", page: "2" }),
-    })
-    expect(mocks.redirect).toHaveBeenCalledWith(
-      "/dashboard/manage-orders?eventId=event_1&page=2"
-    )
-  })
-
-  it("redirects /dashboard/orders without a query when none is present", async () => {
-    await GlobalOrdersPage({ searchParams: Promise.resolve({}) })
-    expect(mocks.redirect).toHaveBeenCalledWith("/dashboard/manage-orders")
-  })
-
-  it("forwards the global /dashboard/orders/[orderId] query to the bridge", async () => {
-    await GlobalOrderDetailPage({
-      params: Promise.resolve({ orderId: "order_42" }),
-      searchParams: Promise.resolve({ eventId: "event_1", tab: "orders" }),
-    })
-    expect(mocks.redirect).toHaveBeenCalledWith(
-      "/dashboard/manage-orders/order_42?eventId=event_1&tab=orders"
-    )
-  })
-
-  it("redirects a global order detail without a query when none is present", async () => {
-    await GlobalOrderDetailPage({
-      params: Promise.resolve({ orderId: "order_42" }),
-      searchParams: Promise.resolve({}),
-    })
-    expect(mocks.redirect).toHaveBeenCalledWith(
-      "/dashboard/manage-orders/order_42"
-    )
-  })
-
-  it("both manage-orders bridges land at the event Orders workspace via ordersHref", () => {
-    const root = readSource("app/dashboard/manage-orders/page.tsx")
-    expect(root).toContain("ordersHref")
-    expect(root).toContain("ordersHref(event.slug)")
-    expect(root).not.toContain("financeHref")
-
-    const detail = readSource("app/dashboard/manage-orders/[orderId]/page.tsx")
-    expect(detail).toContain("ordersHref")
-    expect(detail).toContain('ordersHref(event.slug, { orderId })')
-    expect(detail).not.toContain("financeHref")
+describe("root-level event routes", () => {
+  it("disables root-level Orders and Manage Orders pages", () => {
+    expect(readSource("app/dashboard/orders/page.tsx")).toContain("notFound()")
+    expect(readSource("app/dashboard/orders/[orderId]/page.tsx")).toContain("notFound()")
+    expect(readSource("app/dashboard/manage-orders/page.tsx")).toContain("notFound()")
+    expect(readSource("app/dashboard/manage-orders/[orderId]/page.tsx")).toContain("notFound()")
   })
 })
 

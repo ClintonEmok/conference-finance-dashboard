@@ -2,14 +2,14 @@
 
 import { use } from "react"
 
-import GlobalAttendeeDetailPage from "@/app/dashboard/attendees/[attendeeId]/page"
+import AttendeeDetailSurface from "@/components/dashboard/attendee-detail-surface"
 
 export default function EventAttendeeDetailPage({
   params,
 }: {
   params: Promise<{ slug: string; attendeeId: string }>
 }) {
-  const { attendeeId } = use(params)
+  const { slug, attendeeId } = use(params)
 
-  return <GlobalAttendeeDetailPage params={Promise.resolve({ attendeeId })} />
+  return <AttendeeDetailSurface eventSlug={slug} params={Promise.resolve({ attendeeId })} />
 }

@@ -390,7 +390,7 @@ type EditorTicketType = {
 
 export function AttendeeOrderEditor({
   attendee,
-  canRemove = true,
+  canRemove = false,
   onSaved,
 }: AttendeeOrderEditorProps) {
   const { ticketTypes: rawTicketTypes, isLoading: isTicketTypesLoading } =
@@ -1548,6 +1548,16 @@ export function AttendeeOrderEditor({
               payments stay on the order.
             </DialogDescription>
           </DialogHeader>
+          {removeStatus.kind === "error" ? (
+            <div
+              aria-live="assertive"
+              role="alert"
+              className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm font-medium text-destructive"
+            >
+              <AlertCircle className="mt-0.5 size-4 shrink-0" />
+              <span>{removeStatus.message}</span>
+            </div>
+          ) : null}
           <DialogFooter>
             <Button
               type="button"

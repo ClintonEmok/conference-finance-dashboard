@@ -1,4 +1,5 @@
 type ReconciliationFollowUpHrefInput = {
+  eventSlug: string
   attendeeId?: string | null
   orderId?: string | null
   providerOrderId?: string | null
@@ -7,6 +8,7 @@ type ReconciliationFollowUpHrefInput = {
 
 export function buildReconciliationFollowUpHref({
   attendeeId,
+  eventSlug,
   orderId,
   providerOrderId,
   providerEventId,
@@ -15,7 +17,9 @@ export function buildReconciliationFollowUpHref({
   const trimmedOrderId = orderId?.trim() ?? ""
   const trimmedProviderOrderId = providerOrderId?.trim() ?? ""
   const trimmedEventId = providerEventId?.trim() ?? ""
+  const trimmedEventSlug = eventSlug.trim()
   const searchId = trimmedOrderId || trimmedProviderOrderId
+  const attendeeListPath = `/dashboard/events/${encodeURIComponent(trimmedEventSlug)}/attendees`
 
   if (trimmedAttendeeId) {
     const params = new URLSearchParams()
@@ -34,7 +38,7 @@ export function buildReconciliationFollowUpHref({
     }
 
     const query = params.toString()
-    const detailPath = `/dashboard/attendees/${encodeURIComponent(trimmedAttendeeId)}`
+    const detailPath = `${attendeeListPath}/${encodeURIComponent(trimmedAttendeeId)}`
 
     return query ? `${detailPath}?${query}` : detailPath
   }
@@ -55,5 +59,5 @@ export function buildReconciliationFollowUpHref({
     params.set("orderId", searchId)
   }
 
-  return `/dashboard/attendees?${params.toString()}`
+  return `${attendeeListPath}?${params.toString()}`
 }

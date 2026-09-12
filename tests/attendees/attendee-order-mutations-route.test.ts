@@ -463,7 +463,7 @@ describe("/api/dashboard/attendees/[attendeeId]/remove route", () => {
   it("maps missing records to 404 and destructive guard failures to 400", async () => {
     vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
     vi.mocked(convexMutation).mockRejectedValueOnce(
-      new Error("Attendee not found.")
+      new Error("Convex mutation failed: Attendee not found.")
     )
 
     const missing = await DELETE_ATTENDEE(
@@ -477,7 +477,9 @@ describe("/api/dashboard/attendees/[attendeeId]/remove route", () => {
     expect(missing.status).toBe(404)
 
     vi.mocked(convexMutation).mockRejectedValueOnce(
-      new Error("An order must retain at least one attendee.")
+      new Error(
+        "Convex mutation failed: An order must retain at least one attendee."
+      )
     )
     const guarded = await DELETE_ATTENDEE(
       new Request("http://localhost/api/dashboard/attendees/attendee_1/remove", {

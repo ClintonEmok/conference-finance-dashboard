@@ -776,6 +776,10 @@ test("removeAttendeeFromOrder deletes attendee-owned rows, decrements inventory,
       familyGroupId: String(familyGroupId),
       attendeeId: String(seed.attendeeId),
     })
+    await ctx.db.insert("attendeeFamilyMembers", {
+      familyGroupId: String(familyGroupId),
+      attendeeId: String(seed.noTicketAttendeeId),
+    })
     await ctx.db.insert("searchDocuments", {
       kind: "attendee",
       subjectId: String(seed.attendeeId),
@@ -792,6 +796,23 @@ test("removeAttendeeFromOrder deletes attendee-owned rows, decrements inventory,
       term: "orders",
       sortAt: 1_750_000_000_000,
       subjectId: String(seed.attendeeId),
+    })
+    await ctx.db.insert("searchDocuments", {
+      kind: "attendee",
+      subjectId: String(seed.noTicketAttendeeId),
+      eventId: seed.eventId,
+      searchText: "no ticket buyer family",
+      sortAt: 1_750_000_000_000,
+      isSearchable: true,
+      updatedAt: 1_750_000_000_000,
+    })
+    await ctx.db.insert("searchDocumentTerms", {
+      documentKey: `attendee:${String(seed.noTicketAttendeeId)}`,
+      kind: "attendee",
+      eventId: seed.eventId,
+      term: "family",
+      sortAt: 1_750_000_000_000,
+      subjectId: String(seed.noTicketAttendeeId),
     })
     await ctx.db.insert("payments", {
       source: "bank_transfer",
@@ -857,6 +878,24 @@ test("removeAttendeeFromOrder deletes attendee-owned rows, decrements inventory,
         q.eq("documentKey", `attendee:${String(seed.attendeeId)}`)
       )
       .collect()
+    const survivingFamilyMembers = await ctx.db
+      .query("attendeeFamilyMembers")
+      .withIndex("attendeeId", (q) =>
+        q.eq("attendeeId", String(seed.noTicketAttendeeId))
+      )
+      .collect()
+    const survivingSearchDocument = await ctx.db
+      .query("searchDocuments")
+      .withIndex("by_kind_and_subjectId", (q) =>
+        q.eq("kind", "attendee").eq("subjectId", String(seed.noTicketAttendeeId))
+      )
+      .unique()
+    const survivingSearchTerms = await ctx.db
+      .query("searchDocumentTerms")
+      .withIndex("by_documentKey", (q) =>
+        q.eq("documentKey", `attendee:${String(seed.noTicketAttendeeId)}`)
+      )
+      .collect()
     const payments = await ctx.db
       .query("payments")
       .withIndex("orderId", (q) => q.eq("orderId", String(seed.sourceOrderId)))
@@ -874,6 +913,9 @@ test("removeAttendeeFromOrder deletes attendee-owned rows, decrements inventory,
       familyGroups,
       searchDocument,
       searchTerms,
+      survivingFamilyMembers,
+      survivingSearchDocument,
+      survivingSearchTerms,
       payments,
       soldCount: ticketType?.soldCount,
     }
@@ -889,6 +931,14 @@ test("removeAttendeeFromOrder deletes attendee-owned rows, decrements inventory,
   expect(remaining.familyGroups).toEqual([])
   expect(remaining.searchDocument).toBeNull()
   expect(remaining.searchTerms).toEqual([])
+  expect(remaining.survivingFamilyMembers).toEqual([])
+  expect(remaining.survivingSearchDocument?.searchText).toContain(
+    "no ticket buyer"
+  )
+  expect(remaining.survivingSearchDocument?.searchText).not.toContain("family")
+  expect(remaining.survivingSearchTerms.some((term) => term.term === "family")).toBe(
+    false
+  )
   expect(remaining.payments).toHaveLength(1)
   expect(remaining.soldCount).toBe(4)
 })

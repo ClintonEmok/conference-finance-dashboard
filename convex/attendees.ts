@@ -1467,6 +1467,7 @@ export async function deleteAttendeeScopedRowsAndRecompute(
       q.eq("primaryAttendeeId", String(attendee._id))
     )
     .collect()
+  const survivingFamilyAttendeeIds = new Set<Id<"orderAttendees">>()
   for (const member of familyMembers) {
     const familyGroupId = ctx.db.normalizeId(
       "attendeeFamilyGroups",
@@ -1519,11 +1520,19 @@ export async function deleteAttendeeScopedRowsAndRecompute(
       .withIndex("familyGroupId", (q) => q.eq("familyGroupId", String(group._id)))
       .collect()
     for (const member of members) {
+      if (member.attendeeId !== String(attendee._id)) {
+        const survivorId = ctx.db.normalizeId("orderAttendees", member.attendeeId)
+        if (survivorId) survivingFamilyAttendeeIds.add(survivorId)
+      }
       await ctx.db.delete("attendeeFamilyMembers", member._id)
     }
     await ctx.db.delete("attendeeFamilyGroups", group._id)
   }
   await ctx.db.delete("orderAttendees", attendee._id)
+
+  for (const survivorId of survivingFamilyAttendeeIds) {
+    await upsertAttendeeSearchDocument(ctx, survivorId)
+  }
 
   const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [order])
 

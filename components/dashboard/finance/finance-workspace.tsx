@@ -18,7 +18,6 @@ import {
   buildFinanceAttentionItems,
   type AttentionQueryState,
 } from "@/lib/dashboard/workspace-attention"
-import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
 import { formatMoney } from "@/lib/format"
 import type { Doc } from "@/convex/_generated/dataModel"
 import type { ReconciliationOrderRow } from "./legacy-reconciliation-surface"
@@ -41,29 +40,44 @@ function FinanceSummaryCards({
   const isLoading = reconciliation.status === "pending" || payments.status === "pending"
   const hasError = reconciliation.status === "error" || payments.status === "error"
   const summary = !isLoading && !hasError && reconciliation.status === "ready" && payments.status === "ready"
-    ? reconciliation.data.reduce(
-        (totals, row) => {
-          const balance = deriveBalanceAmounts(row.amountDueMinor, row.matchedAmountMinor)
-          return {
-            orderValueMinor: totals.orderValueMinor + balance.amountDueMinor,
-            paidMinor: totals.paidMinor + balance.appliedAmountMinor,
-            donationsMinor: totals.donationsMinor + balance.donationAmountMinor,
-            outstandingMinor: totals.outstandingMinor + balance.outstandingAmountMinor,
-            orderCount: totals.orderCount + 1,
-            pendingCount: totals.pendingCount + (row.normalizedStatus === "pending" ? 1 : 0),
-            outstandingOrderCount: totals.outstandingOrderCount + (balance.outstandingAmountMinor > 0 ? 1 : 0),
-          }
-        },
-        {
-          orderValueMinor: 0,
-          paidMinor: 0,
-          donationsMinor: 0,
-          outstandingMinor: 0,
-          orderCount: 0,
-          pendingCount: 0,
-          outstandingOrderCount: 0,
+    ? reconciliation.data.reduce<{
+        orderValueMinor: number
+        paidMinor: number
+        donationsMinor: number
+        outstandingMinor: number
+        orderCount: number
+        pendingCount: number
+        outstandingOrderCount: number
+      } | null>((totals, row) => {
+        if (
+          totals === null ||
+          row.amountDueMinor === null ||
+          row.appliedAmountMinor === null ||
+          row.appliedAmountMinor === undefined ||
+          row.donationAmountMinor === null ||
+          row.donationAmountMinor === undefined ||
+          typeof row.outstandingAmountMinor !== "number"
+        ) {
+          return null
         }
-      )
+        return {
+          orderValueMinor: totals.orderValueMinor + row.amountDueMinor,
+          paidMinor: totals.paidMinor + row.appliedAmountMinor,
+          donationsMinor: totals.donationsMinor + row.donationAmountMinor,
+          outstandingMinor: totals.outstandingMinor + row.outstandingAmountMinor,
+          orderCount: totals.orderCount + 1,
+          pendingCount: totals.pendingCount + (row.normalizedStatus === "pending" ? 1 : 0),
+          outstandingOrderCount: totals.outstandingOrderCount + (row.outstandingAmountMinor > 0 ? 1 : 0),
+        }
+      }, {
+        orderValueMinor: 0,
+        paidMinor: 0,
+        donationsMinor: 0,
+        outstandingMinor: 0,
+        orderCount: 0,
+        pendingCount: 0,
+        outstandingOrderCount: 0,
+      })
     : null
 
   if (summary && payments.status === "ready") {

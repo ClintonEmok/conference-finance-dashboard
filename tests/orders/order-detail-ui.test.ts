@@ -100,6 +100,8 @@ describe("OrderDetailSurface panel decomposition", () => {
     expect(editor).toContain('method: "DELETE"')
     expect(editor).toContain("body: JSON.stringify({ eventId: attendee.eventId })")
     expect(editor).toContain("canRemove")
+    expect(editor).toContain("canRemove = false")
+    expect(editor).toContain('role="alert"')
   })
 
   it("wires the Merge order action from the actions panel to the dialog", () => {

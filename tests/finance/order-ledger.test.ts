@@ -259,5 +259,42 @@ describe("order-ledger domain", () => {
 
       expect(result.availableEvents[0].title).toBeNull()
     })
+
+    it("normalizes and forwards server search cursors while keeping totals nullable", async () => {
+      vi.mocked(convexQuery)
+        .mockResolvedValueOnce({
+          orders: [{ orderId: "canonical-order", amountDueMinor: 1200 }],
+          totalRows: null,
+          totalPages: null,
+          nextCursor: "s:next",
+          hasNextPage: true,
+          totals: { amountDueMinor: 1200, matchedAmountMinor: 0, outstandingAmountMinor: 1200 },
+        })
+        .mockResolvedValueOnce([])
+
+      const result = await getOrderLedger({ eventId: "event-1", search: "  Alice   EXAMPLE ", searchCursor: " s:cursor " })
+
+      expect(convexQuery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        eventId: "event-1",
+        search: "alice example",
+        searchCursor: "s:cursor",
+        page: 1,
+        pageSize: 25,
+      }))
+      expect(result.filters.search).toBe("alice example")
+      expect(result.page).toMatchObject({ totalRows: null, totalPages: null })
+      expect(result.page.hasNextPage).toBe(true)
+      expect(result.rows[0].orderId).toBe("canonical-order")
+    })
+
+    it("preserves exact totals for no-search callers", async () => {
+      vi.mocked(convexQuery)
+        .mockResolvedValueOnce({ orders: [], totalRows: 3, totalPages: 1, nextCursor: null, hasNextPage: false, totals: { amountDueMinor: 0, matchedAmountMinor: 0, outstandingAmountMinor: 0 } })
+        .mockResolvedValueOnce([])
+
+      const result = await getOrderLedger({})
+
+      expect(result.page).toMatchObject({ totalRows: 3, totalPages: 1, hasNextPage: false, nextCursor: null })
+    })
   })
 })

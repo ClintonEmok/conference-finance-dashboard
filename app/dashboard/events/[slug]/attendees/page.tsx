@@ -1,8 +1,8 @@
 "use client"
 
-import { use, useMemo, useState } from "react"
+import { use, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { Users, Plus, Search } from "lucide-react"
+import { Users, Plus, Search, ChevronLeft, ChevronRight } from "lucide-react"
 
 import {
   Card,
@@ -23,10 +23,10 @@ import {
 } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
+import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 import { useMutation } from "convex/react"
 import { api } from "@/lib/convex/api"
 import {
-  useAttendeesForEvent,
   useTicketTypesForEvent,
   useCreateManualAttendee,
 } from "@/lib/convex/hooks/events"
@@ -48,6 +48,11 @@ type AttendeeRow = {
   familyRelationship: string | null
 }
 
+type AttendeesPayload = {
+  rows: Array<Record<string, unknown>>
+  page: { number: number; totalRows: number | null; totalPages: number | null; hasNextPage: boolean; nextCursor: string | null }
+}
+
 type OrderGroup = {
   orderId: string
   bookingRef: string | null
@@ -64,10 +69,17 @@ type FamilyGroup = {
 }
 
 type ViewMode = "all" | "family" | "order"
+const SEARCH_DEBOUNCE_MS = 300
 
 type FamilyOption = {
   id: string
   label: string
+}
+
+type TicketTypeOption = {
+  _id: string
+  label: string
+  priceMinor: number
 }
 
 export default function EventAttendeesPage({
@@ -84,6 +96,7 @@ export default function EventAttendeesPage({
   const [attendeeEmail, setAttendeeEmail] = useState("")
   const [attendeeTicketTypeId, setAttendeeTicketTypeId] = useState("")
   const [searchTerm, setSearchTerm] = useState("")
+  const [appliedSearch, setAppliedSearch] = useState("")
   const [familyDialogAttendee, setFamilyDialogAttendee] = useState<AttendeeRow | null>(null)
   const [familyGroupId, setFamilyGroupId] = useState("")
   const [familyLabel, setFamilyLabel] = useState("")
@@ -91,13 +104,58 @@ export default function EventAttendeesPage({
   const [familyError, setFamilyError] = useState<string | null>(null)
   const [familySaving, setFamilySaving] = useState(false)
 
-  const { attendees, isLoading } = useAttendeesForEvent(event?._id)
+  const [attendees, setAttendees] = useState<AttendeeRow[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [payload, setPayload] = useState<AttendeesPayload | null>(null)
+  const [searchCursor, setSearchCursor] = useState<string | null>(null)
+  const [cursorHistory, setCursorHistory] = useState<string[]>([])
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const requestSequence = useRef(0)
   const { ticketTypes } = useTicketTypesForEvent(event?._id)
   const createManualAttendee = useCreateManualAttendee()
   const createFamilyGroup = useMutation(api.sync.createAttendeeFamilyGroup)
   const addAttendeeToFamilyGroup = useMutation(api.sync.addAttendeeToFamilyGroup)
 
-  if (!event) return null
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const nextSearch = searchTerm.trim().replace(/\s+/g, " ")
+      setAppliedSearch(nextSearch)
+      setSearchCursor(null)
+      setCursorHistory([])
+    }, SEARCH_DEBOUNCE_MS)
+
+    return () => window.clearTimeout(timeout)
+  }, [searchTerm])
+
+  useEffect(() => {
+    if (!event?._id) return
+    const controller = new AbortController()
+    const sequence = ++requestSequence.current
+    setIsLoading(true)
+    setErrorMessage(null)
+    const query = new URLSearchParams({ eventId: event._id, pageSize: "25" })
+    if (appliedSearch.trim()) query.set("search", appliedSearch.trim())
+    if (searchCursor) query.set("searchCursor", searchCursor)
+    fetch(`/api/dashboard/attendees?${query.toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error?.message ?? "Failed to load attendees")
+        if (sequence !== requestSequence.current) return
+        setPayload(payload)
+        setAttendees((payload.rows ?? []).map((row: Record<string, unknown>) => ({
+          _id: String(row.attendeeId), name: row.attendeeName ?? "", email: row.attendeeEmail ?? null,
+          ticketLabel: row.ticketTypeLabel ?? null, bookingRef: row.bookingRef ?? null,
+          orderStatus: row.normalizedStatus ?? null, orderId: String(row.orderId),
+          submittedAt: row.orderedAt ?? null, familyGroupId: row.familyGroupId ?? null,
+          familyGroupLabel: row.familyGroupLabel ?? null, familyPrimaryAttendeeId: row.familyPrimaryAttendeeId ?? null,
+          familyRelationship: row.familyRelationship ?? null,
+        })))
+      })
+      .catch((error) => { if (error instanceof Error && error.name !== "AbortError" && sequence === requestSequence.current) setErrorMessage("Failed to load attendees. Try again.") })
+      .finally(() => { if (sequence === requestSequence.current) setIsLoading(false) })
+    return () => controller.abort()
+  }, [event?._id, appliedSearch, searchCursor, loadAttempt])
 
   const handleAddAttendee = async () => {
     if (
@@ -126,29 +184,7 @@ export default function EventAttendeesPage({
 
   const attendeeRows = useMemo(() => (attendees ?? []) as AttendeeRow[], [attendees])
 
-  const filteredRows = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase()
-
-    if (!query) {
-      return attendeeRows
-    }
-
-    return attendeeRows.filter((row) => {
-      const haystack = [
-        row.name,
-        row.email,
-        row.ticketLabel,
-        row.bookingRef,
-        row.orderStatus,
-        row.familyGroupLabel,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-
-      return haystack.includes(query)
-    })
-  }, [attendeeRows, searchTerm])
+  const filteredRows = attendeeRows
 
   const familyOptions = useMemo<FamilyOption[]>(() => {
     const families = new Map<string, string>()
@@ -249,6 +285,8 @@ export default function EventAttendeesPage({
       }),
     [filteredRows]
   )
+
+  if (!event) return null
 
   const openFamilyDialog = (attendee: AttendeeRow) => {
     setFamilyDialogAttendee(attendee)
@@ -426,7 +464,7 @@ export default function EventAttendeesPage({
                   className="flex h-10 w-full rounded-xl border border-white/20 bg-white/50 px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 dark:bg-black/20"
                 >
                   <option value="">Select a ticket type</option>
-                  {ticketTypes?.map((ticket: any) => (
+                  {ticketTypes?.map((ticket: TicketTypeOption) => (
                     <option key={ticket._id} value={ticket._id} className="dark:bg-zinc-900">
                       {ticket.label} - {event.currency} {(ticket.priceMinor / 100).toFixed(2)}
                     </option>
@@ -453,6 +491,7 @@ export default function EventAttendeesPage({
           <div className="relative">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/50" />
             <Input
+              aria-label="Search attendees"
               placeholder="Search attendees by name, email, family, or order..."
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
@@ -485,10 +524,12 @@ export default function EventAttendeesPage({
             <Skeleton className="h-20 w-full rounded-xl" />
             <Skeleton className="h-20 w-full rounded-xl" />
           </div>
+        ) : errorMessage ? (
+          <DashboardQueryState state="error" message={errorMessage} onRetry={() => setLoadAttempt((attempt) => attempt + 1)} className="rounded-2xl border border-destructive/20 bg-destructive/5 p-8" />
         ) : filteredRows.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-white/20 bg-white/5 py-20 text-center text-muted-foreground">
             <Users className="mx-auto mb-4 size-16 opacity-10" />
-            <p className="text-sm font-bold uppercase tracking-widest opacity-40">No attendees found</p>
+            <DashboardQueryState state="empty" message="No attendees found." className="text-center" />
             <p className="mt-1 text-xs">Add attendees manually or wait for public registrations.</p>
           </div>
         ) : viewMode === "all" ? (
@@ -552,6 +593,16 @@ export default function EventAttendeesPage({
               </section>
             ))}
           </div>
+        )}
+
+        {payload && (payload.rows.length > 0 || payload.page.hasNextPage || cursorHistory.length > 0) && (
+          <footer className="flex items-center justify-between border-t border-border/30 pt-5">
+            <p className="text-xs text-muted-foreground">{payload.page.totalRows === null ? `Showing ${payload.rows.length} matching attendees` : `Page ${payload.page.number} of ${payload.page.totalPages}`}</p>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" disabled={cursorHistory.length === 0} onClick={() => { const history = [...cursorHistory]; history.pop(); setCursorHistory(history); setSearchCursor(history.at(-1) ?? null) }}><ChevronLeft className="mr-1 size-4" /> Back</Button>
+              <Button variant="outline" size="sm" disabled={!payload.page.hasNextPage || !payload.page.nextCursor} onClick={() => { if (payload.page.nextCursor) { setCursorHistory((history) => [...history, payload.page.nextCursor!]); setSearchCursor(payload.page.nextCursor) } }}>Next <ChevronRight className="ml-1 size-4" /></Button>
+            </div>
+          </footer>
         )}
 
         <Dialog open={Boolean(familyDialogAttendee)} onOpenChange={(open) => !open && closeFamilyDialog()}>

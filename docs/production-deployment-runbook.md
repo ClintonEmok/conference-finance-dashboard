@@ -73,6 +73,92 @@ signups run degraded with a Convex warning. Provision both, then verify.
    ```
    Logs `emailType: "announcement_test"`. Never a broadcast.
 
+## 2A. Phase 46 Search-Projection Rollout (preview rehearsal first)
+
+> **Status: DOCUMENTED, NOT EXECUTED.** This section is the operator procedure
+> for the Phase 46 indexed-search rollout. The preview rehearsal is safe to
+> run only against the exact preview deployment URL. The production backfill
+> remains an explicit, operator-only write; no command in this phase executes
+> a production seed, backfill, broadcast, or other production write.
+
+### Preview rehearsal (safe, sanitized, and repeatable)
+
+Run the existing internal `seedPreviewSimulation` mutation with the full,
+PII-free fixture. The fixture creates **51 orders / 116 attendees** (plus its
+audited accommodation shape), so the UI's page size of 25 can prove that
+search results continue beyond the first page. Never paste credentials, and do
+not substitute a production URL or selector for the preview URL.
+
+```bash
+npx convex run seedPreviewSimulation \
+  --args '{"scope":"full","preview":true,"allowedDeploymentUrl":"https://<PREVIEW_DEPLOYMENT_SLUG>.convex.site"}'
+```
+
+The preview seed is idempotent by stable keys and does not overwrite existing
+rows. Re-running it is therefore safe. The preview guard checks `preview: true`
+and requires an exact canonical match between the runtime `CONVEX_SITE_URL`
+and `allowedDeploymentUrl`; it fails closed before reads or writes when the
+deployment identity or allowlist is absent, malformed, or mismatched.
+
+Backfill each canonical subject kind separately, always starting with
+`cursor: null` and using the implementation-enforced **`batchSize: 1`**. This
+batch size is not the UI page size: one canonical row per invocation is the
+hard limit because projection replacement can consume up to 129 writes.
+Repeat the same command with the returned `nextCursor` until `isDone: true`,
+then repeat the complete cursor sequence for attendees. If a run stops after a
+valid completed batch, resume with that returned cursor; do not invent or edit
+an opaque cursor.
+
+```bash
+npx convex run backfillSearchProjections \
+  --args '{"kind":"order","cursor":null,"batchSize":1,"authorize":true,"allowedDeploymentUrl":"https://<PREVIEW_DEPLOYMENT_SLUG>.convex.site"}'
+# Repeat with the returned nextCursor, then run the same sequence with kind "attendee".
+npx convex run verifySearchProjections \
+  --args '{"authorize":true,"allowedDeploymentUrl":"https://<PREVIEW_DEPLOYMENT_SLUG>.convex.site"}'
+```
+
+`verifySearchProjections` is read-only. Continue only when `missing`, `stale`,
+`duplicatePostings`, `orphanedPostings`, `blockedJobs`, and `pendingJobs` are
+all zero and `truncated` is false. The sanitized fixture source is
+`tests/fixtures/legacy-preview.snapshot.ts`; its 51/116 coverage is the
+expected full-fixture status, not a claim about production data.
+
+### Production backfill (operator-only; not executed by this phase)
+
+After the preview rehearsal and a reviewed deployment, an authenticated
+operator may run the production procedure below. Replace the placeholder with
+the exact production slug only; this document intentionally does not run it
+and does not provide credentials. The production guard requires both
+`authorize: true` and an exact deployment-slug match between the runtime
+`CONVEX_SITE_URL` and `allowedDeploymentUrl`. It accepts the exact
+`https://<PRODUCTION_DEPLOYMENT_SLUG>.convex.cloud` or corresponding
+`.convex.site` URL for the same slug, but rejects selectors, suffix/prefix
+matches, malformed URLs, missing identity, and missing allowlists before any
+read or write.
+
+```bash
+# OPERATOR RUNBOOK ONLY — do not run as part of Phase 46 automation.
+npx convex run backfillSearchProjections \
+  --args '{"kind":"order","cursor":null,"batchSize":1,"authorize":true,"allowedDeploymentUrl":"https://<PRODUCTION_DEPLOYMENT_SLUG>.convex.cloud"}'
+# Repeat with each returned nextCursor until isDone:true; then repeat from
+# cursor:null for kind:"attendee" and continue until isDone:true.
+npx convex run verifySearchProjections \
+  --args '{"authorize":true,"allowedDeploymentUrl":"https://<PRODUCTION_DEPLOYMENT_SLUG>.convex.cloud"}'
+```
+
+The order-then-attendee sequence is required so each kind has complete
+historical coverage. A completed batch can be rerun safely: projection
+replacement is idempotent and does not create duplicate postings. Do not skip
+historical backfill merely because live fan-out maintenance is enabled.
+Verification must be authorized but read-only and must pass before enabling or
+promoting the production search UI. Stop immediately and do not proceed to the
+next cursor, kind, or rollout gate when any of the following occurs: guard
+failure; invalid cursor; a skipped/diagnostic row that is not understood;
+missing, stale, duplicate, or orphaned coverage; `blockedJobs` or
+`pendingJobs`; `truncated: true`; an incomplete pass; or any unexpected write
+or deployment identity. Rehearse the failed step in preview and investigate
+before resuming from the last known-good returned cursor.
+
 ## 3. Production Cutover (PRODUCTION — REQUIRES OPERATOR AUTHORIZATION)
 
 > ⛔ **OPERATOR AUTHORIZATION REQUIRED** before executing any of the following.

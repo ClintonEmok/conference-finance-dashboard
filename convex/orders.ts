@@ -18,6 +18,13 @@ import {
   loadOrderWithExtension,
   loadOrdersWithExtensions,
 } from "./provider_boundary"
+import {
+  enqueueSearchProjectionFanout,
+  deleteSearchProjection,
+  maintainOrderSearchProjection,
+  paginateSearchDocuments,
+  upsertOrderSearchDocument,
+} from "./search"
 
 function isOrderRemoved(ttOrder: any) {
   return typeof ttOrder?.removedAt === "number"
@@ -240,6 +247,8 @@ export const createOrder = mutation({
       rawPayload: args.rawPayload,
     })
 
+    await maintainOrderSearchProjection(ctx, orderId)
+
     return orderId
   },
 })
@@ -319,6 +328,8 @@ export const upsertOrder = mutation({
         })
       }
 
+      await maintainOrderSearchProjection(ctx, existingOrder._id)
+
       return existingOrder._id
     }
 
@@ -333,6 +344,8 @@ export const upsertOrder = mutation({
       orderId,
       ...extensionData,
     })
+
+    await maintainOrderSearchProjection(ctx, orderId)
 
     return orderId
   },
@@ -368,6 +381,8 @@ export const updateOrderStatus = mutation({
     if (extension) {
       await ctx.db.patch("ticketTailorOrders", extension._id, statusPatch.extensionPatch)
     }
+
+    await maintainOrderSearchProjection(ctx, args.orderId)
 
     return args.orderId
   },
@@ -478,6 +493,8 @@ export const updateOrderDetails = mutation({
       await ctx.db.patch("orders", args.orderId, orderPatch)
     }
 
+    await maintainOrderSearchProjection(ctx, args.orderId)
+
     return args.orderId
   },
 })
@@ -539,6 +556,8 @@ export const syncFullyPaidOrders = internalMutation({
       if (extension) {
         await ctx.db.patch("ticketTailorOrders", extension._id, statusPatch.extensionPatch)
       }
+
+      await maintainOrderSearchProjection(ctx, order._id)
 
       updated += 1
     }
@@ -861,10 +880,14 @@ export const getOrdersWithFilters = query({
     location: v.optional(v.string()),
     page: v.optional(v.number()),
     pageSize: v.optional(v.number()),
+    search: v.optional(v.string()),
+    searchCursor: v.optional(v.union(v.string(), v.null())),
   },
   returns: v.object({
-    totalRows: v.number(),
-    totalPages: v.number(),
+    totalRows: v.union(v.number(), v.null()),
+    totalPages: v.union(v.number(), v.null()),
+    nextCursor: v.union(v.string(), v.null()),
+    hasNextPage: v.boolean(),
     totals: v.object({
       amountDueMinor: v.number(),
       matchedAmountMinor: v.number(),
@@ -874,30 +897,62 @@ export const getOrdersWithFilters = query({
   }),
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const candidates = await listCandidateOrders(ctx, args, 500)
-    const eventSourceKindsById = await loadEventSourceKindsById(ctx)
-    const location = normalizeLocationLabel(args.location)
-    let orders = candidates
-      .filter((order) => !isOrderRemoved(order))
-      .filter((order) => !(order as any).mergedIntoOrderId)
-      .filter((order) => isInternalEvent(eventSourceKindsById, order.eventId))
-      .filter((order) => matchesOrderFilters(order, args))
-      .sort(sortOrdersByNewest)
-
-    if (location) {
-      const locationsByOrderId = await loadOrderLocationsByOrderId(ctx, orders)
-      orders = orders.filter((order) =>
-        matchesLocationFilter(order._id, locationsByOrderId, location)
-      )
-    }
-
-    // Filter out core-merged orders for totals and pagination
-    const visibleOrders = orders.filter((o) => !(o as any).mergedIntoOrderId)
-
+    const normalizedSearch = args.search?.trim().replace(/\s+/g, " ").toLowerCase() ?? ""
     const page = args.page ?? 1
     const pageSize = args.pageSize ?? 25
-    const totalRows = visibleOrders.length
-    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
+    let searchNextCursor: string | null = null
+    let searchHasNextPage = false
+    let visibleOrders: CandidateOrder[]
+
+    if (normalizedSearch) {
+      if (page > 1) throw new Error("Search cursor pagination cannot be combined with offset page pagination.")
+      const eventId = args.eventId ? ctx.db.normalizeId("events", args.eventId) : null
+      if (args.eventId && !eventId) throw new Error("Invalid 'eventId'.")
+      let cursor = args.searchCursor ?? null
+      const matching: CandidateOrder[] = []
+      const projectionPage = await paginateSearchDocuments(ctx, { kind: "order", eventId: eventId ?? undefined, search: normalizedSearch, cursor, numItems: pageSize })
+      cursor = projectionPage.continueCursor
+      for (const document of projectionPage.page) {
+          const orderId = ctx.db.normalizeId("orders", document.subjectId)
+          if (!orderId) continue
+          const combined = await loadOrderWithExtension(ctx, orderId)
+          if (!combined || !isOrderVisible(combined.extension)) continue
+          const order = { ...combined.order, ...combined.extension, _id: combined.order._id, _creationTime: combined.order._creationTime } as CandidateOrder
+          if ((order as any).mergedIntoOrderId || !matchesOrderFilters(order, args)) continue
+          if (args.location) {
+            const locations = await loadOrderLocationsByOrderId(ctx, [order])
+            if (!matchesLocationFilter(order._id, locations, normalizeLocationLabel(args.location)!)) continue
+          }
+          matching.push(order)
+        if (matching.length >= pageSize) break
+      }
+      visibleOrders = matching
+      searchNextCursor = projectionPage.isDone ? null : cursor
+      searchHasNextPage = !projectionPage.isDone
+    } else {
+      const candidates = await listCandidateOrders(ctx, args, 500)
+      const eventSourceKindsById = await loadEventSourceKindsById(ctx)
+      const location = normalizeLocationLabel(args.location)
+      let orders = candidates
+        .filter((order) => !isOrderRemoved(order))
+        .filter((order) => !(order as any).mergedIntoOrderId)
+        .filter((order) => isInternalEvent(eventSourceKindsById, order.eventId))
+        .filter((order) => matchesOrderFilters(order, args))
+        .sort(sortOrdersByNewest)
+
+      if (location) {
+        const locationsByOrderId = await loadOrderLocationsByOrderId(ctx, orders)
+        orders = orders.filter((order) =>
+          matchesLocationFilter(order._id, locationsByOrderId, location)
+        )
+      }
+
+      // Filter out core-merged orders for totals and pagination
+      visibleOrders = orders.filter((o) => !(o as any).mergedIntoOrderId)
+    }
+
+    const totalRows = normalizedSearch ? null : visibleOrders.length
+    const totalPages = normalizedSearch ? null : Math.max(1, Math.ceil(visibleOrders.length / pageSize))
     const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
       ctx,
       visibleOrders
@@ -929,8 +984,8 @@ export const getOrdersWithFilters = query({
       }
     )
 
-    const skip = (page - 1) * pageSize
-    const paginatedOrders = visibleOrders.slice(skip, skip + pageSize)
+    const skip = normalizedSearch ? 0 : (page - 1) * pageSize
+    const paginatedOrders = normalizedSearch ? visibleOrders : visibleOrders.slice(skip, skip + pageSize)
 
     const eventNamesById = await loadEventNamesById(ctx)
     const eventSlugsById = await loadEventSlugsById(ctx)
@@ -976,6 +1031,8 @@ export const getOrdersWithFilters = query({
     return {
       totalRows,
       totalPages,
+      nextCursor: normalizedSearch ? searchNextCursor : null,
+      hasNextPage: normalizedSearch ? searchHasNextPage : page < (totalPages ?? 1),
       totals,
       orders: ordersWithEvent,
     }
@@ -1117,10 +1174,9 @@ export const getOrdersForReconciliation = query({
           null
         const matchedAmountMinor =
           matchedTotalsByOrderId.get(String(order._id)) ?? 0
-        const outstandingAmountMinor = deriveBalanceAmounts(
-          amountDueMinor,
-          matchedAmountMinor
-        ).outstandingAmountMinor
+        const balance = amountDueMinor === null
+          ? null
+          : deriveBalanceAmounts(amountDueMinor, matchedAmountMinor)
 
         return {
           orderId: order._id,
@@ -1140,7 +1196,9 @@ export const getOrdersForReconciliation = query({
           amountDueMinor,
           totalAmountMinor: order.totalAmountMinor ?? null,
           matchedAmountMinor,
-          outstandingAmountMinor,
+          appliedAmountMinor: balance?.appliedAmountMinor ?? null,
+          donationAmountMinor: balance?.donationAmountMinor ?? null,
+          outstandingAmountMinor: balance?.outstandingAmountMinor ?? 0,
           currency: order.currency ?? null,
           orderedAt: order.orderedAt
             ? new Date(order.orderedAt).toISOString()
@@ -1548,6 +1606,13 @@ export const removeOrderLocally = mutation({
       .collect()
 
     const attendeeIds = attendees.map((attendee) => attendee._id)
+
+    // Remove projections before child rows disappear; search is never the
+    // source of truth, but it must not retain deleted canonical subjects.
+    await deleteSearchProjection(ctx, "order", String(args.orderId))
+    for (const attendee of attendees) {
+      await deleteSearchProjection(ctx, "attendee", String(attendee._id))
+    }
 
     const ticketSelections = await ctx.db
       .query("orderTicketSelections")
@@ -2292,7 +2357,13 @@ export const mergeOrders = mutation({
           removedReason: `merged_into_${String(args.targetOrderId)}`,
         })
       }
+
+      // The source is now non-searchable; moved attendees are refreshed from
+      // the canonical target after all ownership writes below.
+      await upsertOrderSearchDocument(ctx, source.order._id)
     }
+
+    await maintainOrderSearchProjection(ctx, args.targetOrderId)
 
     // ── Recompute target canonical amount due ──────────────────────────
     const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [target])

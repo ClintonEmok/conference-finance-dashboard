@@ -60,7 +60,8 @@ export async function DELETE(
     return NextResponse.json({ ok: true, ...result })
   } catch (error) {
     console.error("Error removing attendee:", error)
-    const message = error instanceof Error ? error.message : "Invalid request"
+    const message = (error instanceof Error ? error.message : "Invalid request")
+      .replace(/^Convex mutation failed:\s*/, "")
 
     if (message === "Invalid attendeeId") {
       return badRequest("Invalid attendeeId")
@@ -81,7 +82,6 @@ export async function DELETE(
       )
     }
     if (
-      message === "Event not found." ||
       message.includes("does not belong") ||
       message.startsWith("An order") ||
       message.startsWith("Attendee ") ||

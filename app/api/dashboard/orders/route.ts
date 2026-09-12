@@ -4,6 +4,7 @@ import { requireApiUser } from "@/lib/auth/server"
 import { getOrderLedger, type CanonicalOrderStatus } from "@/lib/domain/finance/order-ledger"
 
 const allowedStatuses = new Set<CanonicalOrderStatus>(["paid", "refunded", "cancelled", "pending"])
+const MAX_SEARCH_LENGTH = 512
 
 function parseOptionalDate(value: string | null, field: "from" | "to") {
   if (!value || !value.trim()) {
@@ -43,6 +44,8 @@ function parseOrderFilters(request: Request) {
   const eventIdParam = params.get("eventId")
   const statusParam = params.get("status")
   const locationParam = params.get("location")
+  const searchParam = params.get("search")
+  const searchCursorParam = params.get("searchCursor")
 
   const eventId = eventIdParam && eventIdParam.trim() ? eventIdParam.trim() : null
   const from = parseOptionalDate(params.get("from"), "from")
@@ -50,6 +53,18 @@ function parseOrderFilters(request: Request) {
   const page = parsePositiveInteger(params.get("page"), "page")
   const pageSize = parsePositiveInteger(params.get("pageSize"), "pageSize")
   const location = parseOptionalString(locationParam)
+  const search = parseOptionalString(searchParam)
+  const searchCursor = parseOptionalString(searchCursorParam)
+
+  if (search && search.length > MAX_SEARCH_LENGTH) {
+    throw new Error(`Invalid 'search'. Maximum length is ${MAX_SEARCH_LENGTH} characters.`)
+  }
+  if (searchCursor && page && page > 1) {
+    throw new Error("Invalid 'searchCursor'. Cursor pagination requires page 1.")
+  }
+  if (searchCursor && !search) {
+    throw new Error("Invalid 'searchCursor'. A search query is required.")
+  }
 
   const status = statusParam && statusParam.trim() ? statusParam.trim().toLowerCase() : null
 
@@ -69,6 +84,8 @@ function parseOrderFilters(request: Request) {
     location,
     page: page ?? undefined,
     pageSize: pageSize ?? undefined,
+    search,
+    searchCursor,
   }
 }
 
@@ -94,7 +111,7 @@ export async function GET(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid request"
 
-    if (message.startsWith("Invalid") || message.includes("Expected one of") || message.includes("must be")) {
+    if (message.startsWith("Invalid") || message.includes("Expected one of") || message.includes("must be") || message.includes("continuation cursor") || message.includes("Cursor pagination")) {
       return NextResponse.json(
         {
           error: {

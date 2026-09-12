@@ -1095,6 +1095,151 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  searchDocuments: {
+    document: {
+      eventId: Id<"events">;
+      isSearchable: boolean;
+      kind: "order" | "attendee";
+      searchText: string;
+      sortAt: number;
+      subjectId: string;
+      updatedAt: number;
+      _id: Id<"searchDocuments">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "eventId"
+      | "isSearchable"
+      | "kind"
+      | "searchText"
+      | "sortAt"
+      | "subjectId"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_kind_and_eventId_and_sortAt_and_subjectId: [
+        "kind",
+        "eventId",
+        "sortAt",
+        "subjectId",
+        "_creationTime",
+      ];
+      by_kind_and_sortAt_and_subjectId_and_eventId: [
+        "kind",
+        "sortAt",
+        "subjectId",
+        "eventId",
+        "_creationTime",
+      ];
+      by_kind_and_subjectId: ["kind", "subjectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  searchDocumentTerms: {
+    document: {
+      documentKey: string;
+      eventId: Id<"events">;
+      kind: "order" | "attendee";
+      sortAt: number;
+      subjectId: string;
+      term: string;
+      _id: Id<"searchDocumentTerms">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "documentKey"
+      | "eventId"
+      | "kind"
+      | "sortAt"
+      | "subjectId"
+      | "term";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_documentKey: ["documentKey", "_creationTime"];
+      by_kind_and_eventId_and_sortAt_and_subjectId_and_term: [
+        "kind",
+        "eventId",
+        "sortAt",
+        "subjectId",
+        "term",
+        "_creationTime",
+      ];
+      by_kind_and_eventId_and_term_and_sortAt_and_subjectId: [
+        "kind",
+        "eventId",
+        "term",
+        "sortAt",
+        "subjectId",
+        "_creationTime",
+      ];
+      by_kind_and_sortAt_and_subjectId_and_eventId_and_term: [
+        "kind",
+        "sortAt",
+        "subjectId",
+        "eventId",
+        "term",
+        "_creationTime",
+      ];
+      by_kind_and_term_and_sortAt_and_subjectId_and_eventId: [
+        "kind",
+        "term",
+        "sortAt",
+        "subjectId",
+        "eventId",
+        "_creationTime",
+      ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  searchProjectionFanoutJobs: {
+    document: {
+      attemptCount: number;
+      completedAt?: number;
+      continuationCursor: string | null;
+      createdAt: number;
+      lastError?: string;
+      operation: "order" | "ticketType" | "family";
+      processedCount: number;
+      status: "pending" | "running" | "blocked" | "complete";
+      targetId: string;
+      updatedAt: number;
+      _id: Id<"searchProjectionFanoutJobs">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "attemptCount"
+      | "completedAt"
+      | "continuationCursor"
+      | "createdAt"
+      | "lastError"
+      | "operation"
+      | "processedCount"
+      | "status"
+      | "targetId"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_status_and_continuationCursor: [
+        "status",
+        "continuationCursor",
+        "_creationTime",
+      ];
+      by_targetId_and_status: ["targetId", "status", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   sentEmails: {
     document: {
       bookingRef: string;

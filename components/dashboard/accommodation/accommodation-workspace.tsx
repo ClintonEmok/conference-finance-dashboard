@@ -66,7 +66,7 @@ export function AccommodationWorkspace({ slug }: { slug: string }) {
     }
   ), [boardState, event.accommodationEnabled, slug, readPlan.mode])
   const tabs = useMemo(() => [
-    { value: "hotels", label: "Hotels", href: accommodationHref(slug, "hotels") },
+     { value: "hotels", label: "Hotels & Rooms", href: accommodationHref(slug, "hotels") },
     { value: "allocation", label: "Allocation", href: accommodationHref(slug, "allocation") },
     { value: "upgrades-options", label: "Upgrades & Options", href: accommodationHref(slug, "upgrades-options") },
   ], [slug])

@@ -6,6 +6,11 @@ import {
 } from "./_generated/server"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
+import {
+  enqueueSearchProjectionFanout,
+  maintainOrderSearchProjection,
+  refreshAttendeeSearchDocumentsForTicketType,
+} from "./search"
 
 // =============================================================================
 // CANONICAL EVENTS - Source-agnostic queries using the canonical events table
@@ -343,6 +348,7 @@ export const createTicketType = mutation({
     visibility: v.optional(v.union(v.literal("public"), v.literal("hidden"))),
     roomTypeId: v.optional(v.id("accommodationRoomTypes")),
     accommodationIncluded: v.optional(v.boolean()),
+    requiresBed: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
@@ -368,6 +374,7 @@ export const createTicketType = mutation({
       availabilityState: "selectable",
       roomTypeId: args.roomTypeId,
       accommodationIncluded: args.accommodationIncluded,
+      requiresBed: args.requiresBed,
       updatedAt: now,
     })
   },
@@ -387,6 +394,7 @@ export const updateTicketType = mutation({
     ),
     roomTypeId: v.optional(v.id("accommodationRoomTypes")),
     accommodationIncluded: v.optional(v.boolean()),
+    requiresBed: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
@@ -395,6 +403,8 @@ export const updateTicketType = mutation({
       ...updates,
       updatedAt: Date.now(),
     })
+    const next = await refreshAttendeeSearchDocumentsForTicketType(ctx, ticketTypeId, null)
+    if (next !== null) await enqueueSearchProjectionFanout(ctx, "ticketType", String(ticketTypeId), next)
     return ticketTypeId
   },
 })
@@ -451,6 +461,8 @@ export const deleteTicketType = mutation({
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     await ctx.db.delete("ticketTypes", args.ticketTypeId)
+    const next = await refreshAttendeeSearchDocumentsForTicketType(ctx, args.ticketTypeId, null)
+    if (next !== null) await enqueueSearchProjectionFanout(ctx, "ticketType", String(args.ticketTypeId), next)
     return args.ticketTypeId
   },
 })
@@ -543,6 +555,8 @@ export const createManualAttendee = mutation({
       updatedAt: now,
     })
 
+    await maintainOrderSearchProjection(ctx, orderId)
+
     return {
       orderId,
       bookingRef,
@@ -633,6 +647,3 @@ export const getAttendeesForEvent = query({
     return attendees.flat()
   },
 })
-    requiresBed: v.optional(v.boolean()),
-      requiresBed: args.requiresBed,
-    requiresBed: v.optional(v.boolean()),

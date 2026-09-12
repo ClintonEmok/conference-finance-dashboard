@@ -45,6 +45,16 @@ describe("workspace route contracts", () => {
     expect(accommodationHref("event")).toContain("tab=hotels")
   })
 
+  it("defaults invalid accommodation intent and encodes event and room identifiers", () => {
+    expect(parseAccommodationTab("?tab=invalid")).toBe("hotels")
+    expect(accommodationHref("spring retreat", "hotels")).toBe(
+      "/dashboard/events/spring%20retreat/accommodation?tab=hotels"
+    )
+    expect(accommodationHref("event/one", "allocation", { roomId: "room/7" })).toBe(
+      "/dashboard/events/event%2Fone/accommodation?tab=allocation&roomId=room%2F7"
+    )
+  })
+
   it("builds the canonical event Orders URLs with an encoded order intent and no Finance tab", () => {
     expect(ordersHref("event")).toBe("/dashboard/events/event/orders")
     expect(ordersHref("spring retreat")).toBe(
