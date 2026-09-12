@@ -50,6 +50,7 @@ describe("accommodation allocation signal filters", () => {
     })
 
     await getRoomAllocationBoard({
+      eventId: "event-1",
       familyGroupId: " family-1 ",
       location: " Amsterdam ",
     })

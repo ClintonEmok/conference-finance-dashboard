@@ -24,6 +24,100 @@ const adminIdentity = {
   email: "admin@example.com",
 }
 
+test("allocation board rejects missing or blank event scope", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+
+  await expect(
+    t.query(api.accommodation.getRoomAllocationBoard, {} as never)
+  ).rejects.toThrow()
+  await expect(
+    t.query(api.accommodation.getRoomAllocationBoard, { eventId: "   " })
+  ).rejects.toThrow(/non-blank event ID/)
+})
+
+test("allocation board resolves a provider event identifier to its canonical event", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("eventSources", {
+      eventId: seed.eventId,
+      provider: "tickettailor",
+      externalEventId: "provider-event-52",
+      syncStatus: "active",
+      updatedAt: BASE_EVENT_AT,
+    })
+  })
+  const order = await createOrder(t, seed, {
+    attendeeKey: "provider-event-attendee",
+    name: "Provider Event Attendee",
+  })
+
+  const board = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: "provider-event-52",
+  })
+
+  expect(board.filters.eventId).toBe(String(seed.eventId))
+  expect(
+    board.unassignedAttendees.map((row: { attendeeId: string }) => row.attendeeId)
+  ).toContain(String(order.attendeeId))
+})
+
+test("assignment and unassignment reject foreign events and unlinked hotels", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const first = await seedPaidPriorityEvent(t)
+  const second = await seedPaidPriorityEvent(t)
+  const order = await createOrder(t, first, {
+    attendeeKey: "cross-event-attendee",
+    name: "Cross Event Attendee",
+  })
+
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(order.attendeeId),
+      roomId: String(second.roomId),
+      eventId: String(second.eventId),
+    })
+  ).rejects.toThrow("Attendee does not belong to this event")
+
+  const unlinkedRoomId = await t.mutation(async (ctx) => {
+    const hotelId = await ctx.db.insert("accommodationHotels", {
+      name: "Unlinked Hotel",
+      city: "Amsterdam",
+    })
+    return await ctx.db.insert("accommodationRooms", {
+      hotelId: String(hotelId),
+      roomTypeId: String(first.roomTypeId),
+      label: "UNLINKED-101",
+      capacity: 2,
+    })
+  })
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(order.attendeeId),
+      roomId: String(unlinkedRoomId),
+      eventId: String(first.eventId),
+    })
+  ).rejects.toThrow("Room hotel is not enabled for this event")
+
+  await t.mutation(api.accommodation.assignAttendeeToRoom, {
+    attendeeId: String(order.attendeeId),
+    roomId: String(first.roomId),
+    eventId: String(first.eventId),
+  })
+  await expect(
+    t.mutation(api.accommodation.unassignAttendeeFromRoom, {
+      attendeeId: String(order.attendeeId),
+      eventId: String(second.eventId),
+    })
+  ).rejects.toThrow("Attendee does not belong to this event")
+  await expect(
+    t.mutation(api.accommodation.unassignAttendeeFromRoom, {
+      attendeeId: String(order.attendeeId),
+      eventId: String(first.eventId),
+    })
+  ).resolves.toEqual({ ok: true })
+})
+
 const BASE_EVENT_AT = 1_750_000_000_000
 const DAY_MS = 24 * 60 * 60 * 1000
 // Ticket €20 + standard/shared €30 × 2 nights = €80 due per attendee.
@@ -46,9 +140,8 @@ type SeedContext = {
 /**
  * Seeds an internal event with a fully configured accommodation catalog
  * (standard/shared €30/night, 2 nights), one ticket type, and two empty
- * capacity-2 rooms. The hotel is intentionally NOT linked to the event so the
- * direct room-assignment mutations skip the event-hotel gate, while the
- * accommodation board still scopes internal orders and their attendees.
+ * capacity-2 rooms. The hotel is explicitly linked to the event so direct
+ * room-assignment mutations exercise the event-hotel authorization gate.
  */
 async function seedPaidPriorityEvent(
   t: TestConvexForDataModel<GenericDataModel>
@@ -120,6 +213,12 @@ async function seedPaidPriorityEvent(
     return await ctx.db.insert("accommodationHotels", {
       name: "Paid Priority Hotel",
       city: "Amsterdam",
+    })
+  })
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("accommodationEventHotels", {
+      eventId: eventId as never,
+      hotelId: String(hotelId),
     })
   })
   const roomTypeId = await t.mutation(async (ctx) => {
@@ -322,10 +421,12 @@ async function loadBoard(
       bookingRef: string | null
       bookerName: string | null
       location: string | null
-      roommatePreference: string | null
-      roommateAvoid: string | null
-      hasFamily: boolean
-      occupancy: "single" | "shared" | "family" | null
+       roommatePreference: string | null
+       roommateAvoid: string | null
+       hasFamily: boolean
+       groupMemberIds: string[]
+       groupAssignmentAvailable: boolean
+       occupancy: "single" | "shared" | "family" | null
       categoryLabel: string | null
       allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
       paymentState: "paid" | "partial" | "unpaid" | null
@@ -431,6 +532,12 @@ test("board exposes an additive compatible-room preview without assigning", asyn
     await ctx.db.insert("accommodationEventHotels", {
       eventId: seed.eventId as never,
       hotelId: String(seed.hotelId),
+    })
+    await ctx.db.insert("accommodationRooms", {
+      hotelId: String(seed.hotelId),
+      roomTypeId: "stale-room-type-reference",
+      label: "Malformed room metadata",
+      capacity: 2,
     })
   })
   const order = await createOrder(t, seed, {
@@ -551,6 +658,68 @@ test("event-scoped board excludes foreign internal orders and rooms", async () =
   expect(firstBoard.rooms.map((room) => room.id)).not.toContain(
     String(second.roomId)
   )
+})
+
+test("board keeps complete constrained groups across filters and disables unconstrained groups", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("accommodationEventHotels", {
+      eventId: seed.eventId as never,
+      hotelId: String(seed.hotelId),
+    })
+  })
+  const first = await createOrder(t, seed, {
+    attendeeKey: "a-constrained-group",
+    name: "Constrained Group Member",
+    allocatedRoomTypeId: String(seed.roomTypeId),
+    location: "Amsterdam",
+  })
+  const second = await addAttendeeToOrder(t, seed, first.orderId, {
+    attendeeKey: "b-constrained-group",
+    name: "Hidden Group Member",
+  })
+  await t.mutation(async (ctx) => {
+    await ctx.db.patch("orderAttendees", second, {
+      allocatedRoomTypeId: seed.roomTypeId,
+      location: "Utrecht",
+    })
+  })
+
+  const filteredBoard = await t.query(
+    api.accommodation.getRoomAllocationBoard,
+    { eventId: String(seed.eventId), location: "Amsterdam" }
+  )
+  const filteredRow = filteredBoard.unassignedAttendees.find(
+    (row: { attendeeId: string }) => row.attendeeId === String(first.attendeeId)
+  )
+  expect(filteredRow?.groupMemberIds).toEqual(
+    expect.arrayContaining([String(first.attendeeId), String(second)])
+  )
+  expect(filteredRow?.groupAssignmentAvailable).toBe(true)
+  expect(filteredBoard.unassignedAttendees).toHaveLength(1)
+
+  const unconstrained = await createOrder(t, seed, {
+    attendeeKey: "a-unconstrained-group",
+    name: "Unconstrained Group Member",
+  })
+  const unconstrainedSecond = await addAttendeeToOrder(
+    t,
+    seed,
+    unconstrained.orderId,
+    { attendeeKey: "b-unconstrained-group", name: "Unconstrained Member Two" }
+  )
+  const unconstrainedBoard = await loadBoard(t, seed.eventId)
+  const unconstrainedRow = unconstrainedBoard.unassignedAttendees.find(
+    (row: { attendeeId: string }) => row.attendeeId === String(unconstrained.attendeeId)
+  )
+  expect(unconstrainedRow?.groupMemberIds).toEqual(
+    expect.arrayContaining([
+      String(unconstrained.attendeeId),
+      String(unconstrainedSecond),
+    ])
+  )
+  expect(unconstrainedRow?.groupAssignmentAvailable).toBe(false)
 })
 
 test("board reports unavailable or no-match compatibility without fabrication or writes", async () => {
@@ -682,6 +851,7 @@ test("first assignment persists confirmedAt/configVersion/complete priceSnapshot
   await t.mutation(api.accommodation.assignAttendeeToRoom, {
     attendeeId: String(order.attendeeId),
     roomId: String(seed.roomId),
+    eventId: String(seed.eventId),
   })
 
   const rows = await loadSelectionRows(t, String(order.orderId))
@@ -714,6 +884,7 @@ test("a selection with no selected options confirms successfully through assignm
   await t.mutation(api.accommodation.assignAttendeeToRoom, {
     attendeeId: String(order.attendeeId),
     roomId: String(seed.roomId),
+    eventId: String(seed.eventId),
   })
 
   const rows = await loadSelectionRows(t, String(order.orderId))
@@ -743,6 +914,7 @@ test("repeat assignment of an already-confirmed order stays assignable and never
   await t.mutation(api.accommodation.assignAttendeeToRoom, {
     attendeeId: String(order.attendeeId),
     roomId: String(seed.roomId),
+    eventId: String(seed.eventId),
   })
   const confirmedAtAfterFirst = (
     await loadSelectionRows(t, String(order.orderId))
@@ -752,6 +924,7 @@ test("repeat assignment of an already-confirmed order stays assignable and never
   await t.mutation(api.accommodation.assignAttendeeToRoom, {
     attendeeId: String(secondAttendeeId),
     roomId: String(seed.secondRoomId),
+    eventId: String(seed.eventId),
   })
 
   const rows = await loadSelectionRows(t, String(order.orderId))
@@ -790,6 +963,7 @@ test("assignment fails closed on malformed confirmation state", async () => {
     t.mutation(api.accommodation.assignAttendeeToRoom, {
       attendeeId: String(order.attendeeId),
       roomId: String(seed.roomId),
+      eventId: String(seed.eventId),
     })
   ).rejects.toThrow(/malformed accommodation confirmation state/)
 })
@@ -840,6 +1014,7 @@ test("assignment fails closed when only part of the selection set is confirmed",
     t.mutation(api.accommodation.assignAttendeeToRoom, {
       attendeeId: String(order.attendeeId),
       roomId: String(seed.roomId),
+      eventId: String(seed.eventId),
     })
   ).rejects.toThrow(/partially confirmed accommodation selections/)
 
@@ -847,6 +1022,7 @@ test("assignment fails closed when only part of the selection set is confirmed",
     t.mutation(api.accommodation.assignAttendeeToRoom, {
       attendeeId: String(secondAttendeeId),
       roomId: String(seed.secondRoomId),
+      eventId: String(seed.eventId),
     })
   ).rejects.toThrow(/partially confirmed accommodation selections/)
 
@@ -897,6 +1073,7 @@ test("assignment rejects non-positive confirmedAt and configVersion", async () =
     t.mutation(api.accommodation.assignAttendeeToRoom, {
       attendeeId: String(order.attendeeId),
       roomId: String(seed.roomId),
+      eventId: String(seed.eventId),
     })
   ).rejects.toThrow(/malformed accommodation confirmation state/)
 })
@@ -915,6 +1092,7 @@ test("legacy order with no accommodation selection rows still assigns", async ()
     t.mutation(api.accommodation.assignAttendeeToRoom, {
       attendeeId: String(order.attendeeId),
       roomId: String(seed.roomId),
+      eventId: String(seed.eventId),
     })
   ).resolves.toEqual({ ok: true })
 
@@ -939,6 +1117,7 @@ test("assignment confirmation locks the buyer configuration: permalink edits are
   await t.mutation(api.accommodation.assignAttendeeToRoom, {
     attendeeId: String(order.attendeeId),
     roomId: String(seed.roomId),
+    eventId: String(seed.eventId),
   })
 
   // A buyer edit attempt against the same booking is rejected server-side by

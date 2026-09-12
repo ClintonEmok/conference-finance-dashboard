@@ -820,12 +820,14 @@ export const assignRoom = mutation({
   args: {
     attendeeId: v.id("ticketTailorAttendees"),
     roomId: v.string(),
+    eventId: v.id("events"),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     await ctx.runMutation(api.accommodation.assignAttendeeToRoom, {
       attendeeId: args.attendeeId,
       roomId: args.roomId,
+      eventId: args.eventId,
     })
     return args.attendeeId
   },
@@ -834,11 +836,13 @@ export const assignRoom = mutation({
 export const unassignRoom = mutation({
   args: {
     attendeeId: v.id("ticketTailorAttendees"),
+    eventId: v.id("events"),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     await ctx.runMutation(api.accommodation.unassignAttendeeFromRoom, {
       attendeeId: args.attendeeId,
+      eventId: args.eventId,
     })
     return args.attendeeId
   },

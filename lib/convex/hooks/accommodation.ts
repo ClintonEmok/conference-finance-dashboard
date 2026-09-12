@@ -129,8 +129,8 @@ export function useGenerateSlotsForRoom() {
   return useMutation(api.accommodation.generateSlotsForRoom)
 }
 
-export function useRoomAllocationBoard(args?: {
-  eventId?: string
+export function useRoomAllocationBoard(args: {
+  eventId: string
   hotelId?: string
   roomTypeId?: string
   genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
@@ -139,7 +139,7 @@ export function useRoomAllocationBoard(args?: {
   allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
   hasPriority?: boolean
 }, enabled = true) {
-  return useQuery(api.accommodation.getRoomAllocationBoard, enabled ? (args ?? {}) : "skip")
+  return useQuery(api.accommodation.getRoomAllocationBoard, enabled ? args : "skip")
 }
 
 /** The Overview only needs the bounded allocation summary, not the board rows. */

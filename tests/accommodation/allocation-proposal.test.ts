@@ -51,11 +51,14 @@ function paymentFields(
   paymentState: "paid" | "partial" | "unpaid" | null = null
 ) {
   return {
+    eventId: "event-1",
     paymentState,
     amountDueMinor: null,
     paidAmountMinor: null,
     bookingRef: null,
     bookerName: null,
+    groupMemberIds: [],
+    groupAssignmentAvailable: false,
   }
 }
 

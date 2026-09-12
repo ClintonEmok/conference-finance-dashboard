@@ -22,6 +22,7 @@ import { DashboardQueryState } from "@/components/dashboard/dashboard-query-stat
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 import type { AttentionQueryState } from "@/lib/dashboard/workspace-attention"
 import type { AccommodationReadPlan } from "@/lib/dashboard/accommodation-read-plan"
+import type { RoomAllocationBoard } from "@/lib/domain/accommodation/assignments"
 import {
   useRoomAllocationBoard,
   useAssignAttendeeToRoom,
@@ -85,6 +86,10 @@ function PaymentBadge({ state }: { state: PaymentState }) {
   )
 }
 
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 // ---------------------------------------------------------------------------
 // Quick task 260807-uel: buyer accommodation preferences are rendered from the
 // board's server payload fields only (occupancy, nightBeforeLevel, optionKeys,
@@ -123,12 +128,10 @@ function OccupancyChip({ occupancy }: { occupancy: unknown }) {
  * The board's server-payload accommodation preference fields consumed by the
  * chips below. Everything renders from these typed fields only.
  */
-type AccommodationPreferenceFields = {
-  occupancy?: "single" | "shared" | "family" | null
-  nightBeforeLevel?: "standard" | "superior" | null
-  categoryLabel?: string | null
-  optionKeys?: string[] | null
-}
+type AccommodationPreferenceFields = Pick<
+  RoomAllocationBoard["unassignedAttendees"][number],
+  "occupancy" | "nightBeforeLevel" | "categoryLabel" | "optionKeys"
+>
 
 /**
  * Server-driven accommodation preference chips for unassigned inbox rows.
@@ -176,22 +179,9 @@ function AccommodationPreferenceChips({
   )
 }
 
-export type AccommodationBoard = {
-  hotels: ReadonlyArray<unknown>
-  rooms: ReadonlyArray<unknown>
-  unassignedAttendees: ReadonlyArray<unknown>
-  roomTypes?: ReadonlyArray<unknown>
-  summary: {
-    totalRooms: number
-    totalBeds: number
-    occupiedBeds: number
-    availableBeds: number
-    unassignedAttendeesCount: number
-    emptyRooms: number
-    availableRooms: number
-    fullRooms: number
-  }
-}
+export type AccommodationBoard = RoomAllocationBoard
+type AllocationRoom = RoomAllocationBoard["rooms"][number]
+type AllocationAttendee = RoomAllocationBoard["unassignedAttendees"][number]
 
 export default function EventAllocationPage({
   params,
@@ -249,28 +239,20 @@ export default function EventAllocationPage({
   const [roomPage, setRoomPage] = useState(1)
   const roomsPerPage = 12
 
-  const rooms = useMemo(() => (board?.rooms as any[]) ?? [], [board])
-  const hotels = useMemo(() => (board?.hotels as any[]) ?? [], [board])
-  const unassigned = useMemo(() => (board?.unassignedAttendees as any[]) ?? [], [board])
+  const rooms = useMemo<AllocationRoom[]>(() => board?.rooms ?? [], [board])
+  const hotels = useMemo(() => board?.hotels ?? [], [board])
+  const unassigned = useMemo<AllocationAttendee[]>(
+    () => board?.unassignedAttendees ?? [],
+    [board]
+  )
   const hasActiveFilters = Object.values(filters).some((value) => value !== null)
-  const summary = board?.summary as
-    | {
-        totalRooms: number
-        totalBeds: number
-        occupiedBeds: number
-        availableBeds: number
-        unassignedAttendeesCount: number
-        emptyRooms: number
-        availableRooms: number
-        fullRooms: number
-      }
-    | undefined
+  const summary = board?.summary
 
   useEffect(() => {
     if (!board || !roomIntent) return
 
     const nextPage = getRoomPageForRoomId(
-      rooms.map((room: any) => room.id),
+      rooms.map((room) => room.id),
       roomIntent,
       roomsPerPage
     )
@@ -285,7 +267,7 @@ export default function EventAllocationPage({
   }, [board, roomIntent, rooms])
 
   const roomIntentUnavailable = Boolean(
-    board && roomIntent && !rooms.some((room: any) => room.id === roomIntent)
+    board && roomIntent && !rooms.some((room) => room.id === roomIntent)
   )
 
   function updateFilter<K extends keyof AllocationFilterState>(
@@ -320,14 +302,21 @@ export default function EventAllocationPage({
     router.replace(`?${nextParams.toString()}`, { scroll: false })
   }
 
-  function getGroup(attendee: any) {
-    const roomTypeId = attendee.allocatedRoomTypeId ?? null
-    if (!attendee.orderId || !roomTypeId) return [attendee]
-    return unassigned.filter(
-      (a: any) =>
-        a.orderId === attendee.orderId &&
-        (a.allocatedRoomTypeId ?? null) === roomTypeId
+  function getGroup(attendee: AllocationAttendee) {
+    const groupMemberIds = Array.isArray(attendee.groupMemberIds)
+      ? attendee.groupMemberIds
+      : []
+    if (!attendee.groupAssignmentAvailable || groupMemberIds.length < 2) {
+      return []
+    }
+    const visibleById = new Map(
+      unassigned.map((candidate) => [candidate.attendeeId, candidate] as const)
     )
+    return groupMemberIds
+      .map((attendeeId: string) => visibleById.get(attendeeId))
+      .filter(
+        (candidate): candidate is AllocationAttendee => candidate !== undefined
+      )
   }
 
   async function handleAssign(attendeeId: string) {
@@ -339,17 +328,21 @@ export default function EventAllocationPage({
     setSuccess(null)
     setPendingAction(`assign:${attendeeId}`)
     try {
-      await assignAttendee({ attendeeId, roomId: selectedRoomId })
+        await assignAttendee({
+          attendeeId,
+          roomId: selectedRoomId,
+          eventId: event._id,
+        })
       setSuccess("Attendee assigned to room.")
       setSelectedRoomId(null)
-    } catch (err: any) {
-      setError(err.message ?? "Failed to assign attendee.")
+    } catch (error: unknown) {
+      setError(errorMessage(error, "Failed to assign attendee."))
     } finally {
       setPendingAction(null)
     }
   }
 
-  async function handleAssignGroup(attendee: any) {
+  async function handleAssignGroup(attendee: AllocationAttendee) {
     if (!selectedRoomId) {
       setError("Select a room first by clicking on it.")
       return
@@ -357,27 +350,47 @@ export default function EventAllocationPage({
     setError(null)
     setSuccess(null)
     const group = getGroup(attendee)
-    if (group.length < 2) return
+    const expectedGroupSize = Array.isArray(attendee.groupMemberIds)
+      ? attendee.groupMemberIds.length
+      : 0
+    if (!attendee.groupAssignmentAvailable || expectedGroupSize < 2) {
+      setError(
+        "Group assignment is unavailable because a shared room category is not stored for every member."
+      )
+      return
+    }
+    if (group.length !== expectedGroupSize) {
+      setError(
+        "Clear the current filters before assigning the complete group."
+      )
+      return
+    }
     setPendingAction(`group:${attendee.attendeeId}`)
     try {
       for (const a of group) {
-        await assignAttendee({ attendeeId: a.attendeeId, roomId: selectedRoomId })
+        await assignAttendee({
+          attendeeId: a.attendeeId,
+          roomId: selectedRoomId,
+          eventId: event._id,
+        })
       }
       setSuccess(`Assigned group of ${group.length} attendees to the selected room.`)
       setSelectedRoomId(null)
-    } catch (err: any) {
-      setError(`Group assignment partially failed: ${err.message ?? "the server rejected an assignment."}`)
+    } catch (error: unknown) {
+      setError(
+        `Group assignment partially failed: ${errorMessage(error, "the server rejected an assignment.")}`
+      )
     } finally {
       setPendingAction(null)
     }
   }
 
-  function findCompatibleRoom(attendee: any) {
+  function findCompatibleRoom(attendee: AllocationAttendee) {
     setError(null)
     setSuccess(null)
     const recommendation = attendee.compatibility
     const recommendedRoom = recommendation?.recommendedRoomId
-      ? rooms.find((room: any) => room.id === recommendation.recommendedRoomId)
+      ? rooms.find((room) => room.id === recommendation.recommendedRoomId)
       : null
     if (!recommendedRoom) {
       setError(
@@ -388,7 +401,7 @@ export default function EventAllocationPage({
       return
     }
     const nextPage = getRoomPageForRoomId(
-      rooms.map((room: any) => room.id),
+      rooms.map((room) => room.id),
       recommendedRoom.id,
       roomsPerPage
     )
@@ -408,10 +421,10 @@ export default function EventAllocationPage({
     setSuccess(null)
     setPendingAction(`unassign:${attendeeId}`)
     try {
-      await unassignAttendee({ attendeeId })
+      await unassignAttendee({ attendeeId, eventId: event._id })
       setSuccess("Attendee removed from room.")
-    } catch (err: any) {
-      setError(err.message ?? "Failed to unassign attendee.")
+    } catch (error: unknown) {
+      setError(errorMessage(error, "Failed to unassign attendee."))
     } finally {
       setPendingAction(null)
     }
@@ -489,7 +502,7 @@ export default function EventAllocationPage({
               className="h-10 w-full rounded-md border border-border/60 bg-background px-3 text-sm"
             >
               <option value="">All hotels</option>
-              {hotels.map((hotel: any) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}
+              {hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}
             </select>
           </label>
           <label className="space-y-1.5 text-xs font-medium">
@@ -501,7 +514,7 @@ export default function EventAllocationPage({
               className="h-10 w-full rounded-md border border-border/60 bg-background px-3 text-sm"
             >
               <option value="">All room types</option>
-              {(board?.roomTypes as any[] ?? []).map((roomType: any) => <option key={roomType.id} value={roomType.id}>{roomType.label}</option>)}
+              {(board?.roomTypes ?? []).map((roomType) => <option key={roomType.id} value={roomType.id}>{roomType.label}</option>)}
             </select>
           </label>
           <label className="space-y-1.5 text-xs font-medium">
@@ -616,7 +629,7 @@ export default function EventAllocationPage({
                   <DashboardQueryState state="empty" title="All attendees have been placed." message="No unresolved attendees need placement. Open Allocation to review room assignments." className="rounded-xl border border-dashed border-white/20 bg-white/5 p-8" />
                )
             ) : (
-              unassigned.map((attendee: any) => (
+               unassigned.map((attendee) => (
                   <div
                     key={attendee.attendeeId}
                     className="flex flex-col rounded-xl border border-border/60 bg-card p-3 transition-colors hover:border-primary/30"
@@ -646,11 +659,19 @@ export default function EventAllocationPage({
                       {attendee.roommateAvoid && <p>Roommate avoidance: {attendee.roommateAvoid}</p>}
                       <p>Compatibility: {attendee.compatibility?.summary ?? "Compatibility unavailable"}</p>
                     </div>
-                   {getGroup(attendee).length > 1 && (
-                     <Button type="button" variant="ghost" disabled={!selectedRoomId || pendingAction !== null} className="mt-2 min-h-11 h-auto justify-start whitespace-normal px-0 text-xs" onClick={() => handleAssignGroup(attendee)}>
-                       {pendingAction === `group:${attendee.attendeeId}` ? "Assigning group…" : "Assign group to selected room"}
-                     </Button>
-                   )}
+                    {Array.isArray(attendee.groupMemberIds) && attendee.groupMemberIds.length > 1 && (
+                      attendee.groupAssignmentAvailable ? (
+                        getGroup(attendee).length === attendee.groupMemberIds.length ? (
+                          <Button type="button" variant="ghost" disabled={!selectedRoomId || pendingAction !== null} className="mt-2 min-h-11 h-auto justify-start whitespace-normal px-0 text-xs" onClick={() => handleAssignGroup(attendee)}>
+                            {pendingAction === `group:${attendee.attendeeId}` ? "Assigning group…" : "Assign group to selected room"}
+                          </Button>
+                        ) : (
+                          <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Group members are hidden by the current filters. Clear filters to assign the complete group.</p>
+                        )
+                      ) : (
+                        <p className="mt-2 text-xs text-muted-foreground">Group assignment unavailable: a shared room category is not stored for every member.</p>
+                      )
+                    )}
                 </div>
               ))
             )}
@@ -697,7 +718,7 @@ export default function EventAllocationPage({
           ) : (
             <>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {rooms.slice((roomPage - 1) * roomsPerPage, roomPage * roomsPerPage).map((room: any) => {
+                {rooms.slice((roomPage - 1) * roomsPerPage, roomPage * roomsPerPage).map((room) => {
                   const isSelected = selectedRoomId === room.id
                   const isFull = room.availability === "full"
                   const isEmpty = room.availability === "empty"
@@ -751,7 +772,7 @@ export default function EventAllocationPage({
                       </button>
                       {room.occupants && room.occupants.length > 0 && (
                         <div className="mt-3 space-y-1 border-t border-border/30 pt-3">
-                          {room.occupants.slice(0, 3).map((occ: any) => (
+                          {room.occupants.slice(0, 3).map((occ) => (
                             <div key={occ.attendeeId} className="group/occ flex items-center justify-between gap-2 rounded-lg bg-muted/30 px-2 py-1">
                               <span className="flex min-w-0 flex-wrap items-center gap-1.5">
                                 <span className="break-words text-xs text-muted-foreground">{occ.attendeeName ?? "Unnamed"}</span>
@@ -762,11 +783,14 @@ export default function EventAllocationPage({
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); handleUnassign(occ.attendeeId) }}
-                                aria-label={`Unassign ${occ.attendeeName ?? "unnamed attendee"} from ${room.label}`}
+                                aria-label={pendingAction === `unassign:${occ.attendeeId}`
+                                  ? `Unassigning ${occ.attendeeName ?? "unnamed attendee"} from ${room.label}`
+                                  : `Unassign ${occ.attendeeName ?? "unnamed attendee"} from ${room.label}`}
+                                aria-busy={pendingAction === `unassign:${occ.attendeeId}`}
                                 disabled={pendingAction !== null}
                                 className="min-h-11 min-w-11 shrink-0 rounded p-2 text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
                               >
-                                 <X className="size-3" aria-hidden="true" />
+                                 {pendingAction === `unassign:${occ.attendeeId}` ? "Unassigning…" : <X className="size-3" aria-hidden="true" />}
                               </button>
                             </div>
                           ))}

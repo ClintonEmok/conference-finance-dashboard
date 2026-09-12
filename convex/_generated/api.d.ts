@@ -24,13 +24,13 @@ export declare const api: {
     assignAttendeeToRoom: FunctionReference<
       "mutation",
       "public",
-      { attendeeId: string; roomId: string },
+      { attendeeId: string; eventId: string; roomId: string },
       any
     >;
     assignRoomToAttendee: FunctionReference<
       "mutation",
       "public",
-      { attendeeId: string; roomId: string },
+      { attendeeId: string; eventId: string; roomId: string },
       any
     >;
     attachHotelToEventByProviderId: FunctionReference<
@@ -192,7 +192,7 @@ export declare const api: {
       "public",
       {
         allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
-        eventId?: string;
+        eventId: string;
         familyGroupId?: string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
         hasPriority?: boolean;
@@ -245,13 +245,13 @@ export declare const api: {
     unassignAttendeeFromRoom: FunctionReference<
       "mutation",
       "public",
-      { attendeeId: string },
+      { attendeeId: string; eventId: string },
       any
     >;
     unassignRoomFromAttendee: FunctionReference<
       "mutation",
       "public",
-      { attendeeId: string },
+      { attendeeId: string; eventId: string },
       any
     >;
     unlinkHotelFromEvent: FunctionReference<
@@ -367,7 +367,11 @@ export declare const api: {
     assignRoom: FunctionReference<
       "mutation",
       "public",
-      { attendeeId: Id<"ticketTailorAttendees">; roomId: string },
+      {
+        attendeeId: Id<"ticketTailorAttendees">;
+        eventId: Id<"events">;
+        roomId: string;
+      },
       any
     >;
     checkInAttendee: FunctionReference<
@@ -489,7 +493,7 @@ export declare const api: {
     unassignRoom: FunctionReference<
       "mutation",
       "public",
-      { attendeeId: Id<"ticketTailorAttendees"> },
+      { attendeeId: Id<"ticketTailorAttendees">; eventId: Id<"events"> },
       any
     >;
     updateAttendee: FunctionReference<

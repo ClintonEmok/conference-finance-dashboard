@@ -15,6 +15,7 @@ import {
 } from "./finance"
 
 type DocTables = {
+  events: Doc<"events">
   accommodationHotels: Doc<"accommodationHotels">
   accommodationRoomTypes: Doc<"accommodationRoomTypes">
   accommodationRooms: Doc<"accommodationRooms">
@@ -42,6 +43,34 @@ function normalizeDocId<TableName extends keyof DocTables>(
   }
 
   return normalizedId
+}
+
+async function assertEventAssignmentScope(
+  ctx: MutationCtx,
+  eventIdValue: string,
+  attendee: Doc<"orderAttendees">,
+  room: Doc<"accommodationRooms">
+) {
+  const eventId = normalizeDocId(
+    ctx,
+    "events",
+    eventIdValue,
+    "Event not found"
+  )
+  const order = await ctx.db.get("orders", attendee.orderId)
+  if (!order || String(order.eventId) !== String(eventId)) {
+    throw new Error("Attendee does not belong to this event")
+  }
+
+  const eventHotelLinks = await ctx.db
+    .query("accommodationEventHotels")
+    .withIndex("hotelId", (q) => q.eq("hotelId", room.hotelId as string))
+    .take(20)
+  if (!eventHotelLinks.some((link) => String(link.eventId) === String(eventId))) {
+    throw new Error("Room hotel is not enabled for this event")
+  }
+
+  return { eventId, order }
 }
 
 async function getAccommodationHotelByStringId(ctx: any, hotelId: string) {
@@ -314,7 +343,7 @@ export const recalculateRoomOccupancy = internalMutation({
 
 export const getRoomAllocationBoard = query({
   args: {
-    eventId: v.optional(v.string()),
+    eventId: v.string(),
     hotelId: v.optional(v.string()),
     roomTypeId: v.optional(v.string()),
     genderType: v.optional(
@@ -339,45 +368,34 @@ export const getRoomAllocationBoard = query({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const eventId = args.eventId
-
-    // Get provider event IDs for this canonical event via eventSources
-    let providerEventIds: string[] = []
-    let eventSourceMap = new Map<string, string>() // providerEventId -> canonical eventId
-
-    if (eventId) {
-      const eventSources = await ctx.db
-        .query("eventSources")
-        .withIndex("by_eventId", (q) =>
-          q.eq("eventId", eventId as Id<"events">)
-        )
-        .take(50)
-
-      for (const source of eventSources) {
-        providerEventIds.push(source.externalEventId)
-        eventSourceMap.set(source.externalEventId, eventId)
-      }
-
-      // Also check if there's a direct provider event ID match (backward compat)
-      const providerEvent = await ctx.db
-        .query("ticketTailorEvents")
-        .withIndex("providerEventId", (q) => q.eq("providerEventId", eventId))
-        .first()
-
-      if (providerEvent && !providerEventIds.includes(eventId)) {
-        providerEventIds.push(eventId)
-        eventSourceMap.set(eventId, eventId)
-      }
+    const requestedEventId = normalizeOptionalString(args.eventId)
+    if (!requestedEventId) {
+      throw new Error("Invalid eventId: a non-blank event ID is required")
     }
 
-    const scopedHotelIds = eventId
-      ? (
-          await ctx.db
-            .query("accommodationEventHotels")
-            .withIndex("eventId_hotelId", (q) => q.eq("eventId", eventId))
-            .take(200)
-        ).map((eh) => eh.hotelId)
-      : null
+    const canonicalEventId =
+      ctx.db.normalizeId("events", requestedEventId) ??
+      (
+        await ctx.db
+          .query("eventSources")
+          .withIndex("by_provider_and_externalEventId", (q) =>
+            q
+              .eq("provider", "tickettailor")
+              .eq("externalEventId", requestedEventId)
+          )
+          .first()
+      )?.eventId
+    if (!canonicalEventId) {
+      throw new Error("Invalid eventId: event not found")
+    }
+    const eventId = String(canonicalEventId)
+
+    const scopedHotelIds = (
+      await ctx.db
+        .query("accommodationEventHotels")
+        .withIndex("eventId_hotelId", (q) => q.eq("eventId", eventId))
+        .take(200)
+    ).map((eh) => eh.hotelId)
 
     const [
       events,
@@ -399,14 +417,12 @@ export const getRoomAllocationBoard = query({
       ctx.db.query("orderAttendees").take(2000),
       ctx.db.query("attendeeFamilyMembers").take(2000),
       ctx.db.query("accommodationSlots").take(1000),
-      eventId
-        ? ctx.db
-            .query("orders")
-            .withIndex("by_eventId", (q) =>
-              q.eq("eventId", eventId as Id<"events">)
-            )
-            .take(500)
-        : ctx.db.query("orders").take(500),
+      ctx.db
+        .query("orders")
+        .withIndex("by_eventId", (q) =>
+          q.eq("eventId", eventId as Id<"events">)
+        )
+        .take(500),
       ctx.db.query("accommodationCategories").take(100),
     ])
 
@@ -634,8 +650,10 @@ export const getRoomAllocationBoard = query({
       return true
     })
 
-    const unassignedAttendees = scopedAttendees.filter((a) => {
-      if (a.assignedRoomId) return false
+    const eventUnassignedAttendees = scopedAttendees.filter(
+      (a) => !a.assignedRoomId
+    )
+    const unassignedAttendees = eventUnassignedAttendees.filter((a) => {
       const attendeeFamilyGroupId =
         attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
 
@@ -693,6 +711,38 @@ export const getRoomAllocationBoard = query({
         }
         attendeesByRoom[attendee.assignedRoomId].push(attendee)
       }
+    }
+
+    // Keep group membership complete across signal filters. Assignment remains
+    // disabled when the group has no shared stored room entitlement; the board
+    // must never turn an unconstrained order into a guessed room category.
+    const groupMemberIdsByAttendeeId = new Map<string, string[]>()
+    const groupAssignmentAvailableByAttendeeId = new Map<string, boolean>()
+    for (const attendee of eventUnassignedAttendees) {
+      const attendeeFamilyGroupId =
+        attendeeFamilyGroupByAttendeeId.get(attendee._id) ?? null
+      const groupMembers = eventUnassignedAttendees.filter((candidate) => {
+        if (attendeeFamilyGroupId) {
+          return (
+            attendeeFamilyGroupByAttendeeId.get(candidate._id) ===
+            attendeeFamilyGroupId
+          )
+        }
+        return candidate.orderId === attendee.orderId
+      })
+      const groupMemberIds = groupMembers.map((member) => String(member._id))
+      const roomTypeId = attendee.allocatedRoomTypeId
+        ? String(attendee.allocatedRoomTypeId)
+        : null
+      groupMemberIdsByAttendeeId.set(attendee._id, groupMemberIds)
+      groupAssignmentAvailableByAttendeeId.set(
+        attendee._id,
+        groupMemberIds.length > 1 &&
+          roomTypeId !== null &&
+          groupMembers.every(
+            (member) => String(member.allocatedRoomTypeId ?? "") === roomTypeId
+          )
+      )
     }
 
     const mappedRooms = filteredRooms.map((room) => {
@@ -800,39 +850,38 @@ export const getRoomAllocationBoard = query({
           summary: "Compatibility unavailable: requested room type is not stored.",
         }
       }
-      if (mappedRooms.some((room) => !room.roomType)) {
+      const candidateRooms = mappedRooms.filter((room) => room.availableBeds > 0)
+      const matchingRooms = candidateRooms.filter(
+        (room) =>
+          String(room.roomType?.id ?? "") === String(requestedRoomTypeId)
+      )
+      if (matchingRooms.length > 0) {
+        const sameOrderRoom = attendee.orderId
+          ? matchingRooms.find((room) =>
+              room.occupants.some(
+                (occupant) => String(occupant.orderId ?? "") === String(attendee.orderId)
+              )
+            )
+          : undefined
+        const recommendedRoom = sameOrderRoom ?? matchingRooms[0]
+        return {
+          status: "compatible" as const,
+          summary: sameOrderRoom
+            ? "Available room matches the requested room type and keeps the order group together."
+            : "Available room matches the requested room type.",
+          recommendedRoomId: recommendedRoom?.id,
+        }
+      }
+      if (candidateRooms.some((room) => !room.roomType)) {
         return {
           status: "unavailable" as const,
           summary: "Compatibility unavailable: room type data is incomplete.",
         }
       }
 
-      const matchingRooms = mappedRooms.filter(
-        (room) =>
-          String(room.roomType?.id ?? "") === String(requestedRoomTypeId) &&
-          room.availableBeds > 0
-      )
-      if (matchingRooms.length === 0) {
-        return {
-          status: "no_match" as const,
-          summary: "No available room matches the requested room type.",
-        }
-      }
-
-      const sameOrderRoom = attendee.orderId
-        ? matchingRooms.find((room) =>
-            room.occupants.some(
-              (occupant) => String(occupant.orderId ?? "") === String(attendee.orderId)
-            )
-          )
-        : undefined
-      const recommendedRoom = sameOrderRoom ?? matchingRooms[0]
       return {
-        status: "compatible" as const,
-        summary: sameOrderRoom
-          ? "Available room matches the requested room type and keeps the order group together."
-          : "Available room matches the requested room type.",
-        recommendedRoomId: recommendedRoom?.id,
+        status: "no_match" as const,
+        summary: "No available room matches the requested room type.",
       }
     }
 
@@ -877,6 +926,9 @@ export const getRoomAllocationBoard = query({
           attendeeFamilyGroupId,
           attendeeCountByOrderId,
         }),
+        groupMemberIds: groupMemberIdsByAttendeeId.get(a._id) ?? [],
+        groupAssignmentAvailable:
+          groupAssignmentAvailableByAttendeeId.get(a._id) ?? false,
         paymentState: payment?.paymentState ?? null,
         amountDueMinor: payment?.amountDueMinor ?? null,
         paidAmountMinor: payment?.paidAmountMinor ?? null,
@@ -1684,6 +1736,7 @@ export const assignRoomToAttendee = mutation({
   args: {
     attendeeId: v.string(),
     roomId: v.string(),
+    eventId: v.string(),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
@@ -1705,25 +1758,12 @@ export const assignRoomToAttendee = mutation({
     const attendee = await ctx.db.get("orderAttendees", attendeeId)
     if (!attendee) throw new Error("Attendee not found")
 
-    const eventHotelLinks = await ctx.db
-      .query("accommodationEventHotels")
-      .withIndex("hotelId", (q) => q.eq("hotelId", room.hotelId as string))
-      .take(20)
-
-    if (eventHotelLinks.length > 0) {
-      // Look up the canonical event for this attendee via their order
-      const order = await ctx.db.get("orders", attendee.orderId)
-      const eventId = order?.eventId
-
-      if (eventId) {
-        const eventHasHotel = eventHotelLinks.some(
-          (eh) => eh.eventId === eventId
-        )
-        if (!eventHasHotel) {
-          throw new Error("Room hotel is not enabled for this event")
-        }
-      }
-    }
+    const { order } = await assertEventAssignmentScope(
+      ctx,
+      args.eventId,
+      attendee,
+      room
+    )
 
     const occupiedCount = await ctx.db
       .query("orderAttendees")
@@ -1738,10 +1778,9 @@ export const assignRoomToAttendee = mutation({
 
     // RMG-03: event-resource inventory guard (no-op when the event has no
     // resource rows for this room type).
-    const orderForInventory = await ctx.db.get("orders", attendee.orderId)
     await assertEventRoomInventoryAvailable(
       ctx,
-      orderForInventory,
+      order,
       room,
       occupiedCount.length > 0
     )
@@ -1764,6 +1803,7 @@ export const assignAttendeeToRoom = mutation({
   args: {
     attendeeId: v.string(),
     roomId: v.string(),
+    eventId: v.string(),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
@@ -1789,25 +1829,12 @@ export const assignAttendeeToRoom = mutation({
       throw new Error("Attendee already assigned to this room")
     }
 
-    const eventHotelLinks = await ctx.db
-      .query("accommodationEventHotels")
-      .withIndex("hotelId", (q) => q.eq("hotelId", room.hotelId as string))
-      .take(20)
-
-    if (eventHotelLinks.length > 0) {
-      // Look up the canonical event for this attendee via their order
-      const order = await ctx.db.get("orders", attendee.orderId)
-      const eventId = order?.eventId
-
-      if (eventId) {
-        const eventHasHotel = eventHotelLinks.some(
-          (eh) => eh.eventId === eventId
-        )
-        if (!eventHasHotel) {
-          throw new Error("Room hotel is not enabled for this event")
-        }
-      }
-    }
+    const { order } = await assertEventAssignmentScope(
+      ctx,
+      args.eventId,
+      attendee,
+      room
+    )
 
     const occupiedCount = await ctx.db
       .query("orderAttendees")
@@ -1822,10 +1849,9 @@ export const assignAttendeeToRoom = mutation({
 
     // RMG-03: event-resource inventory guard (no-op when the event has no
     // resource rows for this room type).
-    const orderForInventory = await ctx.db.get("orders", attendee.orderId)
     await assertEventRoomInventoryAvailable(
       ctx,
-      orderForInventory,
+      order,
       room,
       occupiedCount.length > 0
     )
@@ -1846,29 +1872,7 @@ export const assignAttendeeToRoom = mutation({
 export const unassignRoomFromAttendee = mutation({
   args: {
     attendeeId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    await requireIdentity(ctx)
-    const attendeeId = normalizeDocId(
-      ctx,
-      "orderAttendees",
-      args.attendeeId,
-      "Attendee not found or not assigned to any room"
-    )
-    const attendee = await ctx.db.get("orderAttendees", attendeeId)
-    if (!attendee || !attendee.assignedRoomId) return { ok: true }
-
-    await ctx.db.patch("orderAttendees", attendeeId, {
-      assignedRoomId: undefined,
-    })
-
-    return { ok: true }
-  },
-})
-
-export const unassignAttendeeFromRoom = mutation({
-  args: {
-    attendeeId: v.string(),
+    eventId: v.string(),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
@@ -1882,6 +1886,48 @@ export const unassignAttendeeFromRoom = mutation({
     if (!attendee || !attendee.assignedRoomId) {
       throw new Error("Attendee not found or not assigned to any room")
     }
+    const room = await ctx.db.get(
+      "accommodationRooms",
+      attendee.assignedRoomId as Id<"accommodationRooms">
+    )
+    if (!room) {
+      throw new Error("Assigned room not found")
+    }
+    await assertEventAssignmentScope(ctx, args.eventId, attendee, room)
+
+    await ctx.db.patch("orderAttendees", attendeeId, {
+      assignedRoomId: undefined,
+    })
+
+    return { ok: true }
+  },
+})
+
+export const unassignAttendeeFromRoom = mutation({
+  args: {
+    attendeeId: v.string(),
+    eventId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    const attendeeId = normalizeDocId(
+      ctx,
+      "orderAttendees",
+      args.attendeeId,
+      "Attendee not found or not assigned to any room"
+    )
+    const attendee = await ctx.db.get("orderAttendees", attendeeId)
+    if (!attendee || !attendee.assignedRoomId) {
+      throw new Error("Attendee not found or not assigned to any room")
+    }
+    const room = await ctx.db.get(
+      "accommodationRooms",
+      attendee.assignedRoomId as Id<"accommodationRooms">
+    )
+    if (!room) {
+      throw new Error("Assigned room not found")
+    }
+    await assertEventAssignmentScope(ctx, args.eventId, attendee, room)
 
     await ctx.db.patch("orderAttendees", attendeeId, {
       assignedRoomId: undefined,

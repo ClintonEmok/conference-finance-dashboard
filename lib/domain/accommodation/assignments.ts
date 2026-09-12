@@ -48,7 +48,7 @@ type RoommateSignals = {
 }
 
 export type RoomAllocationBoardFilters = {
-  eventId?: string | null
+  eventId: string
   search?: string | null
   hotelId?: string | null
   roomTypeId?: string | null
@@ -75,8 +75,10 @@ export type RoomAllocationBoard = {
     hasPriority: boolean | null
   }
   availableEvents: Array<{
-    providerEventId: string
-    name: string | null
+    eventId: string
+    slug: string
+    name: string
+    startsAt: number
   }>
   hotels: Array<{
     id: string
@@ -96,12 +98,12 @@ export type RoomAllocationBoard = {
     availableBeds: number
     availability: "empty" | "available" | "full"
     notes: string | null
-    hotel: {
+    hotel?: {
       id: string
       name: string
       city: string | null
     }
-    roomType: {
+    roomType?: {
       id: string
       label: string
       defaultCapacity: number
@@ -111,8 +113,8 @@ export type RoomAllocationBoard = {
       attendeeName: string | null
       attendeeEmail: string | null
       orderId: string | null
-      providerOrderId: string
-      providerEventId: string
+      providerOrderId: string | null
+      providerEventId: string | null
       eventName: string | null
       ticketTypeLabel: string | null
       paymentState: BoardPaymentState
@@ -161,8 +163,9 @@ export type RoomAllocationBoard = {
     orderId: string | null
     bookingRef: string | null
     bookerName: string | null
-    providerOrderId: string
-    providerEventId: string
+    providerOrderId: string | null
+    providerEventId: string | null
+    eventId: string | null
     eventName: string | null
     ticketTypeLabel: string | null
     allocatedRoomTypeId: string | null
@@ -171,8 +174,15 @@ export type RoomAllocationBoard = {
     location: string | null
     remarks: string | null
     hasFamily: boolean
+    groupMemberIds: string[]
+    groupAssignmentAvailable: boolean
     roommatePreference?: string | null
     roommateAvoid?: string | null
+    occupancy?: "single" | "shared" | "family" | null
+    nightBeforeLevel?: "standard" | "superior" | null
+    nightBeforeOccupancy?: "single" | "shared" | null
+    categoryLabel?: string | null
+    optionKeys?: string[]
     paymentState: BoardPaymentState
     amountDueMinor: number | null
     paidAmountMinor: number | null
@@ -327,7 +337,7 @@ function attendeeMatchesSearch(
     attendeeName: string | null
     attendeeEmail: string | null
     orderId: string | null
-    providerEventId: string
+    providerEventId: string | null
     eventName: string | null
     ticketTypeLabel: string | null
   },
@@ -481,9 +491,12 @@ function buildPlacementReason(input: {
 }
 
 export async function getRoomAllocationBoard(
-  filters: RoomAllocationBoardFilters = {}
+  filters: RoomAllocationBoardFilters
 ): Promise<RoomAllocationBoard> {
   const eventId = normalizeOptionalString(filters.eventId)
+  if (!eventId) {
+    throw new Error("Invalid eventId: a non-blank event ID is required")
+  }
   const search = normalizeOptionalString(filters.search)
   const hotelId = normalizeOptionalString(filters.hotelId)
   const roomTypeId = normalizeOptionalString(filters.roomTypeId)
@@ -497,7 +510,7 @@ export async function getRoomAllocationBoard(
   const hasPriority = normalizeBoolean(filters.hasPriority ?? undefined)
 
   const result = await convexQuery(api.accommodation.getRoomAllocationBoard, {
-    eventId: eventId ?? undefined,
+    eventId,
     hotelId: hotelId ?? undefined,
     roomTypeId: roomTypeId ?? undefined,
     genderType: genderType ?? undefined,
@@ -519,9 +532,9 @@ export async function getRoomAllocationBoard(
         const doesMatchSearch =
           !search ||
           matchesSearch(room.label, search) ||
-          matchesSearch(room.hotel.name, search) ||
-          matchesSearch(room.hotel.city, search) ||
-          matchesSearch(room.roomType.label, search) ||
+          matchesSearch(room.hotel?.name ?? null, search) ||
+          matchesSearch(room.hotel?.city ?? null, search) ||
+          matchesSearch(room.roomType?.label ?? null, search) ||
           occupants.length > 0
         return { ...room, occupants, doesMatchSearch }
       })
@@ -557,25 +570,35 @@ export async function getRoomAllocationBoard(
 export async function assignAttendeeToRoom(input: {
   attendeeId: string
   roomId: string
+  eventId: string
 }) {
   return await convexMutation(api.accommodation.assignAttendeeToRoom, {
     attendeeId: input.attendeeId,
     roomId: input.roomId,
+    eventId: input.eventId,
   })
 }
 
-export async function unassignAttendeeFromRoom(attendeeIdValue: string) {
+export async function unassignAttendeeFromRoom(input: {
+  attendeeId: string
+  eventId: string
+}) {
+  const attendeeIdValue = input.attendeeId
   const attendeeId = normalizeOptionalString(attendeeIdValue) ?? ""
 
   return await convexMutation(api.accommodation.unassignAttendeeFromRoom, {
     attendeeId,
+    eventId: input.eventId,
   })
 }
 
 export async function generateAllocationProposal(input: {
-  eventId?: string | null
+  eventId: string
 }): Promise<AllocationProposal> {
   const eventId = normalizeOptionalString(input.eventId)
+  if (!eventId) {
+    throw new Error("Invalid eventId: a non-blank event ID is required")
+  }
 
   const board = await getRoomAllocationBoard({ eventId })
 
@@ -734,7 +757,7 @@ export async function generateAllocationProposal(input: {
         attendeeName: attendee.attendeeName,
         roomId: bestRoom.room.id,
         roomLabel: bestRoom.room.label,
-        hotelName: bestRoom.room.hotel.name,
+        hotelName: bestRoom.room.hotel?.name ?? "Unknown hotel",
         reason: buildPlacementReason({
           attendee,
           roomState: bestRoom,

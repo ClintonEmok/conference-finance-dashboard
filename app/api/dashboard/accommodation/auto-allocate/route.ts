@@ -45,9 +45,12 @@ export async function POST(request: Request) {
   }
 
   const eventId = typeof body.eventId === "string" ? body.eventId : null
+  if (!eventId?.trim()) {
+    return badRequest("eventId is required")
+  }
 
   try {
-    const proposal = await generateAllocationProposal({ eventId })
+    const proposal = await generateAllocationProposal({ eventId: eventId.trim() })
 
     return NextResponse.json(proposal)
   } catch (error) {
