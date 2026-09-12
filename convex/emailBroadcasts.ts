@@ -81,6 +81,11 @@ type AudienceRecipient = {
   submittedAt: number | null
 }
 
+type AudienceCandidate = AudienceRecipient & {
+  locationKeys: string[]
+  ticketTypeIds: string[]
+}
+
 function stripManageBookingUrl(recipient: Doc<"emailBroadcastRecipients">) {
   const safeRecipient = { ...recipient }
   Reflect.deleteProperty(safeRecipient, "manageBookingUrl")
@@ -95,6 +100,85 @@ function normalizeEmail(value: string | null | undefined) {
 function normalizeLocationLabel(value: string | null | undefined) {
   const trimmed = typeof value === "string" ? value.trim() : ""
   return trimmed || null
+}
+
+function toAudienceRecipient(candidate: AudienceCandidate): AudienceRecipient {
+  return {
+    orderId: candidate.orderId,
+    bookerName: candidate.bookerName,
+    bookerEmail: candidate.bookerEmail,
+    bookingRef: candidate.bookingRef,
+    status: candidate.status,
+    location: candidate.location,
+    hasAccommodationSelection: candidate.hasAccommodationSelection,
+    ticketTypeLabels: candidate.ticketTypeLabels,
+    submittedAt: candidate.submittedAt,
+  }
+}
+
+async function buildAudienceCandidate(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  order: Doc<"orders">,
+  ticketLabelById: Map<string, string>
+): Promise<{
+  candidate: AudienceCandidate | null
+  skipped: "email" | "ref" | null
+}> {
+  if (
+    order.eventId !== eventId ||
+    order.status === "cancelled" ||
+    order.status === "refunded" ||
+    (await isOrderRemoved(ctx, order._id))
+  ) {
+    return { candidate: null, skipped: null }
+  }
+
+  const email = normalizeEmail(order.bookerEmail)
+  if (!email) return { candidate: null, skipped: "email" }
+  if (!order.bookingRef) return { candidate: null, skipped: "ref" }
+
+  const attendees = await ctx.db
+    .query("orderAttendees")
+    .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+    .take(100)
+  const orderLocations = new Set<string>()
+  for (const attendee of attendees) {
+    const location = normalizeLocationLabel(attendee.location)
+    if (location) orderLocations.add(location.toLowerCase())
+  }
+
+  const ticketSelections = await ctx.db
+    .query("orderTicketSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+    .collect()
+  const ticketTypeIds = ticketSelections.map((selection) =>
+    String(selection.ticketTypeId)
+  )
+  const ticketTypeLabels = Array.from(
+    new Set(
+      ticketTypeIds
+        .map((ticketTypeId) => ticketLabelById.get(ticketTypeId))
+        .filter((label): label is string => Boolean(label))
+    )
+  )
+
+  return {
+    candidate: {
+      orderId: order._id,
+      bookerName: order.bookerName ?? null,
+      bookerEmail: email,
+      bookingRef: order.bookingRef,
+      status: order.status ?? "pending",
+      location: Array.from(orderLocations)[0] ?? null,
+      hasAccommodationSelection: false,
+      locationKeys: Array.from(orderLocations),
+      ticketTypeLabels,
+      ticketTypeIds,
+      submittedAt: order.orderedAt ?? order.submittedAt ?? null,
+    },
+    skipped: null,
+  }
 }
 
 /** A core order is removed when its Ticket Tailor extension says so, or when it has core merge markers. */
@@ -157,20 +241,6 @@ async function computeAudience(
         complete = false
         break
       }
-      if (order.status === "cancelled" || order.status === "refunded") continue
-      if (await isOrderRemoved(ctx, order._id)) continue
-
-      const email = normalizeEmail(order.bookerEmail)
-      if (!email) {
-        skippedNoEmail++
-        continue
-      }
-      if (!order.bookingRef) {
-        skippedNoRef++
-        continue
-      }
-      if (byEmail.has(email)) continue
-
       const orderTime = order.orderedAt ?? order.submittedAt
       if (filters.status && (order.status ?? "pending") !== filters.status) {
         continue
@@ -185,18 +255,35 @@ async function computeAudience(
         continue
       }
 
-      const attendees = await ctx.db
-        .query("orderAttendees")
-        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
-        .take(100)
-      const orderLocations = new Set<string>()
-      for (const attendee of attendees) {
-        const location = normalizeLocationLabel(attendee.location)
-        if (location) orderLocations.add(location.toLowerCase())
+      const search = filters.search?.trim().toLowerCase()
+      if (
+        search &&
+        ![order.bookerName, order.bookerEmail, order.bookingRef]
+          .filter((value): value is string => Boolean(value))
+          .some((value) => value.toLowerCase().includes(search))
+      )
+        continue
+
+      const result = await buildAudienceCandidate(
+        ctx,
+        eventId,
+        order,
+        ticketLabelById
+      )
+      if (result.skipped === "email") {
+        skippedNoEmail++
+        continue
       }
+      if (result.skipped === "ref") {
+        skippedNoRef++
+        continue
+      }
+      const candidate = result.candidate
+      if (!candidate || byEmail.has(candidate.bookerEmail)) continue
+
       if (
         filters.location &&
-        !orderLocations.has(filters.location.toLowerCase())
+        !candidate.locationKeys.includes(filters.location.toLowerCase())
       )
         continue
 
@@ -210,48 +297,19 @@ async function computeAudience(
         hasAccommodationSelection = true
       }
 
-      const ticketSelections = await ctx.db
-        .query("orderTicketSelections")
-        .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
-        .take(100)
       if (
         filters.ticketTypeId &&
-        !ticketSelections.some(
-          (selection) =>
-            String(selection.ticketTypeId) === String(filters.ticketTypeId)
-        )
-      )
-        continue
-      const ticketTypeLabels = Array.from(
-        new Set(
-          ticketSelections
-            .map((selection) =>
-              ticketLabelById.get(String(selection.ticketTypeId))
-            )
-            .filter((label): label is string => Boolean(label))
-        )
-      )
-      const recipient = {
-        orderId: order._id,
-        bookerName: order.bookerName ?? null,
-        bookerEmail: email,
-        bookingRef: order.bookingRef ?? null,
-        status: order.status ?? "pending",
-        location: Array.from(orderLocations)[0] ?? null,
-        hasAccommodationSelection,
-        ticketTypeLabels,
-        submittedAt: orderTime ?? null,
-      }
-      const search = filters.search?.trim().toLowerCase()
-      if (
-        search &&
-        ![recipient.bookerName, recipient.bookerEmail, recipient.bookingRef]
-          .filter((value): value is string => Boolean(value))
-          .some((value) => value.toLowerCase().includes(search))
+        !candidate.ticketTypeIds.includes(String(filters.ticketTypeId))
       )
         continue
 
-      byEmail.set(email, recipient)
+      const recipient = toAudienceRecipient({
+        ...candidate,
+        hasAccommodationSelection,
+        submittedAt: orderTime ?? null,
+      })
+
+      byEmail.set(recipient.bookerEmail, recipient)
       if (
         options.maxRecipients !== undefined &&
         byEmail.size > options.maxRecipients
@@ -288,13 +346,48 @@ export async function resolveBroadcastAudience(
     options.maxRecipients === undefined
       ? MAX_BROADCAST_RECIPIENTS
       : options.maxRecipients
+  if (selection.mode === "explicit") {
+    const ids = selection.orderIds.map(String)
+    if (ids.length === 0) throw new Error("Select at least one recipient")
+    if (new Set(ids).size !== ids.length)
+      throw new Error("Duplicate recipient selection")
+    if (recipientLimit !== null && ids.length > recipientLimit) {
+      throw new Error(
+        `Audience too large (${ids.length}). Maximum is ${MAX_BROADCAST_RECIPIENTS}.`
+      )
+    }
+
+    const ticketTypes = await ctx.db
+      .query("ticketTypes")
+      .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+      .collect()
+    const ticketLabelById = new Map(
+      ticketTypes.map((ticketType) => [
+        String(ticketType._id),
+        ticketType.label,
+      ])
+    )
+    const recipients: AudienceRecipient[] = []
+    for (const id of selection.orderIds) {
+      const order = await ctx.db.get("orders", id)
+      const result = order
+        ? await buildAudienceCandidate(ctx, eventId, order, ticketLabelById)
+        : { candidate: null, skipped: null }
+      if (!result.candidate) {
+        throw new Error(
+          "Selection contains an unknown, stale, or ineligible order"
+        )
+      }
+      recipients.push(toAudienceRecipient(result.candidate))
+    }
+    return { recipients, skippedNoEmail: 0, skippedNoRef: 0 }
+  }
+
   const { recipients, skippedNoEmail, skippedNoRef, complete } =
     await computeAudience(
       ctx,
       eventId,
-      {
-        search: selection.mode === "allMatching" ? selection.search : undefined,
-      },
+      { search: selection.search },
       {
         maxRecipients:
           recipientLimit === undefined || recipientLimit === null
@@ -309,28 +402,9 @@ export async function resolveBroadcastAudience(
   ) {
     throw new Error("Audience is too large to evaluate safely")
   }
-  const byOrderId = new Map(
-    recipients.map((recipient) => [String(recipient.orderId), recipient])
-  )
-  let matched: AudienceRecipient[]
-  if (selection.mode === "explicit") {
-    const ids = selection.orderIds.map(String)
-    if (ids.length === 0) throw new Error("Select at least one recipient")
-    if (new Set(ids).size !== ids.length)
-      throw new Error("Duplicate recipient selection")
-    matched = ids.map((id) => {
-      const recipient = byOrderId.get(id)
-      if (!recipient)
-        throw new Error(
-          "Selection contains an unknown, stale, or ineligible order"
-        )
-      return recipient
-    })
-  } else {
-    matched = recipients
-    if (matched.length === 0)
-      throw new Error("No bookers match the selected audience")
-  }
+  const matched = recipients
+  if (matched.length === 0)
+    throw new Error("No bookers match the selected audience")
   if (recipientLimit !== null && matched.length > recipientLimit) {
     throw new Error(
       `Audience too large (${matched.length}). Maximum is ${MAX_BROADCAST_RECIPIENTS}.`
@@ -372,7 +446,10 @@ export const previewAudience = query({
             (recipient.bookingRef ?? "").toLowerCase().includes(query)
         )
       : recipients
-    const previewLimit = Math.max(0, Math.min(Math.floor(limit ?? 200), 200))
+    const requestedLimit = limit ?? 200
+    const previewLimit = Number.isFinite(requestedLimit)
+      ? Math.max(0, Math.min(Math.floor(requestedLimit), 200))
+      : 200
     return {
       total: matched.length,
       skippedNoEmail,

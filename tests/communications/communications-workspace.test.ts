@@ -72,7 +72,7 @@ describe("Communications workspace structure", () => {
     expect(source).toContain(
       'placeholder="Search by name, email, or booking reference"'
     )
-    expect(source).toContain("search: audienceSearch.trim()")
+    expect(source).toContain("search: deferredAudienceSearch.trim()")
     expect(source).not.toContain("aud-status")
     expect(source).not.toContain("aud-location")
     expect(source).not.toContain("aud-from")

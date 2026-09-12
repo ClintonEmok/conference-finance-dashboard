@@ -123,6 +123,7 @@ test("manual reminders queue only selected eligible IDs and skip a fully paid se
     api.paymentReminders.previewPaymentReminderAudience,
     {
       eventId,
+      limit: Number.NaN,
     }
   )
   expect(preview.total).toBe(1)
@@ -428,6 +429,23 @@ test("automatic idempotency ignores a changed reminder kind in the same period",
       attempts: 0,
       createdAt: Date.now(),
     })
+    await ctx.db.insert("paymentReminderDeliveries", {
+      eventId,
+      orderId,
+      campaignId: "automatic:kind-change",
+      kind: "partial",
+      period,
+      recipient: "kind-change@example.com",
+      bookerName: "Booker",
+      bookingRef: "BK-KIND-CHANGE",
+      currency: "EUR",
+      amountDueMinor: 1_000,
+      paidAmountMinor: 100,
+      outstandingAmountMinor: 900,
+      status: "queued",
+      attempts: 0,
+      createdAt: Date.now(),
+    })
     await ctx.db.insert("payments", {
       source: "bank_transfer",
       payerName: "Booker",
@@ -452,8 +470,9 @@ test("automatic idempotency ignores a changed reminder kind in the same period",
       .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
       .collect()
   )
-  expect(rows).toHaveLength(1)
-  expect(rows[0].kind).toBe("unpaid")
+  expect(rows).toHaveLength(2)
+  expect(rows.map((row) => row.kind)).toContain("unpaid")
+  expect(rows.map((row) => row.kind)).toContain("partial")
 })
 
 test("delivery claiming skips already claimed rows when a campaign exceeds one batch", async () => {

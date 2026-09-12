@@ -45,6 +45,7 @@ type ActiveReminderOrder = {
 const REMINDER_BATCH_SIZE = 25
 const AUTOMATIC_SETTINGS_PAGE_SIZE = 25
 const AUTOMATIC_ORDER_PAGE_SIZE = 25
+const SENDING_LEASE_MS = 10 * 60 * 1000
 
 export const getSettings = query({
   args: settingsArgs,
@@ -115,7 +116,10 @@ export const previewPaymentReminderAudience = query({
       const recipient = recipientByOrderId.get(String(order._id))
       return recipient ? [recipient] : []
     })
-    const limit = Math.max(0, Math.min(Math.floor(args.limit ?? 200), 200))
+    const requestedLimit = args.limit ?? 200
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(0, Math.min(Math.floor(requestedLimit), 200))
+      : 200
 
     return {
       total: recipients.length,
@@ -425,16 +429,36 @@ export const getPendingDeliveries = internalQuery({
 export const claimPendingDeliveries = internalMutation({
   args: { campaignId: v.string(), limit: v.number() },
   handler: async (ctx, args) => {
+    const batchSize = Math.min(Math.max(args.limit, 1), REMINDER_BATCH_SIZE)
+    const staleBefore = Date.now() - SENDING_LEASE_MS
+    const staleRows = await ctx.db
+      .query("paymentReminderDeliveries")
+      .withIndex("by_campaignId_and_status_and_sendingAt", (q) =>
+        q
+          .eq("campaignId", args.campaignId)
+          .eq("status", "sending")
+          .lt("sendingAt", staleBefore)
+      )
+      .take(batchSize)
+    for (const row of staleRows) {
+      await ctx.db.patch("paymentReminderDeliveries", row._id, {
+        status: "queued",
+        sendingAt: undefined,
+      })
+    }
+
     const rows = await ctx.db
       .query("paymentReminderDeliveries")
       .withIndex("by_campaignId_and_status", (q) =>
         q.eq("campaignId", args.campaignId).eq("status", "queued")
       )
-      .take(Math.min(Math.max(args.limit, 1), REMINDER_BATCH_SIZE))
+      .take(batchSize)
+    const sendingAt = Date.now()
     for (const row of rows) {
       await ctx.db.patch("paymentReminderDeliveries", row._id, {
         status: "sending",
         attempts: row.attempts + 1,
+        sendingAt,
       })
     }
     return rows
@@ -461,6 +485,7 @@ export const recordDelivery = internalMutation({
       status: args.status,
       error: args.error,
       providerEmailId: args.providerEmailId,
+      sendingAt: undefined,
       sentAt: args.status === "sent" ? Date.now() : undefined,
     })
   },
@@ -558,7 +583,7 @@ export const processAutomaticEvent = internalMutation({
             .eq("orderId", order._id)
             .eq("period", args.period)
         )
-        .unique()
+        .first()
       if (existing) continue
       await ctx.db.insert("paymentReminderDeliveries", {
         eventId: args.eventId,

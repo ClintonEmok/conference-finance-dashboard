@@ -10,6 +10,7 @@ import {
   ANNOUNCEMENT_NOTE,
   ANNOUNCEMENT_TITLE,
 } from "../lib/email/announcement-copy"
+import { resolveBroadcastAudience } from "./emailBroadcasts"
 
 const modules = import.meta.glob("./**/*.ts")
 
@@ -58,7 +59,7 @@ async function seedBooker(
   eventId: string,
   options: SeedOptions
 ) {
-  await t.mutation(async (ctx) => {
+  return await t.mutation(async (ctx) => {
     const orderId = await ctx.db.insert("orders", {
       source: "internal",
       eventId: eventId as never,
@@ -434,9 +435,38 @@ test("previewAudience caps an oversized requested limit at 200", async () => {
   const defaulted = await t.query(api.emailBroadcasts.previewAudience, {
     eventId: eventId as never,
     ...baseFilters,
+    limit: Number.NaN,
   })
   expect(defaulted.recipients.length).toBe(200)
 }, 60_000)
+
+test("explicit selections resolve directly instead of using the audience scan cap", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await seedEvent(t)
+  const firstOrderId = await seedBooker(t, eventId, {
+    name: "First Booker",
+    email: "first@example.com",
+    ref: "BK-FIRST",
+  })
+  const selectedOrderId = await seedBooker(t, eventId, {
+    name: "Selected Booker",
+    email: "selected@example.com",
+    ref: "BK-SELECTED",
+  })
+
+  const result = await t.run(async (ctx) =>
+    resolveBroadcastAudience(
+      ctx,
+      eventId as never,
+      { mode: "explicit", orderIds: [selectedOrderId as never] },
+      { maxOrders: 1 }
+    )
+  )
+
+  expect(result.recipients).toHaveLength(1)
+  expect(result.recipients[0].orderId).toBe(selectedOrderId)
+  expect(result.recipients[0].orderId).not.toBe(firstOrderId)
+})
 
 test("previewAudience search filters across the whole audience", async () => {
   const t = fresh().withIdentity(adminIdentity)

@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react"
 import { useConvexAuth, useMutation, useQuery } from "convex/react"
 import {
   AlarmClock,
@@ -82,6 +88,7 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
 
   // --- Audience search + progressive reveal --------------------------------
   const [audienceSearch, setAudienceSearch] = useState("")
+  const deferredAudienceSearch = useDeferredValue(audienceSearch)
   const [visibleCount, setVisibleCount] = useState(AUDIENCE_PAGE)
 
   // --- Broadcast tracking state --------------------------------------------
@@ -123,7 +130,7 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
     canQuery && event?._id && previewAudienceEnabled
       ? {
           eventId: event._id,
-          search: audienceSearch.trim() || undefined,
+          search: deferredAudienceSearch.trim() || undefined,
           limit: MAX_PREVIEW_RECIPIENTS,
         }
       : ("skip" as const)
@@ -134,7 +141,7 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
     canQuery && event?._id && paymentPreviewEnabled
       ? {
           eventId: event._id,
-          search: audienceSearch.trim() || undefined,
+          search: deferredAudienceSearch.trim() || undefined,
           limit: MAX_PREVIEW_RECIPIENTS,
         }
       : ("skip" as const)
