@@ -12,7 +12,7 @@ import { generateAllocationProposal } from "@/lib/domain/accommodation/assignmen
 function buildBoard(
   overrides: Partial<RoomAllocationBoard>
 ): RoomAllocationBoard {
-  return {
+  const board: RoomAllocationBoard = {
     generatedAt: "2026-03-27T00:00:00.000Z",
     filters: {
       eventId: null,
@@ -43,6 +43,14 @@ function buildBoard(
       unassignedAttendeesCount: 0,
     },
     ...overrides,
+  }
+
+  return {
+    ...board,
+    rooms: board.rooms.map((room) => ({
+      ...room,
+      occupantCount: room.occupantCount ?? room.occupants.length,
+    })),
   }
 }
 
@@ -730,6 +738,100 @@ describe("allocation proposal compatibility strategy", () => {
     expect(proposal.suggestions.map((s) => s.attendeeId)).toEqual([
       "attendee-unpaid-critical",
       "attendee-unpaid-normal",
+    ])
+  })
+
+  it("places a no-bed attendee in a bed-full room and defaults missing metadata to one bed", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-full",
+            label: "A-101",
+            capacity: 2,
+            occupantCount: 2,
+            occupiedBeds: 2,
+            availableBeds: 0,
+            availability: "full",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [
+              {
+                attendeeId: "existing-1",
+                attendeeName: "Existing One",
+                attendeeEmail: null,
+                orderId: "order-existing-1",
+                providerOrderId: null,
+                providerEventId: null,
+                eventName: "Camp",
+                ticketTypeLabel: null,
+                ...paymentFields(),
+              },
+              {
+                attendeeId: "existing-2",
+                attendeeName: "Existing Two",
+                attendeeEmail: null,
+                orderId: "order-existing-2",
+                providerOrderId: null,
+                providerEventId: null,
+                eventName: "Camp",
+                ticketTypeLabel: null,
+                ...paymentFields(),
+              },
+            ],
+            pendingAssignments: [],
+          },
+        ],
+        unassignedAttendees: [
+          {
+            attendeeId: "no-bed",
+            attendeeName: "No Bed Child",
+            attendeeEmail: null,
+            orderId: "order-no-bed",
+            providerOrderId: null,
+            providerEventId: null,
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "UNKNOWN",
+            allocationPriority: "NORMAL",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            requiresBed: false,
+            ...paymentFields(),
+          },
+          {
+            attendeeId: "legacy-bed",
+            attendeeName: "Legacy Bed Guest",
+            attendeeEmail: null,
+            orderId: "order-legacy-bed",
+            providerOrderId: null,
+            providerEventId: null,
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "UNKNOWN",
+            allocationPriority: "NORMAL",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields(),
+          },
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    expect(proposal.suggestions).toHaveLength(1)
+    expect(proposal.suggestions[0]?.attendeeId).toBe("no-bed")
+    expect(proposal.unplacedAttendees).toMatchObject([
+      {
+        attendeeId: "legacy-bed",
+        reason: "No rooms with available beds",
+      },
     ])
   })
 })

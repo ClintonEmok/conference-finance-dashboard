@@ -248,6 +248,7 @@ type BuyerSuggestion = NonNullable<
 type RoomState = {
   room: ProposalRoom
   remainingBeds: number
+  projectedOccupantCount: number
   projectedGenders: Set<Exclude<AttendeeGender, null>>
   projectedOrderIds: Set<string>
   projectedOccupantSignatures: Set<string>
@@ -458,7 +459,7 @@ function getFamilyCohesionRank(
     return 3
   }
 
-  if (attendee.hasFamily && roomState.room.occupiedBeds === 0) {
+  if (attendee.hasFamily && roomState.projectedOccupantCount === 0) {
     return 2
   }
 
@@ -620,7 +621,6 @@ export async function generateAllocationProposal(input: {
   }
 
   const availableRooms = board.rooms
-    .filter((r) => r.availableBeds > 0)
     .sort((a, b) => {
       if (a.availability === "available" && b.availability === "empty")
         return -1
@@ -630,6 +630,7 @@ export async function generateAllocationProposal(input: {
     .map<RoomState>((room) => ({
       room,
       remainingBeds: room.availableBeds,
+      projectedOccupantCount: room.occupantCount ?? 0,
       projectedGenders: new Set<Exclude<AttendeeGender, null>>(),
       projectedOrderIds: new Set(
         room.occupants.map((occupant) =>
@@ -690,9 +691,13 @@ export async function generateAllocationProposal(input: {
   ) => {
     const priority = attendee.allocationPriority ?? "NORMAL"
     const attendeeGender = normalizeAttendeeGender(attendee.genderType)
+    const attendeeRequiresBed = attendee.requiresBed !== false
 
     const rankedRooms = availableRooms
-      .filter((roomState) => roomState.remainingBeds > 0)
+      .filter(
+        (roomState) =>
+          !attendeeRequiresBed || roomState.remainingBeds > 0
+      )
       .filter((roomState) =>
         isGenderCompatible(attendeeGender, roomState.projectedGenders)
       )
@@ -708,7 +713,8 @@ export async function generateAllocationProposal(input: {
         )
         const availabilityRank =
           roomState.room.availability === "available" ? 1 : 0
-        const remainingBedsAfterPlacement = roomState.remainingBeds - 1
+        const remainingBedsAfterPlacement =
+          roomState.remainingBeds - (attendeeRequiresBed ? 1 : 0)
 
         return {
           roomState,
@@ -750,7 +756,10 @@ export async function generateAllocationProposal(input: {
         attendee.attendeeId
       )
 
-      bestRoom.remainingBeds -= 1
+      if (attendeeRequiresBed) {
+        bestRoom.remainingBeds -= 1
+      }
+      bestRoom.projectedOccupantCount += 1
       bestRoom.projectedGenders.add(attendeeGender)
       bestRoom.projectedOrderIds.add(attendeeOrderKey)
       for (const signature of buildPersonSignatures(
@@ -780,9 +789,7 @@ export async function generateAllocationProposal(input: {
       return
     }
 
-    const hasAnyBeds = availableRooms.some(
-      (roomState) => roomState.remainingBeds > 0
-    )
+    const hasAnyBeds = availableRooms.some((roomState) => roomState.remainingBeds > 0)
     unplacedAttendees.push({
       attendeeId: attendee.attendeeId,
       attendeeName: attendee.attendeeName,
