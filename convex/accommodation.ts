@@ -337,7 +337,8 @@ function emptyFamilyUnit(input: {
     familyLabel: input.familyLabel ?? null,
     familyParentAttendeeId: input.familyParentAttendeeId ?? null,
     familyState: input.familyState,
-    parent: input.parent ?? null,
+    parent:
+      input.parent ?? (input.familyRole === "solo" ? input.attendee : null),
     members: input.members ?? [input.attendee],
     eligibleChildren: [],
     separateMembers: [],
@@ -2521,6 +2522,328 @@ export const createRoomType = mutation({
   },
 })
 
+type FamilyRoomAction = "assign" | "move"
+
+type ValidatedFamilyRoomOutcome = {
+  unit: FamilyPlacementUnit
+  eventId: Id<"events">
+  room: Doc<"accommodationRooms">
+  occupancy: RoomOccupancy
+  incomingBedDelta: number
+  affectedAttendees: Doc<"orderAttendees">[]
+}
+
+type FamilyAssignmentResult = {
+  ok: true
+  parentAttendeeId: string
+  roomId: string
+  targetRoomId: string
+  eligibleChildIds: string[]
+  eligibleChildCount: number
+  affectedAttendeeCount: number
+  action: FamilyRoomAction | "unassign"
+}
+
+function mutationErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+async function assertOrderEventOwnership(
+  ctx: MutationCtx,
+  eventId: string,
+  attendees: Doc<"orderAttendees">[]
+): Promise<Map<string, Doc<"orders">>> {
+  const event = await ctx.db.get(
+    "events",
+    normalizeDocId(ctx, "events", eventId, "Event not found")
+  )
+  if (!event) throw new Error("Event not found")
+
+  const orders = await Promise.all(
+    attendees.map((attendee) => ctx.db.get("orders", attendee.orderId))
+  )
+  const orderById = new Map<string, Doc<"orders">>()
+  for (const [index, order] of orders.entries()) {
+    if (!order || String(order.eventId) !== eventId) {
+      throw new Error("Attendee does not belong to this event")
+    }
+    orderById.set(String(attendees[index]!.orderId), order)
+  }
+  return orderById
+}
+
+async function assertTargetRoomEventScope(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+  room: Doc<"accommodationRooms">
+): Promise<void> {
+  const eventHotelLink = await ctx.db
+    .query("accommodationEventHotels")
+    .withIndex("eventId_hotelId", (q) =>
+      q.eq("eventId", eventId).eq("hotelId", room.hotelId as string)
+    )
+    .first()
+  if (!eventHotelLink) {
+    throw new Error("Room hotel is not enabled for this event")
+  }
+}
+
+function throwFamilyResolutionError(unit: FamilyPlacementUnit): never {
+  if (unit.familyState === "needs-family-link") {
+    throw new Error("Needs family link")
+  }
+  throw new Error("Family placement data is inconsistent")
+}
+
+function allowUnlinkedNoBedUnit(
+  unit: FamilyPlacementUnit,
+  attendee: Doc<"orderAttendees">
+): FamilyPlacementUnit {
+  const requirement = unit.requirements.get(String(attendee._id))
+  if (
+    unit.valid ||
+    unit.familyState !== "needs-family-link" ||
+    unit.familyRole !== "child" ||
+    requirement?.requiresBed !== false ||
+    requirement.placementEligible !== true
+  ) {
+    return unit
+  }
+
+  // An unlinked no-bed attendee is not a family child yet. Preserve the
+  // legacy individual placement path while the board continues to surface
+  // the same record as "Needs family link" for data-quality follow-up.
+  return {
+    ...unit,
+    valid: true,
+    familyRole: "solo",
+    familyGroupId: null,
+    familyLabel: null,
+    familyParentAttendeeId: null,
+    familyState: "unresolved",
+    parent: attendee,
+    members: [attendee],
+    eligibleChildren: [],
+    separateMembers: [],
+    reason: null,
+  }
+}
+
+/**
+ * Read-only validation for a complete parent-led target. All relationship,
+ * live bed, physical occupancy, inventory, and capacity checks happen before
+ * commitFamilyRoomOutcome performs its first attendee patch.
+ */
+async function validateFamilyRoomOutcome(
+  ctx: MutationCtx,
+  input: {
+    attendeeId: string
+    roomId: string
+    eventId: string
+    rejectAlreadyAssigned?: boolean
+    allowUnlinkedNoBed?: boolean
+  }
+): Promise<ValidatedFamilyRoomOutcome> {
+  const eventId = normalizeDocId(ctx, "events", input.eventId, "Event not found")
+  const attendeeId = normalizeDocId(
+    ctx,
+    "orderAttendees",
+    input.attendeeId,
+    "Attendee not found"
+  )
+  const roomId = normalizeDocId(
+    ctx,
+    "accommodationRooms",
+    input.roomId,
+    "Room not found"
+  )
+  const attendee = await ctx.db.get("orderAttendees", attendeeId)
+  const room = await ctx.db.get("accommodationRooms", roomId)
+  if (!attendee) throw new Error("Attendee not found")
+  if (!room) throw new Error("Room not found")
+
+  let unit = await resolveFamilyPlacementUnit(ctx, String(eventId), attendee)
+  if (input.allowUnlinkedNoBed) {
+    unit = allowUnlinkedNoBedUnit(unit, attendee)
+  }
+  if (!unit.valid) throwFamilyResolutionError(unit)
+  if (unit.familyRole === "child") {
+    throw new Error(
+      "Parent placement required: Select the parent anchor; children cannot be placed directly."
+    )
+  }
+  if (!unit.parent) {
+    throw new Error("Family placement data is inconsistent")
+  }
+
+  const affectedAttendees = [unit.parent, ...unit.eligibleChildren.map((child) => child.attendee)]
+  const requirements = new Map(unit.requirements)
+  const missingRequirements = await Promise.all(
+    affectedAttendees.map(async (member) => {
+      const existing = requirements.get(String(member._id))
+      return [
+        String(member._id),
+        existing ?? (await resolveAttendeeBedRequirement(ctx, member._id)),
+      ] as const
+    })
+  )
+  for (const [memberId, requirement] of missingRequirements) {
+    requirements.set(memberId, requirement)
+    if (!requirement.placementEligible) {
+      throw new Error("Attendee is not eligible for accommodation placement")
+    }
+  }
+  await assertOrderEventOwnership(ctx, String(eventId), affectedAttendees)
+  await assertTargetRoomEventScope(ctx, eventId, room)
+
+  if (
+    input.rejectAlreadyAssigned &&
+    unit.parent.assignedRoomId === String(room._id) &&
+    unit.familyState === "placed"
+  ) {
+    throw new Error("Attendee already assigned to this room")
+  }
+
+  const occupancy = await loadRoomOccupancy(
+    ctx,
+    String(room._id),
+    room.capacity,
+    String(eventId)
+  )
+  const incomingBedDelta = affectedAttendees.reduce((sum, member) => {
+    const alreadyAssigned = member.assignedRoomId === String(room._id)
+    const requirement = requirements.get(String(member._id))
+    return sum + (alreadyAssigned || requirement?.requiresBed === false ? 0 : 1)
+  }, 0)
+
+  if (occupancy.incomplete && incomingBedDelta > 0) {
+    throw new Error(
+      "Occupancy data is incomplete; verify before assigning a bed-consuming family"
+    )
+  }
+  if (occupancy.occupiedBeds + incomingBedDelta > room.capacity) {
+    throw new Error("Room is already full")
+  }
+  const parentOrder = await ctx.db.get("orders", unit.parent.orderId)
+  await assertEventRoomInventoryAvailable(
+    ctx,
+    parentOrder,
+    room,
+    occupancy.occupantCount > 0
+  )
+
+  return {
+    unit,
+    eventId,
+    room,
+    occupancy,
+    incomingBedDelta,
+    affectedAttendees,
+  }
+}
+
+async function commitFamilyRoomOutcome(
+  ctx: MutationCtx,
+  outcome: ValidatedFamilyRoomOutcome,
+  action: FamilyRoomAction
+): Promise<FamilyAssignmentResult> {
+  const orderIds = new Set(
+    outcome.affectedAttendees.map((attendee) => String(attendee.orderId))
+  )
+  for (const orderId of orderIds) {
+    await persistOrderAccommodationConfirmation(
+      ctx,
+      orderId as Id<"orders">
+    )
+  }
+
+  for (const attendee of outcome.affectedAttendees) {
+    await ctx.db.patch("orderAttendees", attendee._id, {
+      assignedRoomId: String(outcome.room._id),
+    })
+  }
+
+  const eligibleChildIds = outcome.unit.eligibleChildren.map((child) =>
+    String(child.attendee._id)
+  )
+  return {
+    ok: true,
+    parentAttendeeId: String(outcome.unit.parent!._id),
+    roomId: String(outcome.room._id),
+    targetRoomId: String(outcome.room._id),
+    eligibleChildIds,
+    eligibleChildCount: eligibleChildIds.length,
+    affectedAttendeeCount: 1 + eligibleChildIds.length,
+    action,
+  }
+}
+
+async function validateFamilyUnassignment(
+  ctx: MutationCtx,
+  input: { attendeeId: string; eventId: string }
+): Promise<{
+  unit: FamilyPlacementUnit
+  affectedAttendees: Doc<"orderAttendees">[]
+  assignedAttendees: Doc<"orderAttendees">[]
+}> {
+  const eventId = normalizeDocId(ctx, "events", input.eventId, "Event not found")
+  const attendeeId = normalizeDocId(
+    ctx,
+    "orderAttendees",
+    input.attendeeId,
+    "Attendee not found or not assigned to any room"
+  )
+  const attendee = await ctx.db.get("orderAttendees", attendeeId)
+  if (!attendee) {
+    throw new Error("Attendee not found or not assigned to any room")
+  }
+  const unit = allowUnlinkedNoBedUnit(
+    await resolveFamilyPlacementUnit(ctx, String(eventId), attendee),
+    attendee
+  )
+  if (!unit.valid) throwFamilyResolutionError(unit)
+  if (unit.familyRole === "child") {
+    throw new Error(
+      "Parent placement required: Select the parent anchor; children cannot be placed directly."
+    )
+  }
+  if (!unit.parent) throw new Error("Family placement data is inconsistent")
+  const affectedAttendees = [unit.parent, ...unit.eligibleChildren.map((child) => child.attendee)]
+  await assertOrderEventOwnership(ctx, String(eventId), affectedAttendees)
+  const assignedAttendees = affectedAttendees.filter(
+    (member) => member.assignedRoomId
+  )
+  if (assignedAttendees.length === 0) {
+    throw new Error("Attendee not found or not assigned to any room")
+  }
+  return { unit, affectedAttendees, assignedAttendees }
+}
+
+async function commitFamilyUnassignment(
+  ctx: MutationCtx,
+  outcome: Awaited<ReturnType<typeof validateFamilyUnassignment>>
+): Promise<FamilyAssignmentResult> {
+  for (const attendee of outcome.affectedAttendees) {
+    await ctx.db.patch("orderAttendees", attendee._id, {
+      assignedRoomId: undefined,
+    })
+  }
+  const eligibleChildIds = outcome.unit.eligibleChildren.map((child) =>
+    String(child.attendee._id)
+  )
+  const roomId = outcome.assignedAttendees[0]?.assignedRoomId ?? ""
+  return {
+    ok: true,
+    parentAttendeeId: String(outcome.unit.parent!._id),
+    roomId,
+    targetRoomId: roomId,
+    eligibleChildIds,
+    eligibleChildCount: eligibleChildIds.length,
+    affectedAttendeeCount: 1 + eligibleChildIds.length,
+    action: "unassign",
+  }
+}
+
 export const assignRoomToAttendee = mutation({
   args: {
     attendeeId: v.string(),
@@ -2529,57 +2852,13 @@ export const assignRoomToAttendee = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const roomId = normalizeDocId(
-      ctx,
-      "accommodationRooms",
-      args.roomId,
-      "Room not found"
-    )
-    const attendeeId = normalizeDocId(
-      ctx,
-      "orderAttendees",
-      args.attendeeId,
-      "Attendee not found"
-    )
-    const room = await ctx.db.get("accommodationRooms", roomId)
-    if (!room) throw new Error("Room not found")
-
-    const attendee = await ctx.db.get("orderAttendees", attendeeId)
-    if (!attendee) throw new Error("Attendee not found")
-
-    const { order } = await assertEventAssignmentScope(
-      ctx,
-      args.eventId,
-      attendee,
-      room
-    )
-
-    const { occupancy } = await assertRoomCapacityForAttendee(
-      ctx,
-      attendee,
-      room
-    )
-
-    // RMG-03: event-resource inventory guard (no-op when the event has no
-    // resource rows for this room type).
-    await assertEventRoomInventoryAvailable(
-      ctx,
-      order,
-      room,
-      occupancy.occupantCount > 0
-    )
-
-    // Phase 44 lock boundary: the first assignment for an order with
-    // unconfirmed options-only selections persists the accommodation
-    // confirmation snapshot atomically with the assignment write. Legacy
-    // orders with no selection rows skip cleanly.
-    await persistOrderAccommodationConfirmation(ctx, attendee.orderId)
-
-    await ctx.db.patch("orderAttendees", attendeeId, {
-      assignedRoomId: args.roomId,
+    const outcome = await validateFamilyRoomOutcome(ctx, {
+      ...args,
+      rejectAlreadyAssigned: false,
+      allowUnlinkedNoBed: true,
     })
-
-    return args.attendeeId
+    const result = await commitFamilyRoomOutcome(ctx, outcome, "assign")
+    return outcome.unit.familyRole === "solo" ? args.attendeeId : result
   },
 })
 
@@ -2591,60 +2870,13 @@ export const assignAttendeeToRoom = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const roomId = normalizeDocId(
-      ctx,
-      "accommodationRooms",
-      args.roomId,
-      "Room not found"
-    )
-    const attendeeId = normalizeDocId(
-      ctx,
-      "orderAttendees",
-      args.attendeeId,
-      "Attendee not found"
-    )
-    const room = await ctx.db.get("accommodationRooms", roomId)
-    if (!room) throw new Error("Room not found")
-
-    const attendee = await ctx.db.get("orderAttendees", attendeeId)
-    if (!attendee) throw new Error("Attendee not found")
-
-    if (attendee.assignedRoomId === args.roomId) {
-      throw new Error("Attendee already assigned to this room")
-    }
-
-    const { order } = await assertEventAssignmentScope(
-      ctx,
-      args.eventId,
-      attendee,
-      room
-    )
-
-    const { occupancy } = await assertRoomCapacityForAttendee(
-      ctx,
-      attendee,
-      room
-    )
-
-    // RMG-03: event-resource inventory guard (no-op when the event has no
-    // resource rows for this room type).
-    await assertEventRoomInventoryAvailable(
-      ctx,
-      order,
-      room,
-      occupancy.occupantCount > 0
-    )
-
-    // Phase 44 lock boundary: first assignment for an order with unconfirmed
-    // options-only selections persists the confirmation snapshot atomically
-    // with the assignment write; legacy orders skip cleanly.
-    await persistOrderAccommodationConfirmation(ctx, attendee.orderId)
-
-    await ctx.db.patch("orderAttendees", attendeeId, {
-      assignedRoomId: args.roomId,
+    const outcome = await validateFamilyRoomOutcome(ctx, {
+      ...args,
+      rejectAlreadyAssigned: true,
+      allowUnlinkedNoBed: true,
     })
-
-    return { ok: true }
+    const result = await commitFamilyRoomOutcome(ctx, outcome, "move")
+    return outcome.unit.familyRole === "solo" ? { ok: true } : result
   },
 })
 
@@ -2655,30 +2887,9 @@ export const unassignRoomFromAttendee = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const attendeeId = normalizeDocId(
-      ctx,
-      "orderAttendees",
-      args.attendeeId,
-      "Attendee not found or not assigned to any room"
-    )
-    const attendee = await ctx.db.get("orderAttendees", attendeeId)
-    if (!attendee || !attendee.assignedRoomId) {
-      throw new Error("Attendee not found or not assigned to any room")
-    }
-    const room = await ctx.db.get(
-      "accommodationRooms",
-      attendee.assignedRoomId as Id<"accommodationRooms">
-    )
-    if (!room) {
-      throw new Error("Assigned room not found")
-    }
-    await assertEventAssignmentScope(ctx, args.eventId, attendee, room)
-
-    await ctx.db.patch("orderAttendees", attendeeId, {
-      assignedRoomId: undefined,
-    })
-
-    return { ok: true }
+    const outcome = await validateFamilyUnassignment(ctx, args)
+    const result = await commitFamilyUnassignment(ctx, outcome)
+    return outcome.unit.familyRole === "solo" ? { ok: true } : result
   },
 })
 
@@ -2689,30 +2900,9 @@ export const unassignAttendeeFromRoom = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const attendeeId = normalizeDocId(
-      ctx,
-      "orderAttendees",
-      args.attendeeId,
-      "Attendee not found or not assigned to any room"
-    )
-    const attendee = await ctx.db.get("orderAttendees", attendeeId)
-    if (!attendee || !attendee.assignedRoomId) {
-      throw new Error("Attendee not found or not assigned to any room")
-    }
-    const room = await ctx.db.get(
-      "accommodationRooms",
-      attendee.assignedRoomId as Id<"accommodationRooms">
-    )
-    if (!room) {
-      throw new Error("Assigned room not found")
-    }
-    await assertEventAssignmentScope(ctx, args.eventId, attendee, room)
-
-    await ctx.db.patch("orderAttendees", attendeeId, {
-      assignedRoomId: undefined,
-    })
-
-    return { ok: true }
+    const outcome = await validateFamilyUnassignment(ctx, args)
+    const result = await commitFamilyUnassignment(ctx, outcome)
+    return outcome.unit.familyRole === "solo" ? { ok: true } : result
   },
 })
 
@@ -3393,7 +3583,7 @@ export const confirmBuyerAssignment = mutation({
     slotId: v.optional(v.id("accommodationSlots")),
   },
   handler: async (ctx, args) => {
-    await requireIdentity(ctx)
+    const identity = await requireIdentity(ctx)
 
     // Get the pending assignment
     const assignment = await ctx.db.get("orderAssignments", args.assignmentId)
@@ -3405,6 +3595,9 @@ export const confirmBuyerAssignment = mutation({
     if (assignmentStatus !== "pending") {
       throw new Error("Assignment is not pending")
     }
+    if (assignment.assignmentIntent !== "assign") {
+      throw new Error("Assignment intent is not assignable")
+    }
 
     // Get the order for context
     const order = await ctx.db.get("orders", assignment.orderId)
@@ -3412,8 +3605,19 @@ export const confirmBuyerAssignment = mutation({
       throw new Error("Order not found")
     }
 
+    const attendee = await ctx.db.get("orderAttendees", assignment.attendeeId)
+    if (!attendee) {
+      throw new Error("Attendee not found")
+    }
+    if (attendee.orderId !== assignment.orderId) {
+      throw new Error("Assignment attendee does not belong to the order")
+    }
+    if (!order.eventId) {
+      throw new Error("Order is not linked to an event")
+    }
+
     // Determine which slot to use
-    let targetSlotId = args.slotId || assignment.slotId
+    const targetSlotId = args.slotId || assignment.slotId
     if (!targetSlotId) {
       throw new Error("No slot specified for assignment")
     }
@@ -3423,6 +3627,12 @@ export const confirmBuyerAssignment = mutation({
     if (!slot) {
       throw new Error("Slot not found")
     }
+    if (!slot.isAssignable) {
+      throw new Error("Slot is not assignable")
+    }
+    if (slot.eventId !== order.eventId) {
+      throw new Error("Slot does not belong to the order's event")
+    }
 
     // Get the room to check capacity
     const room = await ctx.db.get("accommodationRooms", slot.roomId)
@@ -3430,34 +3640,28 @@ export const confirmBuyerAssignment = mutation({
       throw new Error("Room not found")
     }
 
-    const attendee = await ctx.db.get("orderAttendees", assignment.attendeeId)
-    if (!attendee) {
-      throw new Error("Attendee not found")
-    }
-    const requirement = await resolveAttendeeBedRequirement(
-      ctx,
-      assignment.attendeeId
-    )
-    if (!requirement.placementEligible) {
-      throw new Error("Attendee is not eligible for accommodation placement")
-    }
-    const occupancy = await loadRoomOccupancy(
-      ctx,
-      String(room._id),
-      room.capacity,
-      null
-    )
-    const incomingBedDelta =
-      attendee.assignedRoomId === String(room._id) || !requirement.requiresBed
-        ? 0
-        : 1
+    let outcome: ValidatedFamilyRoomOutcome
+    try {
+      outcome = await validateFamilyRoomOutcome(ctx, {
+        attendeeId: String(assignment.attendeeId),
+        roomId: String(room._id),
+        eventId: String(order.eventId),
+        rejectAlreadyAssigned: false,
+        allowUnlinkedNoBed: true,
+      })
+    } catch (error: unknown) {
+      const reason = mutationErrorMessage(error)
+      if (
+        !reason.includes("Room is already full") &&
+        !reason.includes("Occupancy data is incomplete")
+      ) {
+        throw error
+      }
 
-    // Check if room has capacity
-    if (occupancy.occupiedBeds + incomingBedDelta > room.capacity) {
       // Room is full - find alternative rooms with capacity
       const allSlots = await ctx.db
         .query("accommodationSlots")
-        .withIndex("by_eventId", (q) => q.eq("eventId", slot.eventId))
+        .withIndex("by_eventId", (q) => q.eq("eventId", order.eventId!))
         .take(100)
 
       // Get rooms with available space
@@ -3473,43 +3677,35 @@ export const confirmBuyerAssignment = mutation({
 
       for (const altSlot of allSlots) {
         if (alternatives.length >= 10) break
+        if (!altSlot.isAssignable) continue
 
         const altRoom = await ctx.db.get("accommodationRooms", altSlot.roomId)
         if (!altRoom) continue
 
-        const altOccupancy = await loadRoomOccupancy(
-          ctx,
-          String(altRoom._id),
-          altRoom.capacity,
-          null
-        )
-        const altIncomingBedDelta =
-          attendee.assignedRoomId === String(altRoom._id) ||
-          !requirement.requiresBed
-            ? 0
-            : 1
-
-        if (
-          altOccupancy.occupiedBeds + altIncomingBedDelta <=
-            altRoom.capacity
-        ) {
+        try {
+          const alternativeOutcome = await validateFamilyRoomOutcome(ctx, {
+            attendeeId: String(assignment.attendeeId),
+            roomId: String(altRoom._id),
+            eventId: String(order.eventId),
+            rejectAlreadyAssigned: false,
+            allowUnlinkedNoBed: true,
+          })
           const roomType = await ctx.db.get(
             "accommodationRoomTypes",
             altRoom.roomTypeId as Id<"accommodationRoomTypes">
           )
-
           alternatives.push({
             slotId: altSlot._id,
             roomId: altSlot.roomId,
             roomLabel: altRoom.label,
             roomType: roomType?.label || "Unknown",
             capacity: altRoom.capacity,
-            occupantCount: altOccupancy.occupantCount,
-            availableSpots: Math.max(
-              0,
-              altRoom.capacity - altOccupancy.occupiedBeds
-            ),
+            occupantCount: alternativeOutcome.occupancy.occupantCount,
+            availableSpots: alternativeOutcome.occupancy.availableBeds,
           })
+        } catch {
+          // Alternatives are suggestions only. Any invalid, cross-event,
+          // unlinked, full, or incomplete outcome is omitted without writing.
         }
       }
 
@@ -3521,38 +3717,14 @@ export const confirmBuyerAssignment = mutation({
       }
     }
 
-    // RMG-03: event-resource inventory guard on the board Confirm path
-    // (no-op when the event has no resource rows for this room type).
-    await assertEventRoomInventoryAvailable(
-      ctx,
-      order,
-      room,
-      occupancy.occupantCount > 0
-    )
-
-    // Phase 44 lock boundary: persisting the accommodation confirmation
-    // happens after room/capacity validation but before the assignment write,
-    // so a full room never locks the buyer's configuration. A resolver
-    // failure aborts the whole transaction before any assignment patch.
-    await persistOrderAccommodationConfirmation(ctx, order._id)
-
-    // Get current user identity for confirmedBy
-    const identity = await ctx.auth.getUserIdentity()
-    if (!identity) {
-      throw new Error("Unauthorized")
-    }
+    const familyResult = await commitFamilyRoomOutcome(ctx, outcome, "assign")
 
     // Update assignment status
     await ctx.db.patch(args.assignmentId, {
       status: "confirmed",
       confirmedAt: Date.now(),
-      confirmedBy: identity.subject,
+      confirmedBy: identity.tokenIdentifier,
       slotId: targetSlotId,
-    })
-
-    // Assign the attendee to the room
-    await ctx.db.patch("orderAttendees", assignment.attendeeId, {
-      assignedRoomId: slot.roomId,
     })
 
     return {
@@ -3560,7 +3732,11 @@ export const confirmBuyerAssignment = mutation({
       assignmentId: args.assignmentId,
       attendeeId: assignment.attendeeId,
       slotId: targetSlotId,
-      roomId: slot.roomId,
+      roomId: familyResult.roomId,
+      parentAttendeeId: familyResult.parentAttendeeId,
+      eligibleChildIds: familyResult.eligibleChildIds,
+      eligibleChildCount: familyResult.eligibleChildCount,
+      affectedAttendeeCount: familyResult.affectedAttendeeCount,
     }
   },
 })
