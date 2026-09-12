@@ -187,6 +187,136 @@ test("allocation board separates occupants from beds and redacts foreign occupan
   })
 })
 
+test("assignment mutations allow no-bed occupants in full rooms but reject bed users and ticket-only attendees", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const bedTicketId = await t.mutation(async (ctx) =>
+    ctx.db.insert("ticketTypes", {
+      eventId: seed.eventId,
+      label: "Bed ticket",
+      priceMinor: TICKET_PRICE_MINOR,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      accommodationIncluded: false,
+      requiresBed: true,
+      updatedAt: BASE_EVENT_AT,
+    })
+  )
+  await t.mutation(async (ctx) => {
+    await ctx.db.patch("ticketTypes", seed.ticketTypeId, {
+      requiresBed: false,
+    })
+  })
+
+  const firstBed = await createOrder(t, seed, {
+    attendeeKey: "full-bed-one",
+    name: "Full Bed One",
+    ticketTypeId: bedTicketId,
+  })
+  const secondBed = await createOrder(t, seed, {
+    attendeeKey: "full-bed-two",
+    name: "Full Bed Two",
+    ticketTypeId: bedTicketId,
+  })
+  const noBed = await createOrder(t, seed, {
+    attendeeKey: "full-room-no-bed",
+    name: "Full Room No Bed",
+  })
+  const blockedBed = await createOrder(t, seed, {
+    attendeeKey: "blocked-bed",
+    name: "Blocked Bed",
+    ticketTypeId: bedTicketId,
+  })
+  const ticketOnly = await createOrder(t, seed, {
+    attendeeKey: "ticket-only-write",
+    name: "Ticket Only Write",
+    includeAccommodationSelection: false,
+  })
+
+  await t.mutation(api.accommodation.assignAttendeeToRoom, {
+    attendeeId: String(firstBed.attendeeId),
+    roomId: String(seed.roomId),
+    eventId: String(seed.eventId),
+  })
+  await t.mutation(api.accommodation.assignRoomToAttendee, {
+    attendeeId: String(secondBed.attendeeId),
+    roomId: String(seed.roomId),
+    eventId: String(seed.eventId),
+  })
+
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(noBed.attendeeId),
+      roomId: String(seed.roomId),
+      eventId: String(seed.eventId),
+    })
+  ).resolves.toEqual({ ok: true })
+
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(blockedBed.attendeeId),
+      roomId: String(seed.roomId),
+      eventId: String(seed.eventId),
+    })
+  ).rejects.toThrow("Room is already full")
+
+  await expect(
+    t.mutation(api.accommodation.assignRoomToAttendee, {
+      attendeeId: String(ticketOnly.attendeeId),
+      roomId: String(seed.roomId),
+      eventId: String(seed.eventId),
+    })
+  ).rejects.toThrow("not eligible for accommodation placement")
+
+  const board = await loadBoard(t, seed.eventId)
+  const room = board.rooms.find(
+    (candidate: { id: string }) => String(candidate.id) === String(seed.roomId)
+  )
+  expect(room).toMatchObject({
+    occupantCount: 3,
+    occupiedBeds: 2,
+    availableBeds: 0,
+  })
+})
+
+test("foreign-event bed occupancy blocks a bed-consuming assignment", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const first = await seedPaidPriorityEvent(t)
+  const second = await seedPaidPriorityEvent(t)
+  const foreign = await createOrder(t, second, {
+    attendeeKey: "foreign-bed",
+    name: "Foreign Bed",
+  })
+  const local = await createOrder(t, first, {
+    attendeeKey: "local-bed",
+    name: "Local Bed",
+  })
+  const blocked = await createOrder(t, first, {
+    attendeeKey: "blocked-by-foreign-bed",
+    name: "Blocked By Foreign Bed",
+  })
+
+  await t.mutation(async (ctx) => {
+    await ctx.db.patch("orderAttendees", foreign.attendeeId, {
+      assignedRoomId: String(first.roomId),
+    })
+  })
+
+  await t.mutation(api.accommodation.assignAttendeeToRoom, {
+    attendeeId: String(local.attendeeId),
+    roomId: String(first.roomId),
+    eventId: String(first.eventId),
+  })
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(blocked.attendeeId),
+      roomId: String(first.roomId),
+      eventId: String(first.eventId),
+    })
+  ).rejects.toThrow("Room is already full")
+})
+
 test("assignment and unassignment reject foreign events and unlinked hotels", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const first = await seedPaidPriorityEvent(t)
@@ -1212,6 +1342,7 @@ test("legacy order with no accommodation selection rows still assigns", async ()
     name: "Legacy Attendee",
     bookingRef: "BK-PP-LEGACY01",
     includeAccommodationSelection: false,
+    allocatedRoomTypeId: String(seed.roomTypeId),
   })
 
   await expect(
