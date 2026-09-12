@@ -27,13 +27,13 @@ export const updateSettings = mutation({ args: { eventId: v.id("events"), enable
   return { ...value }
 } })
 
-async function eligibleDeliveries(ctx: QueryCtx | MutationCtx, eventId: Id<"events">, orderIds: Id<"orders">[], now = Date.now()) {
+async function eligibleDeliveries(ctx: QueryCtx | MutationCtx, eventId: Id<"events">, orderIds: Id<"orders">[], dueAt?: number, now = Date.now()) {
   const orders = (await Promise.all(orderIds.map(id => ctx.db.get("orders", id)))).filter((o): o is NonNullable<typeof o> => Boolean(o && o.eventId === eventId && o.status !== "cancelled" && !o.mergedIntoOrderId && o.bookerEmail?.trim() && o.bookingRef?.trim()))
   const removed = await Promise.all(orders.map(async order => { const row = await ctx.db.query("ticketTailorOrders").withIndex("orderId", q => q.eq("orderId", order._id)).first(); return [order, typeof row?.removedAt === "number"] as const }))
   const active = removed.filter(([, isRemoved]) => !isRemoved).map(([order]) => order)
   const due = await loadOrderAmountDueBreakdowns(ctx, active)
   const paid = await loadMatchedPaymentTotalsByOrderId(ctx, active)
-  return active.flatMap(order => { const breakdown = due.get(String(order._id)); if (!breakdown) return []; const policy = classifyPaymentReminder({ amountDueMinor: breakdown.amountDueMinor, paidAmountMinor: paid.get(String(order._id)) ?? 0, dueAt: undefined, now }); return policy ? [{ order, policy }] : [] })
+  return active.flatMap(order => { const breakdown = due.get(String(order._id)); if (!breakdown) return []; const policy = classifyPaymentReminder({ amountDueMinor: breakdown.amountDueMinor, paidAmountMinor: paid.get(String(order._id)) ?? 0, dueAt, now }); return policy ? [{ order, policy }] : [] })
 }
 
 async function scheduleManual(ctx: MutationCtx, args: { eventId: Id<"events">; selection: { mode: "explicit"; orderIds: Id<"orders">[] }; authorize: boolean }) {
@@ -44,7 +44,8 @@ async function scheduleManual(ctx: MutationCtx, args: { eventId: Id<"events">; s
   const event = await ctx.db.get("events", args.eventId)
   if (!event || event.primarySourceKind !== "internal") throw new Error("Payment reminders are only available for internal events")
   const audience = await resolveBroadcastAudience(ctx, args.eventId, args.selection)
-  const eligible = await eligibleDeliveries(ctx, args.eventId, audience.recipients.map(r => r.orderId))
+  const settings = await ctx.db.query("eventPaymentReminderSettings").withIndex("by_eventId", q => q.eq("eventId", args.eventId)).unique()
+  const eligible = await eligibleDeliveries(ctx, args.eventId, audience.recipients.map(r => r.orderId), settings?.dueAt)
   if (!eligible.length) throw new Error("No selected bookers have an outstanding balance")
   const campaignId = crypto.randomUUID()
   const period = `manual:${campaignId}`
@@ -72,7 +73,7 @@ export const getReminderHistory = query({ args: settingsArgs, handler: async (ct
 export const getDeliveryContext = internalQuery({ args: { deliveryId: v.id("paymentReminderDeliveries") }, handler: async (ctx, args) => {
   const delivery = await ctx.db.get("paymentReminderDeliveries", args.deliveryId); if (!delivery) return null
   const order = await ctx.db.get("orders", delivery.orderId); const event = await ctx.db.get("events", delivery.eventId); if (!order || !event || !order.bookerEmail || !order.bookingRef || order.status === "cancelled" || order.mergedIntoOrderId) return { delivery, order: null, event: null }
-  const due = await loadOrderAmountDueBreakdowns(ctx, [order]); const paid = await loadMatchedPaymentTotalsByOrderId(ctx, [order]); const breakdown = due.get(String(order._id)); const policy = breakdown ? classifyPaymentReminder({ amountDueMinor: breakdown.amountDueMinor, paidAmountMinor: paid.get(String(order._id)) ?? 0, now: Date.now() }) : null
+  const due = await loadOrderAmountDueBreakdowns(ctx, [order]); const paid = await loadMatchedPaymentTotalsByOrderId(ctx, [order]); const breakdown = due.get(String(order._id)); const settings = await ctx.db.query("eventPaymentReminderSettings").withIndex("by_eventId", q => q.eq("eventId", delivery.eventId)).unique(); const policy = breakdown ? classifyPaymentReminder({ amountDueMinor: breakdown.amountDueMinor, paidAmountMinor: paid.get(String(order._id)) ?? 0, dueAt: settings?.dueAt, now: Date.now() }) : null
   return { delivery, order, event, policy }
 } })
 
@@ -82,6 +83,6 @@ export const recordDelivery = internalMutation({ args: { deliveryId: v.id("payme
 
 export const automaticTick = internalMutation({ args: {}, handler: async ctx => {
   const settings = await ctx.db.query("eventPaymentReminderSettings").withIndex("by_automaticEnabled", q => q.eq("automaticEnabled", true)).take(100)
-  for (const setting of settings) { if (!setting.enabled) continue; const period = automaticPeriod(Date.now(), setting.cadenceMinutes, setting.repeatPolicy); if (!period) continue; const orders = await ctx.db.query("orders").withIndex("by_eventId", q => q.eq("eventId", setting.eventId)).take(100); const eligible = await eligibleDeliveries(ctx, setting.eventId, orders.map(o => o._id)); for (const { order, policy } of eligible) { const kind = Date.now() >= setting.dueAt ? "overdue" : policy.kind; const existing = await ctx.db.query("paymentReminderDeliveries").withIndex("by_idempotency", q => q.eq("eventId", setting.eventId).eq("orderId", order._id).eq("kind", kind).eq("period", period)).unique(); if (existing) continue; const campaignId = `automatic:${setting.eventId}:${period}`; await ctx.db.insert("paymentReminderDeliveries", { eventId: setting.eventId, orderId: order._id, campaignId, kind, period, recipient: order.bookerEmail!.trim().toLowerCase(), bookerName: order.bookerName ?? "Guest", bookingRef: order.bookingRef!.trim(), currency: (await ctx.db.get("events", setting.eventId))!.currency, amountDueMinor: policy.amountDueMinor, paidAmountMinor: policy.paidAmountMinor, outstandingAmountMinor: policy.outstandingAmountMinor, status: "queued", attempts: 0, createdAt: Date.now() }); await ctx.scheduler.runAfter(0, internal.paymentReminderActions.processBatch, { campaignId }) } }
+  for (const setting of settings) { if (!setting.enabled) continue; const period = automaticPeriod(Date.now(), setting.cadenceMinutes, setting.repeatPolicy); if (!period) continue; const orders = await ctx.db.query("orders").withIndex("by_eventId", q => q.eq("eventId", setting.eventId)).take(100); const eligible = await eligibleDeliveries(ctx, setting.eventId, orders.map(o => o._id), setting.dueAt); for (const { order, policy } of eligible) { const kind = policy.kind; const existing = await ctx.db.query("paymentReminderDeliveries").withIndex("by_idempotency", q => q.eq("eventId", setting.eventId).eq("orderId", order._id).eq("kind", kind).eq("period", period)).unique(); if (existing) continue; const campaignId = `automatic:${setting.eventId}:${period}`; await ctx.db.insert("paymentReminderDeliveries", { eventId: setting.eventId, orderId: order._id, campaignId, kind, period, recipient: order.bookerEmail!.trim().toLowerCase(), bookerName: order.bookerName ?? "Guest", bookingRef: order.bookingRef!.trim(), currency: (await ctx.db.get("events", setting.eventId))!.currency, amountDueMinor: policy.amountDueMinor, paidAmountMinor: policy.paidAmountMinor, outstandingAmountMinor: policy.outstandingAmountMinor, status: "queued", attempts: 0, createdAt: Date.now() }); await ctx.scheduler.runAfter(0, internal.paymentReminderActions.processBatch, { campaignId }) } }
   return null
 } })
