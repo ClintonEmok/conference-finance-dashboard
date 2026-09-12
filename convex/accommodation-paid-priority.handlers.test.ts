@@ -775,6 +775,49 @@ async function addAttendeeToOrder(
   return attendeeId as Id<"orderAttendees">
 }
 
+async function linkFamily(
+  t: TestConvexForDataModel<GenericDataModel>,
+  primaryAttendeeId: string,
+  memberAttendeeIds: string[],
+  label = "Placement Family"
+) {
+  const familyGroupId = await t.mutation(async (ctx) =>
+    ctx.db.insert("attendeeFamilyGroups", {
+      label,
+      primaryAttendeeId,
+    })
+  )
+  await t.mutation(async (ctx) => {
+    for (const attendeeId of memberAttendeeIds) {
+      await ctx.db.insert("attendeeFamilyMembers", {
+        familyGroupId: String(familyGroupId),
+        attendeeId,
+        relationship: attendeeId === primaryAttendeeId ? "parent" : "child",
+      })
+    }
+  })
+  return familyGroupId
+}
+
+async function createNoBedTicket(
+  t: TestConvexForDataModel<GenericDataModel>,
+  eventId: Id<"events">
+) {
+  return (await t.mutation(async (ctx) =>
+    ctx.db.insert("ticketTypes", {
+      eventId,
+      label: "No-bed family ticket",
+      priceMinor: TICKET_PRICE_MINOR,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      accommodationIncluded: true,
+      requiresBed: false,
+      updatedAt: BASE_EVENT_AT,
+    })
+  )) as Id<"ticketTypes">
+}
+
 async function loadBoard(
   t: TestConvexForDataModel<GenericDataModel>,
   eventId: Id<"events">
@@ -1088,6 +1131,143 @@ test("board keeps complete constrained groups across filters and disables uncons
     ])
   )
   expect(unconstrainedRow?.groupAssignmentAvailable).toBe(false)
+})
+
+test("board projects one validated parent unit with nested no-bed children and waiting follow-ups", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const noBedTicketId = await createNoBedTicket(t, seed.eventId)
+  const parent = await createOrder(t, seed, {
+    attendeeKey: "family-parent",
+    name: "Family Parent",
+    allocatedRoomTypeId: String(seed.roomTypeId),
+  })
+  const childOne = await createOrder(t, seed, {
+    attendeeKey: "family-child-one",
+    name: "Family Child One",
+    ticketTypeId: noBedTicketId,
+  })
+  const childTwo = await createOrder(t, seed, {
+    attendeeKey: "family-child-two",
+    name: "Family Child Two",
+    ticketTypeId: noBedTicketId,
+  })
+  const familyGroupId = await linkFamily(
+    t,
+    String(parent.attendeeId),
+    [String(parent.attendeeId), String(childOne.attendeeId), String(childTwo.attendeeId)],
+    "Parent Anchored Family"
+  )
+
+  const board = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: String(seed.eventId),
+  })
+  const parentRows = board.unassignedAttendees.filter(
+    (row: { familyGroupId?: string | null }) =>
+      row.familyGroupId === String(familyGroupId)
+  )
+  expect(parentRows).toHaveLength(1)
+  expect(parentRows[0]).toMatchObject({
+    attendeeId: String(parent.attendeeId),
+    familyRole: "parent",
+    familyGroupId: String(familyGroupId),
+    familyLabel: "Parent Anchored Family",
+    familyParentAttendeeId: String(parent.attendeeId),
+    familyState: "unresolved",
+    eligibleChildCount: 2,
+    separateMemberCount: 0,
+  })
+  expect(parentRows[0]?.eligibleChildren).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        attendeeId: String(childOne.attendeeId),
+        familyRole: "child",
+        requiresBed: false,
+        familyState: "waiting-for-parent-room",
+      }),
+      expect.objectContaining({
+        attendeeId: String(childTwo.attendeeId),
+        familyRole: "child",
+        requiresBed: false,
+        familyState: "waiting-for-parent-room",
+      }),
+    ])
+  )
+  expect(
+    board.unassignedAttendees.map((row: { attendeeId: string }) => row.attendeeId)
+  ).not.toEqual(
+    expect.arrayContaining([
+      String(childOne.attendeeId),
+      String(childTwo.attendeeId),
+    ])
+  )
+  expect(board.familyFollowUps).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        attendeeId: String(childOne.attendeeId),
+        state: "Waiting for parent room",
+        message: "Place the parent to assign this child to the same room.",
+      }),
+      expect.objectContaining({
+        attendeeId: String(childTwo.attendeeId),
+        state: "Waiting for parent room",
+      }),
+    ])
+  )
+  expect(board.summary).toMatchObject({
+    unassignedAttendeesCount: 1,
+    familyFollowUpsCount: 2,
+  })
+})
+
+test("board surfaces missing and malformed no-bed family links instead of guessing solo placement", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const noBedTicketId = await createNoBedTicket(t, seed.eventId)
+  const missingLink = await createOrder(t, seed, {
+    attendeeKey: "missing-family-link",
+    name: "Missing Family Link",
+    ticketTypeId: noBedTicketId,
+  })
+  const malformed = await createOrder(t, seed, {
+    attendeeKey: "malformed-family-link",
+    name: "Malformed Family Link",
+    ticketTypeId: noBedTicketId,
+  })
+  await t.mutation(async (ctx) => {
+    const groupId = await ctx.db.insert("attendeeFamilyGroups", {
+      label: "Malformed Family",
+      primaryAttendeeId: "not-an-attendee-id",
+    })
+    await ctx.db.insert("attendeeFamilyMembers", {
+      familyGroupId: String(groupId),
+      attendeeId: String(malformed.attendeeId),
+    })
+  })
+
+  const board = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: String(seed.eventId),
+  })
+  expect(board.unassignedAttendees).not.toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ attendeeId: String(missingLink.attendeeId) }),
+      expect.objectContaining({ attendeeId: String(malformed.attendeeId) }),
+    ])
+  )
+  expect(board.familyFollowUps).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        attendeeId: String(missingLink.attendeeId),
+        state: "Needs family link",
+        message:
+          "Review attendee details and link a valid family parent before placing this no-bed attendee.",
+      }),
+      expect.objectContaining({
+        attendeeId: String(malformed.attendeeId),
+        state: "inconsistent",
+      }),
+    ])
+  )
 })
 
 test("board reports unavailable or no-match compatibility without fabrication or writes", async () => {

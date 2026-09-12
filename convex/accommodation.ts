@@ -16,6 +16,7 @@ import {
 import {
   resolveAttendeeBedRequirement,
   resolveAttendeeBedRequirements,
+  type BedRequirementResult,
 } from "./accommodationBedRequirement"
 
 type DocTables = {
@@ -285,6 +286,302 @@ type RoomOccupancy = {
   availableBeds: number
   foreignOccupantCount: number
   incomplete: boolean
+}
+
+type FamilyRole = "solo" | "parent" | "child"
+type FamilyResolutionState =
+  | "unresolved"
+  | "placed"
+  | "waiting-for-parent-room"
+  | "inconsistent"
+  | "needs-family-link"
+
+type FamilyPlacementChild = {
+  attendee: Doc<"orderAttendees">
+  requirement: BedRequirementResult
+  familyState: FamilyResolutionState
+}
+
+type FamilyPlacementUnit = {
+  valid: boolean
+  familyRole: FamilyRole
+  familyGroupId: string | null
+  familyLabel: string | null
+  familyParentAttendeeId: string | null
+  familyState: FamilyResolutionState
+  parent: Doc<"orderAttendees"> | null
+  members: Doc<"orderAttendees">[]
+  eligibleChildren: FamilyPlacementChild[]
+  separateMembers: Doc<"orderAttendees">[]
+  requirements: Map<string, BedRequirementResult>
+  reason: string | null
+}
+
+function emptyFamilyUnit(input: {
+  valid: boolean
+  familyRole: FamilyRole
+  familyGroupId?: string | null
+  familyLabel?: string | null
+  familyParentAttendeeId?: string | null
+  familyState: FamilyResolutionState
+  parent?: Doc<"orderAttendees"> | null
+  members?: Doc<"orderAttendees">[]
+  reason?: string | null
+  requirement: BedRequirementResult
+  attendee: Doc<"orderAttendees">
+}): FamilyPlacementUnit {
+  return {
+    valid: input.valid,
+    familyRole: input.familyRole,
+    familyGroupId: input.familyGroupId ?? null,
+    familyLabel: input.familyLabel ?? null,
+    familyParentAttendeeId: input.familyParentAttendeeId ?? null,
+    familyState: input.familyState,
+    parent: input.parent ?? null,
+    members: input.members ?? [input.attendee],
+    eligibleChildren: [],
+    separateMembers: [],
+    requirements: new Map([[String(input.attendee._id), input.requirement]]),
+    reason: input.reason ?? null,
+  }
+}
+
+/**
+ * Resolve one attendee to a server-owned placement unit. Family tables contain
+ * raw string IDs, so this boundary deliberately re-normalizes every reference,
+ * validates the declared primary, validates every membership, and then joins
+ * live bed requirements. No array order, name, order grouping, or bed flag can
+ * select a parent.
+ */
+async function resolveFamilyPlacementUnit(
+  ctx: Pick<QueryCtx, "db">,
+  eventId: string,
+  attendee: Doc<"orderAttendees">,
+  knownRequirements?: Map<string, BedRequirementResult>
+): Promise<FamilyPlacementUnit> {
+  const requirement =
+    knownRequirements?.get(String(attendee._id)) ??
+    (await resolveAttendeeBedRequirement(ctx, attendee._id))
+  const memberships = await ctx.db
+    .query("attendeeFamilyMembers")
+    .withIndex("attendeeId", (q) => q.eq("attendeeId", String(attendee._id)))
+    .take(20)
+
+  if (memberships.length === 0) {
+    if (requirement.requiresBed === false && requirement.placementEligible) {
+      return emptyFamilyUnit({
+        valid: false,
+        familyRole: "child",
+        familyState: "needs-family-link",
+        reason: "Needs family link",
+        requirement,
+        attendee,
+      })
+    }
+    return emptyFamilyUnit({
+      valid: true,
+      familyRole: "solo",
+      familyState: requirement.placementEligible ? "unresolved" : "inconsistent",
+      reason: null,
+      requirement,
+      attendee,
+    })
+  }
+
+  if (memberships.length !== 1) {
+    return emptyFamilyUnit({
+      valid: false,
+      familyRole: "child",
+      familyState: "inconsistent",
+      familyGroupId: null,
+      reason: "Family membership is inconsistent",
+      requirement,
+      attendee,
+    })
+  }
+
+  const rawGroupId = normalizeOptionalString(memberships[0]?.familyGroupId)
+  const familyGroupId = rawGroupId
+    ? ctx.db.normalizeId("attendeeFamilyGroups", rawGroupId)
+    : null
+  if (!familyGroupId) {
+    return emptyFamilyUnit({
+      valid: false,
+      familyRole: "child",
+      familyState: "inconsistent",
+      reason: "Family group reference is malformed",
+      requirement,
+      attendee,
+    })
+  }
+  const groupId = rawGroupId!
+
+  const group = await ctx.db.get("attendeeFamilyGroups", familyGroupId)
+  const familyLabel =
+    normalizeOptionalString(group?.label) ?? `Family ${String(familyGroupId)}`
+  const primaryId = group?.primaryAttendeeId
+    ? ctx.db.normalizeId("orderAttendees", group.primaryAttendeeId)
+    : null
+  const groupMembers = await ctx.db
+    .query("attendeeFamilyMembers")
+    .withIndex("familyGroupId", (q) => q.eq("familyGroupId", groupId))
+    .take(200)
+
+  const normalizedMemberIds: Id<"orderAttendees">[] = []
+  let malformedMembership = groupMembers.length === 0
+  for (const member of groupMembers) {
+    const memberId = ctx.db.normalizeId(
+      "orderAttendees",
+      normalizeOptionalString(member.attendeeId) ?? ""
+    )
+    if (!memberId || String(member.familyGroupId) !== groupId) {
+      malformedMembership = true
+      continue
+    }
+    if (normalizedMemberIds.some((id) => String(id) === String(memberId))) {
+      malformedMembership = true
+      continue
+    }
+    normalizedMemberIds.push(memberId)
+  }
+
+  if (!primaryId || !normalizedMemberIds.some((id) => String(id) === String(primaryId))) {
+    malformedMembership = true
+  }
+
+  const members = await Promise.all(
+    normalizedMemberIds.map((memberId) => ctx.db.get("orderAttendees", memberId))
+  )
+  const resolvedMembers = members.filter(
+    (member): member is Doc<"orderAttendees"> => member !== null
+  )
+  if (resolvedMembers.length !== normalizedMemberIds.length) {
+    malformedMembership = true
+  }
+
+  // A member cannot quietly participate in two groups. This is intentionally
+  // bounded; more than one membership is a data-quality failure, not a reason
+  // to guess which group should control room placement.
+  const membershipRowsByMember = await Promise.all(
+    normalizedMemberIds.map((memberId) =>
+      ctx.db
+        .query("attendeeFamilyMembers")
+        .withIndex("attendeeId", (q) => q.eq("attendeeId", String(memberId)))
+        .take(20)
+    )
+  )
+  for (const rows of membershipRowsByMember) {
+    if (
+      rows.length !== 1 ||
+      String(rows[0]?.familyGroupId) !== String(familyGroupId)
+    ) {
+      malformedMembership = true
+    }
+  }
+
+  const orders = await Promise.all(
+    resolvedMembers.map((member) => ctx.db.get("orders", member.orderId))
+  )
+  if (
+    resolvedMembers.length !== normalizedMemberIds.length ||
+    resolvedMembers.some(
+      (_member, index) =>
+        !orders[index] || String(orders[index]?.eventId) !== eventId
+    )
+  ) {
+    malformedMembership = true
+  }
+
+  const requirements = new Map<string, BedRequirementResult>()
+  for (const member of resolvedMembers) {
+    requirements.set(
+      String(member._id),
+      knownRequirements?.get(String(member._id)) ??
+        (await resolveAttendeeBedRequirement(ctx, member._id))
+    )
+  }
+
+  const parent = primaryId
+    ? resolvedMembers.find((member) => String(member._id) === String(primaryId)) ??
+      null
+    : null
+  const familyRole: FamilyRole =
+    parent && String(parent._id) === String(attendee._id) ? "parent" : "child"
+
+  if (malformedMembership || !parent) {
+    return {
+      ...emptyFamilyUnit({
+        valid: false,
+        familyRole,
+        familyGroupId: String(familyGroupId),
+        familyLabel,
+        familyParentAttendeeId: primaryId ? String(primaryId) : null,
+        familyState: "inconsistent",
+        parent,
+        members: resolvedMembers,
+        reason: "Family placement data is inconsistent",
+        requirement,
+        attendee,
+      }),
+      requirements,
+    }
+  }
+
+  const eligibleChildren = resolvedMembers
+    .filter((member) => String(member._id) !== String(parent._id))
+    .filter((member) => {
+      const memberRequirement = requirements.get(String(member._id))
+      return (
+        memberRequirement?.placementEligible === true &&
+        memberRequirement.requiresBed === false
+      )
+    })
+    .map((member) => ({
+      attendee: member,
+      requirement: requirements.get(String(member._id))!,
+      familyState: "unresolved" as FamilyResolutionState,
+    }))
+  const separateMembers = resolvedMembers.filter(
+    (member) => String(member._id) !== String(parent._id) &&
+      !eligibleChildren.some((child) => String(child.attendee._id) === String(member._id))
+  )
+
+  const childRooms = eligibleChildren
+    .map((child) => child.attendee.assignedRoomId)
+    .filter((roomId): roomId is string => Boolean(roomId))
+  const allChildrenShareParentRoom = eligibleChildren.every(
+    (child) => child.attendee.assignedRoomId === parent.assignedRoomId
+  )
+  const familyState: FamilyResolutionState =
+    !allChildrenShareParentRoom
+      ? "inconsistent"
+      : parent.assignedRoomId
+        ? "placed"
+        : "unresolved"
+  for (const child of eligibleChildren) {
+    child.familyState = parent.assignedRoomId
+      ? familyState
+      : "waiting-for-parent-room"
+  }
+
+  // Keep childRooms referenced so the complete assignment mismatch check is
+  // explicit even when every child currently has no room.
+  void childRooms
+
+  return {
+    valid: true,
+    familyRole,
+    familyGroupId: String(familyGroupId),
+    familyLabel,
+    familyParentAttendeeId: String(parent._id),
+    familyState,
+    parent,
+    members: resolvedMembers,
+    eligibleChildren,
+    separateMembers,
+    requirements,
+    reason: null,
+  }
 }
 
 /**
@@ -567,7 +864,6 @@ export const getRoomAllocationBoard = query({
       roomTypes,
       rooms,
       allOrderAttendees,
-      familyMembers,
       accommodationSlotDocs,
       allOrders,
       accommodationCategoriesDocs,
@@ -578,7 +874,6 @@ export const getRoomAllocationBoard = query({
       ctx.db.query("accommodationRoomTypes").take(100),
       ctx.db.query("accommodationRooms").take(500),
       ctx.db.query("orderAttendees").take(2000),
-      ctx.db.query("attendeeFamilyMembers").take(2000),
       ctx.db.query("accommodationSlots").take(1000),
       ctx.db
         .query("orders")
@@ -778,16 +1073,6 @@ export const getRoomAllocationBoard = query({
       })
     }
 
-    const attendeeFamilyGroupByAttendeeId = new Map<string, string>()
-    for (const familyMember of familyMembers) {
-      if (!attendeeFamilyGroupByAttendeeId.has(familyMember.attendeeId)) {
-        attendeeFamilyGroupByAttendeeId.set(
-          familyMember.attendeeId,
-          familyMember.familyGroupId
-        )
-      }
-    }
-
     const attendeeCountByOrderId = new Map<string, number>()
     for (const attendee of scopedAttendees) {
       attendeeCountByOrderId.set(
@@ -806,6 +1091,11 @@ export const getRoomAllocationBoard = query({
         attendeeEmail: string | null
         assignmentIntent: "assign" | "skip"
         sortOrder: number
+        familyRole: FamilyRole
+        familyGroupId: string | null
+        familyParentAttendeeId: string | null
+        eligibleChildIds: string[]
+        eligibleChildCount: number
       }>
     >()
 
@@ -817,49 +1107,137 @@ export const getRoomAllocationBoard = query({
       return true
     })
 
-    const eventUnassignedAttendees = scopedAttendees.filter((a) => {
-      const requirement = scopedBedRequirements.get(String(a._id))
-      return !a.assignedRoomId && requirement?.placementEligible === true
-    })
-    const unassignedAttendees = eventUnassignedAttendees.filter((a) => {
-      const attendeeFamilyGroupId =
-        attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
+    const familyUnitByAttendeeId = new Map<string, FamilyPlacementUnit>()
+    for (const attendee of scopedAttendees) {
+      familyUnitByAttendeeId.set(
+        String(attendee._id),
+        await resolveFamilyPlacementUnit(
+          ctx,
+          eventId,
+          attendee,
+          scopedBedRequirements
+        )
+      )
+    }
 
+    type FamilyFollowUpState =
+      | "Needs family link"
+      | "Waiting for parent room"
+      | "inconsistent"
+    const familyFollowUps: Array<{
+      attendeeId: string
+      attendeeName: string | null
+      familyGroupId: string | null
+      familyLabel: string | null
+      familyParentAttendeeId: string | null
+      familyParentName: string | null
+      state: FamilyFollowUpState
+      message: string
+    }> = []
+    const followUpKeys = new Set<string>()
+    const addFamilyFollowUp = (input: {
+      attendee: Doc<"orderAttendees">
+      unit: FamilyPlacementUnit
+      state: FamilyFollowUpState
+      message: string
+    }) => {
+      const key = `${input.state}:${String(input.attendee._id)}`
+      if (followUpKeys.has(key)) return
+      followUpKeys.add(key)
+      familyFollowUps.push({
+        attendeeId: String(input.attendee._id),
+        attendeeName: input.attendee.name ?? null,
+        familyGroupId: input.unit.familyGroupId,
+        familyLabel: input.unit.familyLabel,
+        familyParentAttendeeId: input.unit.familyParentAttendeeId,
+        familyParentName: input.unit.parent?.name ?? null,
+        state: input.state,
+        message: input.message,
+      })
+    }
+
+    for (const attendee of scopedAttendees) {
+      const unit = familyUnitByAttendeeId.get(String(attendee._id))!
+      const requirement = scopedBedRequirements.get(String(attendee._id))
+      if (!requirement?.placementEligible) continue
+
+      if (!unit.valid && unit.familyState === "needs-family-link") {
+        addFamilyFollowUp({
+          attendee,
+          unit,
+          state: "Needs family link",
+          message:
+            "Review attendee details and link a valid family parent before placing this no-bed attendee.",
+        })
+      } else if (!unit.valid || unit.familyState === "inconsistent") {
+        addFamilyFollowUp({
+          attendee,
+          unit,
+          state: "inconsistent",
+          message: "Review the family relationship before placing this attendee.",
+        })
+      } else if (
+        unit.familyRole === "child" &&
+        unit.parent &&
+        !unit.parent.assignedRoomId &&
+        unit.eligibleChildren.some(
+          (child) => String(child.attendee._id) === String(attendee._id)
+        )
+      ) {
+        addFamilyFollowUp({
+          attendee,
+          unit,
+          state: "Waiting for parent room",
+          message: "Place the parent to assign this child to the same room.",
+        })
+      }
+    }
+
+    const eventUnassignedAttendees = scopedAttendees.filter((attendee) => {
+      const requirement = scopedBedRequirements.get(String(attendee._id))
+      return (
+        !attendee.assignedRoomId &&
+        requirement?.placementEligible === true
+      )
+    })
+
+    const attendeePassesFilters = (attendee: Doc<"orderAttendees">) => {
+      const unit = familyUnitByAttendeeId.get(String(attendee._id))!
       const genderType =
-        a.gender === "male"
+        attendee.gender === "male"
           ? "MALE"
-          : a.gender === "female"
+          : attendee.gender === "female"
             ? "FEMALE"
-            : a.gender === "mixed"
+            : attendee.gender === "mixed"
               ? "MIXED"
               : "UNKNOWN"
-
       if (args.genderType && genderType !== args.genderType) return false
-      if (args.familyGroupId && attendeeFamilyGroupId !== args.familyGroupId)
+      if (args.familyGroupId && unit.familyGroupId !== args.familyGroupId)
         return false
-
-      const normalizedLocation = normalizeOptionalString(a.location)
+      const normalizedLocation = normalizeOptionalString(attendee.location)
       if (
         normalizedLocationFilter &&
         (!normalizedLocation ||
-          normalizedLocation.toLowerCase() !==
-            normalizedLocationFilter.toLowerCase())
+          normalizedLocation.toLowerCase() !== normalizedLocationFilter.toLowerCase())
       )
         return false
-
       if (
         args.allocationPriority &&
-        a.allocationPriority !== args.allocationPriority
+        attendee.allocationPriority !== args.allocationPriority
       )
         return false
-
       if (
         args.hasPriority !== undefined &&
-        hasPriorityAttendee(a.allocationPriority ?? null) !== args.hasPriority
+        hasPriorityAttendee(attendee.allocationPriority ?? null) !== args.hasPriority
       )
         return false
-
       return true
+    }
+
+    const unassignedAttendees = eventUnassignedAttendees.filter((attendee) => {
+      const unit = familyUnitByAttendeeId.get(String(attendee._id))!
+      if (!unit.valid || unit.familyRole === "child") return false
+      return attendeePassesFilters(attendee)
     })
 
     const hotelMap = new Map(hotels.map((h) => [h._id as string, h]))
@@ -895,37 +1273,60 @@ export const getRoomAllocationBoard = query({
       )
     )
 
-    // Keep group membership complete across signal filters. Assignment remains
-    // disabled when the group has no shared stored room entitlement; the board
-    // must never turn an unconstrained order into a guessed room category.
-    const groupMemberIdsByAttendeeId = new Map<string, string[]>()
-    const groupAssignmentAvailableByAttendeeId = new Map<string, boolean>()
-    for (const attendee of eventUnassignedAttendees) {
-      const attendeeFamilyGroupId =
-        attendeeFamilyGroupByAttendeeId.get(attendee._id) ?? null
-      const groupMembers = eventUnassignedAttendees.filter((candidate) => {
-        if (attendeeFamilyGroupId) {
-          return (
-            attendeeFamilyGroupByAttendeeId.get(candidate._id) ===
-            attendeeFamilyGroupId
-          )
-        }
-        return candidate.orderId === attendee.orderId
-      })
-      const groupMemberIds = groupMembers.map((member) => String(member._id))
-      const roomTypeId = attendee.allocatedRoomTypeId
-        ? String(attendee.allocatedRoomTypeId)
-        : null
-      groupMemberIdsByAttendeeId.set(attendee._id, groupMemberIds)
-      groupAssignmentAvailableByAttendeeId.set(
-        attendee._id,
-        groupMemberIds.length > 1 &&
-          roomTypeId !== null &&
-          groupMembers.every(
-            (member) => String(member.allocatedRoomTypeId ?? "") === roomTypeId
-          )
-      )
+    type ProviderRoomProjection = {
+      provider: Doc<"ticketTailorAttendees">
+      order: Doc<"orders"> | null
+      canonicalAttendee: Doc<"orderAttendees"> | null
+      safelyBridgedCanonicalId: string | null
     }
+    const providerRoomProjectionByRoom = new Map<
+      string,
+      ProviderRoomProjection[]
+    >()
+    const providerProjectionIncompleteRooms = new Set<string>()
+    const providerCoveredCanonicalIds = new Set<string>()
+    await Promise.all(
+      filteredRooms.map(async (room) => {
+        const providerRows = await ctx.db
+          .query("ticketTailorAttendees")
+          .withIndex("by_assignedRoomId", (q) =>
+            q.eq("assignedRoomId", String(room._id))
+          )
+          .take(ROOM_OCCUPANT_LIMIT)
+        const projections: ProviderRoomProjection[] = []
+        for (const provider of providerRows) {
+          const canonicalAttendee = provider.attendeeId
+            ? await ctx.db.get("orderAttendees", provider.attendeeId)
+            : null
+          // A canonical bridge owns assignment state globally. If it exists,
+          // its provider row is intentionally omitted from this room even when
+          // the provider has a stale room value.
+          if (canonicalAttendee) continue
+
+          const order = await ctx.db.get("orders", provider.orderId)
+          if (!order || String(order.eventId) !== eventId) continue
+          const orderMembers = await ctx.db
+            .query("orderAttendees")
+            .withIndex("by_orderId", (q) => q.eq("orderId", provider.orderId))
+            .take(2)
+          if (orderMembers.length === 1) {
+            providerCoveredCanonicalIds.add(String(orderMembers[0]!._id))
+            projections.push({
+              provider,
+              order,
+              canonicalAttendee: orderMembers[0]!,
+              safelyBridgedCanonicalId: String(orderMembers[0]!._id),
+            })
+          } else {
+            // A provider row with no safe order/attendee bridge remains an
+            // aggregate physical occupant, not an invented selected-event
+            // identity. Keep the room review-needed and redact the row.
+            providerProjectionIncompleteRooms.add(String(room._id))
+          }
+        }
+        providerRoomProjectionByRoom.set(String(room._id), projections)
+      })
+    )
 
     const mappedRooms = filteredRooms.map((room) => {
       const hotel = hotelMap.get(room.hotelId as string)
@@ -940,6 +1341,7 @@ export const getRoomAllocationBoard = query({
         : null
       const roomCapacity = roomType?.defaultCapacity ?? room.capacity
       const occupants = (attendeesByRoom[room._id] ?? []).map((a) => {
+        const familyUnit = familyUnitByAttendeeId.get(String(a._id))
         const order = orderById.get(a.orderId as string)
         const canonicalEvent = order
           ? canonicalEventById.get(order.eventId as string)
@@ -988,8 +1390,67 @@ export const getRoomAllocationBoard = query({
           optionKeys: preference?.optionKeys ?? [],
           requiresBed: bedRequirement?.requiresBed ?? true,
           nightBeforeMismatch,
+          familyRole: familyUnit?.familyRole ?? "solo",
+          familyGroupId: familyUnit?.familyGroupId ?? null,
+          familyLabel: familyUnit?.familyLabel ?? null,
+          familyParentAttendeeId:
+            familyUnit?.familyParentAttendeeId ?? null,
+          familyState: familyUnit?.familyState ?? "inconsistent",
+          eligibleChildren:
+            familyUnit?.familyRole === "parent"
+              ? familyUnit.eligibleChildren.map((child) => ({
+                  attendeeId: String(child.attendee._id),
+                  attendeeName: child.attendee.name ?? null,
+                  requiresBed: false,
+                  familyRole: "child" as const,
+                  familyState: child.familyState,
+                }))
+              : [],
+          eligibleChildCount: familyUnit?.eligibleChildren.length ?? 0,
+          separateMemberCount: familyUnit?.separateMembers.length ?? 0,
         }
       })
+      const providerOnlyOccupants = (
+        providerRoomProjectionByRoom.get(String(room._id)) ?? []
+      ).map(({ provider, order, canonicalAttendee }) => {
+        const canonicalEvent = canonicalEventById.get(String(order?.eventId))
+        const canonicalPayment = canonicalAttendee
+          ? paymentById.get(String(canonicalAttendee._id))
+          : null
+        return {
+          attendeeId: canonicalAttendee?._id ?? `provider:${String(provider._id)}`,
+          attendeeName: provider.name ?? canonicalAttendee?.name ?? null,
+          attendeeEmail: provider.email ?? canonicalAttendee?.email ?? null,
+          orderId: order?._id ?? null,
+          providerOrderId: provider.providerOrderId,
+          providerEventId: provider.providerEventId,
+          eventId: canonicalEvent?._id ?? null,
+          eventName: canonicalEvent?.title ?? null,
+          ticketTypeLabel: provider.ticketTypeLabel ?? null,
+          paymentState: canonicalPayment?.paymentState ?? null,
+          amountDueMinor: canonicalPayment?.amountDueMinor ?? null,
+          paidAmountMinor: canonicalPayment?.paidAmountMinor ?? null,
+          occupancy: null,
+          nightBeforeLevel: null,
+          nightBeforeOccupancy: null,
+          categoryLabel: null,
+          optionKeys: [],
+          requiresBed: true,
+          nightBeforeMismatch: false,
+          familyRole: "solo" as const,
+          familyGroupId: null,
+          familyLabel: null,
+          familyParentAttendeeId: null,
+          familyState: "placed" as const,
+          eligibleChildren: [],
+          eligibleChildCount: 0,
+          separateMemberCount: 0,
+          providerOnly: true,
+        }
+      })
+      const roomProjectionIncomplete = providerProjectionIncompleteRooms.has(
+        String(room._id)
+      )
       const physicalOccupancy = roomOccupancyById.get(String(room._id)) ?? {
         occupantCount: 0,
         occupiedBeds: 0,
@@ -1012,7 +1473,8 @@ export const getRoomAllocationBoard = query({
         capacity: room.capacity,
         occupantCount: physicalOccupancy.occupantCount,
         foreignOccupantCount: physicalOccupancy.foreignOccupantCount,
-        occupancyIncomplete: physicalOccupancy.incomplete,
+         occupancyIncomplete:
+           physicalOccupancy.incomplete || roomProjectionIncomplete,
         occupiedBeds,
         availableBeds,
         availability,
@@ -1027,7 +1489,8 @@ export const getRoomAllocationBoard = query({
               defaultCapacity: roomType.defaultCapacity,
             }
           : undefined,
-        occupants,
+        occupants: [...occupants, ...providerOnlyOccupants],
+        providerProjectionIncomplete: roomProjectionIncomplete,
         pendingAssignments: pendingAssignmentsByRoom.get(room._id) ?? [],
       }
     })
@@ -1084,15 +1547,34 @@ export const getRoomAllocationBoard = query({
       }
     }
 
-    const mappedUnassignedAttendees = unassignedAttendees.map((a) => {
+    // These legacy order-member fields remain additive for older consumers,
+    // but they are never used as family authority or an assignment recipe.
+    const legacyOrderMemberIdsByAttendeeId = new Map<string, string[]>()
+    for (const attendee of eventUnassignedAttendees) {
+      const ids = eventUnassignedAttendees
+        .filter((candidate) => candidate.orderId === attendee.orderId)
+        .map((candidate) => String(candidate._id))
+      legacyOrderMemberIdsByAttendeeId.set(String(attendee._id), ids)
+    }
+
+    const mappedUnassignedAttendees = unassignedAttendees
+      .filter((attendee) => !providerCoveredCanonicalIds.has(String(attendee._id)))
+      .map((a) => {
       const order = orderById.get(a.orderId as string)
       const canonicalEvent = order
         ? canonicalEventById.get(order.eventId as string)
         : null
-      const attendeeFamilyGroupId =
-        attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
+      const familyUnit = familyUnitByAttendeeId.get(String(a._id))!
       const payment = paymentById.get(String(a._id))
       const preference = accommodationPreferenceByAttendeeId.get(String(a._id))
+      const legacyOrderMemberIds =
+        legacyOrderMemberIdsByAttendeeId.get(String(a._id)) ?? []
+      const roomTypeId = a.allocatedRoomTypeId
+        ? String(a.allocatedRoomTypeId)
+        : null
+      const orderMembers = eventUnassignedAttendees.filter(
+        (candidate) => candidate.orderId === a.orderId
+      )
       return {
         attendeeId: a._id,
         orderId: order?._id ?? null,
@@ -1119,15 +1601,45 @@ export const getRoomAllocationBoard = query({
         remarks: null,
         roommatePreference: a.roommatePreference ?? null,
         roommateAvoid: a.roommateAvoid ?? null,
-        hasFamily: hasFamilySignal({
-          attendeeId: a._id,
-          orderId: order?._id ?? null,
-          attendeeFamilyGroupId,
-          attendeeCountByOrderId,
-        }),
-        groupMemberIds: groupMemberIdsByAttendeeId.get(a._id) ?? [],
+        hasFamily:
+          familyUnit.familyGroupId !== null ||
+          hasFamilySignal({
+            attendeeId: a._id,
+            orderId: order?._id ?? null,
+            attendeeFamilyGroupId: familyUnit.familyGroupId,
+            attendeeCountByOrderId,
+          }),
+        groupMemberIds:
+          familyUnit.familyGroupId !== null
+            ? familyUnit.members.map((member) => String(member._id))
+            : legacyOrderMemberIds,
         groupAssignmentAvailable:
-          groupAssignmentAvailableByAttendeeId.get(a._id) ?? false,
+          familyUnit.familyGroupId !== null
+            ? familyUnit.eligibleChildren.length > 0
+            : legacyOrderMemberIds.length > 1 &&
+              roomTypeId !== null &&
+              orderMembers.every(
+                (member) => String(member.allocatedRoomTypeId ?? "") === roomTypeId
+              ),
+        familyRole: familyUnit.familyRole,
+        familyGroupId: familyUnit.familyGroupId,
+        familyLabel: familyUnit.familyLabel,
+        familyParentAttendeeId: familyUnit.familyParentAttendeeId,
+        familyState: familyUnit.familyState,
+        eligibleChildren: familyUnit.eligibleChildren.map((child) => ({
+          attendeeId: String(child.attendee._id),
+          attendeeName: child.attendee.name ?? null,
+          attendeeEmail: child.attendee.email ?? null,
+          requiresBed: false,
+          familyRole: "child" as const,
+          familyState: child.familyState,
+        })),
+        eligibleChildCount: familyUnit.eligibleChildren.length,
+        separateMemberCount: familyUnit.separateMembers.length,
+        separateMembers: familyUnit.separateMembers.map((member) => ({
+          attendeeId: String(member._id),
+          attendeeName: member.name ?? null,
+        })),
         paymentState: payment?.paymentState ?? null,
         amountDueMinor: payment?.amountDueMinor ?? null,
         paidAmountMinor: payment?.paidAmountMinor ?? null,
@@ -1140,7 +1652,7 @@ export const getRoomAllocationBoard = query({
           scopedBedRequirements.get(String(a._id))?.requiresBed ?? true,
         compatibility: compatibilityForAttendee(a),
       }
-    })
+      })
 
     // Paid-first ordering (Phase 44): payment state is the primary rank, then
     // the existing allocation priority, then stable group/name/id tie-breakers.
@@ -1256,7 +1768,15 @@ export const getRoomAllocationBoard = query({
     const buyerSuggestions = orderAssignmentsList
       .filter((assignment) => {
         const assignmentAny = assignment as { status?: string }
-        return !assignmentAny.status || assignmentAny.status === "pending"
+        if (assignmentAny.status && assignmentAny.status !== "pending") return false
+        const attendeeId = String(assignment.attendeeId)
+        const familyUnit = familyUnitByAttendeeId.get(attendeeId)
+        const requirement = scopedBedRequirements.get(attendeeId)
+        return (
+          requirement?.placementEligible === true &&
+          familyUnit?.valid === true &&
+          familyUnit.familyRole !== "child"
+        )
       })
       .map((assignment) => {
         const roomId = slotIdToRoomId.get(assignment.slotId as string)
@@ -1264,6 +1784,9 @@ export const getRoomAllocationBoard = query({
         const hotel = room ? hotelMap.get(room.hotelId as string) : null
         const attendee = attendeeById.get(assignment.attendeeId as string)
         const payment = paymentById.get(String(assignment.attendeeId))
+        const familyUnit = familyUnitByAttendeeId.get(
+          String(assignment.attendeeId)
+        )!
 
         return {
           assignmentId: assignment._id as string,
@@ -1281,6 +1804,13 @@ export const getRoomAllocationBoard = query({
           mixedCategory: mixedMemberAttendeeIds.has(
             String(assignment.attendeeId)
           ),
+          familyRole: familyUnit.familyRole,
+          familyGroupId: familyUnit.familyGroupId,
+          familyParentAttendeeId: familyUnit.familyParentAttendeeId,
+          eligibleChildIds: familyUnit.eligibleChildren.map((child) =>
+            String(child.attendee._id)
+          ),
+          eligibleChildCount: familyUnit.eligibleChildren.length,
         }
       })
       .sort((a, b) => {
@@ -1297,10 +1827,15 @@ export const getRoomAllocationBoard = query({
 
     // Filter pending assignments: assignmentIntent="assign" and (status is undefined/pending)
     for (const assignment of orderAssignmentsList) {
-      const assignmentAny = assignment as any
+      const assignmentAny = assignment as { status?: string }
       const isPending =
         assignment.assignmentIntent === "assign" &&
-        (!assignmentAny.status || assignmentAny.status === "pending")
+        (!assignmentAny.status || assignmentAny.status === "pending") &&
+        scopedBedRequirements.get(String(assignment.attendeeId))
+          ?.placementEligible === true &&
+        familyUnitByAttendeeId.get(String(assignment.attendeeId))?.valid === true &&
+        familyUnitByAttendeeId.get(String(assignment.attendeeId))?.familyRole !==
+          "child"
 
       if (!isPending) continue
 
@@ -1319,6 +1854,22 @@ export const getRoomAllocationBoard = query({
         attendeeEmail: attendee?.email ?? null,
         assignmentIntent: assignment.assignmentIntent,
         sortOrder: assignment.sortOrder,
+        familyRole:
+          familyUnitByAttendeeId.get(String(assignment.attendeeId))?.familyRole ??
+          "solo",
+        familyGroupId:
+          familyUnitByAttendeeId.get(String(assignment.attendeeId))?.familyGroupId ??
+          null,
+        familyParentAttendeeId:
+          familyUnitByAttendeeId.get(String(assignment.attendeeId))
+            ?.familyParentAttendeeId ?? null,
+        eligibleChildIds:
+          familyUnitByAttendeeId
+            .get(String(assignment.attendeeId))
+            ?.eligibleChildren.map((child) => String(child.attendee._id)) ?? [],
+        eligibleChildCount:
+          familyUnitByAttendeeId.get(String(assignment.attendeeId))
+            ?.eligibleChildren.length ?? 0,
       }
 
       const existing = pendingAssignmentsByRoom.get(roomId) ?? []
@@ -1484,6 +2035,7 @@ export const getRoomAllocationBoard = query({
         mixedCategoryGroup: mixedGroupRoomIds.has(String(room.id)),
       })),
       buyerSuggestions,
+      familyFollowUps,
       unassignedAttendees: mappedUnassignedAttendees,
       submissionQueueRows,
       summary: {
@@ -1507,6 +2059,7 @@ export const getRoomAllocationBoard = query({
         ),
         occupancyIncomplete: mappedRooms.some((r) => r.occupancyIncomplete),
         unassignedAttendeesCount: mappedUnassignedAttendees.length,
+        familyFollowUpsCount: familyFollowUps.length,
       },
     }
   },
