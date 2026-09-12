@@ -9,6 +9,13 @@ const source = fs.readFileSync(
   ),
   "utf8"
 )
+const hotelsSource = fs.readFileSync(
+  path.join(
+    process.cwd(),
+    "components/dashboard/accommodation/legacy-hotels-surface.tsx"
+  ),
+  "utf8"
+)
 
 describe("manual Allocation workflow source contract", () => {
   it("uses the manual queue and room-capacity language", () => {
@@ -41,8 +48,14 @@ describe("manual Allocation workflow source contract", () => {
     expect(source).toContain("Roommate avoidance:")
     expect(source).toContain("Compatibility:")
     expect(source).toContain("aria-pressed={isSelected}")
+    expect(source).toContain("room.occupantCount")
     expect(source).toContain("room.occupiedBeds")
     expect(source).toContain("room.availableBeds")
+    expect(source).toContain("beds used")
+    expect(source).toContain("No bed required")
+    expect(source).toContain("room.foreignOccupantCount")
+    expect(source).toContain("room.occupancyIncomplete")
+    expect(source).not.toMatch(/room\.occupants(?:\?\.)?\.length/)
     expect(source).toContain("room.mixedCategoryGroup")
     expect(source).toContain("occ.nightBeforeMismatch")
     expect(source).toContain("PaymentBadge state={attendee.paymentState}")
@@ -76,6 +89,10 @@ describe("manual Allocation workflow source contract", () => {
     expect(source).toContain(
       "Confirming an assignment confirms this buyer's accommodation configuration and closes further buyer changes"
     )
+    expect(hotelsSource).toContain("useEventAllocationSummary")
+    expect(hotelsSource).toContain("allocationSummary.totalOccupants")
+    expect(hotelsSource).toContain("allocationSummary.occupiedBeds")
+    expect(hotelsSource).toContain("allocationSummary.availableBeds")
   })
 
   it("clears transient room intent only in the component filter actions", () => {
