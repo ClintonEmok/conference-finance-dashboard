@@ -2595,40 +2595,6 @@ function throwFamilyResolutionError(unit: FamilyPlacementUnit): never {
   throw new Error("Family placement data is inconsistent")
 }
 
-function allowUnlinkedNoBedUnit(
-  unit: FamilyPlacementUnit,
-  attendee: Doc<"orderAttendees">
-): FamilyPlacementUnit {
-  const requirement = unit.requirements.get(String(attendee._id))
-  if (
-    unit.valid ||
-    unit.familyState !== "needs-family-link" ||
-    unit.familyRole !== "child" ||
-    requirement?.requiresBed !== false ||
-    requirement.placementEligible !== true
-  ) {
-    return unit
-  }
-
-  // An unlinked no-bed attendee is not a family child yet. Preserve the
-  // legacy individual placement path while the board continues to surface
-  // the same record as "Needs family link" for data-quality follow-up.
-  return {
-    ...unit,
-    valid: true,
-    familyRole: "solo",
-    familyGroupId: null,
-    familyLabel: null,
-    familyParentAttendeeId: null,
-    familyState: "unresolved",
-    parent: attendee,
-    members: [attendee],
-    eligibleChildren: [],
-    separateMembers: [],
-    reason: null,
-  }
-}
-
 /**
  * Read-only validation for a complete parent-led target. All relationship,
  * live bed, physical occupancy, inventory, and capacity checks happen before
@@ -2641,7 +2607,6 @@ async function validateFamilyRoomOutcome(
     roomId: string
     eventId: string
     rejectAlreadyAssigned?: boolean
-    allowUnlinkedNoBed?: boolean
   }
 ): Promise<ValidatedFamilyRoomOutcome> {
   const eventId = normalizeDocId(ctx, "events", input.eventId, "Event not found")
@@ -2662,10 +2627,7 @@ async function validateFamilyRoomOutcome(
   if (!attendee) throw new Error("Attendee not found")
   if (!room) throw new Error("Room not found")
 
-  let unit = await resolveFamilyPlacementUnit(ctx, String(eventId), attendee)
-  if (input.allowUnlinkedNoBed) {
-    unit = allowUnlinkedNoBedUnit(unit, attendee)
-  }
+  const unit = await resolveFamilyPlacementUnit(ctx, String(eventId), attendee)
   if (!unit.valid) throwFamilyResolutionError(unit)
   if (unit.familyRole === "child") {
     throw new Error(
@@ -2797,10 +2759,7 @@ async function validateFamilyUnassignment(
   if (!attendee) {
     throw new Error("Attendee not found or not assigned to any room")
   }
-  const unit = allowUnlinkedNoBedUnit(
-    await resolveFamilyPlacementUnit(ctx, String(eventId), attendee),
-    attendee
-  )
+  const unit = await resolveFamilyPlacementUnit(ctx, String(eventId), attendee)
   if (!unit.valid) throwFamilyResolutionError(unit)
   if (unit.familyRole === "child") {
     throw new Error(
@@ -2855,7 +2814,6 @@ export const assignRoomToAttendee = mutation({
     const outcome = await validateFamilyRoomOutcome(ctx, {
       ...args,
       rejectAlreadyAssigned: false,
-      allowUnlinkedNoBed: true,
     })
     const result = await commitFamilyRoomOutcome(ctx, outcome, "assign")
     return outcome.unit.familyRole === "solo" ? args.attendeeId : result
@@ -2873,7 +2831,6 @@ export const assignAttendeeToRoom = mutation({
     const outcome = await validateFamilyRoomOutcome(ctx, {
       ...args,
       rejectAlreadyAssigned: true,
-      allowUnlinkedNoBed: true,
     })
     const result = await commitFamilyRoomOutcome(ctx, outcome, "move")
     return outcome.unit.familyRole === "solo" ? { ok: true } : result
@@ -3647,7 +3604,6 @@ export const confirmBuyerAssignment = mutation({
         roomId: String(room._id),
         eventId: String(order.eventId),
         rejectAlreadyAssigned: false,
-        allowUnlinkedNoBed: true,
       })
     } catch (error: unknown) {
       const reason = mutationErrorMessage(error)
@@ -3688,7 +3644,6 @@ export const confirmBuyerAssignment = mutation({
             roomId: String(altRoom._id),
             eventId: String(order.eventId),
             rejectAlreadyAssigned: false,
-            allowUnlinkedNoBed: true,
           })
           const roomType = await ctx.db.get(
             "accommodationRoomTypes",
