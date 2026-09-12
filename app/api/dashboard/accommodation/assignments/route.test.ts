@@ -347,6 +347,8 @@ describe("/api/dashboard/accommodation/assignments route", () => {
             attendeeName: "Alice Brown",
             attendeeEmail: "alice@example.com",
             orderId: "order-tt-1",
+            bookingRef: null,
+            bookerName: null,
             providerOrderId: "order-tt-1",
             providerEventId: "event-integration",
             eventName: "Integration Camp",

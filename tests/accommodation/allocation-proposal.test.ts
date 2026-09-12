@@ -54,6 +54,8 @@ function paymentFields(
     paymentState,
     amountDueMinor: null,
     paidAmountMinor: null,
+    bookingRef: null,
+    bookerName: null,
   }
 }
 

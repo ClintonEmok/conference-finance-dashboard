@@ -11,6 +11,12 @@ type RoomAvailability = "all" | "empty" | "available" | "full"
  */
 export type BoardPaymentState = "paid" | "partial" | "unpaid" | null
 
+export type AllocationCompatibility = {
+  status: "compatible" | "no_match" | "unavailable"
+  summary: string
+  recommendedRoomId?: string
+}
+
 export type SubmissionQueueRow = {
   attendeeId: string
   attendeeName: string
@@ -153,6 +159,8 @@ export type RoomAllocationBoard = {
     attendeeName: string | null
     attendeeEmail: string | null
     orderId: string | null
+    bookingRef: string | null
+    bookerName: string | null
     providerOrderId: string
     providerEventId: string
     eventName: string | null
@@ -168,6 +176,7 @@ export type RoomAllocationBoard = {
     paymentState: BoardPaymentState
     amountDueMinor: number | null
     paidAmountMinor: number | null
+    compatibility?: AllocationCompatibility
   }>
   submissionQueueRows: SubmissionQueueRow[]
   summary: {

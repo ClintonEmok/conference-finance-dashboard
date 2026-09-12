@@ -788,6 +788,54 @@ export const getRoomAllocationBoard = query({
       }
     })
 
+    // Advisory compatibility projection for the manual allocation board.
+    // This is deliberately additive and never participates in an assignment
+    // guard: it only uses the already event-scoped rooms, stored requested
+    // room type, capacity, and occupants that are visible on this board.
+    const compatibilityForAttendee = (attendee: (typeof unassignedAttendees)[number]) => {
+      const requestedRoomTypeId = attendee.allocatedRoomTypeId
+      if (!requestedRoomTypeId) {
+        return {
+          status: "unavailable" as const,
+          summary: "Compatibility unavailable: requested room type is not stored.",
+        }
+      }
+      if (mappedRooms.some((room) => !room.roomType)) {
+        return {
+          status: "unavailable" as const,
+          summary: "Compatibility unavailable: room type data is incomplete.",
+        }
+      }
+
+      const matchingRooms = mappedRooms.filter(
+        (room) =>
+          String(room.roomType?.id ?? "") === String(requestedRoomTypeId) &&
+          room.availableBeds > 0
+      )
+      if (matchingRooms.length === 0) {
+        return {
+          status: "no_match" as const,
+          summary: "No available room matches the requested room type.",
+        }
+      }
+
+      const sameOrderRoom = attendee.orderId
+        ? matchingRooms.find((room) =>
+            room.occupants.some(
+              (occupant) => String(occupant.orderId ?? "") === String(attendee.orderId)
+            )
+          )
+        : undefined
+      const recommendedRoom = sameOrderRoom ?? matchingRooms[0]
+      return {
+        status: "compatible" as const,
+        summary: sameOrderRoom
+          ? "Available room matches the requested room type and keeps the order group together."
+          : "Available room matches the requested room type.",
+        recommendedRoomId: recommendedRoom?.id,
+      }
+    }
+
     const mappedUnassignedAttendees = unassignedAttendees.map((a) => {
       const order = orderById.get(a.orderId as string)
       const canonicalEvent = order
@@ -800,6 +848,8 @@ export const getRoomAllocationBoard = query({
       return {
         attendeeId: a._id,
         orderId: order?._id ?? null,
+        bookingRef: order?.bookingRef ?? null,
+        bookerName: order?.bookerName ?? null,
         attendeeName: a.name ?? null,
         attendeeEmail: a.email ?? null,
         providerOrderId: order?.providerOrderId ?? null,
@@ -835,6 +885,7 @@ export const getRoomAllocationBoard = query({
         nightBeforeOccupancy: preference?.nightBeforeOccupancy ?? null,
         categoryLabel: preference?.categoryLabel ?? null,
         optionKeys: preference?.optionKeys ?? [],
+        compatibility: compatibilityForAttendee(a),
       }
     })
 
