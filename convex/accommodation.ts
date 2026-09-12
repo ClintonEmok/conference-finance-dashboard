@@ -13,6 +13,9 @@ import {
   loadOrderAmountDueBreakdowns,
   loadOrderAttendeePaymentBreakdowns,
 } from "./finance"
+import {
+  resolveAttendeeBedRequirements,
+} from "./accommodationBedRequirement"
 
 type DocTables = {
   events: Doc<"events">
@@ -240,6 +243,89 @@ function paymentStateRank(
   return state ? (ranks[state] ?? 3) : 3
 }
 
+const ROOM_OCCUPANT_LIMIT = 2_000
+
+type RoomOccupancy = {
+  occupantCount: number
+  occupiedBeds: number
+  availableBeds: number
+  foreignOccupantCount: number
+  incomplete: boolean
+}
+
+/**
+ * Physical room occupancy is global because rooms are shared inventory while
+ * the allocation board is event-scoped. Canonical attendees are authoritative;
+ * an assigned provider row is counted only when it cannot be bridged to one.
+ * The optional room cache is deliberately not consulted here.
+ */
+async function loadRoomOccupancy(
+  ctx: Pick<QueryCtx, "db">,
+  roomId: string,
+  roomCapacity: number,
+  visibleEventId: string | null = null
+): Promise<RoomOccupancy> {
+  const [canonicalOccupants, providerOccupants] = await Promise.all([
+    ctx.db
+      .query("orderAttendees")
+      .withIndex("by_assignedRoomId", (q) => q.eq("assignedRoomId", roomId))
+      .take(ROOM_OCCUPANT_LIMIT),
+    ctx.db
+      .query("ticketTailorAttendees")
+      .withIndex("by_assignedRoomId", (q) => q.eq("assignedRoomId", roomId))
+      .take(ROOM_OCCUPANT_LIMIT),
+  ])
+
+  const canonicalById = new Map(
+    canonicalOccupants.map((attendee) => [String(attendee._id), attendee])
+  )
+  const providerOnly = providerOccupants.filter(
+    (providerAttendee) =>
+      !providerAttendee.attendeeId ||
+      !canonicalById.has(String(providerAttendee.attendeeId))
+  )
+  const requirements = await resolveAttendeeBedRequirements(
+    ctx,
+    canonicalOccupants.map((attendee) => attendee._id)
+  )
+  const canonicalOrders = await Promise.all(
+    canonicalOccupants.map((attendee) => ctx.db.get("orders", attendee.orderId))
+  )
+  const providerOrders = await Promise.all(
+    providerOnly.map((attendee) => ctx.db.get("orders", attendee.orderId))
+  )
+
+  const canonicalBedCount = canonicalOccupants.reduce((sum, attendee) => {
+    const requirement = requirements.get(String(attendee._id))
+    return sum + (requirement?.requiresBed === false ? 0 : 1)
+  }, 0)
+  const providerBedCount = providerOnly.length
+  const occupantCount = canonicalOccupants.length + providerOnly.length
+  const incomplete =
+    canonicalOccupants.length >= ROOM_OCCUPANT_LIMIT ||
+    providerOccupants.length >= ROOM_OCCUPANT_LIMIT
+  const occupiedBeds = canonicalBedCount + providerBedCount
+  const foreignOccupantCount = visibleEventId
+    ? canonicalOrders.filter(
+        (order) => order && String(order.eventId) !== visibleEventId
+      ).length +
+      providerOrders.filter(
+        (order) => order && String(order.eventId) !== visibleEventId
+      ).length
+    : 0
+
+  return {
+    occupantCount,
+    occupiedBeds,
+    // An incomplete physical read must never advertise a bed as available.
+    availableBeds: incomplete
+      ? 0
+      : Math.max(0, roomCapacity - occupiedBeds),
+    foreignOccupantCount,
+    incomplete,
+  }
+}
+
 export function attendeeMatchesSignalFilters(input: {
   attendee: {
     customAnswers?: unknown
@@ -331,19 +417,18 @@ export const recalculateRoomOccupancy = internalMutation({
       throw new Error("Room not found")
     }
 
-    // Bounded: one room has limited occupants
-    const occupants = await ctx.db
-      .query("orderAttendees")
-      .withIndex("by_assignedRoomId", (q) =>
-        q.eq("assignedRoomId", args.roomId)
-      )
-      .take(100)
+    const occupancy = await loadRoomOccupancy(
+      ctx,
+      String(room._id),
+      room.capacity,
+      null
+    )
 
     await ctx.db.patch("accommodationRooms", roomId, {
-      occupiedBeds: occupants.length,
+      occupiedBeds: occupancy.occupiedBeds,
     })
 
-    return { ok: true, occupiedBeds: occupants.length }
+    return { ok: true, ...occupancy }
   },
 })
 
@@ -515,6 +600,10 @@ export const getRoomAllocationBoard = query({
       if (eventId && order.eventId !== eventId) return false
       return true
     })
+    const scopedBedRequirements = await resolveAttendeeBedRequirements(
+      ctx,
+      scopedAttendees.map((attendee) => attendee._id)
+    )
 
     // --- Canonical payment-state projection (Phase 44) ---
     // Group the scoped attendees by order once and load the canonical
@@ -656,9 +745,10 @@ export const getRoomAllocationBoard = query({
       return true
     })
 
-    const eventUnassignedAttendees = scopedAttendees.filter(
-      (a) => !a.assignedRoomId
-    )
+    const eventUnassignedAttendees = scopedAttendees.filter((a) => {
+      const requirement = scopedBedRequirements.get(String(a._id))
+      return !a.assignedRoomId && requirement?.placementEligible === true
+    })
     const unassignedAttendees = eventUnassignedAttendees.filter((a) => {
       const attendeeFamilyGroupId =
         attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
@@ -718,6 +808,20 @@ export const getRoomAllocationBoard = query({
         attendeesByRoom[attendee.assignedRoomId].push(attendee)
       }
     }
+
+    const roomOccupancyById = new Map(
+      await Promise.all(
+        filteredRooms.map(async (room) => [
+          String(room._id),
+          await loadRoomOccupancy(
+            ctx,
+            String(room._id),
+            room.capacity,
+            eventId
+          ),
+        ] as const)
+      )
+    )
 
     // Keep group membership complete across signal filters. Assignment remains
     // disabled when the group has no shared stored room entitlement; the board
@@ -791,6 +895,7 @@ export const getRoomAllocationBoard = query({
             nightBeforeMismatch = true
           }
         }
+        const bedRequirement = scopedBedRequirements.get(String(a._id))
         return {
           attendeeId: a._id,
           orderId: order?._id ?? null,
@@ -809,15 +914,23 @@ export const getRoomAllocationBoard = query({
           nightBeforeOccupancy: preference?.nightBeforeOccupancy ?? null,
           categoryLabel: preference?.categoryLabel ?? null,
           optionKeys: preference?.optionKeys ?? [],
+          requiresBed: bedRequirement?.requiresBed ?? true,
           nightBeforeMismatch,
         }
       })
-      const occupiedBeds = occupants.length
-      const availableBeds = Math.max(0, room.capacity - occupiedBeds)
+      const physicalOccupancy = roomOccupancyById.get(String(room._id)) ?? {
+        occupantCount: 0,
+        occupiedBeds: 0,
+        availableBeds: 0,
+        foreignOccupantCount: 0,
+        incomplete: true,
+      }
+      const occupiedBeds = physicalOccupancy.occupiedBeds
+      const availableBeds = physicalOccupancy.availableBeds
       const availability =
-        occupiedBeds === 0
+        physicalOccupancy.occupantCount === 0
           ? "empty"
-          : occupiedBeds >= room.capacity
+          : availableBeds === 0
             ? "full"
             : "available"
 
@@ -825,6 +938,9 @@ export const getRoomAllocationBoard = query({
         id: room._id,
         label: room.label,
         capacity: room.capacity,
+        occupantCount: physicalOccupancy.occupantCount,
+        foreignOccupantCount: physicalOccupancy.foreignOccupantCount,
+        occupancyIncomplete: physicalOccupancy.incomplete,
         occupiedBeds,
         availableBeds,
         availability,
@@ -856,7 +972,12 @@ export const getRoomAllocationBoard = query({
           summary: "Compatibility unavailable: requested room type is not stored.",
         }
       }
-      const candidateRooms = mappedRooms.filter((room) => room.availableBeds > 0)
+      const attendeeRequirement = scopedBedRequirements.get(String(attendee._id))
+      const candidateRooms = mappedRooms.filter(
+        (room) =>
+          !attendeeRequirement?.requiresBed ||
+          (!room.occupancyIncomplete && room.availableBeds > 0)
+      )
       const matchingRooms = candidateRooms.filter(
         (room) =>
           String(room.roomType?.id ?? "") === String(requestedRoomTypeId)
@@ -943,6 +1064,8 @@ export const getRoomAllocationBoard = query({
         nightBeforeOccupancy: preference?.nightBeforeOccupancy ?? null,
         categoryLabel: preference?.categoryLabel ?? null,
         optionKeys: preference?.optionKeys ?? [],
+        requiresBed:
+          scopedBedRequirements.get(String(a._id))?.requiresBed ?? true,
         compatibility: compatibilityForAttendee(a),
       }
     })
@@ -1300,8 +1423,17 @@ export const getRoomAllocationBoard = query({
         ).length,
         fullRooms: mappedRooms.filter((r) => r.availability === "full").length,
         totalBeds: mappedRooms.reduce((sum, r) => sum + r.capacity, 0),
+        totalOccupants: mappedRooms.reduce(
+          (sum, r) => sum + r.occupantCount,
+          0
+        ),
         occupiedBeds: mappedRooms.reduce((sum, r) => sum + r.occupiedBeds, 0),
         availableBeds: mappedRooms.reduce((sum, r) => sum + r.availableBeds, 0),
+        foreignOccupants: mappedRooms.reduce(
+          (sum, r) => sum + r.foreignOccupantCount,
+          0
+        ),
+        occupancyIncomplete: mappedRooms.some((r) => r.occupancyIncomplete),
         unassignedAttendeesCount: mappedUnassignedAttendees.length,
       },
     }
@@ -1346,35 +1478,39 @@ export const getRoomsWithDetails = query({
   handler: async (ctx) => {
     await requireIdentity(ctx)
     // Bounded: config tables capped for inventory view
-    const [rooms, hotels, roomTypes, attendees] = await Promise.all([
+    const [rooms, hotels, roomTypes] = await Promise.all([
       ctx.db.query("accommodationRooms").take(500),
       ctx.db.query("accommodationHotels").take(200),
       ctx.db.query("accommodationRoomTypes").take(100),
-      ctx.db.query("ticketTailorAttendees").take(2000),
     ])
 
     const hotelMap = new Map(hotels.map((h) => [h._id as string, h]))
     const roomTypeMap = new Map(roomTypes.map((rt) => [rt._id as string, rt]))
+    const occupancyByRoom = new Map(
+      await Promise.all(
+        rooms.map(async (room) => [
+          String(room._id),
+          await loadRoomOccupancy(ctx, String(room._id), room.capacity, null),
+        ] as const)
+      )
+    )
 
-    const occupancyByRoom = new Map<string, number>()
-    for (const attendee of attendees) {
-      if (attendee.assignedRoomId) {
-        occupancyByRoom.set(
-          attendee.assignedRoomId,
-          (occupancyByRoom.get(attendee.assignedRoomId) ?? 0) + 1
-        )
+    return rooms.map((room) => {
+      const occupancy = occupancyByRoom.get(String(room._id))!
+      return {
+        id: room._id,
+        label: room.label,
+        capacity: room.capacity,
+        occupantCount: occupancy.occupantCount,
+        occupiedBeds: occupancy.occupiedBeds,
+        availableBeds: occupancy.availableBeds,
+        foreignOccupantCount: occupancy.foreignOccupantCount,
+        occupancyIncomplete: occupancy.incomplete,
+        notes: room.notes,
+        hotel: hotelMap.get(room.hotelId as string),
+        roomType: roomTypeMap.get(room.roomTypeId as string),
       }
-    }
-
-    return rooms.map((room) => ({
-      id: room._id,
-      label: room.label,
-      capacity: room.capacity,
-      occupiedBeds: occupancyByRoom.get(room._id) ?? 0,
-      notes: room.notes,
-      hotel: hotelMap.get(room.hotelId as string),
-      roomType: roomTypeMap.get(room.roomTypeId as string),
-    }))
+    })
   },
 })
 
@@ -1383,13 +1519,12 @@ export const listAccommodationInventory = query({
   handler: async (ctx) => {
     await requireIdentity(ctx)
     // Bounded: config tables capped for inventory view
-    const [canonicalEvents, hotels, roomTypes, rooms, attendees] =
+    const [canonicalEvents, hotels, roomTypes, rooms] =
       await Promise.all([
         ctx.db.query("events").take(200),
         ctx.db.query("accommodationHotels").take(200),
         ctx.db.query("accommodationRoomTypes").take(100),
         ctx.db.query("accommodationRooms").take(500),
-        ctx.db.query("orderAttendees").take(2000),
       ])
 
     const eventHotels = await ctx.db.query("accommodationEventHotels").take(200)
@@ -1423,15 +1558,14 @@ export const listAccommodationInventory = query({
     const roomTypeMap = new Map(roomTypes.map((rt) => [rt._id as string, rt]))
     const hotelMap = new Map(hotels.map((h) => [h._id as string, h]))
 
-    const occupancyByRoom = new Map<string, number>()
-    for (const attendee of attendees) {
-      if (attendee.assignedRoomId) {
-        occupancyByRoom.set(
-          attendee.assignedRoomId,
-          (occupancyByRoom.get(attendee.assignedRoomId) ?? 0) + 1
-        )
-      }
-    }
+    const occupancyByRoom = new Map(
+      await Promise.all(
+        rooms.map(async (room) => [
+          String(room._id),
+          await loadRoomOccupancy(ctx, String(room._id), room.capacity, null),
+        ] as const)
+      )
+    )
 
     return {
       availableEvents: canonicalEvents
@@ -1463,12 +1597,16 @@ export const listAccommodationInventory = query({
       rooms: rooms.map((room) => {
         const hotel = hotelMap.get(room.hotelId as string)
         const roomType = roomTypeMap.get(room.roomTypeId as string)
-        const occupied = occupancyByRoom.get(room._id) ?? 0
+        const occupancy = occupancyByRoom.get(String(room._id))!
         return {
           id: room._id,
           label: room.label,
           capacity: room.capacity,
-          occupiedBeds: occupied,
+          occupantCount: occupancy.occupantCount,
+          occupiedBeds: occupancy.occupiedBeds,
+          availableBeds: occupancy.availableBeds,
+          foreignOccupantCount: occupancy.foreignOccupantCount,
+          occupancyIncomplete: occupancy.incomplete,
           notes: room.notes,
           hotel: hotel ? { id: hotel._id, name: hotel.name } : undefined,
           roomType: roomType
@@ -1482,14 +1620,34 @@ export const listAccommodationInventory = query({
       }),
       summary: {
         totalRooms: rooms.length,
-        emptyRooms: rooms.filter((r) => (occupancyByRoom.get(r._id) ?? 0) === 0)
+        emptyRooms: rooms.filter(
+          (r) => occupancyByRoom.get(String(r._id))?.occupantCount === 0
+        )
           .length,
         availableRooms: rooms.filter(
-          (r) => (occupancyByRoom.get(r._id) ?? 0) < r.capacity
+          (r) => (occupancyByRoom.get(String(r._id))?.availableBeds ?? 0) > 0
         ).length,
         fullRooms: rooms.filter(
-          (r) => (occupancyByRoom.get(r._id) ?? 0) >= r.capacity
+          (r) => (occupancyByRoom.get(String(r._id))?.availableBeds ?? 0) === 0
         ).length,
+        totalOccupants: rooms.reduce(
+          (sum, room) =>
+            sum + (occupancyByRoom.get(String(room._id))?.occupantCount ?? 0),
+          0
+        ),
+        occupiedBeds: rooms.reduce(
+          (sum, room) =>
+            sum + (occupancyByRoom.get(String(room._id))?.occupiedBeds ?? 0),
+          0
+        ),
+        availableBeds: rooms.reduce(
+          (sum, room) =>
+            sum + (occupancyByRoom.get(String(room._id))?.availableBeds ?? 0),
+          0
+        ),
+        occupancyIncomplete: rooms.some(
+          (room) => occupancyByRoom.get(String(room._id))?.incomplete
+        ),
         unassignedAttendees: 0,
       },
     }
