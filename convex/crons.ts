@@ -24,4 +24,11 @@ crons.interval(
   {}
 )
 
+crons.interval(
+  "payment-reminders-dispatch",
+  { minutes: 15 },
+  internal.paymentReminders.automaticTick,
+  {}
+)
+
 export default crons

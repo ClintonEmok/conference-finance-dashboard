@@ -48,6 +48,13 @@ export const emailAudienceFiltersValidator = v.object({
   hasAccommodationSelection: v.optional(v.boolean()),
   ticketTypeId: v.optional(v.id("ticketTypes")),
 })
+export const broadcastSelectionValidator = v.union(
+  v.object({ mode: v.literal("explicit"), orderIds: v.array(v.id("orders")) }),
+  v.object({ mode: v.literal("allMatching"), search: v.optional(v.string()) })
+)
+export type BroadcastSelection =
+  | { mode: "explicit"; orderIds: Id<"orders">[] }
+  | { mode: "allMatching"; search?: string }
 export type EmailAudienceFilters = {
   location?: string
   status?: "paid" | "refunded" | "cancelled" | "pending"
@@ -245,6 +252,46 @@ async function computeAudience(
   }
 }
 
+/** Resolve a client selection against the complete, current server audience. */
+export async function resolveBroadcastAudience(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  selection: BroadcastSelection
+) {
+  const { recipients, skippedNoEmail, skippedNoRef } = await computeAudience(
+    ctx,
+    eventId,
+    {}
+  )
+  const byOrderId = new Map(recipients.map((recipient) => [String(recipient.orderId), recipient]))
+  let matched: AudienceRecipient[]
+  if (selection.mode === "explicit") {
+    const ids = selection.orderIds.map(String)
+    if (ids.length === 0) throw new Error("Select at least one recipient")
+    if (new Set(ids).size !== ids.length) throw new Error("Duplicate recipient selection")
+    matched = ids.map((id) => {
+      const recipient = byOrderId.get(id)
+      if (!recipient) throw new Error("Selection contains an unknown, stale, or ineligible order")
+      return recipient
+    })
+  } else {
+    const query = (selection.search ?? "").trim().toLowerCase()
+    matched = query
+      ? recipients.filter(
+          (recipient) =>
+            (recipient.bookerName ?? "").toLowerCase().includes(query) ||
+            recipient.bookerEmail.toLowerCase().includes(query) ||
+            (recipient.bookingRef ?? "").toLowerCase().includes(query)
+        )
+      : recipients
+    if (matched.length === 0) throw new Error("No bookers match the selected audience")
+  }
+  if (matched.length > MAX_BROADCAST_RECIPIENTS) {
+    throw new Error(`Audience too large (${matched.length}). Maximum is ${MAX_BROADCAST_RECIPIENTS}.`)
+  }
+  return { recipients: matched, skippedNoEmail, skippedNoRef }
+}
+
 function assertInternalEvent(event: Doc<"events">) {
   if (event.primarySourceKind !== "internal") {
     throw new Error("Broadcasts are only available for internal events")
@@ -363,19 +410,19 @@ export const getBroadcastRecipients = query({
 })
 
 /**
- * Queues the single fixed standard announcement for a search-scoped audience.
+ * Queues the single fixed standard announcement for an explicit selection.
  * The copy, event title, formatted start date, and signup URL are derived
  * server-side from the shared announcement-copy module and the event row —
  * nothing is client-editable. The audience is snapshotted with exactly the
  * same case-insensitive name/email/booking-reference search semantics as
- * `previewAudience`, and the stored search scope is persisted on the job for
+ * `previewAudience`, and the stored selection scope is persisted on the job for
  * the delivery-status panel. Delivery stays scheduler-driven
  * (`processBatch`); this mutation never sends inline.
  */
 export const scheduleEmailBroadcast = mutation({
   args: {
     eventId: v.id("events"),
-    search: v.optional(v.string()),
+    selection: broadcastSelectionValidator,
     authorize: v.boolean(),
   },
   returns: v.object({
@@ -396,31 +443,8 @@ export const scheduleEmailBroadcast = mutation({
       throw new Error("Broadcast requires explicit authorization")
     }
 
-    // Same search semantics as previewAudience: trim, lowercase, substring
-    // match against booker name, email, or booking reference over the whole
-    // computed audience (not just a preview page).
-    const query = (args.search ?? "").trim().toLowerCase()
-    const { recipients, skippedNoEmail, skippedNoRef } = await computeAudience(
-      ctx,
-      args.eventId,
-      {}
-    )
-    const matched = query
-      ? recipients.filter(
-          (recipient) =>
-            (recipient.bookerName ?? "").toLowerCase().includes(query) ||
-            recipient.bookerEmail.toLowerCase().includes(query) ||
-            (recipient.bookingRef ?? "").toLowerCase().includes(query)
-        )
-      : recipients
-    if (matched.length === 0) {
-      throw new Error("No bookers match the selected audience")
-    }
-    if (matched.length > MAX_BROADCAST_RECIPIENTS) {
-      throw new Error(
-        `Audience too large (${matched.length}). Maximum is ${MAX_BROADCAST_RECIPIENTS}.`
-      )
-    }
+    const { recipients: matched, skippedNoEmail, skippedNoRef } =
+      await resolveBroadcastAudience(ctx, args.eventId, args.selection)
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
     const baseUrl = appUrl.replace(/\/+$/, "")
@@ -441,7 +465,7 @@ export const scheduleEmailBroadcast = mutation({
       eventLocation: "",
       nightBeforeNote: ANNOUNCEMENT_NOTE,
       signupUrl,
-      filters: { search: query },
+      filters: { selection: args.selection },
       totalRecipients: matched.length,
       sentCount: 0,
       failedCount: 0,

@@ -617,7 +617,13 @@ export declare const api: {
     scheduleEmailBroadcast: FunctionReference<
       "mutation",
       "public",
-      { authorize: boolean; eventId: Id<"events">; search?: string },
+      {
+        authorize: boolean;
+        eventId: Id<"events">;
+        selection:
+          | { mode: "explicit"; orderIds: Array<Id<"orders">> }
+          | { mode: "allMatching"; search?: string };
+      },
       {
         broadcastId: Id<"emailBroadcasts">;
         skippedNoEmail: number;
@@ -1129,6 +1135,86 @@ export declare const api: {
         totalAmountMinor?: number;
       },
       any
+    >;
+  };
+  paymentReminders: {
+    getReminderDeliveryHistory: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events">; limit?: number },
+      any
+    >;
+    getReminderHistory: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      any
+    >;
+    getSettings: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      {
+        automaticEnabled: boolean;
+        cadenceMinutes: number;
+        dueAt: number;
+        enabled: boolean;
+        repeatPolicy: "oncePerPeriod" | "onceEver";
+        timezone: string;
+        updatedAt: number;
+      } | null
+    >;
+    previewPaymentReminderAudience: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events">; limit?: number; search?: string },
+      any
+    >;
+    scheduleManualPaymentReminders: FunctionReference<
+      "mutation",
+      "public",
+      {
+        authorize: boolean;
+        eventId: Id<"events">;
+        selection:
+          | { mode: "explicit"; orderIds: Array<Id<"orders">> }
+          | { mode: "allMatching"; search?: string };
+      },
+      { campaignId: string; skipped: number; totalRecipients: number }
+    >;
+    schedulePaymentReminder: FunctionReference<
+      "mutation",
+      "public",
+      {
+        authorize: boolean;
+        eventId: Id<"events">;
+        selection:
+          | { mode: "explicit"; orderIds: Array<Id<"orders">> }
+          | { mode: "allMatching"; search?: string };
+      },
+      any
+    >;
+    updateSettings: FunctionReference<
+      "mutation",
+      "public",
+      {
+        automaticEnabled: boolean;
+        cadenceMinutes: number;
+        dueAt: number;
+        enabled: boolean;
+        eventId: Id<"events">;
+        repeatPolicy: "oncePerPeriod" | "onceEver";
+        timezone: string;
+      },
+      {
+        automaticEnabled: boolean;
+        cadenceMinutes: number;
+        dueAt: number;
+        enabled: boolean;
+        repeatPolicy: "oncePerPeriod" | "onceEver";
+        timezone: string;
+        updatedAt: number;
+      }
     >;
   };
   payments: {
@@ -2316,6 +2402,46 @@ export declare const internal: {
       "internal",
       {},
       { scanned: number; updated: number }
+    >;
+  };
+  paymentReminderActions: {
+    processBatch: FunctionReference<
+      "action",
+      "internal",
+      { campaignId: string },
+      any
+    >;
+  };
+  paymentReminders: {
+    automaticTick: FunctionReference<"mutation", "internal", {}, any>;
+    getDeliveryContext: FunctionReference<
+      "query",
+      "internal",
+      { deliveryId: Id<"paymentReminderDeliveries"> },
+      any
+    >;
+    getPendingDeliveries: FunctionReference<
+      "query",
+      "internal",
+      { campaignId: string; limit: number },
+      any
+    >;
+    markDeliverySending: FunctionReference<
+      "mutation",
+      "internal",
+      { deliveryId: Id<"paymentReminderDeliveries"> },
+      any
+    >;
+    recordDelivery: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        deliveryId: Id<"paymentReminderDeliveries">;
+        error?: string;
+        providerEmailId?: string;
+        status: "sent" | "failed" | "skipped";
+      },
+      any
     >;
   };
   payments: {

@@ -930,6 +930,9 @@ export default defineSchema({
       eventDate: v.string(),
       eventLocation: v.string(),
       paymentUrl: v.optional(v.string()),
+      campaignType: v.optional(v.union(v.literal("announcement"), v.literal("paymentReminder"))),
+      reminderKind: v.optional(v.union(v.literal("partial"), v.literal("outstanding"))),
+      amountOutstandingMinor: v.optional(v.number()),
       nightBeforeNote: v.optional(v.string()),
       signupUrl: v.string(),
       filters: v.any(),
@@ -969,4 +972,16 @@ export default defineSchema({
   )
     .index("by_broadcastId", ["broadcastId"])
     .index("by_broadcastId_and_status", ["broadcastId", "status"]),
+
+  eventPaymentReminderSettings: defineTable(v.object({
+    eventId: v.id("events"), enabled: v.boolean(), automaticEnabled: v.boolean(), dueAt: v.number(), timezone: v.string(), cadenceMinutes: v.number(), repeatPolicy: v.union(v.literal("oncePerPeriod"), v.literal("onceEver")), updatedAt: v.number(),
+  })).index("by_eventId", ["eventId"]).index("by_automaticEnabled", ["automaticEnabled"]),
+
+  paymentReminderCampaigns: defineTable(v.object({
+    eventId: v.id("events"), campaignId: v.string(), mode: v.union(v.literal("manual"), v.literal("automatic")), period: v.string(), createdAt: v.number(), createdBy: v.optional(v.string()),
+  })).index("by_eventId", ["eventId"]).index("by_campaignId", ["campaignId"]),
+
+  paymentReminderDeliveries: defineTable(v.object({
+    eventId: v.id("events"), orderId: v.id("orders"), campaignId: v.string(), kind: v.union(v.literal("unpaid"), v.literal("partial"), v.literal("overdue")), period: v.string(), recipient: v.string(), bookerName: v.string(), bookingRef: v.string(), currency: v.string(), amountDueMinor: v.number(), paidAmountMinor: v.number(), outstandingAmountMinor: v.number(), status: v.union(v.literal("queued"), v.literal("sending"), v.literal("sent"), v.literal("failed"), v.literal("skipped")), attempts: v.number(), providerEmailId: v.optional(v.string()), error: v.optional(v.string()), createdAt: v.number(), sentAt: v.optional(v.number()),
+  })).index("by_eventId", ["eventId"]).index("by_campaignId", ["campaignId"]).index("by_idempotency", ["eventId", "orderId", "kind", "period"]).index("by_status", ["status"]),
 })
