@@ -6,6 +6,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server"
+import { paginationOptsValidator } from "convex/server"
 import { v } from "convex/values"
 import { internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
@@ -41,6 +42,10 @@ type ActiveReminderOrder = {
   bookingRef: string
 }
 
+const REMINDER_BATCH_SIZE = 25
+const AUTOMATIC_SETTINGS_PAGE_SIZE = 25
+const AUTOMATIC_ORDER_PAGE_SIZE = 25
+
 export const getSettings = query({
   args: settingsArgs,
   returns: v.union(settingsValidator, v.null()),
@@ -71,10 +76,15 @@ export const previewPaymentReminderAudience = query({
 
     let audience
     try {
-      audience = await resolveBroadcastAudience(ctx, args.eventId, {
-        mode: "allMatching",
-        search: args.search,
-      })
+      audience = await resolveBroadcastAudience(
+        ctx,
+        args.eventId,
+        {
+          mode: "allMatching",
+          search: args.search,
+        },
+        { maxRecipients: null }
+      )
     } catch (error) {
       if (
         error instanceof Error &&
@@ -166,6 +176,7 @@ async function getActiveReminderOrder(
     !order ||
     order.eventId !== eventId ||
     order.status === "cancelled" ||
+    order.status === "refunded" ||
     order.mergedIntoOrderId ||
     !recipient ||
     !bookingRef
@@ -234,7 +245,8 @@ async function scheduleManual(
   const audience = await resolveBroadcastAudience(
     ctx,
     args.eventId,
-    args.selection
+    args.selection,
+    { maxRecipients: null }
   )
   const settings = await ctx.db
     .query("eventPaymentReminderSettings")
@@ -248,6 +260,8 @@ async function scheduleManual(
   )
   if (!eligible.length)
     throw new Error("No selected bookers have an outstanding balance")
+  if (eligible.length > 2000)
+    throw new Error("Audience too large (more than 2000 eligible reminders)")
   const campaignId = crypto.randomUUID()
   const period = `manual:${campaignId}`
   await ctx.db.insert("paymentReminderCampaigns", {
@@ -312,6 +326,10 @@ export const schedulePaymentReminder = mutation({
     selection: broadcastSelectionValidator,
     authorize: v.boolean(),
   },
+  returns: v.object({
+    campaignId: v.string(),
+    totalRecipients: v.number(),
+  }),
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     const result = await scheduleManual(ctx, {
@@ -319,7 +337,7 @@ export const schedulePaymentReminder = mutation({
       selection: args.selection,
     })
     return {
-      broadcastId: result.campaignId as Id<"emailBroadcasts">,
+      campaignId: result.campaignId,
       totalRecipients: result.totalRecipients,
     }
   },
@@ -399,18 +417,27 @@ export const getPendingDeliveries = internalQuery({
   handler: async (ctx, args) =>
     ctx.db
       .query("paymentReminderDeliveries")
-      .withIndex("by_campaignId", (q) => q.eq("campaignId", args.campaignId))
-      .take(Math.min(args.limit, 25))
-      .then((rows) => rows.filter((row) => row.status === "queued")),
+      .withIndex("by_campaignId_and_status", (q) =>
+        q.eq("campaignId", args.campaignId).eq("status", "queued")
+      )
+      .take(Math.min(Math.max(args.limit, 1), REMINDER_BATCH_SIZE)),
 })
-export const markDeliverySending = internalMutation({
-  args: { deliveryId: v.id("paymentReminderDeliveries") },
+export const claimPendingDeliveries = internalMutation({
+  args: { campaignId: v.string(), limit: v.number() },
   handler: async (ctx, args) => {
-    const row = await ctx.db.get("paymentReminderDeliveries", args.deliveryId)
-    await ctx.db.patch("paymentReminderDeliveries", args.deliveryId, {
-      status: "sending",
-      attempts: (row?.attempts ?? 0) + 1,
-    })
+    const rows = await ctx.db
+      .query("paymentReminderDeliveries")
+      .withIndex("by_campaignId_and_status", (q) =>
+        q.eq("campaignId", args.campaignId).eq("status", "queued")
+      )
+      .take(Math.min(Math.max(args.limit, 1), REMINDER_BATCH_SIZE))
+    for (const row of rows) {
+      await ctx.db.patch("paymentReminderDeliveries", row._id, {
+        status: "sending",
+        attempts: row.attempts + 1,
+      })
+    }
+    return rows
   },
 })
 export const recordDelivery = internalMutation({
@@ -425,6 +452,11 @@ export const recordDelivery = internalMutation({
     providerEmailId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const existing = await ctx.db.get(
+      "paymentReminderDeliveries",
+      args.deliveryId
+    )
+    if (!existing || existing.status !== "sending") return
     await ctx.db.patch("paymentReminderDeliveries", args.deliveryId, {
       status: args.status,
       error: args.error,
@@ -435,70 +467,143 @@ export const recordDelivery = internalMutation({
 })
 
 export const automaticTick = internalMutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
     const settings = await ctx.db
       .query("eventPaymentReminderSettings")
       .withIndex("by_automaticEnabled", (q) => q.eq("automaticEnabled", true))
-      .take(100)
-    for (const setting of settings) {
+      .order("asc")
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.max(
+          1,
+          Math.min(args.paginationOpts.numItems, AUTOMATIC_SETTINGS_PAGE_SIZE)
+        ),
+      })
+    const now = Date.now()
+    for (const setting of settings.page) {
       if (!setting.enabled) continue
       const period = automaticPeriod(
-        Date.now(),
+        now,
         setting.cadenceMinutes,
         setting.repeatPolicy
       )
       if (!period) continue
       const event = await ctx.db.get("events", setting.eventId)
       if (!event || event.primarySourceKind !== "internal") continue
-      const orders = await ctx.db
-        .query("orders")
-        .withIndex("by_eventId", (q) => q.eq("eventId", setting.eventId))
-        .take(100)
-      const eligible = await eligibleDeliveries(
-        ctx,
-        setting.eventId,
-        orders.map((o) => o._id),
-        setting.dueAt
-      )
-      for (const { order, recipient, bookingRef, policy } of eligible) {
-        const kind = policy.kind
-        const existing = await ctx.db
-          .query("paymentReminderDeliveries")
-          .withIndex("by_idempotency", (q) =>
-            q
-              .eq("eventId", setting.eventId)
-              .eq("orderId", order._id)
-              .eq("kind", kind)
-              .eq("period", period)
-          )
-          .unique()
-        if (existing) continue
-        const campaignId = `automatic:${setting.eventId}:${period}`
-        await ctx.db.insert("paymentReminderDeliveries", {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.paymentReminders.processAutomaticEvent,
+        {
           eventId: setting.eventId,
-          orderId: order._id,
-          campaignId,
-          kind,
+          dueAt: setting.dueAt,
           period,
-          recipient,
-          bookerName: order.bookerName ?? "Guest",
-          bookingRef,
-          currency: event.currency,
-          amountDueMinor: policy.amountDueMinor,
-          paidAmountMinor: policy.paidAmountMinor,
-          outstandingAmountMinor: policy.outstandingAmountMinor,
-          status: "queued",
-          attempts: 0,
-          createdAt: Date.now(),
-        })
-        await ctx.scheduler.runAfter(
-          0,
-          internal.paymentReminderActions.processBatch,
-          { campaignId }
-        )
-      }
+          paginationOpts: {
+            numItems: AUTOMATIC_ORDER_PAGE_SIZE,
+            cursor: null,
+          },
+        }
+      )
     }
-    return null
+    if (!settings.isDone) {
+      await ctx.scheduler.runAfter(0, internal.paymentReminders.automaticTick, {
+        paginationOpts: {
+          numItems: Math.max(
+            1,
+            Math.min(args.paginationOpts.numItems, AUTOMATIC_SETTINGS_PAGE_SIZE)
+          ),
+          cursor: settings.continueCursor,
+        },
+      })
+    }
+    return { processed: settings.page.length, isDone: settings.isDone }
+  },
+})
+
+export const processAutomaticEvent = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    dueAt: v.number(),
+    period: v.string(),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get("events", args.eventId)
+    if (!event || event.primarySourceKind !== "internal") return null
+
+    const orders = await ctx.db
+      .query("orders")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .order("asc")
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.max(
+          1,
+          Math.min(args.paginationOpts.numItems, AUTOMATIC_ORDER_PAGE_SIZE)
+        ),
+      })
+    const eligible = await eligibleDeliveries(
+      ctx,
+      args.eventId,
+      orders.page.map((order) => order._id),
+      args.dueAt
+    )
+    const campaignId = `automatic:${String(args.eventId)}:${args.period}`
+    for (const { order, recipient, bookingRef, policy } of eligible) {
+      const existing = await ctx.db
+        .query("paymentReminderDeliveries")
+        .withIndex("by_idempotency_period", (q) =>
+          q
+            .eq("eventId", args.eventId)
+            .eq("orderId", order._id)
+            .eq("period", args.period)
+        )
+        .unique()
+      if (existing) continue
+      await ctx.db.insert("paymentReminderDeliveries", {
+        eventId: args.eventId,
+        orderId: order._id,
+        campaignId,
+        kind: policy.kind,
+        period: args.period,
+        recipient,
+        bookerName: order.bookerName ?? "Guest",
+        bookingRef,
+        currency: event.currency,
+        amountDueMinor: policy.amountDueMinor,
+        paidAmountMinor: policy.paidAmountMinor,
+        outstandingAmountMinor: policy.outstandingAmountMinor,
+        status: "queued",
+        attempts: 0,
+        createdAt: Date.now(),
+      })
+    }
+
+    if (!orders.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.paymentReminders.processAutomaticEvent,
+        {
+          eventId: args.eventId,
+          dueAt: args.dueAt,
+          period: args.period,
+          paginationOpts: {
+            numItems: Math.max(
+              1,
+              Math.min(args.paginationOpts.numItems, AUTOMATIC_ORDER_PAGE_SIZE)
+            ),
+            cursor: orders.continueCursor,
+          },
+        }
+      )
+    } else {
+      // The atomic claim mutation makes this safe even if two cron runs overlap.
+      await ctx.scheduler.runAfter(
+        0,
+        internal.paymentReminderActions.processBatch,
+        { campaignId }
+      )
+    }
+    return { processed: orders.page.length, isDone: orders.isDone }
   },
 })

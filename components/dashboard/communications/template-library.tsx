@@ -32,6 +32,15 @@ type TemplateLibraryProps = {
   eventTitle: string
   eventStartsAt: number
   eventSlug: string
+  eventTimezone: string
+  currency: string
+}
+
+function formatEventDate(startsAt: number, timezone: string) {
+  if (!startsAt) return ""
+  return new Date(startsAt).toLocaleDateString("en-GB", {
+    timeZone: timezone,
+  })
 }
 
 export function TemplateLibrary(props: TemplateLibraryProps) {
@@ -69,8 +78,6 @@ function StandardTemplateCard(props: TemplateLibraryProps) {
   useEffect(() => {
     if (!previewOpen) return
     let cancelled = false
-    setPreviewHtml(null)
-    setPreviewError(null)
     const origin = window.location.origin
 
     render(
@@ -78,9 +85,7 @@ function StandardTemplateCard(props: TemplateLibraryProps) {
         title: ANNOUNCEMENT_TITLE,
         message: ANNOUNCEMENT_MESSAGE,
         eventName: props.eventTitle,
-        eventDate: props.eventStartsAt
-          ? new Date(props.eventStartsAt).toLocaleDateString("en-GB")
-          : "",
+        eventDate: formatEventDate(props.eventStartsAt, props.eventTimezone),
         manageBookingUrl: `${origin}/booking/BK-EXAMPLE/manage`,
         signupUrl: `${origin}/signup/${props.eventSlug}`,
         paymentUrl: null,
@@ -103,7 +108,13 @@ function StandardTemplateCard(props: TemplateLibraryProps) {
     return () => {
       cancelled = true
     }
-  }, [previewOpen, props.eventTitle, props.eventStartsAt, props.eventSlug])
+  }, [
+    previewOpen,
+    props.eventTitle,
+    props.eventStartsAt,
+    props.eventSlug,
+    props.eventTimezone,
+  ])
 
   return (
     <Card>
@@ -120,7 +131,11 @@ function StandardTemplateCard(props: TemplateLibraryProps) {
         <Button
           type="button"
           variant="outline"
-          onClick={() => setPreviewOpen(true)}
+          onClick={() => {
+            setPreviewHtml(null)
+            setPreviewError(null)
+            setPreviewOpen(true)
+          }}
         >
           <Eye className="size-4" />
           Preview
@@ -159,8 +174,6 @@ function PaymentTemplateCard(props: TemplateLibraryProps) {
   useEffect(() => {
     if (!previewKind) return
     let cancelled = false
-    setPreviewHtml(null)
-    setPreviewError(null)
     const origin = window.location.origin
     const balance = {
       unpaid: { paidAmountMinor: 0, outstandingAmountMinor: 10_000 },
@@ -172,13 +185,13 @@ function PaymentTemplateCard(props: TemplateLibraryProps) {
       PaymentReminderEmail({
         kind: previewKind,
         eventName: props.eventTitle,
-        eventDate: new Date(props.eventStartsAt).toLocaleDateString("en-GB"),
+        eventDate: formatEventDate(props.eventStartsAt, props.eventTimezone),
         bookerName: "Example booker",
         bookingRef: "BK-EXAMPLE",
         amountDueMinor: 10_000,
         paidAmountMinor: balance.paidAmountMinor,
         outstandingAmountMinor: balance.outstandingAmountMinor,
-        currency: "EUR",
+        currency: props.currency,
         managePaymentUrl: `${origin}/booking/BK-EXAMPLE/manage`,
       })
     )
@@ -198,7 +211,13 @@ function PaymentTemplateCard(props: TemplateLibraryProps) {
     return () => {
       cancelled = true
     }
-  }, [previewKind, props.eventTitle, props.eventStartsAt])
+  }, [
+    previewKind,
+    props.eventTitle,
+    props.eventStartsAt,
+    props.eventTimezone,
+    props.currency,
+  ])
 
   return (
     <Card>
@@ -230,7 +249,11 @@ function PaymentTemplateCard(props: TemplateLibraryProps) {
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => setPreviewKind(kind)}
+              onClick={() => {
+                setPreviewHtml(null)
+                setPreviewError(null)
+                setPreviewKind(kind)
+              }}
             >
               <Eye className="size-4" />
               Preview

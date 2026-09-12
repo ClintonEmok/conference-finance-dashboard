@@ -983,5 +983,5 @@ export default defineSchema({
 
   paymentReminderDeliveries: defineTable(v.object({
     eventId: v.id("events"), orderId: v.id("orders"), campaignId: v.string(), kind: v.union(v.literal("unpaid"), v.literal("partial"), v.literal("overdue")), period: v.string(), recipient: v.string(), bookerName: v.string(), bookingRef: v.string(), currency: v.string(), amountDueMinor: v.number(), paidAmountMinor: v.number(), outstandingAmountMinor: v.number(), status: v.union(v.literal("queued"), v.literal("sending"), v.literal("sent"), v.literal("failed"), v.literal("skipped")), attempts: v.number(), providerEmailId: v.optional(v.string()), error: v.optional(v.string()), createdAt: v.number(), sentAt: v.optional(v.number()),
-  })).index("by_eventId", ["eventId"]).index("by_campaignId", ["campaignId"]).index("by_idempotency", ["eventId", "orderId", "kind", "period"]).index("by_status", ["status"]),
+  })).index("by_eventId", ["eventId"]).index("by_campaignId", ["campaignId"]).index("by_campaignId_and_status", ["campaignId", "status"]).index("by_idempotency", ["eventId", "orderId", "kind", "period"]).index("by_idempotency_period", ["eventId", "orderId", "period"]).index("by_status", ["status"]),
 })

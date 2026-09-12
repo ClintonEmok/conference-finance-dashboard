@@ -24,6 +24,18 @@ function formatDate(value: number | undefined) {
   return value ? new Date(value).toLocaleString("en-GB") : "—"
 }
 
+function parseUtcDateTimeLocal(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value)
+  if (!match) return Number.NaN
+  return Date.UTC(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    Number(match[4]),
+    Number(match[5])
+  )
+}
+
 type ReminderDeliveryHistory = {
   _id: Id<"paymentReminderDeliveries">
   bookerName: string
@@ -84,7 +96,7 @@ export function PaymentReminderCard(props: { eventId: Id<"events"> }) {
         eventId: props.eventId,
         enabled,
         automaticEnabled,
-        dueAt: new Date(dueAt).getTime(),
+        dueAt: parseUtcDateTimeLocal(dueAt),
         timezone: "UTC",
         cadenceMinutes: Number(cadenceMinutes),
         repeatPolicy,
