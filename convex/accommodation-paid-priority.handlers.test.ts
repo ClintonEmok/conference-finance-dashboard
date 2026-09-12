@@ -337,15 +337,16 @@ async function loadBoard(
         recommendedRoomId?: string
       }
     }>
-    submissionQueueRows: Array<{
-      attendeeId: string
-      attendeeName: string | null
-      allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
-      paymentState: "paid" | "partial" | "unpaid" | null
-      amountDueMinor: number | null
-      paidAmountMinor: number | null
-    }>
-  }
+     submissionQueueRows: Array<{
+       attendeeId: string
+       attendeeName: string | null
+       allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
+       paymentState: "paid" | "partial" | "unpaid" | null
+       amountDueMinor: number | null
+       paidAmountMinor: number | null
+     }>
+     rooms: Array<{ id: string }>
+   }
 }
 
 async function loadSelectionRows(
@@ -511,6 +512,45 @@ test("board exposes complete manual placement context on an unresolved row", asy
       recommendedRoomId: String(seed.roomId),
     },
   })
+})
+
+test("event-scoped board excludes foreign internal orders and rooms", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const first = await seedPaidPriorityEvent(t)
+  const second = await seedPaidPriorityEvent(t)
+
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("accommodationEventHotels", {
+      eventId: first.eventId as never,
+      hotelId: String(first.hotelId),
+    })
+    await ctx.db.insert("accommodationEventHotels", {
+      eventId: second.eventId as never,
+      hotelId: String(second.hotelId),
+    })
+  })
+  const firstOrder = await createOrder(t, first, {
+    attendeeKey: "first-event-attendee",
+    name: "First Event Attendee",
+  })
+  const secondOrder = await createOrder(t, second, {
+    attendeeKey: "second-event-attendee",
+    name: "Second Event Attendee",
+  })
+
+  const firstBoard = await loadBoard(t, first.eventId)
+  expect(firstBoard.unassignedAttendees.map((row) => row.attendeeId)).toContain(
+    String(firstOrder.attendeeId)
+  )
+  expect(firstBoard.unassignedAttendees.map((row) => row.attendeeId)).not.toContain(
+    String(secondOrder.attendeeId)
+  )
+  expect(firstBoard.submissionQueueRows.map((row) => row.attendeeId)).not.toContain(
+    String(secondOrder.attendeeId)
+  )
+  expect(firstBoard.rooms.map((room) => room.id)).not.toContain(
+    String(second.roomId)
+  )
 })
 
 test("board reports unavailable or no-match compatibility without fabrication or writes", async () => {
