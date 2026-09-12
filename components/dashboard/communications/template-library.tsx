@@ -16,7 +16,6 @@ import {
 } from "@/lib/domain/payment-reminders"
 import { PAYMENT_REMINDER_COPY } from "@/lib/email/payment-reminder-copy"
 import PaymentReminderEmail from "@/lib/email/templates/payment-reminder"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -59,9 +58,6 @@ export function TemplateLibrary(props: TemplateLibraryProps) {
             loaded into the workspace until you open a preview.
           </p>
         </div>
-        <Badge variant="secondary" className="w-fit">
-          Server-controlled copy
-        </Badge>
       </div>
 
       <StandardTemplateCard {...props} />
