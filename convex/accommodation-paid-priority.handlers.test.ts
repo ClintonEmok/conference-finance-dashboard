@@ -38,6 +38,9 @@ type SeedContext = {
   ticketTypeId: Id<"ticketTypes">
   roomId: Id<"accommodationRooms">
   secondRoomId: Id<"accommodationRooms">
+  roomTypeId: Id<"accommodationRoomTypes">
+  unavailableRoomTypeId: Id<"accommodationRoomTypes">
+  hotelId: Id<"accommodationHotels">
 }
 
 /**
@@ -125,6 +128,12 @@ async function seedPaidPriorityEvent(
       defaultCapacity: 2,
     })
   })
+  const unavailableRoomTypeId = await t.mutation(async (ctx) => {
+    return await ctx.db.insert("accommodationRoomTypes", {
+      label: "Unavailable Single",
+      defaultCapacity: 1,
+    })
+  })
   const roomId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("accommodationRooms", {
       hotelId: String(hotelId),
@@ -148,6 +157,9 @@ async function seedPaidPriorityEvent(
     ticketTypeId: ticketTypeId as Id<"ticketTypes">,
     roomId: roomId as Id<"accommodationRooms">,
     secondRoomId: secondRoomId as Id<"accommodationRooms">,
+    roomTypeId: roomTypeId as Id<"accommodationRoomTypes">,
+    unavailableRoomTypeId: unavailableRoomTypeId as Id<"accommodationRoomTypes">,
+    hotelId: hotelId as Id<"accommodationHotels">,
   }
 }
 
@@ -164,9 +176,14 @@ async function createOrder(
     attendeeKey: string
     name: string
     bookingRef?: string
+    bookerName?: string
     bookerEmail?: string
+    location?: string
+    roommatePreference?: string
+    roommateAvoid?: string
     orderStatus?: "paid" | "refunded" | "cancelled" | "pending"
     allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
+    allocatedRoomTypeId?: string
     withPaymentMinor?: number
     ageBandCode?: "under_3" | "18_plus" | null
     includeAccommodationSelection?: boolean
@@ -180,7 +197,7 @@ async function createOrder(
       eventId: seed.eventId as never,
       source: "internal" as const,
       bookingRef,
-      bookerName: "Booker",
+      bookerName: input.bookerName ?? "Booker",
       bookerEmail,
       submittedAt: BASE_EVENT_AT,
       ...(input.orderStatus ? { status: input.orderStatus } : {}),
@@ -196,6 +213,14 @@ async function createOrder(
       ...(input.allocationPriority
         ? { allocationPriority: input.allocationPriority }
         : {}),
+      ...(input.allocatedRoomTypeId
+        ? { allocatedRoomTypeId: input.allocatedRoomTypeId }
+        : {}),
+      ...(input.location ? { location: input.location } : {}),
+      ...(input.roommatePreference
+        ? { roommatePreference: input.roommatePreference }
+        : {}),
+      ...(input.roommateAvoid ? { roommateAvoid: input.roommateAvoid } : {}),
     })
   })
   await t.mutation(async (ctx) => {
@@ -293,10 +318,24 @@ async function loadBoard(
     unassignedAttendees: Array<{
       attendeeId: string
       attendeeName: string | null
+      orderId: string | null
+      bookingRef: string | null
+      bookerName: string | null
+      location: string | null
+      roommatePreference: string | null
+      roommateAvoid: string | null
+      hasFamily: boolean
+      occupancy: "single" | "shared" | "family" | null
+      categoryLabel: string | null
       allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
       paymentState: "paid" | "partial" | "unpaid" | null
       amountDueMinor: number | null
       paidAmountMinor: number | null
+      compatibility?: {
+        status: "compatible" | "no_match" | "unavailable"
+        summary: string
+        recommendedRoomId?: string
+      }
     }>
     submissionQueueRows: Array<{
       attendeeId: string
@@ -382,6 +421,145 @@ test("board returns complete payment fields on unassigned and queue rows", async
     row.attendeeId.includes("a-paid")
   )
   expect(queuePaid?.paymentState).toBe("paid")
+})
+
+test("board exposes an additive compatible-room preview without assigning", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("accommodationEventHotels", {
+      eventId: seed.eventId as never,
+      hotelId: String(seed.hotelId),
+    })
+  })
+  const order = await createOrder(t, seed, {
+    attendeeKey: "a-compatible",
+    name: "Compatible Attendee",
+    allocationPriority: "HIGH",
+    allocatedRoomTypeId: String(seed.roomTypeId),
+    withPaymentMinor: ATTENDEE_DUE_MINOR,
+  })
+
+  const board = await loadBoard(t, seed.eventId)
+  const row = board.unassignedAttendees.find(
+    (attendee) => attendee.attendeeId === String(order.attendeeId)
+  )
+  expect(row).toMatchObject({
+    attendeeName: "Compatible Attendee",
+    allocationPriority: "HIGH",
+    hasFamily: false,
+    paymentState: "paid",
+    compatibility: {
+      status: "compatible",
+      recommendedRoomId: String(seed.roomId),
+      summary: "Available room matches the requested room type.",
+    },
+  })
+
+  const attendee = await t.mutation(async (ctx) =>
+    ctx.db.get("orderAttendees", order.attendeeId)
+  )
+  expect(attendee?.assignedRoomId).toBeUndefined()
+  const room = await t.mutation(async (ctx) =>
+    ctx.db.get("accommodationRooms", seed.roomId)
+  )
+  expect(room).toBeDefined()
+})
+
+test("board exposes complete manual placement context on an unresolved row", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("accommodationEventHotels", {
+      eventId: seed.eventId as never,
+      hotelId: String(seed.hotelId),
+    })
+  })
+  const order = await createOrder(t, seed, {
+    attendeeKey: "a-context",
+    name: "Context Attendee",
+    bookingRef: "BK-PP-CONTEXT01",
+    bookerName: "Context Booker",
+    location: "Amsterdam",
+    roommatePreference: "Alex",
+    roommateAvoid: "Jordan",
+    allocationPriority: "HIGH",
+    allocatedRoomTypeId: String(seed.roomTypeId),
+    withPaymentMinor: ATTENDEE_DUE_MINOR,
+  })
+
+  const board = await loadBoard(t, seed.eventId)
+  expect(
+    board.unassignedAttendees.find(
+      (attendee) => attendee.attendeeId === String(order.attendeeId)
+    )
+  ).toMatchObject({
+    attendeeName: "Context Attendee",
+    orderId: String(order.orderId),
+    bookingRef: "BK-PP-CONTEXT01",
+    bookerName: "Context Booker",
+    location: "Amsterdam",
+    roommatePreference: "Alex",
+    roommateAvoid: "Jordan",
+    hasFamily: false,
+    occupancy: "shared",
+    categoryLabel: "Standard",
+    paymentState: "paid",
+    allocationPriority: "HIGH",
+    compatibility: {
+      status: "compatible",
+      recommendedRoomId: String(seed.roomId),
+    },
+  })
+})
+
+test("board reports unavailable or no-match compatibility without fabrication or writes", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("accommodationEventHotels", {
+      eventId: seed.eventId as never,
+      hotelId: String(seed.hotelId),
+    })
+  })
+  const missingType = await createOrder(t, seed, {
+    attendeeKey: "a-missing-type",
+    name: "Missing Type",
+  })
+  const noMatch = await createOrder(t, seed, {
+    attendeeKey: "a-no-match",
+    name: "No Matching Room",
+    allocatedRoomTypeId: String(seed.unavailableRoomTypeId),
+  })
+
+  const board = await loadBoard(t, seed.eventId)
+  expect(
+    board.unassignedAttendees.find(
+      (attendee) => attendee.attendeeId === String(missingType.attendeeId)
+    )?.compatibility
+  ).toEqual({
+    status: "unavailable",
+    summary: "Compatibility unavailable: requested room type is not stored.",
+  })
+  expect(
+    board.unassignedAttendees.find(
+      (attendee) => attendee.attendeeId === String(noMatch.attendeeId)
+    )?.compatibility
+  ).toEqual({
+    status: "no_match",
+    summary: "No available room matches the requested room type.",
+  })
+
+  const placements = await t.mutation(async (ctx) =>
+    Promise.all([
+      ctx.db.get("orderAttendees", missingType.attendeeId),
+      ctx.db.get("orderAttendees", noMatch.attendeeId),
+    ])
+  )
+  expect(placements.map((attendee) => attendee?.assignedRoomId)).toEqual([
+    undefined,
+    undefined,
+  ])
 })
 
 // ---------------------------------------------------------------------------
