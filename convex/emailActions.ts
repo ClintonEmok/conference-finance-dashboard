@@ -9,6 +9,9 @@ import type { Id } from "./_generated/dataModel"
 import { render } from "@react-email/render"
 import SignupConfirmationEmail from "../lib/email/templates/signup-confirmation"
 import AnnouncementEmail from "../lib/email/templates/announcement"
+import PaymentReminderEmail from "../lib/email/templates/payment-reminder"
+import type { PaymentReminderKind } from "../lib/domain/payment-reminders"
+import { PAYMENT_REMINDER_COPY } from "../lib/email/payment-reminder-copy"
 import { buildTrackPaymentPermalink } from "../lib/domain/track-payment/edit-token"
 
 const resend = new Resend(components.resend, {
@@ -373,3 +376,64 @@ export const resendOrderConfirmation = action({
     return sendOrderConfirmationResendEmail(ctx, args.orderId)
   },
 })
+
+export type PaymentReminderEmailArgs = {
+  to: string
+  kind: PaymentReminderKind
+  eventName: string
+  eventDate: string
+  bookerName: string
+  bookingRef: string
+  amountDueMinor: number
+  paidAmountMinor: number
+  outstandingAmountMinor: number
+  currency: string
+  managePaymentUrl: string
+}
+
+/** Shared Node/Resend sender for the fixed payment-reminder templates. */
+export async function sendPaymentReminderEmail(
+  ctx: ActionCtx,
+  args: PaymentReminderEmailArgs
+): Promise<{ success: boolean; emailId?: string; error?: string }> {
+  try {
+    const html = await render(PaymentReminderEmail(args))
+    const copy = PAYMENT_REMINDER_COPY[args.kind]
+    const money = (minor: number) =>
+      new Intl.NumberFormat("en-GB", {
+        style: "currency",
+        currency: args.currency,
+      }).format(minor / 100)
+    const text = `${copy.subject}
+
+Hi ${args.bookerName},
+
+${copy.message}
+
+${args.eventName} (${args.eventDate})
+Booking reference: ${args.bookingRef}
+Amount due: ${money(args.amountDueMinor)}
+Paid: ${money(args.paidAmountMinor)}
+Outstanding: ${money(args.outstandingAmountMinor)}
+
+Manage booking and payment: ${args.managePaymentUrl}`
+
+    const fromName = process.env.RESEND_FROM_NAME || "DCLM NL Conference"
+    const fromEmail = process.env.RESEND_FROM_EMAIL || "noreply@example.com"
+    const emailId = await resend.sendEmail(ctx, {
+      from: `${fromName} <${fromEmail}>`,
+      to: args.to,
+      subject: copy.subject,
+      html,
+      text,
+    })
+    return emailId
+      ? { success: true, emailId }
+      : { success: false, error: "Provider returned no email id" }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown email error",
+    }
+  }
+}

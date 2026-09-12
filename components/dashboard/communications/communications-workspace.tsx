@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery } from "convex/react"
-import { Megaphone, Search, Send, Users, CreditCard, X } from "lucide-react"
+import { Megaphone, Search, Send, Users, X } from "lucide-react"
 import { render } from "@react-email/render"
 
 import { api } from "@/lib/convex/api"
@@ -91,7 +91,6 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   const [selectedAnnouncementIds, setSelectedAnnouncementIds] = useState<Set<string>>(new Set())
   const [selectedPaymentIds, setSelectedPaymentIds] = useState<Set<string>>(new Set())
   const [announcementAllMatching, setAnnouncementAllMatching] = useState(false)
-  const [paymentAllMatching, setPaymentAllMatching] = useState(false)
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
   const [paymentPending, setPaymentPending] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
@@ -126,7 +125,9 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   const scheduleEmailBroadcast = useMutation(
     api.emailBroadcasts.scheduleEmailBroadcast
   )
-  const schedulePaymentReminder = useMutation(api.paymentReminders.schedulePaymentReminder)
+  const scheduleManualPaymentReminders = useMutation(
+    api.paymentReminders.scheduleManualPaymentReminders
+  )
 
   // --- Reset progressive reveal when the search changes ---------------------
   useEffect(() => {
@@ -134,7 +135,6 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
     setSelectedAnnouncementIds(new Set())
     setSelectedPaymentIds(new Set())
     setAnnouncementAllMatching(false)
-    setPaymentAllMatching(false)
   }, [audienceSearch])
 
   // --- Clear the selected broadcast when the event changes ------------------
@@ -143,7 +143,6 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
     setSelectedAnnouncementIds(new Set())
     setSelectedPaymentIds(new Set())
     setAnnouncementAllMatching(false)
-    setPaymentAllMatching(false)
   }, [event._id])
 
   // --- Select a sensible initial broadcast without polling ------------------
@@ -194,9 +193,9 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
   const trimmedSearch = audienceSearch.trim()
   const audienceTotal = preview?.total ?? 0
   const announcementSelectedCount = announcementAllMatching ? audienceTotal : selectedAnnouncementIds.size
-  const paymentSelectedCount = paymentAllMatching ? audienceTotal : selectedPaymentIds.size
+  const paymentSelectedCount = selectedPaymentIds.size
   const canSend = announcementSelectedCount > 0 && announcementSelectedCount <= 2000 && !sendPending
-  const selectionFor = (ids: Set<string>, allMatching: boolean) => allMatching
+  const announcementSelectionFor = (ids: Set<string>, allMatching: boolean) => allMatching
     ? { mode: "allMatching" as const, search: trimmedSearch || undefined }
     : { mode: "explicit" as const, orderIds: Array.from(ids) as Id<"orders">[] }
 
@@ -207,7 +206,7 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
     try {
       const result = await scheduleEmailBroadcast({
         eventId: event._id,
-        selection: selectionFor(selectedAnnouncementIds, announcementAllMatching),
+        selection: announcementSelectionFor(selectedAnnouncementIds, announcementAllMatching),
         authorize: true,
       })
       setSelectedBroadcastId(String(result.broadcastId))
@@ -256,10 +255,10 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
           onSendRequest={() => setSendDialogOpen(true)}
         />
 
-         <PaymentReminderCard eventId={event._id} eventTitle={event.title} eventDate={event.startsAt} audienceTotal={audienceTotal} selectedCount={paymentSelectedCount} allMatching={paymentAllMatching}
-          canSend={paymentSelectedCount > 0 && paymentSelectedCount <= 2000 && !paymentPending}
-          onSelectAll={() => setPaymentAllMatching(true)} onClear={() => { setPaymentAllMatching(false); setSelectedPaymentIds(new Set()) }}
-          onSendRequest={() => setPaymentDialogOpen(true)} />
+         <PaymentReminderCard eventId={event._id} eventTitle={event.title} eventDate={event.startsAt} audienceTotal={audienceTotal} selectedCount={paymentSelectedCount}
+           canSend={paymentSelectedCount > 0 && paymentSelectedCount <= 2000 && !paymentPending}
+           onClear={() => setSelectedPaymentIds(new Set())}
+           onSendRequest={() => setPaymentDialogOpen(true)} />
 
         <AudienceCard
           preview={preview}
@@ -269,9 +268,8 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
           selectedAnnouncementIds={selectedAnnouncementIds}
           selectedPaymentIds={selectedPaymentIds}
           announcementAllMatching={announcementAllMatching}
-          paymentAllMatching={paymentAllMatching}
-          onToggle={(id, path) => {
-            if (path === "announcement" && announcementAllMatching || path === "payment" && paymentAllMatching) return
+           onToggle={(id, path) => {
+             if (path === "announcement" && announcementAllMatching) return
             const setter = path === "announcement" ? setSelectedAnnouncementIds : setSelectedPaymentIds
             setter((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next })
           }}
@@ -333,11 +331,11 @@ export function CommunicationsWorkspace({ slug }: { slug: string }) {
       <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Send payment reminders?</DialogTitle><DialogDescription>
-            Queue reminders for exactly {paymentSelectedCount} selected booker{paymentSelectedCount === 1 ? "" : "s"}{paymentAllMatching ? " (all server matches)" : ""}. Balances are rechecked before queueing; ineligible orders are not sent.
+             Queue reminders for exactly {paymentSelectedCount} selected booker{paymentSelectedCount === 1 ? "" : "s"}. Balances, lifecycle, and recipient data are rechecked before queueing; ineligible orders are not sent.
           </DialogDescription></DialogHeader>
           {paymentError && <p className="rounded-lg border border-destructive/30 p-3 text-xs text-destructive">{paymentError}</p>}
           <DialogFooter><DialogClose asChild><Button variant="outline" disabled={paymentPending}>Cancel</Button></DialogClose>
-            <Button disabled={paymentPending} onClick={async () => { setPaymentPending(true); setPaymentError(null); try { const result = await schedulePaymentReminder({ eventId: event._id, selection: selectionFor(selectedPaymentIds, paymentAllMatching), authorize: true }); setSelectedBroadcastId(String(result.broadcastId)); setPaymentDialogOpen(false) } catch (error) { setPaymentError(error instanceof Error ? error.message : "Could not schedule payment reminders.") } finally { setPaymentPending(false) } }}>{paymentPending ? "Queuing…" : "Confirm send"}</Button>
+             <Button disabled={paymentPending} onClick={async () => { setPaymentPending(true); setPaymentError(null); try { await scheduleManualPaymentReminders({ eventId: event._id, selection: { mode: "explicit", orderIds: Array.from(selectedPaymentIds) as Id<"orders">[] }, authorize: true }); setSelectedPaymentIds(new Set()); setPaymentDialogOpen(false) } catch (error) { setPaymentError(error instanceof Error ? error.message : "Could not schedule payment reminders.") } finally { setPaymentPending(false) } }}>{paymentPending ? "Queuing…" : "Confirm send"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -457,21 +455,6 @@ function StandardAnnouncementCard(props: {
   )
 }
 
-function LegacyPaymentReminderCard(props: {
-  audienceTotal: number
-  selectedCount: number
-  allMatching: boolean
-  canSend: boolean
-  onSelectAll: () => void
-  onClear: () => void
-  onSendRequest: () => void
-}) {
-  return <Card><CardHeader><CardTitle className="flex items-center gap-2"><CreditCard className="size-4 text-primary" />Payment reminders</CardTitle></CardHeader>
-    <CardContent className="flex flex-wrap items-center justify-between gap-3"><p className="max-w-xl text-sm text-muted-foreground">Remind selected bookers about their server-calculated outstanding balance. Fully paid and ineligible orders are rejected when queued.</p>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground"><span>{props.selectedCount} selected{props.allMatching ? " (all matches)" : ""}</span><Button type="button" variant="outline" size="sm" onClick={props.onSelectAll}>Select all matches</Button><Button type="button" variant="ghost" size="sm" onClick={props.onClear}><X className="size-3" /> Clear</Button><Button type="button" onClick={props.onSendRequest} disabled={!props.canSend}><Send className="size-4" /> Send reminders</Button></div>
-    </CardContent></Card>
-}
-
 function AudienceCard(props: {
   preview:
     | {
@@ -506,7 +489,6 @@ function AudienceCard(props: {
   selectedAnnouncementIds: Set<string>
   selectedPaymentIds: Set<string>
   announcementAllMatching: boolean
-  paymentAllMatching: boolean
   onToggle: (id: string, path: "announcement" | "payment") => void
 }) {
   return (
@@ -537,7 +519,7 @@ function AudienceCard(props: {
           </div>
         ) : (
           <>
-            <div className="flex min-w-0 flex-wrap items-center gap-3">
+           <div className="flex min-w-0 flex-wrap items-center gap-3">
               <Badge variant="secondary" className="text-sm">
                 {props.preview.total} booker{props.preview.total === 1 ? "" : "s"}
               </Badge>
@@ -573,7 +555,7 @@ function AudienceCard(props: {
                   <TableBody>
                     {props.visibleRecipients.map((recipient) => (
                       <TableRow key={recipient.orderId}>
-                        <TableCell><div className="flex gap-1"><input aria-label={`Select announcement ${recipient.bookerEmail}`} type="checkbox" checked={props.announcementAllMatching || props.selectedAnnouncementIds.has(recipient.orderId)} onChange={() => props.onToggle(recipient.orderId, "announcement")} /><input aria-label={`Select payment reminder ${recipient.bookerEmail}`} type="checkbox" checked={props.paymentAllMatching || props.selectedPaymentIds.has(recipient.orderId)} onChange={() => props.onToggle(recipient.orderId, "payment")} /></div></TableCell>
+                        <TableCell><div className="flex gap-1"><input aria-label={`Select announcement ${recipient.bookerEmail}`} type="checkbox" checked={props.announcementAllMatching || props.selectedAnnouncementIds.has(recipient.orderId)} onChange={() => props.onToggle(recipient.orderId, "announcement")} /><input aria-label={`Select payment reminder ${recipient.bookerEmail}`} type="checkbox" checked={props.selectedPaymentIds.has(recipient.orderId)} onChange={() => props.onToggle(recipient.orderId, "payment")} /></div></TableCell>
                         <TableCell className="font-medium">
                           {recipient.bookerName ?? "—"}
                         </TableCell>

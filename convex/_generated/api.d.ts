@@ -1138,6 +1138,12 @@ export declare const api: {
     >;
   };
   paymentReminders: {
+    getReminderDeliveryHistory: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events">; limit?: number },
+      any
+    >;
     getReminderHistory: FunctionReference<
       "query",
       "public",

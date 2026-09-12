@@ -10,6 +10,7 @@ function readSource(relativePath: string): string {
 
 const WORKSPACE = "components/dashboard/communications/communications-workspace.tsx"
 const PANEL = "components/dashboard/communications/broadcasts-panel.tsx"
+const REMINDER_CARD = "components/dashboard/communications/payment-reminder-card.tsx"
 const COPY = "lib/email/announcement-copy.ts"
 
 describe("Communications workspace structure", () => {
@@ -94,7 +95,7 @@ describe("standard announcement send flow", () => {
   it("schedules an explicit order selection or all-matching server scope", () => {
     const source = readSource(WORKSPACE)
     expect(source).toContain("api.emailBroadcasts.scheduleEmailBroadcast")
-    expect(source).toContain("selection: selectionFor(selectedAnnouncementIds, announcementAllMatching)")
+    expect(source).toContain("selection: announcementSelectionFor(selectedAnnouncementIds, announcementAllMatching)")
     expect(source).toContain("authorize: true")
     expect(source).toContain("setSelectedBroadcastId(String(result.broadcastId))")
   })
@@ -103,15 +104,15 @@ describe("standard announcement send flow", () => {
     const source = readSource(WORKSPACE)
     expect(source).toContain("PaymentReminderCard")
     expect(source).toContain("selectedPaymentIds")
-    expect(source).toContain("api.paymentReminders.schedulePaymentReminder")
-    expect(source).toContain("selectionFor(selectedPaymentIds, paymentAllMatching)")
+    expect(source).toContain("api.paymentReminders.scheduleManualPaymentReminders")
+    expect(source).toContain('selection: { mode: "explicit", orderIds: Array.from(selectedPaymentIds)')
     expect(source).toContain("paymentSelectedCount")
-    expect(source).toContain("Select all matches")
     expect(source).toContain("setSelectedPaymentIds(new Set())")
     expect(source).toContain("type=\"checkbox\"")
     expect(source).toContain("selectedAnnouncementIds")
     expect(source).toContain("announcementAllMatching")
-    expect(source).toContain("paymentAllMatching")
+    expect(source).not.toContain("paymentAllMatching")
+    expect(source).not.toContain("selectionFor(selectedPaymentIds")
   })
 
   it("never sends when the audience is empty", () => {
@@ -125,6 +126,25 @@ describe("standard announcement send flow", () => {
     const source = readSource(WORKSPACE)
     expect(source).toContain("sendPending")
     expect(source).toContain("disabled={sendPending}")
+  })
+})
+
+describe("payment reminder card", () => {
+  it("renders all fixed previews and authenticated per-delivery history", () => {
+    const source = readSource(REMINDER_CARD)
+    expect(source).toContain("paymentReminderKinds")
+    expect(source).toContain("PREVIEW_DATA")
+    expect(source).toContain("api.paymentReminders.getReminderDeliveryHistory")
+    for (const status of ["queued", "sent", "failed", "skipped"]) {
+      expect(source).toContain(status)
+    }
+    expect(source).toContain("STATUS_LABELS[delivery.status]")
+  })
+
+  it("does not expose an unsupported all-matching reminder action", () => {
+    const source = readSource(REMINDER_CARD)
+    expect(source).not.toContain("allMatching")
+    expect(source).not.toContain("Select all matches")
   })
 })
 
