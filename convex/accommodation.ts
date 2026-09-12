@@ -57,16 +57,22 @@ async function assertEventAssignmentScope(
     eventIdValue,
     "Event not found"
   )
+  const event = await ctx.db.get("events", eventId)
+  if (!event) {
+    throw new Error("Event not found")
+  }
   const order = await ctx.db.get("orders", attendee.orderId)
   if (!order || String(order.eventId) !== String(eventId)) {
     throw new Error("Attendee does not belong to this event")
   }
 
-  const eventHotelLinks = await ctx.db
+  const eventHotelLink = await ctx.db
     .query("accommodationEventHotels")
-    .withIndex("hotelId", (q) => q.eq("hotelId", room.hotelId as string))
-    .take(20)
-  if (!eventHotelLinks.some((link) => String(link.eventId) === String(eventId))) {
+    .withIndex("eventId_hotelId", (q) =>
+      q.eq("eventId", eventId).eq("hotelId", room.hotelId as string)
+    )
+    .first()
+  if (!eventHotelLink) {
     throw new Error("Room hotel is not enabled for this event")
   }
 
@@ -2101,14 +2107,42 @@ export const unlinkHotelFromEvent = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    const eventId = normalizeDocId(
+      ctx,
+      "events",
+      args.eventId,
+      "Event not found"
+    )
     const link = await ctx.db
       .query("accommodationEventHotels")
       .withIndex("eventId_hotelId", (q) =>
-        q.eq("eventId", args.eventId).eq("hotelId", args.hotelId)
+        q.eq("eventId", eventId).eq("hotelId", args.hotelId)
       )
       .first()
 
     if (link) {
+      const rooms = await ctx.db
+        .query("accommodationRooms")
+        .withIndex("hotelId_label", (q) =>
+          q.eq("hotelId", args.hotelId as string)
+        )
+        .take(100)
+
+      for (const room of rooms) {
+        const assignedAttendees = await ctx.db
+          .query("orderAttendees")
+          .withIndex("by_assignedRoomId", (q) =>
+            q.eq("assignedRoomId", String(room._id))
+          )
+          .take(1)
+
+        if (assignedAttendees.length > 0) {
+          throw new Error(
+            "Cannot unlink a hotel while attendees are assigned to its rooms"
+          )
+        }
+      }
+
       await ctx.db.delete("accommodationEventHotels", link._id)
     }
 
