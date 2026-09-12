@@ -17,6 +17,36 @@ export type AllocationCompatibility = {
   recommendedRoomId?: string
 }
 
+export type FamilyRole = "solo" | "parent" | "child"
+export type FamilyState =
+  | "unresolved"
+  | "placed"
+  | "waiting-for-parent-room"
+  | "inconsistent"
+  | "needs-family-link"
+  | "Needs family link"
+  | "Waiting for parent room"
+
+export type FamilyChild = {
+  attendeeId: string
+  attendeeName: string | null
+  attendeeEmail?: string | null
+  requiresBed: false
+  familyRole: "child"
+  familyState: FamilyState
+}
+
+export type FamilyFollowUp = {
+  attendeeId: string
+  attendeeName: string | null
+  familyGroupId: string | null
+  familyLabel: string | null
+  familyParentAttendeeId: string | null
+  familyParentName: string | null
+  state: "Needs family link" | "Waiting for parent room" | "inconsistent"
+  message: string
+}
+
 export type SubmissionQueueRow = {
   attendeeId: string
   attendeeName: string
@@ -132,6 +162,14 @@ export type RoomAllocationBoard = {
       requiresBed?: boolean
       /** RMG-04: server-computed; true only when the night-before choice cannot be satisfied by the assigned room. Fail-safe false. */
       nightBeforeMismatch?: boolean
+      familyRole?: FamilyRole
+      familyGroupId?: string | null
+      familyLabel?: string | null
+      familyParentAttendeeId?: string | null
+      familyState?: FamilyState
+      eligibleChildren?: FamilyChild[]
+      eligibleChildCount?: number
+      separateMemberCount?: number
     }>
     pendingAssignments: Array<{
       assignmentId: string
@@ -140,6 +178,14 @@ export type RoomAllocationBoard = {
       attendeeEmail: string | null
       assignmentIntent: "assign" | "skip"
       sortOrder: number
+      familyRole?: FamilyRole
+      familyGroupId?: string | null
+      familyLabel?: string | null
+      familyParentAttendeeId?: string | null
+      familyState?: FamilyState
+      eligibleChildren?: FamilyChild[]
+      eligibleChildCount?: number
+      separateMemberCount?: number
     }>
     /** RMG-02: server-computed; true when a pending buyer group requested on this room spans Standard and Superior. */
     mixedCategoryGroup?: boolean
@@ -159,7 +205,13 @@ export type RoomAllocationBoard = {
     paidAmountMinor: number | null
     /** RMG-02: server-computed; true on every member of a pending group that spans Standard and Superior. */
     mixedCategory?: boolean
+    familyRole?: FamilyRole
+    familyGroupId?: string | null
+    familyParentAttendeeId?: string | null
+    eligibleChildIds?: string[]
+    eligibleChildCount?: number
   }>
+  familyFollowUps?: FamilyFollowUp[]
   unassignedAttendees: Array<{
     attendeeId: string
     attendeeName: string | null
@@ -192,6 +244,18 @@ export type RoomAllocationBoard = {
     amountDueMinor: number | null
     paidAmountMinor: number | null
     compatibility?: AllocationCompatibility
+    familyRole?: FamilyRole
+    familyGroupId?: string | null
+    familyLabel?: string | null
+    familyParentAttendeeId?: string | null
+    familyState?: FamilyState
+    eligibleChildren?: FamilyChild[]
+    eligibleChildCount?: number
+    separateMemberCount?: number
+    separateMembers?: Array<{
+      attendeeId: string
+      attendeeName: string | null
+    }>
   }>
   submissionQueueRows: SubmissionQueueRow[]
   summary: {
@@ -221,6 +285,11 @@ export type AllocationProposal = {
     reason: string
     priority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
     paymentState: BoardPaymentState
+    familyRole: FamilyRole
+    familyGroupId: string | null
+    familyParentAttendeeId: string | null
+    eligibleChildIds: string[]
+    eligibleChildCount: number
   }>
   unplacedAttendees: Array<{
     attendeeId: string
@@ -459,6 +528,13 @@ function getFamilyCohesionRank(
     return 3
   }
 
+  if (
+    attendee.familyRole === "parent" &&
+    (attendee.eligibleChildCount ?? attendee.eligibleChildren?.length ?? 0) > 0
+  ) {
+    return 3
+  }
+
   if (attendee.hasFamily && roomState.projectedOccupantCount === 0) {
     return 2
   }
@@ -614,6 +690,13 @@ export async function generateAllocationProposal(input: {
   const suggestions: AllocationProposal["suggestions"] = []
   const unplacedAttendees: AllocationProposal["unplacedAttendees"] = []
 
+  // The server already suppresses eligible family children from this queue.
+  // Keep the guard here as a second, additive boundary so a stale or mocked
+  // payload can never turn a child into an independent proposal candidate.
+  const placementUnits = board.unassignedAttendees.filter(
+    (attendee) => (attendee.familyRole ?? "solo") !== "child"
+  )
+
   const buyerSuggestionsByAttendeeId = new Map<string, BuyerSuggestion>()
   for (const suggestion of board.buyerSuggestions ?? []) {
     if (suggestion.assignmentIntent !== "assign") continue
@@ -644,19 +727,7 @@ export async function generateAllocationProposal(input: {
       ),
     }))
 
-  const attendeeCountByOrderId = new Map<string, number>()
-  for (const attendee of board.unassignedAttendees) {
-    const attendeeOrderKey = canonicalOrderKey(
-      attendee.orderId,
-      attendee.attendeeId
-    )
-    attendeeCountByOrderId.set(
-      attendeeOrderKey,
-      (attendeeCountByOrderId.get(attendeeOrderKey) ?? 0) + 1
-    )
-  }
-
-  const sortedAttendees = [...board.unassignedAttendees].sort((a, b) => {
+  const sortedAttendees = [...placementUnits].sort((a, b) => {
     const aPaymentRank = paymentStateRank(a.paymentState)
     const bPaymentRank = paymentStateRank(b.paymentState)
     if (aPaymentRank !== bPaymentRank) return aPaymentRank - bPaymentRank
@@ -667,8 +738,10 @@ export async function generateAllocationProposal(input: {
 
     const aOrderKey = canonicalOrderKey(a.orderId, a.attendeeId)
     const bOrderKey = canonicalOrderKey(b.orderId, b.attendeeId)
-    const aGroupSize = attendeeCountByOrderId.get(aOrderKey) ?? 0
-    const bGroupSize = attendeeCountByOrderId.get(bOrderKey) ?? 0
+    const aGroupSize =
+      (a.familyRole === "parent" ? (a.eligibleChildCount ?? 0) : 0) + 1
+    const bGroupSize =
+      (b.familyRole === "parent" ? (b.eligibleChildCount ?? 0) : 0) + 1
     if (aGroupSize !== bGroupSize) {
       return bGroupSize - aGroupSize
     }
@@ -759,7 +832,9 @@ export async function generateAllocationProposal(input: {
       if (attendeeRequiresBed) {
         bestRoom.remainingBeds -= 1
       }
-      bestRoom.projectedOccupantCount += 1
+      const eligibleChildren =
+        attendee.familyRole === "parent" ? attendee.eligibleChildren ?? [] : []
+      bestRoom.projectedOccupantCount += 1 + eligibleChildren.length
       bestRoom.projectedGenders.add(attendeeGender)
       bestRoom.projectedOrderIds.add(attendeeOrderKey)
       for (const signature of buildPersonSignatures(
@@ -767,6 +842,14 @@ export async function generateAllocationProposal(input: {
         attendee.attendeeEmail
       )) {
         bestRoom.projectedOccupantSignatures.add(signature)
+      }
+      for (const child of eligibleChildren) {
+        for (const signature of buildPersonSignatures(
+          child.attendeeName,
+          child.attendeeEmail
+        )) {
+          bestRoom.projectedOccupantSignatures.add(signature)
+        }
       }
 
       suggestions.push({
@@ -785,6 +868,11 @@ export async function generateAllocationProposal(input: {
         }),
         priority,
         paymentState: attendee.paymentState ?? null,
+        familyRole: attendee.familyRole ?? "solo",
+        familyGroupId: attendee.familyGroupId ?? null,
+        familyParentAttendeeId: attendee.familyParentAttendeeId ?? null,
+        eligibleChildIds: eligibleChildren.map((child) => child.attendeeId),
+        eligibleChildCount: eligibleChildren.length,
       })
       return
     }
@@ -817,45 +905,11 @@ export async function generateAllocationProposal(input: {
     placeAttendee(attendee, null)
   }
 
-  const suggestionsByAttendeeId = new Map(
-    suggestions.map((suggestion) => [suggestion.attendeeId, suggestion])
-  )
-  const familyGroups = new Map<string, string[]>()
-
-  for (const attendee of sortedAttendees) {
-    if (!attendee.hasFamily) continue
-    const attendeeOrderKey = canonicalOrderKey(
-      attendee.orderId,
-      attendee.attendeeId
-    )
-    const existing = familyGroups.get(attendeeOrderKey) ?? []
-    existing.push(attendee.attendeeId)
-    familyGroups.set(attendeeOrderKey, existing)
-  }
-
-  const familyGroupsKeptTogether = [...familyGroups.values()].reduce(
-    (sum, attendeeIds) => {
-      if (attendeeIds.length < 2) {
-        return sum
-      }
-
-      const placements = attendeeIds
-        .map((attendeeId) => suggestionsByAttendeeId.get(attendeeId))
-        .filter((placement): placement is NonNullable<typeof placement> =>
-          Boolean(placement)
-        )
-
-      if (placements.length !== attendeeIds.length) {
-        return sum
-      }
-
-      const distinctRoomIds = new Set(
-        placements.map((placement) => placement.roomId)
-      )
-      return distinctRoomIds.size === 1 ? sum + 1 : sum
-    },
-    0
-  )
+  const familyGroupsKeptTogether = suggestions.filter(
+    (suggestion) =>
+      suggestion.familyRole === "parent" &&
+      (suggestion.eligibleChildCount ?? 0) > 0
+  ).length
 
   return {
     generatedAt: new Date().toISOString(),
@@ -877,6 +931,10 @@ export type ConfirmBuyerAssignmentResult =
       attendeeId: string
       slotId: string
       roomId: string
+      parentAttendeeId: string
+      eligibleChildIds: string[]
+      eligibleChildCount: number
+      affectedAttendeeCount: number
     }
   | {
       success: false

@@ -70,12 +70,35 @@ function paymentFields(
   }
 }
 
+type BoardAttendee = RoomAllocationBoard["unassignedAttendees"][number]
+
+function boardAttendee(overrides: Partial<BoardAttendee> = {}): BoardAttendee {
+  return {
+    attendeeId: "attendee-default",
+    attendeeName: "Default Attendee",
+    attendeeEmail: null,
+    orderId: "order-default",
+    providerOrderId: "order-default",
+    providerEventId: "event-1",
+    eventName: "Camp",
+    ticketTypeLabel: null,
+    allocatedRoomTypeId: null,
+    genderType: "UNKNOWN",
+    allocationPriority: "NORMAL",
+    location: null,
+    remarks: null,
+    hasFamily: false,
+    ...paymentFields(),
+    ...overrides,
+  }
+}
+
 describe("allocation proposal compatibility strategy", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it("keeps family/order attendees together when feasible and counts cohesive groups", async () => {
+  it("keeps a parent-led family unit together and counts one cohesive outcome", async () => {
     vi.mocked(convexQuery).mockResolvedValueOnce(
       buildBoard({
         rooms: [
@@ -120,26 +143,26 @@ describe("allocation proposal compatibility strategy", () => {
             genderType: "FEMALE",
             allocationPriority: "HIGH",
             location: null,
-            remarks: null,
-            hasFamily: true,
-            ...paymentFields(),
-          },
-          {
-            attendeeId: "attendee-2",
-            attendeeName: "Younger Sibling",
-            attendeeEmail: null,
-            orderId: "order-family",
-            providerOrderId: "order-family",
-            providerEventId: "event-1",
-            eventName: "Camp",
-            ticketTypeLabel: null,
-            allocatedRoomTypeId: null,
-            genderType: "FEMALE",
-            allocationPriority: "HIGH",
-            location: null,
-            remarks: null,
-            hasFamily: true,
-            ...paymentFields(),
+             remarks: null,
+             hasFamily: true,
+            familyRole: "parent",
+            familyGroupId: "family-1",
+            familyLabel: "Siblings",
+            familyParentAttendeeId: "attendee-1",
+            familyState: "unresolved",
+            eligibleChildren: [
+              {
+                attendeeId: "attendee-2",
+                attendeeName: "Younger Sibling",
+                attendeeEmail: null,
+                requiresBed: false,
+                familyRole: "child",
+                familyState: "unresolved",
+              },
+            ],
+            eligibleChildCount: 1,
+            separateMemberCount: 0,
+             ...paymentFields(),
           },
         ],
       })
@@ -147,12 +170,89 @@ describe("allocation proposal compatibility strategy", () => {
 
     const proposal = await generateAllocationProposal({ eventId: "event-1" })
 
-    expect(proposal.suggestions).toHaveLength(2)
+    expect(proposal.suggestions).toHaveLength(1)
     expect(proposal.suggestions[0]?.roomId).toBe("room-1")
-    expect(proposal.suggestions[1]?.roomId).toBe("room-1")
+    expect(proposal.suggestions[0]?.familyRole).toBe("parent")
+    expect(proposal.suggestions[0]?.eligibleChildIds).toEqual(["attendee-2"])
+    expect(proposal.suggestions[0]?.eligibleChildCount).toBe(1)
     expect(proposal.summary.familyGroupsKeptTogether).toBe(1)
-    expect(proposal.suggestions[1]?.reason.toLowerCase()).toContain("family")
+    expect(proposal.suggestions[0]?.reason.toLowerCase()).toContain("family")
     expect(proposal.suggestions[0]?.reason).not.toContain("Available room with")
+  })
+
+  it("suppresses child rows and lets a no-bed child follow a parent into a bed-full outcome", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-1",
+            label: "A-101",
+            capacity: 1,
+            occupiedBeds: 0,
+            availableBeds: 1,
+            availability: "available",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Single", defaultCapacity: 1 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+        ],
+        unassignedAttendees: [
+          boardAttendee({
+            attendeeId: "parent",
+            attendeeName: "Parent",
+            orderId: "parent-order",
+            hasFamily: true,
+            requiresBed: true,
+            familyRole: "parent",
+            familyGroupId: "family-1",
+            familyLabel: "Family One",
+            familyParentAttendeeId: "parent",
+            familyState: "unresolved",
+            eligibleChildren: [
+              {
+                attendeeId: "child",
+                attendeeName: "Child",
+                attendeeEmail: null,
+                requiresBed: false,
+                familyRole: "child",
+                familyState: "unresolved",
+              },
+            ],
+            eligibleChildCount: 1,
+          }),
+          boardAttendee({
+            attendeeId: "child",
+            attendeeName: "Child",
+            orderId: "child-order",
+            hasFamily: true,
+            requiresBed: false,
+            familyRole: "child",
+            familyGroupId: "family-1",
+            familyParentAttendeeId: "parent",
+            familyState: "waiting-for-parent-room",
+          }),
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    expect(proposal.suggestions).toHaveLength(1)
+    expect(proposal.suggestions[0]).toMatchObject({
+      attendeeId: "parent",
+      familyRole: "parent",
+      eligibleChildIds: ["child"],
+      eligibleChildCount: 1,
+    })
+    expect(proposal.suggestions.map((suggestion) => suggestion.attendeeId)).not.toContain(
+      "child"
+    )
+    expect(proposal.unplacedAttendees.map((attendee) => attendee.attendeeId)).not.toContain(
+      "child"
+    )
+    expect(proposal.summary.familyGroupsKeptTogether).toBe(1)
   })
 
   it("rejects clearly incompatible gender mixing when no alternate room exists", async () => {
