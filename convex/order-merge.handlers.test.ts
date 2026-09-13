@@ -1014,10 +1014,19 @@ test("mergeOrders preserves canonical ownership when attendee keys collide", asy
   expect(state.source?.mergedIntoOrderId).toBe(seed.targetOrderId)
   expect(state.sourceAttendee).toMatchObject({
     orderId: seed.targetOrderId,
-    attendeeKey: "merge-a1",
+    attendeeKey: `attendee-${String(seed.attendeeId1)}`,
   })
   expect(state.duplicateAttendee?.orderId).toBe(seed.targetOrderId)
   expect(state.duplicateAttendee?.attendeeKey).toBe("merge-a1")
+  expect(state.sourceAttendee?.attendeeKey).not.toBe(
+    state.duplicateAttendee?.attendeeKey
+  )
+  const tracking = await t.query(api.publicTracking.getTrackPaymentEditContext, {
+    bookingRef: "BK-SRC-ALPHA",
+  })
+  expect(tracking?.selections[0]?.attendeeKey).toBe(
+    `attendee-${String(seed.attendeeId1)}`
+  )
   expect(state.ticketSelection).toMatchObject({
     orderId: seed.targetOrderId,
     attendeeId: seed.attendeeId1,

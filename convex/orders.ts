@@ -1734,6 +1734,13 @@ export const mergeOrders = mutation({
       throw new Error("Target order has been removed")
     }
 
+    const targetAttendees: Doc<"orderAttendees">[] = []
+    for await (const row of ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.targetOrderId))) {
+      targetAttendees.push(row)
+    }
+
     const eventOrders = target.eventId
       ? await ctx.db
           .query("orders")
@@ -2210,16 +2217,54 @@ export const mergeOrders = mutation({
       }
     }
 
+    // Attendee keys are client-facing identity keys within an order, not the
+    // canonical ownership key. Preserve non-conflicting keys, but re-key any
+    // duplicates after combining orders so public accommodation edits cannot
+    // resolve one key to multiple attendees.
+    const attendeeKeyUpdates = new Map<string, string>()
+    const usedAttendeeKeys = new Set<string>()
+    const mergedAttendees = [
+      ...targetAttendees,
+      ...sources.flatMap((source) => source.attendees),
+    ]
+    for (const attendee of mergedAttendees) {
+      const preferredKey = attendee.attendeeKey.trim()
+      let nextKey = preferredKey
+      if (!nextKey || usedAttendeeKeys.has(nextKey)) {
+        const baseKey = `attendee-${String(attendee._id)}`
+        nextKey = baseKey
+        let suffix = 1
+        while (usedAttendeeKeys.has(nextKey)) {
+          nextKey = `${baseKey}-${suffix}`
+          suffix += 1
+        }
+      }
+      usedAttendeeKeys.add(nextKey)
+      if (nextKey !== attendee.attendeeKey) {
+        attendeeKeyUpdates.set(String(attendee._id), nextKey)
+      }
+    }
+
     // ── Execute writes ─────────────────────────────────────────────────
     let movedAttendees = 0
     let movedPayments = 0
     let aliasCount = 0
+
+    for (const attendee of targetAttendees) {
+      const attendeeKey = attendeeKeyUpdates.get(String(attendee._id))
+      if (attendeeKey) {
+        await ctx.db.patch("orderAttendees", attendee._id, { attendeeKey })
+      }
+    }
 
     for (const source of sources) {
       // Re-link every canonical child ownership row
       for (const row of source.attendees) {
         await ctx.db.patch("orderAttendees", row._id, {
           orderId: args.targetOrderId,
+          ...(attendeeKeyUpdates.has(String(row._id))
+            ? { attendeeKey: attendeeKeyUpdates.get(String(row._id)) }
+            : {}),
         })
         movedAttendees++
       }
