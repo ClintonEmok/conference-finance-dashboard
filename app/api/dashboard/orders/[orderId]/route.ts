@@ -180,10 +180,14 @@ export async function PATCH(
     }
 
     const input = body as Record<string, unknown>
+
+    if ("bookingRef" in input) {
+      return badRequest("Booking reference is immutable and cannot be changed.")
+    }
+
     const allowedKeys = new Set([
       "bookerName",
       "bookerEmail",
-      "bookingRef",
       "normalizedStatus",
       "totalAmountMinor",
       "orderedAt",
@@ -192,7 +196,7 @@ export async function PATCH(
     for (const key of Object.keys(input)) {
       if (!allowedKeys.has(key)) {
         return badRequest(
-          `Unexpected field '${key}'. Allowed fields: bookerName, bookerEmail, bookingRef, normalizedStatus, totalAmountMinor, orderedAt.`
+          `Unexpected field '${key}'. Allowed fields: bookerName, bookerEmail, normalizedStatus, totalAmountMinor, orderedAt.`
         )
       }
     }
@@ -200,7 +204,6 @@ export async function PATCH(
     const updateData: {
       bookerName?: string | null
       bookerEmail?: string | null
-      bookingRef?: string | null
       normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending"
       totalAmountMinor?: number | null
       orderedAt?: number | null
@@ -217,10 +220,6 @@ export async function PATCH(
       )
     }
 
-    if ("bookingRef" in input) {
-      updateData.bookingRef = parseOptionalString(input.bookingRef, "bookingRef")
-    }
-
     if ("normalizedStatus" in input) {
       updateData.normalizedStatus = parseNormalizedStatus(input.normalizedStatus)
     }
@@ -235,7 +234,7 @@ export async function PATCH(
 
     if (Object.keys(updateData).length === 0) {
       return badRequest(
-        "No valid fields to update. Allowed fields: bookerName, bookerEmail, bookingRef, normalizedStatus, totalAmountMinor, orderedAt"
+        "No valid fields to update. Allowed fields: bookerName, bookerEmail, normalizedStatus, totalAmountMinor, orderedAt"
       )
     }
 

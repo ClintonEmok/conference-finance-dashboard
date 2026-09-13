@@ -404,7 +404,6 @@ export const updateOrderDetails = mutation({
     orderId: v.id("orders"),
     bookerName: v.optional(nullableStringValidator),
     bookerEmail: v.optional(nullableStringValidator),
-    bookingRef: v.optional(nullableStringValidator),
     normalizedStatus: v.optional(canonicalOrderStatusValidator),
     totalAmountMinor: v.optional(v.union(v.number(), v.null())),
     orderedAt: v.optional(v.union(v.number(), v.null())),
@@ -426,7 +425,6 @@ export const updateOrderDetails = mutation({
     const orderPatch: {
       bookerName?: string
       bookerEmail?: string
-      bookingRef?: string
       status?: "paid" | "refunded" | "cancelled" | "pending"
       totalAmountMinor?: number
       orderedAt?: number
@@ -438,10 +436,6 @@ export const updateOrderDetails = mutation({
 
     if (args.bookerEmail !== undefined) {
       orderPatch.bookerEmail = normalizeNullableTextInput(args.bookerEmail)
-    }
-
-    if (args.bookingRef !== undefined) {
-      orderPatch.bookingRef = normalizeNullableTextInput(args.bookingRef)
     }
 
     if (args.totalAmountMinor !== undefined) {
