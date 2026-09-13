@@ -189,4 +189,24 @@ describe("/api/dashboard/attendees/[attendeeId] route", () => {
       location: "Amsterdam",
     })
   })
+
+  it("forwards a trimmed attendee name to the canonical mutation", async () => {
+    vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
+    vi.mocked(convexMutation).mockResolvedValue({ id: "attendee_1" })
+
+    const response = await PATCH(
+      new Request("http://localhost/api/dashboard/attendees/attendee_1", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: " Ada Lovelace " }),
+      }),
+      { params: Promise.resolve({ attendeeId: "attendee_1" }) }
+    )
+
+    expect(response.status).toBe(200)
+    expect(vi.mocked(convexMutation).mock.calls[0]?.[1]).toMatchObject({
+      attendeeId: "attendee_1",
+      name: "Ada Lovelace",
+    })
+  })
 })

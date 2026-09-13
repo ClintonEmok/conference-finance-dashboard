@@ -2,8 +2,8 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react"
-import { useQuery } from "convex/react"
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
+import { useConvexAuth, useQuery } from "convex/react"
 import {
   Archive,
   ChevronLeft,
@@ -27,6 +27,7 @@ import type { Id } from "@/convex/_generated/dataModel"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 
 type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
+const SEARCH_DEBOUNCE_MS = 300
 
 type OrdersPayload = {
   generatedAt: string
@@ -39,11 +40,13 @@ type OrdersPayload = {
     page: number
     pageSize: number
   }
-  page: {
+    page: {
     number: number
     size: number
-    totalRows: number
-    totalPages: number
+    totalRows: number | null
+    totalPages: number | null
+    hasNextPage: boolean
+    nextCursor: string | null
   }
   totals: {
     amountDueMinor: number
@@ -157,9 +160,12 @@ function OrderAttendeeRows({ orderId }: { orderId: string }) {
 
 export function OrdersSurface({ slug, event }: PageProps) {
   const router = useRouter()
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth()
   const eventLocations = useQuery(
     api.reports.getEventLocations,
-    event?._id ? { eventId: event._id } : ("skip" as const)
+    event?._id && isAuthenticated && !authLoading
+      ? { eventId: event._id }
+      : ("skip" as const)
   ) as string[] | undefined
 
   const [searchInput, setSearchInput] = useState("")
@@ -178,10 +184,13 @@ export function OrdersSurface({ slug, event }: PageProps) {
   const [appliedFrom, setAppliedFrom] = useState("")
   const [appliedTo, setAppliedTo] = useState("")
   const [page, setPage] = useState(1)
+  const [searchCursor, setSearchCursor] = useState<string | null>(null)
+  const [cursorHistory, setCursorHistory] = useState<string[]>([])
   const [payload, setPayload] = useState<OrdersPayload | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [loadAttempt, setLoadAttempt] = useState(0)
+  const requestSequence = useRef(0)
 
   const dateValidationError = useMemo(() => {
     const fromIso = toIsoBoundary(fromInput, "start")
@@ -194,22 +203,38 @@ export function OrdersSurface({ slug, event }: PageProps) {
   }, [fromInput, toInput])
 
   useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const nextSearch = searchInput.trim().replace(/\s+/g, " ")
+      setAppliedSearch(nextSearch)
+      setPage(1)
+      setSearchCursor(null)
+      setCursorHistory([])
+    }, SEARCH_DEBOUNCE_MS)
+
+    return () => window.clearTimeout(timeout)
+  }, [searchInput])
+
+  useEffect(() => {
     if (!event) return
 
     const fromIso = toIsoBoundary(appliedFrom, "start")
     const toIso = toIsoBoundary(appliedTo, "end")
 
     const controller = new AbortController()
+    const sequence = ++requestSequence.current
 
     async function loadOrders() {
+      if (sequence !== requestSequence.current) return
       setIsLoading(true)
       setErrorMessage(null)
 
       try {
         const query = new URLSearchParams()
         query.set("eventId", event._id)
-        query.set("page", String(page))
+        query.set("page", searchCursor ? "1" : String(page))
         query.set("pageSize", "25")
+        if (appliedSearch.trim()) query.set("search", appliedSearch.trim())
+        if (searchCursor) query.set("searchCursor", searchCursor)
 
         if (fromIso) query.set("from", fromIso)
         if (toIso) query.set("to", toIso)
@@ -224,48 +249,36 @@ export function OrdersSurface({ slug, event }: PageProps) {
         if (!response.ok) throw new Error("Failed to load orders")
 
         const body = (await response.json()) as OrdersPayload
-        setPayload(body)
+        if (sequence === requestSequence.current) setPayload(body)
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") return
-        setErrorMessage("Network error while loading orders.")
+        if (sequence === requestSequence.current) setErrorMessage("Network error while loading orders.")
       } finally {
-        setIsLoading(false)
+        if (sequence === requestSequence.current) setIsLoading(false)
       }
     }
 
     loadOrders()
     return () => controller.abort()
-  }, [appliedFrom, appliedLocation, appliedStatus, appliedTo, event, loadAttempt, page])
+  }, [appliedFrom, appliedLocation, appliedStatus, appliedTo, appliedSearch, event, loadAttempt, page, searchCursor])
 
-  const visibleRows = useMemo(() => {
-    const rows = payload?.rows ?? []
-    const search = appliedSearch.trim().toLowerCase()
-
-    if (!search) return rows
-
-    return rows.filter((row) => {
-      const haystack = [row.orderId, row.buyerName, row.buyerEmail, row.eventTitle]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-      return haystack.includes(search)
-    })
-  }, [appliedSearch, payload?.rows])
-
-  const displayTotalRows = visibleRows.length === 0 ? 0 : payload?.page.totalRows ?? 0
-  const showPagination = Boolean(
-    payload && visibleRows.length > 0 && payload.page.totalPages > 1
-  )
+  const visibleRows = payload?.rows ?? []
+  const isCursorMode = Boolean(appliedSearch.trim())
+  const displayTotalRows = payload?.page.totalRows
+  const showPagination = Boolean(payload && (isCursorMode
+    ? payload.page.hasNextPage || cursorHistory.length > 0
+    : (payload.page.totalPages ?? 1) > 1))
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (dateValidationError) return
-    setAppliedSearch(searchInput)
     setAppliedStatus(statusInput)
     setAppliedLocation(locationInput)
     setAppliedFrom(fromInput)
     setAppliedTo(toInput)
     setPage(1)
+    setSearchCursor(null)
+    setCursorHistory([])
   }
 
   function exportCsv() {
@@ -296,20 +309,20 @@ export function OrdersSurface({ slug, event }: PageProps) {
       </div>
 
       <article className="min-w-0 rounded-xl border border-border/50 bg-card/40 p-4 md:p-6">
-        <form className="flex min-w-0 flex-col items-stretch gap-4 md:flex-row md:flex-wrap md:items-end" onSubmit={applyFilters}>
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <label className="ml-1 flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-              <Search className="size-3" /> Search
-            </label>
-            <input
-              aria-label="Search orders"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="h-11 w-full rounded-lg border border-border/40 bg-background/50 px-4 text-sm"
-              placeholder="Order id, contact person, email, event"
-            />
-          </div>
+        <div className="mb-4 min-w-0 space-y-1.5">
+          <label className="ml-1 flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
+            <Search className="size-3" /> Search
+          </label>
+          <input
+            aria-label="Search orders"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="h-11 w-full rounded-lg border border-border/40 bg-background/50 px-4 text-sm"
+            placeholder="Order id, contact person, email, event"
+          />
+        </div>
 
+        <form className="flex min-w-0 flex-col items-stretch gap-4 md:flex-row md:flex-wrap md:items-end" onSubmit={applyFilters}>
           <div className="min-w-0 flex-1 space-y-1.5">
             <label className="ml-1 flex items-center gap-1.5 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
               <Filter className="size-3" /> Status
@@ -434,6 +447,12 @@ export function OrdersSurface({ slug, event }: PageProps) {
                     <DashboardQueryState state="unavailable" message="Orders are not available yet." className="text-center" />
                   </TableCell>
                 </TableRow>
+              ) : visibleRows.length === 0 && payload.page.hasNextPage ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="px-6 py-12">
+                    <DashboardQueryState state="empty" message="No rows on this page. More matching records are available." className="text-center" />
+                  </TableCell>
+                </TableRow>
               ) : visibleRows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="px-6 py-12">
@@ -500,20 +519,32 @@ export function OrdersSurface({ slug, event }: PageProps) {
             </TableBody>
           </Table>
 
-        {payload && visibleRows.length > 0 && (
+        {payload && (visibleRows.length > 0 || payload.page.hasNextPage || cursorHistory.length > 0) && (
           <footer className="flex flex-wrap items-center justify-between gap-4 border-t border-border/30 bg-muted/20 px-4 py-5 md:px-8">
             <p className="text-xs font-medium text-muted-foreground">
-              Showing <span className="text-foreground">{visibleRows.length}</span> of <span className="text-foreground">{displayTotalRows}</span> entries
+              Showing <span className="text-foreground">{visibleRows.length}</span>{displayTotalRows === null ? " matching entries" : <> of <span className="text-foreground">{displayTotalRows}</span> entries</>}
             </p>
             {showPagination ? (
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" disabled={payload.page.number <= 1} onClick={() => setPage((value) => value - 1)} className="h-9 rounded-xl px-4">
+                <Button variant="outline" size="sm" disabled={isCursorMode ? cursorHistory.length === 0 : payload.page.number <= 1} onClick={() => {
+                  if (isCursorMode) {
+                    const nextHistory = [...cursorHistory]
+                    nextHistory.pop()
+                    setCursorHistory(nextHistory)
+                    setSearchCursor(nextHistory.at(-1) ?? null)
+                  } else setPage((value) => value - 1)
+                }} className="h-9 rounded-xl px-4">
                   <ChevronLeft className="mr-2 size-4" /> Previous
                 </Button>
                 <div className="px-4 text-xs font-bold tracking-widest text-muted-foreground/60 uppercase">
-                  {payload.page.number} / {payload.page.totalPages}
+                  {isCursorMode ? `Search page ${cursorHistory.length + 1}` : `${payload.page.number} / ${payload.page.totalPages}`}
                 </div>
-                <Button variant="outline" size="sm" disabled={payload.page.number >= payload.page.totalPages} onClick={() => setPage((value) => value + 1)} className="h-9 rounded-xl px-4">
+                <Button variant="outline" size="sm" disabled={isCursorMode ? !payload.page.hasNextPage || !payload.page.nextCursor : payload.page.number >= (payload.page.totalPages ?? 1)} onClick={() => {
+                  if (isCursorMode && payload.page.nextCursor) {
+                    setCursorHistory((history) => [...history, payload.page.nextCursor!])
+                    setSearchCursor(payload.page.nextCursor)
+                  } else setPage((value) => value + 1)
+                }} className="h-9 rounded-xl px-4">
                   Next <ChevronRight className="ml-2 size-4" />
                 </Button>
               </div>

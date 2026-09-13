@@ -9,12 +9,16 @@ import {
   Loader2,
   MapPin,
   Pencil,
+  Trash2,
   Users,
+  UserPlus,
 } from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Card,
   CardContent,
@@ -26,12 +30,21 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { api } from "@/lib/convex/api"
 import { formatMoney } from "@/lib/format"
+import { useTicketTypesForEvent } from "@/lib/convex/hooks/events"
 import {
   AttendeeOrderEditor,
   matchEditorSelection,
@@ -59,6 +72,12 @@ type AttendeeEditorContext = {
   accommodation: {
     options: Array<{ optionKey: string; label: string }>
   }
+}
+
+type AttendeeTicketType = {
+  _id: string
+  label: string
+  priceMinor: number
 }
 
 type AttendeesPanelProps = {
@@ -117,6 +136,17 @@ export function AttendeesPanel({
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
   const [editingAttendeeId, setEditingAttendeeId] = useState<string | null>(null)
+  const [removingAttendeeId, setRemovingAttendeeId] = useState<string | null>(null)
+  const [isRemovingAttendee, setIsRemovingAttendee] = useState(false)
+  const [removeError, setRemoveError] = useState<string | null>(null)
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [newAttendeeName, setNewAttendeeName] = useState("")
+  const [newAttendeeEmail, setNewAttendeeEmail] = useState("")
+  const [newAttendeeTicketTypeId, setNewAttendeeTicketTypeId] = useState("")
+  const [isAddingAttendee, setIsAddingAttendee] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+  const { ticketTypes, isLoading: isTicketTypesLoading } =
+    useTicketTypesForEvent(eventId)
 
   useEffect(() => {
     const attendeesKey = attendees.map((attendee) => attendee.id).join("|")
@@ -214,12 +244,115 @@ export function AttendeesPanel({
   const editingRow = attendees.find(
     (attendee) => attendee.id === editingAttendeeId
   )
+  const removingRow = attendees.find(
+    (attendee) => attendee.id === removingAttendeeId
+  )
+
+  async function confirmRemoveAttendee() {
+    if (!removingAttendeeId || isRemovingAttendee) return
+
+    setIsRemovingAttendee(true)
+    setRemoveError(null)
+    try {
+      const response = await fetch(
+        `/api/dashboard/attendees/${encodeURIComponent(removingAttendeeId)}/remove`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ eventId }),
+        }
+      )
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string }
+        } | null
+        throw new Error(body?.error?.message ?? "Failed to remove attendee.")
+      }
+      setRemovingAttendeeId(null)
+      onSaved()
+    } catch (error) {
+      setRemoveError(
+        error instanceof Error ? error.message : "Failed to remove attendee."
+      )
+    } finally {
+      setIsRemovingAttendee(false)
+    }
+  }
+
+  function resetAddAttendeeForm() {
+    setNewAttendeeName("")
+    setNewAttendeeEmail("")
+    setNewAttendeeTicketTypeId("")
+    setAddError(null)
+  }
+
+  async function addAttendee() {
+    const name = newAttendeeName.trim()
+    if (!name) {
+      setAddError("Name is required.")
+      return
+    }
+    if (!newAttendeeTicketTypeId) {
+      setAddError("Ticket type is required.")
+      return
+    }
+
+    setIsAddingAttendee(true)
+    setAddError(null)
+    try {
+      const response = await fetch(
+        `/api/dashboard/orders/${encodeURIComponent(orderId)}/attendees`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            eventId,
+            name,
+            email: newAttendeeEmail.trim() || undefined,
+            ticketTypeId: newAttendeeTicketTypeId,
+          }),
+        }
+      )
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string }
+        } | null
+        throw new Error(body?.error?.message ?? "Failed to add attendee.")
+      }
+
+      setIsAddDialogOpen(false)
+      resetAddAttendeeForm()
+      onSaved()
+    } catch (error) {
+      setAddError(
+        error instanceof Error ? error.message : "Failed to add attendee."
+      )
+    } finally {
+      setIsAddingAttendee(false)
+    }
+  }
 
   return (
     <Card className="border-white/40 bg-white/40 shadow-sm backdrop-blur lg:col-span-3 dark:border-white/10 dark:bg-black/20">
       <CardHeader>
-        <CardTitle className="text-lg font-bold">Attendees</CardTitle>
-        <CardDescription>Consolidated ticket data for this order</CardDescription>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-lg font-bold">Attendees</CardTitle>
+            <CardDescription>Consolidated ticket data for this order</CardDescription>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              setAddError(null)
+              setIsAddDialogOpen(true)
+            }}
+            className="h-8 shrink-0 rounded-lg px-3 text-[10px] font-bold tracking-wider uppercase"
+          >
+            <UserPlus className="mr-1.5 size-3.5" />
+            Add attendee
+          </Button>
+        </div>
         {loadError && (
           <Alert variant="destructive" className="mt-4 rounded-xl">
             <AlertCircle className="size-4" />
@@ -279,26 +412,44 @@ export function AttendeesPanel({
                       <p className="text-sm font-black tabular-nums">
                         {formatMoney(attendee.amountDueMinor)}
                       </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={!detail}
-                        onClick={() => setEditingAttendeeId(attendee.id)}
-                        className="mt-2 h-8 rounded-lg border-white/20 text-[10px] font-bold tracking-wider uppercase"
-                      >
-                        {detail ? (
-                          <>
-                            <Pencil className="mr-1.5 size-3" />
-                            Edit
-                          </>
-                        ) : (
-                          <>
-                            <Loader2 className="mr-1.5 size-3 animate-spin" />
-                            Loading…
-                          </>
-                        )}
-                      </Button>
+                      <div className="mt-2 flex items-center justify-end gap-1.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={!detail}
+                          onClick={() => setEditingAttendeeId(attendee.id)}
+                          className="h-8 rounded-lg border-white/20 text-[10px] font-bold tracking-wider uppercase"
+                        >
+                          {detail ? (
+                            <>
+                              <Pencil className="mr-1.5 size-3" />
+                              Edit
+                            </>
+                          ) : (
+                            <>
+                              <Loader2 className="mr-1.5 size-3 animate-spin" />
+                              Loading…
+                            </>
+                          )}
+                        </Button>
+                        {attendees.length > 1 ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Remove ${attendee.name} from this order`}
+                            title="Remove attendee"
+                            onClick={() => {
+                              setRemoveError(null)
+                              setRemovingAttendeeId(attendee.id)
+                            }}
+                            className="h-8 w-8 rounded-lg text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
 
@@ -353,7 +504,9 @@ export function AttendeesPanel({
           {editorAttendee && editingRow ? (
             <AttendeeOrderEditor
               attendee={editorAttendee}
+              canRemove={attendees.length > 1}
               onSaved={() => {
+                setEditingAttendeeId(null)
                 setRefreshKey((key) => key + 1)
                 setDetailByAttendeeId({})
                 onSaved()
@@ -367,6 +520,151 @@ export function AttendeesPanel({
               <Skeleton className="h-24 w-full rounded-lg" />
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isAddDialogOpen}
+        onOpenChange={(open) => {
+          if (isAddingAttendee) return
+          setIsAddDialogOpen(open)
+          if (!open) resetAddAttendeeForm()
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add attendee to order</DialogTitle>
+            <DialogDescription>
+              Add a new attendee and ticket to this order. The order amount is
+              recalculated on the server.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="order-add-attendee-name">Name</Label>
+              <Input
+                id="order-add-attendee-name"
+                value={newAttendeeName}
+                disabled={isAddingAttendee}
+                placeholder="Full name"
+                onChange={(event) => setNewAttendeeName(event.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="order-add-attendee-email">Email</Label>
+              <Input
+                id="order-add-attendee-email"
+                type="email"
+                value={newAttendeeEmail}
+                disabled={isAddingAttendee}
+                placeholder="name@example.com (optional)"
+                onChange={(event) => setNewAttendeeEmail(event.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="order-add-attendee-ticket">Ticket type</Label>
+              {isTicketTypesLoading ? (
+                <Skeleton className="h-9 w-full rounded-lg" />
+              ) : (
+                <Select
+                  value={newAttendeeTicketTypeId}
+                  onValueChange={setNewAttendeeTicketTypeId}
+                  disabled={isAddingAttendee}
+                >
+                  <SelectTrigger id="order-add-attendee-ticket">
+                    <SelectValue placeholder="Select ticket type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(ticketTypes as AttendeeTicketType[]).map((ticketType) => (
+                      <SelectItem key={ticketType._id} value={String(ticketType._id)}>
+                        {ticketType.label} · {formatMoney(ticketType.priceMinor)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            {addError ? (
+              <Alert variant="destructive" className="rounded-xl">
+                <AlertCircle className="size-4" />
+                <AlertTitle className="text-destructive">Add failed</AlertTitle>
+                <AlertDescription className="text-destructive/80">
+                  {addError}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={isAddingAttendee}
+              onClick={() => setIsAddDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={isAddingAttendee || isTicketTypesLoading}
+              onClick={() => void addAttendee()}
+            >
+              {isAddingAttendee ? "Adding…" : "Add attendee"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(removingAttendeeId)}
+        onOpenChange={(open) => {
+          if (!open) setRemovingAttendeeId(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove attendee</DialogTitle>
+            <DialogDescription>
+              Remove {removingRow?.name ?? "this attendee"} from this order?
+              Their ticket, accommodation, room assignment, family, and search
+              records will be deleted and the order amount due recalculated.
+              Existing payments stay on the order.
+            </DialogDescription>
+          </DialogHeader>
+          {removeError && (
+            <Alert variant="destructive" className="rounded-xl">
+              <AlertCircle className="size-4" />
+              <AlertTitle className="text-destructive">Remove failed</AlertTitle>
+              <AlertDescription className="text-destructive/80">
+                {removeError}
+              </AlertDescription>
+            </Alert>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setRemovingAttendeeId(null)}
+              className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isRemovingAttendee}
+              onClick={() => void confirmRemoveAttendee()}
+              className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
+            >
+              {isRemovingAttendee ? (
+                <>
+                  <Loader2 className="mr-2 size-3.5 animate-spin" />
+                  Removing…
+                </>
+              ) : (
+                "Remove attendee"
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </Card>

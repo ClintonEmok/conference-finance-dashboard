@@ -9,7 +9,10 @@ import type { Doc, Id } from "./_generated/dataModel"
 
 const modules = import.meta.glob("./**/*.ts")
 
-let activeTestContexts: Array<ReturnType<typeof convexTest>> = []
+let activeTestContexts: Array<{
+  context: ReturnType<typeof convexTest>
+  cleanupScheduledFunctions: boolean
+}> = []
 type ScheduledFunctionFinisher = (
   advanceTimers: () => void,
   maxIterations: number
@@ -21,9 +24,9 @@ beforeEach(() => {
 
 afterEach(async () => {
   try {
-    for (const t of activeTestContexts) {
-      // The large-child-set test intentionally creates more than 500 fanout
-      // jobs, so use a cleanup budget above convex-test's default of 100.
+    for (const { context: t, cleanupScheduledFunctions } of activeTestContexts) {
+      if (!cleanupScheduledFunctions) continue
+      // Most tests need scheduled search fanout to settle before teardown.
       const finishAllScheduledFunctions =
         t.finishAllScheduledFunctions as ScheduledFunctionFinisher
       await finishAllScheduledFunctions(() => vi.runAllTimers(), 1000)
@@ -34,9 +37,12 @@ afterEach(async () => {
   }
 })
 
-function fresh() {
+function fresh(options: { cleanupScheduledFunctions?: boolean } = {}) {
   const t = convexTest(schema, modules)
-  activeTestContexts.push(t)
+  activeTestContexts.push({
+    context: t,
+    cleanupScheduledFunctions: options.cleanupScheduledFunctions ?? true,
+  })
   return t
 }
 
@@ -817,7 +823,10 @@ test("mergeOrders rejects provider identifiers owned by another order", async ()
 })
 
 test("mergeOrders loads complete child sets beyond the old 500-row cap", async () => {
-  const t = fresh().withIdentity(adminIdentity)
+  // Search projection fanout is intentionally outside this row-loading test;
+  // leaving its resumable job queued avoids spending teardown on hundreds of
+  // unrelated projection updates.
+  const t = fresh({ cleanupScheduledFunctions: false }).withIdentity(adminIdentity)
   const seed = await seedMergeOrders(t)
 
   await t.mutation(async (ctx) => {

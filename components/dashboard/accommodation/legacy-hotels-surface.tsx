@@ -23,6 +23,7 @@ import type { Doc, Id } from "@/convex/_generated/dataModel"
 import {
   useEventHotels,
   useSlotsForEvent,
+  useEventAllocationSummary,
   useAccommodationSummaryForEvent,
   useHotelById,
   useRoomTypes,
@@ -48,6 +49,7 @@ export default function EventAccommodationWorkspacePage({
   const eventHotels = useEventHotels(event?._id ?? "")
   const slots = useSlotsForEvent(event?._id)
   const summary = useAccommodationSummaryForEvent(event?._id)
+  const allocationSummary = useEventAllocationSummary(event?._id)
 
   const [isCreateHotelDialogOpen, setIsCreateHotelDialogOpen] = useState(false)
   const [isCreatingHotel, setIsCreatingHotel] = useState(false)
@@ -198,6 +200,14 @@ export default function EventAccommodationWorkspacePage({
           <span>{eventHotels === undefined ? "Checking hotels…" : `${eventHotels.length} hotel${eventHotels.length === 1 ? "" : "s"}`}</span>
           <span>{slots === undefined ? "Checking rooms…" : `${slots.length} slot${slots.length === 1 ? "" : "s"}`}</span>
           {summary && <span>{summary.assignableSlots} assignable</span>}
+          {allocationSummary && (
+            <span>
+              {allocationSummary.totalOccupants ?? 0} occupants · {allocationSummary.occupiedBeds} beds used · {allocationSummary.availableBeds} beds available
+            </span>
+          )}
+          {allocationSummary?.occupancyIncomplete ? (
+            <span className="text-amber-700 dark:text-amber-300">Occupancy data incomplete</span>
+          ) : null}
         </div>
       </div>
 

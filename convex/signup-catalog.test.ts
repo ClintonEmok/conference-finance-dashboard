@@ -139,9 +139,10 @@ async function createConfiguredEvent(
       priceMinor: 2000,
       isActive: true,
       visibility: "public",
-      availabilityState: "selectable",
-      accommodationIncluded: false,
-      updatedAt: BASE_EVENT_AT,
+       availabilityState: "selectable",
+       accommodationIncluded: false,
+       requiresBed: false,
+       updatedAt: BASE_EVENT_AT,
     })
   })
   const constrainedTicketId = await t.mutation(async (ctx) => {
@@ -216,12 +217,14 @@ test("public catalog exposes event-configured accommodation choices and ticket e
   expect(constrainedTicket?.roomTypeId).toBe(seed.constrainedRoomTypeId)
   expect(constrainedTicket?.roomTypeCategoryId).toBe(seed.categorySuperiorId)
   expect(constrainedTicket?.roomTypeCategoryCode).toBe("superior")
-  expect(constrainedTicket?.occupancy).toBe("shared")
+   expect(constrainedTicket?.occupancy).toBe("shared")
+   expect(constrainedTicket?.requiresBed).toBe(true)
 
   const unconstrainedTicket = event?.tickets.find(
     (ticket) => ticket.ticketTypeId === seed.unconstrainedTicketId
   )
-  expect(unconstrainedTicket?.roomTypeCategoryId).toBeUndefined()
+   expect(unconstrainedTicket?.roomTypeCategoryId).toBeUndefined()
+   expect(unconstrainedTicket?.requiresBed).toBe(false)
 })
 
 test("quote returns canonical ticket and accommodation lines and totals", async () => {
@@ -253,7 +256,8 @@ test("quote returns canonical ticket and accommodation lines and totals", async 
   expect(quote.attendees[0]).toMatchObject({
     attendeeKey: "a1",
     ticketLabel: "Unconstrained ticket",
-    ticketPriceMinor: 2000,
+     ticketPriceMinor: 2000,
+     requiresBed: false,
     categoryCode: "standard",
     occupancy: "shared",
     accommodationTotalMinor: 6000,

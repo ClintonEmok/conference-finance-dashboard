@@ -133,6 +133,7 @@ describe("buildAttendeeMoveBody", () => {
 describe("dirty field collection", () => {
   it("returns null when nothing changed and only dirty fields when changed", () => {
     const initial = {
+      name: "Ada Lovelace",
       genderType: "MALE" as const,
       ticketTypeId: "ticket_1",
       location: "Amsterdam",
@@ -140,21 +141,21 @@ describe("dirty field collection", () => {
     expect(
       collectDirtyGeneralFields({
         initial,
-        draft: { genderType: "MALE", ticketTypeId: "ticket_1", location: "Amsterdam" },
+        draft: { name: "Ada Lovelace", genderType: "MALE", ticketTypeId: "ticket_1", location: "Amsterdam" },
       })
     ).toBeNull()
 
     const changes = collectDirtyGeneralFields({
       initial,
-      draft: { genderType: "FEMALE", ticketTypeId: "ticket_1", location: "Amsterdam" },
+      draft: { name: "Ada Lovelace", genderType: "FEMALE", ticketTypeId: "ticket_1", location: "Amsterdam" },
     })
     expect(changes).toEqual({ genderType: "FEMALE" })
   })
 
   it("never sends an empty ticketTypeId (the route rejects clearing)", () => {
     const changes = collectDirtyGeneralFields({
-      initial: { genderType: "MALE", ticketTypeId: "ticket_1", location: "Leiden" },
-      draft: { genderType: "", ticketTypeId: "", location: "" },
+      initial: { name: "Ada Lovelace", genderType: "MALE", ticketTypeId: "ticket_1", location: "Leiden" },
+      draft: { name: "Ada Lovelace", genderType: "", ticketTypeId: "", location: "" },
     })
     expect(changes).toEqual({ genderType: null, location: null })
     expect(changes).not.toHaveProperty("ticketTypeId")

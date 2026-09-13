@@ -59,7 +59,7 @@ describe("OrderDetailSurface panel decomposition", () => {
     expect(surface).toContain("resendOrderConfirmation")
     expect(surface).toContain("unassignPayment")
     expect(surface).toContain("<AssignPaymentSheet")
-    expect(surface).toContain("window.location.reload")
+    expect(surface).toContain("setIsEditingOrder(false)")
   })
 
   it("retains the required action labels in the extracted panels", () => {
@@ -85,6 +85,23 @@ describe("OrderDetailSurface panel decomposition", () => {
     expect(panel).toContain("AttendeeOrderEditor")
     expect(panel).toContain("getTrackPaymentEditContext")
     expect(panel).toContain("/dashboard/events/${slug}/attendees/")
+  })
+
+  it("wires attendee removal through the event-scoped DELETE route", () => {
+    const panel = readSource(
+      "components/dashboard/orders/panels/attendees-panel.tsx"
+    )
+    const editor = readSource("components/dashboard/attendee-order-editor.tsx")
+
+    expect(panel).toContain("/api/dashboard/attendees/")
+    expect(panel).toContain('method: "DELETE"')
+    expect(panel).toContain("body: JSON.stringify({ eventId })")
+    expect(panel).toContain("attendees.length > 1")
+    expect(editor).toContain('method: "DELETE"')
+    expect(editor).toContain("body: JSON.stringify({ eventId: attendee.eventId })")
+    expect(editor).toContain("canRemove")
+    expect(editor).toContain("canRemove = false")
+    expect(editor).toContain('role="alert"')
   })
 
   it("wires the Merge order action from the actions panel to the dialog", () => {
@@ -120,18 +137,12 @@ describe("order attendee navigation graph", () => {
     expect(page).toContain("/dashboard/events/${slug}/orders/${attendee.orderId}")
   })
 
-  it("links the global attendee list rows to attendee detail", () => {
-    const page = readSource("app/dashboard/attendees/page.tsx")
-    expect(page).toContain("/dashboard/attendees/${row.attendeeId}")
-    expect(page).toContain("eventId=")
-    expect(page).toContain("source=")
-  })
-
-  it("makes the order surface refresh from the editor instead of client arithmetic", () => {
+  it("lets the reactive order query refresh after attendee edits instead of hard reloading", () => {
     const surface = readSource(
       "components/dashboard/orders/order-detail-surface.tsx"
     )
-    expect(surface).toContain("onSaved={() => window.location.reload()}")
+    expect(surface).toContain("onSaved={() => undefined}")
+    expect(surface).not.toContain("window.location.reload")
   })
 })
 

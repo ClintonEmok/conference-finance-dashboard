@@ -13,6 +13,7 @@ export type AttendeeLedgerFilters = {
   search?: string | null
   page?: number
   pageSize?: number
+  searchCursor?: string | null
 }
 
 export type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
@@ -29,6 +30,11 @@ export type AttendeeLedgerRow = {
   attendeeName: string | null
   attendeeEmail: string | null
   ticketTypeLabel: string | null
+  bookingRef: string | null
+  familyGroupId: string | null
+  familyGroupLabel: string | null
+  familyPrimaryAttendeeId: string | null
+  familyRelationship: string | null
   normalizedStatus: CanonicalOrderStatus
   amountDueMinor: number
   totalAmountMinor: number
@@ -63,9 +69,11 @@ export type AttendeeLedgerResult = {
   generatedAt: string
   filters: {
     eventId: string | null
-    from: string
-    to: string
+    from: string | null
+    to: string | null
+    dateMode: "all-time" | "bounded"
     search: string | null
+    searchCursor: string | null
     page: number
     pageSize: number
   }
@@ -79,8 +87,10 @@ export type AttendeeLedgerResult = {
   page: {
     number: number
     size: number
-    totalRows: number
-    totalPages: number
+    totalRows: number | null
+    totalPages: number | null
+    hasNextPage: boolean
+    nextCursor: string | null
   }
   rows: AttendeeLedgerRow[]
 }
@@ -109,9 +119,11 @@ function parseDate(
 
 function normalizeRange(filters: AttendeeLedgerFilters) {
   const now = new Date()
+  if (filters.eventId && !filters.from && !filters.to) {
+    return { from: null, to: null, dateMode: "all-time" as const }
+  }
   const to = parseDate(filters.to, "to") ?? now
-  const from =
-    parseDate(filters.from, "from") ?? new Date(to.getTime() - 29 * DAY_MS)
+  const from = parseDate(filters.from, "from") ?? (filters.eventId ? new Date(0) : new Date(to.getTime() - 29 * DAY_MS))
 
   if (from.getTime() > to.getTime()) {
     throw new Error(
@@ -119,7 +131,7 @@ function normalizeRange(filters: AttendeeLedgerFilters) {
     )
   }
 
-  return { from, to }
+  return { from, to, dateMode: "bounded" as const }
 }
 
 function normalizePagination(page?: number, pageSize?: number) {
@@ -243,12 +255,19 @@ export async function getAttendeeLedger(
     typeof filters.search === "string" && filters.search.trim()
       ? filters.search.trim()
       : null
-  const { from, to } = normalizeRange(filters)
+  const { from, to, dateMode } = normalizeRange(filters)
   const { page, pageSize } = normalizePagination(filters.page, filters.pageSize)
 
-  const [allAttendees, availableEvents, allOrders, allRooms, allHotels, allRoomTypes] =
+  const [attendeePage, availableEvents, allOrders, allRooms, allHotels, allRoomTypes] =
     (await Promise.all([
-      convexQuery(api.attendees.getAttendeesWithTickets, {}),
+       convexQuery(api.attendees.getAttendeeLedgerPage, {
+         eventId: (eventId ?? undefined) as never,
+         search: search ?? undefined,
+         cursor: filters.searchCursor ?? null,
+         pageSize,
+         from: from?.getTime() ?? null,
+         to: to?.getTime() ?? null,
+       }),
       convexQuery(api.events.getEventsForLedger, {}),
       convexQuery(api.orders.getOrders, {
         eventId: eventId ?? undefined,
@@ -257,7 +276,7 @@ export async function getAttendeeLedger(
       convexQuery(api.accommodation.getHotels, {}),
       convexQuery(api.accommodation.getRoomTypes, {}),
     ])) as [
-      ConvexAttendee[],
+      { rows: ConvexAttendee[]; page: { hasNextPage: boolean; nextCursor: string | null; totalRows: number | null; totalPages: number | null } } | ConvexAttendee[],
       ConvexEvent[],
       Array<{
         _id: string
@@ -271,7 +290,14 @@ export async function getAttendeeLedger(
       ConvexRoom[],
       ConvexHotel[],
       ConvexRoomType[],
-    ]
+   ]
+
+  const pageResponse = attendeePage as { rows: ConvexAttendee[]; page: { hasNextPage: boolean; nextCursor: string | null; totalRows: number | null; totalPages: number | null } } | ConvexAttendee[]
+  const legacyAttendees = Array.isArray(pageResponse) ? pageResponse : null
+  const allAttendees: ConvexAttendee[] = legacyAttendees ?? (pageResponse as Exclude<typeof pageResponse, ConvexAttendee[]>).rows
+  const pageMeta = legacyAttendees
+    ? { hasNextPage: false, nextCursor: null, totalRows: legacyAttendees.length, totalPages: Math.max(1, Math.ceil(legacyAttendees.length / pageSize)) }
+    : (pageResponse as Exclude<typeof pageResponse, ConvexAttendee[]>).page
 
   const eventMap = new Map(
     availableEvents.map((e) => [e.eventId ?? (e as { _id?: string })._id ?? "", e])
@@ -307,26 +333,14 @@ export async function getAttendeeLedger(
     )
   }
 
-  const fromTime = from.getTime()
-  const toTime = to.getTime()
-
   let filteredAttendees = eligibleAttendees.filter((a) => {
+    if (!from || !to) return true
     const order = orderMap.get(a.orderId)
     const orderTime =
       a.orderOrderedAt ?? a.orderSubmittedAt ?? order?.orderedAt ?? order?.submittedAt ?? null
     if (!orderTime) return true
-    return orderTime >= fromTime && orderTime <= toTime
+    return orderTime >= from.getTime() && orderTime <= to.getTime()
   })
-
-  if (search) {
-    const searchLower = search.toLowerCase()
-    filteredAttendees = filteredAttendees.filter(
-      (a) =>
-        a.name?.toLowerCase().includes(searchLower) ||
-        a.email?.toLowerCase().includes(searchLower) ||
-        a.ticketTypeLabel?.toLowerCase().includes(searchLower)
-    )
-  }
 
   const matchedTotalsByOrderId = await buildMatchedTotalsByOrderId(
     filteredAttendees.map((attendee) => ({
@@ -335,12 +349,7 @@ export async function getAttendeeLedger(
     }))
   )
 
-  const totalRows = filteredAttendees.length
-  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
-  const paginatedAttendees = filteredAttendees.slice(
-    (page - 1) * pageSize,
-    page * pageSize
-  )
+  const paginatedAttendees = filters.searchCursor ? filteredAttendees : filteredAttendees.slice((page - 1) * pageSize, page * pageSize)
 
   const balancesByAttendeeId = new Map<
     string,
@@ -409,6 +418,11 @@ export async function getAttendeeLedger(
       attendeeName: attendee.name,
       attendeeEmail: attendee.email ?? null,
       ticketTypeLabel: attendee.ticketTypeLabel ?? null,
+      bookingRef: (attendee as ConvexAttendee & { bookingRef?: string | null }).bookingRef ?? null,
+      familyGroupId: (attendee as ConvexAttendee & { familyGroupId?: string | null }).familyGroupId ?? null,
+      familyGroupLabel: (attendee as ConvexAttendee & { familyGroupLabel?: string | null }).familyGroupLabel ?? null,
+      familyPrimaryAttendeeId: (attendee as ConvexAttendee & { familyPrimaryAttendeeId?: string | null }).familyPrimaryAttendeeId ?? null,
+      familyRelationship: (attendee as ConvexAttendee & { familyRelationship?: string | null }).familyRelationship ?? null,
       normalizedStatus,
       amountDueMinor,
       totalAmountMinor,
@@ -454,9 +468,11 @@ export async function getAttendeeLedger(
     generatedAt: new Date().toISOString(),
     filters: {
       eventId,
-      from: from.toISOString(),
-      to: to.toISOString(),
+      from: from?.toISOString() ?? null,
+      to: to?.toISOString() ?? null,
+      dateMode,
       search,
+      searchCursor: filters.searchCursor ?? null,
       page,
       pageSize,
     },
@@ -470,8 +486,10 @@ export async function getAttendeeLedger(
     page: {
       number: page,
       size: pageSize,
-      totalRows,
-      totalPages,
+      totalRows: pageMeta.totalRows,
+      totalPages: pageMeta.totalPages,
+      hasNextPage: pageMeta.hasNextPage,
+      nextCursor: pageMeta.nextCursor,
     },
     rows,
   }

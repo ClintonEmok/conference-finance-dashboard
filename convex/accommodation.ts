@@ -13,8 +13,14 @@ import {
   loadOrderAmountDueBreakdowns,
   loadOrderAttendeePaymentBreakdowns,
 } from "./finance"
+import {
+  resolveAttendeeBedRequirement,
+  resolveAttendeeBedRequirements,
+  type BedRequirementResult,
+} from "./accommodationBedRequirement"
 
 type DocTables = {
+  events: Doc<"events">
   accommodationHotels: Doc<"accommodationHotels">
   accommodationRoomTypes: Doc<"accommodationRoomTypes">
   accommodationRooms: Doc<"accommodationRooms">
@@ -42,6 +48,40 @@ function normalizeDocId<TableName extends keyof DocTables>(
   }
 
   return normalizedId
+}
+
+async function assertEventAssignmentScope(
+  ctx: MutationCtx,
+  eventIdValue: string,
+  attendee: Doc<"orderAttendees">,
+  room: Doc<"accommodationRooms">
+) {
+  const eventId = normalizeDocId(
+    ctx,
+    "events",
+    eventIdValue,
+    "Event not found"
+  )
+  const event = await ctx.db.get("events", eventId)
+  if (!event) {
+    throw new Error("Event not found")
+  }
+  const order = await ctx.db.get("orders", attendee.orderId)
+  if (!order || String(order.eventId) !== String(eventId)) {
+    throw new Error("Attendee does not belong to this event")
+  }
+
+  const eventHotelLink = await ctx.db
+    .query("accommodationEventHotels")
+    .withIndex("eventId_hotelId", (q) =>
+      q.eq("eventId", eventId).eq("hotelId", room.hotelId as string)
+    )
+    .first()
+  if (!eventHotelLink) {
+    throw new Error("Room hotel is not enabled for this event")
+  }
+
+  return { eventId, order }
 }
 
 async function getAccommodationHotelByStringId(ctx: any, hotelId: string) {
@@ -113,13 +153,7 @@ async function assertEventRoomInventoryAvailable(
 
   let usedRooms = 0
   for (const candidate of roomsOfType) {
-    const occupants = await ctx.db
-      .query("orderAttendees")
-      .withIndex("by_assignedRoomId", (q) =>
-        q.eq("assignedRoomId", String(candidate._id))
-      )
-      .take(1)
-    if (occupants.length > 0) {
+    if (await hasPhysicalRoomOccupants(ctx, String(candidate._id))) {
       usedRooms += 1
     }
   }
@@ -130,6 +164,45 @@ async function assertEventRoomInventoryAvailable(
       "No accommodation inventory remains for this room type (event resource limit reached)"
     )
   }
+}
+
+/**
+ * Returns physical presence using the same canonical/provider bridge rule as
+ * loadRoomOccupancy, without loading bed metadata for every room of a type.
+ * A provider row bridged to any canonical attendee is never physical presence
+ * in its stale provider room; the canonical assignment is authoritative.
+ */
+async function hasPhysicalRoomOccupants(
+  ctx: Pick<MutationCtx, "db">,
+  roomId: string
+): Promise<boolean> {
+  const canonicalOccupants = await ctx.db
+    .query("orderAttendees")
+    .withIndex("by_assignedRoomId", (q) => q.eq("assignedRoomId", roomId))
+    .take(1)
+  if (canonicalOccupants.length > 0) {
+    return true
+  }
+
+  const providerOccupants = await ctx.db
+    .query("ticketTailorAttendees")
+    .withIndex("by_assignedRoomId", (q) => q.eq("assignedRoomId", roomId))
+    .take(ROOM_OCCUPANT_LIMIT)
+  if (providerOccupants.length === 0) {
+    return false
+  }
+
+  const bridges = await Promise.all(
+    providerOccupants.map((providerAttendee) =>
+      providerAttendee.attendeeId
+        ? ctx.db.get("orderAttendees", providerAttendee.attendeeId)
+        : Promise.resolve(null)
+    )
+  )
+  return providerOccupants.some((providerAttendee, index) => {
+    // Missing/invalid bridges are provider-only physical occupants.
+    return !providerAttendee.attendeeId || bridges[index] === null
+  })
 }
 
 async function getAttendeeByStringId(ctx: any, attendeeId: string) {
@@ -203,6 +276,412 @@ function paymentStateRank(
     unpaid: 2,
   }
   return state ? (ranks[state] ?? 3) : 3
+}
+
+const ROOM_OCCUPANT_LIMIT = 2_000
+
+type RoomOccupancy = {
+  occupantCount: number
+  occupiedBeds: number
+  availableBeds: number
+  foreignOccupantCount: number
+  incomplete: boolean
+}
+
+type FamilyRole = "solo" | "parent" | "child"
+type FamilyResolutionState =
+  | "unresolved"
+  | "placed"
+  | "waiting-for-parent-room"
+  | "inconsistent"
+  | "needs-family-link"
+
+type FamilyPlacementChild = {
+  attendee: Doc<"orderAttendees">
+  requirement: BedRequirementResult
+  familyState: FamilyResolutionState
+}
+
+type FamilyPlacementUnit = {
+  valid: boolean
+  familyRole: FamilyRole
+  familyGroupId: string | null
+  familyLabel: string | null
+  familyParentAttendeeId: string | null
+  familyState: FamilyResolutionState
+  parent: Doc<"orderAttendees"> | null
+  members: Doc<"orderAttendees">[]
+  eligibleChildren: FamilyPlacementChild[]
+  separateMembers: Doc<"orderAttendees">[]
+  requirements: Map<string, BedRequirementResult>
+  reason: string | null
+}
+
+function emptyFamilyUnit(input: {
+  valid: boolean
+  familyRole: FamilyRole
+  familyGroupId?: string | null
+  familyLabel?: string | null
+  familyParentAttendeeId?: string | null
+  familyState: FamilyResolutionState
+  parent?: Doc<"orderAttendees"> | null
+  members?: Doc<"orderAttendees">[]
+  reason?: string | null
+  requirement: BedRequirementResult
+  attendee: Doc<"orderAttendees">
+}): FamilyPlacementUnit {
+  return {
+    valid: input.valid,
+    familyRole: input.familyRole,
+    familyGroupId: input.familyGroupId ?? null,
+    familyLabel: input.familyLabel ?? null,
+    familyParentAttendeeId: input.familyParentAttendeeId ?? null,
+    familyState: input.familyState,
+    parent:
+      input.parent ?? (input.familyRole === "solo" ? input.attendee : null),
+    members: input.members ?? [input.attendee],
+    eligibleChildren: [],
+    separateMembers: [],
+    requirements: new Map([[String(input.attendee._id), input.requirement]]),
+    reason: input.reason ?? null,
+  }
+}
+
+/**
+ * Resolve one attendee to a server-owned placement unit. Family tables contain
+ * raw string IDs, so this boundary deliberately re-normalizes every reference,
+ * validates the declared primary, validates every membership, and then joins
+ * live bed requirements. No array order, name, order grouping, or bed flag can
+ * select a parent. Family metadata is advisory for now: invalid relationships
+ * fall back to a standalone attendee instead of blocking room placement.
+ */
+async function resolveFamilyPlacementUnit(
+  ctx: Pick<QueryCtx, "db">,
+  eventId: string,
+  attendee: Doc<"orderAttendees">,
+  knownRequirements?: Map<string, BedRequirementResult>
+): Promise<FamilyPlacementUnit> {
+  const requirement =
+    knownRequirements?.get(String(attendee._id)) ??
+    (await resolveAttendeeBedRequirement(ctx, attendee._id))
+  const memberships = await ctx.db
+    .query("attendeeFamilyMembers")
+    .withIndex("attendeeId", (q) => q.eq("attendeeId", String(attendee._id)))
+    .take(20)
+
+  if (memberships.length === 0) {
+    return emptyFamilyUnit({
+      valid: true,
+      familyRole: "solo",
+      familyState: requirement.placementEligible ? "unresolved" : "inconsistent",
+      reason: null,
+      requirement,
+      attendee,
+    })
+  }
+
+  if (memberships.length !== 1) {
+    return emptyFamilyUnit({
+      valid: true,
+      familyRole: "solo",
+      familyState: "inconsistent",
+      reason: "Family membership is inconsistent; placing attendee independently",
+      requirement,
+      attendee,
+    })
+  }
+
+  const rawGroupId = normalizeOptionalString(memberships[0]?.familyGroupId)
+  const familyGroupId = rawGroupId
+    ? ctx.db.normalizeId("attendeeFamilyGroups", rawGroupId)
+    : null
+  if (!familyGroupId) {
+    return emptyFamilyUnit({
+      valid: true,
+      familyRole: "solo",
+      familyState: "inconsistent",
+      reason: "Family group reference is malformed; placing attendee independently",
+      requirement,
+      attendee,
+    })
+  }
+  const groupId = rawGroupId!
+
+  const group = await ctx.db.get("attendeeFamilyGroups", familyGroupId)
+  const familyLabel =
+    normalizeOptionalString(group?.label) ?? `Family ${String(familyGroupId)}`
+  const primaryId = group?.primaryAttendeeId
+    ? ctx.db.normalizeId("orderAttendees", group.primaryAttendeeId)
+    : null
+  const groupMembers = await ctx.db
+    .query("attendeeFamilyMembers")
+    .withIndex("familyGroupId", (q) => q.eq("familyGroupId", groupId))
+    .take(200)
+
+  const normalizedMemberIds: Id<"orderAttendees">[] = []
+  let malformedMembership = groupMembers.length === 0
+  for (const member of groupMembers) {
+    const memberId = ctx.db.normalizeId(
+      "orderAttendees",
+      normalizeOptionalString(member.attendeeId) ?? ""
+    )
+    if (!memberId || String(member.familyGroupId) !== groupId) {
+      malformedMembership = true
+      continue
+    }
+    if (normalizedMemberIds.some((id) => String(id) === String(memberId))) {
+      malformedMembership = true
+      continue
+    }
+    normalizedMemberIds.push(memberId)
+  }
+
+  if (!primaryId || !normalizedMemberIds.some((id) => String(id) === String(primaryId))) {
+    malformedMembership = true
+  }
+
+  const members = await Promise.all(
+    normalizedMemberIds.map((memberId) => ctx.db.get("orderAttendees", memberId))
+  )
+  const resolvedMembers = members.filter(
+    (member): member is Doc<"orderAttendees"> => member !== null
+  )
+  if (resolvedMembers.length !== normalizedMemberIds.length) {
+    malformedMembership = true
+  }
+
+  // A member cannot quietly participate in two groups. This is intentionally
+  // bounded; more than one membership is a data-quality failure, not a reason
+  // to guess which group should control room placement.
+  const membershipRowsByMember = await Promise.all(
+    normalizedMemberIds.map((memberId) =>
+      ctx.db
+        .query("attendeeFamilyMembers")
+        .withIndex("attendeeId", (q) => q.eq("attendeeId", String(memberId)))
+        .take(20)
+    )
+  )
+  for (const rows of membershipRowsByMember) {
+    if (
+      rows.length !== 1 ||
+      String(rows[0]?.familyGroupId) !== String(familyGroupId)
+    ) {
+      malformedMembership = true
+    }
+  }
+
+  const orders = await Promise.all(
+    resolvedMembers.map((member) => ctx.db.get("orders", member.orderId))
+  )
+  if (
+    resolvedMembers.length !== normalizedMemberIds.length ||
+    resolvedMembers.some(
+      (_member, index) =>
+        !orders[index] || String(orders[index]?.eventId) !== eventId
+    )
+  ) {
+    malformedMembership = true
+  }
+
+  const requirements = new Map<string, BedRequirementResult>()
+  for (const member of resolvedMembers) {
+    requirements.set(
+      String(member._id),
+      knownRequirements?.get(String(member._id)) ??
+        (await resolveAttendeeBedRequirement(ctx, member._id))
+    )
+  }
+
+  const parent = primaryId
+    ? resolvedMembers.find((member) => String(member._id) === String(primaryId)) ??
+      null
+    : null
+  if (malformedMembership || !parent) {
+    return {
+      ...emptyFamilyUnit({
+        valid: true,
+        familyRole: "solo",
+        familyGroupId: null,
+        familyLabel: null,
+        familyParentAttendeeId: null,
+        familyState: "inconsistent",
+        reason: "Family placement data is inconsistent; placing attendee independently",
+        requirement,
+        attendee,
+      }),
+      requirements,
+    }
+  }
+
+  const familyRole: FamilyRole =
+    String(parent._id) === String(attendee._id) ? "parent" : "child"
+
+  const eligibleChildren = resolvedMembers
+    .filter((member) => String(member._id) !== String(parent._id))
+    .filter((member) => {
+      const memberRequirement = requirements.get(String(member._id))
+      return (
+        memberRequirement?.placementEligible === true &&
+        memberRequirement.requiresBed === false
+      )
+    })
+    .map((member) => ({
+      attendee: member,
+      requirement: requirements.get(String(member._id))!,
+      familyState: "unresolved" as FamilyResolutionState,
+    }))
+  const separateMembers = resolvedMembers.filter(
+    (member) => String(member._id) !== String(parent._id) &&
+      !eligibleChildren.some((child) => String(child.attendee._id) === String(member._id))
+  )
+
+  const childRooms = eligibleChildren
+    .map((child) => child.attendee.assignedRoomId)
+    .filter((roomId): roomId is string => Boolean(roomId))
+  const allChildrenShareParentRoom = eligibleChildren.every(
+    (child) => child.attendee.assignedRoomId === parent.assignedRoomId
+  )
+  const familyState: FamilyResolutionState =
+    !allChildrenShareParentRoom
+      ? "inconsistent"
+      : parent.assignedRoomId
+        ? "placed"
+        : "unresolved"
+  for (const child of eligibleChildren) {
+    child.familyState = parent.assignedRoomId
+      ? familyState
+      : "waiting-for-parent-room"
+  }
+
+  // Keep childRooms referenced so the complete assignment mismatch check is
+  // explicit even when every child currently has no room.
+  void childRooms
+
+  return {
+    valid: true,
+    familyRole,
+    familyGroupId: String(familyGroupId),
+    familyLabel,
+    familyParentAttendeeId: String(parent._id),
+    familyState,
+    parent,
+    members: resolvedMembers,
+    eligibleChildren,
+    separateMembers,
+    requirements,
+    reason: null,
+  }
+}
+
+/**
+ * Physical room occupancy is global because rooms are shared inventory while
+ * the allocation board is event-scoped. Canonical attendees are authoritative;
+ * an assigned provider row is counted only when it cannot be bridged to one.
+ * The optional room cache is deliberately not consulted here.
+ */
+async function loadRoomOccupancy(
+  ctx: Pick<QueryCtx, "db">,
+  roomId: string,
+  roomCapacity: number,
+  visibleEventId: string | null = null
+): Promise<RoomOccupancy> {
+  const [canonicalOccupants, providerOccupants] = await Promise.all([
+    ctx.db
+      .query("orderAttendees")
+      .withIndex("by_assignedRoomId", (q) => q.eq("assignedRoomId", roomId))
+      .take(ROOM_OCCUPANT_LIMIT),
+    ctx.db
+      .query("ticketTailorAttendees")
+      .withIndex("by_assignedRoomId", (q) => q.eq("assignedRoomId", roomId))
+      .take(ROOM_OCCUPANT_LIMIT),
+  ])
+
+  // Resolve provider bridges globally, not just against canonical occupants
+  // already loaded for this room. A stale provider room must not double-count a
+  // canonical attendee that has since moved elsewhere.
+  const providerBridges = await Promise.all(
+    providerOccupants.map((providerAttendee) =>
+      providerAttendee.attendeeId
+        ? ctx.db.get("orderAttendees", providerAttendee.attendeeId)
+        : Promise.resolve(null)
+    )
+  )
+  const providerOnly = providerOccupants.filter(
+    (_providerAttendee, index) => providerBridges[index] === null
+  )
+  const requirements = await resolveAttendeeBedRequirements(
+    ctx,
+    canonicalOccupants.map((attendee) => attendee._id)
+  )
+  const canonicalOrders = await Promise.all(
+    canonicalOccupants.map((attendee) => ctx.db.get("orders", attendee.orderId))
+  )
+  const providerOrders = await Promise.all(
+    providerOnly.map((attendee) => ctx.db.get("orders", attendee.orderId))
+  )
+
+  const canonicalBedCount = canonicalOccupants.reduce((sum, attendee) => {
+    const requirement = requirements.get(String(attendee._id))
+    return sum + (requirement?.requiresBed === false ? 0 : 1)
+  }, 0)
+  const providerBedCount = providerOnly.length
+  const occupantCount = canonicalOccupants.length + providerOnly.length
+  const incomplete =
+    canonicalOccupants.length >= ROOM_OCCUPANT_LIMIT ||
+    providerOccupants.length >= ROOM_OCCUPANT_LIMIT
+  const occupiedBeds = canonicalBedCount + providerBedCount
+  const foreignOccupantCount = visibleEventId
+    ? canonicalOrders.filter(
+        (order) => order && String(order.eventId) !== visibleEventId
+      ).length +
+      providerOrders.filter(
+        (order) => order && String(order.eventId) !== visibleEventId
+      ).length
+    : 0
+
+  return {
+    occupantCount,
+    occupiedBeds,
+    // An incomplete physical read must never advertise a bed as available.
+    availableBeds: incomplete
+      ? 0
+      : Math.max(0, roomCapacity - occupiedBeds),
+    foreignOccupantCount,
+    incomplete,
+  }
+}
+
+async function assertRoomCapacityForAttendee(
+  ctx: MutationCtx,
+  attendee: Doc<"orderAttendees">,
+  room: Doc<"accommodationRooms">
+): Promise<{ requirement: Awaited<ReturnType<typeof resolveAttendeeBedRequirement>>; occupancy: RoomOccupancy }> {
+  const requirement = await resolveAttendeeBedRequirement(ctx, attendee._id)
+  if (!requirement.placementEligible) {
+    throw new Error("Attendee is not eligible for accommodation placement")
+  }
+
+  const occupancy = await loadRoomOccupancy(
+    ctx,
+    String(room._id),
+    room.capacity,
+    null
+  )
+  const alreadyAssigned = attendee.assignedRoomId === String(room._id)
+  const incomingBedDelta =
+    alreadyAssigned || !requirement.requiresBed ? 0 : 1
+
+  if (occupancy.incomplete && incomingBedDelta > 0) {
+    throw new Error(
+      "Occupancy data is incomplete; verify before assigning a bed-consuming attendee"
+    )
+  }
+
+  if (occupancy.occupiedBeds + incomingBedDelta > room.capacity) {
+    throw new Error("Room is already full")
+  }
+
+  return { requirement, occupancy }
 }
 
 export function attendeeMatchesSignalFilters(input: {
@@ -296,25 +775,24 @@ export const recalculateRoomOccupancy = internalMutation({
       throw new Error("Room not found")
     }
 
-    // Bounded: one room has limited occupants
-    const occupants = await ctx.db
-      .query("orderAttendees")
-      .withIndex("by_assignedRoomId", (q) =>
-        q.eq("assignedRoomId", args.roomId)
-      )
-      .take(100)
+    const occupancy = await loadRoomOccupancy(
+      ctx,
+      String(room._id),
+      room.capacity,
+      null
+    )
 
     await ctx.db.patch("accommodationRooms", roomId, {
-      occupiedBeds: occupants.length,
+      occupiedBeds: occupancy.occupiedBeds,
     })
 
-    return { ok: true, occupiedBeds: occupants.length }
+    return { ok: true, ...occupancy }
   },
 })
 
 export const getRoomAllocationBoard = query({
   args: {
-    eventId: v.optional(v.string()),
+    eventId: v.string(),
     hotelId: v.optional(v.string()),
     roomTypeId: v.optional(v.string()),
     genderType: v.optional(
@@ -339,45 +817,34 @@ export const getRoomAllocationBoard = query({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const eventId = args.eventId
-
-    // Get provider event IDs for this canonical event via eventSources
-    let providerEventIds: string[] = []
-    let eventSourceMap = new Map<string, string>() // providerEventId -> canonical eventId
-
-    if (eventId) {
-      const eventSources = await ctx.db
-        .query("eventSources")
-        .withIndex("by_eventId", (q) =>
-          q.eq("eventId", eventId as Id<"events">)
-        )
-        .take(50)
-
-      for (const source of eventSources) {
-        providerEventIds.push(source.externalEventId)
-        eventSourceMap.set(source.externalEventId, eventId)
-      }
-
-      // Also check if there's a direct provider event ID match (backward compat)
-      const providerEvent = await ctx.db
-        .query("ticketTailorEvents")
-        .withIndex("providerEventId", (q) => q.eq("providerEventId", eventId))
-        .first()
-
-      if (providerEvent && !providerEventIds.includes(eventId)) {
-        providerEventIds.push(eventId)
-        eventSourceMap.set(eventId, eventId)
-      }
+    const requestedEventId = normalizeOptionalString(args.eventId)
+    if (!requestedEventId) {
+      throw new Error("Invalid eventId: a non-blank event ID is required")
     }
 
-    const scopedHotelIds = eventId
-      ? (
-          await ctx.db
-            .query("accommodationEventHotels")
-            .withIndex("eventId_hotelId", (q) => q.eq("eventId", eventId))
-            .take(200)
-        ).map((eh) => eh.hotelId)
-      : null
+    const canonicalEventId =
+      ctx.db.normalizeId("events", requestedEventId) ??
+      (
+        await ctx.db
+          .query("eventSources")
+          .withIndex("by_provider_and_externalEventId", (q) =>
+            q
+              .eq("provider", "tickettailor")
+              .eq("externalEventId", requestedEventId)
+          )
+          .first()
+      )?.eventId
+    if (!canonicalEventId) {
+      throw new Error("Invalid eventId: event not found")
+    }
+    const eventId = String(canonicalEventId)
+
+    const scopedHotelIds = (
+      await ctx.db
+        .query("accommodationEventHotels")
+        .withIndex("eventId_hotelId", (q) => q.eq("eventId", eventId))
+        .take(200)
+    ).map((eh) => eh.hotelId)
 
     const [
       events,
@@ -386,7 +853,6 @@ export const getRoomAllocationBoard = query({
       roomTypes,
       rooms,
       allOrderAttendees,
-      familyMembers,
       accommodationSlotDocs,
       allOrders,
       accommodationCategoriesDocs,
@@ -397,16 +863,13 @@ export const getRoomAllocationBoard = query({
       ctx.db.query("accommodationRoomTypes").take(100),
       ctx.db.query("accommodationRooms").take(500),
       ctx.db.query("orderAttendees").take(2000),
-      ctx.db.query("attendeeFamilyMembers").take(2000),
       ctx.db.query("accommodationSlots").take(1000),
-      eventId
-        ? ctx.db
-            .query("orders")
-            .withIndex("by_eventId", (q) =>
-              q.eq("eventId", eventId as Id<"events">)
-            )
-            .take(500)
-        : ctx.db.query("orders").take(500),
+      ctx.db
+        .query("orders")
+        .withIndex("by_eventId", (q) =>
+          q.eq("eventId", eventId as Id<"events">)
+        )
+        .take(500),
       ctx.db.query("accommodationCategories").take(100),
     ])
 
@@ -418,8 +881,10 @@ export const getRoomAllocationBoard = query({
     const internalEventIds = new Set(
       internalCanonicalEvents.map((event) => String(event._id))
     )
-    const scopedOrders = allOrders.filter((order) =>
-      internalEventIds.has(String(order.eventId))
+    const scopedOrders = allOrders.filter(
+      (order) =>
+        internalEventIds.has(String(order.eventId)) &&
+        (!eventId || String(order.eventId) === String(eventId))
     )
 
     const scopedTicketSelectionDocs = scopedOrders.length
@@ -493,6 +958,10 @@ export const getRoomAllocationBoard = query({
       if (eventId && order.eventId !== eventId) return false
       return true
     })
+    const scopedBedRequirements = await resolveAttendeeBedRequirements(
+      ctx,
+      scopedAttendees.map((attendee) => attendee._id)
+    )
 
     // --- Canonical payment-state projection (Phase 44) ---
     // Group the scoped attendees by order once and load the canonical
@@ -595,16 +1064,6 @@ export const getRoomAllocationBoard = query({
       })
     }
 
-    const attendeeFamilyGroupByAttendeeId = new Map<string, string>()
-    for (const familyMember of familyMembers) {
-      if (!attendeeFamilyGroupByAttendeeId.has(familyMember.attendeeId)) {
-        attendeeFamilyGroupByAttendeeId.set(
-          familyMember.attendeeId,
-          familyMember.familyGroupId
-        )
-      }
-    }
-
     const attendeeCountByOrderId = new Map<string, number>()
     for (const attendee of scopedAttendees) {
       attendeeCountByOrderId.set(
@@ -623,6 +1082,11 @@ export const getRoomAllocationBoard = query({
         attendeeEmail: string | null
         assignmentIntent: "assign" | "skip"
         sortOrder: number
+        familyRole: FamilyRole
+        familyGroupId: string | null
+        familyParentAttendeeId: string | null
+        eligibleChildIds: string[]
+        eligibleChildCount: number
       }>
     >()
 
@@ -634,46 +1098,144 @@ export const getRoomAllocationBoard = query({
       return true
     })
 
-    const unassignedAttendees = scopedAttendees.filter((a) => {
-      if (a.assignedRoomId) return false
-      const attendeeFamilyGroupId =
-        attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
+    const familyUnitByAttendeeId = new Map<string, FamilyPlacementUnit>()
+    for (const attendee of scopedAttendees) {
+      familyUnitByAttendeeId.set(
+        String(attendee._id),
+        await resolveFamilyPlacementUnit(
+          ctx,
+          eventId,
+          attendee,
+          scopedBedRequirements
+        )
+      )
+    }
 
+    type FamilyFollowUpState =
+      | "Needs family link"
+      | "Waiting for parent room"
+      | "inconsistent"
+    const familyFollowUps: Array<{
+      attendeeId: string
+      attendeeName: string | null
+      familyGroupId: string | null
+      familyLabel: string | null
+      familyParentAttendeeId: string | null
+      familyParentName: string | null
+      state: FamilyFollowUpState
+      message: string
+    }> = []
+    const followUpKeys = new Set<string>()
+    const addFamilyFollowUp = (input: {
+      attendee: Doc<"orderAttendees">
+      unit: FamilyPlacementUnit
+      state: FamilyFollowUpState
+      message: string
+    }) => {
+      const key = `${input.state}:${String(input.attendee._id)}`
+      if (followUpKeys.has(key)) return
+      followUpKeys.add(key)
+      familyFollowUps.push({
+        attendeeId: String(input.attendee._id),
+        attendeeName: input.attendee.name ?? null,
+        familyGroupId: input.unit.familyGroupId,
+        familyLabel: input.unit.familyLabel,
+        familyParentAttendeeId: input.unit.familyParentAttendeeId,
+        familyParentName: input.unit.parent?.name ?? null,
+        state: input.state,
+        message: input.message,
+      })
+    }
+
+    for (const attendee of scopedAttendees) {
+      const unit = familyUnitByAttendeeId.get(String(attendee._id))!
+      const requirement = scopedBedRequirements.get(String(attendee._id))
+      if (!requirement?.placementEligible) continue
+
+      if (!unit.valid && unit.familyState === "needs-family-link") {
+        addFamilyFollowUp({
+          attendee,
+          unit,
+          state: "Needs family link",
+          message:
+            "Review attendee details and link a valid family parent before placing this no-bed attendee.",
+        })
+      } else if (!unit.valid || unit.familyState === "inconsistent") {
+        addFamilyFollowUp({
+          attendee,
+          unit,
+          state: "inconsistent",
+          message: "Review the family relationship before placing this attendee.",
+        })
+      } else if (
+        unit.familyRole === "child" &&
+        unit.parent &&
+        !unit.parent.assignedRoomId &&
+        unit.eligibleChildren.some(
+          (child) => String(child.attendee._id) === String(attendee._id)
+        )
+      ) {
+        addFamilyFollowUp({
+          attendee,
+          unit,
+          state: "Waiting for parent room",
+          message: "Place the parent to assign this child to the same room.",
+        })
+      }
+    }
+
+    const eventUnassignedAttendees = scopedAttendees.filter((attendee) => {
+      const requirement = scopedBedRequirements.get(String(attendee._id))
+      return (
+        !attendee.assignedRoomId &&
+        requirement?.placementEligible === true
+      )
+    })
+
+    const attendeePassesFilters = (attendee: Doc<"orderAttendees">) => {
+      const unit = familyUnitByAttendeeId.get(String(attendee._id))!
       const genderType =
-        a.gender === "male"
+        attendee.gender === "male"
           ? "MALE"
-          : a.gender === "female"
+          : attendee.gender === "female"
             ? "FEMALE"
-            : a.gender === "mixed"
+            : attendee.gender === "mixed"
               ? "MIXED"
               : "UNKNOWN"
-
       if (args.genderType && genderType !== args.genderType) return false
-      if (args.familyGroupId && attendeeFamilyGroupId !== args.familyGroupId)
+      if (args.familyGroupId && unit.familyGroupId !== args.familyGroupId)
         return false
-
-      const normalizedLocation = normalizeOptionalString(a.location)
+      const normalizedLocation = normalizeOptionalString(attendee.location)
       if (
         normalizedLocationFilter &&
         (!normalizedLocation ||
-          normalizedLocation.toLowerCase() !==
-            normalizedLocationFilter.toLowerCase())
+          normalizedLocation.toLowerCase() !== normalizedLocationFilter.toLowerCase())
       )
         return false
-
       if (
         args.allocationPriority &&
-        a.allocationPriority !== args.allocationPriority
+        attendee.allocationPriority !== args.allocationPriority
       )
         return false
-
       if (
         args.hasPriority !== undefined &&
-        hasPriorityAttendee(a.allocationPriority ?? null) !== args.hasPriority
+        hasPriorityAttendee(attendee.allocationPriority ?? null) !== args.hasPriority
       )
         return false
-
       return true
+    }
+
+    const unassignedAttendees = eventUnassignedAttendees.filter((attendee) => {
+      const unit = familyUnitByAttendeeId.get(String(attendee._id))!
+      const coveredByUnassignedParent =
+        unit.familyRole === "child" &&
+        unit.parent &&
+        !unit.parent.assignedRoomId &&
+        unit.eligibleChildren.some(
+          (child) => String(child.attendee._id) === String(attendee._id)
+        )
+      if (coveredByUnassignedParent) return false
+      return attendeePassesFilters(attendee)
     })
 
     const hotelMap = new Map(hotels.map((h) => [h._id as string, h]))
@@ -695,6 +1257,75 @@ export const getRoomAllocationBoard = query({
       }
     }
 
+    const roomOccupancyById = new Map(
+      await Promise.all(
+        filteredRooms.map(async (room) => [
+          String(room._id),
+          await loadRoomOccupancy(
+            ctx,
+            String(room._id),
+            room.capacity,
+            eventId
+          ),
+        ] as const)
+      )
+    )
+
+    type ProviderRoomProjection = {
+      provider: Doc<"ticketTailorAttendees">
+      order: Doc<"orders"> | null
+      canonicalAttendee: Doc<"orderAttendees"> | null
+      safelyBridgedCanonicalId: string | null
+    }
+    const providerRoomProjectionByRoom = new Map<
+      string,
+      ProviderRoomProjection[]
+    >()
+    const providerProjectionIncompleteRooms = new Set<string>()
+    const providerCoveredCanonicalIds = new Set<string>()
+    await Promise.all(
+      filteredRooms.map(async (room) => {
+        const providerRows = await ctx.db
+          .query("ticketTailorAttendees")
+          .withIndex("by_assignedRoomId", (q) =>
+            q.eq("assignedRoomId", String(room._id))
+          )
+          .take(ROOM_OCCUPANT_LIMIT)
+        const projections: ProviderRoomProjection[] = []
+        for (const provider of providerRows) {
+          const canonicalAttendee = provider.attendeeId
+            ? await ctx.db.get("orderAttendees", provider.attendeeId)
+            : null
+          // A canonical bridge owns assignment state globally. If it exists,
+          // its provider row is intentionally omitted from this room even when
+          // the provider has a stale room value.
+          if (canonicalAttendee) continue
+
+          const order = await ctx.db.get("orders", provider.orderId)
+          if (!order || String(order.eventId) !== eventId) continue
+          const orderMembers = await ctx.db
+            .query("orderAttendees")
+            .withIndex("by_orderId", (q) => q.eq("orderId", provider.orderId))
+            .take(2)
+          if (orderMembers.length === 1) {
+            providerCoveredCanonicalIds.add(String(orderMembers[0]!._id))
+            projections.push({
+              provider,
+              order,
+              canonicalAttendee: orderMembers[0]!,
+              safelyBridgedCanonicalId: String(orderMembers[0]!._id),
+            })
+          } else {
+            // A provider row with no safe order/attendee bridge remains an
+            // aggregate physical occupant, not an invented selected-event
+            // identity. Keep the room review-needed and redact the row.
+            providerProjectionIncompleteRooms.add(String(room._id))
+          }
+        }
+        providerRoomProjectionByRoom.set(String(room._id), projections)
+      })
+    )
+
     const mappedRooms = filteredRooms.map((room) => {
       const hotel = hotelMap.get(room.hotelId as string)
       const roomType = roomTypeMap.get(room.roomTypeId as string)
@@ -708,6 +1339,7 @@ export const getRoomAllocationBoard = query({
         : null
       const roomCapacity = roomType?.defaultCapacity ?? room.capacity
       const occupants = (attendeesByRoom[room._id] ?? []).map((a) => {
+        const familyUnit = familyUnitByAttendeeId.get(String(a._id))
         const order = orderById.get(a.orderId as string)
         const canonicalEvent = order
           ? canonicalEventById.get(order.eventId as string)
@@ -735,6 +1367,7 @@ export const getRoomAllocationBoard = query({
             nightBeforeMismatch = true
           }
         }
+        const bedRequirement = scopedBedRequirements.get(String(a._id))
         return {
           attendeeId: a._id,
           orderId: order?._id ?? null,
@@ -753,15 +1386,82 @@ export const getRoomAllocationBoard = query({
           nightBeforeOccupancy: preference?.nightBeforeOccupancy ?? null,
           categoryLabel: preference?.categoryLabel ?? null,
           optionKeys: preference?.optionKeys ?? [],
+          requiresBed: bedRequirement?.requiresBed ?? true,
           nightBeforeMismatch,
+          familyRole: familyUnit?.familyRole ?? "solo",
+          familyGroupId: familyUnit?.familyGroupId ?? null,
+          familyLabel: familyUnit?.familyLabel ?? null,
+          familyParentAttendeeId:
+            familyUnit?.familyParentAttendeeId ?? null,
+          familyState: familyUnit?.familyState ?? "inconsistent",
+          eligibleChildren:
+            familyUnit?.familyRole === "parent"
+              ? familyUnit.eligibleChildren.map((child) => ({
+                  attendeeId: String(child.attendee._id),
+                  attendeeName: child.attendee.name ?? null,
+                  requiresBed: false,
+                  familyRole: "child" as const,
+                  familyState: child.familyState,
+                }))
+              : [],
+          eligibleChildCount: familyUnit?.eligibleChildren.length ?? 0,
+          separateMemberCount: familyUnit?.separateMembers.length ?? 0,
         }
       })
-      const occupiedBeds = occupants.length
-      const availableBeds = Math.max(0, room.capacity - occupiedBeds)
+      const providerOnlyOccupants = (
+        providerRoomProjectionByRoom.get(String(room._id)) ?? []
+      ).map(({ provider, order, canonicalAttendee }) => {
+        const canonicalEvent = canonicalEventById.get(String(order?.eventId))
+        const canonicalPayment = canonicalAttendee
+          ? paymentById.get(String(canonicalAttendee._id))
+          : null
+        return {
+          attendeeId: canonicalAttendee?._id ?? `provider:${String(provider._id)}`,
+          attendeeName: provider.name ?? canonicalAttendee?.name ?? null,
+          attendeeEmail: provider.email ?? canonicalAttendee?.email ?? null,
+          orderId: order?._id ?? null,
+          providerOrderId: provider.providerOrderId,
+          providerEventId: provider.providerEventId,
+          eventId: canonicalEvent?._id ?? null,
+          eventName: canonicalEvent?.title ?? null,
+          ticketTypeLabel: provider.ticketTypeLabel ?? null,
+          paymentState: canonicalPayment?.paymentState ?? null,
+          amountDueMinor: canonicalPayment?.amountDueMinor ?? null,
+          paidAmountMinor: canonicalPayment?.paidAmountMinor ?? null,
+          occupancy: null,
+          nightBeforeLevel: null,
+          nightBeforeOccupancy: null,
+          categoryLabel: null,
+          optionKeys: [],
+          requiresBed: true,
+          nightBeforeMismatch: false,
+          familyRole: "solo" as const,
+          familyGroupId: null,
+          familyLabel: null,
+          familyParentAttendeeId: null,
+          familyState: "placed" as const,
+          eligibleChildren: [],
+          eligibleChildCount: 0,
+          separateMemberCount: 0,
+          providerOnly: true,
+        }
+      })
+      const roomProjectionIncomplete = providerProjectionIncompleteRooms.has(
+        String(room._id)
+      )
+      const physicalOccupancy = roomOccupancyById.get(String(room._id)) ?? {
+        occupantCount: 0,
+        occupiedBeds: 0,
+        availableBeds: 0,
+        foreignOccupantCount: 0,
+        incomplete: true,
+      }
+      const occupiedBeds = physicalOccupancy.occupiedBeds
+      const availableBeds = physicalOccupancy.availableBeds
       const availability =
-        occupiedBeds === 0
+        physicalOccupancy.occupantCount === 0
           ? "empty"
-          : occupiedBeds >= room.capacity
+          : availableBeds === 0
             ? "full"
             : "available"
 
@@ -769,6 +1469,10 @@ export const getRoomAllocationBoard = query({
         id: room._id,
         label: room.label,
         capacity: room.capacity,
+        occupantCount: physicalOccupancy.occupantCount,
+        foreignOccupantCount: physicalOccupancy.foreignOccupantCount,
+         occupancyIncomplete:
+           physicalOccupancy.incomplete || roomProjectionIncomplete,
         occupiedBeds,
         availableBeds,
         availability,
@@ -783,23 +1487,45 @@ export const getRoomAllocationBoard = query({
               defaultCapacity: roomType.defaultCapacity,
             }
           : undefined,
-        occupants,
+        occupants: [...occupants, ...providerOnlyOccupants],
+        providerProjectionIncomplete: roomProjectionIncomplete,
         pendingAssignments: pendingAssignmentsByRoom.get(room._id) ?? [],
       }
     })
 
-    const mappedUnassignedAttendees = unassignedAttendees.map((a) => {
+    // These legacy order-member fields remain additive for older consumers,
+    // but they are never used as family authority or an assignment recipe.
+    const legacyOrderMemberIdsByAttendeeId = new Map<string, string[]>()
+    for (const attendee of eventUnassignedAttendees) {
+      const ids = eventUnassignedAttendees
+        .filter((candidate) => candidate.orderId === attendee.orderId)
+        .map((candidate) => String(candidate._id))
+      legacyOrderMemberIdsByAttendeeId.set(String(attendee._id), ids)
+    }
+
+    const mappedUnassignedAttendees = unassignedAttendees
+      .filter((attendee) => !providerCoveredCanonicalIds.has(String(attendee._id)))
+      .map((a) => {
       const order = orderById.get(a.orderId as string)
       const canonicalEvent = order
         ? canonicalEventById.get(order.eventId as string)
         : null
-      const attendeeFamilyGroupId =
-        attendeeFamilyGroupByAttendeeId.get(a._id) ?? null
+      const familyUnit = familyUnitByAttendeeId.get(String(a._id))!
       const payment = paymentById.get(String(a._id))
       const preference = accommodationPreferenceByAttendeeId.get(String(a._id))
+      const legacyOrderMemberIds =
+        legacyOrderMemberIdsByAttendeeId.get(String(a._id)) ?? []
+      const roomTypeId = a.allocatedRoomTypeId
+        ? String(a.allocatedRoomTypeId)
+        : null
+      const orderMembers = eventUnassignedAttendees.filter(
+        (candidate) => candidate.orderId === a.orderId
+      )
       return {
         attendeeId: a._id,
         orderId: order?._id ?? null,
+        bookingRef: order?.bookingRef ?? null,
+        bookerName: order?.bookerName ?? null,
         attendeeName: a.name ?? null,
         attendeeEmail: a.email ?? null,
         providerOrderId: order?.providerOrderId ?? null,
@@ -821,12 +1547,45 @@ export const getRoomAllocationBoard = query({
         remarks: null,
         roommatePreference: a.roommatePreference ?? null,
         roommateAvoid: a.roommateAvoid ?? null,
-        hasFamily: hasFamilySignal({
-          attendeeId: a._id,
-          orderId: order?._id ?? null,
-          attendeeFamilyGroupId,
-          attendeeCountByOrderId,
-        }),
+        hasFamily:
+          familyUnit.familyGroupId !== null ||
+          hasFamilySignal({
+            attendeeId: a._id,
+            orderId: order?._id ?? null,
+            attendeeFamilyGroupId: familyUnit.familyGroupId,
+            attendeeCountByOrderId,
+          }),
+        groupMemberIds:
+          familyUnit.familyGroupId !== null
+            ? familyUnit.members.map((member) => String(member._id))
+            : legacyOrderMemberIds,
+        groupAssignmentAvailable:
+          familyUnit.familyGroupId !== null
+            ? familyUnit.eligibleChildren.length > 0
+            : legacyOrderMemberIds.length > 1 &&
+              roomTypeId !== null &&
+              orderMembers.every(
+                (member) => String(member.allocatedRoomTypeId ?? "") === roomTypeId
+              ),
+        familyRole: familyUnit.familyRole,
+        familyGroupId: familyUnit.familyGroupId,
+        familyLabel: familyUnit.familyLabel,
+        familyParentAttendeeId: familyUnit.familyParentAttendeeId,
+        familyState: familyUnit.familyState,
+        eligibleChildren: familyUnit.eligibleChildren.map((child) => ({
+          attendeeId: String(child.attendee._id),
+          attendeeName: child.attendee.name ?? null,
+          attendeeEmail: child.attendee.email ?? null,
+          requiresBed: false,
+          familyRole: "child" as const,
+          familyState: child.familyState,
+        })),
+        eligibleChildCount: familyUnit.eligibleChildren.length,
+        separateMemberCount: familyUnit.separateMembers.length,
+        separateMembers: familyUnit.separateMembers.map((member) => ({
+          attendeeId: String(member._id),
+          attendeeName: member.name ?? null,
+        })),
         paymentState: payment?.paymentState ?? null,
         amountDueMinor: payment?.amountDueMinor ?? null,
         paidAmountMinor: payment?.paidAmountMinor ?? null,
@@ -835,8 +1594,10 @@ export const getRoomAllocationBoard = query({
         nightBeforeOccupancy: preference?.nightBeforeOccupancy ?? null,
         categoryLabel: preference?.categoryLabel ?? null,
         optionKeys: preference?.optionKeys ?? [],
+        requiresBed:
+          scopedBedRequirements.get(String(a._id))?.requiresBed ?? true,
       }
-    })
+      })
 
     // Paid-first ordering (Phase 44): payment state is the primary rank, then
     // the existing allocation priority, then stable group/name/id tie-breakers.
@@ -952,7 +1713,11 @@ export const getRoomAllocationBoard = query({
     const buyerSuggestions = orderAssignmentsList
       .filter((assignment) => {
         const assignmentAny = assignment as { status?: string }
-        return !assignmentAny.status || assignmentAny.status === "pending"
+        if (assignmentAny.status && assignmentAny.status !== "pending") return false
+        const attendeeId = String(assignment.attendeeId)
+        const familyUnit = familyUnitByAttendeeId.get(attendeeId)
+        const requirement = scopedBedRequirements.get(attendeeId)
+        return requirement?.placementEligible === true && familyUnit?.valid === true
       })
       .map((assignment) => {
         const roomId = slotIdToRoomId.get(assignment.slotId as string)
@@ -960,6 +1725,9 @@ export const getRoomAllocationBoard = query({
         const hotel = room ? hotelMap.get(room.hotelId as string) : null
         const attendee = attendeeById.get(assignment.attendeeId as string)
         const payment = paymentById.get(String(assignment.attendeeId))
+        const familyUnit = familyUnitByAttendeeId.get(
+          String(assignment.attendeeId)
+        )!
 
         return {
           assignmentId: assignment._id as string,
@@ -977,6 +1745,13 @@ export const getRoomAllocationBoard = query({
           mixedCategory: mixedMemberAttendeeIds.has(
             String(assignment.attendeeId)
           ),
+          familyRole: familyUnit.familyRole,
+          familyGroupId: familyUnit.familyGroupId,
+          familyParentAttendeeId: familyUnit.familyParentAttendeeId,
+          eligibleChildIds: familyUnit.eligibleChildren.map((child) =>
+            String(child.attendee._id)
+          ),
+          eligibleChildCount: familyUnit.eligibleChildren.length,
         }
       })
       .sort((a, b) => {
@@ -993,10 +1768,13 @@ export const getRoomAllocationBoard = query({
 
     // Filter pending assignments: assignmentIntent="assign" and (status is undefined/pending)
     for (const assignment of orderAssignmentsList) {
-      const assignmentAny = assignment as any
-      const isPending =
+      const assignmentAny = assignment as { status?: string }
+        const isPending =
         assignment.assignmentIntent === "assign" &&
-        (!assignmentAny.status || assignmentAny.status === "pending")
+        (!assignmentAny.status || assignmentAny.status === "pending") &&
+        scopedBedRequirements.get(String(assignment.attendeeId))
+          ?.placementEligible === true &&
+        familyUnitByAttendeeId.get(String(assignment.attendeeId))?.valid === true
 
       if (!isPending) continue
 
@@ -1015,6 +1793,22 @@ export const getRoomAllocationBoard = query({
         attendeeEmail: attendee?.email ?? null,
         assignmentIntent: assignment.assignmentIntent,
         sortOrder: assignment.sortOrder,
+        familyRole:
+          familyUnitByAttendeeId.get(String(assignment.attendeeId))?.familyRole ??
+          "solo",
+        familyGroupId:
+          familyUnitByAttendeeId.get(String(assignment.attendeeId))?.familyGroupId ??
+          null,
+        familyParentAttendeeId:
+          familyUnitByAttendeeId.get(String(assignment.attendeeId))
+            ?.familyParentAttendeeId ?? null,
+        eligibleChildIds:
+          familyUnitByAttendeeId
+            .get(String(assignment.attendeeId))
+            ?.eligibleChildren.map((child) => String(child.attendee._id)) ?? [],
+        eligibleChildCount:
+          familyUnitByAttendeeId.get(String(assignment.attendeeId))
+            ?.eligibleChildren.length ?? 0,
       }
 
       const existing = pendingAssignmentsByRoom.get(roomId) ?? []
@@ -1180,6 +1974,7 @@ export const getRoomAllocationBoard = query({
         mixedCategoryGroup: mixedGroupRoomIds.has(String(room.id)),
       })),
       buyerSuggestions,
+      familyFollowUps,
       unassignedAttendees: mappedUnassignedAttendees,
       submissionQueueRows,
       summary: {
@@ -1191,9 +1986,19 @@ export const getRoomAllocationBoard = query({
         ).length,
         fullRooms: mappedRooms.filter((r) => r.availability === "full").length,
         totalBeds: mappedRooms.reduce((sum, r) => sum + r.capacity, 0),
+        totalOccupants: mappedRooms.reduce(
+          (sum, r) => sum + r.occupantCount,
+          0
+        ),
         occupiedBeds: mappedRooms.reduce((sum, r) => sum + r.occupiedBeds, 0),
         availableBeds: mappedRooms.reduce((sum, r) => sum + r.availableBeds, 0),
+        foreignOccupants: mappedRooms.reduce(
+          (sum, r) => sum + r.foreignOccupantCount,
+          0
+        ),
+        occupancyIncomplete: mappedRooms.some((r) => r.occupancyIncomplete),
         unassignedAttendeesCount: mappedUnassignedAttendees.length,
+        familyFollowUpsCount: familyFollowUps.length,
       },
     }
   },
@@ -1237,35 +2042,39 @@ export const getRoomsWithDetails = query({
   handler: async (ctx) => {
     await requireIdentity(ctx)
     // Bounded: config tables capped for inventory view
-    const [rooms, hotels, roomTypes, attendees] = await Promise.all([
+    const [rooms, hotels, roomTypes] = await Promise.all([
       ctx.db.query("accommodationRooms").take(500),
       ctx.db.query("accommodationHotels").take(200),
       ctx.db.query("accommodationRoomTypes").take(100),
-      ctx.db.query("ticketTailorAttendees").take(2000),
     ])
 
     const hotelMap = new Map(hotels.map((h) => [h._id as string, h]))
     const roomTypeMap = new Map(roomTypes.map((rt) => [rt._id as string, rt]))
+    const occupancyByRoom = new Map(
+      await Promise.all(
+        rooms.map(async (room) => [
+          String(room._id),
+          await loadRoomOccupancy(ctx, String(room._id), room.capacity, null),
+        ] as const)
+      )
+    )
 
-    const occupancyByRoom = new Map<string, number>()
-    for (const attendee of attendees) {
-      if (attendee.assignedRoomId) {
-        occupancyByRoom.set(
-          attendee.assignedRoomId,
-          (occupancyByRoom.get(attendee.assignedRoomId) ?? 0) + 1
-        )
+    return rooms.map((room) => {
+      const occupancy = occupancyByRoom.get(String(room._id))!
+      return {
+        id: room._id,
+        label: room.label,
+        capacity: room.capacity,
+        occupantCount: occupancy.occupantCount,
+        occupiedBeds: occupancy.occupiedBeds,
+        availableBeds: occupancy.availableBeds,
+        foreignOccupantCount: occupancy.foreignOccupantCount,
+        occupancyIncomplete: occupancy.incomplete,
+        notes: room.notes,
+        hotel: hotelMap.get(room.hotelId as string),
+        roomType: roomTypeMap.get(room.roomTypeId as string),
       }
-    }
-
-    return rooms.map((room) => ({
-      id: room._id,
-      label: room.label,
-      capacity: room.capacity,
-      occupiedBeds: occupancyByRoom.get(room._id) ?? 0,
-      notes: room.notes,
-      hotel: hotelMap.get(room.hotelId as string),
-      roomType: roomTypeMap.get(room.roomTypeId as string),
-    }))
+    })
   },
 })
 
@@ -1274,13 +2083,12 @@ export const listAccommodationInventory = query({
   handler: async (ctx) => {
     await requireIdentity(ctx)
     // Bounded: config tables capped for inventory view
-    const [canonicalEvents, hotels, roomTypes, rooms, attendees] =
+    const [canonicalEvents, hotels, roomTypes, rooms] =
       await Promise.all([
         ctx.db.query("events").take(200),
         ctx.db.query("accommodationHotels").take(200),
         ctx.db.query("accommodationRoomTypes").take(100),
         ctx.db.query("accommodationRooms").take(500),
-        ctx.db.query("orderAttendees").take(2000),
       ])
 
     const eventHotels = await ctx.db.query("accommodationEventHotels").take(200)
@@ -1314,15 +2122,14 @@ export const listAccommodationInventory = query({
     const roomTypeMap = new Map(roomTypes.map((rt) => [rt._id as string, rt]))
     const hotelMap = new Map(hotels.map((h) => [h._id as string, h]))
 
-    const occupancyByRoom = new Map<string, number>()
-    for (const attendee of attendees) {
-      if (attendee.assignedRoomId) {
-        occupancyByRoom.set(
-          attendee.assignedRoomId,
-          (occupancyByRoom.get(attendee.assignedRoomId) ?? 0) + 1
-        )
-      }
-    }
+    const occupancyByRoom = new Map(
+      await Promise.all(
+        rooms.map(async (room) => [
+          String(room._id),
+          await loadRoomOccupancy(ctx, String(room._id), room.capacity, null),
+        ] as const)
+      )
+    )
 
     return {
       availableEvents: canonicalEvents
@@ -1354,12 +2161,16 @@ export const listAccommodationInventory = query({
       rooms: rooms.map((room) => {
         const hotel = hotelMap.get(room.hotelId as string)
         const roomType = roomTypeMap.get(room.roomTypeId as string)
-        const occupied = occupancyByRoom.get(room._id) ?? 0
+        const occupancy = occupancyByRoom.get(String(room._id))!
         return {
           id: room._id,
           label: room.label,
           capacity: room.capacity,
-          occupiedBeds: occupied,
+          occupantCount: occupancy.occupantCount,
+          occupiedBeds: occupancy.occupiedBeds,
+          availableBeds: occupancy.availableBeds,
+          foreignOccupantCount: occupancy.foreignOccupantCount,
+          occupancyIncomplete: occupancy.incomplete,
           notes: room.notes,
           hotel: hotel ? { id: hotel._id, name: hotel.name } : undefined,
           roomType: roomType
@@ -1373,14 +2184,34 @@ export const listAccommodationInventory = query({
       }),
       summary: {
         totalRooms: rooms.length,
-        emptyRooms: rooms.filter((r) => (occupancyByRoom.get(r._id) ?? 0) === 0)
+        emptyRooms: rooms.filter(
+          (r) => occupancyByRoom.get(String(r._id))?.occupantCount === 0
+        )
           .length,
         availableRooms: rooms.filter(
-          (r) => (occupancyByRoom.get(r._id) ?? 0) < r.capacity
+          (r) => (occupancyByRoom.get(String(r._id))?.availableBeds ?? 0) > 0
         ).length,
         fullRooms: rooms.filter(
-          (r) => (occupancyByRoom.get(r._id) ?? 0) >= r.capacity
+          (r) => (occupancyByRoom.get(String(r._id))?.availableBeds ?? 0) === 0
         ).length,
+        totalOccupants: rooms.reduce(
+          (sum, room) =>
+            sum + (occupancyByRoom.get(String(room._id))?.occupantCount ?? 0),
+          0
+        ),
+        occupiedBeds: rooms.reduce(
+          (sum, room) =>
+            sum + (occupancyByRoom.get(String(room._id))?.occupiedBeds ?? 0),
+          0
+        ),
+        availableBeds: rooms.reduce(
+          (sum, room) =>
+            sum + (occupancyByRoom.get(String(room._id))?.availableBeds ?? 0),
+          0
+        ),
+        occupancyIncomplete: rooms.some(
+          (room) => occupancyByRoom.get(String(room._id))?.incomplete
+        ),
         unassignedAttendees: 0,
       },
     }
@@ -1629,83 +2460,321 @@ export const createRoomType = mutation({
   },
 })
 
+type FamilyRoomAction = "assign" | "move"
+
+type ValidatedFamilyRoomOutcome = {
+  unit: FamilyPlacementUnit
+  eventId: Id<"events">
+  room: Doc<"accommodationRooms">
+  occupancy: RoomOccupancy
+  incomingBedDelta: number
+  affectedAttendees: Doc<"orderAttendees">[]
+}
+
+type FamilyAssignmentResult = {
+  ok: true
+  parentAttendeeId: string
+  roomId: string
+  targetRoomId: string
+  eligibleChildIds: string[]
+  eligibleChildCount: number
+  affectedAttendeeCount: number
+  action: FamilyRoomAction | "unassign"
+}
+
+function mutationErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+async function assertOrderEventOwnership(
+  ctx: MutationCtx,
+  eventId: string,
+  attendees: Doc<"orderAttendees">[]
+): Promise<Map<string, Doc<"orders">>> {
+  const event = await ctx.db.get(
+    "events",
+    normalizeDocId(ctx, "events", eventId, "Event not found")
+  )
+  if (!event) throw new Error("Event not found")
+
+  const orders = await Promise.all(
+    attendees.map((attendee) => ctx.db.get("orders", attendee.orderId))
+  )
+  const orderById = new Map<string, Doc<"orders">>()
+  for (const [index, order] of orders.entries()) {
+    if (!order || String(order.eventId) !== eventId) {
+      throw new Error("Attendee does not belong to this event")
+    }
+    orderById.set(String(attendees[index]!.orderId), order)
+  }
+  return orderById
+}
+
+async function assertTargetRoomEventScope(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+  room: Doc<"accommodationRooms">
+): Promise<void> {
+  const eventHotelLink = await ctx.db
+    .query("accommodationEventHotels")
+    .withIndex("eventId_hotelId", (q) =>
+      q.eq("eventId", eventId).eq("hotelId", room.hotelId as string)
+    )
+    .first()
+  if (!eventHotelLink) {
+    throw new Error("Room hotel is not enabled for this event")
+  }
+}
+
+function throwFamilyResolutionError(unit: FamilyPlacementUnit): never {
+  if (unit.familyState === "needs-family-link") {
+    throw new Error("Needs family link")
+  }
+  throw new Error("Family placement data is inconsistent")
+}
+
+/**
+ * Read-only validation for a complete parent-led target. All relationship,
+ * live bed, physical occupancy, inventory, and capacity checks happen before
+ * commitFamilyRoomOutcome performs its first attendee patch.
+ */
+async function validateFamilyRoomOutcome(
+  ctx: MutationCtx,
+  input: {
+    attendeeId: string
+    roomId: string
+    eventId: string
+    rejectAlreadyAssigned?: boolean
+  }
+): Promise<ValidatedFamilyRoomOutcome> {
+  const eventId = normalizeDocId(ctx, "events", input.eventId, "Event not found")
+  const attendeeId = normalizeDocId(
+    ctx,
+    "orderAttendees",
+    input.attendeeId,
+    "Attendee not found"
+  )
+  const roomId = normalizeDocId(
+    ctx,
+    "accommodationRooms",
+    input.roomId,
+    "Room not found"
+  )
+  const attendee = await ctx.db.get("orderAttendees", attendeeId)
+  const room = await ctx.db.get("accommodationRooms", roomId)
+  if (!attendee) throw new Error("Attendee not found")
+  if (!room) throw new Error("Room not found")
+
+  const familyUnit = await resolveFamilyPlacementUnit(ctx, String(eventId), attendee)
+  if (!familyUnit.valid) throwFamilyResolutionError(familyUnit)
+
+  // Family links are currently best-effort. Keep the atomic parent-led path
+  // when possible, but let a child fall back to an individual placement.
+  const unit =
+    familyUnit.familyRole === "child"
+      ? emptyFamilyUnit({
+          valid: true,
+          familyRole: "solo",
+          familyState: "unresolved",
+          requirement:
+            familyUnit.requirements.get(String(attendee._id)) ??
+            (await resolveAttendeeBedRequirement(ctx, attendee._id)),
+          attendee,
+        })
+      : familyUnit
+
+  if (!unit.parent) {
+    throw new Error("Family placement data is inconsistent")
+  }
+
+  const affectedAttendees = [unit.parent, ...unit.eligibleChildren.map((child) => child.attendee)]
+  const requirements = new Map(unit.requirements)
+  const missingRequirements = await Promise.all(
+    affectedAttendees.map(async (member) => {
+      const existing = requirements.get(String(member._id))
+      return [
+        String(member._id),
+        existing ?? (await resolveAttendeeBedRequirement(ctx, member._id)),
+      ] as const
+    })
+  )
+  for (const [memberId, requirement] of missingRequirements) {
+    requirements.set(memberId, requirement)
+    if (!requirement.placementEligible) {
+      throw new Error("Attendee is not eligible for accommodation placement")
+    }
+  }
+  await assertOrderEventOwnership(ctx, String(eventId), affectedAttendees)
+  await assertTargetRoomEventScope(ctx, eventId, room)
+
+  if (
+    input.rejectAlreadyAssigned &&
+    unit.parent.assignedRoomId === String(room._id) &&
+    unit.familyState === "placed"
+  ) {
+    throw new Error("Attendee already assigned to this room")
+  }
+
+  const occupancy = await loadRoomOccupancy(
+    ctx,
+    String(room._id),
+    room.capacity,
+    String(eventId)
+  )
+  const incomingBedDelta = affectedAttendees.reduce((sum, member) => {
+    const alreadyAssigned = member.assignedRoomId === String(room._id)
+    const requirement = requirements.get(String(member._id))
+    return sum + (alreadyAssigned || requirement?.requiresBed === false ? 0 : 1)
+  }, 0)
+
+  if (occupancy.incomplete && incomingBedDelta > 0) {
+    throw new Error(
+      "Occupancy data is incomplete; verify before assigning a bed-consuming family"
+    )
+  }
+  if (occupancy.occupiedBeds + incomingBedDelta > room.capacity) {
+    throw new Error("Room is already full")
+  }
+  const parentOrder = await ctx.db.get("orders", unit.parent.orderId)
+  await assertEventRoomInventoryAvailable(
+    ctx,
+    parentOrder,
+    room,
+    occupancy.occupantCount > 0
+  )
+
+  return {
+    unit,
+    eventId,
+    room,
+    occupancy,
+    incomingBedDelta,
+    affectedAttendees,
+  }
+}
+
+async function commitFamilyRoomOutcome(
+  ctx: MutationCtx,
+  outcome: ValidatedFamilyRoomOutcome,
+  action: FamilyRoomAction
+): Promise<FamilyAssignmentResult> {
+  const orderIds = new Set(
+    outcome.affectedAttendees.map((attendee) => String(attendee.orderId))
+  )
+  for (const orderId of orderIds) {
+    await persistOrderAccommodationConfirmation(
+      ctx,
+      orderId as Id<"orders">
+    )
+  }
+
+  for (const attendee of outcome.affectedAttendees) {
+    await ctx.db.patch("orderAttendees", attendee._id, {
+      assignedRoomId: String(outcome.room._id),
+    })
+  }
+
+  const eligibleChildIds = outcome.unit.eligibleChildren.map((child) =>
+    String(child.attendee._id)
+  )
+  return {
+    ok: true,
+    parentAttendeeId: String(outcome.unit.parent!._id),
+    roomId: String(outcome.room._id),
+    targetRoomId: String(outcome.room._id),
+    eligibleChildIds,
+    eligibleChildCount: eligibleChildIds.length,
+    affectedAttendeeCount: 1 + eligibleChildIds.length,
+    action,
+  }
+}
+
+async function validateFamilyUnassignment(
+  ctx: MutationCtx,
+  input: { attendeeId: string; eventId: string }
+): Promise<{
+  unit: FamilyPlacementUnit
+  affectedAttendees: Doc<"orderAttendees">[]
+  assignedAttendees: Doc<"orderAttendees">[]
+}> {
+  const eventId = normalizeDocId(ctx, "events", input.eventId, "Event not found")
+  const attendeeId = normalizeDocId(
+    ctx,
+    "orderAttendees",
+    input.attendeeId,
+    "Attendee not found or not assigned to any room"
+  )
+  const attendee = await ctx.db.get("orderAttendees", attendeeId)
+  if (!attendee) {
+    throw new Error("Attendee not found or not assigned to any room")
+  }
+  const familyUnit = await resolveFamilyPlacementUnit(ctx, String(eventId), attendee)
+  if (!familyUnit.valid) throwFamilyResolutionError(familyUnit)
+
+  const unit =
+    familyUnit.familyRole === "child"
+      ? emptyFamilyUnit({
+          valid: true,
+          familyRole: "solo",
+          familyState: "unresolved",
+          requirement:
+            familyUnit.requirements.get(String(attendee._id)) ??
+            (await resolveAttendeeBedRequirement(ctx, attendee._id)),
+          attendee,
+        })
+      : familyUnit
+
+  if (!unit.parent) throw new Error("Family placement data is inconsistent")
+  const affectedAttendees = [unit.parent, ...unit.eligibleChildren.map((child) => child.attendee)]
+  await assertOrderEventOwnership(ctx, String(eventId), affectedAttendees)
+  const assignedAttendees = affectedAttendees.filter(
+    (member) => member.assignedRoomId
+  )
+  if (assignedAttendees.length === 0) {
+    throw new Error("Attendee not found or not assigned to any room")
+  }
+  return { unit, affectedAttendees, assignedAttendees }
+}
+
+async function commitFamilyUnassignment(
+  ctx: MutationCtx,
+  outcome: Awaited<ReturnType<typeof validateFamilyUnassignment>>
+): Promise<FamilyAssignmentResult> {
+  for (const attendee of outcome.affectedAttendees) {
+    await ctx.db.patch("orderAttendees", attendee._id, {
+      assignedRoomId: undefined,
+    })
+  }
+  const eligibleChildIds = outcome.unit.eligibleChildren.map((child) =>
+    String(child.attendee._id)
+  )
+  const roomId = outcome.assignedAttendees[0]?.assignedRoomId ?? ""
+  return {
+    ok: true,
+    parentAttendeeId: String(outcome.unit.parent!._id),
+    roomId,
+    targetRoomId: roomId,
+    eligibleChildIds,
+    eligibleChildCount: eligibleChildIds.length,
+    affectedAttendeeCount: 1 + eligibleChildIds.length,
+    action: "unassign",
+  }
+}
+
 export const assignRoomToAttendee = mutation({
   args: {
     attendeeId: v.string(),
     roomId: v.string(),
+    eventId: v.string(),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const roomId = normalizeDocId(
-      ctx,
-      "accommodationRooms",
-      args.roomId,
-      "Room not found"
-    )
-    const attendeeId = normalizeDocId(
-      ctx,
-      "orderAttendees",
-      args.attendeeId,
-      "Attendee not found"
-    )
-    const room = await ctx.db.get("accommodationRooms", roomId)
-    if (!room) throw new Error("Room not found")
-
-    const attendee = await ctx.db.get("orderAttendees", attendeeId)
-    if (!attendee) throw new Error("Attendee not found")
-
-    const eventHotelLinks = await ctx.db
-      .query("accommodationEventHotels")
-      .withIndex("hotelId", (q) => q.eq("hotelId", room.hotelId as string))
-      .take(20)
-
-    if (eventHotelLinks.length > 0) {
-      // Look up the canonical event for this attendee via their order
-      const order = await ctx.db.get("orders", attendee.orderId)
-      const eventId = order?.eventId
-
-      if (eventId) {
-        const eventHasHotel = eventHotelLinks.some(
-          (eh) => eh.eventId === eventId
-        )
-        if (!eventHasHotel) {
-          throw new Error("Room hotel is not enabled for this event")
-        }
-      }
-    }
-
-    const occupiedCount = await ctx.db
-      .query("orderAttendees")
-      .withIndex("by_assignedRoomId", (q) =>
-        q.eq("assignedRoomId", args.roomId)
-      )
-      .take(room.capacity + 1)
-
-    if (occupiedCount.length >= room.capacity) {
-      throw new Error("Room is already full")
-    }
-
-    // RMG-03: event-resource inventory guard (no-op when the event has no
-    // resource rows for this room type).
-    const orderForInventory = await ctx.db.get("orders", attendee.orderId)
-    await assertEventRoomInventoryAvailable(
-      ctx,
-      orderForInventory,
-      room,
-      occupiedCount.length > 0
-    )
-
-    // Phase 44 lock boundary: the first assignment for an order with
-    // unconfirmed options-only selections persists the accommodation
-    // confirmation snapshot atomically with the assignment write. Legacy
-    // orders with no selection rows skip cleanly.
-    await persistOrderAccommodationConfirmation(ctx, attendee.orderId)
-
-    await ctx.db.patch("orderAttendees", attendeeId, {
-      assignedRoomId: args.roomId,
+    const outcome = await validateFamilyRoomOutcome(ctx, {
+      ...args,
+      rejectAlreadyAssigned: false,
     })
-
-    return args.attendeeId
+    const result = await commitFamilyRoomOutcome(ctx, outcome, "assign")
+    return outcome.unit.familyRole === "solo" ? args.attendeeId : result
   },
 })
 
@@ -1713,130 +2782,42 @@ export const assignAttendeeToRoom = mutation({
   args: {
     attendeeId: v.string(),
     roomId: v.string(),
+    eventId: v.string(),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const roomId = normalizeDocId(
-      ctx,
-      "accommodationRooms",
-      args.roomId,
-      "Room not found"
-    )
-    const attendeeId = normalizeDocId(
-      ctx,
-      "orderAttendees",
-      args.attendeeId,
-      "Attendee not found"
-    )
-    const room = await ctx.db.get("accommodationRooms", roomId)
-    if (!room) throw new Error("Room not found")
-
-    const attendee = await ctx.db.get("orderAttendees", attendeeId)
-    if (!attendee) throw new Error("Attendee not found")
-
-    if (attendee.assignedRoomId === args.roomId) {
-      throw new Error("Attendee already assigned to this room")
-    }
-
-    const eventHotelLinks = await ctx.db
-      .query("accommodationEventHotels")
-      .withIndex("hotelId", (q) => q.eq("hotelId", room.hotelId as string))
-      .take(20)
-
-    if (eventHotelLinks.length > 0) {
-      // Look up the canonical event for this attendee via their order
-      const order = await ctx.db.get("orders", attendee.orderId)
-      const eventId = order?.eventId
-
-      if (eventId) {
-        const eventHasHotel = eventHotelLinks.some(
-          (eh) => eh.eventId === eventId
-        )
-        if (!eventHasHotel) {
-          throw new Error("Room hotel is not enabled for this event")
-        }
-      }
-    }
-
-    const occupiedCount = await ctx.db
-      .query("orderAttendees")
-      .withIndex("by_assignedRoomId", (q) =>
-        q.eq("assignedRoomId", args.roomId)
-      )
-      .take(room.capacity + 1)
-
-    if (occupiedCount.length >= room.capacity) {
-      throw new Error("Room is already full")
-    }
-
-    // RMG-03: event-resource inventory guard (no-op when the event has no
-    // resource rows for this room type).
-    const orderForInventory = await ctx.db.get("orders", attendee.orderId)
-    await assertEventRoomInventoryAvailable(
-      ctx,
-      orderForInventory,
-      room,
-      occupiedCount.length > 0
-    )
-
-    // Phase 44 lock boundary: first assignment for an order with unconfirmed
-    // options-only selections persists the confirmation snapshot atomically
-    // with the assignment write; legacy orders skip cleanly.
-    await persistOrderAccommodationConfirmation(ctx, attendee.orderId)
-
-    await ctx.db.patch("orderAttendees", attendeeId, {
-      assignedRoomId: args.roomId,
+    const outcome = await validateFamilyRoomOutcome(ctx, {
+      ...args,
+      rejectAlreadyAssigned: true,
     })
-
-    return { ok: true }
+    const result = await commitFamilyRoomOutcome(ctx, outcome, "move")
+    return outcome.unit.familyRole === "solo" ? { ok: true } : result
   },
 })
 
 export const unassignRoomFromAttendee = mutation({
   args: {
     attendeeId: v.string(),
+    eventId: v.string(),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const attendeeId = normalizeDocId(
-      ctx,
-      "orderAttendees",
-      args.attendeeId,
-      "Attendee not found or not assigned to any room"
-    )
-    const attendee = await ctx.db.get("orderAttendees", attendeeId)
-    if (!attendee || !attendee.assignedRoomId) return { ok: true }
-
-    await ctx.db.patch("orderAttendees", attendeeId, {
-      assignedRoomId: undefined,
-    })
-
-    return { ok: true }
+    const outcome = await validateFamilyUnassignment(ctx, args)
+    const result = await commitFamilyUnassignment(ctx, outcome)
+    return outcome.unit.familyRole === "solo" ? { ok: true } : result
   },
 })
 
 export const unassignAttendeeFromRoom = mutation({
   args: {
     attendeeId: v.string(),
+    eventId: v.string(),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const attendeeId = normalizeDocId(
-      ctx,
-      "orderAttendees",
-      args.attendeeId,
-      "Attendee not found or not assigned to any room"
-    )
-    const attendee = await ctx.db.get("orderAttendees", attendeeId)
-    if (!attendee || !attendee.assignedRoomId) {
-      throw new Error("Attendee not found or not assigned to any room")
-    }
-
-    await ctx.db.patch("orderAttendees", attendeeId, {
-      assignedRoomId: undefined,
-    })
-
-    return { ok: true }
+    const outcome = await validateFamilyUnassignment(ctx, args)
+    const result = await commitFamilyUnassignment(ctx, outcome)
+    return outcome.unit.familyRole === "solo" ? { ok: true } : result
   },
 })
 
@@ -2004,14 +2985,42 @@ export const unlinkHotelFromEvent = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    const eventId = normalizeDocId(
+      ctx,
+      "events",
+      args.eventId,
+      "Event not found"
+    )
     const link = await ctx.db
       .query("accommodationEventHotels")
       .withIndex("eventId_hotelId", (q) =>
-        q.eq("eventId", args.eventId).eq("hotelId", args.hotelId)
+        q.eq("eventId", eventId).eq("hotelId", args.hotelId)
       )
       .first()
 
     if (link) {
+      const rooms = await ctx.db
+        .query("accommodationRooms")
+        .withIndex("hotelId_label", (q) =>
+          q.eq("hotelId", args.hotelId as string)
+        )
+        .take(100)
+
+      for (const room of rooms) {
+        const assignedAttendees = await ctx.db
+          .query("orderAttendees")
+          .withIndex("by_assignedRoomId", (q) =>
+            q.eq("assignedRoomId", String(room._id))
+          )
+          .take(1)
+
+        if (assignedAttendees.length > 0) {
+          throw new Error(
+            "Cannot unlink a hotel while attendees are assigned to its rooms"
+          )
+        }
+      }
+
       await ctx.db.delete("accommodationEventHotels", link._id)
     }
 
@@ -2489,7 +3498,7 @@ export const confirmBuyerAssignment = mutation({
     slotId: v.optional(v.id("accommodationSlots")),
   },
   handler: async (ctx, args) => {
-    await requireIdentity(ctx)
+    const identity = await requireIdentity(ctx)
 
     // Get the pending assignment
     const assignment = await ctx.db.get("orderAssignments", args.assignmentId)
@@ -2501,6 +3510,9 @@ export const confirmBuyerAssignment = mutation({
     if (assignmentStatus !== "pending") {
       throw new Error("Assignment is not pending")
     }
+    if (assignment.assignmentIntent !== "assign") {
+      throw new Error("Assignment intent is not assignable")
+    }
 
     // Get the order for context
     const order = await ctx.db.get("orders", assignment.orderId)
@@ -2508,8 +3520,19 @@ export const confirmBuyerAssignment = mutation({
       throw new Error("Order not found")
     }
 
+    const attendee = await ctx.db.get("orderAttendees", assignment.attendeeId)
+    if (!attendee) {
+      throw new Error("Attendee not found")
+    }
+    if (attendee.orderId !== assignment.orderId) {
+      throw new Error("Assignment attendee does not belong to the order")
+    }
+    if (!order.eventId) {
+      throw new Error("Order is not linked to an event")
+    }
+
     // Determine which slot to use
-    let targetSlotId = args.slotId || assignment.slotId
+    const targetSlotId = args.slotId || assignment.slotId
     if (!targetSlotId) {
       throw new Error("No slot specified for assignment")
     }
@@ -2519,6 +3542,12 @@ export const confirmBuyerAssignment = mutation({
     if (!slot) {
       throw new Error("Slot not found")
     }
+    if (!slot.isAssignable) {
+      throw new Error("Slot is not assignable")
+    }
+    if (slot.eventId !== order.eventId) {
+      throw new Error("Slot does not belong to the order's event")
+    }
 
     // Get the room to check capacity
     const room = await ctx.db.get("accommodationRooms", slot.roomId)
@@ -2526,22 +3555,27 @@ export const confirmBuyerAssignment = mutation({
       throw new Error("Room not found")
     }
 
-    // Count current occupants in this room
-    const occupants = await ctx.db
-      .query("orderAttendees")
-      .withIndex("by_assignedRoomId", (q) =>
-        q.eq("assignedRoomId", slot.roomId)
-      )
-      .take(room.capacity + 1)
+    let outcome: ValidatedFamilyRoomOutcome
+    try {
+      outcome = await validateFamilyRoomOutcome(ctx, {
+        attendeeId: String(assignment.attendeeId),
+        roomId: String(room._id),
+        eventId: String(order.eventId),
+        rejectAlreadyAssigned: false,
+      })
+    } catch (error: unknown) {
+      const reason = mutationErrorMessage(error)
+      if (
+        !reason.includes("Room is already full") &&
+        !reason.includes("Occupancy data is incomplete")
+      ) {
+        throw error
+      }
 
-    const occupantCount = occupants.length
-
-    // Check if room has capacity
-    if (occupantCount >= room.capacity) {
       // Room is full - find alternative rooms with capacity
       const allSlots = await ctx.db
         .query("accommodationSlots")
-        .withIndex("by_eventId", (q) => q.eq("eventId", slot.eventId))
+        .withIndex("by_eventId", (q) => q.eq("eventId", order.eventId!))
         .take(100)
 
       // Get rooms with available space
@@ -2557,32 +3591,34 @@ export const confirmBuyerAssignment = mutation({
 
       for (const altSlot of allSlots) {
         if (alternatives.length >= 10) break
+        if (!altSlot.isAssignable) continue
 
         const altRoom = await ctx.db.get("accommodationRooms", altSlot.roomId)
         if (!altRoom) continue
 
-        const altOccupants = await ctx.db
-          .query("orderAttendees")
-          .withIndex("by_assignedRoomId", (q) =>
-            q.eq("assignedRoomId", altSlot.roomId)
-          )
-          .take(altRoom.capacity + 1)
-
-        if (altOccupants.length < altRoom.capacity) {
+        try {
+          const alternativeOutcome = await validateFamilyRoomOutcome(ctx, {
+            attendeeId: String(assignment.attendeeId),
+            roomId: String(altRoom._id),
+            eventId: String(order.eventId),
+            rejectAlreadyAssigned: false,
+          })
           const roomType = await ctx.db.get(
             "accommodationRoomTypes",
             altRoom.roomTypeId as Id<"accommodationRoomTypes">
           )
-
           alternatives.push({
             slotId: altSlot._id,
             roomId: altSlot.roomId,
             roomLabel: altRoom.label,
             roomType: roomType?.label || "Unknown",
             capacity: altRoom.capacity,
-            occupantCount: altOccupants.length,
-            availableSpots: altRoom.capacity - altOccupants.length,
+            occupantCount: alternativeOutcome.occupancy.occupantCount,
+            availableSpots: alternativeOutcome.occupancy.availableBeds,
           })
+        } catch {
+          // Alternatives are suggestions only. Any invalid, cross-event,
+          // unlinked, full, or incomplete outcome is omitted without writing.
         }
       }
 
@@ -2594,33 +3630,14 @@ export const confirmBuyerAssignment = mutation({
       }
     }
 
-    // RMG-03: event-resource inventory guard on the board Confirm path
-    // (no-op when the event has no resource rows for this room type).
-    await assertEventRoomInventoryAvailable(ctx, order, room, occupantCount > 0)
-
-    // Phase 44 lock boundary: persisting the accommodation confirmation
-    // happens after room/capacity validation but before the assignment write,
-    // so a full room never locks the buyer's configuration. A resolver
-    // failure aborts the whole transaction before any assignment patch.
-    await persistOrderAccommodationConfirmation(ctx, order._id)
-
-    // Get current user identity for confirmedBy
-    const identity = await ctx.auth.getUserIdentity()
-    if (!identity) {
-      throw new Error("Unauthorized")
-    }
+    const familyResult = await commitFamilyRoomOutcome(ctx, outcome, "assign")
 
     // Update assignment status
     await ctx.db.patch(args.assignmentId, {
       status: "confirmed",
       confirmedAt: Date.now(),
-      confirmedBy: identity.subject,
+      confirmedBy: identity.tokenIdentifier,
       slotId: targetSlotId,
-    })
-
-    // Assign the attendee to the room
-    await ctx.db.patch("orderAttendees", assignment.attendeeId, {
-      assignedRoomId: slot.roomId,
     })
 
     return {
@@ -2628,7 +3645,11 @@ export const confirmBuyerAssignment = mutation({
       assignmentId: args.assignmentId,
       attendeeId: assignment.attendeeId,
       slotId: targetSlotId,
-      roomId: slot.roomId,
+      roomId: familyResult.roomId,
+      parentAttendeeId: familyResult.parentAttendeeId,
+      eligibleChildIds: familyResult.eligibleChildIds,
+      eligibleChildCount: familyResult.eligibleChildCount,
+      affectedAttendeeCount: familyResult.affectedAttendeeCount,
     }
   },
 })

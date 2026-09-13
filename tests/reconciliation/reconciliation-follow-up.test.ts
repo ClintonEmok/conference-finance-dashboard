@@ -5,6 +5,7 @@ import { buildReconciliationFollowUpHref } from "@/lib/domain/finance/reconcilia
 describe("buildReconciliationFollowUpHref", () => {
   it("builds attendee detail href first when attendee id is available", () => {
     const href = buildReconciliationFollowUpHref({
+      eventSlug: "event-9",
       attendeeId: " attendee-1 ",
       providerOrderId: " order-123 ",
       providerEventId: " event-9 ",
@@ -12,7 +13,7 @@ describe("buildReconciliationFollowUpHref", () => {
 
     const url = new URL(href, "https://example.com")
 
-    expect(url.pathname).toBe("/dashboard/attendees/attendee-1")
+    expect(url.pathname).toBe("/dashboard/events/event-9/attendees/attendee-1")
     expect(url.searchParams.get("source")).toBe("reconciliation")
     expect(url.searchParams.get("orderId")).toBe("order-123")
     expect(url.searchParams.get("eventId")).toBe("event-9")
@@ -21,6 +22,7 @@ describe("buildReconciliationFollowUpHref", () => {
 
   it("falls back to the attendee list filter href when attendee id is missing", () => {
     const href = buildReconciliationFollowUpHref({
+      eventSlug: "event-9",
       attendeeId: "   ",
       providerOrderId: "order-123",
       providerEventId: "event-9",
@@ -28,7 +30,7 @@ describe("buildReconciliationFollowUpHref", () => {
 
     const url = new URL(href, "https://example.com")
 
-    expect(url.pathname).toBe("/dashboard/attendees")
+    expect(url.pathname).toBe("/dashboard/events/event-9/attendees")
     expect(url.searchParams.get("search")).toBe("order-123")
     expect(url.searchParams.get("eventId")).toBe("event-9")
     expect(url.searchParams.get("source")).toBe("reconciliation")

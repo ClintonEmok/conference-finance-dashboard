@@ -31,6 +31,14 @@ export const LEGACY_AUDIT_COUNTS = {
 export const LEGACY_EVENT_SLUG = "divine-redesign"
 export const LEGACY_BASE_CHECK_IN_AT = 1_750_000_000_000
 export const LEGACY_DAY_MS = 24 * 60 * 60 * 1000
+export const FAMILY_PREVIEW_COUNTS = {
+  orders: 5,
+  attendees: 12,
+  familyGroups: 3,
+  familyMembers: 8,
+  assignedAttendees: 3,
+  noBedAttendees: 8,
+} as const
 
 export type PreviewSnapshot = Record<string, Array<Record<string, unknown>>>
 
@@ -289,6 +297,397 @@ export function buildLegacyPreviewSnapshot(): PreviewSnapshot {
     orderTicketSelections: ticketSelections,
     orderAssignments: assignments,
     orderAccommodationSelections: selections,
+  }
+}
+
+/**
+ * Additive family-placement datapoints for the existing preview event. These
+ * use new stable keys so they can be applied after the audited legacy seed
+ * without changing its counts or overwriting existing rows.
+ */
+export function buildFamilyPreviewSnapshot(): PreviewSnapshot {
+  const eventId = "evt_divine_redesign"
+  const categoryId = "cat_standard"
+  const roomTypeId = "rt_standard"
+  const hotelId = "hotel_koningshof"
+  const roomId = "room_h1_1"
+  const standardTicketId = "ticket_standard_shared"
+  const familyChildTicketId = "ticket_family_child"
+
+  const orders = [
+    {
+      _id: "family_order_vandijk",
+      eventId,
+      bookingRef: "BK-FAMILY-VANDIJK",
+      bookerName: "Hendrik van Dijk",
+      bookerEmail: "hendrik.vandijk@example.org",
+      bookerPhone: "+31610000001",
+      source: "internal",
+      status: "paid",
+      totalAmountMinor: 32000,
+    },
+    {
+      _id: "family_order_dejong",
+      eventId,
+      bookingRef: "BK-FAMILY-DEJONG",
+      bookerName: "Marc de Jong",
+      bookerEmail: "marc.dejong@example.org",
+      bookerPhone: "+31610000002",
+      source: "internal",
+      status: "paid",
+      totalAmountMinor: 52000,
+    },
+    {
+      _id: "family_order_smit",
+      eventId,
+      bookingRef: "BK-FAMILY-SMIT",
+      bookerName: "Sophie Smit",
+      bookerEmail: "sophie.smit@example.org",
+      bookerPhone: "+31610000003",
+      source: "internal",
+      status: "paid",
+      totalAmountMinor: 56000,
+    },
+    {
+      _id: "family_order_vos",
+      eventId,
+      bookingRef: "BK-FAMILY-VOS",
+      bookerName: "Oliver Vos",
+      bookerEmail: "oliver.vos@example.org",
+      bookerPhone: "+31610000004",
+      source: "internal",
+      status: "paid",
+      totalAmountMinor: 20000,
+    },
+    {
+      _id: "family_order_no_link",
+      eventId,
+      bookingRef: "BK-ORDER-ONLY-NOLINK",
+      bookerName: "Order-only group (no family link)",
+      bookerEmail: "order-only.nolink@example.org",
+      bookerPhone: "+31610000005",
+      source: "internal",
+      status: "paid",
+      totalAmountMinor: 44000,
+    },
+  ]
+
+  const attendees = [
+    {
+      _id: "family_hendrik_vandijk",
+      orderId: "family_order_vandijk",
+      attendeeKey: "family-hendrik-vandijk",
+      name: "Hendrik van Dijk",
+      email: "hendrik.vandijk@example.org",
+      gender: "male",
+      location: "Utrecht",
+      roommatePreference: "Family room with Noa",
+      allocationPriority: "HIGH",
+      priorityReason: "Paid family booking",
+      sortOrder: 0,
+    },
+    {
+      _id: "family_noa_vandijk",
+      orderId: "family_order_vandijk",
+      attendeeKey: "family-noa-vandijk",
+      name: "Noa van Dijk",
+      email: "noa.vandijk@example.org",
+      gender: "female",
+      location: "Utrecht",
+      roommatePreference: "Stay with Hendrik van Dijk",
+      sortOrder: 1,
+    },
+    {
+      _id: "family_marc_dejong",
+      orderId: "family_order_dejong",
+      attendeeKey: "family-marc-dejong",
+      name: "Marc de Jong",
+      email: "marc.dejong@example.org",
+      gender: "male",
+      location: "Rotterdam",
+      roommatePreference: "Family room with Lina and Timo",
+      allocationPriority: "CRITICAL",
+      priorityReason: "Paid family booking with children",
+      sortOrder: 0,
+    },
+    {
+      _id: "family_lina_dejong",
+      orderId: "family_order_dejong",
+      attendeeKey: "family-lina-dejong",
+      name: "Lina de Jong",
+      email: "lina.dejong@example.org",
+      gender: "female",
+      location: "Rotterdam",
+      roommatePreference: "Stay with Marc de Jong",
+      sortOrder: 1,
+    },
+    {
+      _id: "family_timo_dejong",
+      orderId: "family_order_dejong",
+      attendeeKey: "family-timo-dejong",
+      name: "Timo de Jong",
+      email: "timo.dejong@example.org",
+      gender: "male",
+      location: "Rotterdam",
+      roommatePreference: "Stay with Marc de Jong",
+      sortOrder: 2,
+    },
+    {
+      _id: "family_sophie_smit",
+      orderId: "family_order_smit",
+      attendeeKey: "family-sophie-smit",
+      name: "Sophie Smit",
+      email: "sophie.smit@example.org",
+      gender: "female",
+      location: "Amsterdam",
+      roommatePreference: "Family room with Jules and Mila",
+      assignedRoomId: roomId,
+      sortOrder: 0,
+    },
+    {
+      _id: "family_jules_smit",
+      orderId: "family_order_smit",
+      attendeeKey: "family-jules-smit",
+      name: "Jules Smit",
+      email: "jules.smit@example.org",
+      gender: "male",
+      location: "Amsterdam",
+      roommatePreference: "Stay with Sophie Smit",
+      assignedRoomId: roomId,
+      sortOrder: 1,
+    },
+    {
+      _id: "family_mila_smit",
+      orderId: "family_order_smit",
+      attendeeKey: "family-mila-smit",
+      name: "Mila Smit",
+      email: "mila.smit@example.org",
+      gender: "female",
+      location: "Amsterdam",
+      roommatePreference: "Stay with Sophie Smit",
+      assignedRoomId: roomId,
+      sortOrder: 2,
+    },
+    {
+      _id: "family_oliver_vos",
+      orderId: "family_order_vos",
+      attendeeKey: "family-oliver-vos",
+      name: "Oliver Vos",
+      email: "oliver.vos@example.org",
+      gender: "male",
+      location: "Eindhoven",
+      roommatePreference: "Family connection requested",
+      allocationPriority: "NORMAL",
+      priorityReason: "Needs family link before placement",
+      sortOrder: 0,
+    },
+    {
+      _id: "family_order_only_adult",
+      orderId: "family_order_no_link",
+      attendeeKey: "family-order-only-adult",
+      name: "Order-only Adult",
+      email: "order-only.adult@example.org",
+      gender: "female",
+      location: "The Hague",
+      sortOrder: 0,
+    },
+    {
+      _id: "family_order_only_child_one",
+      orderId: "family_order_no_link",
+      attendeeKey: "family-order-only-child-one",
+      name: "Order-only Child One",
+      email: "order-only.child-one@example.org",
+      gender: "female",
+      location: "The Hague",
+      sortOrder: 1,
+    },
+    {
+      _id: "family_order_only_child_two",
+      orderId: "family_order_no_link",
+      attendeeKey: "family-order-only-child-two",
+      name: "Order-only Child Two",
+      email: "order-only.child-two@example.org",
+      gender: "male",
+      location: "The Hague",
+      sortOrder: 2,
+    },
+  ]
+
+  const childAttendeeIds = new Set([
+    "family_noa_vandijk",
+    "family_lina_dejong",
+    "family_timo_dejong",
+    "family_jules_smit",
+    "family_mila_smit",
+    "family_oliver_vos",
+    "family_order_only_child_one",
+    "family_order_only_child_two",
+  ])
+  const orderTicketSelections = attendees.map((attendee) => ({
+    _id: `family_ticket_selection_${attendee._id}`,
+    orderId: attendee.orderId,
+    attendeeId: attendee._id,
+    ticketTypeId: childAttendeeIds.has(String(attendee._id))
+      ? familyChildTicketId
+      : standardTicketId,
+    quantity: 1,
+    sortOrder: attendee.sortOrder,
+  }))
+
+  const assignedSelection = (attendeeId: string) => ({
+    _id: `family_accommodation_selection_${attendeeId}`,
+    orderId: "family_order_smit",
+    attendeeId,
+    categoryId,
+    occupancy: "shared",
+    checkInAt: LEGACY_BASE_CHECK_IN_AT,
+    checkOutAt: LEGACY_BASE_CHECK_IN_AT + 2 * LEGACY_DAY_MS,
+    nightCount: 2,
+  })
+
+  return {
+    events: [
+      {
+        _id: eventId,
+        slug: LEGACY_EVENT_SLUG,
+        title: "Divine Conference (Preview)",
+        startsAt: LEGACY_BASE_CHECK_IN_AT,
+        timezone: "Europe/Amsterdam",
+        currency: "EUR",
+        isPublished: true,
+        isSignupOpen: true,
+        accommodationEnabled: true,
+        primarySourceKind: "internal",
+        updatedAt: LEGACY_BASE_CHECK_IN_AT,
+      },
+    ],
+    accommodationCategories: [
+      { _id: categoryId, code: "standard", label: "Standard", sortOrder: 1 },
+    ],
+    accommodationRoomTypes: [
+      {
+        _id: roomTypeId,
+        label: "Preview Standard Double",
+        defaultCapacity: 2,
+        categoryId,
+      },
+    ],
+    accommodationHotels: [
+      { _id: hotelId, name: "Preview Hotel One", city: "Preview City 1" },
+    ],
+    accommodationRooms: [
+      {
+        _id: roomId,
+        hotelId,
+        roomTypeId,
+        label: "Preview Room 1",
+        capacity: 2,
+      },
+    ],
+    ticketTypes: [
+      {
+        _id: standardTicketId,
+        eventId,
+        label: "Standard Shared Ticket",
+        priceMinor: 20000,
+        isActive: true,
+        visibility: "public",
+        availabilityState: "selectable",
+        roomTypeId,
+        accommodationIncluded: true,
+        requiresBed: true,
+        updatedAt: LEGACY_BASE_CHECK_IN_AT,
+      },
+      {
+        _id: familyChildTicketId,
+        eventId,
+        label: "Family Companion Ticket",
+        priceMinor: 12000,
+        isActive: true,
+        visibility: "public",
+        availabilityState: "selectable",
+        roomTypeId,
+        accommodationIncluded: true,
+        requiresBed: false,
+        updatedAt: LEGACY_BASE_CHECK_IN_AT,
+      },
+    ],
+    orders,
+    orderAttendees: attendees,
+    orderTicketSelections,
+    orderAssignments: [],
+    orderAccommodationSelections: [
+      assignedSelection("family_sophie_smit"),
+      assignedSelection("family_jules_smit"),
+      assignedSelection("family_mila_smit"),
+    ],
+    attendeeFamilyGroups: [
+      {
+        _id: "family_vandijk",
+        label: "Van Dijk family",
+        primaryAttendeeId: "family_hendrik_vandijk",
+      },
+      {
+        _id: "family_dejong",
+        label: "De Jong family",
+        primaryAttendeeId: "family_marc_dejong",
+      },
+      {
+        _id: "family_smit",
+        label: "Smit family",
+        primaryAttendeeId: "family_sophie_smit",
+      },
+    ],
+    attendeeFamilyMembers: [
+      {
+        _id: "family_member_hendrik_vandijk",
+        familyGroupId: "family_vandijk",
+        attendeeId: "family_hendrik_vandijk",
+        relationship: "primary",
+      },
+      {
+        _id: "family_member_noa_vandijk",
+        familyGroupId: "family_vandijk",
+        attendeeId: "family_noa_vandijk",
+        relationship: "child",
+      },
+      {
+        _id: "family_member_marc_dejong",
+        familyGroupId: "family_dejong",
+        attendeeId: "family_marc_dejong",
+        relationship: "primary",
+      },
+      {
+        _id: "family_member_lina_dejong",
+        familyGroupId: "family_dejong",
+        attendeeId: "family_lina_dejong",
+        relationship: "child",
+      },
+      {
+        _id: "family_member_timo_dejong",
+        familyGroupId: "family_dejong",
+        attendeeId: "family_timo_dejong",
+        relationship: "child",
+      },
+      {
+        _id: "family_member_sophie_smit",
+        familyGroupId: "family_smit",
+        attendeeId: "family_sophie_smit",
+        relationship: "primary",
+      },
+      {
+        _id: "family_member_jules_smit",
+        familyGroupId: "family_smit",
+        attendeeId: "family_jules_smit",
+        relationship: "child",
+      },
+      {
+        _id: "family_member_mila_smit",
+        familyGroupId: "family_smit",
+        attendeeId: "family_mila_smit",
+        relationship: "child",
+      },
+    ],
   }
 }
 

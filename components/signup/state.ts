@@ -21,6 +21,7 @@ export type TicketSelectionDraft = {
   quantity: number
   selectable: boolean
   reason: TicketUnavailableReason | null
+  requiresBed: boolean
   roomTypeId?: string
   roomTypeCategoryId?: string
   occupancy?: AccommodationOccupancy

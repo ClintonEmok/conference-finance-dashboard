@@ -589,4 +589,24 @@ describe("accommodation amounts - locked pricing formula", () => {
     // base 6000 + upgrade 2 × €15 + cot 2 × €5
     expect(confirmed.totalMinor).toBe(10000)
   })
+
+  it("keeps capacity metadata out of canonical accommodation amounts", () => {
+    const noBed = deriveAccommodationAmount({
+      selection: {
+        ...BASE_SELECTION,
+        requiresBed: false,
+      } as unknown as Parameters<typeof deriveAccommodationAmount>[0]["selection"],
+      pricing: BASE_PRICING,
+    })
+    const bedRequired = deriveAccommodationAmount({
+      selection: {
+        ...BASE_SELECTION,
+        requiresBed: true,
+      } as unknown as Parameters<typeof deriveAccommodationAmount>[0]["selection"],
+      pricing: BASE_PRICING,
+    })
+
+    expect(noBed).toEqual(bedRequired)
+    expect(noBed.totalMinor).toBe(6000)
+  })
 })

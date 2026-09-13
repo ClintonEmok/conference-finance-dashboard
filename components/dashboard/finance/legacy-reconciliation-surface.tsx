@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useMemo, useState } from "react"
+import { Fragment, useMemo, useState, type FormEvent } from "react"
 import { useQuery } from "convex/react"
 import {
   Banknote,
@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
@@ -29,12 +29,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { api } from "@/lib/convex/api"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 import type { AttentionQueryState } from "@/lib/dashboard/workspace-attention"
-import { useAssignPaymentToOrder, useCreatePayment, usePayments, useUnassignedPayments, useUnassignPayment } from "@/lib/convex/hooks/payments"
+import { useAssignPaymentToOrder, useLogReconciliationPayment, usePayments, useUnassignedPayments, useUnassignPayment } from "@/lib/convex/hooks/payments"
 import { formatMoney } from "@/lib/format"
-import {
-  deriveBalanceAmounts,
-  isOrderAppliedPayment,
-} from "@/lib/domain/finance/amounts"
+import { isOrderAppliedPayment } from "@/lib/domain/finance/amounts"
 import { cn } from "@/lib/utils"
 import type { Id, Doc } from "@/convex/_generated/dataModel"
 
@@ -355,6 +352,8 @@ export type ReconciliationOrderRow = {
   totalAmountMinor: number | null
   amountDueMinor: number | null
   matchedAmountMinor: number | undefined
+  appliedAmountMinor: number | null | undefined
+  donationAmountMinor: number | null | undefined
   outstandingAmountMinor: number | undefined
   normalizedStatus: CanonicalOrderStatus
   buyerName: string | null
@@ -372,17 +371,8 @@ function moneyDisplay(value: number | null | undefined) {
   return typeof value === "number" ? formatMoney(value) : "Unavailable"
 }
 
-function appliedMoneyDisplay(
-  amountDueMinor: number | null,
-  matchedAmountMinor: number | undefined
-) {
-  if (typeof amountDueMinor !== "number" || typeof matchedAmountMinor !== "number") {
-    return "Unavailable"
-  }
-
-  return formatMoney(
-    deriveBalanceAmounts(amountDueMinor, matchedAmountMinor).appliedAmountMinor
-  )
+function appliedMoneyDisplay(value: number | null | undefined) {
+  return typeof value === "number" ? formatMoney(value) : "Unavailable"
 }
 
 type PageProps = {
@@ -411,15 +401,21 @@ export default function EventReconciliationPage({
 
   const [page, setPage] = useState(1)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [selectedOrderSnapshot, setSelectedOrderSnapshot] = useState<ReconciliationOrderRow | null>(null)
   const [isSheetOpen, setIsSheetOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("link")
-  const [source, setSource] = useState<"cash" | "bank_transfer">("cash")
+  const [source, setSource] = useState<"cash" | "bank_transfer" | "">("")
   const [amountString, setAmountString] = useState("")
   const [logPayerName, setLogPayerName] = useState("")
+  const [paidAt, setPaidAt] = useState("")
+  const [reference, setReference] = useState("")
+  const [payerAccountNumber, setPayerAccountNumber] = useState("")
   const [notes, setNotes] = useState("")
   const [isCreating, setIsCreating] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
-  const createPayment = useCreatePayment()
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const logReconciliationPayment = useLogReconciliationPayment()
   const pageSize = 25
 
   const visibleOrders = useMemo(() => {
@@ -440,7 +436,14 @@ export default function EventReconciliationPage({
   const currentPage = Math.min(page, totalPages)
   const pageRows = visibleOrders.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
-  const selectedOrder = visibleOrders.find((o) => o.orderId === selectedOrderId)
+  const liveSelectedOrder = resolvedOrders?.find((o) => o.orderId === selectedOrderId) ?? null
+  const selectedOrder = liveSelectedOrder ?? selectedOrderSnapshot
+  const selectedOrderIsStale = Boolean(
+    selectedOrderSnapshot &&
+      (!liveSelectedOrder ||
+        knownOutstanding(liveSelectedOrder) === null ||
+        knownOutstanding(liveSelectedOrder)! <= 0)
+  )
 
   function totalOutstandingMinor() {
     if (hasUnresolvedBalances) return null
@@ -453,31 +456,74 @@ export default function EventReconciliationPage({
     setActiveTab("link")
     const order = visibleOrders.find((o) => o.orderId === orderId)
     if (order) {
-       const outstanding = knownOutstanding(order)
-       setAmountString(outstanding !== null && outstanding > 0 ? (outstanding / 100).toFixed(2) : "")
+      setSelectedOrderSnapshot(order)
+      const outstanding = knownOutstanding(order)
+      setAmountString(outstanding !== null && outstanding > 0 ? (outstanding / 100).toFixed(2) : "")
       setLogPayerName(order.buyerName || "")
+      setSource("")
+      setPaidAt("")
+      setReference("")
+      setPayerAccountNumber("")
       setNotes("")
+      setFieldErrors({})
+      setFormError(null)
+      setStatusMessage(null)
     }
   }
 
-  async function handleLogNew(e: React.FormEvent) {
+  async function handleLogNew(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (!selectedOrderId) return
+    if (!selectedOrderId || selectedOrderIsStale) {
+      setFormError("This order is no longer outstanding. Close this form and choose another outstanding order.")
+      return
+    }
+    const nextErrors: Record<string, string> = {}
+    const normalizedPayerName = logPayerName.trim()
+    const parsedAmount = amountString.trim()
+    if (!selectedOrderId) nextErrors.order = "Select an outstanding order before logging a payment."
+    if (!/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(parsedAmount) || Number(parsedAmount) <= 0) {
+      nextErrors.amount = "Enter a positive amount with up to two decimal places."
+    }
+    if (!source) nextErrors.source = "Select Cash or Bank transfer."
+    if (!normalizedPayerName) nextErrors.payerName = "Payer name is required."
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors)
+      setFormError("Check the highlighted fields before logging a payment.")
+      return
+    }
     setIsCreating(true)
     setFormError(null)
+    setFieldErrors({})
+    setStatusMessage("Logging payment…")
     try {
-      const amountMinor = Math.round(parseFloat(amountString) * 100)
-      await createPayment({
-        source,
-        payerName: logPayerName,
+      const [whole, fractional = ""] = parsedAmount.split(".")
+      const amountMinor = Number(whole) * 100 + Number(fractional.padEnd(2, "0"))
+      const optionalText = (value: string) => value.trim() || undefined
+      await logReconciliationPayment({
+        eventId: event._id,
+        orderId: selectedOrderId as Id<"orders">,
+        source: source as "cash" | "bank_transfer",
+        payerName: normalizedPayerName,
         amountMinor,
-        paidAt: Date.now(),
-        orderId: selectedOrderId,
-        notes,
+        ...(paidAt ? { paidAt: Date.parse(`${paidAt}T00:00:00`) } : {}),
+        ...(optionalText(payerAccountNumber) ? { payerAccountNumber: optionalText(payerAccountNumber) } : {}),
+        ...(optionalText(reference) ? { reference: optionalText(reference) } : {}),
+        ...(optionalText(notes) ? { notes: optionalText(notes) } : {}),
       })
+      setStatusMessage("Payment logged.")
       setIsSheetOpen(false)
+      setSelectedOrderId(null)
+      setSelectedOrderSnapshot(null)
+      setAmountString("")
+      setLogPayerName("")
+      setSource("")
+      setPaidAt("")
+      setReference("")
+      setPayerAccountNumber("")
+      setNotes("")
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to log payment.")
+      setFormError(err instanceof Error ? err.message : "Payment could not be logged. Check the required fields and try again.")
+      setStatusMessage(null)
     } finally {
       setIsCreating(false)
     }
@@ -591,7 +637,7 @@ export default function EventReconciliationPage({
                           {moneyDisplay(row.amountDueMinor)}
                       </TableCell>
                       <TableCell className="px-6 py-5 text-right font-bold tabular-nums text-emerald-600">
-                           {appliedMoneyDisplay(row.amountDueMinor, row.matchedAmountMinor)}
+                           {appliedMoneyDisplay(row.appliedAmountMinor)}
                       </TableCell>
                       <TableCell className="px-6 py-5 text-right font-bold tabular-nums text-orange-600">
                           {moneyDisplay(row.outstandingAmountMinor)}
@@ -669,14 +715,15 @@ export default function EventReconciliationPage({
         )}
       </article>
 
-      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-        <SheetContent className="max-w-[calc(100vw-1rem)] overflow-y-auto sm:max-w-md">
+      <Sheet open={isSheetOpen} onOpenChange={(open) => { if (!isCreating) setIsSheetOpen(open) }}>
+        <SheetContent className="min-w-0 max-w-[calc(100vw-1rem)] overflow-y-auto sm:max-w-md">
           <SheetHeader className="pb-4">
             <SheetTitle className="text-lg font-bold">Assign Payment</SheetTitle>
+            <SheetDescription>Link an existing payment or log a new payment for this order.</SheetDescription>
           </SheetHeader>
 
           {selectedOrder && (
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2 px-4">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="link">Link Existing</TabsTrigger>
                 <TabsTrigger value="new">Log New</TabsTrigger>
@@ -700,7 +747,7 @@ export default function EventReconciliationPage({
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Amount Paid</span>
                   <span className="font-mono text-sm font-bold tabular-nums text-emerald-600">
-                      {appliedMoneyDisplay(selectedOrder.amountDueMinor, selectedOrder.matchedAmountMinor)}
+                       {appliedMoneyDisplay(selectedOrder.appliedAmountMinor)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -726,47 +773,31 @@ export default function EventReconciliationPage({
                 />
               </TabsContent>
 
-              <TabsContent value="new">
-                <form onSubmit={handleLogNew} className="space-y-4">
-                  {formError ? <p role="alert" aria-live="assertive" className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{formError}</p> : null}
-                  <div className="space-y-2">
-                    <Label htmlFor="reconciliation-payment-source">Payment Source</Label>
-                    <Select value={source} onValueChange={(val: "cash" | "bank_transfer") => setSource(val)}>
-                      <SelectTrigger id="reconciliation-payment-source">
-                        <SelectValue placeholder="Select type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cash">
-                          <div className="flex items-center text-sm font-medium"><Banknote className="size-4 mr-2 text-emerald-500" /> Cash</div>
-                        </SelectItem>
-                        <SelectItem value="bank_transfer">
-                          <div className="flex items-center text-sm font-medium"><Landmark className="size-4 mr-2 text-blue-500" /> Bank Transfer</div>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="reconciliation-payment-amount">Amount (EUR)</Label>
-                    <Input id="reconciliation-payment-amount" type="number" step="0.01" value={amountString} onChange={(e) => setAmountString(e.target.value)} required className="font-mono" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="reconciliation-payer-name">Payer Name</Label>
-                    <Input id="reconciliation-payer-name" value={logPayerName} onChange={(e) => setLogPayerName(e.target.value)} placeholder="E.g. John Doe" required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="reconciliation-reference-notes">Reference Notes</Label>
-                    <Input id="reconciliation-reference-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional details" />
-                  </div>
-                  <Button type="submit" disabled={isCreating} className="w-full font-bold uppercase tracking-wider text-[11px]">
-                    {isCreating ? <Loader2 className="size-4 animate-spin" /> : "Log New Payment"}
-                  </Button>
-                </form>
+                <TabsContent value="new">
+                 <form onSubmit={handleLogNew} aria-busy={isCreating} className="min-w-0 space-y-4">
+                   {statusMessage ? <p role="status" aria-live="polite" className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm">{statusMessage}</p> : null}
+                   {formError ? <p role="alert" aria-live="assertive" className="break-words rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{formError}</p> : null}
+                   {selectedOrderIsStale ? <p role="alert" aria-live="assertive" className="break-words rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">This order is no longer outstanding. Close this form and choose another outstanding order.</p> : null}
+                   <fieldset disabled={isCreating || selectedOrderIsStale} className="min-w-0 space-y-4">
+                     <div className="space-y-2"><Label htmlFor="reconciliation-payment-order">Order</Label><div id="reconciliation-payment-order" role="group" aria-label={`Order ${selectedOrder.orderId}, contact ${selectedOrder.buyerName || "Anonymous"}`} className="min-h-11 max-w-full break-words rounded-lg border border-input bg-muted/20 px-3 py-2 font-mono text-sm">{selectedOrder.orderId}</div></div>
+                     <div className="space-y-2"><Label htmlFor="reconciliation-payment-amount">Amount ({event.currency})</Label><Input id="reconciliation-payment-amount" type="text" inputMode="decimal" value={amountString} onChange={(e) => setAmountString(e.target.value)} aria-invalid={Boolean(fieldErrors.amount)} aria-describedby={fieldErrors.amount ? "reconciliation-payment-amount-error" : undefined} className="min-h-11 font-mono" />{fieldErrors.amount ? <p id="reconciliation-payment-amount-error" className="text-sm text-destructive">{fieldErrors.amount}</p> : null}</div>
+                     <div className="space-y-2"><Label htmlFor="reconciliation-payment-source">Payment source</Label><Select value={source} onValueChange={(value) => setSource(value as "cash" | "bank_transfer")}><SelectTrigger id="reconciliation-payment-source" className="min-h-11 w-full" aria-invalid={Boolean(fieldErrors.source)} aria-describedby={fieldErrors.source ? "reconciliation-payment-source-error" : undefined}><SelectValue placeholder="Select source" /></SelectTrigger><SelectContent><SelectItem value="cash"><span className="flex items-center text-sm font-medium"><Banknote className="mr-2 size-4 text-emerald-500" aria-hidden="true" />Cash</span></SelectItem><SelectItem value="bank_transfer"><span className="flex items-center text-sm font-medium"><Landmark className="mr-2 size-4 text-blue-500" aria-hidden="true" />Bank transfer</span></SelectItem></SelectContent></Select>{fieldErrors.source ? <p id="reconciliation-payment-source-error" className="text-sm text-destructive">{fieldErrors.source}</p> : null}</div>
+                     <div className="space-y-2"><Label htmlFor="reconciliation-payer-name">Payer name</Label><Input id="reconciliation-payer-name" value={logPayerName} onChange={(e) => setLogPayerName(e.target.value)} aria-invalid={Boolean(fieldErrors.payerName)} aria-describedby={fieldErrors.payerName ? "reconciliation-payer-name-error" : undefined} className="min-h-11" />{fieldErrors.payerName ? <p id="reconciliation-payer-name-error" className="text-sm text-destructive">{fieldErrors.payerName}</p> : null}</div>
+                     <div className="space-y-2"><Label htmlFor="reconciliation-payment-date">Payment date (optional)</Label><Input id="reconciliation-payment-date" type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} className="min-h-11" /><p className="text-xs text-muted-foreground">Leave blank to use the current date and time.</p></div>
+                     <div className="space-y-2"><Label htmlFor="reconciliation-payment-reference">Bank reference (optional)</Label><Input id="reconciliation-payment-reference" value={reference} onChange={(e) => setReference(e.target.value)} className="min-h-11" /></div>
+                     <div className="space-y-2"><Label htmlFor="reconciliation-payer-account">Payer account details (optional)</Label><Input id="reconciliation-payer-account" value={payerAccountNumber} onChange={(e) => setPayerAccountNumber(e.target.value)} className="min-h-11" /></div>
+                     <div className="space-y-2"><Label htmlFor="reconciliation-payment-notes">Notes (optional)</Label><textarea id="reconciliation-payment-notes" value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-24 w-full max-w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50" /></div>
+                     <p className="text-xs text-muted-foreground">Optional details are saved for reconciliation history.</p>
+                     <Button type="submit" disabled={isCreating || selectedOrderIsStale} className="min-h-11 w-full font-bold uppercase tracking-wider text-[11px]">{isCreating ? <><Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />Logging payment…</> : "Log payment"}</Button>
+                   </fieldset>
+                 </form>
               </TabsContent>
             </Tabs>
           )}
         </SheetContent>
-      </Sheet>
-    </div>
+       </Sheet>
+       <p role="status" aria-live="polite" className="sr-only">{statusMessage}</p>
+     </div>
     </TooltipProvider>
   )
 }

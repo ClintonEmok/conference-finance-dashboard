@@ -1,7 +1,6 @@
-import { redirect } from "next/navigation"
-import { accommodationHref } from "@/lib/dashboard/workspace-routes"
+import { AccommodationAllocationPage } from "@/components/dashboard/accommodation/allocation-page"
 
-export default async function LegacyAllocationPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function EventAllocationPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
-  redirect(accommodationHref(slug, "allocation"))
+  return <AccommodationAllocationPage slug={slug} />
 }

@@ -262,6 +262,7 @@ describe("Phase 39 schema contract", () => {
 
     const ticketTypeFields = table("ticketTypes").validator.fields
     expect(ticketTypeFields.accommodationIncluded).toBeDefined()
+    expect(ticketTypeFields.requiresBed).toBeDefined()
   })
 
   it("keeps order selections free of price snapshots and slot/assignment reuse", () => {

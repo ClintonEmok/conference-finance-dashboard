@@ -28,7 +28,7 @@ function badRequest(message: string) {
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ attendeeId: string }> },
 ) {
   const authResult = await requireApiUser()
@@ -39,7 +39,8 @@ export async function DELETE(
 
   try {
     const { attendeeId } = await context.params
-    const attendee = await unassignAttendeeFromRoom(attendeeId)
+    const eventId = new URL(request.url).searchParams.get("eventId") ?? ""
+    const attendee = await unassignAttendeeFromRoom({ attendeeId, eventId })
 
     return NextResponse.json({ ok: true, attendee })
   } catch (error) {

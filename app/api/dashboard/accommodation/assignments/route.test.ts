@@ -38,7 +38,9 @@ describe("/api/dashboard/accommodation/assignments route", () => {
       )
 
       const response = await GET(
-        new Request("http://localhost/api/dashboard/accommodation/assignments")
+        new Request(
+          "http://localhost/api/dashboard/accommodation/assignments?eventId=event-1"
+        )
       )
       const body = await response.json()
 
@@ -70,7 +72,12 @@ describe("/api/dashboard/accommodation/assignments route", () => {
           hasPriority: null,
         },
         availableEvents: [
-          { providerEventId: "event-integration", name: "Integration Camp" },
+          {
+            eventId: "event-integration",
+            slug: "integration-camp",
+            name: "Integration Camp",
+            startsAt: 1743340800000,
+          },
         ],
         hotels: [],
         roomTypes: [],
@@ -141,7 +148,9 @@ describe("/api/dashboard/accommodation/assignments route", () => {
       vi.mocked(getRoomAllocationBoard).mockResolvedValue(boardPayload)
 
       const response = await GET(
-        new Request("http://localhost/api/dashboard/accommodation/assignments")
+        new Request(
+          "http://localhost/api/dashboard/accommodation/assignments?eventId=event-1"
+        )
       )
       const body = await response.json()
 
@@ -170,7 +179,7 @@ describe("/api/dashboard/accommodation/assignments route", () => {
         unresolvedReason: "skipped_intent",
       })
       expect(getRoomAllocationBoard).toHaveBeenCalledWith({
-        eventId: null,
+        eventId: "event-1",
         search: null,
         hotelId: null,
         roomTypeId: null,
@@ -182,6 +191,28 @@ describe("/api/dashboard/accommodation/assignments route", () => {
         hasPriority: undefined,
       })
     })
+
+    it.each(["", "   "])(
+      "returns 400 and does not load a board when eventId is %j",
+      async (eventId) => {
+        vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
+
+        const query = eventId === "" ? "" : `eventId=${encodeURIComponent(eventId)}`
+        const response = await GET(
+          new Request(
+            `http://localhost/api/dashboard/accommodation/assignments?${query}`
+          )
+        )
+        const body = await response.json()
+
+        expect(response.status).toBe(400)
+        expect(body.error).toMatchObject({
+          code: "BAD_REQUEST",
+          message: "eventId is required",
+        })
+        expect(getRoomAllocationBoard).not.toHaveBeenCalled()
+      }
+    )
 
     it("passes query parameters to getRoomAllocationBoard", async () => {
       vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
@@ -240,15 +271,10 @@ describe("/api/dashboard/accommodation/assignments route", () => {
 
     it("returns 400 for invalid availability parameter", async () => {
       vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
-      vi.mocked(getRoomAllocationBoard).mockRejectedValue(
-        new Error(
-          "Invalid 'availability'. Expected one of: all, empty, available, full."
-        )
-      )
 
       const response = await GET(
         new Request(
-          "http://localhost/api/dashboard/accommodation/assignments?availability=invalid"
+          "http://localhost/api/dashboard/accommodation/assignments?eventId=event-1&availability=invalid"
         )
       )
       const body = await response.json()
@@ -261,40 +287,69 @@ describe("/api/dashboard/accommodation/assignments route", () => {
             "Invalid 'availability'. Expected one of: all, empty, available, full.",
         },
       })
+      expect(getRoomAllocationBoard).not.toHaveBeenCalled()
     })
 
     it("returns 400 for invalid gender type parameter", async () => {
       vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
-      vi.mocked(getRoomAllocationBoard).mockRejectedValue(
-        new Error("Invalid parameter")
-      )
 
       const response = await GET(
         new Request(
-          "http://localhost/api/dashboard/accommodation/assignments?genderType=INVALID"
+          "http://localhost/api/dashboard/accommodation/assignments?eventId=event-1&genderType=INVALID"
         )
       )
       const body = await response.json()
 
       expect(response.status).toBe(400)
-      expect(body.error.code).toBe("BAD_REQUEST")
+      expect(body).toEqual({
+        error: {
+          code: "BAD_REQUEST",
+          message:
+            "Invalid 'genderType'. Expected one of: MALE, FEMALE, MIXED, UNKNOWN.",
+        },
+      })
+      expect(getRoomAllocationBoard).not.toHaveBeenCalled()
     })
 
     it("returns 400 for invalid allocation priority parameter", async () => {
       vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
-      vi.mocked(getRoomAllocationBoard).mockRejectedValue(
-        new Error("Invalid parameter")
-      )
 
       const response = await GET(
         new Request(
-          "http://localhost/api/dashboard/accommodation/assignments?allocationPriority=INVALID"
+          "http://localhost/api/dashboard/accommodation/assignments?eventId=event-1&allocationPriority=INVALID"
         )
       )
       const body = await response.json()
 
       expect(response.status).toBe(400)
-      expect(body.error.code).toBe("BAD_REQUEST")
+      expect(body).toEqual({
+        error: {
+          code: "BAD_REQUEST",
+          message:
+            "Invalid 'allocationPriority'. Expected one of: CRITICAL, HIGH, NORMAL, LOW.",
+        },
+      })
+      expect(getRoomAllocationBoard).not.toHaveBeenCalled()
+    })
+
+    it("returns 400 for an invalid boolean parameter", async () => {
+      vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
+
+      const response = await GET(
+        new Request(
+          "http://localhost/api/dashboard/accommodation/assignments?eventId=event-1&hasPriority=maybe"
+        )
+      )
+      const body = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(body).toEqual({
+        error: {
+          code: "BAD_REQUEST",
+          message: "Invalid 'hasPriority'. Expected true or false.",
+        },
+      })
+      expect(getRoomAllocationBoard).not.toHaveBeenCalled()
     })
 
     it("returns 500 for internal errors", async () => {
@@ -304,7 +359,9 @@ describe("/api/dashboard/accommodation/assignments route", () => {
       )
 
       const response = await GET(
-        new Request("http://localhost/api/dashboard/accommodation/assignments")
+        new Request(
+          "http://localhost/api/dashboard/accommodation/assignments?eventId=event-1"
+        )
       )
       const body = await response.json()
 
@@ -335,8 +392,18 @@ describe("/api/dashboard/accommodation/assignments route", () => {
           hasPriority: null,
         },
         availableEvents: [
-          { providerEventId: "event-integration", name: "Integration Camp" },
-          { providerEventId: "event-internal", name: "Internal Retreat" },
+          {
+            eventId: "event-integration",
+            slug: "integration-camp",
+            name: "Integration Camp",
+            startsAt: 1743340800000,
+          },
+          {
+            eventId: "event-internal",
+            slug: "internal-retreat",
+            name: "Internal Retreat",
+            startsAt: 1743340800001,
+          },
         ],
         hotels: [],
         roomTypes: [],
@@ -347,8 +414,11 @@ describe("/api/dashboard/accommodation/assignments route", () => {
             attendeeName: "Alice Brown",
             attendeeEmail: "alice@example.com",
             orderId: "order-tt-1",
+            bookingRef: null,
+            bookerName: null,
             providerOrderId: "order-tt-1",
             providerEventId: "event-integration",
+            eventId: "event-integration",
             eventName: "Integration Camp",
             ticketTypeLabel: "Weekend",
             allocatedRoomTypeId: null,
@@ -357,6 +427,8 @@ describe("/api/dashboard/accommodation/assignments route", () => {
             location: "Rotterdam",
             remarks: null,
             hasFamily: false,
+            groupMemberIds: [],
+            groupAssignmentAvailable: false,
             paymentState: null,
             amountDueMinor: null,
             paidAmountMinor: null,
@@ -403,7 +475,9 @@ describe("/api/dashboard/accommodation/assignments route", () => {
       vi.mocked(getRoomAllocationBoard).mockResolvedValue(boardPayload)
 
       const response = await GET(
-        new Request("http://localhost/api/dashboard/accommodation/assignments")
+        new Request(
+          "http://localhost/api/dashboard/accommodation/assignments?eventId=event-1"
+        )
       )
       const body = await response.json()
 
@@ -444,7 +518,11 @@ describe("/api/dashboard/accommodation/assignments route", () => {
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ attendeeId: "att-1", roomId: "room-1" }),
+            body: JSON.stringify({
+              attendeeId: "att-1",
+              roomId: "room-1",
+              eventId: "event-1",
+            }),
           }
         )
       )
@@ -484,12 +562,8 @@ describe("/api/dashboard/accommodation/assignments route", () => {
       })
     })
 
-    it("assigns attendee to room successfully", async () => {
+    it("returns 400 when the assignment event scope is missing", async () => {
       vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
-      vi.mocked(assignAttendeeToRoom).mockResolvedValue({
-        id: "att-1",
-        assignedRoomId: "room-1",
-      })
 
       const response = await POST(
         new Request(
@@ -503,6 +577,36 @@ describe("/api/dashboard/accommodation/assignments route", () => {
       )
       const body = await response.json()
 
+      expect(response.status).toBe(400)
+      expect(body).toEqual({
+        error: { code: "BAD_REQUEST", message: "eventId is required" },
+      })
+      expect(assignAttendeeToRoom).not.toHaveBeenCalled()
+    })
+
+    it("assigns attendee to room successfully", async () => {
+      vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
+      vi.mocked(assignAttendeeToRoom).mockResolvedValue({
+        id: "att-1",
+        assignedRoomId: "room-1",
+      })
+
+      const response = await POST(
+        new Request(
+          "http://localhost/api/dashboard/accommodation/assignments",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              attendeeId: "att-1",
+              roomId: "room-1",
+              eventId: "event-1",
+            }),
+          }
+        )
+      )
+      const body = await response.json()
+
       expect(response.status).toBe(200)
       expect(body).toEqual({
         ok: true,
@@ -511,6 +615,7 @@ describe("/api/dashboard/accommodation/assignments route", () => {
       expect(assignAttendeeToRoom).toHaveBeenCalledWith({
         attendeeId: "att-1",
         roomId: "room-1",
+        eventId: "event-1",
       })
     })
 
@@ -526,7 +631,11 @@ describe("/api/dashboard/accommodation/assignments route", () => {
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ attendeeId: "invalid", roomId: "room-1" }),
+            body: JSON.stringify({
+              attendeeId: "invalid",
+              roomId: "room-1",
+              eventId: "event-1",
+            }),
           }
         )
       )
@@ -548,7 +657,11 @@ describe("/api/dashboard/accommodation/assignments route", () => {
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ attendeeId: "att-1", roomId: "room-1" }),
+            body: JSON.stringify({
+              attendeeId: "att-1",
+              roomId: "room-1",
+              eventId: "event-1",
+            }),
           }
         )
       )

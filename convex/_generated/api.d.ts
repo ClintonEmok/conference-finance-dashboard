@@ -24,13 +24,13 @@ export declare const api: {
     assignAttendeeToRoom: FunctionReference<
       "mutation",
       "public",
-      { attendeeId: string; roomId: string },
+      { attendeeId: string; eventId: string; roomId: string },
       any
     >;
     assignRoomToAttendee: FunctionReference<
       "mutation",
       "public",
-      { attendeeId: string; roomId: string },
+      { attendeeId: string; eventId: string; roomId: string },
       any
     >;
     attachHotelToEventByProviderId: FunctionReference<
@@ -192,7 +192,7 @@ export declare const api: {
       "public",
       {
         allocationPriority?: "CRITICAL" | "HIGH" | "NORMAL" | "LOW";
-        eventId?: string;
+        eventId: string;
         familyGroupId?: string;
         genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN";
         hasPriority?: boolean;
@@ -245,13 +245,13 @@ export declare const api: {
     unassignAttendeeFromRoom: FunctionReference<
       "mutation",
       "public",
-      { attendeeId: string },
+      { attendeeId: string; eventId: string },
       any
     >;
     unassignRoomFromAttendee: FunctionReference<
       "mutation",
       "public",
-      { attendeeId: string },
+      { attendeeId: string; eventId: string },
       any
     >;
     unlinkHotelFromEvent: FunctionReference<
@@ -364,10 +364,30 @@ export declare const api: {
     >;
   };
   attendees: {
+    addAttendeeToOrder: FunctionReference<
+      "mutation",
+      "public",
+      {
+        email?: string;
+        eventId: Id<"events">;
+        name: string;
+        orderId: Id<"orders">;
+        ticketTypeId: Id<"ticketTypes">;
+      },
+      {
+        amountDueMinor: number | null;
+        attendeeId: Id<"orderAttendees">;
+        orderId: Id<"orders">;
+      }
+    >;
     assignRoom: FunctionReference<
       "mutation",
       "public",
-      { attendeeId: Id<"ticketTailorAttendees">; roomId: string },
+      {
+        attendeeId: Id<"ticketTailorAttendees">;
+        eventId: Id<"events">;
+        roomId: string;
+      },
       any
     >;
     checkInAttendee: FunctionReference<
@@ -418,6 +438,19 @@ export declare const api: {
       { attendeeId: string },
       any
     >;
+    getAttendeeLedgerPage: FunctionReference<
+      "query",
+      "public",
+      {
+        cursor?: string | null;
+        eventId?: Id<"events">;
+        from?: number | null;
+        pageSize: number;
+        search?: string;
+        to?: number | null;
+      },
+      any
+    >;
     getAttendees: FunctionReference<
       "query",
       "public",
@@ -450,6 +483,12 @@ export declare const api: {
       { attendeeId: string; targetOrderId: Id<"orders"> },
       any
     >;
+    removeAttendeeFromOrder: FunctionReference<
+      "mutation",
+      "public",
+      { attendeeId: string; eventId: Id<"events"> },
+      any
+    >;
     setAttendeeAccommodation: FunctionReference<
       "mutation",
       "public",
@@ -470,7 +509,7 @@ export declare const api: {
     unassignRoom: FunctionReference<
       "mutation",
       "public",
-      { attendeeId: Id<"ticketTailorAttendees"> },
+      { attendeeId: Id<"ticketTailorAttendees">; eventId: Id<"events"> },
       any
     >;
     updateAttendee: FunctionReference<
@@ -713,6 +752,7 @@ export declare const api: {
         label: string;
         maxQuantity?: number;
         priceMinor: number;
+        requiresBed?: boolean;
         roomTypeId?: Id<"accommodationRoomTypes">;
         visibility?: "public" | "hidden";
       },
@@ -859,6 +899,7 @@ export declare const api: {
         label?: string;
         maxQuantity?: number;
         priceMinor?: number;
+        requiresBed?: boolean;
         roomTypeId?: Id<"accommodationRoomTypes">;
         sortOrder?: number;
         ticketTypeId: Id<"ticketTypes">;
@@ -958,11 +999,13 @@ export declare const api: {
       },
       Array<{
         amountDueMinor: number | null;
+        appliedAmountMinor?: number | null;
         archiveReason: string | null;
         archivedAt: string | null;
         buyerEmail: string | null;
         buyerName: string | null;
         currency: string | null;
+        donationAmountMinor?: number | null;
         eventId: string;
         eventSlug: string;
         eventTitle: string | null;
@@ -986,17 +1029,23 @@ export declare const api: {
         location?: string;
         page?: number;
         pageSize?: number;
+        search?: string;
+        searchCursor?: string | null;
         status?: "paid" | "refunded" | "cancelled" | "pending";
         to?: number;
       },
       {
+        hasNextPage: boolean;
+        nextCursor: string | null;
         orders: Array<{
           amountDueMinor: number | null;
+          appliedAmountMinor?: number | null;
           archiveReason: string | null;
           archivedAt: string | null;
           buyerEmail: string | null;
           buyerName: string | null;
           currency: string | null;
+          donationAmountMinor?: number | null;
           eventId: string;
           eventSlug: string;
           eventTitle: string | null;
@@ -1010,8 +1059,8 @@ export declare const api: {
           refundedAt: string | null;
           totalAmountMinor: number | null;
         }>;
-        totalPages: number;
-        totalRows: number;
+        totalPages: number | null;
+        totalRows: number | null;
         totals: {
           amountDueMinor: number;
           matchedAmountMinor: number;
@@ -1279,6 +1328,12 @@ export declare const api: {
       },
       any
     >;
+    deletePayment: FunctionReference<
+      "mutation",
+      "public",
+      { eventId: Id<"events">; paymentId: Id<"payments"> },
+      any
+    >;
     getPaymentById: FunctionReference<
       "query",
       "public",
@@ -1381,6 +1436,22 @@ export declare const api: {
       any
     >;
     getUnassignedPayments: FunctionReference<"query", "public", {}, any>;
+    logReconciliationPayment: FunctionReference<
+      "mutation",
+      "public",
+      {
+        amountMinor: number;
+        eventId: Id<"events">;
+        notes?: string;
+        orderId: Id<"orders">;
+        paidAt?: number;
+        payerAccountNumber?: string;
+        payerName: string;
+        reference?: string;
+        source: "cash" | "bank_transfer";
+      },
+      Id<"payments">
+    >;
     markPaymentAsDonation: FunctionReference<
       "mutation",
       "public",
@@ -1645,6 +1716,7 @@ export declare const api: {
           nightBeforeLevel?: "standard" | "superior";
           nightBeforeOccupancy?: "single" | "shared";
           occupancy?: "single" | "shared" | "family";
+          requiresBed: boolean;
           ticketLabel: string;
           ticketPriceMinor: number;
           ticketTypeId: Id<"ticketTypes">;
@@ -1716,6 +1788,7 @@ export declare const api: {
           occupancy?: "single" | "shared" | "family";
           priceMinor: number;
           reason: "sold_out" | "disabled" | "hidden" | "not_on_sale" | null;
+          requiresBed: boolean;
           roomTypeCategoryCode?: "standard" | "superior" | "family";
           roomTypeCategoryId?: Id<"accommodationCategories">;
           roomTypeId?: Id<"accommodationRoomTypes">;
@@ -2255,6 +2328,42 @@ export declare const internal: {
       }
     >;
   };
+  backfillSearchProjections: {
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        allowedDeploymentUrl?: string;
+        authorize: boolean;
+        batchSize: number;
+        cursor: string | null;
+        kind: "order" | "attendee";
+      },
+      {
+        diagnostics: Array<{ reason: string; subjectId: string }>;
+        isDone: boolean;
+        kind: "order" | "attendee";
+        nextCursor: string | null;
+        processed: number;
+        skipped: number;
+      }
+    >;
+    verifySearchProjections: FunctionReference<
+      "query",
+      "internal",
+      { allowedDeploymentUrl: string; authorize: boolean },
+      {
+        blockedJobs: number;
+        diagnostics: Array<{ reason: string; subjectId: string }>;
+        duplicatePostings: number;
+        missing: number;
+        orphanedPostings: number;
+        pendingJobs: number;
+        stale: number;
+        truncated: boolean;
+      }
+    >;
+  };
   correctUnprovenPaidOrders: {
     correctUnprovenPaidOrders: FunctionReference<
       "mutation",
@@ -2509,6 +2618,20 @@ export declare const internal: {
       any
     >;
   };
+  search: {
+    continueSearchProjectionFanout: FunctionReference<
+      "mutation",
+      "internal",
+      { jobId: Id<"searchProjectionFanoutJobs"> },
+      any
+    >;
+    startSearchProjectionFanout: FunctionReference<
+      "mutation",
+      "internal",
+      { operation: "order" | "ticketType" | "family"; targetId: string },
+      any
+    >;
+  };
   seedPreviewSimulation: {
     default: FunctionReference<
       "mutation",
@@ -2516,14 +2639,14 @@ export declare const internal: {
       {
         allowedDeploymentUrl?: string;
         preview: boolean;
-        scope: "tracer" | "full";
+        scope: "tracer" | "full" | "families";
         slug?: string;
       },
       {
         alreadySeeded: boolean;
         eventId?: string;
         insertedByTable: Record<string, number>;
-        scope: "tracer" | "full";
+        scope: "tracer" | "full" | "families";
         slug: string;
       }
     >;

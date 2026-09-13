@@ -41,7 +41,9 @@ function parseGenderType(value: string | null) {
     return value
   }
 
-  return undefined
+  throw new Error(
+    "Invalid 'genderType'. Expected one of: MALE, FEMALE, MIXED, UNKNOWN."
+  )
 }
 
 function parseAllocationPriority(value: string | null) {
@@ -58,7 +60,9 @@ function parseAllocationPriority(value: string | null) {
     return value
   }
 
-  return undefined
+  throw new Error(
+    "Invalid 'allocationPriority'. Expected one of: CRITICAL, HIGH, NORMAL, LOW."
+  )
 }
 
 function parseBoolean(value: string | null) {
@@ -74,7 +78,7 @@ function parseBoolean(value: string | null) {
     return false
   }
 
-  return undefined
+  throw new Error("Invalid 'hasPriority'. Expected true or false.")
 }
 
 function unauthorized() {
@@ -110,8 +114,13 @@ export async function GET(request: Request) {
 
   try {
     const params = new URL(request.url).searchParams
+    const eventId = params.get("eventId")?.trim() || null
+    if (!eventId) {
+      return badRequest("eventId is required")
+    }
+
     const board = await getRoomAllocationBoard({
-      eventId: params.get("eventId"),
+      eventId,
       search: params.get("search"),
       hotelId: params.get("hotelId"),
       roomTypeId: params.get("roomTypeId"),
@@ -154,18 +163,26 @@ export async function POST(request: Request) {
     return authResult
   }
 
-  let body: { attendeeId?: unknown; roomId?: unknown }
+  let body: { attendeeId?: unknown; roomId?: unknown; eventId?: unknown }
 
   try {
-    body = (await request.json()) as { attendeeId?: unknown; roomId?: unknown }
+    body = (await request.json()) as {
+      attendeeId?: unknown
+      roomId?: unknown
+      eventId?: unknown
+    }
   } catch {
     return badRequest("Request body must be valid JSON")
   }
 
   try {
+    if (typeof body.eventId !== "string" || !body.eventId.trim()) {
+      return badRequest("eventId is required")
+    }
     const attendee = await assignAttendeeToRoom({
       attendeeId: typeof body.attendeeId === "string" ? body.attendeeId : "",
       roomId: typeof body.roomId === "string" ? body.roomId : "",
+      eventId: typeof body.eventId === "string" ? body.eventId : "",
     })
 
     return NextResponse.json({ ok: true, attendee })

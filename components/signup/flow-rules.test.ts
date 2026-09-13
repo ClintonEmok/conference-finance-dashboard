@@ -32,9 +32,10 @@ const baseEvent: PublicSignupCatalogEvent = {
       ticketTypeId: "ticket_1",
       label: "Standard",
       priceMinor: 10000,
-      selectable: true,
-      reason: null,
-      roomTypeId: undefined,
+       selectable: true,
+       reason: null,
+       requiresBed: true,
+       roomTypeId: undefined,
     },
   ],
   accommodation: {

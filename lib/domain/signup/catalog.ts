@@ -69,6 +69,8 @@ export type PublicSignupCatalogTicket = {
   reason: TicketUnavailableReason | null
   /** Whether the ticket price covers the event's base accommodation stay. */
   accommodationIncluded?: boolean
+  /** Server-resolved capacity metadata; never a signup write authority. */
+  requiresBed: boolean
   roomTypeId?: string
   /** Resolved ticket entitlement: the category of `ticketTypes.roomTypeId`. */
   roomTypeCategoryId?: string
@@ -113,6 +115,7 @@ export function normalizePublicSignupCatalog(
       ...ticket,
       reason: ticket.reason ?? null,
       accommodationIncluded: ticket.accommodationIncluded ?? undefined,
+      requiresBed: ticket.requiresBed ?? true,
       roomTypeId: ticket.roomTypeId ?? undefined,
       roomTypeCategoryId: ticket.roomTypeCategoryId ?? undefined,
       roomTypeCategoryCode: ticket.roomTypeCategoryCode ?? undefined,

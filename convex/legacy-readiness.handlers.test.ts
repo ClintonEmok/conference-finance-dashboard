@@ -620,6 +620,7 @@ test("RMG-03: event-resource inventory blocks an exhausted stay atomically and p
   await t.mutation(api.accommodation.assignAttendeeToRoom, {
     attendeeId: String(attendeeId),
     roomId: firstRoomId,
+    eventId: String(idMap.get("evt_divine_redesign")),
   })
 
   // A second attendee cannot open a second room of the exhausted type.
@@ -637,16 +638,19 @@ test("RMG-03: event-resource inventory blocks an exhausted stay atomically and p
     t.mutation(api.accommodation.assignAttendeeToRoom, {
       attendeeId: String(secondAttendeeId),
       roomId: secondRoomId,
+      eventId: String(idMap.get("evt_divine_redesign")),
     })
   ).rejects.toThrow("No accommodation inventory remains")
 
   // Unassign releases the resource and the second placement now succeeds.
   await t.mutation(api.accommodation.unassignRoomFromAttendee, {
     attendeeId: String(attendeeId),
+    eventId: String(idMap.get("evt_divine_redesign")),
   })
   await t.mutation(api.accommodation.assignAttendeeToRoom, {
     attendeeId: String(secondAttendeeId),
     roomId: secondRoomId,
+    eventId: String(idMap.get("evt_divine_redesign")),
   })
   const assigned = await t.query(async (ctx) => {
     const attendee = await ctx.db.get("orderAttendees", secondAttendeeId as never)

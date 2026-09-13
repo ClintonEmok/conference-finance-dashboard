@@ -1,7 +1,10 @@
 type RoomMetricInput = {
   capacity: number | null | undefined
+  occupantCount?: number | null | undefined
   occupiedBeds: number | null | undefined
   availableBeds: number | null | undefined
+  foreignOccupantCount?: number | null | undefined
+  occupancyIncomplete?: boolean | null | undefined
 }
 
 type RoomTypeInput = {
@@ -15,8 +18,11 @@ type InventoryRoomInput = RoomMetricInput & {
 
 export type SanitizedRoomMetrics = {
   capacity: number
+  occupantCount: number
   occupiedBeds: number
   availableBeds: number
+  foreignOccupantCount: number
+  occupancyIncomplete: boolean
 }
 
 export type InventoryRoomTypeBlock = {
@@ -24,8 +30,11 @@ export type InventoryRoomTypeBlock = {
   roomTypeLabel: string
   quantity: number
   totalBeds: number
+  totalOccupants: number
   occupiedBeds: number
   availableBeds: number
+  foreignOccupants: number
+  occupancyIncomplete: boolean
 }
 
 function sanitizeFiniteInteger(value: number | null | undefined) {
@@ -40,17 +49,23 @@ export function sanitizeRoomMetrics(
   room: RoomMetricInput
 ): SanitizedRoomMetrics {
   const capacity = sanitizeFiniteInteger(room.capacity)
+  const occupantCount = sanitizeFiniteInteger(room.occupantCount)
   const occupiedBeds = sanitizeFiniteInteger(room.occupiedBeds)
-  const availableBeds =
+  const availableBedValue =
     typeof room.availableBeds === "number" &&
     Number.isFinite(room.availableBeds)
       ? sanitizeFiniteInteger(room.availableBeds)
       : Math.max(0, capacity - occupiedBeds)
+  const availableBeds = Math.min(capacity, availableBedValue)
+  const foreignOccupantCount = sanitizeFiniteInteger(room.foreignOccupantCount)
 
   return {
     capacity,
+    occupantCount,
     occupiedBeds,
     availableBeds,
+    foreignOccupantCount,
+    occupancyIncomplete: room.occupancyIncomplete === true,
   }
 }
 
@@ -72,14 +87,20 @@ export function groupInventoryRoomsByRoomType<T extends InventoryRoomInput>(
         roomTypeLabel: room.roomType.label,
         quantity: 0,
         totalBeds: 0,
+        totalOccupants: 0,
         occupiedBeds: 0,
         availableBeds: 0,
+        foreignOccupants: 0,
+        occupancyIncomplete: false,
       }
 
       current.quantity += 1
       current.totalBeds += sanitized.capacity
+      current.totalOccupants += sanitized.occupantCount
       current.occupiedBeds += sanitized.occupiedBeds
       current.availableBeds += sanitized.availableBeds
+      current.foreignOccupants += sanitized.foreignOccupantCount
+      current.occupancyIncomplete ||= sanitized.occupancyIncomplete
       groups[room.roomType.id] = current
 
       return groups

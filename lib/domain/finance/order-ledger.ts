@@ -11,6 +11,8 @@ export type OrderLedgerFilters = {
   location?: string | null
   page?: number
   pageSize?: number
+  search?: string | null
+  searchCursor?: string | null
 }
 
 export type OrderLedgerRow = {
@@ -41,6 +43,8 @@ export type OrderLedgerResult = {
     location: string | null
     page: number
     pageSize: number
+    search: string | null
+    searchCursor: string | null
   }
   availableEvents: Array<{
     eventId: string
@@ -52,8 +56,10 @@ export type OrderLedgerResult = {
   page: {
     number: number
     size: number
-    totalRows: number
-    totalPages: number
+    totalRows: number | null
+    totalPages: number | null
+    nextCursor: string | null
+    hasNextPage: boolean
   }
   totals: {
     amountDueMinor: number
@@ -66,6 +72,7 @@ export type OrderLedgerResult = {
 const DEFAULT_PAGE = 1
 const DEFAULT_PAGE_SIZE = 25
 const MAX_PAGE_SIZE = 200
+const MAX_SEARCH_LENGTH = 512
 
 function parseDate(
   value: Date | string | null | undefined,
@@ -146,6 +153,19 @@ export async function getOrderLedger(
       : null
   const { from, to } = normalizeRange(filters)
   const { page, pageSize } = normalizePagination(filters.page, filters.pageSize)
+  const search = typeof filters.search === "string"
+    ? filters.search.trim().replace(/\s+/g, " ").toLowerCase()
+    : ""
+  if (search.length > MAX_SEARCH_LENGTH) {
+    throw new Error(`Invalid 'search'. Maximum length is ${MAX_SEARCH_LENGTH} characters.`)
+  }
+  const searchCursor = filters.searchCursor?.trim() || null
+  if (searchCursor && !search) {
+    throw new Error("Invalid 'searchCursor'. A search query is required.")
+  }
+  if (searchCursor && page > 1) {
+    throw new Error("Invalid 'searchCursor'. Cursor pagination requires page 1.")
+  }
 
   const fromMs = from?.getTime()
   const toMs = to?.getTime()
@@ -159,6 +179,7 @@ export async function getOrderLedger(
       location: location ?? undefined,
       page,
       pageSize,
+      ...(search ? { search, searchCursor } : {}),
     }),
     convexQuery(api.events.getEventsForLedger, {}),
   ])
@@ -181,6 +202,8 @@ export async function getOrderLedger(
       location,
       page,
       pageSize,
+      search: search || null,
+      searchCursor,
     },
     availableEvents: availableEvents.map((e) => ({
       eventId: e.eventId,
@@ -194,6 +217,8 @@ export async function getOrderLedger(
       size: pageSize,
       totalRows: ordersResult.totalRows,
       totalPages: ordersResult.totalPages,
+      nextCursor: ordersResult.nextCursor ?? null,
+      hasNextPage: ordersResult.hasNextPage ?? false,
     },
     totals: typedOrdersResult.totals,
     rows: ordersResult.orders.map((row) => {

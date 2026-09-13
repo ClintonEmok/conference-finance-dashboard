@@ -33,6 +33,7 @@ type SeedContext = {
   otherEventId: Id<"events">
   categoryStandardId: Id<"accommodationCategories">
   cotOptionId: Id<"accommodationOptions">
+  ticketTypeId: Id<"ticketTypes">
   sourceOrderId: Id<"orders">
   targetOrderId: Id<"orders">
   attendeeId: Id<"orderAttendees">
@@ -343,6 +344,7 @@ async function seedOrdersForAttendeeMutations(
     otherEventId: otherEventId as Id<"events">,
     categoryStandardId: categoryStandardId as Id<"accommodationCategories">,
     cotOptionId: cotOptionId as Id<"accommodationOptions">,
+    ticketTypeId: ticketTypeId as Id<"ticketTypes">,
     sourceOrderId: sourceOrderId as Id<"orders">,
     targetOrderId: targetOrderId as Id<"orders">,
     attendeeId: attendeeId as Id<"orderAttendees">,
@@ -404,6 +406,64 @@ test("setAttendeeAccommodation and moveAttendeeToOrder reject anonymous callers"
       targetOrderId: seed.targetOrderId,
     })
   ).rejects.toThrow("Unauthorized")
+})
+
+test("addAttendeeToOrder creates canonical rows and updates ticket inventory", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedOrdersForAttendeeMutations(t)
+
+  const result = await t.mutation(api.attendees.addAttendeeToOrder, {
+    orderId: seed.targetOrderId,
+    eventId: seed.eventId,
+    name: "  Added Buyer  ",
+    email: " added@example.com ",
+    ticketTypeId: seed.ticketTypeId,
+  })
+
+  expect(result.orderId).toBe(seed.targetOrderId)
+  expect(result.amountDueMinor).toBe(2000)
+
+  const persisted = await t.query(async (ctx) => {
+    const attendee = await ctx.db.get("orderAttendees", result.attendeeId)
+    const selection = await ctx.db
+      .query("orderTicketSelections")
+      .withIndex("by_attendeeId", (q) => q.eq("attendeeId", result.attendeeId))
+      .unique()
+    const ticketType = await ctx.db.get("ticketTypes", seed.ticketTypeId)
+    return { attendee, selection, soldCount: ticketType?.soldCount }
+  })
+
+  expect(persisted.attendee).toMatchObject({
+    orderId: seed.targetOrderId,
+    name: "Added Buyer",
+    email: "added@example.com",
+    gender: "unknown",
+  })
+  expect(persisted.selection).toMatchObject({
+    orderId: seed.targetOrderId,
+    attendeeId: result.attendeeId,
+    ticketTypeId: seed.ticketTypeId,
+    quantity: 1,
+  })
+  expect(persisted.soldCount).toBe(1)
+})
+
+test("updateAttendee synchronizes a renamed canonical attendee and extension", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedOrdersForAttendeeMutations(t)
+
+  await t.mutation(api.attendees.updateAttendee, {
+    attendeeId: String(seed.attendeeId),
+    name: "Renamed Buyer",
+  })
+
+  const persisted = await t.query(async (ctx) => ({
+    canonical: await ctx.db.get("orderAttendees", seed.attendeeId),
+    extension: await ctx.db.get("ticketTailorAttendees", seed.extensionId),
+  }))
+
+  expect(persisted.canonical?.name).toBe("Renamed Buyer")
+  expect(persisted.extension?.name).toBe("Renamed Buyer")
 })
 
 // ---------------------------------------------------------------------------
@@ -727,4 +787,237 @@ test("moveAttendeeToOrder rejects a missing attendee", async () => {
       targetOrderId: seed.targetOrderId,
     })
   ).rejects.toThrow("Attendee not found.")
+})
+
+// ---------------------------------------------------------------------------
+// removeAttendeeFromOrder: event scope, transactional cleanup, inventory,
+// search projections, preserved order payments, and canonical amount due.
+// ---------------------------------------------------------------------------
+
+test("removeAttendeeFromOrder requires auth and the supplied event owns the attendee", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedOrdersForAttendeeMutations(t)
+  const anonymous = fresh()
+
+  await expect(
+    anonymous.mutation(api.attendees.removeAttendeeFromOrder, {
+      attendeeId: String(seed.attendeeId),
+      eventId: seed.eventId,
+    })
+  ).rejects.toThrow("Unauthorized")
+
+  await expect(
+    t.mutation(api.attendees.removeAttendeeFromOrder, {
+      attendeeId: String(seed.attendeeId),
+      eventId: seed.otherEventId,
+    })
+  ).rejects.toThrow("Attendee does not belong to the supplied event.")
+})
+
+test("removeAttendeeFromOrder deletes attendee-owned rows, decrements inventory, removes search projections, preserves payments, and recomputes due", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedOrdersForAttendeeMutations(t)
+
+  const ticketTypeId = await t.query(async (ctx) => {
+    const selection = await ctx.db.get(
+      "orderTicketSelections",
+      seed.ticketSelectionId
+    )
+    return selection!.ticketTypeId
+  })
+
+  await t.mutation(async (ctx) => {
+    await ctx.db.patch("ticketTypes", ticketTypeId, { soldCount: 5 })
+    const familyGroupId = await ctx.db.insert("attendeeFamilyGroups", {
+      label: "Family",
+      primaryAttendeeId: String(seed.attendeeId),
+    })
+    await ctx.db.insert("attendeeFamilyMembers", {
+      familyGroupId: String(familyGroupId),
+      attendeeId: String(seed.attendeeId),
+    })
+    await ctx.db.insert("attendeeFamilyMembers", {
+      familyGroupId: String(familyGroupId),
+      attendeeId: String(seed.noTicketAttendeeId),
+    })
+    await ctx.db.insert("searchDocuments", {
+      kind: "attendee",
+      subjectId: String(seed.attendeeId),
+      eventId: seed.eventId,
+      searchText: "orders buyer",
+      sortAt: 1_750_000_000_000,
+      isSearchable: true,
+      updatedAt: 1_750_000_000_000,
+    })
+    await ctx.db.insert("searchDocumentTerms", {
+      documentKey: `attendee:${String(seed.attendeeId)}`,
+      kind: "attendee",
+      eventId: seed.eventId,
+      term: "orders",
+      sortAt: 1_750_000_000_000,
+      subjectId: String(seed.attendeeId),
+    })
+    await ctx.db.insert("searchDocuments", {
+      kind: "attendee",
+      subjectId: String(seed.noTicketAttendeeId),
+      eventId: seed.eventId,
+      searchText: "no ticket buyer family",
+      sortAt: 1_750_000_000_000,
+      isSearchable: true,
+      updatedAt: 1_750_000_000_000,
+    })
+    await ctx.db.insert("searchDocumentTerms", {
+      documentKey: `attendee:${String(seed.noTicketAttendeeId)}`,
+      kind: "attendee",
+      eventId: seed.eventId,
+      term: "family",
+      sortAt: 1_750_000_000_000,
+      subjectId: String(seed.noTicketAttendeeId),
+    })
+    await ctx.db.insert("payments", {
+      source: "bank_transfer",
+      eventId: seed.eventId,
+      orderId: String(seed.sourceOrderId),
+      payerName: "Orders Buyer",
+      amountMinor: 11_000,
+      paidAt: 1_750_000_000_000,
+      status: "manual_assignment",
+    })
+  })
+
+  const result = await t.mutation(api.attendees.removeAttendeeFromOrder, {
+    attendeeId: String(seed.attendeeId),
+    eventId: seed.eventId,
+  })
+
+  expect(result).toMatchObject({
+    attendeeId: String(seed.attendeeId),
+    orderId: String(seed.sourceOrderId),
+    remainingAttendees: 1,
+    amountDueMinor: 0,
+  })
+
+  const remaining = await t.query(async (ctx) => {
+    const attendee = await ctx.db.get("orderAttendees", seed.attendeeId)
+    const ticketSelection = await ctx.db.get(
+      "orderTicketSelections",
+      seed.ticketSelectionId
+    )
+    const accommodationSelection = await ctx.db.get(
+      "orderAccommodationSelections",
+      seed.accommodationSelectionId
+    )
+    const optionChildren = await Promise.all(
+      seed.optionChildIds.map((childId) =>
+        ctx.db.get("orderAccommodationOptionSelections", childId)
+      )
+    )
+    const assignment = await ctx.db.get("orderAssignments", seed.assignmentId)
+    const extension = await ctx.db.get("ticketTailorAttendees", seed.extensionId)
+    const familyMembers = await ctx.db
+      .query("attendeeFamilyMembers")
+      .withIndex("attendeeId", (q) =>
+        q.eq("attendeeId", String(seed.attendeeId))
+      )
+      .collect()
+    const familyGroups = await ctx.db
+      .query("attendeeFamilyGroups")
+      .withIndex("primaryAttendeeId", (q) =>
+        q.eq("primaryAttendeeId", String(seed.attendeeId))
+      )
+      .collect()
+    const searchDocument = await ctx.db
+      .query("searchDocuments")
+      .withIndex("by_kind_and_subjectId", (q) =>
+        q.eq("kind", "attendee").eq("subjectId", String(seed.attendeeId))
+      )
+      .unique()
+    const searchTerms = await ctx.db
+      .query("searchDocumentTerms")
+      .withIndex("by_documentKey", (q) =>
+        q.eq("documentKey", `attendee:${String(seed.attendeeId)}`)
+      )
+      .collect()
+    const survivingFamilyMembers = await ctx.db
+      .query("attendeeFamilyMembers")
+      .withIndex("attendeeId", (q) =>
+        q.eq("attendeeId", String(seed.noTicketAttendeeId))
+      )
+      .collect()
+    const survivingSearchDocument = await ctx.db
+      .query("searchDocuments")
+      .withIndex("by_kind_and_subjectId", (q) =>
+        q.eq("kind", "attendee").eq("subjectId", String(seed.noTicketAttendeeId))
+      )
+      .unique()
+    const survivingSearchTerms = await ctx.db
+      .query("searchDocumentTerms")
+      .withIndex("by_documentKey", (q) =>
+        q.eq("documentKey", `attendee:${String(seed.noTicketAttendeeId)}`)
+      )
+      .collect()
+    const payments = await ctx.db
+      .query("payments")
+      .withIndex("orderId", (q) => q.eq("orderId", String(seed.sourceOrderId)))
+      .collect()
+    const ticketType = await ctx.db.get("ticketTypes", ticketTypeId)
+
+    return {
+      attendee,
+      ticketSelection,
+      accommodationSelection,
+      optionChildren,
+      assignment,
+      extension,
+      familyMembers,
+      familyGroups,
+      searchDocument,
+      searchTerms,
+      survivingFamilyMembers,
+      survivingSearchDocument,
+      survivingSearchTerms,
+      payments,
+      soldCount: ticketType?.soldCount,
+    }
+  })
+
+  expect(remaining.attendee).toBeNull()
+  expect(remaining.ticketSelection).toBeNull()
+  expect(remaining.accommodationSelection).toBeNull()
+  expect(remaining.optionChildren).toEqual([null, null])
+  expect(remaining.assignment).toBeNull()
+  expect(remaining.extension).toBeNull()
+  expect(remaining.familyMembers).toEqual([])
+  expect(remaining.familyGroups).toEqual([])
+  expect(remaining.searchDocument).toBeNull()
+  expect(remaining.searchTerms).toEqual([])
+  expect(remaining.survivingFamilyMembers).toEqual([])
+  expect(remaining.survivingSearchDocument?.searchText).toContain(
+    "no ticket buyer"
+  )
+  expect(remaining.survivingSearchDocument?.searchText).not.toContain("family")
+  expect(remaining.survivingSearchTerms.some((term) => term.term === "family")).toBe(
+    false
+  )
+  expect(remaining.payments).toHaveLength(1)
+  expect(remaining.soldCount).toBe(4)
+})
+
+test("removeAttendeeFromOrder rejects inconsistent and last-attendee records before writes", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedOrdersForAttendeeMutations(t)
+
+  await expect(
+    t.mutation(api.attendees.removeAttendeeFromOrder, {
+      attendeeId: String(seed.noTicketAttendeeId),
+      eventId: seed.eventId,
+    })
+  ).rejects.toThrow("Attendee ticket selection is missing or inconsistent.")
+
+  await expect(
+    t.mutation(api.attendees.removeAttendeeFromOrder, {
+      attendeeId: String(seed.singleAttendeeId),
+      eventId: seed.eventId,
+    })
+  ).rejects.toThrow("An order must retain at least one attendee.")
 })

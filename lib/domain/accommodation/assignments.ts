@@ -11,6 +11,36 @@ type RoomAvailability = "all" | "empty" | "available" | "full"
  */
 export type BoardPaymentState = "paid" | "partial" | "unpaid" | null
 
+export type FamilyRole = "solo" | "parent" | "child"
+export type FamilyState =
+  | "unresolved"
+  | "placed"
+  | "waiting-for-parent-room"
+  | "inconsistent"
+  | "needs-family-link"
+  | "Needs family link"
+  | "Waiting for parent room"
+
+export type FamilyChild = {
+  attendeeId: string
+  attendeeName: string | null
+  attendeeEmail?: string | null
+  requiresBed: false
+  familyRole: "child"
+  familyState: FamilyState
+}
+
+export type FamilyFollowUp = {
+  attendeeId: string
+  attendeeName: string | null
+  familyGroupId: string | null
+  familyLabel: string | null
+  familyParentAttendeeId: string | null
+  familyParentName: string | null
+  state: "Needs family link" | "Waiting for parent room" | "inconsistent"
+  message: string
+}
+
 export type SubmissionQueueRow = {
   attendeeId: string
   attendeeName: string
@@ -42,7 +72,7 @@ type RoommateSignals = {
 }
 
 export type RoomAllocationBoardFilters = {
-  eventId?: string | null
+  eventId: string
   search?: string | null
   hotelId?: string | null
   roomTypeId?: string | null
@@ -69,8 +99,10 @@ export type RoomAllocationBoard = {
     hasPriority: boolean | null
   }
   availableEvents: Array<{
-    providerEventId: string
-    name: string | null
+    eventId: string
+    slug: string
+    name: string
+    startsAt: number
   }>
   hotels: Array<{
     id: string
@@ -86,16 +118,19 @@ export type RoomAllocationBoard = {
     id: string
     label: string
     capacity: number
+    occupantCount?: number
+    foreignOccupantCount?: number
+    occupancyIncomplete?: boolean
     occupiedBeds: number
     availableBeds: number
     availability: "empty" | "available" | "full"
     notes: string | null
-    hotel: {
+    hotel?: {
       id: string
       name: string
       city: string | null
     }
-    roomType: {
+    roomType?: {
       id: string
       label: string
       defaultCapacity: number
@@ -105,8 +140,8 @@ export type RoomAllocationBoard = {
       attendeeName: string | null
       attendeeEmail: string | null
       orderId: string | null
-      providerOrderId: string
-      providerEventId: string
+      providerOrderId: string | null
+      providerEventId: string | null
       eventName: string | null
       ticketTypeLabel: string | null
       paymentState: BoardPaymentState
@@ -118,8 +153,17 @@ export type RoomAllocationBoard = {
       nightBeforeOccupancy?: "single" | "shared" | null
       categoryLabel?: string | null
       optionKeys?: string[]
+      requiresBed?: boolean
       /** RMG-04: server-computed; true only when the night-before choice cannot be satisfied by the assigned room. Fail-safe false. */
       nightBeforeMismatch?: boolean
+      familyRole?: FamilyRole
+      familyGroupId?: string | null
+      familyLabel?: string | null
+      familyParentAttendeeId?: string | null
+      familyState?: FamilyState
+      eligibleChildren?: FamilyChild[]
+      eligibleChildCount?: number
+      separateMemberCount?: number
     }>
     pendingAssignments: Array<{
       assignmentId: string
@@ -128,6 +172,14 @@ export type RoomAllocationBoard = {
       attendeeEmail: string | null
       assignmentIntent: "assign" | "skip"
       sortOrder: number
+      familyRole?: FamilyRole
+      familyGroupId?: string | null
+      familyLabel?: string | null
+      familyParentAttendeeId?: string | null
+      familyState?: FamilyState
+      eligibleChildren?: FamilyChild[]
+      eligibleChildCount?: number
+      separateMemberCount?: number
     }>
     /** RMG-02: server-computed; true when a pending buyer group requested on this room spans Standard and Superior. */
     mixedCategoryGroup?: boolean
@@ -147,14 +199,23 @@ export type RoomAllocationBoard = {
     paidAmountMinor: number | null
     /** RMG-02: server-computed; true on every member of a pending group that spans Standard and Superior. */
     mixedCategory?: boolean
+    familyRole?: FamilyRole
+    familyGroupId?: string | null
+    familyParentAttendeeId?: string | null
+    eligibleChildIds?: string[]
+    eligibleChildCount?: number
   }>
+  familyFollowUps?: FamilyFollowUp[]
   unassignedAttendees: Array<{
     attendeeId: string
     attendeeName: string | null
     attendeeEmail: string | null
     orderId: string | null
-    providerOrderId: string
-    providerEventId: string
+    bookingRef: string | null
+    bookerName: string | null
+    providerOrderId: string | null
+    providerEventId: string | null
+    eventId: string | null
     eventName: string | null
     ticketTypeLabel: string | null
     allocatedRoomTypeId: string | null
@@ -163,11 +224,31 @@ export type RoomAllocationBoard = {
     location: string | null
     remarks: string | null
     hasFamily: boolean
+    groupMemberIds: string[]
+    groupAssignmentAvailable: boolean
     roommatePreference?: string | null
     roommateAvoid?: string | null
+    occupancy?: "single" | "shared" | "family" | null
+    nightBeforeLevel?: "standard" | "superior" | null
+    nightBeforeOccupancy?: "single" | "shared" | null
+    categoryLabel?: string | null
+    optionKeys?: string[]
+    requiresBed?: boolean
     paymentState: BoardPaymentState
     amountDueMinor: number | null
     paidAmountMinor: number | null
+    familyRole?: FamilyRole
+    familyGroupId?: string | null
+    familyLabel?: string | null
+    familyParentAttendeeId?: string | null
+    familyState?: FamilyState
+    eligibleChildren?: FamilyChild[]
+    eligibleChildCount?: number
+    separateMemberCount?: number
+    separateMembers?: Array<{
+      attendeeId: string
+      attendeeName: string | null
+    }>
   }>
   submissionQueueRows: SubmissionQueueRow[]
   summary: {
@@ -176,8 +257,11 @@ export type RoomAllocationBoard = {
     availableRooms: number
     fullRooms: number
     totalBeds: number
+    totalOccupants?: number
     occupiedBeds: number
     availableBeds: number
+    foreignOccupants?: number
+    occupancyIncomplete?: boolean
     unassignedAttendeesCount: number
   }
 }
@@ -194,6 +278,11 @@ export type AllocationProposal = {
     reason: string
     priority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW"
     paymentState: BoardPaymentState
+    familyRole: FamilyRole
+    familyGroupId: string | null
+    familyParentAttendeeId: string | null
+    eligibleChildIds: string[]
+    eligibleChildCount: number
   }>
   unplacedAttendees: Array<{
     attendeeId: string
@@ -221,6 +310,7 @@ type BuyerSuggestion = NonNullable<
 type RoomState = {
   room: ProposalRoom
   remainingBeds: number
+  projectedOccupantCount: number
   projectedGenders: Set<Exclude<AttendeeGender, null>>
   projectedOrderIds: Set<string>
   projectedOccupantSignatures: Set<string>
@@ -318,7 +408,7 @@ function attendeeMatchesSearch(
     attendeeName: string | null
     attendeeEmail: string | null
     orderId: string | null
-    providerEventId: string
+    providerEventId: string | null
     eventName: string | null
     ticketTypeLabel: string | null
   },
@@ -431,7 +521,14 @@ function getFamilyCohesionRank(
     return 3
   }
 
-  if (attendee.hasFamily && roomState.room.occupiedBeds === 0) {
+  if (
+    attendee.familyRole === "parent" &&
+    (attendee.eligibleChildCount ?? attendee.eligibleChildren?.length ?? 0) > 0
+  ) {
+    return 3
+  }
+
+  if (attendee.hasFamily && roomState.projectedOccupantCount === 0) {
     return 2
   }
 
@@ -472,9 +569,12 @@ function buildPlacementReason(input: {
 }
 
 export async function getRoomAllocationBoard(
-  filters: RoomAllocationBoardFilters = {}
+  filters: RoomAllocationBoardFilters
 ): Promise<RoomAllocationBoard> {
   const eventId = normalizeOptionalString(filters.eventId)
+  if (!eventId) {
+    throw new Error("Invalid eventId: a non-blank event ID is required")
+  }
   const search = normalizeOptionalString(filters.search)
   const hotelId = normalizeOptionalString(filters.hotelId)
   const roomTypeId = normalizeOptionalString(filters.roomTypeId)
@@ -488,7 +588,7 @@ export async function getRoomAllocationBoard(
   const hasPriority = normalizeBoolean(filters.hasPriority ?? undefined)
 
   const result = await convexQuery(api.accommodation.getRoomAllocationBoard, {
-    eventId: eventId ?? undefined,
+    eventId,
     hotelId: hotelId ?? undefined,
     roomTypeId: roomTypeId ?? undefined,
     genderType: genderType ?? undefined,
@@ -510,9 +610,9 @@ export async function getRoomAllocationBoard(
         const doesMatchSearch =
           !search ||
           matchesSearch(room.label, search) ||
-          matchesSearch(room.hotel.name, search) ||
-          matchesSearch(room.hotel.city, search) ||
-          matchesSearch(room.roomType.label, search) ||
+          matchesSearch(room.hotel?.name ?? null, search) ||
+          matchesSearch(room.hotel?.city ?? null, search) ||
+          matchesSearch(room.roomType?.label ?? null, search) ||
           occupants.length > 0
         return { ...room, occupants, doesMatchSearch }
       })
@@ -548,30 +648,47 @@ export async function getRoomAllocationBoard(
 export async function assignAttendeeToRoom(input: {
   attendeeId: string
   roomId: string
+  eventId: string
 }) {
   return await convexMutation(api.accommodation.assignAttendeeToRoom, {
     attendeeId: input.attendeeId,
     roomId: input.roomId,
+    eventId: input.eventId,
   })
 }
 
-export async function unassignAttendeeFromRoom(attendeeIdValue: string) {
+export async function unassignAttendeeFromRoom(input: {
+  attendeeId: string
+  eventId: string
+}) {
+  const attendeeIdValue = input.attendeeId
   const attendeeId = normalizeOptionalString(attendeeIdValue) ?? ""
 
   return await convexMutation(api.accommodation.unassignAttendeeFromRoom, {
     attendeeId,
+    eventId: input.eventId,
   })
 }
 
 export async function generateAllocationProposal(input: {
-  eventId?: string | null
+  eventId: string
 }): Promise<AllocationProposal> {
   const eventId = normalizeOptionalString(input.eventId)
+  if (!eventId) {
+    throw new Error("Invalid eventId: a non-blank event ID is required")
+  }
 
   const board = await getRoomAllocationBoard({ eventId })
 
   const suggestions: AllocationProposal["suggestions"] = []
   const unplacedAttendees: AllocationProposal["unplacedAttendees"] = []
+
+  // The server already suppresses eligible family children from this queue.
+  // Keep the guard here as a second, additive boundary so automatic proposals
+  // remain parent-led even when manual placement is intentionally softer.
+  const placementUnits = board.unassignedAttendees.filter(
+    (attendee) => (attendee.familyRole ?? "solo") !== "child"
+  )
 
   const buyerSuggestionsByAttendeeId = new Map<string, BuyerSuggestion>()
   for (const suggestion of board.buyerSuggestions ?? []) {
@@ -580,7 +697,6 @@ export async function generateAllocationProposal(input: {
   }
 
   const availableRooms = board.rooms
-    .filter((r) => r.availableBeds > 0)
     .sort((a, b) => {
       if (a.availability === "available" && b.availability === "empty")
         return -1
@@ -590,6 +706,7 @@ export async function generateAllocationProposal(input: {
     .map<RoomState>((room) => ({
       room,
       remainingBeds: room.availableBeds,
+      projectedOccupantCount: room.occupantCount ?? 0,
       projectedGenders: new Set<Exclude<AttendeeGender, null>>(),
       projectedOrderIds: new Set(
         room.occupants.map((occupant) =>
@@ -603,19 +720,7 @@ export async function generateAllocationProposal(input: {
       ),
     }))
 
-  const attendeeCountByOrderId = new Map<string, number>()
-  for (const attendee of board.unassignedAttendees) {
-    const attendeeOrderKey = canonicalOrderKey(
-      attendee.orderId,
-      attendee.attendeeId
-    )
-    attendeeCountByOrderId.set(
-      attendeeOrderKey,
-      (attendeeCountByOrderId.get(attendeeOrderKey) ?? 0) + 1
-    )
-  }
-
-  const sortedAttendees = [...board.unassignedAttendees].sort((a, b) => {
+  const sortedAttendees = [...placementUnits].sort((a, b) => {
     const aPaymentRank = paymentStateRank(a.paymentState)
     const bPaymentRank = paymentStateRank(b.paymentState)
     if (aPaymentRank !== bPaymentRank) return aPaymentRank - bPaymentRank
@@ -626,8 +731,10 @@ export async function generateAllocationProposal(input: {
 
     const aOrderKey = canonicalOrderKey(a.orderId, a.attendeeId)
     const bOrderKey = canonicalOrderKey(b.orderId, b.attendeeId)
-    const aGroupSize = attendeeCountByOrderId.get(aOrderKey) ?? 0
-    const bGroupSize = attendeeCountByOrderId.get(bOrderKey) ?? 0
+    const aGroupSize =
+      (a.familyRole === "parent" ? (a.eligibleChildCount ?? 0) : 0) + 1
+    const bGroupSize =
+      (b.familyRole === "parent" ? (b.eligibleChildCount ?? 0) : 0) + 1
     if (aGroupSize !== bGroupSize) {
       return bGroupSize - aGroupSize
     }
@@ -650,9 +757,13 @@ export async function generateAllocationProposal(input: {
   ) => {
     const priority = attendee.allocationPriority ?? "NORMAL"
     const attendeeGender = normalizeAttendeeGender(attendee.genderType)
+    const attendeeRequiresBed = attendee.requiresBed !== false
 
     const rankedRooms = availableRooms
-      .filter((roomState) => roomState.remainingBeds > 0)
+      .filter(
+        (roomState) =>
+          !attendeeRequiresBed || roomState.remainingBeds > 0
+      )
       .filter((roomState) =>
         isGenderCompatible(attendeeGender, roomState.projectedGenders)
       )
@@ -668,7 +779,8 @@ export async function generateAllocationProposal(input: {
         )
         const availabilityRank =
           roomState.room.availability === "available" ? 1 : 0
-        const remainingBedsAfterPlacement = roomState.remainingBeds - 1
+        const remainingBedsAfterPlacement =
+          roomState.remainingBeds - (attendeeRequiresBed ? 1 : 0)
 
         return {
           roomState,
@@ -710,7 +822,12 @@ export async function generateAllocationProposal(input: {
         attendee.attendeeId
       )
 
-      bestRoom.remainingBeds -= 1
+      if (attendeeRequiresBed) {
+        bestRoom.remainingBeds -= 1
+      }
+      const eligibleChildren =
+        attendee.familyRole === "parent" ? attendee.eligibleChildren ?? [] : []
+      bestRoom.projectedOccupantCount += 1 + eligibleChildren.length
       bestRoom.projectedGenders.add(attendeeGender)
       bestRoom.projectedOrderIds.add(attendeeOrderKey)
       for (const signature of buildPersonSignatures(
@@ -719,13 +836,21 @@ export async function generateAllocationProposal(input: {
       )) {
         bestRoom.projectedOccupantSignatures.add(signature)
       }
+      for (const child of eligibleChildren) {
+        for (const signature of buildPersonSignatures(
+          child.attendeeName,
+          child.attendeeEmail
+        )) {
+          bestRoom.projectedOccupantSignatures.add(signature)
+        }
+      }
 
       suggestions.push({
         attendeeId: attendee.attendeeId,
         attendeeName: attendee.attendeeName,
         roomId: bestRoom.room.id,
         roomLabel: bestRoom.room.label,
-        hotelName: bestRoom.room.hotel.name,
+        hotelName: bestRoom.room.hotel?.name ?? "Unknown hotel",
         reason: buildPlacementReason({
           attendee,
           roomState: bestRoom,
@@ -736,13 +861,16 @@ export async function generateAllocationProposal(input: {
         }),
         priority,
         paymentState: attendee.paymentState ?? null,
+        familyRole: attendee.familyRole ?? "solo",
+        familyGroupId: attendee.familyGroupId ?? null,
+        familyParentAttendeeId: attendee.familyParentAttendeeId ?? null,
+        eligibleChildIds: eligibleChildren.map((child) => child.attendeeId),
+        eligibleChildCount: eligibleChildren.length,
       })
       return
     }
 
-    const hasAnyBeds = availableRooms.some(
-      (roomState) => roomState.remainingBeds > 0
-    )
+    const hasAnyBeds = availableRooms.some((roomState) => roomState.remainingBeds > 0)
     unplacedAttendees.push({
       attendeeId: attendee.attendeeId,
       attendeeName: attendee.attendeeName,
@@ -754,61 +882,17 @@ export async function generateAllocationProposal(input: {
     })
   }
 
-  const suggestedAttendees = sortedAttendees.filter((attendee) =>
-    buyerSuggestionsByAttendeeId.has(attendee.attendeeId)
-  )
-  const remainingAttendees = sortedAttendees.filter(
-    (attendee) => !buyerSuggestionsByAttendeeId.has(attendee.attendeeId)
-  )
-
-  for (const attendee of suggestedAttendees) {
-    const suggestion = buyerSuggestionsByAttendeeId.get(attendee.attendeeId)
-    placeAttendee(attendee, suggestion?.roomId ?? null, true)
-  }
-
-  for (const attendee of remainingAttendees) {
-    placeAttendee(attendee, null)
-  }
-
-  const suggestionsByAttendeeId = new Map(
-    suggestions.map((suggestion) => [suggestion.attendeeId, suggestion])
-  )
-  const familyGroups = new Map<string, string[]>()
-
+  // Buyer suggestions affect room choice, not who jumps the payment queue.
   for (const attendee of sortedAttendees) {
-    if (!attendee.hasFamily) continue
-    const attendeeOrderKey = canonicalOrderKey(
-      attendee.orderId,
-      attendee.attendeeId
-    )
-    const existing = familyGroups.get(attendeeOrderKey) ?? []
-    existing.push(attendee.attendeeId)
-    familyGroups.set(attendeeOrderKey, existing)
+    const suggestion = buyerSuggestionsByAttendeeId.get(attendee.attendeeId)
+    placeAttendee(attendee, suggestion?.roomId ?? null, Boolean(suggestion))
   }
 
-  const familyGroupsKeptTogether = [...familyGroups.values()].reduce(
-    (sum, attendeeIds) => {
-      if (attendeeIds.length < 2) {
-        return sum
-      }
-
-      const placements = attendeeIds
-        .map((attendeeId) => suggestionsByAttendeeId.get(attendeeId))
-        .filter((placement): placement is NonNullable<typeof placement> =>
-          Boolean(placement)
-        )
-
-      if (placements.length !== attendeeIds.length) {
-        return sum
-      }
-
-      const distinctRoomIds = new Set(
-        placements.map((placement) => placement.roomId)
-      )
-      return distinctRoomIds.size === 1 ? sum + 1 : sum
-    },
-    0
-  )
+  const familyGroupsKeptTogether = suggestions.filter(
+    (suggestion) =>
+      suggestion.familyRole === "parent" &&
+      (suggestion.eligibleChildCount ?? 0) > 0
+  ).length
 
   return {
     generatedAt: new Date().toISOString(),
@@ -830,6 +914,10 @@ export type ConfirmBuyerAssignmentResult =
       attendeeId: string
       slotId: string
       roomId: string
+      parentAttendeeId: string
+      eligibleChildIds: string[]
+      eligibleChildCount: number
+      affectedAttendeeCount: number
     }
   | {
       success: false

@@ -34,6 +34,8 @@ export const orderLedgerRowValidator = v.object({
   archiveReason: nullableStringValidator,
   amountDueMinor: v.union(v.number(), v.null()),
   matchedAmountMinor: v.union(v.number(), v.null()),
+  appliedAmountMinor: v.optional(v.union(v.number(), v.null())),
+  donationAmountMinor: v.optional(v.union(v.number(), v.null())),
   totalAmountMinor: v.union(v.number(), v.null()),
   outstandingAmountMinor: v.number(),
   currency: nullableStringValidator,

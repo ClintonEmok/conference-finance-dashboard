@@ -11,6 +11,7 @@ import {
   Minus,
   MoveRight,
   Plus,
+  Trash2,
 } from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -59,6 +60,7 @@ export type AttendeeOrderEditorOptionSelection = {
 }
 
 export type EditorGeneralDraft = {
+  name: string
   genderType: "" | AttendeeOrderEditorGender
   ticketTypeId: string
   location: string
@@ -115,6 +117,7 @@ export type EditorEditContext = {
 }
 
 type AttendeeGeneralChanges = {
+  name?: string
   genderType?: AttendeeOrderEditorGender | null
   ticketTypeId?: string
   location?: string | null
@@ -169,6 +172,7 @@ function generalDraftFromAttendee(
   attendee: AttendeeOrderEditorAttendee
 ): EditorGeneralDraft {
   return {
+    name: attendee.name,
     genderType: attendee.genderType ?? "",
     ticketTypeId: attendee.ticketTypeId ?? "",
     location: attendee.location ?? "",
@@ -224,16 +228,19 @@ export function matchEditorSelection(
 }
 
 /**
- * Build the general attendee PATCH body. Only `genderType`, `ticketTypeId`,
- * and `location` are ever included; money, category, room, and snapshot
+ * Build the general attendee PATCH body. Money, category, room, and snapshot
  * fields have no representation here and are rejected by the route.
  */
 export function buildAttendeeGeneralPatchBody(input: {
+  name?: string
   genderType?: "" | AttendeeOrderEditorGender | null
   ticketTypeId?: string
   location?: string | null
 }): AttendeeGeneralChanges {
   const body: AttendeeGeneralChanges = {}
+  if (input.name !== undefined) {
+    body.name = input.name.trim()
+  }
   if (input.genderType !== undefined) {
     body.genderType = input.genderType || null
   }
@@ -290,6 +297,7 @@ export function buildAttendeeMoveBody(targetOrderId: string): {
 
 export function collectDirtyGeneralFields(input: {
   initial: {
+    name: string
     genderType: AttendeeOrderEditorGender | null
     ticketTypeId: string | null
     location: string | null
@@ -297,6 +305,9 @@ export function collectDirtyGeneralFields(input: {
   draft: EditorGeneralDraft
 }): AttendeeGeneralChanges | null {
   const changes: AttendeeGeneralChanges = {}
+  if (input.draft.name.trim() !== input.initial.name.trim()) {
+    changes.name = input.draft.name.trim()
+  }
   if (input.draft.genderType !== (input.initial.genderType ?? "")) {
     changes.genderType = input.draft.genderType || null
   }
@@ -377,6 +388,7 @@ export function buildEditorSaveRequests(input: {
 
 type AttendeeOrderEditorProps = {
   attendee: AttendeeOrderEditorAttendee
+  canRemove?: boolean
   onSaved?: () => void
 }
 
@@ -388,6 +400,7 @@ type EditorTicketType = {
 
 export function AttendeeOrderEditor({
   attendee,
+  canRemove = false,
   onSaved,
 }: AttendeeOrderEditorProps) {
   const { ticketTypes: rawTicketTypes, isLoading: isTicketTypesLoading } =
@@ -414,6 +427,9 @@ export function AttendeeOrderEditor({
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
   const [isMoving, setIsMoving] = useState(false)
   const [moveStatus, setMoveStatus] = useState<SaveStatus>({ kind: "idle" })
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false)
+  const [isRemoving, setIsRemoving] = useState(false)
+  const [removeStatus, setRemoveStatus] = useState<SaveStatus>({ kind: "idle" })
   const [moveSearch, setMoveSearch] = useState("")
   const [debouncedMoveSearch, setDebouncedMoveSearch] = useState("")
   const [targetOrderId, setTargetOrderId] = useState<string | null>(null)
@@ -462,6 +478,7 @@ export function AttendeeOrderEditor({
     () =>
       JSON.stringify([
         attendee.id,
+        attendee.name,
         attendee.genderType,
         attendee.ticketTypeId,
         attendee.location,
@@ -508,6 +525,7 @@ export function AttendeeOrderEditor({
     () =>
       collectDirtyGeneralFields({
         initial: {
+          name: attendee.name,
           genderType: attendee.genderType,
           ticketTypeId: attendee.ticketTypeId,
           location: attendee.location,
@@ -743,6 +761,43 @@ export function AttendeeOrderEditor({
       })
     } finally {
       setIsMoving(false)
+    }
+  }
+
+  async function handleRemove() {
+    if (isRemoving || !canRemove) return
+
+    setIsRemoving(true)
+    setRemoveStatus({ kind: "saving" })
+    try {
+      const response = await fetch(
+        `/api/dashboard/attendees/${encodeURIComponent(attendee.id)}/remove`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ eventId: attendee.eventId }),
+        }
+      )
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string }
+        } | null
+        throw new Error(body?.error?.message ?? "Failed to remove attendee.")
+      }
+      setRemoveStatus({
+        kind: "success",
+        message: "Attendee removed. The order totals are now updating.",
+      })
+      setRemoveConfirmOpen(false)
+      onSaved?.()
+    } catch (error) {
+      setRemoveStatus({
+        kind: "error",
+        message:
+          error instanceof Error ? error.message : "Failed to remove attendee.",
+      })
+    } finally {
+      setIsRemoving(false)
     }
   }
 
@@ -1103,70 +1158,89 @@ export function AttendeeOrderEditor({
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="attendee-editor-ticket">Ticket type</Label>
-          {isTicketTypesLoading ? (
-            <Skeleton className="h-9 w-full rounded-lg" />
-          ) : (
-            <Select
-              value={generalDraft.ticketTypeId}
-              onValueChange={(value) => {
-                saveGuard.current.ticketConfirmed = false
-                setGeneralDraft((current) => ({
-                  ...current,
-                  ticketTypeId: value,
-                }))
-              }}
-            >
-              <SelectTrigger
-                id="attendee-editor-ticket"
-                className="h-9 rounded-lg bg-background/50 text-xs"
-              >
-                <SelectValue placeholder="Select ticket type" />
-              </SelectTrigger>
-              <SelectContent>
-                {ticketTypes.map((ticketType) => (
-                  <SelectItem
-                    key={ticketType._id}
-                    value={ticketType._id as string}
-                  >
-                    {ticketType.label} ·{" "}
-                    {formatPrice(ticketType.priceMinor, currency)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="attendee-editor-gender">Gender</Label>
-          <Select
-            value={generalDraft.genderType || "__none__"}
-            onValueChange={(value) =>
+          <Label htmlFor="attendee-editor-name">Name</Label>
+          <Input
+            id="attendee-editor-name"
+            value={generalDraft.name}
+            disabled={isSaving}
+            placeholder="Full name"
+            onChange={(event) =>
               setGeneralDraft((current) => ({
                 ...current,
-                genderType: (value === "__none__"
-                  ? ""
-                  : value) as "" | AttendeeOrderEditorGender,
+                name: event.target.value,
               }))
             }
-          >
-            <SelectTrigger
-              id="attendee-editor-gender"
-              className="h-9 rounded-lg bg-background/50 text-xs"
+            className="h-9 rounded-lg bg-background/50 text-xs"
+          />
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="attendee-editor-ticket">Ticket type</Label>
+            {isTicketTypesLoading ? (
+              <Skeleton className="h-9 w-full rounded-lg" />
+            ) : (
+              <Select
+                value={generalDraft.ticketTypeId}
+                onValueChange={(value) => {
+                  saveGuard.current.ticketConfirmed = false
+                  setGeneralDraft((current) => ({
+                    ...current,
+                    ticketTypeId: value,
+                  }))
+                }}
+              >
+                <SelectTrigger
+                  id="attendee-editor-ticket"
+                  className="h-9 rounded-lg bg-background/50 text-xs"
+                >
+                  <SelectValue placeholder="Select ticket type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ticketTypes.map((ticketType) => (
+                    <SelectItem
+                      key={ticketType._id}
+                      value={ticketType._id as string}
+                    >
+                      {ticketType.label} ·{" "}
+                      {formatPrice(ticketType.priceMinor, currency)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="attendee-editor-gender">Gender</Label>
+            <Select
+              value={generalDraft.genderType || "__none__"}
+              onValueChange={(value) =>
+                setGeneralDraft((current) => ({
+                  ...current,
+                  genderType: (value === "__none__"
+                    ? ""
+                    : value) as "" | AttendeeOrderEditorGender,
+                }))
+              }
             >
-              <SelectValue placeholder="Not set" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">Not set</SelectItem>
-              <SelectItem value="MALE">Male</SelectItem>
-              <SelectItem value="FEMALE">Female</SelectItem>
-              <SelectItem value="MIXED">Mixed</SelectItem>
-              <SelectItem value="UNKNOWN">Unknown</SelectItem>
-            </SelectContent>
-          </Select>
+              <SelectTrigger
+                id="attendee-editor-gender"
+                className="h-9 rounded-lg bg-background/50 text-xs"
+              >
+                <SelectValue placeholder="Not set" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Not set</SelectItem>
+                <SelectItem value="MALE">Male</SelectItem>
+                <SelectItem value="FEMALE">Female</SelectItem>
+                <SelectItem value="MIXED">Mixed</SelectItem>
+                <SelectItem value="UNKNOWN">Unknown</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -1296,6 +1370,52 @@ export function AttendeeOrderEditor({
               </span>
             ) : null}
           </div>
+        </div>
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-destructive/30 bg-card/40 p-4">
+        <div className="flex items-center gap-2">
+          <Trash2 className="size-4 text-destructive" />
+          <p className="text-[10px] font-black tracking-widest text-muted-foreground uppercase">
+            Remove attendee
+          </p>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {canRemove
+            ? "Remove this attendee and their ticket, accommodation, room assignment, family, and search records. Existing order payments stay attached."
+            : "This order has only one attendee, so it cannot be removed."}
+        </p>
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={isSaving || isRemoving || !canRemove}
+          onClick={() => {
+            setRemoveStatus({ kind: "idle" })
+            setRemoveConfirmOpen(true)
+          }}
+          className="h-8 rounded-lg px-3 text-[10px] font-bold tracking-wider uppercase"
+        >
+          <Trash2 className="mr-1.5 size-3.5" />
+          {isRemoving ? "Removing…" : "Remove attendee"}
+        </Button>
+        <div aria-live="polite" className="min-w-0 text-sm">
+          {removeStatus.kind === "saving" ? (
+            <span className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Removing attendee…
+            </span>
+          ) : removeStatus.kind === "success" ? (
+            <span className="flex items-center gap-2 font-medium text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="size-4" />
+              {removeStatus.message}
+            </span>
+          ) : removeStatus.kind === "error" ? (
+            <span role="alert" className="flex items-center gap-2 font-medium text-destructive">
+              <AlertCircle className="size-4" />
+              {removeStatus.message}
+            </span>
+          ) : null}
         </div>
       </section>
 
@@ -1438,6 +1558,54 @@ export function AttendeeOrderEditor({
               className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
             >
               {isMoving ? "Moving…" : "Move attendee"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={removeConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) setRemoveConfirmOpen(false)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove attendee</DialogTitle>
+            <DialogDescription>
+              Remove {attendee.name} from this order? Their ticket,
+              accommodation, room assignment, family, and search records will
+              be deleted and the order amount due recalculated. Existing
+              payments stay on the order.
+            </DialogDescription>
+          </DialogHeader>
+          {removeStatus.kind === "error" ? (
+            <div
+              aria-live="assertive"
+              role="alert"
+              className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm font-medium text-destructive"
+            >
+              <AlertCircle className="mt-0.5 size-4 shrink-0" />
+              <span>{removeStatus.message}</span>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setRemoveConfirmOpen(false)}
+              className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isRemoving}
+              onClick={() => void handleRemove()}
+              className="h-9 rounded-lg px-4 text-[11px] font-bold tracking-wider uppercase"
+            >
+              {isRemoving ? "Removing…" : "Remove attendee"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -44,6 +44,15 @@ function parseAttendeeFilters(request: Request) {
   const to = parseOptionalDate(params.get("to"), "to")
   const page = parsePositiveInteger(params.get("page"), "page")
   const pageSize = parsePositiveInteger(params.get("pageSize"), "pageSize")
+  const searchCursorParam = params.get("searchCursor")
+  const searchCursor = searchCursorParam && searchCursorParam.trim() ? searchCursorParam.trim() : null
+
+  if (search && search.length > 512) {
+    throw new Error("Search input exceeds 512 characters.")
+  }
+  if (searchCursor && (params.has("page") || params.has("pageSize"))) {
+    throw new Error("A search cursor cannot be combined with page or pageSize.")
+  }
 
   if (from && to && from.getTime() > to.getTime()) {
     throw new Error("Invalid date range. 'from' must be less than or equal to 'to'.")
@@ -56,6 +65,7 @@ function parseAttendeeFilters(request: Request) {
     search,
     page: page ?? undefined,
     pageSize: pageSize ?? undefined,
+    searchCursor,
   }
 }
 
@@ -81,7 +91,12 @@ export async function GET(request: Request) {
     console.error("Error loading attendees:", error)
     const message = error instanceof Error ? error.message : "Invalid request"
 
-    if (message.startsWith("Invalid") || message.includes("must be")) {
+    if (
+      message.startsWith("Invalid") ||
+      message.includes("must be") ||
+      message.includes("cursor") ||
+      message.includes("Search input")
+    ) {
 
       return NextResponse.json(
         {

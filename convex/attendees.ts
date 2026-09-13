@@ -12,6 +12,12 @@ import {
   resolveTicketCategoryById,
   type PublicSignupSelectionResolved,
 } from "./signupCatalog"
+import {
+  deleteSearchProjection,
+  maintainOrderSearchProjection,
+  paginateSearchDocuments,
+  upsertAttendeeSearchDocument,
+} from "./search"
 
 type AttendeeResolveCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">
 
@@ -413,6 +419,114 @@ export const getAttendeesWithTickets = query({
   },
 })
 
+const LEDGER_PAGE_MAX = 100
+const LEDGER_CURSOR_PREFIX = "al:"
+
+type LedgerCursor = {
+  version: 1
+  signature: string
+  searchCursor: string | null
+}
+
+function decodeLedgerCursor(cursor: string): LedgerCursor {
+  try {
+    const value = JSON.parse(decodeURIComponent(cursor.slice(LEDGER_CURSOR_PREFIX.length))) as LedgerCursor
+    if (value.version !== 1 || typeof value.signature !== "string") throw new Error()
+    return value
+  } catch {
+    throw new Error("Invalid attendee ledger continuation cursor.")
+  }
+}
+
+function encodeLedgerCursor(value: LedgerCursor) {
+  return `${LEDGER_CURSOR_PREFIX}${encodeURIComponent(JSON.stringify(value))}`
+}
+
+/** Bounded canonical attendee ledger search. Legacy collection callers above are intentionally unchanged. */
+export const getAttendeeLedgerPage = query({
+  args: {
+    eventId: v.optional(v.id("events")),
+    search: v.optional(v.string()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    pageSize: v.number(),
+    from: v.optional(v.union(v.number(), v.null())),
+    to: v.optional(v.union(v.number(), v.null())),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+    if (!Number.isInteger(args.pageSize) || args.pageSize < 1 || args.pageSize > LEDGER_PAGE_MAX) {
+      throw new Error("Invalid attendee ledger page size.")
+    }
+    const dateMode = args.eventId && args.from == null && args.to == null ? "all-time" : "bounded"
+    const now = Date.now()
+    const from = args.eventId
+      ? (args.from ?? 0)
+      : (args.from ?? now - 29 * 24 * 60 * 60 * 1000)
+    const to = args.to ?? now
+    if (from > to) throw new Error("Invalid date range. 'from' must be less than or equal to 'to'.")
+    const signature = JSON.stringify({ eventId: args.eventId ?? null, search: args.search?.trim().toLowerCase() ?? "", from: args.from ?? null, to: args.to ?? null, dateMode })
+    let searchCursor: string | null = null
+    if (args.cursor) {
+      const decoded = decodeLedgerCursor(args.cursor)
+      if (decoded.signature !== signature) throw new Error("Attendee ledger cursor does not match the request.")
+      searchCursor = decoded.searchCursor
+    }
+
+    const candidates: Array<Doc<"searchDocuments">> = []
+    const result = await paginateSearchDocuments(ctx, { kind: "attendee", eventId: args.eventId, search: args.search, cursor: searchCursor, numItems: args.pageSize })
+    const cursor = result.continueCursor
+    const hasNext = !result.isDone
+    for (const candidate of result.page) {
+        const attendeeId = ctx.db.normalizeId("orderAttendees", candidate.subjectId)
+        if (!attendeeId) continue
+        const attendee = await ctx.db.get("orderAttendees", attendeeId)
+        const order = attendee ? await ctx.db.get("orders", attendee.orderId) : null
+        const orderTime = order?.orderedAt ?? order?.submittedAt ?? null
+        if (attendee && order && (!orderTime || (orderTime >= from && orderTime <= to))) candidates.push(candidate)
+      if (candidates.length >= args.pageSize) break
+    }
+
+    const rows = []
+    const orders = new Map<string, Doc<"orders">>()
+    for (const candidate of candidates) {
+      const attendeeId = ctx.db.normalizeId("orderAttendees", candidate.subjectId)
+      if (!attendeeId) continue
+      const attendee = await ctx.db.get("orderAttendees", attendeeId)
+      if (!attendee) continue
+      const order = await ctx.db.get("orders", attendee.orderId)
+      if (!order || order.mergedIntoOrderId || (args.eventId && order.eventId !== args.eventId)) continue
+      orders.set(String(order._id), order)
+      const selections = await ctx.db.query("orderTicketSelections").withIndex("by_orderId", q => q.eq("orderId", order._id)).take(100)
+      const selection = selections.find(row => row.attendeeId === attendee._id)
+      const ticket = selection ? await ctx.db.get("ticketTypes", selection.ticketTypeId) : null
+      const member = await ctx.db.query("attendeeFamilyMembers").withIndex("attendeeId", q => q.eq("attendeeId", String(attendee._id))).first()
+      const familyId = member ? ctx.db.normalizeId("attendeeFamilyGroups", member.familyGroupId) : null
+      const family = familyId ? await ctx.db.get("attendeeFamilyGroups", familyId) : null
+      const extension = await ctx.db.query("ticketTailorAttendees").withIndex("attendeeId", q => q.eq("attendeeId", attendee._id)).first()
+      rows.push({
+        _id: attendee._id, orderId: attendee.orderId, name: attendee.name, email: attendee.email ?? null,
+        gender: attendee.gender, location: attendee.location ?? null, assignedRoomId: attendee.assignedRoomId ?? null,
+        allocationPriority: attendee.allocationPriority ?? null, priorityReason: attendee.priorityReason ?? null,
+        ticketTypeLabel: ticket?.label ?? null, bookingRef: order.bookingRef ?? null,
+        familyGroupId: family?._id ?? null, familyGroupLabel: family?.label ?? null,
+        familyPrimaryAttendeeId: family?.primaryAttendeeId ?? null, familyRelationship: member?.relationship ?? null,
+        providerAttendeeId: extension?.providerAttendeeId ?? null, providerIssuedTicketId: extension?.providerIssuedTicketId ?? null,
+        providerOrderId: order.providerOrderId ?? null, orderEventId: order.eventId, orderStatus: order.status ?? null,
+        normalizedStatus: order.status ?? null, orderTotalAmountMinor: order.totalAmountMinor ?? null,
+        orderSubmittedAt: order.submittedAt ?? null, orderOrderedAt: order.orderedAt ?? null,
+        allocatedRoomTypeId: attendee.allocatedRoomTypeId ?? null, customAnswers: extension?.customAnswers ?? null,
+        amountDueMinor: 0,
+      })
+    }
+    const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [...orders.values()])
+    for (const row of rows) row.amountDueMinor = breakdowns.get(String(row.orderId))?.amountDueByAttendeeId.get(String(row._id)) ?? 0
+    return {
+      dateMode, from: dateMode === "all-time" ? null : from, to: dateMode === "all-time" ? null : to,
+      rows, page: { hasNextPage: hasNext, nextCursor: hasNext ? encodeLedgerCursor({ version: 1, signature, searchCursor: cursor }) : null, totalRows: null, totalPages: null },
+    }
+  },
+})
+
 export const getAttendeeById = query({
   args: { attendeeId: v.id("ticketTailorAttendees") },
   handler: async (ctx, args) => {
@@ -688,6 +802,13 @@ export const updateAttendee = mutation({
       )
     }
 
+    if (
+      resolved.canonicalAttendee &&
+      (args.name !== undefined || args.email !== undefined || args.ticketTypeId !== undefined)
+    ) {
+      await upsertAttendeeSearchDocument(ctx, resolved.canonicalAttendee._id)
+    }
+
     return (
       resolved.canonicalAttendee?._id ??
       resolved.ticketTailorAttendee?._id ??
@@ -696,16 +817,115 @@ export const updateAttendee = mutation({
   },
 })
 
+export const addAttendeeToOrder = mutation({
+  args: {
+    orderId: v.id("orders"),
+    eventId: v.id("events"),
+    name: v.string(),
+    email: v.optional(v.string()),
+    ticketTypeId: v.id("ticketTypes"),
+  },
+  returns: v.object({
+    attendeeId: v.id("orderAttendees"),
+    orderId: v.id("orders"),
+    amountDueMinor: v.union(v.number(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const name = args.name.trim()
+    if (!name) {
+      throw new Error("Attendee name is required.")
+    }
+
+    const event = await ctx.db.get("events", args.eventId)
+    if (!event) {
+      throw new Error("Event not found.")
+    }
+
+    const order = await ctx.db.get("orders", args.orderId)
+    if (!order) {
+      throw new Error("Order not found.")
+    }
+    if (order.eventId !== args.eventId) {
+      throw new Error("Order does not belong to the supplied event.")
+    }
+    if (order.mergedIntoOrderId) {
+      throw new Error("Cannot add an attendee to a merged order.")
+    }
+
+    const orderExtension = await ctx.db
+      .query("ticketTailorOrders")
+      .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
+      .first()
+    if (orderExtension && typeof orderExtension.removedAt === "number") {
+      throw new Error("Cannot add an attendee to a removed order.")
+    }
+
+    const ticketType = await ctx.db.get("ticketTypes", args.ticketTypeId)
+    if (!ticketType) {
+      throw new Error("Ticket type not found.")
+    }
+    if (ticketType.eventId !== args.eventId) {
+      throw new Error("Ticket type does not belong to the supplied event.")
+    }
+
+    let nextSortOrder = 0
+    for await (const attendee of ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.orderId))) {
+      nextSortOrder = Math.max(nextSortOrder, attendee.sortOrder + 1)
+    }
+
+    const now = Date.now()
+    const attendeeKey = `manual-${now}-${Math.random().toString(36).slice(2, 10)}`
+    const email = args.email?.trim() || undefined
+    const attendeeId = await ctx.db.insert("orderAttendees", {
+      orderId: args.orderId,
+      attendeeKey,
+      name,
+      ...(email ? { email } : {}),
+      gender: "unknown",
+      sortOrder: nextSortOrder,
+    })
+
+    await ctx.db.insert("orderTicketSelections", {
+      orderId: args.orderId,
+      attendeeId,
+      ticketTypeId: args.ticketTypeId,
+      quantity: 1,
+      sortOrder: nextSortOrder,
+    })
+
+    await ctx.db.patch("ticketTypes", args.ticketTypeId, {
+      soldCount: (ticketType.soldCount ?? 0) + 1,
+      updatedAt: now,
+    })
+
+    await maintainOrderSearchProjection(ctx, args.orderId)
+
+    const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [order])
+
+    return {
+      attendeeId,
+      orderId: args.orderId,
+      amountDueMinor: breakdowns.get(String(args.orderId))?.amountDueMinor ?? null,
+    }
+  },
+})
+
 export const assignRoom = mutation({
   args: {
     attendeeId: v.id("ticketTailorAttendees"),
     roomId: v.string(),
+    eventId: v.id("events"),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     await ctx.runMutation(api.accommodation.assignAttendeeToRoom, {
       attendeeId: args.attendeeId,
       roomId: args.roomId,
+      eventId: args.eventId,
     })
     return args.attendeeId
   },
@@ -714,11 +934,13 @@ export const assignRoom = mutation({
 export const unassignRoom = mutation({
   args: {
     attendeeId: v.id("ticketTailorAttendees"),
+    eventId: v.id("events"),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     await ctx.runMutation(api.accommodation.unassignAttendeeFromRoom, {
       attendeeId: args.attendeeId,
+      eventId: args.eventId,
     })
     return args.attendeeId
   },
@@ -1189,6 +1411,8 @@ export const moveAttendeeToOrder = mutation({
       })
     }
 
+    await upsertAttendeeSearchDocument(ctx, attendee._id)
+
     // Recompute both orders with the canonical loader in the same mutation.
     const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [
       sourceOrder,
@@ -1201,6 +1425,254 @@ export const moveAttendeeToOrder = mutation({
         breakdowns.get(String(sourceOrderId))?.amountDueMinor ?? null,
       targetAmountDueMinor:
         breakdowns.get(String(args.targetOrderId))?.amountDueMinor ?? null,
+    }
+  },
+})
+
+/**
+ * Delete one canonical attendee and every row owned by that attendee, then
+ * recompute the order amount from the remaining canonical rows. All reads and
+ * consistency checks happen before the first destructive write.
+ */
+export async function deleteAttendeeScopedRowsAndRecompute(
+  ctx: MutationCtx,
+  attendee: Doc<"orderAttendees">,
+  eventId: Id<"events">
+): Promise<{
+  orderId: Id<"orders">
+  remainingAttendees: number
+  amountDueMinor: number | null
+}> {
+  const event = await ctx.db.get("events", eventId)
+  if (!event) {
+    throw new Error("Event not found.")
+  }
+
+  const order = await ctx.db.get("orders", attendee.orderId)
+  if (!order) {
+    throw new Error("Attendee order not found.")
+  }
+  if (order.eventId !== eventId) {
+    throw new Error("Attendee does not belong to the supplied event.")
+  }
+
+  const orderAttendees: Doc<"orderAttendees">[] = []
+  for await (const row of ctx.db
+    .query("orderAttendees")
+    .withIndex("by_orderId", (q) => q.eq("orderId", attendee.orderId))) {
+    orderAttendees.push(row)
+  }
+
+  if (!orderAttendees.some((row) => row._id !== attendee._id)) {
+    throw new Error("An order must retain at least one attendee.")
+  }
+
+  const ticketSelections: Doc<"orderTicketSelections">[] = []
+  for await (const row of ctx.db
+    .query("orderTicketSelections")
+    .withIndex("by_orderId", (q) => q.eq("orderId", attendee.orderId))) {
+    ticketSelections.push(row)
+  }
+
+  const attendeeTicketSelections = ticketSelections.filter(
+    (row) => row.attendeeId === attendee._id
+  )
+  if (attendeeTicketSelections.length !== 1) {
+    throw new Error("Attendee ticket selection is missing or inconsistent.")
+  }
+
+  const attendeeTicketSelection = attendeeTicketSelections[0]
+  if (
+    !Number.isInteger(attendeeTicketSelection.quantity) ||
+    attendeeTicketSelection.quantity <= 0
+  ) {
+    throw new Error("Attendee ticket selection is missing or inconsistent.")
+  }
+
+  const ticketType = await ctx.db.get(
+    "ticketTypes",
+    attendeeTicketSelection.ticketTypeId
+  )
+  if (!ticketType || ticketType.eventId !== eventId) {
+    throw new Error("Attendee ticket selection is missing or inconsistent.")
+  }
+
+  const accommodationSelections = await ctx.db
+    .query("orderAccommodationSelections")
+    .withIndex("by_orderId_and_attendeeId", (q) =>
+      q.eq("orderId", attendee.orderId).eq("attendeeId", attendee._id)
+    )
+    .collect()
+  if (accommodationSelections.length > 1) {
+    throw new Error("Attendee accommodation selection is inconsistent.")
+  }
+
+  const accommodationOptionChildren = await ctx.db
+    .query("orderAccommodationOptionSelections")
+    .withIndex("by_orderId_and_attendeeId", (q) =>
+      q.eq("orderId", attendee.orderId).eq("attendeeId", attendee._id)
+    )
+    .collect()
+
+  const accommodationSelection = accommodationSelections[0]
+  if (accommodationOptionChildren.length > 0 && !accommodationSelection) {
+    throw new Error("Attendee accommodation option rows are inconsistent.")
+  }
+
+  if (accommodationSelection) {
+    const selectionChildren = await ctx.db
+      .query("orderAccommodationOptionSelections")
+      .withIndex("by_selectionId", (q) =>
+        q.eq("selectionId", accommodationSelection._id)
+      )
+      .collect()
+
+    if (
+      selectionChildren.length !== accommodationOptionChildren.length ||
+      selectionChildren.some(
+        (row) =>
+          row.orderId !== attendee.orderId ||
+          row.attendeeId !== attendee._id
+      )
+    ) {
+      throw new Error("Attendee accommodation option rows are inconsistent.")
+    }
+  }
+
+  const assignments = await ctx.db
+    .query("orderAssignments")
+    .withIndex("by_attendeeId", (q) => q.eq("attendeeId", attendee._id))
+    .collect()
+  if (assignments.some((row) => row.orderId !== attendee.orderId)) {
+    throw new Error("Attendee assignment rows are inconsistent.")
+  }
+
+  const extensionRows = await ctx.db
+    .query("ticketTailorAttendees")
+    .withIndex("attendeeId", (q) => q.eq("attendeeId", attendee._id))
+    .collect()
+  if (extensionRows.some((row) => row.orderId !== attendee.orderId)) {
+    throw new Error("Attendee extension rows are inconsistent.")
+  }
+
+  const familyMembers = await ctx.db
+    .query("attendeeFamilyMembers")
+    .withIndex("attendeeId", (q) => q.eq("attendeeId", String(attendee._id)))
+    .collect()
+  const familyGroups = await ctx.db
+    .query("attendeeFamilyGroups")
+    .withIndex("primaryAttendeeId", (q) =>
+      q.eq("primaryAttendeeId", String(attendee._id))
+    )
+    .collect()
+  const survivingFamilyAttendeeIds = new Set<Id<"orderAttendees">>()
+  for (const member of familyMembers) {
+    const familyGroupId = ctx.db.normalizeId(
+      "attendeeFamilyGroups",
+      member.familyGroupId
+    )
+    if (!familyGroupId || !(await ctx.db.get("attendeeFamilyGroups", familyGroupId))) {
+      throw new Error("Attendee family records are inconsistent.")
+    }
+  }
+  const searchDocument = await ctx.db
+    .query("searchDocuments")
+    .withIndex("by_kind_and_subjectId", (q) =>
+      q.eq("kind", "attendee").eq("subjectId", String(attendee._id))
+    )
+    .unique()
+  if (searchDocument && searchDocument.eventId !== eventId) {
+    throw new Error("Attendee search projection is inconsistent.")
+  }
+
+  await deleteSearchProjection(ctx, "attendee", String(attendee._id))
+  await ctx.db.delete("orderTicketSelections", attendeeTicketSelection._id)
+  await ctx.db.patch("ticketTypes", ticketType._id, {
+    soldCount: Math.max(
+      0,
+      (ticketType.soldCount ?? 0) - attendeeTicketSelection.quantity
+    ),
+  })
+
+  for (const child of accommodationOptionChildren) {
+    await ctx.db.delete("orderAccommodationOptionSelections", child._id)
+  }
+  if (accommodationSelection) {
+    await ctx.db.delete(
+      "orderAccommodationSelections",
+      accommodationSelection._id
+    )
+  }
+  for (const assignment of assignments) {
+    await ctx.db.delete("orderAssignments", assignment._id)
+  }
+  for (const extensionRow of extensionRows) {
+    await ctx.db.delete("ticketTailorAttendees", extensionRow._id)
+  }
+  for (const member of familyMembers) {
+    await ctx.db.delete("attendeeFamilyMembers", member._id)
+  }
+  for (const group of familyGroups) {
+    const members = await ctx.db
+      .query("attendeeFamilyMembers")
+      .withIndex("familyGroupId", (q) => q.eq("familyGroupId", String(group._id)))
+      .collect()
+    for (const member of members) {
+      if (member.attendeeId !== String(attendee._id)) {
+        const survivorId = ctx.db.normalizeId("orderAttendees", member.attendeeId)
+        if (survivorId) survivingFamilyAttendeeIds.add(survivorId)
+      }
+      await ctx.db.delete("attendeeFamilyMembers", member._id)
+    }
+    await ctx.db.delete("attendeeFamilyGroups", group._id)
+  }
+  await ctx.db.delete("orderAttendees", attendee._id)
+
+  for (const survivorId of survivingFamilyAttendeeIds) {
+    await upsertAttendeeSearchDocument(ctx, survivorId)
+  }
+
+  const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [order])
+
+  return {
+    orderId: order._id,
+    remainingAttendees: orderAttendees.length - 1,
+    amountDueMinor: breakdowns.get(String(order._id))?.amountDueMinor ?? null,
+  }
+}
+
+export const removeAttendeeFromOrder = mutation({
+  args: {
+    attendeeId: v.string(),
+    eventId: v.id("events"),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const canonicalAttendeeId = ctx.db.normalizeId(
+      "orderAttendees",
+      args.attendeeId.trim()
+    )
+    if (!canonicalAttendeeId) {
+      throw new Error("Attendee not found.")
+    }
+
+    const attendee = await ctx.db.get("orderAttendees", canonicalAttendeeId)
+    if (!attendee) {
+      throw new Error("Attendee not found.")
+    }
+
+    const result = await deleteAttendeeScopedRowsAndRecompute(
+      ctx,
+      attendee,
+      args.eventId
+    )
+
+    return {
+      attendeeId: String(attendee._id),
+      orderId: String(result.orderId),
+      remainingAttendees: result.remainingAttendees,
+      amountDueMinor: result.amountDueMinor,
     }
   },
 })

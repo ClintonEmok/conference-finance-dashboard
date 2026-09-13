@@ -106,6 +106,7 @@ export default defineSchema({
       unavailableReason: v.optional(v.string()),
       roomTypeId: v.optional(v.id("accommodationRoomTypes")),
       accommodationIncluded: v.optional(v.boolean()),
+      requiresBed: v.optional(v.boolean()),
       updatedAt: v.number(),
     })
   )
@@ -179,6 +180,101 @@ export default defineSchema({
     .index("by_email", ["bookerEmail"]),
 
   /**
+   * Server-owned, bounded search projections.  These tables intentionally do
+   * not add search concerns to the canonical finance documents.
+   */
+  searchDocuments: defineTable(
+    v.object({
+      kind: v.union(v.literal("order"), v.literal("attendee")),
+      subjectId: v.string(),
+      eventId: v.id("events"),
+      searchText: v.string(),
+      sortAt: v.number(),
+      isSearchable: v.boolean(),
+      updatedAt: v.number(),
+    })
+  )
+    .index("by_kind_and_eventId_and_sortAt_and_subjectId", [
+      "kind",
+      "eventId",
+      "sortAt",
+      "subjectId",
+    ])
+    .index("by_kind_and_sortAt_and_subjectId_and_eventId", [
+      "kind",
+      "sortAt",
+      "subjectId",
+      "eventId",
+    ])
+    .index("by_kind_and_subjectId", ["kind", "subjectId"]),
+
+  searchDocumentTerms: defineTable(
+    v.object({
+      documentKey: v.string(),
+      kind: v.union(v.literal("order"), v.literal("attendee")),
+      eventId: v.id("events"),
+      term: v.string(),
+      sortAt: v.number(),
+      subjectId: v.string(),
+    })
+  )
+    .index("by_kind_and_eventId_and_sortAt_and_subjectId_and_term", [
+      "kind",
+      "eventId",
+      "sortAt",
+      "subjectId",
+      "term",
+    ])
+    .index("by_kind_and_sortAt_and_subjectId_and_eventId_and_term", [
+      "kind",
+      "sortAt",
+      "subjectId",
+      "eventId",
+      "term",
+    ])
+    .index("by_kind_and_eventId_and_term_and_sortAt_and_subjectId", [
+      "kind",
+      "eventId",
+      "term",
+      "sortAt",
+      "subjectId",
+    ])
+    .index("by_kind_and_term_and_sortAt_and_subjectId_and_eventId", [
+      "kind",
+      "term",
+      "sortAt",
+      "subjectId",
+      "eventId",
+    ])
+    .index("by_documentKey", ["documentKey"]),
+
+  searchProjectionFanoutJobs: defineTable(
+    v.object({
+      operation: v.union(
+        v.literal("order"),
+        v.literal("ticketType"),
+        v.literal("family")
+      ),
+      targetId: v.string(),
+      continuationCursor: v.union(v.string(), v.null()),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("running"),
+        v.literal("blocked"),
+        v.literal("complete")
+      ),
+      processedCount: v.number(),
+      attemptCount: v.number(),
+      lastError: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      completedAt: v.optional(v.number()),
+    })
+  )
+    .index("by_targetId_and_status", ["targetId", "status"])
+    .index("by_status_and_continuationCursor", ["status", "continuationCursor"]),
+
+  /**
    * Booking-reference alias table: one row per source order bookingRef that
    * was preserved when a whole-order merge moved it into a target. The
    * alias-first resolver checks this table before falling back to the
@@ -248,7 +344,8 @@ export default defineSchema({
     })
   )
     .index("by_orderId", ["orderId"])
-    .index("by_ticketTypeId", ["ticketTypeId"]),
+    .index("by_ticketTypeId", ["ticketTypeId"])
+    .index("by_attendeeId", ["attendeeId"]),
 
   orderAssignments: defineTable(
     v.object({

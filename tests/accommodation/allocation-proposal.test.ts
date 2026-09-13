@@ -12,7 +12,7 @@ import { generateAllocationProposal } from "@/lib/domain/accommodation/assignmen
 function buildBoard(
   overrides: Partial<RoomAllocationBoard>
 ): RoomAllocationBoard {
-  return {
+  const board: RoomAllocationBoard = {
     generatedAt: "2026-03-27T00:00:00.000Z",
     filters: {
       eventId: null,
@@ -44,6 +44,14 @@ function buildBoard(
     },
     ...overrides,
   }
+
+  return {
+    ...board,
+    rooms: board.rooms.map((room) => ({
+      ...room,
+      occupantCount: room.occupantCount ?? room.occupants.length,
+    })),
+  }
 }
 
 /** Server-owned payment projection fields shared by every board row. */
@@ -51,9 +59,37 @@ function paymentFields(
   paymentState: "paid" | "partial" | "unpaid" | null = null
 ) {
   return {
+    eventId: "event-1",
     paymentState,
     amountDueMinor: null,
     paidAmountMinor: null,
+    bookingRef: null,
+    bookerName: null,
+    groupMemberIds: [],
+    groupAssignmentAvailable: false,
+  }
+}
+
+type BoardAttendee = RoomAllocationBoard["unassignedAttendees"][number]
+
+function boardAttendee(overrides: Partial<BoardAttendee> = {}): BoardAttendee {
+  return {
+    attendeeId: "attendee-default",
+    attendeeName: "Default Attendee",
+    attendeeEmail: null,
+    orderId: "order-default",
+    providerOrderId: "order-default",
+    providerEventId: "event-1",
+    eventName: "Camp",
+    ticketTypeLabel: null,
+    allocatedRoomTypeId: null,
+    genderType: "UNKNOWN",
+    allocationPriority: "NORMAL",
+    location: null,
+    remarks: null,
+    hasFamily: false,
+    ...paymentFields(),
+    ...overrides,
   }
 }
 
@@ -62,7 +98,7 @@ describe("allocation proposal compatibility strategy", () => {
     vi.clearAllMocks()
   })
 
-  it("keeps family/order attendees together when feasible and counts cohesive groups", async () => {
+  it("keeps a parent-led family unit together and counts one cohesive outcome", async () => {
     vi.mocked(convexQuery).mockResolvedValueOnce(
       buildBoard({
         rooms: [
@@ -107,26 +143,26 @@ describe("allocation proposal compatibility strategy", () => {
             genderType: "FEMALE",
             allocationPriority: "HIGH",
             location: null,
-            remarks: null,
-            hasFamily: true,
-            ...paymentFields(),
-          },
-          {
-            attendeeId: "attendee-2",
-            attendeeName: "Younger Sibling",
-            attendeeEmail: null,
-            orderId: "order-family",
-            providerOrderId: "order-family",
-            providerEventId: "event-1",
-            eventName: "Camp",
-            ticketTypeLabel: null,
-            allocatedRoomTypeId: null,
-            genderType: "FEMALE",
-            allocationPriority: "HIGH",
-            location: null,
-            remarks: null,
-            hasFamily: true,
-            ...paymentFields(),
+             remarks: null,
+             hasFamily: true,
+            familyRole: "parent",
+            familyGroupId: "family-1",
+            familyLabel: "Siblings",
+            familyParentAttendeeId: "attendee-1",
+            familyState: "unresolved",
+            eligibleChildren: [
+              {
+                attendeeId: "attendee-2",
+                attendeeName: "Younger Sibling",
+                attendeeEmail: null,
+                requiresBed: false,
+                familyRole: "child",
+                familyState: "unresolved",
+              },
+            ],
+            eligibleChildCount: 1,
+            separateMemberCount: 0,
+             ...paymentFields(),
           },
         ],
       })
@@ -134,12 +170,152 @@ describe("allocation proposal compatibility strategy", () => {
 
     const proposal = await generateAllocationProposal({ eventId: "event-1" })
 
-    expect(proposal.suggestions).toHaveLength(2)
+    expect(proposal.suggestions).toHaveLength(1)
     expect(proposal.suggestions[0]?.roomId).toBe("room-1")
-    expect(proposal.suggestions[1]?.roomId).toBe("room-1")
+    expect(proposal.suggestions[0]?.familyRole).toBe("parent")
+    expect(proposal.suggestions[0]?.eligibleChildIds).toEqual(["attendee-2"])
+    expect(proposal.suggestions[0]?.eligibleChildCount).toBe(1)
     expect(proposal.summary.familyGroupsKeptTogether).toBe(1)
-    expect(proposal.suggestions[1]?.reason.toLowerCase()).toContain("family")
+    expect(proposal.suggestions[0]?.reason.toLowerCase()).toContain("family")
     expect(proposal.suggestions[0]?.reason).not.toContain("Available room with")
+  })
+
+  it("suppresses child rows and lets a no-bed child follow a parent into a bed-full outcome", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-1",
+            label: "A-101",
+            capacity: 1,
+            occupiedBeds: 0,
+            availableBeds: 1,
+            availability: "available",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Single", defaultCapacity: 1 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+        ],
+        unassignedAttendees: [
+          boardAttendee({
+            attendeeId: "parent",
+            attendeeName: "Parent",
+            orderId: "parent-order",
+            hasFamily: true,
+            requiresBed: true,
+            familyRole: "parent",
+            familyGroupId: "family-1",
+            familyLabel: "Family One",
+            familyParentAttendeeId: "parent",
+            familyState: "unresolved",
+            eligibleChildren: [
+              {
+                attendeeId: "child",
+                attendeeName: "Child",
+                attendeeEmail: null,
+                requiresBed: false,
+                familyRole: "child",
+                familyState: "unresolved",
+              },
+            ],
+            eligibleChildCount: 1,
+          }),
+          boardAttendee({
+            attendeeId: "child",
+            attendeeName: "Child",
+            orderId: "child-order",
+            hasFamily: true,
+            requiresBed: false,
+            familyRole: "child",
+            familyGroupId: "family-1",
+            familyParentAttendeeId: "parent",
+            familyState: "waiting-for-parent-room",
+          }),
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    expect(proposal.suggestions).toHaveLength(1)
+    expect(proposal.suggestions[0]).toMatchObject({
+      attendeeId: "parent",
+      familyRole: "parent",
+      eligibleChildIds: ["child"],
+      eligibleChildCount: 1,
+    })
+    expect(proposal.suggestions.map((suggestion) => suggestion.attendeeId)).not.toContain(
+      "child"
+    )
+    expect(proposal.unplacedAttendees.map((attendee) => attendee.attendeeId)).not.toContain(
+      "child"
+    )
+    expect(proposal.summary.familyGroupsKeptTogether).toBe(1)
+  })
+
+  it("exposes zero and many child cardinalities only on their parent outcomes", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-1",
+            label: "A-101",
+            capacity: 4,
+            occupiedBeds: 0,
+            availableBeds: 4,
+            availability: "empty",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 4 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+        ],
+        unassignedAttendees: [
+          boardAttendee({ attendeeId: "solo", attendeeName: "Solo" }),
+          boardAttendee({
+            attendeeId: "parent-many",
+            attendeeName: "Parent Many",
+            familyRole: "parent",
+            hasFamily: true,
+            familyGroupId: "family-many",
+            familyParentAttendeeId: "parent-many",
+            eligibleChildren: [
+              {
+                attendeeId: "child-one",
+                attendeeName: "Child One",
+                requiresBed: false,
+                familyRole: "child",
+                familyState: "unresolved",
+              },
+              {
+                attendeeId: "child-two",
+                attendeeName: "Child Two",
+                requiresBed: false,
+                familyRole: "child",
+                familyState: "unresolved",
+              },
+            ],
+            eligibleChildCount: 2,
+          }),
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+    const solo = proposal.suggestions.find((suggestion) => suggestion.attendeeId === "solo")
+    const parent = proposal.suggestions.find((suggestion) => suggestion.attendeeId === "parent-many")
+    expect(solo).toMatchObject({ familyRole: "solo", eligibleChildIds: [], eligibleChildCount: 0 })
+    expect(parent).toMatchObject({
+      familyRole: "parent",
+      eligibleChildIds: ["child-one", "child-two"],
+      eligibleChildCount: 2,
+    })
+    expect(proposal.suggestions.map((suggestion) => suggestion.attendeeId)).not.toEqual(
+      expect.arrayContaining(["child-one", "child-two"])
+    )
   })
 
   it("rejects clearly incompatible gender mixing when no alternate room exists", async () => {
@@ -662,6 +838,85 @@ describe("allocation proposal compatibility strategy", () => {
     ])
   })
 
+  it("does not let an unpaid buyer suggestion bypass a paid attendee", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-1",
+            label: "A-101",
+            capacity: 2,
+            occupiedBeds: 0,
+            availableBeds: 2,
+            availability: "empty",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+        ],
+        buyerSuggestions: [
+          {
+            assignmentId: "assignment-unpaid",
+            attendeeId: "attendee-unpaid",
+            attendeeName: "Unpaid Suggested Guest",
+            attendeeEmail: null,
+            roomId: "room-1",
+            roomLabel: "A-101",
+            hotelName: "Main Hotel",
+            assignmentIntent: "assign",
+            sortOrder: 0,
+            ...paymentFields("unpaid"),
+          },
+        ],
+        unassignedAttendees: [
+          {
+            attendeeId: "attendee-unpaid",
+            attendeeName: "Unpaid Suggested Guest",
+            attendeeEmail: null,
+            orderId: "order-unpaid",
+            providerOrderId: "order-unpaid",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "MALE",
+            allocationPriority: "CRITICAL",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields("unpaid"),
+          },
+          {
+            attendeeId: "attendee-paid",
+            attendeeName: "Paid Guest",
+            attendeeEmail: null,
+            orderId: "order-paid",
+            providerOrderId: "order-paid",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "MALE",
+            allocationPriority: "LOW",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields("paid"),
+          },
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    expect(proposal.suggestions.map((s) => s.attendeeId)).toEqual([
+      "attendee-paid",
+      "attendee-unpaid",
+    ])
+  })
+
   it("keeps CRITICAL/HIGH/NORMAL/LOW ordering when payment states are equal", async () => {
     vi.mocked(convexQuery).mockResolvedValueOnce(
       buildBoard({
@@ -725,6 +980,100 @@ describe("allocation proposal compatibility strategy", () => {
     expect(proposal.suggestions.map((s) => s.attendeeId)).toEqual([
       "attendee-unpaid-critical",
       "attendee-unpaid-normal",
+    ])
+  })
+
+  it("places a no-bed attendee in a bed-full room and defaults missing metadata to one bed", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-full",
+            label: "A-101",
+            capacity: 2,
+            occupantCount: 2,
+            occupiedBeds: 2,
+            availableBeds: 0,
+            availability: "full",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [
+              {
+                attendeeId: "existing-1",
+                attendeeName: "Existing One",
+                attendeeEmail: null,
+                orderId: "order-existing-1",
+                providerOrderId: null,
+                providerEventId: null,
+                eventName: "Camp",
+                ticketTypeLabel: null,
+                ...paymentFields(),
+              },
+              {
+                attendeeId: "existing-2",
+                attendeeName: "Existing Two",
+                attendeeEmail: null,
+                orderId: "order-existing-2",
+                providerOrderId: null,
+                providerEventId: null,
+                eventName: "Camp",
+                ticketTypeLabel: null,
+                ...paymentFields(),
+              },
+            ],
+            pendingAssignments: [],
+          },
+        ],
+        unassignedAttendees: [
+          {
+            attendeeId: "no-bed",
+            attendeeName: "No Bed Child",
+            attendeeEmail: null,
+            orderId: "order-no-bed",
+            providerOrderId: null,
+            providerEventId: null,
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "UNKNOWN",
+            allocationPriority: "NORMAL",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            requiresBed: false,
+            ...paymentFields(),
+          },
+          {
+            attendeeId: "legacy-bed",
+            attendeeName: "Legacy Bed Guest",
+            attendeeEmail: null,
+            orderId: "order-legacy-bed",
+            providerOrderId: null,
+            providerEventId: null,
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "UNKNOWN",
+            allocationPriority: "NORMAL",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields(),
+          },
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    expect(proposal.suggestions).toHaveLength(1)
+    expect(proposal.suggestions[0]?.attendeeId).toBe("no-bed")
+    expect(proposal.unplacedAttendees).toMatchObject([
+      {
+        attendeeId: "legacy-bed",
+        reason: "No rooms with available beds",
+      },
     ])
   })
 })

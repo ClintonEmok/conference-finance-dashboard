@@ -11,6 +11,7 @@ export default defineConfig({
       "tests/**/*.test.ts",
       "app/**/*.test.ts",
       "lib/**/*.test.ts",
+      "convex/**/*.test.ts",
       "video/**/*.test.ts",
       "convex/**/*.test.ts",
     ],
