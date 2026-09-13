@@ -187,7 +187,7 @@ test("allocation board separates occupants from beds and redacts foreign occupan
   })
 })
 
-test("assignment mutations require a family link for no-bed attendees and reject bed users and ticket-only attendees", async () => {
+test("assignment mutations allow no-bed attendees and reject bed users and ticket-only attendees", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await seedPaidPriorityEvent(t)
   const bedTicketId = await t.mutation(async (ctx) =>
@@ -251,7 +251,7 @@ test("assignment mutations require a family link for no-bed attendees and reject
       roomId: String(seed.roomId),
       eventId: String(seed.eventId),
     })
-  ).rejects.toThrow("Needs family link")
+  ).resolves.toMatchObject({ ok: true })
 
   await expect(
     t.mutation(api.accommodation.assignAttendeeToRoom, {
@@ -274,7 +274,7 @@ test("assignment mutations require a family link for no-bed attendees and reject
     (candidate: { id: string }) => String(candidate.id) === String(seed.roomId)
   )
   expect(room).toMatchObject({
-    occupantCount: 2,
+    occupantCount: 3,
     occupiedBeds: 2,
     availableBeds: 0,
   })
@@ -500,7 +500,6 @@ type SeedContext = {
   roomId: Id<"accommodationRooms">
   secondRoomId: Id<"accommodationRooms">
   roomTypeId: Id<"accommodationRoomTypes">
-  unavailableRoomTypeId: Id<"accommodationRoomTypes">
   hotelId: Id<"accommodationHotels">
 }
 
@@ -594,12 +593,6 @@ async function seedPaidPriorityEvent(
       defaultCapacity: 2,
     })
   })
-  const unavailableRoomTypeId = await t.mutation(async (ctx) => {
-    return await ctx.db.insert("accommodationRoomTypes", {
-      label: "Unavailable Single",
-      defaultCapacity: 1,
-    })
-  })
   const roomId = await t.mutation(async (ctx) => {
     return await ctx.db.insert("accommodationRooms", {
       hotelId: String(hotelId),
@@ -624,7 +617,6 @@ async function seedPaidPriorityEvent(
     roomId: roomId as Id<"accommodationRooms">,
     secondRoomId: secondRoomId as Id<"accommodationRooms">,
     roomTypeId: roomTypeId as Id<"accommodationRoomTypes">,
-    unavailableRoomTypeId: unavailableRoomTypeId as Id<"accommodationRoomTypes">,
     hotelId: hotelId as Id<"accommodationHotels">,
   }
 }
@@ -859,15 +851,10 @@ async function loadBoard(
        occupancy: "single" | "shared" | "family" | null
       categoryLabel: string | null
       allocationPriority: "CRITICAL" | "HIGH" | "NORMAL" | "LOW" | null
-      paymentState: "paid" | "partial" | "unpaid" | null
-      amountDueMinor: number | null
-      paidAmountMinor: number | null
-      compatibility?: {
-        status: "compatible" | "no_match" | "unavailable"
-        summary: string
-        recommendedRoomId?: string
-      }
-    }>
+       paymentState: "paid" | "partial" | "unpaid" | null
+       amountDueMinor: number | null
+       paidAmountMinor: number | null
+     }>
      submissionQueueRows: Array<{
        attendeeId: string
        attendeeName: string | null
@@ -967,55 +954,6 @@ test("board returns complete payment fields on unassigned and queue rows", async
   expect(queuePaid?.paymentState).toBe("paid")
 })
 
-test("board exposes an additive compatible-room preview without assigning", async () => {
-  const t = fresh().withIdentity(adminIdentity)
-  const seed = await seedPaidPriorityEvent(t)
-  await t.mutation(async (ctx) => {
-    await ctx.db.insert("accommodationEventHotels", {
-      eventId: seed.eventId as never,
-      hotelId: String(seed.hotelId),
-    })
-    await ctx.db.insert("accommodationRooms", {
-      hotelId: String(seed.hotelId),
-      roomTypeId: "stale-room-type-reference",
-      label: "Malformed room metadata",
-      capacity: 2,
-    })
-  })
-  const order = await createOrder(t, seed, {
-    attendeeKey: "a-compatible",
-    name: "Compatible Attendee",
-    allocationPriority: "HIGH",
-    allocatedRoomTypeId: String(seed.roomTypeId),
-    withPaymentMinor: ATTENDEE_DUE_MINOR,
-  })
-
-  const board = await loadBoard(t, seed.eventId)
-  const row = board.unassignedAttendees.find(
-    (attendee) => attendee.attendeeId === String(order.attendeeId)
-  )
-  expect(row).toMatchObject({
-    attendeeName: "Compatible Attendee",
-    allocationPriority: "HIGH",
-    hasFamily: false,
-    paymentState: "paid",
-    compatibility: {
-      status: "compatible",
-      recommendedRoomId: String(seed.roomId),
-      summary: "Available room matches the requested room type.",
-    },
-  })
-
-  const attendee = await t.mutation(async (ctx) =>
-    ctx.db.get("orderAttendees", order.attendeeId)
-  )
-  expect(attendee?.assignedRoomId).toBeUndefined()
-  const room = await t.mutation(async (ctx) =>
-    ctx.db.get("accommodationRooms", seed.roomId)
-  )
-  expect(room).toBeDefined()
-})
-
 test("board exposes complete manual placement context on an unresolved row", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await seedPaidPriorityEvent(t)
@@ -1056,10 +994,6 @@ test("board exposes complete manual placement context on an unresolved row", asy
     categoryLabel: "Standard",
     paymentState: "paid",
     allocationPriority: "HIGH",
-    compatibility: {
-      status: "compatible",
-      recommendedRoomId: String(seed.roomId),
-    },
   })
 })
 
@@ -1351,7 +1285,7 @@ test("parent-led assignment, move, and unassignment write one complete family ou
   ).toEqual([null, null, null])
 })
 
-test("direct family children cannot be assigned, moved, or unassigned", async () => {
+test("direct family children can be assigned, moved, or unassigned independently", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await seedPaidPriorityEvent(t)
   const noBedTicketId = await createNoBedTicket(t, seed.eventId)
@@ -1372,32 +1306,25 @@ test("direct family children cannot be assigned, moved, or unassigned", async ()
       roomId: String(seed.roomId),
       eventId: String(seed.eventId),
     })
-  ).rejects.toThrow(
-    "Parent placement required: Select the parent anchor; children cannot be placed directly."
-  )
+  ).resolves.toMatchObject({ ok: true })
 
-  await t.mutation(async (ctx) => {
-    await ctx.db.patch("orderAttendees", child.attendeeId, {
-      assignedRoomId: String(seed.roomId),
-    })
-  })
   await expect(
     t.mutation(api.accommodation.assignRoomToAttendee, {
       attendeeId: String(child.attendeeId),
       roomId: String(seed.secondRoomId),
       eventId: String(seed.eventId),
     })
-  ).rejects.toThrow("Parent placement required")
+  ).resolves.toBe(String(child.attendeeId))
   await expect(
     t.mutation(api.accommodation.unassignAttendeeFromRoom, {
       attendeeId: String(child.attendeeId),
       eventId: String(seed.eventId),
     })
-  ).rejects.toThrow("Parent placement required")
+  ).resolves.toMatchObject({ ok: true })
 
   expect(
     await loadAssignedRooms(t, [parent.attendeeId, child.attendeeId])
-  ).toEqual([null, String(seed.roomId)])
+  ).toEqual([null, null])
 })
 
 test("pending confirmation commits a parent-led family outcome", async () => {
@@ -1469,7 +1396,7 @@ test("pending confirmation commits a parent-led family outcome", async () => {
   }
 })
 
-test("pending child confirmation and wrong intent are rejected without writes", async () => {
+test("pending child confirmation is allowed independently and wrong intent is rejected", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await seedPaidPriorityEvent(t)
   const noBedTicketId = await createNoBedTicket(t, seed.eventId)
@@ -1501,18 +1428,22 @@ test("pending child confirmation and wrong intent are rejected without writes", 
     t.mutation(api.accommodation.confirmBuyerAssignment, {
       assignmentId: childAssignmentId,
     })
-  ).rejects.toThrow(
-    "Parent placement required: Select the parent anchor; children cannot be placed directly."
-  )
+  ).resolves.toMatchObject({
+    success: true,
+    eligibleChildCount: 0,
+    affectedAttendeeCount: 1,
+  })
   expect(
     await loadAssignedRooms(t, [parent.attendeeId, child.attendeeId])
-  ).toEqual([null, null])
+  ).toEqual([null, String(seed.roomId)])
   const pendingChildAssignment = await t.query(async (ctx) =>
     ctx.db.get("orderAssignments", childAssignmentId)
   )
-  expect(pendingChildAssignment?.status).toBeUndefined()
+  expect(pendingChildAssignment?.status).toBe("confirmed")
   expect(pendingChildAssignment?.assignmentIntent).toBe("assign")
-  expect((await loadSelectionRows(t, String(parent.orderId)))[0]?.confirmedAt).toBeUndefined()
+  expect((await loadSelectionRows(t, String(child.orderId)))[0]?.confirmedAt).toEqual(
+    expect.any(Number)
+  )
 
   const wrongIntentId = await t.mutation(async (ctx) =>
     ctx.db.insert("orderAssignments", {
@@ -1669,7 +1600,7 @@ test("pending confirmation rejects wrong order, non-assignable, and unlinked-roo
   }
 })
 
-test("invalid family membership fails before any parent or child patch", async () => {
+test("invalid family membership falls back to independent placement", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const first = await seedPaidPriorityEvent(t)
   const second = await seedPaidPriorityEvent(t)
@@ -1694,10 +1625,10 @@ test("invalid family membership fails before any parent or child patch", async (
       roomId: String(first.roomId),
       eventId: String(first.eventId),
     })
-  ).rejects.toThrow("Family placement data is inconsistent")
+  ).resolves.toMatchObject({ ok: true })
   expect(
     await loadAssignedRooms(t, [parent.attendeeId, foreignChild.attendeeId])
-  ).toEqual([null, null])
+  ).toEqual([String(first.roomId), null])
 })
 
 test("parent-led unassignment clears stale family rooms after a hotel link is removed", async () => {
@@ -1749,7 +1680,7 @@ test("parent-led unassignment clears stale family rooms after a hotel link is re
   ).toEqual([null, null])
 })
 
-test("board surfaces missing and malformed no-bed family links instead of guessing solo placement", async () => {
+test("board allows missing and malformed no-bed family links as solo placement rows", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await seedPaidPriorityEvent(t)
   const noBedTicketId = await createNoBedTicket(t, seed.eventId)
@@ -1777,75 +1708,39 @@ test("board surfaces missing and malformed no-bed family links instead of guessi
   const board = await t.query(api.accommodation.getRoomAllocationBoard, {
     eventId: String(seed.eventId),
   })
-  expect(board.unassignedAttendees).not.toEqual(
+  expect(board.unassignedAttendees).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ attendeeId: String(missingLink.attendeeId) }),
-      expect.objectContaining({ attendeeId: String(malformed.attendeeId) }),
+      expect.objectContaining({
+        attendeeId: String(missingLink.attendeeId),
+        familyRole: "solo",
+        requiresBed: false,
+      }),
+      expect.objectContaining({
+        attendeeId: String(malformed.attendeeId),
+        familyRole: "solo",
+        requiresBed: false,
+      }),
     ])
   )
   expect(board.familyFollowUps).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({
-        attendeeId: String(missingLink.attendeeId),
-        state: "Needs family link",
-        message:
-          "Review attendee details and link a valid family parent before placing this no-bed attendee.",
-      }),
       expect.objectContaining({
         attendeeId: String(malformed.attendeeId),
         state: "inconsistent",
       }),
     ])
   )
-})
 
-test("board reports unavailable or no-match compatibility without fabrication or writes", async () => {
-  const t = fresh().withIdentity(adminIdentity)
-  const seed = await seedPaidPriorityEvent(t)
-  await t.mutation(async (ctx) => {
-    await ctx.db.insert("accommodationEventHotels", {
-      eventId: seed.eventId as never,
-      hotelId: String(seed.hotelId),
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(missingLink.attendeeId),
+      roomId: String(seed.roomId),
+      eventId: String(seed.eventId),
     })
-  })
-  const missingType = await createOrder(t, seed, {
-    attendeeKey: "a-missing-type",
-    name: "Missing Type",
-  })
-  const noMatch = await createOrder(t, seed, {
-    attendeeKey: "a-no-match",
-    name: "No Matching Room",
-    allocatedRoomTypeId: String(seed.unavailableRoomTypeId),
-  })
-
-  const board = await loadBoard(t, seed.eventId)
+  ).resolves.toMatchObject({ ok: true })
   expect(
-    board.unassignedAttendees.find(
-      (attendee) => attendee.attendeeId === String(missingType.attendeeId)
-    )?.compatibility
-  ).toEqual({
-    status: "unavailable",
-    summary: "Compatibility unavailable: requested room type is not stored.",
-  })
-  expect(
-    board.unassignedAttendees.find(
-      (attendee) => attendee.attendeeId === String(noMatch.attendeeId)
-    )?.compatibility
-  ).toEqual({
-    status: "no_match",
-    summary: "No available room matches the requested room type.",
-  })
-
-  const placements = await t.mutation(async (ctx) =>
-    Promise.all([
-      ctx.db.get("orderAttendees", missingType.attendeeId),
-      ctx.db.get("orderAttendees", noMatch.attendeeId),
-    ])
-  )
-  expect(placements.map((attendee) => attendee?.assignedRoomId)).toEqual([
-    undefined,
-    undefined,
-  ])
+    await loadAssignedRooms(t, [missingLink.attendeeId])
+  ).toEqual([String(seed.roomId)])
 })
 
 // ---------------------------------------------------------------------------

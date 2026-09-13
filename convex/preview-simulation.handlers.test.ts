@@ -6,6 +6,7 @@ import type { GenericDataModel } from "convex/server"
 import { api, internal } from "./_generated/api"
 import schema from "./schema"
 import {
+  FAMILY_PREVIEW_COUNTS,
   LEGACY_AUDIT_COUNTS,
   LEGACY_EVENT_SLUG,
 } from "../tests/fixtures/legacy-preview.snapshot"
@@ -223,6 +224,118 @@ test("RUN-01 expansion + idempotency: a tracer seed expands to full and a re-run
   expect(await countRows(t, "orderAttendees")).toBe(
     LEGACY_AUDIT_COUNTS.attendees
   )
+})
+
+test("RUN-01 families: additive seed covers linked, assigned, and unlinked family placement cases", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+
+  const seeded = await t.mutation(internal.seedPreviewSimulation.default, {
+    scope: "families",
+    ...previewGuard,
+  })
+  expect(seeded.slug).toBe(LEGACY_EVENT_SLUG)
+  const seededEventId = seeded.eventId
+  if (!seededEventId) {
+    throw new Error("Family preview seed did not return an event ID")
+  }
+  expect(seeded.insertedByTable.orders).toBe(FAMILY_PREVIEW_COUNTS.orders)
+  expect(seeded.insertedByTable.orderAttendees).toBe(
+    FAMILY_PREVIEW_COUNTS.attendees
+  )
+  expect(seeded.insertedByTable.attendeeFamilyGroups).toBe(
+    FAMILY_PREVIEW_COUNTS.familyGroups
+  )
+  expect(seeded.insertedByTable.attendeeFamilyMembers).toBe(
+    FAMILY_PREVIEW_COUNTS.familyMembers
+  )
+
+  const familyState = await t.query(async (ctx) => {
+    const groups = await ctx.db.query("attendeeFamilyGroups").collect()
+    const members = await ctx.db.query("attendeeFamilyMembers").collect()
+    const childTicket = await ctx.db
+      .query("ticketTypes")
+      .filter((q) => q.eq(q.field("label"), "Family Companion Ticket"))
+      .first()
+    const childSelections = childTicket
+      ? await ctx.db
+          .query("orderTicketSelections")
+          .withIndex("by_ticketTypeId", (q) => q.eq("ticketTypeId", childTicket._id))
+          .collect()
+      : []
+    const childAttendees = await Promise.all(
+      childSelections.map(async (selection) => ctx.db.get(selection.attendeeId))
+    )
+    const assignedAttendees = (await ctx.db.query("orderAttendees").collect()).filter(
+      (attendee) => attendee.assignedRoomId !== undefined
+    )
+    const memberAttendeeIds = new Set(members.map((member) => member.attendeeId))
+    const unlinkedAttendee = (await ctx.db.query("orderAttendees").collect()).find(
+      (attendee) => attendee.name === "Oliver Vos"
+    )
+    const orderOnlyOrder = (await ctx.db.query("orders").collect()).find(
+      (order) => order.bookingRef === "BK-ORDER-ONLY-NOLINK"
+    )
+
+    return {
+      groupCount: groups.length,
+      memberCount: members.length,
+      childRequiresBed: childTicket?.requiresBed,
+      childNames: childAttendees
+        .filter((attendee): attendee is NonNullable<typeof attendee> => attendee !== null)
+        .map((attendee) => attendee.name),
+      assignedCount: assignedAttendees.length,
+      unlinked: unlinkedAttendee
+        ? !memberAttendeeIds.has(String(unlinkedAttendee._id))
+        : false,
+      orderOnlyOrderId: orderOnlyOrder ? String(orderOnlyOrder._id) : null,
+    }
+  })
+
+  expect(familyState.groupCount).toBe(FAMILY_PREVIEW_COUNTS.familyGroups)
+  expect(familyState.memberCount).toBe(FAMILY_PREVIEW_COUNTS.familyMembers)
+  expect(familyState.childRequiresBed).toBe(false)
+  expect(familyState.childNames).toHaveLength(FAMILY_PREVIEW_COUNTS.noBedAttendees)
+  expect(familyState.assignedCount).toBe(FAMILY_PREVIEW_COUNTS.assignedAttendees)
+  expect(familyState.unlinked).toBe(true)
+
+  const board = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: seededEventId,
+  })
+  const orderOnlyRows = (board.unassignedAttendees as Array<{
+    attendeeName: string | null
+    orderId: string | null
+    familyRole: string
+    requiresBed: boolean
+    occupancy: string | null
+    categoryLabel: string | null
+  }>).filter(
+    (attendee) => attendee.orderId === familyState.orderOnlyOrderId
+  )
+  expect(orderOnlyRows.map((attendee) => attendee.attendeeName)).toEqual([
+    "Order-only Adult",
+    "Order-only Child One",
+    "Order-only Child Two",
+  ])
+  expect(orderOnlyRows.every((attendee) => attendee.familyRole === "solo")).toBe(
+    true
+  )
+  expect(orderOnlyRows.map((attendee) => attendee.requiresBed)).toEqual([
+    true,
+    false,
+    false,
+  ])
+  expect(
+    orderOnlyRows.every(
+      (attendee) =>
+        attendee.occupancy === null && attendee.categoryLabel === null
+    )
+  ).toBe(true)
+
+  const rerun = await t.mutation(internal.seedPreviewSimulation.default, {
+    scope: "families",
+    ...previewGuard,
+  })
+  expect(rerun.alreadySeeded).toBe(true)
 })
 
 test("RUN-01 guards: the seed fails closed on missing preview, unknown deployment, missing allowlist, suffix collisions, and production mismatches", async () => {

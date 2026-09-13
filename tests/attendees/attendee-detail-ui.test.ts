@@ -33,7 +33,7 @@ describe("event attendee detail edit surface", () => {
     expect(page).toContain("Accommodation Status")
     expect(page).toContain("Profile Signals")
     expect(page).toContain("Room Placement")
-    expect(page).toContain("/dashboard/events/${eventSlug}/accommodation?tab=allocation&attendeeId=")
+    expect(page).toContain("/dashboard/events/${eventSlug}/accommodation/allocation?attendeeId=")
     expect(page).toContain("Order Detail")
   })
 
@@ -76,7 +76,7 @@ describe("event attendee detail edit surface", () => {
   it("preserves the accommodation board URL and its query parameters", () => {
     const page = readSource("components/dashboard/attendee-detail-surface.tsx")
     expect(page).toContain(
-      "/dashboard/events/${eventSlug}/accommodation?tab=allocation&attendeeId=${payload.attendee.id}"
+      "/dashboard/events/${eventSlug}/accommodation/allocation?attendeeId=${payload.attendee.id}"
     )
     expect(page).toContain("search=")
   })

@@ -838,6 +838,85 @@ describe("allocation proposal compatibility strategy", () => {
     ])
   })
 
+  it("does not let an unpaid buyer suggestion bypass a paid attendee", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-1",
+            label: "A-101",
+            capacity: 2,
+            occupiedBeds: 0,
+            availableBeds: 2,
+            availability: "empty",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+        ],
+        buyerSuggestions: [
+          {
+            assignmentId: "assignment-unpaid",
+            attendeeId: "attendee-unpaid",
+            attendeeName: "Unpaid Suggested Guest",
+            attendeeEmail: null,
+            roomId: "room-1",
+            roomLabel: "A-101",
+            hotelName: "Main Hotel",
+            assignmentIntent: "assign",
+            sortOrder: 0,
+            ...paymentFields("unpaid"),
+          },
+        ],
+        unassignedAttendees: [
+          {
+            attendeeId: "attendee-unpaid",
+            attendeeName: "Unpaid Suggested Guest",
+            attendeeEmail: null,
+            orderId: "order-unpaid",
+            providerOrderId: "order-unpaid",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "MALE",
+            allocationPriority: "CRITICAL",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields("unpaid"),
+          },
+          {
+            attendeeId: "attendee-paid",
+            attendeeName: "Paid Guest",
+            attendeeEmail: null,
+            orderId: "order-paid",
+            providerOrderId: "order-paid",
+            providerEventId: "event-1",
+            eventName: "Camp",
+            ticketTypeLabel: null,
+            allocatedRoomTypeId: null,
+            genderType: "MALE",
+            allocationPriority: "LOW",
+            location: null,
+            remarks: null,
+            hasFamily: false,
+            ...paymentFields("paid"),
+          },
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    expect(proposal.suggestions.map((s) => s.attendeeId)).toEqual([
+      "attendee-paid",
+      "attendee-unpaid",
+    ])
+  })
+
   it("keeps CRITICAL/HIGH/NORMAL/LOW ordering when payment states are equal", async () => {
     vi.mocked(convexQuery).mockResolvedValueOnce(
       buildBoard({

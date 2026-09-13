@@ -252,7 +252,7 @@ export default function AttendeeDetailPage({
               className="h-12 rounded-2xl bg-primary px-8 font-black text-white shadow-lg shadow-primary/20 transition-all hover:shadow-primary/40 active:scale-95"
             >
               <Link
-                href={`/dashboard/events/${eventSlug}/accommodation?tab=allocation&attendeeId=${payload.attendee.id}&search=${encodeURIComponent(payload.attendee.name || "")}`}
+                 href={`/dashboard/events/${eventSlug}/accommodation/allocation?attendeeId=${payload.attendee.id}&search=${encodeURIComponent(payload.attendee.name || "")}`}
               >
                 <BedDouble className="mr-3 size-4" /> Room Placement
               </Link>

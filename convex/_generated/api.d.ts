@@ -2623,14 +2623,14 @@ export declare const internal: {
       {
         allowedDeploymentUrl?: string;
         preview: boolean;
-        scope: "tracer" | "full";
+        scope: "tracer" | "full" | "families";
         slug?: string;
       },
       {
         alreadySeeded: boolean;
         eventId?: string;
         insertedByTable: Record<string, number>;
-        scope: "tracer" | "full";
+        scope: "tracer" | "full" | "families";
         slug: string;
       }
     >;

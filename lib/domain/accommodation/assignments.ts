@@ -11,12 +11,6 @@ type RoomAvailability = "all" | "empty" | "available" | "full"
  */
 export type BoardPaymentState = "paid" | "partial" | "unpaid" | null
 
-export type AllocationCompatibility = {
-  status: "compatible" | "no_match" | "unavailable"
-  summary: string
-  recommendedRoomId?: string
-}
-
 export type FamilyRole = "solo" | "parent" | "child"
 export type FamilyState =
   | "unresolved"
@@ -243,7 +237,6 @@ export type RoomAllocationBoard = {
     paymentState: BoardPaymentState
     amountDueMinor: number | null
     paidAmountMinor: number | null
-    compatibility?: AllocationCompatibility
     familyRole?: FamilyRole
     familyGroupId?: string | null
     familyLabel?: string | null
@@ -691,8 +684,8 @@ export async function generateAllocationProposal(input: {
   const unplacedAttendees: AllocationProposal["unplacedAttendees"] = []
 
   // The server already suppresses eligible family children from this queue.
-  // Keep the guard here as a second, additive boundary so a stale or mocked
-  // payload can never turn a child into an independent proposal candidate.
+  // Keep the guard here as a second, additive boundary so automatic proposals
+  // remain parent-led even when manual placement is intentionally softer.
   const placementUnits = board.unassignedAttendees.filter(
     (attendee) => (attendee.familyRole ?? "solo") !== "child"
   )
@@ -889,20 +882,10 @@ export async function generateAllocationProposal(input: {
     })
   }
 
-  const suggestedAttendees = sortedAttendees.filter((attendee) =>
-    buyerSuggestionsByAttendeeId.has(attendee.attendeeId)
-  )
-  const remainingAttendees = sortedAttendees.filter(
-    (attendee) => !buyerSuggestionsByAttendeeId.has(attendee.attendeeId)
-  )
-
-  for (const attendee of suggestedAttendees) {
+  // Buyer suggestions affect room choice, not who jumps the payment queue.
+  for (const attendee of sortedAttendees) {
     const suggestion = buyerSuggestionsByAttendeeId.get(attendee.attendeeId)
-    placeAttendee(attendee, suggestion?.roomId ?? null, true)
-  }
-
-  for (const attendee of remainingAttendees) {
-    placeAttendee(attendee, null)
+    placeAttendee(attendee, suggestion?.roomId ?? null, Boolean(suggestion))
   }
 
   const familyGroupsKeptTogether = suggestions.filter(

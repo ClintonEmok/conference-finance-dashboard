@@ -53,7 +53,7 @@ describe("workspace route contracts", () => {
       "/dashboard/events/spring%20retreat/accommodation?tab=hotels"
     )
     expect(accommodationHref("event/one", "allocation", { roomId: "room/7" })).toBe(
-      "/dashboard/events/event%2Fone/accommodation?tab=allocation&roomId=room%2F7"
+      "/dashboard/events/event%2Fone/accommodation/allocation?roomId=room%2F7"
     )
   })
 
@@ -108,7 +108,7 @@ describe("workspace route contracts", () => {
     expect(
       legacyAccommodationHref("event", "allocation", { roomId: "room/9" })
     ).toBe(
-      "/dashboard/events/event/accommodation?tab=allocation&roomId=room%2F9"
+      "/dashboard/events/event/accommodation/allocation?roomId=room%2F9"
     )
   })
 

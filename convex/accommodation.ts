@@ -352,7 +352,8 @@ function emptyFamilyUnit(input: {
  * raw string IDs, so this boundary deliberately re-normalizes every reference,
  * validates the declared primary, validates every membership, and then joins
  * live bed requirements. No array order, name, order grouping, or bed flag can
- * select a parent.
+ * select a parent. Family metadata is advisory for now: invalid relationships
+ * fall back to a standalone attendee instead of blocking room placement.
  */
 async function resolveFamilyPlacementUnit(
   ctx: Pick<QueryCtx, "db">,
@@ -369,16 +370,6 @@ async function resolveFamilyPlacementUnit(
     .take(20)
 
   if (memberships.length === 0) {
-    if (requirement.requiresBed === false && requirement.placementEligible) {
-      return emptyFamilyUnit({
-        valid: false,
-        familyRole: "child",
-        familyState: "needs-family-link",
-        reason: "Needs family link",
-        requirement,
-        attendee,
-      })
-    }
     return emptyFamilyUnit({
       valid: true,
       familyRole: "solo",
@@ -391,11 +382,10 @@ async function resolveFamilyPlacementUnit(
 
   if (memberships.length !== 1) {
     return emptyFamilyUnit({
-      valid: false,
-      familyRole: "child",
+      valid: true,
+      familyRole: "solo",
       familyState: "inconsistent",
-      familyGroupId: null,
-      reason: "Family membership is inconsistent",
+      reason: "Family membership is inconsistent; placing attendee independently",
       requirement,
       attendee,
     })
@@ -407,10 +397,10 @@ async function resolveFamilyPlacementUnit(
     : null
   if (!familyGroupId) {
     return emptyFamilyUnit({
-      valid: false,
-      familyRole: "child",
+      valid: true,
+      familyRole: "solo",
       familyState: "inconsistent",
-      reason: "Family group reference is malformed",
+      reason: "Family group reference is malformed; placing attendee independently",
       requirement,
       attendee,
     })
@@ -506,27 +496,25 @@ async function resolveFamilyPlacementUnit(
     ? resolvedMembers.find((member) => String(member._id) === String(primaryId)) ??
       null
     : null
-  const familyRole: FamilyRole =
-    parent && String(parent._id) === String(attendee._id) ? "parent" : "child"
-
   if (malformedMembership || !parent) {
     return {
       ...emptyFamilyUnit({
-        valid: false,
-        familyRole,
-        familyGroupId: String(familyGroupId),
-        familyLabel,
-        familyParentAttendeeId: primaryId ? String(primaryId) : null,
+        valid: true,
+        familyRole: "solo",
+        familyGroupId: null,
+        familyLabel: null,
+        familyParentAttendeeId: null,
         familyState: "inconsistent",
-        parent,
-        members: resolvedMembers,
-        reason: "Family placement data is inconsistent",
+        reason: "Family placement data is inconsistent; placing attendee independently",
         requirement,
         attendee,
       }),
       requirements,
     }
   }
+
+  const familyRole: FamilyRole =
+    String(parent._id) === String(attendee._id) ? "parent" : "child"
 
   const eligibleChildren = resolvedMembers
     .filter((member) => String(member._id) !== String(parent._id))
@@ -893,8 +881,10 @@ export const getRoomAllocationBoard = query({
     const internalEventIds = new Set(
       internalCanonicalEvents.map((event) => String(event._id))
     )
-    const scopedOrders = allOrders.filter((order) =>
-      internalEventIds.has(String(order.eventId))
+    const scopedOrders = allOrders.filter(
+      (order) =>
+        internalEventIds.has(String(order.eventId)) &&
+        (!eventId || String(order.eventId) === String(eventId))
     )
 
     const scopedTicketSelectionDocs = scopedOrders.length
@@ -1237,7 +1227,14 @@ export const getRoomAllocationBoard = query({
 
     const unassignedAttendees = eventUnassignedAttendees.filter((attendee) => {
       const unit = familyUnitByAttendeeId.get(String(attendee._id))!
-      if (!unit.valid || unit.familyRole === "child") return false
+      const coveredByUnassignedParent =
+        unit.familyRole === "child" &&
+        unit.parent &&
+        !unit.parent.assignedRoomId &&
+        unit.eligibleChildren.some(
+          (child) => String(child.attendee._id) === String(attendee._id)
+        )
+      if (coveredByUnassignedParent) return false
       return attendeePassesFilters(attendee)
     })
 
@@ -1496,58 +1493,6 @@ export const getRoomAllocationBoard = query({
       }
     })
 
-    // Advisory compatibility projection for the manual allocation board.
-    // This is deliberately additive and never participates in an assignment
-    // guard: it only uses the already event-scoped rooms, stored requested
-    // room type, capacity, and occupants that are visible on this board.
-    const compatibilityForAttendee = (attendee: (typeof unassignedAttendees)[number]) => {
-      const requestedRoomTypeId = attendee.allocatedRoomTypeId
-      if (!requestedRoomTypeId) {
-        return {
-          status: "unavailable" as const,
-          summary: "Compatibility unavailable: requested room type is not stored.",
-        }
-      }
-      const attendeeRequirement = scopedBedRequirements.get(String(attendee._id))
-      const candidateRooms = mappedRooms.filter(
-        (room) =>
-          !attendeeRequirement?.requiresBed ||
-          (!room.occupancyIncomplete && room.availableBeds > 0)
-      )
-      const matchingRooms = candidateRooms.filter(
-        (room) =>
-          String(room.roomType?.id ?? "") === String(requestedRoomTypeId)
-      )
-      if (matchingRooms.length > 0) {
-        const sameOrderRoom = attendee.orderId
-          ? matchingRooms.find((room) =>
-              room.occupants.some(
-                (occupant) => String(occupant.orderId ?? "") === String(attendee.orderId)
-              )
-            )
-          : undefined
-        const recommendedRoom = sameOrderRoom ?? matchingRooms[0]
-        return {
-          status: "compatible" as const,
-          summary: sameOrderRoom
-            ? "Available room matches the requested room type and keeps the order group together."
-            : "Available room matches the requested room type.",
-          recommendedRoomId: recommendedRoom?.id,
-        }
-      }
-      if (candidateRooms.some((room) => !room.roomType)) {
-        return {
-          status: "unavailable" as const,
-          summary: "Compatibility unavailable: room type data is incomplete.",
-        }
-      }
-
-      return {
-        status: "no_match" as const,
-        summary: "No available room matches the requested room type.",
-      }
-    }
-
     // These legacy order-member fields remain additive for older consumers,
     // but they are never used as family authority or an assignment recipe.
     const legacyOrderMemberIdsByAttendeeId = new Map<string, string[]>()
@@ -1651,7 +1596,6 @@ export const getRoomAllocationBoard = query({
         optionKeys: preference?.optionKeys ?? [],
         requiresBed:
           scopedBedRequirements.get(String(a._id))?.requiresBed ?? true,
-        compatibility: compatibilityForAttendee(a),
       }
       })
 
@@ -1773,11 +1717,7 @@ export const getRoomAllocationBoard = query({
         const attendeeId = String(assignment.attendeeId)
         const familyUnit = familyUnitByAttendeeId.get(attendeeId)
         const requirement = scopedBedRequirements.get(attendeeId)
-        return (
-          requirement?.placementEligible === true &&
-          familyUnit?.valid === true &&
-          familyUnit.familyRole !== "child"
-        )
+        return requirement?.placementEligible === true && familyUnit?.valid === true
       })
       .map((assignment) => {
         const roomId = slotIdToRoomId.get(assignment.slotId as string)
@@ -1829,14 +1769,12 @@ export const getRoomAllocationBoard = query({
     // Filter pending assignments: assignmentIntent="assign" and (status is undefined/pending)
     for (const assignment of orderAssignmentsList) {
       const assignmentAny = assignment as { status?: string }
-      const isPending =
+        const isPending =
         assignment.assignmentIntent === "assign" &&
         (!assignmentAny.status || assignmentAny.status === "pending") &&
         scopedBedRequirements.get(String(assignment.attendeeId))
           ?.placementEligible === true &&
-        familyUnitByAttendeeId.get(String(assignment.attendeeId))?.valid === true &&
-        familyUnitByAttendeeId.get(String(assignment.attendeeId))?.familyRole !==
-          "child"
+        familyUnitByAttendeeId.get(String(assignment.attendeeId))?.valid === true
 
       if (!isPending) continue
 
@@ -2627,13 +2565,24 @@ async function validateFamilyRoomOutcome(
   if (!attendee) throw new Error("Attendee not found")
   if (!room) throw new Error("Room not found")
 
-  const unit = await resolveFamilyPlacementUnit(ctx, String(eventId), attendee)
-  if (!unit.valid) throwFamilyResolutionError(unit)
-  if (unit.familyRole === "child") {
-    throw new Error(
-      "Parent placement required: Select the parent anchor; children cannot be placed directly."
-    )
-  }
+  const familyUnit = await resolveFamilyPlacementUnit(ctx, String(eventId), attendee)
+  if (!familyUnit.valid) throwFamilyResolutionError(familyUnit)
+
+  // Family links are currently best-effort. Keep the atomic parent-led path
+  // when possible, but let a child fall back to an individual placement.
+  const unit =
+    familyUnit.familyRole === "child"
+      ? emptyFamilyUnit({
+          valid: true,
+          familyRole: "solo",
+          familyState: "unresolved",
+          requirement:
+            familyUnit.requirements.get(String(attendee._id)) ??
+            (await resolveAttendeeBedRequirement(ctx, attendee._id)),
+          attendee,
+        })
+      : familyUnit
+
   if (!unit.parent) {
     throw new Error("Family placement data is inconsistent")
   }
@@ -2759,13 +2708,22 @@ async function validateFamilyUnassignment(
   if (!attendee) {
     throw new Error("Attendee not found or not assigned to any room")
   }
-  const unit = await resolveFamilyPlacementUnit(ctx, String(eventId), attendee)
-  if (!unit.valid) throwFamilyResolutionError(unit)
-  if (unit.familyRole === "child") {
-    throw new Error(
-      "Parent placement required: Select the parent anchor; children cannot be placed directly."
-    )
-  }
+  const familyUnit = await resolveFamilyPlacementUnit(ctx, String(eventId), attendee)
+  if (!familyUnit.valid) throwFamilyResolutionError(familyUnit)
+
+  const unit =
+    familyUnit.familyRole === "child"
+      ? emptyFamilyUnit({
+          valid: true,
+          familyRole: "solo",
+          familyState: "unresolved",
+          requirement:
+            familyUnit.requirements.get(String(attendee._id)) ??
+            (await resolveAttendeeBedRequirement(ctx, attendee._id)),
+          attendee,
+        })
+      : familyUnit
+
   if (!unit.parent) throw new Error("Family placement data is inconsistent")
   const affectedAttendees = [unit.parent, ...unit.eligibleChildren.map((child) => child.attendee)]
   await assertOrderEventOwnership(ctx, String(eventId), affectedAttendees)

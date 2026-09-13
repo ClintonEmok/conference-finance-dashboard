@@ -19,7 +19,7 @@ export function WorkspaceFrame({
   workspaceLabel: string
   summary?: ReactNode
   actions?: ReactNode
-  tabs: ReactNode
+  tabs?: ReactNode
   workspaceId?: string
   activeTab?: string
   children: ReactNode
@@ -35,12 +35,16 @@ export function WorkspaceFrame({
         {actions && <div className="flex max-w-full min-w-0 shrink-0 flex-wrap gap-2">{actions}</div>}
       </header>
       <div className="min-w-0">{summary}</div>
-      <nav aria-label={`${workspaceLabel} sections`} className="min-w-0 overflow-hidden border-b border-border/60">{tabs}</nav>
+      {tabs && <nav aria-label={`${workspaceLabel} sections`} className="min-w-0 overflow-hidden border-b border-border/60">{tabs}</nav>}
       <section
         id={workspacePanelId(workspaceId)}
-        role="tabpanel"
-        aria-labelledby={workspaceTabId(workspaceId, activeTab)}
-        tabIndex={0}
+        {...(tabs
+          ? {
+              role: "tabpanel",
+              "aria-labelledby": workspaceTabId(workspaceId, activeTab),
+              tabIndex: 0,
+            }
+          : {})}
         className="min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         {children}

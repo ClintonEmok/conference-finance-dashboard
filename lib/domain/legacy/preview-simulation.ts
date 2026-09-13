@@ -15,6 +15,8 @@
 
 export {
   buildLegacyPreviewSnapshot,
+  buildFamilyPreviewSnapshot,
+  FAMILY_PREVIEW_COUNTS,
   LEGACY_AUDIT_COUNTS,
   LEGACY_BASE_CHECK_IN_AT,
   LEGACY_DAY_MS,
@@ -51,7 +53,10 @@ export const SEED_ORDER: Array<{ table: string; refs: string[] }> = [
   },
   { table: "ticketTypes", refs: ["eventId", "roomTypeId"] },
   { table: "orders", refs: ["eventId"] },
-  { table: "orderAttendees", refs: ["orderId"] },
+  {
+    table: "orderAttendees",
+    refs: ["orderId", "assignedRoomId", "allocatedRoomTypeId"],
+  },
   {
     table: "orderTicketSelections",
     refs: ["orderId", "attendeeId", "ticketTypeId"],
@@ -63,6 +68,11 @@ export const SEED_ORDER: Array<{ table: string; refs: string[] }> = [
   {
     table: "orderAccommodationSelections",
     refs: ["orderId", "attendeeId", "categoryId"],
+  },
+  { table: "attendeeFamilyGroups", refs: ["primaryAttendeeId"] },
+  {
+    table: "attendeeFamilyMembers",
+    refs: ["familyGroupId", "attendeeId"],
   },
 ]
 
@@ -152,6 +162,13 @@ export function stableKeyFor(table: string, row: Record<string, unknown>): strin
     case "orderAccommodationSelections":
       return typeof row.attendeeId === "string"
         ? `attendee:${row.attendeeId}`
+        : null
+    case "attendeeFamilyGroups":
+      return typeof row.label === "string" ? `label:${row.label}` : null
+    case "attendeeFamilyMembers":
+      return typeof row.familyGroupId === "string" &&
+        typeof row.attendeeId === "string"
+        ? `family:${row.familyGroupId}:attendee:${row.attendeeId}`
         : null
     default:
       return null

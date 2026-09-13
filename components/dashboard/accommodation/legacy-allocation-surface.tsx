@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useEffect, useMemo, useState } from "react"
+import { use, useEffect, useMemo, useState, type MouseEvent } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
@@ -136,13 +136,28 @@ function OccupancyChip({ occupancy }: { occupancy: unknown }) {
   )
 }
 
+function NoBedChip() {
+  return (
+    <span
+      aria-label="No bed required"
+      className="inline-flex items-center rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:border-sky-900/30 dark:bg-sky-950/20 dark:text-sky-300"
+    >
+      No bed
+    </span>
+  )
+}
+
 /**
  * The board's server-payload accommodation preference fields consumed by the
  * chips below. Everything renders from these typed fields only.
  */
 type AccommodationPreferenceFields = Pick<
   RoomAllocationBoard["unassignedAttendees"][number],
-  "occupancy" | "nightBeforeLevel" | "categoryLabel" | "optionKeys"
+  | "occupancy"
+  | "nightBeforeLevel"
+  | "categoryLabel"
+  | "optionKeys"
+  | "requiresBed"
 >
 
 /**
@@ -162,6 +177,7 @@ function AccommodationPreferenceChips({
   return (
     <>
       <OccupancyChip occupancy={attendee?.occupancy} />
+      {attendee?.requiresBed === false && <NoBedChip />}
       {attendee?.categoryLabel && (
         <span className="rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
           {attendee.categoryLabel}
@@ -330,11 +346,7 @@ export default function EventAllocationPage({
     () => board?.unassignedAttendees ?? [],
     [board]
   )
-  const familyFollowUps = useMemo(
-    () => board?.familyFollowUps ?? [],
-    [board]
-  )
-  const hasActiveFilters = Object.values(filters).some((value) => value !== null)
+   const hasActiveFilters = Object.values(filters).some((value) => value !== null)
   const summary = board?.summary
 
   useEffect(() => {
@@ -365,7 +377,7 @@ export default function EventAllocationPage({
   ) {
     const nextFilters = { ...filters, [key]: value } as AllocationFilterState
     const nextParams = new URLSearchParams(searchParams.toString())
-    nextParams.set("tab", "allocation")
+    nextParams.delete("tab")
     syncAllocationFiltersToSearchParams(nextParams, nextFilters)
     nextParams.delete("roomId")
     setRoomPage(1)
@@ -375,7 +387,7 @@ export default function EventAllocationPage({
 
   function clearFilters() {
     const nextParams = new URLSearchParams(searchParams.toString())
-    nextParams.set("tab", "allocation")
+    nextParams.delete("tab")
     syncAllocationFiltersToSearchParams(nextParams, {
       hotelId: null,
       roomTypeId: null,
@@ -393,6 +405,15 @@ export default function EventAllocationPage({
 
   function isFamilyAttendee(attendee: AllocationAttendee) {
     return attendee.familyRole === "parent"
+  }
+
+  function toggleRoomSelection(roomId: string) {
+    setSelectedRoomId((current) => (current === roomId ? null : roomId))
+  }
+
+  function handleRoomCardClick(event: MouseEvent<HTMLDivElement>, roomId: string) {
+    if ((event.target as HTMLElement).closest("button, summary")) return
+    toggleRoomSelection(roomId)
   }
 
   function atomicErrorMessage(error: unknown) {
@@ -454,39 +475,6 @@ export default function EventAllocationPage({
     } finally {
       setPendingAction(null)
     }
-  }
-
-  function findCompatibleRoom(attendee: AllocationAttendee) {
-    setError(null)
-    setSuccess(null)
-    const recommendation = attendee.compatibility
-    const recommendedRoom = recommendation?.recommendedRoomId
-      ? rooms.find((room) => room.id === recommendation.recommendedRoomId)
-      : null
-    if (!recommendedRoom) {
-      setError(
-        recommendation?.status === "no_match"
-          ? "No compatible available room was found."
-          : "Compatibility is unavailable for this attendee."
-      )
-      return
-    }
-    const nextPage = getRoomPageForRoomId(
-      rooms.map((room) => room.id),
-      recommendedRoom.id,
-      roomsPerPage
-    )
-    if (nextPage === null) {
-      setError("The compatible room is hidden by the current filters.")
-      return
-    }
-    setRoomPage(nextPage)
-    setSelectedRoomId(recommendedRoom.id)
-    setSuccess(
-      isFamilyAttendee(attendee)
-        ? `Compatible room found: ${recommendedRoom.label}. Review family placement, then choose Assign family to selected room.`
-        : `Compatible room found: ${recommendedRoom.label}. Review it, then choose Assign to selected room.`
-    )
   }
 
   function openFamilyRemoval(target: RemovalTarget) {
@@ -663,16 +651,6 @@ export default function EventAllocationPage({
               <option value="false">No priority</option>
             </select>
           </label>
-          <label className="space-y-1.5 text-xs font-medium">
-            <span>Family group</span>
-            <input
-              aria-label="Filter by family group"
-              value={filters.familyGroupId ?? ""}
-              onChange={(event) => updateFilter("familyGroupId", event.target.value || null)}
-              placeholder="Family group ID"
-              className="h-10 w-full rounded-md border border-border/60 bg-background px-3 text-sm"
-            />
-          </label>
           <label className="space-y-1.5 text-xs font-medium sm:col-span-2">
             <span>Location</span>
             <input
@@ -719,21 +697,7 @@ export default function EventAllocationPage({
           </p>
 
           <div className="flex-1 space-y-2 overflow-y-auto p-3">
-             {familyFollowUps.length > 0 && (
-               <section aria-labelledby="family-follow-up" className="mb-3 rounded-xl border border-amber-300/60 bg-amber-50/60 p-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/20">
-                 <h4 id="family-follow-up" className="font-semibold text-amber-900 dark:text-amber-200">Family follow-up</h4>
-                 <div className="mt-2 space-y-2">
-                   {familyFollowUps.map((followUp) => (
-                     <div key={`${followUp.state}:${followUp.attendeeId}`} className="rounded-lg border border-amber-300/50 bg-background/70 p-2 dark:border-amber-900/50">
-                       <p className="font-semibold text-amber-900 dark:text-amber-200">{followUp.state}</p>
-                       <p className="break-words text-xs text-amber-800 dark:text-amber-300">{followUp.message}</p>
-                       <p className="mt-1 break-words text-xs text-muted-foreground">{followUp.attendeeName ?? "Unnamed attendee"}</p>
-                     </div>
-                   ))}
-                 </div>
-               </section>
-             )}
-             {unassigned.length === 0 ? (
+              {unassigned.length === 0 ? (
                hotels.length === 0 || rooms.length === 0 ? (
                   <DashboardQueryState state="unconfigured" message="Configure a hotel and usable rooms before placing attendees." className="rounded-xl border border-dashed border-white/20 bg-white/5 p-8" />
                  ) : hasActiveFilters ? (
@@ -742,12 +706,7 @@ export default function EventAllocationPage({
                     <p className="text-muted-foreground">Clear filters to view all attendees needing placement.</p>
                     <Button type="button" variant="outline" size="sm" onClick={clearFilters} className="mt-2 min-h-11">Clear filters</Button>
                   </div>
-                 ) : familyFollowUps.length > 0 ? (
-                   <div className="space-y-2 rounded-xl border border-dashed border-amber-300/60 bg-amber-50/40 p-8 text-sm dark:border-amber-900/60 dark:bg-amber-950/20">
-                     <p className="font-semibold">Placement queue clear; family follow-up needed.</p>
-                     <p className="text-muted-foreground">Review Needs family link and Waiting for parent room items before closing allocation.</p>
-                   </div>
-                 ) : (
+                  ) : (
                   <DashboardQueryState state="empty" title="All attendees have been placed." message="No unresolved attendees need placement. Open Allocation to review room assignments." className="rounded-xl border border-dashed border-white/20 bg-white/5 p-8" />
                )
             ) : (
@@ -756,38 +715,29 @@ export default function EventAllocationPage({
                     attendee.familyRole === "parent"
                       ? attendee.eligibleChildren ?? []
                       : []
-                  const isFamily = isFamilyAttendee(attendee)
-                  const isBlockedChild = attendee.familyRole === "child"
+                   const isFamily = isFamilyAttendee(attendee)
+                   const isChild = attendee.familyRole === "child"
                   const childCount = attendee.eligibleChildCount ?? 0
                   return (
                     <div
                       key={attendee.attendeeId}
                       role={isFamily ? "group" : undefined}
                       aria-label={isFamily ? `Family placement led by ${attendee.attendeeName ?? "unnamed parent"}` : undefined}
-                      className={`flex min-w-0 flex-col rounded-xl border p-3 transition-colors ${
-                        isBlockedChild
-                          ? "border-amber-300/60 bg-amber-50/40 dark:border-amber-900/60 dark:bg-amber-950/20"
-                          : "border-border/60 bg-card hover:border-primary/30"
-                      }`}
+                      className="flex min-w-0 flex-col rounded-xl border border-border/60 bg-card p-3 transition-colors hover:border-primary/30"
                     >
                       <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
                           {isFamily && <p className="text-xs font-semibold text-primary">Family placement</p>}
                           <p className="break-words text-sm font-semibold">
-                            {isFamily ? "Parent · " : isBlockedChild ? "Child · " : ""}
+                            {isFamily ? "Parent · " : isChild ? "Child · " : ""}
                             {attendee.attendeeName ?? "Unnamed"}
                           </p>
                         </div>
-                        {!isBlockedChild && (
-                          <div className="flex min-w-0 flex-wrap gap-1">
-                            <Button type="button" size="sm" variant="outline" disabled={pendingAction !== null} aria-label={`Find compatible room for ${attendee.attendeeName ?? "attendee"}`} className="min-h-11 h-auto whitespace-normal text-[11px]" onClick={() => findCompatibleRoom(attendee)}>
-                              Find compatible room
-                            </Button>
-                            <Button type="button" size="sm" disabled={!selectedRoomId || pendingAction !== null} aria-label={`${isFamily ? "Assign family led by" : "Assign"} ${attendee.attendeeName ?? "attendee"} to selected room`} className="min-h-11 h-auto whitespace-normal text-[11px]" onClick={() => handleAssign(attendee)}>
-                              {pendingAction === `assign:${attendee.attendeeId}` ? isFamily ? "Assigning family…" : "Assigning…" : isFamily ? "Assign family to selected room" : "Assign to selected room"}
-                            </Button>
-                          </div>
-                        )}
+                        <div className="flex min-w-0 flex-wrap gap-1">
+                          <Button type="button" size="sm" disabled={!selectedRoomId || pendingAction !== null} aria-label={`${isFamily ? "Assign family led by" : "Assign"} ${attendee.attendeeName ?? "attendee"} to selected room`} className="min-h-11 h-auto whitespace-normal text-[11px]" onClick={() => handleAssign(attendee)}>
+                            {pendingAction === `assign:${attendee.attendeeId}` ? isFamily ? "Assigning family…" : "Assigning…" : isFamily ? "Assign family to selected room" : "Assign to selected room"}
+                          </Button>
+                        </div>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         <PaymentBadge state={attendee.paymentState} />
@@ -797,29 +747,25 @@ export default function EventAllocationPage({
                       </div>
                       {isFamily && childCount > 0 && (
                         <ul className="mt-3 space-y-1 border-l-2 border-primary/20 pl-3 text-xs" aria-label={`Eligible children for ${attendee.attendeeName ?? "parent"}`}>
-                          {familyChildren.map((child) => (
-                            <li key={child.attendeeId} className="break-words text-muted-foreground">
-                              <span className="font-semibold text-foreground">Child · {child.attendeeName ?? "Unnamed"}</span>
-                              <span className="ml-1">No bed required · follows parent</span>
-                            </li>
-                          ))}
+                           {familyChildren.map((child) => (
+                             <li key={child.attendeeId} className="flex flex-wrap items-center gap-1.5 break-words text-muted-foreground">
+                               <span className="font-semibold text-foreground">Child · {child.attendeeName ?? "Unnamed"}</span>
+                               <NoBedChip />
+                               <span>Follows parent when family placement is used</span>
+                             </li>
+                           ))}
                         </ul>
                       )}
                       {isFamily && (attendee.separateMemberCount ?? 0) > 0 && (
                         <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Some family members require separate placement.</p>
                       )}
-                      {isBlockedChild && (
-                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Parent placement required — Select the parent anchor; children cannot be placed directly.</p>
-                      )}
                       <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                         <p>Order: {attendee.bookingRef || attendee.orderId || "Unavailable"}</p>
-                        {attendee.bookerName && <p>Booker: {attendee.bookerName}</p>}
-                        {attendee.location && <p>Location: {attendee.location}</p>}
-                        {attendee.roommatePreference && <p>Roommate preference: {attendee.roommatePreference}</p>}
-                        {attendee.roommateAvoid && <p>Roommate avoidance: {attendee.roommateAvoid}</p>}
-                        {(attendee.roommatePreference || attendee.roommateAvoid) && <p className="font-semibold text-muted-foreground">Advisory only</p>}
-                        <p>Compatibility: {attendee.compatibility?.summary ?? "Compatibility unavailable"}</p>
-                      </div>
+                         {attendee.bookerName && <p>Booker: {attendee.bookerName}</p>}
+                         {attendee.location && <p>Location: {attendee.location}</p>}
+                         {attendee.roommatePreference && <p>Roommate preference: {attendee.roommatePreference}</p>}
+                         {attendee.roommateAvoid && <p>Roommate avoidance: {attendee.roommateAvoid}</p>}
+                       </div>
                       {isFamily && (
                         <p className="mt-2 text-xs text-muted-foreground">Confirming this placement confirms the buyer&apos;s accommodation configuration and closes further buyer changes.</p>
                       )}
@@ -876,19 +822,23 @@ export default function EventAllocationPage({
                     const isEmpty = room.availability === "empty"
                     const occupantBlocks = getRoomOccupantBlocks(room)
                    return (
-                    <div
-                      key={room.id}
-                      className={`rounded-2xl border p-4 shadow-sm transition-all ${
-                        isSelected
-                          ? "border-primary/60 bg-primary/5 ring-2 ring-primary/20"
-                          : "border-border/60 bg-card hover:border-primary/30"
-                      }`}
-                    >
+                     <div
+                       key={room.id}
+                       onClick={(event) => handleRoomCardClick(event, room.id)}
+                       className={`cursor-pointer rounded-2xl border p-4 shadow-sm transition-all ${
+                         isSelected
+                           ? "border-primary/60 bg-primary/5 ring-2 ring-primary/20"
+                           : "border-border/60 bg-card hover:border-primary/30"
+                       }`}
+                     >
                       <button
                         type="button"
                         aria-label={`${isSelected ? "Deselect room" : "Select a room"} ${room.label}`}
                         aria-pressed={isSelected}
-                        onClick={() => setSelectedRoomId(isSelected ? null : room.id)}
+                         onClick={(event) => {
+                           event.stopPropagation()
+                           toggleRoomSelection(room.id)
+                         }}
                         className="min-h-11 w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         <div className="flex items-center justify-between">
@@ -952,7 +902,7 @@ export default function EventAllocationPage({
                                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                           <PaymentBadge state={parent.paymentState} />
                                           <OccupancyChip occupancy={parent.occupancy} />
-                                          {parent.requiresBed === false ? <span className="text-[10px] text-sky-700 dark:text-sky-300">No bed required</span> : <span className="text-[10px] text-muted-foreground">Bed required</span>}
+                                           {parent.requiresBed === false ? <NoBedChip /> : <span className="text-[10px] text-muted-foreground">Bed required</span>}
                                           {parent.nightBeforeMismatch && <span className="text-[10px] text-amber-700 dark:text-amber-300">Night-before mismatch</span>}
                                         </div>
                                       </div>
@@ -974,10 +924,11 @@ export default function EventAllocationPage({
                                         </summary>
                                         <ul className="space-y-1 pb-1">
                                           {block.children.map((child) => (
-                                            <li key={child.attendeeId} className="break-words text-xs text-muted-foreground">
-                                              <span className="font-semibold text-foreground">Child · {child.attendeeName ?? "Unnamed"}</span>
-                                              <span className="ml-1">No bed required · follows parent</span>
-                                            </li>
+                                           <li key={child.attendeeId} className="flex flex-wrap items-center gap-1.5 break-words text-xs text-muted-foreground">
+                                               <span className="font-semibold text-foreground">Child · {child.attendeeName ?? "Unnamed"}</span>
+                                               <NoBedChip />
+                                               <span>Follows parent when family placement is used</span>
+                                             </li>
                                           ))}
                                         </ul>
                                       </details>
@@ -994,21 +945,19 @@ export default function EventAllocationPage({
                                     <span className="break-words text-xs text-muted-foreground">{isChild ? "Child · " : ""}{occ.attendeeName ?? "Unnamed"}</span>
                                     <PaymentBadge state={occ.paymentState} />
                                     <OccupancyChip occupancy={occ.occupancy} />
-                                    {isChild ? <span className="text-[10px] text-sky-700 dark:text-sky-300">No bed required · follows parent</span> : occ.requiresBed === false ? <span className="text-[10px] text-sky-700 dark:text-sky-300">No bed required</span> : occ.requiresBed === true ? <span className="text-[10px] text-muted-foreground">Bed required</span> : null}
+                                     {occ.requiresBed === false ? <NoBedChip /> : occ.requiresBed === true ? <span className="text-[10px] text-muted-foreground">Bed required</span> : null}
                                     {occ.nightBeforeMismatch && <span className="text-[10px] text-amber-700 dark:text-amber-300">Night-before mismatch</span>}
                                   </span>
-                                  {!isChild && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); handleUnassign(occ.attendeeId) }}
-                                      aria-label={pendingAction === `unassign:${occ.attendeeId}` ? `Unassigning ${occ.attendeeName ?? "unnamed attendee"} from ${room.label}` : `Unassign ${occ.attendeeName ?? "unnamed attendee"} from ${room.label}`}
-                                      aria-busy={pendingAction === `unassign:${occ.attendeeId}`}
-                                      disabled={pendingAction !== null}
-                                      className="min-h-11 min-w-11 shrink-0 rounded p-2 text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
-                                    >
-                                      {pendingAction === `unassign:${occ.attendeeId}` ? "Unassigning…" : <X className="size-3" aria-hidden="true" />}
-                                    </button>
-                                  )}
+                                   <button
+                                     type="button"
+                                     onClick={(e) => { e.stopPropagation(); handleUnassign(occ.attendeeId) }}
+                                     aria-label={pendingAction === `unassign:${occ.attendeeId}` ? `Unassigning ${occ.attendeeName ?? "unnamed attendee"} from ${room.label}` : `Unassign ${occ.attendeeName ?? "unnamed attendee"} from ${room.label}`}
+                                     aria-busy={pendingAction === `unassign:${occ.attendeeId}`}
+                                     disabled={pendingAction !== null}
+                                     className="min-h-11 min-w-11 shrink-0 rounded p-2 text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
+                                   >
+                                     {pendingAction === `unassign:${occ.attendeeId}` ? "Unassigning…" : <X className="size-3" aria-hidden="true" />}
+                                   </button>
                                 </div>
                               )
                             })}

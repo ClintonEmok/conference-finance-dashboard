@@ -1,7 +1,7 @@
 import { v } from "convex/values"
 import { internalMutation, type MutationCtx } from "./_generated/server"
-import type { Id } from "./_generated/dataModel"
 import {
+  buildFamilyPreviewSnapshot,
   buildLegacyPreviewSnapshot,
   LEGACY_EVENT_SLUG,
   SEED_ORDER,
@@ -16,10 +16,17 @@ import { assertPreviewDeployment } from "../lib/domain/legacy/preview-deployment
  * idempotent `internalMutation` that seeds the sanitized audited
  * `divine-redesign` shape (51 orders / 116 attendees / 160 slots / 84 rooms /
  * 2 hotels, partitioned 38/72 no-selection and 13/44 legacy-assignment) into
- * the DEV/PREVIEW deployment. Run with:
+ * the DEV/PREVIEW deployment. The additive `families` scope adds realistic
+ * family-placement cases to that event without changing the audited counts.
+ * Run with:
  *
  *   npx convex run seedPreviewSimulation \
- *     --args '{"scope":"full","preview":true,"allowedDeploymentUrl":"https://acoustic-tiger-876.convex.site"}'
+ *     '{"scope":"full","preview":true,"allowedDeploymentUrl":"https://acoustic-tiger-876.convex.site"}'
+ *
+ * Add family-placement datapoints with:
+ *
+ *   npx convex run seedPreviewSimulation \
+ *     '{"scope":"families","preview":true,"allowedDeploymentUrl":"https://acoustic-tiger-876.convex.site"}'
  *
  * Safety (shared preview-deployment guard):
  * - Requires `preview: true` AND an exactly-matching, explicitly allowed
@@ -119,6 +126,14 @@ async function loadTableDocs(
       return (await ctx.db
         .query("orderAccommodationSelections")
         .take(TABLE_LIMIT)) as unknown as Array<Record<string, unknown>>
+    case "attendeeFamilyGroups":
+      return (await ctx.db
+        .query("attendeeFamilyGroups")
+        .take(TABLE_LIMIT)) as unknown as Array<Record<string, unknown>>
+    case "attendeeFamilyMembers":
+      return (await ctx.db
+        .query("attendeeFamilyMembers")
+        .take(TABLE_LIMIT)) as unknown as Array<Record<string, unknown>>
     default:
       return []
   }
@@ -156,8 +171,12 @@ function sliceToTracerScope(snapshot: PreviewSnapshot): PreviewSnapshot {
 
 export default internalMutation({
   args: {
-    /** Seed scope: tracer (one legacy order) or full (the audited shape). */
-    scope: v.union(v.literal("tracer"), v.literal("full")),
+    /** Seed scope: tracer, audited legacy shape, or family datapoints. */
+    scope: v.union(
+      v.literal("tracer"),
+      v.literal("full"),
+      v.literal("families")
+    ),
     /** Explicit preview-only authorization marker (required). */
     preview: v.boolean(),
     /** Allowed preview deployment URL/selector for the deployment guard. */
@@ -168,7 +187,11 @@ export default internalMutation({
   returns: v.object({
     eventId: v.optional(v.string()),
     slug: v.string(),
-    scope: v.union(v.literal("tracer"), v.literal("full")),
+    scope: v.union(
+      v.literal("tracer"),
+      v.literal("full"),
+      v.literal("families")
+    ),
     alreadySeeded: v.boolean(),
     insertedByTable: v.record(v.string(), v.number()),
   }),
@@ -187,7 +210,9 @@ export default internalMutation({
     const snapshot =
       args.scope === "tracer"
         ? sliceToTracerScope(buildLegacyPreviewSnapshot())
-        : buildLegacyPreviewSnapshot()
+        : args.scope === "families"
+          ? buildFamilyPreviewSnapshot()
+          : buildLegacyPreviewSnapshot()
 
     const idMap = new Map<string, string>()
     const logicalByReal = new Map<string, string>()
@@ -270,7 +295,7 @@ export default internalMutation({
       slug,
       scope: args.scope,
       alreadySeeded:
-        args.scope === "full" &&
+        (args.scope === "full" || args.scope === "families") &&
         Object.values(insertedByTable).every((count) => count === 0),
       insertedByTable,
     }

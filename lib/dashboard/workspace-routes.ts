@@ -94,7 +94,16 @@ export const accommodationHref = (
   slug: string,
   tab: AccommodationTab = defaultAccommodationTab,
   intent?: { roomId?: string }
-) => workspaceHref(slug, "accommodation", tab, intent)
+) => {
+  if (tab === "allocation") {
+    const params = new URLSearchParams()
+    if (intent?.roomId !== undefined) params.set("roomId", intent.roomId)
+    const query = params.toString()
+    return `/dashboard/events/${encodeURIComponent(slug)}/accommodation/allocation${query ? `?${query}` : ""}`
+  }
+
+  return workspaceHref(slug, "accommodation", tab, intent)
+}
 
 /**
  * The canonical event-scoped Orders workspace URL. Orders is a first-class

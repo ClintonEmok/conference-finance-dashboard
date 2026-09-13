@@ -18,7 +18,6 @@ import {
 } from "@/lib/dashboard/workspace-attention"
 import { Button } from "@/components/ui/button"
 import { AccommodationHotelsTab } from "./hotels-tab"
-import { AccommodationAllocationTab } from "./allocation-tab"
 import { AccommodationUpgradesOptionsTab } from "./upgrades-options-tab"
 import type { AccommodationBoard } from "./legacy-allocation-surface"
 import { readAllocationFiltersFromSearchParams } from "@/app/dashboard/accommodation/filter-state"
@@ -42,9 +41,8 @@ export function AccommodationWorkspace({ slug }: { slug: string }) {
     roomId,
   })
 
-  // The room-allocation board is only queried on tabs that actually render
-  // allocation/hotels data. The Upgrades & Options tab must not mount the
-  // allocation board query or its loading/error attention states.
+  // The room-allocation board is only queried on the Hotels & Rooms setup
+  // surface. Upgrades & Options must not mount the allocation board query.
   const boardResult = useQuery(
     api.accommodation.getRoomAllocationBoard,
     event.accommodationEnabled && readPlan.readAttentionBoard
@@ -67,8 +65,7 @@ export function AccommodationWorkspace({ slug }: { slug: string }) {
   ), [boardState, event.accommodationEnabled, slug, readPlan.mode])
   const tabs = useMemo(() => [
      { value: "hotels", label: "Hotels & Rooms", href: accommodationHref(slug, "hotels") },
-    { value: "allocation", label: "Allocation", href: accommodationHref(slug, "allocation") },
-    { value: "upgrades-options", label: "Upgrades & Options", href: accommodationHref(slug, "upgrades-options") },
+     { value: "upgrades-options", label: "Upgrades & Options", href: accommodationHref(slug, "upgrades-options") },
   ], [slug])
 
   if (!event.accommodationEnabled) return <div className="rounded-xl border border-dashed p-10 text-center"><BedDouble className="mx-auto size-10 text-muted-foreground/50" /><h1 className="mt-4 text-xl font-semibold">Accommodation is disabled</h1><p className="mt-2 text-sm text-muted-foreground">Enable it in event settings before managing hotels or room allocation.</p><Button asChild className="mt-5"><Link href={`/dashboard/events/${slug}/settings`}>Open Settings</Link></Button></div>
@@ -84,7 +81,6 @@ export function AccommodationWorkspace({ slug }: { slug: string }) {
      tabs={<WorkspaceTabs workspaceId="accommodation" tabs={tabs} activeTab={activeTab} />}
   >
      {activeTab === "hotels" && <AccommodationHotelsTab slug={slug} event={event} />}
-      {activeTab === "allocation" && <AccommodationAllocationTab slug={slug} event={event} roomId={roomId} parentBoard={boardState} readPlan={readPlan} />}
-      {activeTab === "upgrades-options" && <AccommodationUpgradesOptionsTab event={event} />}
+       {activeTab === "upgrades-options" && <AccommodationUpgradesOptionsTab event={event} />}
   </WorkspaceFrame>
 }
