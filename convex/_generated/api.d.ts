@@ -1150,7 +1150,6 @@ export declare const api: {
       {
         bookerEmail?: string | null;
         bookerName?: string | null;
-        bookingRef?: string | null;
         normalizedStatus?: "paid" | "refunded" | "cancelled" | "pending";
         orderId: Id<"orders">;
         orderedAt?: number | null;

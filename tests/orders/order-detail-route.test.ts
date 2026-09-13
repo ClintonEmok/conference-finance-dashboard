@@ -105,7 +105,30 @@ describe("/api/dashboard/orders/[orderId] route", () => {
       error: {
         code: "BAD_REQUEST",
         message:
-          "Unexpected field 'providerOrderId'. Allowed fields: bookerName, bookerEmail, bookingRef, normalizedStatus, totalAmountMinor, orderedAt.",
+          "Unexpected field 'providerOrderId'. Allowed fields: bookerName, bookerEmail, normalizedStatus, totalAmountMinor, orderedAt.",
+      },
+    })
+    expect(convexMutation).not.toHaveBeenCalled()
+  })
+
+  it("rejects attempts to change the immutable booking reference", async () => {
+    vi.mocked(requireApiUser).mockResolvedValue({ userId: "user_1" })
+
+    const response = await PATCH(
+      new Request("http://localhost/api/dashboard/orders/order_1", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingRef: "BK-CHANGED" }),
+      }),
+      { params: Promise.resolve({ orderId: "order_1" }) }
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(body).toEqual({
+      error: {
+        code: "BAD_REQUEST",
+        message: "Booking reference is immutable and cannot be changed.",
       },
     })
     expect(convexMutation).not.toHaveBeenCalled()

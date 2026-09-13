@@ -9,6 +9,7 @@ describe("event attendees search UI", () => {
     expect(source).toContain("/api/dashboard/attendees?")
     expect(source).toContain('query.set("search", appliedSearch.trim())')
     expect(source).toContain('query.set("searchCursor", searchCursor)')
+    expect(source).toContain('if (searchCursor) query.delete("pageSize")')
     expect(source).toContain("setCursorHistory([])")
   })
 

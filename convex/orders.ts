@@ -404,7 +404,6 @@ export const updateOrderDetails = mutation({
     orderId: v.id("orders"),
     bookerName: v.optional(nullableStringValidator),
     bookerEmail: v.optional(nullableStringValidator),
-    bookingRef: v.optional(nullableStringValidator),
     normalizedStatus: v.optional(canonicalOrderStatusValidator),
     totalAmountMinor: v.optional(v.union(v.number(), v.null())),
     orderedAt: v.optional(v.union(v.number(), v.null())),
@@ -426,7 +425,6 @@ export const updateOrderDetails = mutation({
     const orderPatch: {
       bookerName?: string
       bookerEmail?: string
-      bookingRef?: string
       status?: "paid" | "refunded" | "cancelled" | "pending"
       totalAmountMinor?: number
       orderedAt?: number
@@ -438,10 +436,6 @@ export const updateOrderDetails = mutation({
 
     if (args.bookerEmail !== undefined) {
       orderPatch.bookerEmail = normalizeNullableTextInput(args.bookerEmail)
-    }
-
-    if (args.bookingRef !== undefined) {
-      orderPatch.bookingRef = normalizeNullableTextInput(args.bookingRef)
     }
 
     if (args.totalAmountMinor !== undefined) {
@@ -1740,6 +1734,13 @@ export const mergeOrders = mutation({
       throw new Error("Target order has been removed")
     }
 
+    const targetAttendees: Doc<"orderAttendees">[] = []
+    for await (const row of ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.targetOrderId))) {
+      targetAttendees.push(row)
+    }
+
     const eventOrders = target.eventId
       ? await ctx.db
           .query("orders")
@@ -1763,12 +1764,6 @@ export const mergeOrders = mutation({
     type SourceDoc = Doc<"orders">
     type SourceExt = Doc<"ticketTailorOrders"> | null
 
-    const targetAttendees: Doc<"orderAttendees">[] = []
-    for await (const attendee of ctx.db
-      .query("orderAttendees")
-      .withIndex("by_orderId", (q) => q.eq("orderId", args.targetOrderId))) {
-      targetAttendees.push(attendee)
-    }
     const targetIdempotencyRows: Doc<"orderIdempotency">[] = []
     for await (const row of ctx.db
       .query("orderIdempotency")
@@ -2103,29 +2098,6 @@ export const mergeOrders = mutation({
       })
     }
 
-    // Public accommodation edits key drafts by attendeeKey. Reject any
-    // collision before writes so a merge can never make two attendees share a
-    // mutable preference identity.
-    const attendeeKeys = new Set<string>()
-    for (const attendee of targetAttendees) {
-      if (attendeeKeys.has(attendee.attendeeKey)) {
-        throw new Error(
-          `Target order has duplicate attendee key ${attendee.attendeeKey}`
-        )
-      }
-      attendeeKeys.add(attendee.attendeeKey)
-    }
-    for (const source of sources) {
-      for (const attendee of source.attendees) {
-        if (attendeeKeys.has(attendee.attendeeKey)) {
-          throw new Error(
-            `Attendee key ${attendee.attendeeKey} would collide during merge`
-          )
-        }
-        attendeeKeys.add(attendee.attendeeKey)
-      }
-    }
-
     const targetIdempotencyKeys = new Set(
       targetIdempotencyRows.map((row) => row.idempotencyKey)
     )
@@ -2245,16 +2217,54 @@ export const mergeOrders = mutation({
       }
     }
 
+    // Attendee keys are client-facing identity keys within an order, not the
+    // canonical ownership key. Preserve non-conflicting keys, but re-key any
+    // duplicates after combining orders so public accommodation edits cannot
+    // resolve one key to multiple attendees.
+    const attendeeKeyUpdates = new Map<string, string>()
+    const usedAttendeeKeys = new Set<string>()
+    const mergedAttendees = [
+      ...targetAttendees,
+      ...sources.flatMap((source) => source.attendees),
+    ]
+    for (const attendee of mergedAttendees) {
+      const preferredKey = attendee.attendeeKey.trim()
+      let nextKey = preferredKey
+      if (!nextKey || usedAttendeeKeys.has(nextKey)) {
+        const baseKey = `attendee-${String(attendee._id)}`
+        nextKey = baseKey
+        let suffix = 1
+        while (usedAttendeeKeys.has(nextKey)) {
+          nextKey = `${baseKey}-${suffix}`
+          suffix += 1
+        }
+      }
+      usedAttendeeKeys.add(nextKey)
+      if (nextKey !== attendee.attendeeKey) {
+        attendeeKeyUpdates.set(String(attendee._id), nextKey)
+      }
+    }
+
     // ── Execute writes ─────────────────────────────────────────────────
     let movedAttendees = 0
     let movedPayments = 0
     let aliasCount = 0
+
+    for (const attendee of targetAttendees) {
+      const attendeeKey = attendeeKeyUpdates.get(String(attendee._id))
+      if (attendeeKey) {
+        await ctx.db.patch("orderAttendees", attendee._id, { attendeeKey })
+      }
+    }
 
     for (const source of sources) {
       // Re-link every canonical child ownership row
       for (const row of source.attendees) {
         await ctx.db.patch("orderAttendees", row._id, {
           orderId: args.targetOrderId,
+          ...(attendeeKeyUpdates.has(String(row._id))
+            ? { attendeeKey: attendeeKeyUpdates.get(String(row._id)) }
+            : {}),
         })
         movedAttendees++
       }

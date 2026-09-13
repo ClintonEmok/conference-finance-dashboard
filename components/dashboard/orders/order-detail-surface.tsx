@@ -147,7 +147,6 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
     setOrderEditDraft({
       bookerName: orderPayload.order.bookerName ?? "",
       bookerEmail: orderPayload.order.bookerEmail ?? "",
-      bookingRef: orderPayload.order.bookingRef ?? "",
       normalizedStatus: orderPayload.order.normalizedStatus ?? "pending",
       totalAmountMinor:
         orderPayload.order.totalAmountMinor === null
@@ -279,7 +278,6 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
           body: JSON.stringify({
             bookerName: orderEditDraft.bookerName || null,
             bookerEmail: orderEditDraft.bookerEmail || null,
-            bookingRef: orderEditDraft.bookingRef || null,
             normalizedStatus: orderEditDraft.normalizedStatus,
             totalAmountMinor: parseMinorUnitInput(
               orderEditDraft.totalAmountMinor,

@@ -24,7 +24,6 @@ import {
 export type OrderEditDraft = {
   bookerName: string
   bookerEmail: string
-  bookingRef: string
   normalizedStatus: "paid" | "refunded" | "cancelled" | "pending"
   totalAmountMinor: string
   orderedAt: string
@@ -154,13 +153,10 @@ export function OrderDetailsPanel({
 
               <div className="space-y-2">
                 <Label htmlFor="bookingRef">Booking reference</Label>
-                <Input
-                  id="bookingRef"
-                  value={orderEditDraft.bookingRef}
-                  onChange={(event) =>
-                    onDraftChange({ bookingRef: event.target.value })
-                  }
-                />
+                <Input id="bookingRef" value={order.bookingRef ?? ""} readOnly />
+                <p className="text-xs text-muted-foreground">
+                  Booking references are immutable.
+                </p>
               </div>
 
               <div className="space-y-2">

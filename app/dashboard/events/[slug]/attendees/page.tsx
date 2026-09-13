@@ -135,6 +135,7 @@ export default function EventAttendeesPage({
     setIsLoading(true)
     setErrorMessage(null)
     const query = new URLSearchParams({ eventId: event._id, pageSize: "25" })
+    if (searchCursor) query.delete("pageSize")
     if (appliedSearch.trim()) query.set("search", appliedSearch.trim())
     if (searchCursor) query.set("searchCursor", searchCursor)
     fetch(`/api/dashboard/attendees?${query.toString()}`, { signal: controller.signal })
