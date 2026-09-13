@@ -967,7 +967,7 @@ test("a dangling alias does not fall through to an unrelated direct order", asyn
   expect(tracking).toBeNull()
 })
 
-test("mergeOrders rejects attendee-key collisions before any writes", async () => {
+test("mergeOrders preserves canonical ownership when attendee keys collide", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await seedMergeOrders(t)
 
@@ -980,27 +980,63 @@ test("mergeOrders rejects attendee-key collisions before any writes", async () =
       sortOrder: 0,
     })
   })
+  expect(duplicateAttendeeId).not.toBe(seed.attendeeId1)
 
-  await expect(
-    t.mutation(api.orders.mergeOrders, {
-      sourceOrderIds: [seed.sourceOrderId1],
-      targetOrderId: seed.targetOrderId,
-    })
-  ).rejects.toThrow("would collide during merge")
+  const result = await t.mutation(api.orders.mergeOrders, {
+    sourceOrderIds: [seed.sourceOrderId1],
+    targetOrderId: seed.targetOrderId,
+  })
+
+  expect(result.movedSources).toBe(1)
+  expect(result.movedAttendees).toBe(1)
+  expect(result.movedPayments).toBe(1)
 
   const state = await t.query(async (ctx) => ({
     source: await ctx.db.get("orders", seed.sourceOrderId1),
     sourceAttendee: await ctx.db.get("orderAttendees", seed.attendeeId1),
     duplicateAttendee: await ctx.db.get("orderAttendees", duplicateAttendeeId),
+    ticketSelection: await ctx.db.get("orderTicketSelections", seed.ticketSelId1),
+    accommodationSelection: await ctx.db.get(
+      "orderAccommodationSelections",
+      seed.accomSelId1
+    ),
+    accommodationOptionSelection: await ctx.db.get(
+      "orderAccommodationOptionSelections",
+      seed.optionChildId1
+    ),
+    assignment: await ctx.db.get("orderAssignments", seed.assignmentId1),
+    payment: await ctx.db.get("payments", seed.paymentId1),
     aliases: await ctx.db
       .query("orderBookingRefAliases")
       .withIndex("by_bookingRef", (q) => q.eq("bookingRef", "BK-SRC-ALPHA"))
       .collect(),
   }))
-  expect(state.source?.mergedIntoOrderId).toBeUndefined()
-  expect(state.sourceAttendee?.orderId).toBe(seed.sourceOrderId1)
+  expect(state.source?.mergedIntoOrderId).toBe(seed.targetOrderId)
+  expect(state.sourceAttendee).toMatchObject({
+    orderId: seed.targetOrderId,
+    attendeeKey: "merge-a1",
+  })
   expect(state.duplicateAttendee?.orderId).toBe(seed.targetOrderId)
-  expect(state.aliases).toHaveLength(0)
+  expect(state.duplicateAttendee?.attendeeKey).toBe("merge-a1")
+  expect(state.ticketSelection).toMatchObject({
+    orderId: seed.targetOrderId,
+    attendeeId: seed.attendeeId1,
+  })
+  expect(state.accommodationSelection).toMatchObject({
+    orderId: seed.targetOrderId,
+    attendeeId: seed.attendeeId1,
+  })
+  expect(state.accommodationOptionSelection).toMatchObject({
+    orderId: seed.targetOrderId,
+    attendeeId: seed.attendeeId1,
+    selectionId: seed.accomSelId1,
+  })
+  expect(state.assignment).toMatchObject({
+    orderId: seed.targetOrderId,
+    attendeeId: seed.attendeeId1,
+  })
+  expect(state.payment?.orderId).toBe(String(seed.targetOrderId))
+  expect(state.aliases).toHaveLength(1)
 })
 
 // ── Booking-ref collision checks ──────────────────────────────────────

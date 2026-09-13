@@ -1763,12 +1763,6 @@ export const mergeOrders = mutation({
     type SourceDoc = Doc<"orders">
     type SourceExt = Doc<"ticketTailorOrders"> | null
 
-    const targetAttendees: Doc<"orderAttendees">[] = []
-    for await (const attendee of ctx.db
-      .query("orderAttendees")
-      .withIndex("by_orderId", (q) => q.eq("orderId", args.targetOrderId))) {
-      targetAttendees.push(attendee)
-    }
     const targetIdempotencyRows: Doc<"orderIdempotency">[] = []
     for await (const row of ctx.db
       .query("orderIdempotency")
@@ -2101,29 +2095,6 @@ export const mergeOrders = mutation({
         idempotencyRows,
         editAudits,
       })
-    }
-
-    // Public accommodation edits key drafts by attendeeKey. Reject any
-    // collision before writes so a merge can never make two attendees share a
-    // mutable preference identity.
-    const attendeeKeys = new Set<string>()
-    for (const attendee of targetAttendees) {
-      if (attendeeKeys.has(attendee.attendeeKey)) {
-        throw new Error(
-          `Target order has duplicate attendee key ${attendee.attendeeKey}`
-        )
-      }
-      attendeeKeys.add(attendee.attendeeKey)
-    }
-    for (const source of sources) {
-      for (const attendee of source.attendees) {
-        if (attendeeKeys.has(attendee.attendeeKey)) {
-          throw new Error(
-            `Attendee key ${attendee.attendeeKey} would collide during merge`
-          )
-        }
-        attendeeKeys.add(attendee.attendeeKey)
-      }
     }
 
     const targetIdempotencyKeys = new Set(
