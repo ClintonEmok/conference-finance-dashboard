@@ -364,6 +364,22 @@ export declare const api: {
     >;
   };
   attendees: {
+    addAttendeeToOrder: FunctionReference<
+      "mutation",
+      "public",
+      {
+        email?: string;
+        eventId: Id<"events">;
+        name: string;
+        orderId: Id<"orders">;
+        ticketTypeId: Id<"ticketTypes">;
+      },
+      {
+        amountDueMinor: number | null;
+        attendeeId: Id<"orderAttendees">;
+        orderId: Id<"orders">;
+      }
+    >;
     assignRoom: FunctionReference<
       "mutation",
       "public",

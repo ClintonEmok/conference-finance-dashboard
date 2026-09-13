@@ -14,6 +14,7 @@ import {
 } from "./signupCatalog"
 import {
   deleteSearchProjection,
+  maintainOrderSearchProjection,
   paginateSearchDocuments,
   upsertAttendeeSearchDocument,
 } from "./search"
@@ -813,6 +814,103 @@ export const updateAttendee = mutation({
       resolved.ticketTailorAttendee?._id ??
       args.attendeeId
     )
+  },
+})
+
+export const addAttendeeToOrder = mutation({
+  args: {
+    orderId: v.id("orders"),
+    eventId: v.id("events"),
+    name: v.string(),
+    email: v.optional(v.string()),
+    ticketTypeId: v.id("ticketTypes"),
+  },
+  returns: v.object({
+    attendeeId: v.id("orderAttendees"),
+    orderId: v.id("orders"),
+    amountDueMinor: v.union(v.number(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const name = args.name.trim()
+    if (!name) {
+      throw new Error("Attendee name is required.")
+    }
+
+    const event = await ctx.db.get("events", args.eventId)
+    if (!event) {
+      throw new Error("Event not found.")
+    }
+
+    const order = await ctx.db.get("orders", args.orderId)
+    if (!order) {
+      throw new Error("Order not found.")
+    }
+    if (order.eventId !== args.eventId) {
+      throw new Error("Order does not belong to the supplied event.")
+    }
+    if (order.mergedIntoOrderId) {
+      throw new Error("Cannot add an attendee to a merged order.")
+    }
+
+    const orderExtension = await ctx.db
+      .query("ticketTailorOrders")
+      .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
+      .first()
+    if (orderExtension && typeof orderExtension.removedAt === "number") {
+      throw new Error("Cannot add an attendee to a removed order.")
+    }
+
+    const ticketType = await ctx.db.get("ticketTypes", args.ticketTypeId)
+    if (!ticketType) {
+      throw new Error("Ticket type not found.")
+    }
+    if (ticketType.eventId !== args.eventId) {
+      throw new Error("Ticket type does not belong to the supplied event.")
+    }
+
+    let nextSortOrder = 0
+    for await (const attendee of ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.orderId))) {
+      nextSortOrder = Math.max(nextSortOrder, attendee.sortOrder + 1)
+    }
+
+    const now = Date.now()
+    const attendeeKey = `manual-${now}-${Math.random().toString(36).slice(2, 10)}`
+    const email = args.email?.trim() || undefined
+    const attendeeId = await ctx.db.insert("orderAttendees", {
+      orderId: args.orderId,
+      attendeeKey,
+      name,
+      ...(email ? { email } : {}),
+      gender: "unknown",
+      sortOrder: nextSortOrder,
+    })
+
+    await ctx.db.insert("orderTicketSelections", {
+      orderId: args.orderId,
+      attendeeId,
+      ticketTypeId: args.ticketTypeId,
+      quantity: 1,
+      sortOrder: nextSortOrder,
+    })
+
+    await ctx.db.patch("ticketTypes", args.ticketTypeId, {
+      soldCount: (ticketType.soldCount ?? 0) + 1,
+      updatedAt: now,
+    })
+
+    await maintainOrderSearchProjection(ctx, args.orderId)
+
+    const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [order])
+
+    return {
+      attendeeId,
+      orderId: args.orderId,
+      amountDueMinor: breakdowns.get(String(args.orderId))?.amountDueMinor ?? null,
+    }
   },
 })
 

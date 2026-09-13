@@ -1,6 +1,7 @@
 "use client"
 
 import { useParams, usePathname, useSearchParams } from "next/navigation"
+import { useConvexAuth } from "convex/react"
 import {
   Calendar,
   ChevronRight,
@@ -156,8 +157,13 @@ function SidebarContentInner({
   event: NonNullable<ReturnType<typeof useEventBySlug>>
 }) {
   const { state: sidebarState, isMobile, setOpenMobile } = useSidebar()
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth()
   const searchParams = useSearchParams()
-  const allocationSummary = useEventAllocationSummaryForOverview(event.accommodationEnabled ? event._id : undefined)
+  const allocationSummary = useEventAllocationSummaryForOverview(
+    isAuthenticated && !authLoading && event.accommodationEnabled
+      ? event._id
+      : undefined
+  )
   const allocationCount = getAllocationNavigationCount(allocationSummary)
   const allocationStatus = allocationSummary?.status === "success" ? allocationCount !== undefined ? "ready" : "unavailable" : allocationSummary?.status === "error" ? "error" : "pending"
   const allocationActive = isAllocationNavigationActive(pathname, searchParams)

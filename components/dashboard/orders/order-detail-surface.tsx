@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { useAction, useQuery } from "convex/react"
+import { useAction, useConvexAuth, useQuery } from "convex/react"
 
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 import { api } from "@/lib/convex/api"
@@ -98,13 +98,15 @@ function parseMinorUnitInput(value: string, field: string) {
 
 export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PageProps) {
   const orderId = rawOrderId.trim()
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth()
+  const canQueryProtectedData = isAuthenticated && !authLoading
   const payload = useQuery(
     api.orders.getOrderWithAttendees,
     orderId ? { orderId: orderId as Id<"orders"> } : "skip"
   )
   const paymentDocs = useQuery(
     api.payments.getPayments,
-    orderId ? { orderId } : "skip"
+    orderId && canQueryProtectedData ? { orderId } : "skip"
   )
   const unassignPayment = useUnassignPayment()
   const resendOrderConfirmation = useAction(
@@ -295,7 +297,7 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
         throw new Error(body?.error?.message ?? "Failed to save order details.")
       }
 
-      window.location.reload()
+      setIsEditingOrder(false)
     } catch (error) {
       setOrderSaveError(
         error instanceof Error ? error.message : "Failed to save order details."
@@ -462,7 +464,7 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
           eventId={String(event?._id ?? "")}
           orderId={orderId}
           bookingRef={orderPayload.order.bookingRef}
-          onSaved={() => window.location.reload()}
+          onSaved={() => undefined}
         />
 
         <PaymentsPanel

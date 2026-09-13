@@ -59,7 +59,7 @@ describe("OrderDetailSurface panel decomposition", () => {
     expect(surface).toContain("resendOrderConfirmation")
     expect(surface).toContain("unassignPayment")
     expect(surface).toContain("<AssignPaymentSheet")
-    expect(surface).toContain("window.location.reload")
+    expect(surface).toContain("setIsEditingOrder(false)")
   })
 
   it("retains the required action labels in the extracted panels", () => {
@@ -137,11 +137,12 @@ describe("order attendee navigation graph", () => {
     expect(page).toContain("/dashboard/events/${slug}/orders/${attendee.orderId}")
   })
 
-  it("makes the order surface refresh from the editor instead of client arithmetic", () => {
+  it("lets the reactive order query refresh after attendee edits instead of hard reloading", () => {
     const surface = readSource(
       "components/dashboard/orders/order-detail-surface.tsx"
     )
-    expect(surface).toContain("onSaved={() => window.location.reload()}")
+    expect(surface).toContain("onSaved={() => undefined}")
+    expect(surface).not.toContain("window.location.reload")
   })
 })
 

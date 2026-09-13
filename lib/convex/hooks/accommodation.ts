@@ -1,6 +1,6 @@
 "use client"
 
-import { useQuery, useMutation } from "convex/react"
+import { useConvexAuth, useQuery, useMutation } from "convex/react"
 import { api } from "@/lib/convex/api"
 import type { Id } from "@/convex/_generated/dataModel"
 
@@ -164,9 +164,11 @@ function overviewQueryResult<T>(value: T | undefined | Error): OverviewAccommoda
 
 /** Overview-only wrappers retain Convex query errors instead of collapsing them into undefined. */
 export function useEventAllocationSummaryForOverview(eventId: string | undefined) {
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth()
+  const canQuery = Boolean(eventId && isAuthenticated && !authLoading)
   const result = useQuery(
     api.accommodation.getRoomAllocationBoard,
-    eventId ? { eventId } : "skip"
+    canQuery ? { eventId: eventId! } : "skip"
   )
   const queryResult = overviewQueryResult(result)
   if (queryResult.status !== "success") return queryResult
@@ -190,9 +192,11 @@ export function useAccommodationSummaryForEvent(
 }
 
 export function useAccommodationSummaryForEventForOverview(eventId: Id<"events"> | undefined) {
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth()
+  const canQuery = Boolean(eventId && isAuthenticated && !authLoading)
   const result = useQuery(
     api.accommodation.getAccommodationSummaryForEvent,
-    eventId ? { eventId } : "skip"
+    canQuery ? { eventId: eventId! } : "skip"
   )
   return overviewQueryResult(result)
 }

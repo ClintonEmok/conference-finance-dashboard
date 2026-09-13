@@ -60,6 +60,7 @@ export type AttendeeOrderEditorOptionSelection = {
 }
 
 export type EditorGeneralDraft = {
+  name: string
   genderType: "" | AttendeeOrderEditorGender
   ticketTypeId: string
   location: string
@@ -116,6 +117,7 @@ export type EditorEditContext = {
 }
 
 type AttendeeGeneralChanges = {
+  name?: string
   genderType?: AttendeeOrderEditorGender | null
   ticketTypeId?: string
   location?: string | null
@@ -170,6 +172,7 @@ function generalDraftFromAttendee(
   attendee: AttendeeOrderEditorAttendee
 ): EditorGeneralDraft {
   return {
+    name: attendee.name,
     genderType: attendee.genderType ?? "",
     ticketTypeId: attendee.ticketTypeId ?? "",
     location: attendee.location ?? "",
@@ -225,16 +228,19 @@ export function matchEditorSelection(
 }
 
 /**
- * Build the general attendee PATCH body. Only `genderType`, `ticketTypeId`,
- * and `location` are ever included; money, category, room, and snapshot
+ * Build the general attendee PATCH body. Money, category, room, and snapshot
  * fields have no representation here and are rejected by the route.
  */
 export function buildAttendeeGeneralPatchBody(input: {
+  name?: string
   genderType?: "" | AttendeeOrderEditorGender | null
   ticketTypeId?: string
   location?: string | null
 }): AttendeeGeneralChanges {
   const body: AttendeeGeneralChanges = {}
+  if (input.name !== undefined) {
+    body.name = input.name.trim()
+  }
   if (input.genderType !== undefined) {
     body.genderType = input.genderType || null
   }
@@ -291,6 +297,7 @@ export function buildAttendeeMoveBody(targetOrderId: string): {
 
 export function collectDirtyGeneralFields(input: {
   initial: {
+    name: string
     genderType: AttendeeOrderEditorGender | null
     ticketTypeId: string | null
     location: string | null
@@ -298,6 +305,9 @@ export function collectDirtyGeneralFields(input: {
   draft: EditorGeneralDraft
 }): AttendeeGeneralChanges | null {
   const changes: AttendeeGeneralChanges = {}
+  if (input.draft.name.trim() !== input.initial.name.trim()) {
+    changes.name = input.draft.name.trim()
+  }
   if (input.draft.genderType !== (input.initial.genderType ?? "")) {
     changes.genderType = input.draft.genderType || null
   }
@@ -468,6 +478,7 @@ export function AttendeeOrderEditor({
     () =>
       JSON.stringify([
         attendee.id,
+        attendee.name,
         attendee.genderType,
         attendee.ticketTypeId,
         attendee.location,
@@ -514,6 +525,7 @@ export function AttendeeOrderEditor({
     () =>
       collectDirtyGeneralFields({
         initial: {
+          name: attendee.name,
           genderType: attendee.genderType,
           ticketTypeId: attendee.ticketTypeId,
           location: attendee.location,
@@ -1146,70 +1158,89 @@ export function AttendeeOrderEditor({
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="attendee-editor-ticket">Ticket type</Label>
-          {isTicketTypesLoading ? (
-            <Skeleton className="h-9 w-full rounded-lg" />
-          ) : (
-            <Select
-              value={generalDraft.ticketTypeId}
-              onValueChange={(value) => {
-                saveGuard.current.ticketConfirmed = false
-                setGeneralDraft((current) => ({
-                  ...current,
-                  ticketTypeId: value,
-                }))
-              }}
-            >
-              <SelectTrigger
-                id="attendee-editor-ticket"
-                className="h-9 rounded-lg bg-background/50 text-xs"
-              >
-                <SelectValue placeholder="Select ticket type" />
-              </SelectTrigger>
-              <SelectContent>
-                {ticketTypes.map((ticketType) => (
-                  <SelectItem
-                    key={ticketType._id}
-                    value={ticketType._id as string}
-                  >
-                    {ticketType.label} ·{" "}
-                    {formatPrice(ticketType.priceMinor, currency)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="attendee-editor-gender">Gender</Label>
-          <Select
-            value={generalDraft.genderType || "__none__"}
-            onValueChange={(value) =>
+          <Label htmlFor="attendee-editor-name">Name</Label>
+          <Input
+            id="attendee-editor-name"
+            value={generalDraft.name}
+            disabled={isSaving}
+            placeholder="Full name"
+            onChange={(event) =>
               setGeneralDraft((current) => ({
                 ...current,
-                genderType: (value === "__none__"
-                  ? ""
-                  : value) as "" | AttendeeOrderEditorGender,
+                name: event.target.value,
               }))
             }
-          >
-            <SelectTrigger
-              id="attendee-editor-gender"
-              className="h-9 rounded-lg bg-background/50 text-xs"
+            className="h-9 rounded-lg bg-background/50 text-xs"
+          />
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="attendee-editor-ticket">Ticket type</Label>
+            {isTicketTypesLoading ? (
+              <Skeleton className="h-9 w-full rounded-lg" />
+            ) : (
+              <Select
+                value={generalDraft.ticketTypeId}
+                onValueChange={(value) => {
+                  saveGuard.current.ticketConfirmed = false
+                  setGeneralDraft((current) => ({
+                    ...current,
+                    ticketTypeId: value,
+                  }))
+                }}
+              >
+                <SelectTrigger
+                  id="attendee-editor-ticket"
+                  className="h-9 rounded-lg bg-background/50 text-xs"
+                >
+                  <SelectValue placeholder="Select ticket type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ticketTypes.map((ticketType) => (
+                    <SelectItem
+                      key={ticketType._id}
+                      value={ticketType._id as string}
+                    >
+                      {ticketType.label} ·{" "}
+                      {formatPrice(ticketType.priceMinor, currency)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="attendee-editor-gender">Gender</Label>
+            <Select
+              value={generalDraft.genderType || "__none__"}
+              onValueChange={(value) =>
+                setGeneralDraft((current) => ({
+                  ...current,
+                  genderType: (value === "__none__"
+                    ? ""
+                    : value) as "" | AttendeeOrderEditorGender,
+                }))
+              }
             >
-              <SelectValue placeholder="Not set" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">Not set</SelectItem>
-              <SelectItem value="MALE">Male</SelectItem>
-              <SelectItem value="FEMALE">Female</SelectItem>
-              <SelectItem value="MIXED">Mixed</SelectItem>
-              <SelectItem value="UNKNOWN">Unknown</SelectItem>
-            </SelectContent>
-          </Select>
+              <SelectTrigger
+                id="attendee-editor-gender"
+                className="h-9 rounded-lg bg-background/50 text-xs"
+              >
+                <SelectValue placeholder="Not set" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Not set</SelectItem>
+                <SelectItem value="MALE">Male</SelectItem>
+                <SelectItem value="FEMALE">Female</SelectItem>
+                <SelectItem value="MIXED">Mixed</SelectItem>
+                <SelectItem value="UNKNOWN">Unknown</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 

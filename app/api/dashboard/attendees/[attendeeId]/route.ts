@@ -123,11 +123,19 @@ export async function PATCH(
     const input = body as Record<string, unknown>
 
     const updateData: {
+      name?: string
       tikkieAmountOverrideMinor?: number
       genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
       ticketTypeId?: string
       location?: string | null
     } = {}
+
+    if ("name" in input) {
+      if (typeof input.name !== "string" || !input.name.trim()) {
+        return badRequest("name is required")
+      }
+      updateData.name = input.name.trim()
+    }
 
     if ("tikkieAmountOverrideMinor" in input) {
       const value = input.tikkieAmountOverrideMinor
@@ -181,17 +189,22 @@ export async function PATCH(
 
     if (Object.keys(updateData).length === 0) {
       return badRequest(
-        "No valid fields to update. Allowed fields: tikkieAmountOverrideMinor, genderType, ticketTypeId, location"
+        "No valid fields to update. Allowed fields: name, tikkieAmountOverrideMinor, genderType, ticketTypeId, location"
       )
     }
 
     const mutationArgs: {
       attendeeId: string
+      name?: string
       tikkieAmountOverrideMinor?: number
       genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
       ticketTypeId?: string
       location?: string | null
     } = { attendeeId: normalizedAttendeeId }
+
+    if (updateData.name !== undefined) {
+      mutationArgs.name = updateData.name
+    }
 
     if (updateData.tikkieAmountOverrideMinor !== undefined) {
       mutationArgs.tikkieAmountOverrideMinor =
@@ -215,6 +228,7 @@ export async function PATCH(
     return NextResponse.json({
       attendee: {
         id: normalizedAttendeeId,
+        ...(updateData.name !== undefined ? { name: updateData.name } : {}),
         tikkieAmountOverrideMinor: updateData.tikkieAmountOverrideMinor ?? null,
         genderType: updateData.genderType ?? null,
         ticketTypeId: updateData.ticketTypeId ?? null,

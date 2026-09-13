@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { use, useEffect, useMemo, useState } from "react"
+import { useConvexAuth } from "convex/react"
 import { ArrowRight, BedDouble, CreditCard, Users, WalletCards } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -92,8 +93,14 @@ function domainState(
 export default function EventOverviewSurface({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params)
   const { event } = useEventDashboard()
-  const accommodationSummary = useAccommodationSummaryForEventForOverview(event?.accommodationEnabled ? event._id : undefined)
-  const allocationSummary = useEventAllocationSummaryForOverview(event?.accommodationEnabled ? event._id : undefined)
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth()
+  const canQueryAccommodation = isAuthenticated && !authLoading
+  const accommodationSummary = useAccommodationSummaryForEventForOverview(
+    canQueryAccommodation && event?.accommodationEnabled ? event._id : undefined
+  )
+  const allocationSummary = useEventAllocationSummaryForOverview(
+    canQueryAccommodation && event?.accommodationEnabled ? event._id : undefined
+  )
   const [revenue, setRevenue] = useState<FetchState<RevenuePayload>>(loading)
   const [orders, setOrders] = useState<FetchState<OrdersPayload>>(loading)
   const [attendees, setAttendees] = useState<FetchState<AttendeesPayload>>(loading)

@@ -33,6 +33,7 @@ type SeedContext = {
   otherEventId: Id<"events">
   categoryStandardId: Id<"accommodationCategories">
   cotOptionId: Id<"accommodationOptions">
+  ticketTypeId: Id<"ticketTypes">
   sourceOrderId: Id<"orders">
   targetOrderId: Id<"orders">
   attendeeId: Id<"orderAttendees">
@@ -343,6 +344,7 @@ async function seedOrdersForAttendeeMutations(
     otherEventId: otherEventId as Id<"events">,
     categoryStandardId: categoryStandardId as Id<"accommodationCategories">,
     cotOptionId: cotOptionId as Id<"accommodationOptions">,
+    ticketTypeId: ticketTypeId as Id<"ticketTypes">,
     sourceOrderId: sourceOrderId as Id<"orders">,
     targetOrderId: targetOrderId as Id<"orders">,
     attendeeId: attendeeId as Id<"orderAttendees">,
@@ -404,6 +406,64 @@ test("setAttendeeAccommodation and moveAttendeeToOrder reject anonymous callers"
       targetOrderId: seed.targetOrderId,
     })
   ).rejects.toThrow("Unauthorized")
+})
+
+test("addAttendeeToOrder creates canonical rows and updates ticket inventory", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedOrdersForAttendeeMutations(t)
+
+  const result = await t.mutation(api.attendees.addAttendeeToOrder, {
+    orderId: seed.targetOrderId,
+    eventId: seed.eventId,
+    name: "  Added Buyer  ",
+    email: " added@example.com ",
+    ticketTypeId: seed.ticketTypeId,
+  })
+
+  expect(result.orderId).toBe(seed.targetOrderId)
+  expect(result.amountDueMinor).toBe(2000)
+
+  const persisted = await t.query(async (ctx) => {
+    const attendee = await ctx.db.get("orderAttendees", result.attendeeId)
+    const selection = await ctx.db
+      .query("orderTicketSelections")
+      .withIndex("by_attendeeId", (q) => q.eq("attendeeId", result.attendeeId))
+      .unique()
+    const ticketType = await ctx.db.get("ticketTypes", seed.ticketTypeId)
+    return { attendee, selection, soldCount: ticketType?.soldCount }
+  })
+
+  expect(persisted.attendee).toMatchObject({
+    orderId: seed.targetOrderId,
+    name: "Added Buyer",
+    email: "added@example.com",
+    gender: "unknown",
+  })
+  expect(persisted.selection).toMatchObject({
+    orderId: seed.targetOrderId,
+    attendeeId: result.attendeeId,
+    ticketTypeId: seed.ticketTypeId,
+    quantity: 1,
+  })
+  expect(persisted.soldCount).toBe(1)
+})
+
+test("updateAttendee synchronizes a renamed canonical attendee and extension", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedOrdersForAttendeeMutations(t)
+
+  await t.mutation(api.attendees.updateAttendee, {
+    attendeeId: String(seed.attendeeId),
+    name: "Renamed Buyer",
+  })
+
+  const persisted = await t.query(async (ctx) => ({
+    canonical: await ctx.db.get("orderAttendees", seed.attendeeId),
+    extension: await ctx.db.get("ticketTailorAttendees", seed.extensionId),
+  }))
+
+  expect(persisted.canonical?.name).toBe("Renamed Buyer")
+  expect(persisted.extension?.name).toBe("Renamed Buyer")
 })
 
 // ---------------------------------------------------------------------------

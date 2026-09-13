@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
-import { useQuery } from "convex/react"
+import { useConvexAuth, useQuery } from "convex/react"
 import {
   Archive,
   ChevronLeft,
@@ -160,9 +160,12 @@ function OrderAttendeeRows({ orderId }: { orderId: string }) {
 
 export function OrdersSurface({ slug, event }: PageProps) {
   const router = useRouter()
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth()
   const eventLocations = useQuery(
     api.reports.getEventLocations,
-    event?._id ? { eventId: event._id } : ("skip" as const)
+    event?._id && isAuthenticated && !authLoading
+      ? { eventId: event._id }
+      : ("skip" as const)
   ) as string[] | undefined
 
   const [searchInput, setSearchInput] = useState("")
