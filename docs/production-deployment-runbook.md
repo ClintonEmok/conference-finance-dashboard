@@ -159,6 +159,34 @@ missing, stale, duplicate, or orphaned coverage; `blockedJobs` or
 or deployment identity. Rehearse the failed step in preview and investigate
 before resuming from the last known-good returned cursor.
 
+### Production attendee-key rekey (operator-only)
+
+> ⛔ **OPERATOR AUTHORIZATION REQUIRED.** This repair is separate from the
+> search-projection and legacy-accommodation backfills. It repairs existing
+> duplicate or blank `orderAttendees.attendeeKey` values one order at a time;
+> it does not alter attendee IDs or any child foreign keys.
+
+Run the guarded migration with `batchSize: 1`, repeating the command with the
+returned opaque `nextCursor` until `isDone: true`:
+
+```bash
+npx convex run rekeyDuplicateAttendeeKeys \
+  --args '{"cursor":null,"batchSize":1,"authorize":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}'
+```
+
+The response reports `rekeyed` rows and the affected attendee IDs. Stop on an
+`ORDER_TOO_LARGE` or any unexpected error; do not invent a cursor. Then run the
+read-only verification from `cursor: null`, again continuing until complete:
+
+```bash
+npx convex run rekeyDuplicateAttendeeKeys:verifyAttendeeKeys \
+  --args '{"cursor":null,"batchSize":1,"authorize":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}'
+```
+
+Proceed only when `duplicateOrders`, `duplicateAttendees`, and
+`blankAttendees` are zero on the complete pass. Re-running the migration is
+idempotent and should report `rekeyed: 0`.
+
 ## 3. Production Cutover (PRODUCTION — REQUIRES OPERATOR AUTHORIZATION)
 
 > ⛔ **OPERATOR AUTHORIZATION REQUIRED** before executing any of the following.

@@ -25,6 +25,7 @@ import {
   paginateSearchDocuments,
   upsertOrderSearchDocument,
 } from "./search"
+import { planUniqueAttendeeKeys } from "../lib/domain/attendee-key"
 
 function isOrderRemoved(ttOrder: any) {
   return typeof ttOrder?.removedAt === "number"
@@ -2221,29 +2222,16 @@ export const mergeOrders = mutation({
     // canonical ownership key. Preserve non-conflicting keys, but re-key any
     // duplicates after combining orders so public accommodation edits cannot
     // resolve one key to multiple attendees.
-    const attendeeKeyUpdates = new Map<string, string>()
-    const usedAttendeeKeys = new Set<string>()
     const mergedAttendees = [
       ...targetAttendees,
       ...sources.flatMap((source) => source.attendees),
     ]
-    for (const attendee of mergedAttendees) {
-      const preferredKey = attendee.attendeeKey.trim()
-      let nextKey = preferredKey
-      if (!nextKey || usedAttendeeKeys.has(nextKey)) {
-        const baseKey = `attendee-${String(attendee._id)}`
-        nextKey = baseKey
-        let suffix = 1
-        while (usedAttendeeKeys.has(nextKey)) {
-          nextKey = `${baseKey}-${suffix}`
-          suffix += 1
-        }
-      }
-      usedAttendeeKeys.add(nextKey)
-      if (nextKey !== attendee.attendeeKey) {
-        attendeeKeyUpdates.set(String(attendee._id), nextKey)
-      }
-    }
+    const attendeeKeyUpdates = planUniqueAttendeeKeys(
+      mergedAttendees.map((attendee) => ({
+        id: String(attendee._id),
+        attendeeKey: attendee.attendeeKey,
+      }))
+    )
 
     // ── Execute writes ─────────────────────────────────────────────────
     let movedAttendees = 0

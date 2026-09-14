@@ -2617,6 +2617,51 @@ export declare const internal: {
       any
     >;
   };
+  rekeyDuplicateAttendeeKeys: {
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        allowedDeploymentUrl?: string;
+        authorize: boolean;
+        batchSize: number;
+        cursor: string | null;
+      },
+      {
+        changedOrders: number;
+        changes: Array<{
+          attendeeId: string;
+          newKey: string;
+          oldKey: string;
+          orderId: string;
+        }>;
+        changesTruncated: boolean;
+        isDone: boolean;
+        nextCursor: string | null;
+        processed: number;
+        rekeyed: number;
+      }
+    >;
+    verifyAttendeeKeys: FunctionReference<
+      "query",
+      "internal",
+      {
+        allowedDeploymentUrl: string;
+        authorize: boolean;
+        batchSize: number;
+        cursor: string | null;
+      },
+      {
+        blankAttendees: number;
+        diagnostics: Array<{ orderId: string; reason: string }>;
+        duplicateAttendees: number;
+        duplicateOrders: number;
+        isDone: boolean;
+        nextCursor: string | null;
+        processed: number;
+      }
+    >;
+  };
   search: {
     continueSearchProjectionFanout: FunctionReference<
       "mutation",
