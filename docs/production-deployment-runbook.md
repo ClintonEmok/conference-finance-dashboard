@@ -171,7 +171,8 @@ returned opaque `nextCursor` until `isDone: true`:
 
 ```bash
 npx convex run rekeyDuplicateAttendeeKeys \
-  --args '{"cursor":null,"batchSize":1,"authorize":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}'
+  '{"cursor":null,"batchSize":1,"authorize":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}' \
+  --prod
 ```
 
 The response reports `rekeyed` rows and the affected attendee IDs. Stop on an
@@ -180,7 +181,8 @@ read-only verification from `cursor: null`, again continuing until complete:
 
 ```bash
 npx convex run rekeyDuplicateAttendeeKeys:verifyAttendeeKeys \
-  --args '{"cursor":null,"batchSize":1,"authorize":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}'
+  '{"cursor":null,"batchSize":1,"authorize":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}' \
+  --prod
 ```
 
 Proceed only when `duplicateOrders`, `duplicateAttendees`, and
