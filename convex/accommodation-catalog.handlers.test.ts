@@ -468,13 +468,106 @@ test("resource upserts are idempotent per (kind, roomTypeId)", async () => {
   expect(resources[0].roomTypeLabel).toBe("Twin")
 })
 
-test("zero room inventory exhausts the resource guard while missing inventory stays legacy-unbounded", async () => {
+test("zero room inventory exhausts the resource guard and a positive count restores placement", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const eventId = await createEvent(t)
   const roomTypeId = await t.mutation(api.accommodation.createRoomType, {
     label: "Zero Inventory Twin",
     defaultCapacity: 2,
   })
+
+  // A real room in a hotel linked to the event so the guard's event scope is
+  // satisfied (an unlinked hotel is rejected earlier by the event-scope gate).
+  const hotelId = await t.mutation(async (ctx) =>
+    ctx.db.insert("accommodationHotels", {
+      name: "Guard Hotel",
+      city: "Amsterdam",
+    })
+  )
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("accommodationEventHotels", {
+      eventId: String(eventId),
+      hotelId: String(hotelId),
+    })
+  })
+  const roomId = await t.mutation(async (ctx) =>
+    ctx.db.insert("accommodationRooms", {
+      hotelId: String(hotelId),
+      roomTypeId: String(roomTypeId),
+      label: "GUARD-101",
+      capacity: 2,
+    })
+  )
+
+  // A minimal pricable config: placement confirmation prices the selection, so
+  // the category/occupancy rate and event config are required.
+  const categoryId = await t.mutation(
+    api.accommodation.createAccommodationCategory,
+    { code: "standard", label: "Standard", sortOrder: 1 }
+  )
+  await t.mutation(api.accommodation.upsertEventAccommodationConfig, {
+    eventId,
+  })
+  await t.mutation(api.accommodation.upsertEventAccommodationRate, {
+    eventId,
+    categoryId,
+    occupancy: "shared",
+    pricePerPersonMinor: 3000,
+  })
+  const ticketTypeId = await t.mutation(async (ctx) =>
+    ctx.db.insert("ticketTypes", {
+      eventId,
+      label: "Standard Ticket",
+      priceMinor: 2000,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      accommodationIncluded: true,
+      updatedAt: 1_750_000_000_000,
+    })
+  )
+
+  // An accommodation selection row makes the attendee placement-eligible.
+  const createEligibleAttendee = async (key: string) => {
+    const orderId = await t.mutation(async (ctx) =>
+      ctx.db.insert("orders", {
+        eventId,
+        source: "internal" as const,
+        bookingRef: `BK-${key}`,
+        bookerName: "Booker",
+        bookerEmail: "booker@example.com",
+        submittedAt: 1_750_000_000_000,
+      })
+    )
+    const attendeeId = await t.mutation(async (ctx) =>
+      ctx.db.insert("orderAttendees", {
+        orderId,
+        attendeeKey: key,
+        name: key,
+        gender: "unknown" as const,
+        sortOrder: 0,
+      })
+    )
+    await t.mutation(async (ctx) => {
+      await ctx.db.insert("orderTicketSelections", {
+        orderId,
+        attendeeId,
+        ticketTypeId,
+        quantity: 1,
+        sortOrder: 0,
+      })
+    })
+    await t.mutation(async (ctx) => {
+      await ctx.db.insert("orderAccommodationSelections", {
+        orderId,
+        attendeeId,
+        categoryId,
+        occupancy: "shared",
+        nightCount: 2,
+      })
+    })
+    return attendeeId
+  }
 
   await t.mutation(api.accommodation.upsertEventAccommodationResource, {
     eventId,
@@ -487,6 +580,31 @@ test("zero room inventory exhausts the resource guard while missing inventory st
     eventId,
   })
   expect(resource.resources[0]?.count).toBe(0)
+
+  // The exhausted resource actually rejects placement.
+  const blockedAttendeeId = await createEligibleAttendee("guard-blocked")
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(blockedAttendeeId),
+      roomId: String(roomId),
+      eventId: String(eventId),
+    })
+  ).rejects.toThrow("No accommodation inventory remains")
+
+  // A positive count opens the room for placement.
+  await t.mutation(api.accommodation.upsertEventAccommodationResource, {
+    eventId,
+    kind: "room",
+    roomTypeId,
+    count: 1,
+  })
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(blockedAttendeeId),
+      roomId: String(roomId),
+      eventId: String(eventId),
+    })
+  ).resolves.toMatchObject({ ok: true })
 })
 
 test("cot resources derive one sellable bed per item", async () => {
