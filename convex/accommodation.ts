@@ -126,7 +126,8 @@ async function assertEventRoomInventoryAvailable(
   ctx: MutationCtx,
   order: Doc<"orders"> | null,
   room: Doc<"accommodationRooms">,
-  targetRoomHasOccupants: boolean
+  targetRoomHasOccupants: boolean,
+  sourceAttendeeIds: string[] = []
 ): Promise<void> {
   if (!order?.eventId || !room.roomTypeId) {
     return
@@ -140,20 +141,40 @@ async function assertEventRoomInventoryAvailable(
         .eq("roomTypeId", room.roomTypeId as Id<"accommodationRoomTypes">)
     )
     .first()
-  if (!resource || resource.count <= 0) {
+  if (!resource) {
     return
   }
+  if (resource.count < 0) {
+    throw new Error("Invalid accommodation inventory configuration")
+  }
+  if (resource.count === 0) {
+    throw new Error("No accommodation inventory remains for this room type")
+  }
+
+  const sourceIds = new Set(sourceAttendeeIds)
 
   const roomsOfType = await ctx.db
     .query("accommodationRooms")
     .withIndex("roomTypeId", (q) =>
       q.eq("roomTypeId", room.roomTypeId as Id<"accommodationRoomTypes">)
     )
-    .take(500)
+    .take(501)
+
+  if (roomsOfType.length > 500) {
+    throw new Error(
+      "Accommodation inventory is incomplete; verify room usage before changing placement"
+    )
+  }
 
   let usedRooms = 0
   for (const candidate of roomsOfType) {
-    if (await hasPhysicalRoomOccupants(ctx, String(candidate._id))) {
+    if (
+      await hasPhysicalRoomOccupants(
+        ctx,
+        String(candidate._id),
+        sourceIds
+      )
+    ) {
       usedRooms += 1
     }
   }
@@ -174,20 +195,31 @@ async function assertEventRoomInventoryAvailable(
  */
 async function hasPhysicalRoomOccupants(
   ctx: Pick<MutationCtx, "db">,
-  roomId: string
+  roomId: string,
+  excludedCanonicalIds: Set<string> = new Set()
 ): Promise<boolean> {
   const canonicalOccupants = await ctx.db
     .query("orderAttendees")
     .withIndex("by_assignedRoomId", (q) => q.eq("assignedRoomId", roomId))
-    .take(1)
-  if (canonicalOccupants.length > 0) {
+    .take(ROOM_OCCUPANT_LIMIT + 1)
+  if (canonicalOccupants.length > ROOM_OCCUPANT_LIMIT) {
+    throw new Error(
+      "Occupancy data is incomplete; verify room usage before changing placement"
+    )
+  }
+  if (canonicalOccupants.some((attendee) => !excludedCanonicalIds.has(String(attendee._id)))) {
     return true
   }
 
   const providerOccupants = await ctx.db
     .query("ticketTailorAttendees")
     .withIndex("by_assignedRoomId", (q) => q.eq("assignedRoomId", roomId))
-    .take(ROOM_OCCUPANT_LIMIT)
+    .take(ROOM_OCCUPANT_LIMIT + 1)
+  if (providerOccupants.length > ROOM_OCCUPANT_LIMIT) {
+    throw new Error(
+      "Occupancy data is incomplete; verify room usage before changing placement"
+    )
+  }
   if (providerOccupants.length === 0) {
     return false
   }
@@ -201,7 +233,13 @@ async function hasPhysicalRoomOccupants(
   )
   return providerOccupants.some((providerAttendee, index) => {
     // Missing/invalid bridges are provider-only physical occupants.
-    return !providerAttendee.attendeeId || bridges[index] === null
+    if (!providerAttendee.attendeeId || bridges[index] === null) return true
+    const bridge = bridges[index]
+    return (
+      bridge !== null &&
+      !excludedCanonicalIds.has(String(bridge._id)) &&
+      bridge.assignedRoomId === roomId
+    )
   })
 }
 
@@ -1303,24 +1341,12 @@ export const getRoomAllocationBoard = query({
 
           const order = await ctx.db.get("orders", provider.orderId)
           if (!order || String(order.eventId) !== eventId) continue
-          const orderMembers = await ctx.db
-            .query("orderAttendees")
-            .withIndex("by_orderId", (q) => q.eq("orderId", provider.orderId))
-            .take(2)
-          if (orderMembers.length === 1) {
-            providerCoveredCanonicalIds.add(String(orderMembers[0]!._id))
-            projections.push({
-              provider,
-              order,
-              canonicalAttendee: orderMembers[0]!,
-              safelyBridgedCanonicalId: String(orderMembers[0]!._id),
-            })
-          } else {
-            // A provider row with no safe order/attendee bridge remains an
-            // aggregate physical occupant, not an invented selected-event
-            // identity. Keep the room review-needed and redact the row.
-            providerProjectionIncompleteRooms.add(String(room._id))
-          }
+          // Without an explicit attendee bridge there is no safe identity
+          // projection. In particular, do not infer a canonical attendee from
+          // a single-member order: that would hide an unassigned family parent
+          // and make the provider assignment impossible to remove from the
+          // board. The physical occupancy loader still counts this row.
+          providerProjectionIncompleteRooms.add(String(room._id))
         }
         providerRoomProjectionByRoom.set(String(room._id), projections)
       })
@@ -2636,11 +2662,18 @@ async function validateFamilyRoomOutcome(
     throw new Error("Room is already full")
   }
   const parentOrder = await ctx.db.get("orders", unit.parent.orderId)
+  const affectedIds = affectedAttendees.map((member) => String(member._id))
+  const targetHasRemainingOccupants = await hasPhysicalRoomOccupants(
+    ctx,
+    String(room._id),
+    new Set(affectedIds)
+  )
   await assertEventRoomInventoryAvailable(
     ctx,
     parentOrder,
     room,
-    occupancy.occupantCount > 0
+    targetHasRemainingOccupants,
+    affectedIds
   )
 
   return {
@@ -3553,6 +3586,9 @@ export const confirmBuyerAssignment = mutation({
     const room = await ctx.db.get("accommodationRooms", slot.roomId)
     if (!room) {
       throw new Error("Room not found")
+    }
+    if (slot.hotelId !== room.hotelId) {
+      throw new Error("Slot does not belong to its room's hotel")
     }
 
     let outcome: ValidatedFamilyRoomOutcome

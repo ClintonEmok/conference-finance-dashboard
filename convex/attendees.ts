@@ -758,6 +758,13 @@ export const updateAttendee = mutation({
       if (!nextTicketType) {
         throw new Error("Ticket type not found.")
       }
+      const attendeeOrder = await ctx.db.get(
+        "orders",
+        resolved.canonicalAttendee.orderId
+      )
+      if (!attendeeOrder || nextTicketType.eventId !== attendeeOrder.eventId) {
+        throw new Error("Ticket type does not belong to the attendee's event.")
+      }
 
       if (currentTicketTypeId !== nextTicketTypeId) {
         const currentTicketType = await ctx.db.get(selection.ticketTypeId)

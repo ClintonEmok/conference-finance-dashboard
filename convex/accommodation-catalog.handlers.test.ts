@@ -468,6 +468,27 @@ test("resource upserts are idempotent per (kind, roomTypeId)", async () => {
   expect(resources[0].roomTypeLabel).toBe("Twin")
 })
 
+test("zero room inventory exhausts the resource guard while missing inventory stays legacy-unbounded", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await createEvent(t)
+  const roomTypeId = await t.mutation(api.accommodation.createRoomType, {
+    label: "Zero Inventory Twin",
+    defaultCapacity: 2,
+  })
+
+  await t.mutation(api.accommodation.upsertEventAccommodationResource, {
+    eventId,
+    kind: "room",
+    roomTypeId,
+    count: 0,
+  })
+
+  const resource = await t.query(api.accommodation.getEventAccommodationConfig, {
+    eventId,
+  })
+  expect(resource.resources[0]?.count).toBe(0)
+})
+
 test("cot resources derive one sellable bed per item", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const eventId = await createEvent(t)

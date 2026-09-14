@@ -508,6 +508,9 @@ export const createManualAttendee = mutation({
     if (!ticketType) {
       throw new Error("Ticket type not found")
     }
+    if (ticketType.eventId !== args.eventId) {
+      throw new Error("Ticket type does not belong to the supplied event")
+    }
 
     // Create the order
     const orderId = await ctx.db.insert("orders", {
