@@ -111,7 +111,13 @@ export async function GET(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid request"
 
-    if (message.startsWith("Invalid") || message.includes("Expected one of") || message.includes("must be") || message.includes("continuation cursor") || message.includes("Cursor pagination")) {
+    if (
+      message.startsWith("Invalid") ||
+      message.includes("Expected one of") ||
+      message.includes("must be") ||
+      message.includes("Search input") ||
+      message.toLowerCase().includes("cursor")
+    ) {
       return NextResponse.json(
         {
           error: {

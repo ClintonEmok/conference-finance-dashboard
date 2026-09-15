@@ -8,12 +8,12 @@ import { v } from "convex/values"
 import type { Doc, Id } from "./_generated/dataModel"
 
 export const MAX_CANONICAL_ROWS_PER_INVOCATION = 1
-export const MAX_PROJECTION_POSTINGS_PER_SUBJECT = 64
 export const MAX_RELATED_DOCUMENTS_READ_PER_INVOCATION = 200
-export const MAX_DOCUMENTS_WRITTEN_PER_INVOCATION = 256
 export const MAX_FANOUT_SUBJECTS_PER_INVOCATION = 1
 export const MAX_SEARCH_TEXT_LENGTH = 512
-export const MAX_SEARCH_TERMS = 32
+// Convex native full-text search accepts at most 16 terms in a single search
+// expression, so the caller-facing cap matches that hard limit.
+export const MAX_SEARCH_TERMS = 16
 
 type SearchKind = "order" | "attendee"
 type DbCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">
@@ -46,39 +46,9 @@ export function searchTerms(value: string): string[] {
   return unique
 }
 
-function projectionKey(kind: SearchKind, subjectId: string) {
-  return `${kind}:${subjectId}`
-}
-
-function termsForText(text: string): string[] {
-  return searchTerms(text)
-}
-
 async function eventIsInternal(ctx: DbCtx, eventId: Id<"events">) {
   const event = await ctx.db.get("events", eventId)
   return event?.primarySourceKind === "internal"
-}
-
-async function oldPostings(ctx: DbCtx, documentKey: string) {
-  const rows = await ctx.db
-    .query("searchDocumentTerms")
-    .withIndex("by_documentKey", (q) => q.eq("documentKey", documentKey))
-    .take(MAX_PROJECTION_POSTINGS_PER_SUBJECT + 1)
-  if (rows.length > MAX_PROJECTION_POSTINGS_PER_SUBJECT) {
-    throw new SearchProjectionBlocked(
-      `${documentKey} has more than ${MAX_PROJECTION_POSTINGS_PER_SUBJECT} existing postings`
-    )
-  }
-  return rows
-}
-
-function ensureWriteBudget(oldCount: number, newCount: number) {
-  const writes = 1 + oldCount + newCount
-  if (writes > MAX_DOCUMENTS_WRITTEN_PER_INVOCATION) {
-    throw new SearchProjectionBlocked(
-      `replacement requires ${writes} writes (budget ${MAX_DOCUMENTS_WRITTEN_PER_INVOCATION})`
-    )
-  }
 }
 
 type BuiltProjection = {
@@ -99,43 +69,23 @@ async function replaceProjection(
       `projection text exceeds ${MAX_SEARCH_TEXT_LENGTH} characters`
     )
   }
-  const key = projectionKey(projection.kind, projection.subjectId)
-  const terms = [...new Set(termsForText(projection.searchText))]
-  if (terms.length > MAX_PROJECTION_POSTINGS_PER_SUBJECT) {
-    throw new SearchProjectionBlocked(
-      `${key} requires ${terms.length} postings (budget ${MAX_PROJECTION_POSTINGS_PER_SUBJECT})`
-    )
-  }
-  const existing = await oldPostings(ctx, key)
-  ensureWriteBudget(existing.length, projection.isSearchable ? terms.length : 0)
   const current = await ctx.db
     .query("searchDocuments")
     .withIndex("by_kind_and_subjectId", (q) =>
       q.eq("kind", projection.kind).eq("subjectId", projection.subjectId)
     )
     .unique()
-  for (const posting of existing) await ctx.db.delete(posting._id)
   const now = Date.now()
   const document = {
     ...projection,
     searchText: projection.isSearchable ? normalizeSearch(projection.searchText) : "",
     updatedAt: now,
   }
+  // The native `search_text` index is maintained by Convex from `searchText`,
+  // so a projection upsert is a single document write with no postings.
   const documentId = current
     ? (await ctx.db.patch("searchDocuments", current._id, document), current._id)
     : await ctx.db.insert("searchDocuments", document)
-  if (projection.isSearchable) {
-    for (const term of terms) {
-      await ctx.db.insert("searchDocumentTerms", {
-        documentKey: key,
-        kind: projection.kind,
-        eventId: projection.eventId,
-        term,
-        sortAt: projection.sortAt,
-        subjectId: projection.subjectId,
-      })
-    }
-  }
   return { ...document, _id: documentId, _creationTime: current?._creationTime ?? now }
 }
 
@@ -200,13 +150,10 @@ export async function deleteSearchProjection(
   kind: SearchKind,
   subjectId: string
 ) {
-  const key = projectionKey(kind, subjectId)
   const existing = await ctx.db
     .query("searchDocuments")
     .withIndex("by_kind_and_subjectId", (q) => q.eq("kind", kind).eq("subjectId", subjectId))
     .unique()
-  const postings = await oldPostings(ctx, key)
-  for (const posting of postings) await ctx.db.delete(posting._id)
   if (existing) await ctx.db.delete(existing._id)
 }
 
@@ -242,27 +189,21 @@ export async function refreshAttendeeSearchDocumentsForFamily(ctx: MutationCtx, 
   return refreshByAttendeeIds(ctx, members.map((row) => ctx.db.normalizeId("orderAttendees", row.attendeeId)).filter((id): id is Id<"orderAttendees"> => Boolean(id)), cursor)
 }
 
-type PartialSubject = { subjectId: string; sortAt: number; matchedTerms: string[] }
-type PendingSubject = { subjectId: string; sortAt: number }
-type CursorState = {
-  version: 2
-  signature: string
-  scanCursor: string | null
-  partial: PartialSubject | null
-  pendingSubjectIds: PendingSubject[]
-}
-function encodeCursor(value: CursorState) { return `s:${encodeURIComponent(JSON.stringify(value))}` }
-function decodeCursor(value: string): CursorState {
-  try {
-    const parsed = JSON.parse(decodeURIComponent(value.startsWith("s:") ? value.slice(2) : value)) as CursorState
-    if (parsed.version !== 2 || typeof parsed.signature !== "string" ||
-        (parsed.scanCursor !== null && typeof parsed.scanCursor !== "string") ||
-        (parsed.partial !== null && typeof parsed.partial !== "object") ||
-        !Array.isArray(parsed.pendingSubjectIds)) throw new Error()
-    return parsed
-  } catch { throw new Error("Invalid search continuation cursor.") }
-}
-
+/**
+ * Bounded search over the denormalized `searchDocuments` projection.
+ *
+ * Behavior after the native full-text migration:
+ * - A non-empty query uses the `search_text` search index. Convex matches a
+ *   document when it contains **any** of the query terms (OR, not AND) and
+ *   returns results in relevance order (BM25-like), NOT newest-first. Only the
+ *   final query term receives prefix matching. At most `MAX_SEARCH_TERMS` (16)
+ *   unique terms are accepted, and the index scans at most 1024 matching
+ *   documents per query.
+ * - An empty query keeps the previous newest-first browse over the
+ *   `searchDocuments` indexes.
+ * - Projection visibility (`isSearchable`) and event scope
+ *   (`eventIsInternal`) are enforced after the index read.
+ */
 export async function paginateSearchDocuments(ctx: QueryCtx, args: { kind: SearchKind; eventId?: Id<"events">; search?: string | null; cursor?: string | null; numItems: number }) {
   if (!Number.isInteger(args.numItems) || args.numItems < 1 || args.numItems > MAX_RELATED_DOCUMENTS_READ_PER_INVOCATION) throw new Error("Invalid search page size.")
   const normalized = normalizeSearch(args.search)
@@ -272,55 +213,21 @@ export async function paginateSearchDocuments(ctx: QueryCtx, args: { kind: Searc
       ? ctx.db.query("searchDocuments").withIndex("by_kind_and_eventId_and_sortAt_and_subjectId", (q) => q.eq("kind", args.kind).eq("eventId", args.eventId!))
       : ctx.db.query("searchDocuments").withIndex("by_kind_and_sortAt_and_subjectId_and_eventId", (q) => q.eq("kind", args.kind))
     const page = await query.order("desc").paginate({ numItems: args.numItems, cursor: args.cursor ?? null })
-    const visible: Doc<"searchDocuments">[] = []
+    const browseVisible: Doc<"searchDocuments">[] = []
     for (const row of page.page) {
-      if (row.isSearchable && (await eventIsInternal(ctx, row.eventId))) visible.push(row)
+      if (row.isSearchable && (await eventIsInternal(ctx, row.eventId))) browseVisible.push(row)
     }
-    return { page: visible, isDone: page.isDone, continueCursor: page.isDone ? null : page.continueCursor }
+    return { page: browseVisible, isDone: page.isDone, continueCursor: page.isDone ? null : page.continueCursor }
   }
-  const signature = JSON.stringify({ kind: args.kind, eventId: args.eventId ?? null, terms })
-  const state = args.cursor
-    ? decodeCursor(args.cursor)
-    : { version: 2 as const, signature, scanCursor: null, partial: null, pendingSubjectIds: [] }
-  if (state.signature !== signature) throw new Error("Search continuation cursor does not match the query.")
-  const result: Doc<"searchDocuments">[] = []
-  const matched: PendingSubject[] = state.pendingSubjectIds.splice(0)
-  const matchedTerms = new Set(state.partial?.matchedTerms ?? [])
-  let partial = state.partial
-
-  const postingQuery = args.eventId
-    ? ctx.db.query("searchDocumentTerms").withIndex("by_kind_and_eventId_and_sortAt_and_subjectId_and_term", (q) => q.eq("kind", args.kind).eq("eventId", args.eventId!))
-    : ctx.db.query("searchDocumentTerms").withIndex("by_kind_and_sortAt_and_subjectId_and_eventId_and_term", (q) => q.eq("kind", args.kind))
-  // There is deliberately one posting paginate per invocation. A subject may
-  // span pages because it has one posting per indexed term, so retain its
-  // partial match and complete it on the next invocation.
-  if (matched.length < args.numItems) {
-    const postingPage = await postingQuery.order("desc").paginate({ numItems: MAX_RELATED_DOCUMENTS_READ_PER_INVOCATION, cursor: state.scanCursor })
-    let current = partial
-    for (const posting of postingPage.page) {
-      if (!current || current.subjectId !== posting.subjectId) {
-        if (current && matchedTerms.size === terms.length) matched.push({ subjectId: current.subjectId, sortAt: current.sortAt })
-        current = { subjectId: posting.subjectId, sortAt: posting.sortAt, matchedTerms: [] }
-        matchedTerms.clear()
-      }
-      for (const term of terms) if (posting.term.startsWith(term)) matchedTerms.add(term)
-      current.matchedTerms = [...matchedTerms]
-    }
-    if (current) {
-      if (matchedTerms.size === terms.length && (postingPage.isDone || postingPage.page.length === 0 || postingPage.page[postingPage.page.length - 1].subjectId !== current.subjectId)) matched.push({ subjectId: current.subjectId, sortAt: current.sortAt })
-      partial = postingPage.isDone ? null : current
-    }
-    state.scanCursor = postingPage.isDone ? null : postingPage.continueCursor
-    if (postingPage.isDone && partial) { if (matchedTerms.size === terms.length) matched.push({ subjectId: partial.subjectId, sortAt: partial.sortAt }); partial = null }
+  const searchQuery = args.eventId
+    ? ctx.db.query("searchDocuments").withSearchIndex("search_text", (q) => q.search("searchText", normalized).eq("kind", args.kind).eq("eventId", args.eventId!))
+    : ctx.db.query("searchDocuments").withSearchIndex("search_text", (q) => q.search("searchText", normalized).eq("kind", args.kind))
+  const page = await searchQuery.paginate({ numItems: args.numItems, cursor: args.cursor ?? null })
+  const visible: Doc<"searchDocuments">[] = []
+  for (const row of page.page) {
+    if (row.isSearchable && (await eventIsInternal(ctx, row.eventId))) visible.push(row)
   }
-  matched.sort((a, b) => (b.sortAt - a.sortAt) || b.subjectId.localeCompare(a.subjectId))
-  const pending = matched.splice(args.numItems)
-  for (const candidate of matched) {
-    const document = await ctx.db.query("searchDocuments").withIndex("by_kind_and_subjectId", (q) => q.eq("kind", args.kind).eq("subjectId", candidate.subjectId)).unique()
-    if (document?.isSearchable && (!args.eventId || document.eventId === args.eventId) && await eventIsInternal(ctx, document.eventId)) result.push(document)
-  }
-  const isDone = state.scanCursor === null && partial === null && pending.length === 0
-  return { page: result, isDone, continueCursor: isDone ? null : encodeCursor({ version: 2, signature, scanCursor: state.scanCursor, partial, pendingSubjectIds: pending }) }
+  return { page: visible, isDone: page.isDone, continueCursor: page.isDone ? null : page.continueCursor }
 }
 
 export const startSearchProjectionFanout = internalMutation({

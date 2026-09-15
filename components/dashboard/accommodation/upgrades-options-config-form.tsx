@@ -984,7 +984,11 @@ function AddRoomResourceCard({
   roomType: CatalogRoomType
   upsert: ReturnType<typeof useUpsertEventAccommodationResource>
 }) {
-  const [count, setCount] = useState("0")
+  // Start blank so an operator must enter the real physical count. Saving a
+  // defaulted `0` would create an exhausted resource that rejects every
+  // assignment of this room type (the backend correctly treats count 0 as
+  // exhausted), so the add form requires an explicit positive count instead.
+  const [count, setCount] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [isPending, setIsPending] = useState(false)
@@ -993,8 +997,10 @@ function AddRoomResourceCard({
     setError(null)
     setSuccess(null)
     const value = Number(count)
-    if (!Number.isInteger(value) || value < 0) {
-      setError("Count must be a whole number.")
+    if (count.trim() === "" || !Number.isInteger(value) || value < 1) {
+      setError(
+        "Enter the number of physical rooms for this event (a positive whole number)."
+      )
       return
     }
     setIsPending(true)
@@ -1028,7 +1034,7 @@ function AddRoomResourceCard({
           id={`uo-add-room-${roomType._id}`}
           type="number"
           inputMode="numeric"
-          min={0}
+          min={1}
           step={1}
           value={count}
           onChange={(event) => setCount(event.target.value)}

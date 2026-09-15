@@ -7,7 +7,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Users,
-  BedDouble,
   Building2,
   X,
   Check,
@@ -275,6 +274,7 @@ type RemovalTarget = {
   roomId: string
   roomLabel: string
   eligibleChildCount: number
+  separateMemberCount: number
 }
 
 type AtomicFamilyResult = {
@@ -488,10 +488,14 @@ export default function EventAllocationPage({
       typeof (result as AtomicFamilyResult | null)?.eligibleChildCount === "number"
         ? (result as AtomicFamilyResult).eligibleChildCount!
         : target.eligibleChildCount
+    const separateSuffix =
+      target.separateMemberCount > 0
+        ? ` ${target.separateMemberCount} ${target.separateMemberCount === 1 ? "separate member" : "separate members"} requiring their own placement remain assigned.`
+        : ""
     if (childCount === 0) {
-      return `Family placement removed from ${target.roomLabel}. ${target.parentName} is no longer assigned; no linked children were assigned.`
+      return `Family placement removed from ${target.roomLabel}. ${target.parentName} is no longer assigned; no linked no-bed children were assigned.${separateSuffix}`
     }
-    return `Family placement removed from ${target.roomLabel}. ${target.parentName} and ${childCount} linked ${childCount === 1 ? "child" : "children"} are no longer assigned.`
+    return `Family placement removed from ${target.roomLabel}. ${target.parentName} and ${childCount} linked ${childCount === 1 ? "child" : "children"} are no longer assigned.${separateSuffix}`
   }
 
   async function handleUnassign(
@@ -569,6 +573,13 @@ export default function EventAllocationPage({
       {error && (
         <div role="alert" aria-live="assertive" className="rounded-2xl border border-destructive/20 bg-destructive/5 px-5 py-3 text-sm text-destructive">{error}</div>
       )}
+      {board.dataCompleteness?.incomplete && (
+        <div role="status" className="rounded-2xl border border-amber-300/70 bg-amber-50/60 px-5 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300">
+          Placement data is incomplete — some rooms, attendees, or assignments could not be fully loaded
+          {board.dataCompleteness.reasons.length > 0 ? ` (${board.dataCompleteness.reasons.join(", ")})` : ""}. Do not treat
+          allocation as complete until the board is verified; counts and availability below may be partial.
+        </div>
+      )}
       {success && (
         <div role="status" aria-live="polite" className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300">{success}</div>
       )}
@@ -619,7 +630,6 @@ export default function EventAllocationPage({
               <option value="">All genders</option>
               <option value="MALE">Male</option>
               <option value="FEMALE">Female</option>
-              <option value="MIXED">Mixed</option>
               <option value="UNKNOWN">Unknown</option>
             </select>
           </label>
@@ -693,7 +703,7 @@ export default function EventAllocationPage({
             </div>
           </div>
           <p className="border-b border-border/40 px-5 py-2 text-[11px] leading-snug text-muted-foreground">
-            Confirming an assignment confirms this buyer's accommodation configuration and closes further buyer changes.
+            {"Confirming an assignment confirms this buyer's accommodation configuration and closes further buyer changes."}
           </p>
 
           <div className="flex-1 space-y-2 overflow-y-auto p-3">
@@ -706,6 +716,8 @@ export default function EventAllocationPage({
                     <p className="text-muted-foreground">Clear filters to view all attendees needing placement.</p>
                     <Button type="button" variant="outline" size="sm" onClick={clearFilters} className="mt-2 min-h-11">Clear filters</Button>
                   </div>
+                  ) : board.dataCompleteness?.incomplete ? (
+                  <DashboardQueryState state="unavailable" title="Placement data is incomplete." message="Some rooms or attendees could not be fully loaded, so this list may be partial. Verify the board before treating placement as complete." className="rounded-xl border border-dashed border-white/20 bg-white/5 p-8" />
                   ) : (
                   <DashboardQueryState state="empty" title="All attendees have been placed." message="No unresolved attendees need placement. Open Allocation to review room assignments." className="rounded-xl border border-dashed border-white/20 bg-white/5 p-8" />
                )
@@ -717,6 +729,7 @@ export default function EventAllocationPage({
                       : []
                    const isFamily = isFamilyAttendee(attendee)
                    const isChild = attendee.familyRole === "child"
+                  const isSeparateMember = attendee.separatePlacementRequired === true
                   const childCount = attendee.eligibleChildCount ?? 0
                   return (
                     <div
@@ -728,8 +741,9 @@ export default function EventAllocationPage({
                       <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
                           {isFamily && <p className="text-xs font-semibold text-primary">Family placement</p>}
+                          {isSeparateMember && <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">Separate placement required</p>}
                           <p className="break-words text-sm font-semibold">
-                            {isFamily ? "Parent · " : isChild ? "Child · " : ""}
+                            {isFamily ? "Parent · " : isSeparateMember ? "Separate · " : isChild ? "Child · " : ""}
                             {attendee.attendeeName ?? "Unnamed"}
                           </p>
                         </div>
@@ -757,7 +771,18 @@ export default function EventAllocationPage({
                         </ul>
                       )}
                       {isFamily && (attendee.separateMemberCount ?? 0) > 0 && (
-                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Some family members require separate placement.</p>
+                        <div className="mt-2 space-y-1 text-xs text-amber-700 dark:text-amber-300">
+                          <p>Some family members require separate placement.</p>
+                          {(attendee.separateMembers ?? []).length > 0 && (
+                            <ul className="space-y-0.5" aria-label={`Separate placement members for ${attendee.attendeeName ?? "parent"}`}>
+                              {(attendee.separateMembers ?? []).map((member) => (
+                                <li key={member.attendeeId} className="break-words">
+                                  {member.attendeeName ?? "Unnamed"} · {member.requiresBed ? "Bed required" : "No bed"} · assign separately
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
                       )}
                       <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                         <p>Order: {attendee.bookingRef || attendee.orderId || "Unavailable"}</p>
@@ -820,6 +845,14 @@ export default function EventAllocationPage({
                     const isSelected = selectedRoomId === room.id
                     const isFull = room.availability === "full"
                     const isEmpty = room.availability === "empty"
+                    const isReview = room.availability === "review" || room.occupancyIncomplete === true
+                    const roomStatusLabel = isReview
+                      ? "needs verification"
+                      : isFull
+                        ? "full"
+                        : isEmpty
+                          ? "empty"
+                          : "available"
                     const occupantBlocks = getRoomOccupantBlocks(room)
                    return (
                      <div
@@ -844,17 +877,19 @@ export default function EventAllocationPage({
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-semibold">{room.label}</p>
                             <Badge
-                              aria-label={`Room status: ${isFull ? "full" : isEmpty ? "empty" : "available"}; ${room.occupantCount ?? 0} occupants; ${room.occupiedBeds} beds used; ${room.availableBeds} beds available`}
+                              aria-label={`Room status: ${roomStatusLabel}; ${room.occupantCount ?? 0} occupants; ${room.occupiedBeds} beds used; ${room.availableBeds} beds available`}
                              variant="outline"
                             className={
-                              isFull
-                                ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/30 dark:bg-rose-950/20 dark:text-rose-400"
-                                : isEmpty
-                                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-400"
-                                  : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-400"
+                              isReview
+                                ? "border-dashed border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-400"
+                                : isFull
+                                  ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/30 dark:bg-rose-950/20 dark:text-rose-400"
+                                  : isEmpty
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-400"
+                                    : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-400"
                             }
                           >
-                             {room.occupantCount ?? 0} occupants
+                             {isReview ? "Verify occupancy" : `${room.occupantCount ?? 0} occupants`}
                            </Badge>
                         </div>
                         {room.hotel && (
@@ -912,7 +947,7 @@ export default function EventAllocationPage({
                                             {pendingAction === `move:${parent.attendeeId}` ? "Moving family…" : "Move family to selected room"}
                                           </Button>
                                         )}
-                                        <Button type="button" size="sm" variant="ghost" disabled={pendingAction !== null} aria-label={`Remove family placement led by ${parent.attendeeName ?? "parent"} from ${room.label}`} aria-busy={pendingAction === `unassign:${parent.attendeeId}`} className="min-h-11 h-auto whitespace-normal text-[11px] text-destructive hover:bg-destructive/10" onClick={() => openFamilyRemoval({ attendeeId: parent.attendeeId, parentName: parent.attendeeName ?? "Unnamed parent", roomId: room.id, roomLabel: room.label, eligibleChildCount: familyChildCount })}>
+                                        <Button type="button" size="sm" variant="ghost" disabled={pendingAction !== null} aria-label={`Remove family placement led by ${parent.attendeeName ?? "parent"} from ${room.label}`} aria-busy={pendingAction === `unassign:${parent.attendeeId}`} className="min-h-11 h-auto whitespace-normal text-[11px] text-destructive hover:bg-destructive/10" onClick={() => openFamilyRemoval({ attendeeId: parent.attendeeId, parentName: parent.attendeeName ?? "Unnamed parent", roomId: room.id, roomLabel: room.label, eligibleChildCount: familyChildCount, separateMemberCount: parent.separateMemberCount ?? 0 })}>
                                           {pendingAction === `unassign:${parent.attendeeId}` ? "Removing family placement…" : "Remove family placement"}
                                         </Button>
                                       </div>
@@ -932,6 +967,18 @@ export default function EventAllocationPage({
                                           ))}
                                         </ul>
                                       </details>
+                                    )}
+                                    {(parent.separateMembers ?? []).length > 0 && (
+                                      <div className="mt-2 border-l-2 border-amber-300/70 pl-3 text-[11px] text-amber-700 dark:text-amber-300">
+                                        <p className="font-semibold">Requires separate placement (not in this room):</p>
+                                        <ul className="space-y-0.5">
+                                          {(parent.separateMembers ?? []).map((member) => (
+                                            <li key={member.attendeeId} className="break-words">
+                                              {member.attendeeName ?? "Unnamed"} · {member.requiresBed ? "Bed required" : "No bed"}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
                                     )}
                                   </div>
                                 )
@@ -980,11 +1027,11 @@ export default function EventAllocationPage({
          <DialogContent>
            <DialogHeader>
              <DialogTitle>Remove family placement?</DialogTitle>
-             <DialogDescription>
-               {removalTarget
-                 ? `This removes ${removalTarget.parentName} and ${removalTarget.eligibleChildCount} linked ${removalTarget.eligibleChildCount === 1 ? "child" : "children"} from ${removalTarget.roomLabel}. No family member will remain assigned to that room.`
-                 : "Review this family placement before removing it."}
-             </DialogDescription>
+              <DialogDescription>
+                {removalTarget
+                  ? `This removes ${removalTarget.parentName} and ${removalTarget.eligibleChildCount} linked no-bed ${removalTarget.eligibleChildCount === 1 ? "child" : "children"} from ${removalTarget.roomLabel}.${removalTarget.separateMemberCount > 0 ? ` ${removalTarget.separateMemberCount} separate ${removalTarget.separateMemberCount === 1 ? "member" : "members"} requiring their own placement will remain assigned and must be removed separately.` : " No other family member will remain assigned to that room."}`
+                  : "Review this family placement before removing it."}
+              </DialogDescription>
            </DialogHeader>
            <DialogFooter>
              <DialogClose asChild>

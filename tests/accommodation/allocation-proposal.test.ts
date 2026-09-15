@@ -1076,4 +1076,107 @@ describe("allocation proposal compatibility strategy", () => {
       },
     ])
   })
+
+  it("seeds the gender guard from existing room occupants", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-occupied",
+            label: "A-101",
+            capacity: 2,
+            occupiedBeds: 1,
+            availableBeds: 1,
+            availability: "available",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [
+              {
+                attendeeId: "existing-female",
+                attendeeName: "Existing Female",
+                attendeeEmail: null,
+                genderType: "FEMALE",
+                orderId: "order-existing",
+                providerOrderId: null,
+                providerEventId: null,
+                eventName: "Camp",
+                ticketTypeLabel: null,
+                ...paymentFields(),
+              },
+            ],
+            pendingAssignments: [],
+          },
+          {
+            id: "room-empty",
+            label: "B-201",
+            capacity: 2,
+            occupiedBeds: 0,
+            availableBeds: 2,
+            availability: "empty",
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+        ],
+        unassignedAttendees: [
+          boardAttendee({
+            attendeeId: "male-attendee",
+            attendeeName: "Male Attendee",
+            genderType: "MALE",
+          }),
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    expect(proposal.suggestions).toHaveLength(1)
+    // The pre-existing female occupant must exclude the incompatible room even
+    // though it has an available bed and outranks the empty alternative.
+    expect(proposal.suggestions[0]?.roomId).toBe("room-empty")
+  })
+
+  it("never proposes a room whose occupancy read is incomplete", async () => {
+    vi.mocked(convexQuery).mockResolvedValueOnce(
+      buildBoard({
+        rooms: [
+          {
+            id: "room-incomplete",
+            label: "A-101",
+            capacity: 2,
+            occupiedBeds: 0,
+            availableBeds: 0,
+            availability: "review",
+            occupancyIncomplete: true,
+            notes: null,
+            hotel: { id: "hotel-1", name: "Main Hotel", city: "Amsterdam" },
+            roomType: { id: "type-1", label: "Shared", defaultCapacity: 2 },
+            occupants: [],
+            pendingAssignments: [],
+          },
+        ],
+        unassignedAttendees: [
+          boardAttendee({
+            attendeeId: "review-attendee",
+            attendeeName: "Review Attendee",
+            requiresBed: false,
+          }),
+        ],
+      })
+    )
+
+    const proposal = await generateAllocationProposal({ eventId: "event-1" })
+
+    expect(proposal.suggestions).toHaveLength(0)
+    expect(proposal.unplacedAttendees).toMatchObject([
+      {
+        attendeeId: "review-attendee",
+        reason:
+          "All candidate rooms have incomplete occupancy data; verify occupancy before assigning",
+      },
+    ])
+  })
 })

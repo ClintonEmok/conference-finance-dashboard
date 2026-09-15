@@ -37,7 +37,11 @@ export type FamilyFollowUp = {
   familyLabel: string | null
   familyParentAttendeeId: string | null
   familyParentName: string | null
-  state: "Needs family link" | "Waiting for parent room" | "inconsistent"
+  state:
+    | "Needs family link"
+    | "Waiting for parent room"
+    | "Separate placement required"
+    | "inconsistent"
   message: string
 }
 
@@ -86,6 +90,16 @@ export type RoomAllocationBoardFilters = {
 
 export type RoomAllocationBoard = {
   generatedAt: string
+  /**
+   * CR-07: server-owned completeness signal for the authoritative board reads.
+   * `incomplete` is true when any bounded authoritative read was capped, and
+   * `reasons` names the truncated collection(s). Consumers must not present
+   * allocation as complete while this is true.
+   */
+  dataCompleteness?: {
+    incomplete: boolean
+    reasons: string[]
+  }
   filters: {
     eventId: string | null
     search: string | null
@@ -123,7 +137,12 @@ export type RoomAllocationBoard = {
     occupancyIncomplete?: boolean
     occupiedBeds: number
     availableBeds: number
-    availability: "empty" | "available" | "full"
+    /**
+     * WR-03: `review` is the explicit incomplete status. It is returned
+     * whenever physical occupancy or the identity projection is incomplete, so
+     * the surface never labels such a room confidently empty/available/full.
+     */
+    availability: "empty" | "available" | "full" | "review"
     notes: string | null
     hotel?: {
       id: string
@@ -139,6 +158,8 @@ export type RoomAllocationBoard = {
       attendeeId: string
       attendeeName: string | null
       attendeeEmail: string | null
+      /** Server-normalized gender of the assigned occupant (WR-01 proposal seeding). */
+      genderType?: "MALE" | "FEMALE" | "MIXED" | "UNKNOWN"
       orderId: string | null
       providerOrderId: string | null
       providerEventId: string | null
@@ -164,6 +185,12 @@ export type RoomAllocationBoard = {
       eligibleChildren?: FamilyChild[]
       eligibleChildCount?: number
       separateMemberCount?: number
+      /** Separate (for example bed-requiring) members that need their own placement. */
+      separateMembers?: Array<{
+        attendeeId: string
+        attendeeName: string | null
+        requiresBed: boolean
+      }>
     }>
     pendingAssignments: Array<{
       assignmentId: string
@@ -245,10 +272,15 @@ export type RoomAllocationBoard = {
     eligibleChildren?: FamilyChild[]
     eligibleChildCount?: number
     separateMemberCount?: number
+    /** CR-06: separate members that need their own placement, kept visible/actionable. */
     separateMembers?: Array<{
       attendeeId: string
       attendeeName: string | null
+      requiresBed: boolean
+      familyState?: FamilyState
     }>
+    /** CR-06: true when this row is itself a separate member requiring its own placement. */
+    separatePlacementRequired?: boolean
   }>
   submissionQueueRows: SubmissionQueueRow[]
   summary: {
@@ -262,6 +294,8 @@ export type RoomAllocationBoard = {
     availableBeds: number
     foreignOccupants?: number
     occupancyIncomplete?: boolean
+    /** CR-07: true when any authoritative board read was capped. */
+    incomplete?: boolean
     unassignedAttendeesCount: number
   }
 }
@@ -269,6 +303,12 @@ export type RoomAllocationBoard = {
 export type AllocationProposal = {
   generatedAt: string
   eventId: string | null
+  /**
+   * CR-07: true when the underlying board read was incomplete. A proposal must
+   * not be presented as a complete placement plan while this is true.
+   */
+  incomplete?: boolean
+  incompleteReasons?: string[]
   suggestions: Array<{
     attendeeId: string
     attendeeName: string | null
@@ -602,30 +642,20 @@ export async function getRoomAllocationBoard(
   if (search) {
     mappedRooms = result.rooms
       .map((room: RoomAllocationBoard["rooms"][number]) => {
-        const occupants = search
-          ? room.occupants.filter((occupant: (typeof room.occupants)[number]) =>
-              attendeeMatchesSearch(occupant, search)
-            )
-          : room.occupants
+        const occupants = room.occupants.filter(
+          (occupant: (typeof room.occupants)[number]) =>
+            attendeeMatchesSearch(occupant, search)
+        )
         const doesMatchSearch =
-          !search ||
           matchesSearch(room.label, search) ||
           matchesSearch(room.hotel?.name ?? null, search) ||
           matchesSearch(room.hotel?.city ?? null, search) ||
           matchesSearch(room.roomType?.label ?? null, search) ||
           occupants.length > 0
-        return { ...room, occupants, doesMatchSearch }
+        return { room: { ...room, occupants }, doesMatchSearch }
       })
-      .filter((room: { doesMatchSearch: boolean }) => room.doesMatchSearch)
-      .map(
-        ({
-          doesMatchSearch,
-          ...room
-        }: {
-          doesMatchSearch: boolean
-          [key: string]: unknown
-        }) => room as (typeof result.rooms)[number]
-      )
+      .filter((entry: { doesMatchSearch: boolean }) => entry.doesMatchSearch)
+      .map((entry: { room: RoomAllocationBoard["rooms"][number] }) => entry.room)
   }
 
   if (availability !== "all") {
@@ -683,11 +713,15 @@ export async function generateAllocationProposal(input: {
   const suggestions: AllocationProposal["suggestions"] = []
   const unplacedAttendees: AllocationProposal["unplacedAttendees"] = []
 
-  // The server already suppresses eligible family children from this queue.
+  // The server already suppresses followable family children from this queue.
   // Keep the guard here as a second, additive boundary so automatic proposals
   // remain parent-led even when manual placement is intentionally softer.
+  // CR-06: a separate member (for example a bed-requiring child) is NOT moved
+  // with the parent and must remain a first-class proposal unit.
   const placementUnits = board.unassignedAttendees.filter(
-    (attendee) => (attendee.familyRole ?? "solo") !== "child"
+    (attendee) =>
+      (attendee.familyRole ?? "solo") !== "child" ||
+      attendee.separatePlacementRequired === true
   )
 
   const buyerSuggestionsByAttendeeId = new Map<string, BuyerSuggestion>()
@@ -696,7 +730,14 @@ export async function generateAllocationProposal(input: {
     buyerSuggestionsByAttendeeId.set(suggestion.attendeeId, suggestion)
   }
 
+  // WR-02: a room whose physical/identity occupancy read is incomplete is never
+  // a proposal candidate, even for a no-bed attendee. The operator must verify
+  // occupancy data first rather than receive a confident suggestion.
+  const incompleteRoomsExist = board.rooms.some(
+    (room) => room.occupancyIncomplete === true
+  )
   const availableRooms = board.rooms
+    .filter((room) => room.occupancyIncomplete !== true)
     .sort((a, b) => {
       if (a.availability === "available" && b.availability === "empty")
         return -1
@@ -707,7 +748,20 @@ export async function generateAllocationProposal(input: {
       room,
       remainingBeds: room.availableBeds,
       projectedOccupantCount: room.occupantCount ?? 0,
-      projectedGenders: new Set<Exclude<AttendeeGender, null>>(),
+      // WR-01: seed the gender guard from the room's existing occupants so an
+      // incompatible pre-existing occupant constrains the proposal, not just
+      // occupants added by the proposal itself.
+      projectedGenders: new Set<Exclude<AttendeeGender, null>>(
+        room.occupants
+          .map((occupant) => occupant.genderType)
+          .filter(
+            (gender): gender is Exclude<AttendeeGender, null> =>
+              gender === "MALE" ||
+              gender === "FEMALE" ||
+              gender === "MIXED" ||
+              gender === "UNKNOWN"
+          )
+      ),
       projectedOrderIds: new Set(
         room.occupants.map((occupant) =>
           canonicalOrderKey(occupant.orderId, occupant.attendeeId)
@@ -876,7 +930,9 @@ export async function generateAllocationProposal(input: {
       attendeeName: attendee.attendeeName,
       reason: hasAnyBeds
         ? "No compatible rooms available after gender guardrails"
-        : "No rooms with available beds",
+        : incompleteRoomsExist && availableRooms.length === 0
+          ? "All candidate rooms have incomplete occupancy data; verify occupancy before assigning"
+          : "No rooms with available beds",
       priority,
       paymentState: attendee.paymentState ?? null,
     })
@@ -897,6 +953,8 @@ export async function generateAllocationProposal(input: {
   return {
     generatedAt: new Date().toISOString(),
     eventId,
+    incomplete: board.dataCompleteness?.incomplete ?? false,
+    incompleteReasons: board.dataCompleteness?.reasons ?? [],
     suggestions,
     unplacedAttendees,
     summary: {
@@ -921,7 +979,17 @@ export type ConfirmBuyerAssignmentResult =
     }
   | {
       success: false
-      error: "ROOM_FULL"
+      /**
+       * `ROOM_FULL` means the room is genuinely at capacity.
+       * `OCCUPANCY_INCOMPLETE` means the requested room's occupancy read could
+       * not be trusted (fail-safe), so it must be verified rather than treated
+       * as full.
+       * `INVENTORY_INCOMPLETE` means the event's accommodation inventory scan
+       * (including an unrelated candidate room's provider read) could not be
+       * trusted (fail-safe) — kept distinct from `OCCUPANCY_INCOMPLETE` so the
+       * requested room is never misattributed.
+       */
+      error: "ROOM_FULL" | "OCCUPANCY_INCOMPLETE" | "INVENTORY_INCOMPLETE"
       message: string
       alternatives: Array<{
         slotId: string
