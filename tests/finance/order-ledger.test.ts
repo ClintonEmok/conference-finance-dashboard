@@ -287,6 +287,21 @@ describe("order-ledger domain", () => {
       expect(result.rows[0].orderId).toBe("canonical-order")
     })
 
+    it("rejects search queries with more than 16 terms before querying Convex", async () => {
+      const seventeen = Array.from({ length: 17 }, (_, index) => `term${index}`).join(" ")
+      await expect(getOrderLedger({ search: seventeen })).rejects.toThrow(
+        /Maximum 16 terms/
+      )
+
+      vi.mocked(convexQuery)
+        .mockResolvedValueOnce({ orders: [], totalRows: null, totalPages: null, nextCursor: null, hasNextPage: false, totals: { amountDueMinor: 0, matchedAmountMinor: 0, outstandingAmountMinor: 0 } })
+        .mockResolvedValueOnce([])
+      const sixteen = Array.from({ length: 16 }, (_, index) => `term${index}`).join(" ")
+      const result = await getOrderLedger({ search: sixteen })
+
+      expect(result.filters.search).toBe(sixteen)
+    })
+
     it("preserves exact totals for no-search callers", async () => {
       vi.mocked(convexQuery)
         .mockResolvedValueOnce({ orders: [], totalRows: 3, totalPages: 1, nextCursor: null, hasNextPage: false, totals: { amountDueMinor: 0, matchedAmountMinor: 0, outstandingAmountMinor: 0 } })

@@ -2354,9 +2354,7 @@ export declare const internal: {
       {
         blockedJobs: number;
         diagnostics: Array<{ reason: string; subjectId: string }>;
-        duplicatePostings: number;
         missing: number;
-        orphanedPostings: number;
         pendingJobs: number;
         stale: number;
         truncated: boolean;

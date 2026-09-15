@@ -102,12 +102,12 @@ deployment identity or allowlist is absent, malformed, or mismatched.
 
 Backfill each canonical subject kind separately, always starting with
 `cursor: null` and using the implementation-enforced **`batchSize: 1`**. This
-batch size is not the UI page size: one canonical row per invocation is the
-hard limit because projection replacement can consume up to 129 writes.
-Repeat the same command with the returned `nextCursor` until `isDone: true`,
-then repeat the complete cursor sequence for attendees. If a run stops after a
-valid completed batch, resume with that returned cursor; do not invent or edit
-an opaque cursor.
+batch size is not the UI page size: one canonical row per invocation keeps the
+projection upsert (and its bounded related reads) atomic with its canonical
+page. Repeat the same command with the returned `nextCursor` until
+`isDone: true`, then repeat the complete cursor sequence for attendees. If a
+run stops after a valid completed batch, resume with that returned cursor; do
+not invent or edit an opaque cursor.
 
 ```bash
 npx convex run backfillSearchProjections \
@@ -118,10 +118,19 @@ npx convex run verifySearchProjections \
 ```
 
 `verifySearchProjections` is read-only. Continue only when `missing`, `stale`,
-`duplicatePostings`, `orphanedPostings`, `blockedJobs`, and `pendingJobs` are
-all zero and `truncated` is false. The sanitized fixture source is
+`blockedJobs`, and `pendingJobs` are all zero and `truncated` is false. (Native
+full-text search replaced the former posting table, so verification no longer
+reports duplicate or orphaned postings.) The sanitized fixture source is
 `tests/fixtures/legacy-preview.snapshot.ts`; its 51/116 coverage is the
 expected full-fixture status, not a claim about production data.
+
+Native full-text search is served by the `searchDocuments.search_text` index.
+That index is **not staged**, so a deploying build synchronously backfills it
+from the existing `searchDocuments` rows. Order matters: deploy the schema first
+(which builds the index over already-projected rows), then run the projection
+backfill above (each upsert updates the index automatically), then verify, then
+promote the search UI. Search returns only documents that are both projected and
+indexed, so an incomplete projection backfill means incomplete search results.
 
 ### Production backfill (operator-only; not executed by this phase)
 
@@ -148,16 +157,17 @@ npx convex run verifySearchProjections \
 
 The order-then-attendee sequence is required so each kind has complete
 historical coverage. A completed batch can be rerun safely: projection
-replacement is idempotent and does not create duplicate postings. Do not skip
+replacement is an idempotent upsert of the single `searchDocuments` row whose
+native full-text search index Convex maintains. Do not skip
 historical backfill merely because live fan-out maintenance is enabled.
 Verification must be authorized but read-only and must pass before enabling or
 promoting the production search UI. Stop immediately and do not proceed to the
 next cursor, kind, or rollout gate when any of the following occurs: guard
 failure; invalid cursor; a skipped/diagnostic row that is not understood;
-missing, stale, duplicate, or orphaned coverage; `blockedJobs` or
-`pendingJobs`; `truncated: true`; an incomplete pass; or any unexpected write
-or deployment identity. Rehearse the failed step in preview and investigate
-before resuming from the last known-good returned cursor.
+missing or stale coverage; `blockedJobs` or `pendingJobs`; `truncated: true`;
+an incomplete pass; or any unexpected write or deployment identity. Rehearse
+the failed step in preview and investigate before resuming from the last
+known-good returned cursor.
 
 ### Production attendee-key rekey (operator-only)
 
