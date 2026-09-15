@@ -28,6 +28,7 @@ describe("manual Allocation workflow source contract", () => {
     expect(source).toContain("Some family members require separate placement")
     expect(source).toContain("No attendees match the current filters.")
     expect(source).toContain("All attendees have been placed.")
+    expect(source).not.toContain('<option value="MIXED">Mixed</option>')
   })
 
   it("renders server-owned context and native room selection semantics", () => {

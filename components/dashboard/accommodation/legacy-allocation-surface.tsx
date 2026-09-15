@@ -630,7 +630,6 @@ export default function EventAllocationPage({
               <option value="">All genders</option>
               <option value="MALE">Male</option>
               <option value="FEMALE">Female</option>
-              <option value="MIXED">Mixed</option>
               <option value="UNKNOWN">Unknown</option>
             </select>
           </label>

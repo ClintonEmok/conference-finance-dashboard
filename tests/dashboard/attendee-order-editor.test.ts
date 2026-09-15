@@ -61,6 +61,12 @@ const options: AttendeeOrderEditorOptionSelection[] = [
 ]
 
 describe("buildAttendeeGeneralPatchBody", () => {
+  it("does not offer Mixed as a selectable gender", () => {
+    expect(readSource("components/dashboard/attendee-order-editor.tsx")).not.toContain(
+      '<SelectItem value="MIXED">Mixed</SelectItem>'
+    )
+  })
+
   it("includes only genderType, ticketTypeId, and location", () => {
     const body = buildAttendeeGeneralPatchBody({
       genderType: "FEMALE",
