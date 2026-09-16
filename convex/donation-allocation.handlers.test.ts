@@ -5,6 +5,7 @@ import type { GenericDataModel } from "convex/server"
 
 import { api } from "./_generated/api"
 import schema from "./schema"
+import { loadAllocationCeilings } from "./donations"
 import type { Id } from "./_generated/dataModel"
 
 const modules = import.meta.glob("./**/*.ts")
@@ -215,6 +216,63 @@ async function countRemovalAuditRows(t: TestConvex): Promise<number> {
     }
     return count
   })
+}
+
+/**
+ * The donation-scoped ceiling map, read through the shared server projection
+ * the writer and the summary both use. Returned as an ARRAY because `t.run`
+ * serializes its result and a `Map` is not a Convex value. Needed only to
+ * assert the D-12 relationship directly (both ceilings at once for one
+ * attendee).
+ */
+async function loadCeilings(
+  t: TestConvex,
+  donationId: Id<"payments">,
+  orderIds: Id<"orders">[]
+) {
+  return t.run(async (ctx) => {
+    const ceilings = await loadAllocationCeilings(
+      ctx as unknown as Parameters<typeof loadAllocationCeilings>[0],
+      { donationId, orderIds }
+    )
+    return Array.from(ceilings.values())
+  })
+}
+
+/** One row of `getDonationAllocationSummary`'s projection. */
+type SummaryRow = {
+  attendeeId: string
+  orderId: string
+  amountMinor: number
+  scope: string
+  scopeOutstandingMinor: number
+  effectiveCapacityMinor: number
+  appliedMinor: number
+  unappliedMinor: number
+  exceedsCeiling: boolean
+  exceedsCapacity: boolean
+  createdAt: number
+  createdBy: string
+}
+
+type SummaryResult = {
+  donationId: string
+  eventId: string | null
+  donationAmountMinor: number
+  recordedAllocatedMinor: number
+  remainingMinor: number
+  rows: SummaryRow[]
+}
+
+/**
+ * Calls the summary query with an authenticated client and types the result as
+ * the documented projection shape.
+ */
+async function loadSummary(
+  client: TestConvex,
+  donationId: Id<"payments">
+): Promise<SummaryResult> {
+  return client.query(api.donations.getDonationAllocationSummary, { donationId })
 }
 
 /**
@@ -1880,6 +1938,409 @@ test("DACC-03: a removal never touches the donation payment row", async () => {
   })
   expect(donation?.orderId).toBeUndefined()
   expect(donation?.eventId).toBe(eventId)
+})
+
+// ---------------------------------------------------------------------------
+// Task 3 (plan 55-03): the scope-aware staleness read projection (D-16/D-18)
+// ---------------------------------------------------------------------------
+
+test("a fresh allocation reports every row fully applied with no excess", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-summary-fresh")
+  const { attendeeId, orderId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "summary-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+    ]),
+  })
+
+  const summary = await loadSummary(authed, donationId)
+
+  expect(summary.donationId).toBe(donationId)
+  expect(summary.eventId).toBe(eventId)
+  expect(summary.donationAmountMinor).toBe(15_000)
+  expect(summary.recordedAllocatedMinor).toBe(6_000)
+  expect(summary.remainingMinor).toBe(9_000)
+  expect(summary.rows).toHaveLength(1)
+
+  const row = summary.rows[0]
+  expect(row).toMatchObject({
+    attendeeId: String(attendeeId),
+    orderId: String(orderId),
+    amountMinor: 6_000,
+    scope: "event_charges",
+    scopeOutstandingMinor: 10_000,
+    effectiveCapacityMinor: 10_000,
+    appliedMinor: 6_000,
+    unappliedMinor: 0,
+    exceedsCeiling: false,
+    exceedsCapacity: false,
+  })
+  expect(row.createdAt).toBeGreaterThan(0)
+  expect(row.createdBy).toBe(adminIdentity.tokenIdentifier)
+
+  // The donation-level remainder is the recorded total, never the applied one.
+  expect(summary.remainingMinor).toBe(
+    summary.donationAmountMinor -
+      summary.rows.reduce((sum, entry) => sum + entry.amountMinor, 0)
+  )
+})
+
+test("a stored row whose ceiling dropped keeps its amount and reports the excess", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-summary-stale")
+  const { attendeeId, orderId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "summary-stale-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+    ]),
+  })
+
+  // The balance drops BEHIND the stored row and the row is never touched.
+  await reduceTicketPrice(seeded, orderId, 4_000)
+  expect(await loadAllocationRowDetails(seeded, donationId)).toHaveLength(1)
+
+  const summary = await loadSummary(authed, donationId)
+  const row = summary.rows[0]
+
+  // D-16/D-04: the recorded amount is NOT rewritten.
+  expect(row.amountMinor).toBe(6_000)
+  expect(row.scopeOutstandingMinor).toBe(4_000)
+  // The cap-and-report shape, mirroring `deriveBalanceAmounts`.
+  expect(row.appliedMinor).toBe(Math.min(6_000, 4_000))
+  expect(row.unappliedMinor).toBe(6_000 - row.appliedMinor)
+  expect(row.unappliedMinor).toBeGreaterThan(0)
+  expect(row.exceedsCeiling).toBe(true)
+  expect(row.effectiveCapacityMinor).toBe(4_000)
+  expect(row.exceedsCapacity).toBe(true)
+
+  // T-55-16: a stale row must NOT free budget. The remainder is derived from
+  // the RECORDED 6_000, so it is unchanged at 15_000 - 6_000.
+  expect(summary.donationAmountMinor).toBe(15_000)
+  expect(summary.recordedAllocatedMinor).toBe(6_000)
+  expect(summary.remainingMinor).toBe(9_000)
+
+  // Nothing is negative.
+  for (const value of [
+    row.amountMinor,
+    row.scopeOutstandingMinor,
+    row.effectiveCapacityMinor,
+    row.appliedMinor,
+    row.unappliedMinor,
+    summary.recordedAllocatedMinor,
+    summary.remainingMinor,
+  ]) {
+    expect(value).toBeGreaterThanOrEqual(0)
+  }
+})
+
+test("the read projection excludes SELF: a donation's own row never lowers its own ceiling", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-summary-self")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "summary-self-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 10_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 10_000, scope: "event_charges" },
+    ]),
+  })
+
+  const summary = await loadSummary(authed, donationId)
+  const row = summary.rows[0]
+
+  // If the summary re-included D1's own 10_000 row, the ceiling would read 0
+  // and this row would report itself fully unapplied — the read-side
+  // counterpart of the writer's exclude-SELF rule.
+  expect(row.scopeOutstandingMinor).toBe(10_000)
+  expect(row.appliedMinor).toBe(10_000)
+  expect(row.unappliedMinor).toBe(0)
+  expect(row.exceedsCeiling).toBe(false)
+})
+
+test("the read projection includes OTHERS: a competing donation's claim shows as unapplied", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-summary-others")
+  const { attendeeId, orderId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "summary-others-a",
+    name: "Attendee A",
+    ticketPriceMinor: 20_000,
+  })
+  const firstDonationId = await createDonation(seeded, eventId, {
+    amountMinor: 10_000,
+  })
+  const secondDonationId = await createDonation(seeded, eventId, {
+    amountMinor: 10_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  // BOTH rows are pinned to the SAME scope (`event_charges`) — load-bearing:
+  // the two subtractions are asymmetric (an `event_charges` ceiling subtracts
+  // only same-scope rows, a `whole_order` ceiling subtracts any scope), so a
+  // mixed-scope pair would produce a different number for a reason unrelated to
+  // the defect under test.
+  await allocate(authed, {
+    donationId: firstDonationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 10_000, scope: "event_charges" },
+    ]),
+  })
+  // D2's ceiling is 20_000 - D1's 10_000 = 10_000, so this is accepted.
+  await allocate(authed, {
+    donationId: secondDonationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 10_000, scope: "event_charges" },
+    ]),
+  })
+
+  // Reduce A's obligation to 15_000 WITHOUT touching either row.
+  await reduceTicketPrice(seeded, orderId, 15_000)
+
+  for (const donationId of [firstDonationId, secondDonationId]) {
+    const summary = await loadSummary(authed, donationId)
+    const row = summary.rows[0]
+
+    // 15_000 (A's new due) - 10_000 (the OTHER donation's same-scope claim).
+    // A payment-only ceiling would read 15_000 here and report
+    // `appliedMinor === 10_000`, so this assertion fails if the
+    // include-OTHERS subtraction is missing from the read path.
+    expect(row.scopeOutstandingMinor).toBe(5_000)
+    expect(row.appliedMinor).toBe(5_000)
+    expect(row.unappliedMinor).toBe(5_000)
+    expect(row.exceedsCeiling).toBe(true)
+
+    // The recorded amount is untouched and the remainder still counts ALL of
+    // it — a stale row never frees budget.
+    expect(row.amountMinor).toBe(10_000)
+    expect(summary.recordedAllocatedMinor).toBe(10_000)
+    expect(summary.remainingMinor).toBe(0)
+  }
+})
+
+test("removing a row raises the summary's remainder by exactly the freed amount", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-summary-remove")
+  const first = await createAttendee(seeded, eventId, {
+    attendeeKey: "summary-remove-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const second = await createAttendee(seeded, eventId, {
+    orderId: first.orderId,
+    attendeeKey: "summary-remove-b",
+    name: "Attendee B",
+    ticketPriceMinor: 10_000,
+    sortOrder: 1,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 20_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: first.attendeeId, amountMinor: 6_000, scope: "event_charges" },
+      { attendeeId: second.attendeeId, amountMinor: 4_000, scope: "event_charges" },
+    ]),
+  })
+
+  const before = await loadSummary(authed, donationId)
+  expect(before.remainingMinor).toBe(10_000)
+  expect(before.rows).toHaveLength(2)
+
+  await authed.mutation(api.donations.removeDonationAllocation, {
+    donationId,
+    eventId,
+    attendeeId: first.attendeeId,
+    idempotencyKey: "summary-remove-key",
+  })
+
+  const after = await loadSummary(authed, donationId)
+  expect(after.remainingMinor).toBe(before.remainingMinor + 6_000)
+  expect(after.recordedAllocatedMinor).toBe(4_000)
+  expect(after.rows).toHaveLength(1)
+  expect(after.rows[0].attendeeId).toBe(String(second.attendeeId))
+})
+
+test("whole_order >= event_charges only while no other donation holds the order", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-summary-d12")
+  const first = await createAttendee(seeded, eventId, {
+    attendeeKey: "d12-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const second = await createAttendee(seeded, eventId, {
+    orderId: first.orderId,
+    attendeeKey: "d12-b",
+    name: "Attendee B",
+    ticketPriceMinor: 10_000,
+    sortOrder: 1,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 20_000,
+  })
+
+  // No competing claim: both ceilings reduce to their payment-only bases, so
+  // the order's outstanding (20_000) is >= any single attendee's (10_000).
+  const quiet = await loadCeilings(seeded, donationId, [first.orderId])
+  expect(
+    quiet.find((ceiling) => ceiling.attendeeId === String(first.attendeeId))
+      ?.wholeOrderOutstandingMinor
+  ).toBe(20_000)
+  expect(
+    quiet.find((ceiling) => ceiling.attendeeId === String(first.attendeeId))
+      ?.eventChargesOutstandingMinor
+  ).toBe(10_000)
+  // "for every attendee" — both attendees of the order are covered.
+  expect(quiet).toHaveLength(2)
+  for (const ceiling of quiet) {
+    expect(ceiling.wholeOrderOutstandingMinor).toBeGreaterThanOrEqual(
+      ceiling.eventChargesOutstandingMinor
+    )
+  }
+  expect(second.attendeeId).toBeDefined()
+
+  // A single-attendee order makes them exactly equal.
+  const solo = await createAttendee(seeded, eventId, {
+    attendeeKey: "d12-solo",
+    name: "Solo Attendee",
+    ticketPriceMinor: 8_000,
+  })
+  const soloCeilings = await loadCeilings(seeded, donationId, [solo.orderId])
+  const soloCeiling = soloCeilings.find(
+    (ceiling) => ceiling.attendeeId === String(solo.attendeeId)
+  )
+  expect(soloCeiling?.wholeOrderOutstandingMinor).toBe(
+    soloCeiling?.eventChargesOutstandingMinor
+  )
+
+  // NOW a competing donation claims 15_000 of the order with `whole_order`.
+  const authed = seeded.withIdentity(adminIdentity)
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: first.attendeeId, amountMinor: 15_000, scope: "whole_order" },
+    ]),
+  })
+
+  // A second donation that holds no rows of its own, used purely as the
+  // "other donation" reader — with exclude-SELF, reading the ceilings as D1
+  // would hide D1's own 15_000 claim.
+  const probeDonationId = await createDonation(seeded, eventId, {
+    amountMinor: 20_000,
+  })
+
+  // COUNTER-EXAMPLE, and it is CORRECT — do not "fix" it. This is read for a
+  // DIFFERENT donation (the probe), so D1's 15_000 becomes an "other"
+  // donation's claim: the `whole_order` subtraction removes it from the ORDER
+  // (5_000 left), while an `event_charges` ceiling subtracts only same-scope
+  // rows on that attendee (none — D1's row is `whole_order`), so it stays at
+  // the attendee's full 10_000. The two ceilings legitimately cross once
+  // another donation holds a claim on the order.
+  const competing = await loadCeilings(seeded, probeDonationId, [first.orderId])
+  const firstCeiling = competing.find(
+    (ceiling) => ceiling.attendeeId === String(first.attendeeId)
+  )
+  const secondCeiling = competing.find(
+    (ceiling) => ceiling.attendeeId === String(second.attendeeId)
+  )
+  expect(firstCeiling?.wholeOrderOutstandingMinor).toBe(5_000)
+  expect(firstCeiling?.eventChargesOutstandingMinor).toBe(10_000)
+  expect(secondCeiling?.wholeOrderOutstandingMinor).toBe(5_000)
+  expect(secondCeiling?.eventChargesOutstandingMinor).toBe(10_000)
+  expect(secondCeiling!.wholeOrderOutstandingMinor).toBeLessThan(
+    secondCeiling!.eventChargesOutstandingMinor
+  )
+})
+
+test("the summary is authenticated, refuses a missing donation and never leaks rows", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-summary-guards")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "summary-guard-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const otherDonationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+    ]),
+  })
+
+  const anonymous = convexTest(schema, modules)
+  await expect(
+    anonymous.query(api.donations.getDonationAllocationSummary, { donationId })
+  ).rejects.toThrow("Unauthorized")
+
+  const goneDonationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  await seeded.mutation(async (ctx) => {
+    await ctx.db.delete("payments", goneDonationId)
+  })
+  await expect(
+    authed.query(api.donations.getDonationAllocationSummary, {
+      donationId: goneDonationId,
+    })
+  ).rejects.toThrow("Donation not found")
+
+  // A donation with allocations never reports another donation's rows...
+  const otherSummary = await loadSummary(authed, otherDonationId)
+  expect(otherSummary.rows).toHaveLength(0)
+  expect(otherSummary.recordedAllocatedMinor).toBe(0)
+  expect(otherSummary.remainingMinor).toBe(15_000)
+
+  // ...and the first donation still reports exactly its own single row.
+  const summary = await loadSummary(authed, donationId)
+  expect(summary.rows).toHaveLength(1)
+  expect(summary.rows[0].attendeeId).toBe(String(attendeeId))
 })
 
 

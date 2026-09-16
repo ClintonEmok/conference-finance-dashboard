@@ -587,6 +587,12 @@ export declare const api: {
       },
       any
     >;
+    getDonationAllocationSummary: FunctionReference<
+      "query",
+      "public",
+      { donationId: Id<"payments"> },
+      any
+    >;
     removeDonationAllocation: FunctionReference<
       "mutation",
       "public",

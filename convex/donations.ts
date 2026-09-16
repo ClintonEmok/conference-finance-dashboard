@@ -934,3 +934,101 @@ export const removeDonationAllocation = mutation({
     }
   },
 })
+
+/**
+ * The Phase 55 read projection (D-16/D-18), server-owned so Phase 56's canonical
+ * math and Phase 58's UI consume ONE staleness authority instead of each
+ * re-deriving it.
+ *
+ * It owns three locked behaviours:
+ *
+ *   1. The donation-level remainder is derived from RECORDED amounts, never
+ *      from APPLIED ones — so a stale row never frees budget and the same
+ *      donation can never be spent twice (RESEARCH Pitfall 3, T-55-16).
+ *   2. A stored allocation whose ceiling has since dropped KEEPS its recorded
+ *      `amountMinor`; only `appliedMinor` is capped at
+ *      `min(amountMinor, ceiling)` and the excess is reported. Nothing is
+ *      silently rewritten (D-16/D-04).
+ *   3. `appliedMinor` / `unappliedMinor` / `exceedsCeiling` /
+ *      `exceedsCapacity` / `effectiveCapacityMinor` ARE the staleness signal
+ *      Phase 56 and Phase 58 read (D-18). No consumer re-derives them.
+ *
+ * The ceilings are DONATION-SCOPED, exactly as the writer's are: this donation's
+ * own rows are excluded and OTHER donations' claims are subtracted. So a row
+ * reports fully applied only against the obligation left after every other
+ * donation's claim, and a competing donation's claim surfaces here as
+ * `unappliedMinor` / `exceedsCeiling` rather than being invisible.
+ *
+ * The per-row figure is a SCOPE-CEILING staleness signal, NOT the authoritative
+ * economic figure for an attendee: Phase 56 owns per-attendee application,
+ * including the `whole_order` order-pool distribution. No consumer may present
+ * `appliedMinor` as a canonical attendee balance.
+ *
+ * FAILS SAFE where the writer fails closed: a row with no ceiling (dangling
+ * attendee/order) reports `scopeOutstandingMinor = 0` (fully unapplied) instead
+ * of throwing, so one orphan row never breaks the donations list.
+ *
+ * No argument lets a caller supply a ceiling, an applied amount or a remaining
+ * balance.
+ */
+export const getDonationAllocationSummary = query({
+  args: { donationId: v.id("payments") },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const donation = await ctx.db.get("payments", args.donationId)
+    if (!donation) {
+      throw new Error("Donation not found")
+    }
+
+    const rows = await loadRecordedAllocations(ctx, args.donationId)
+
+    const orderIds: Id<"orders">[] = []
+    const seenOrderKeys = new Set<string>()
+    for (const row of rows) {
+      const orderKey = String(row.orderId)
+      if (!seenOrderKeys.has(orderKey)) {
+        seenOrderKeys.add(orderKey)
+        orderIds.push(row.orderId)
+      }
+    }
+
+    // The SAME donation-scoped projection the writer uses, so the read and the
+    // write can never disagree about what fits.
+    const ceilings = await loadAllocationCeilings(ctx, {
+      donationId: args.donationId,
+      orderIds,
+    })
+
+    // `deriveAllocationReadProjection` maps its input array 1:1, so `rows` and
+    // `projection` stay index-aligned.
+    const projection = deriveAllocationReadProjection({
+      rows: rows.map((row) => ({
+        attendeeId: String(row.attendeeId),
+        orderId: String(row.orderId),
+        amountMinor: row.amountMinor,
+        scope: row.scope,
+      })),
+      ceilings,
+    })
+
+    const { donationAmountMinor, recordedAllocatedMinor, remainingMinor } =
+      deriveAllocationRemainingMinor({
+        donationAmountMinor: donation.amountMinor,
+        recordedRows: rows,
+      })
+
+    return {
+      donationId: args.donationId,
+      eventId: donation.eventId ?? null,
+      donationAmountMinor,
+      recordedAllocatedMinor,
+      remainingMinor,
+      rows: projection.map((row, index) => ({
+        ...row,
+        createdAt: rows[index].createdAt,
+        createdBy: rows[index].createdBy,
+      })),
+    }
+  },
+})
