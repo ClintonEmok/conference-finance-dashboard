@@ -344,3 +344,255 @@ async function loadRecordedAllocations(
   }
   return rows
 }
+
+/**
+ * A set-replace submission replaces the donation's ENTIRE allocation set, so
+ * the donation has no other recorded rows on any order: its per-order capacity
+ * is exactly that order's `wholeOrderOutstandingMinor`.
+ */
+const EMPTY_ALREADY_CLAIMED_BY_ORDER: ReadonlyMap<string, number> = new Map()
+
+/**
+ * Resolves a request into plan rows plus the single donation-scoped ceiling
+ * map. The `donationId` is threaded through because it is what makes the
+ * projection exclude SELF and include OTHERS.
+ *
+ * Manual amounts are persisted exactly as entered and returned in the
+ * operator's submitted order (DON-02). Duplicate detection is left to
+ * `validateAllocationPlan`. Orders are resolved server-side (the client never
+ * supplies an order), and each resolved order must belong to the event.
+ */
+async function resolvePlanRows(
+  ctx: FinanceDbCtx,
+  args: {
+    request: AllocationRequest
+    eventId: Id<"events">
+    donationId: Id<"payments">
+  }
+): Promise<{
+  rows: DonationAllocationPlanRow[]
+  orderIds: Id<"orders">[]
+  ceilings: Map<string, AllocationCeiling>
+}> {
+  if (args.request.method !== "manual") {
+    // `equal` / `largest_balance_first` are wired in plan 55-04. Until then
+    // they fail closed rather than silently allocating nothing.
+    throwAllocationError(
+      DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_UNSUPPORTED_METHOD,
+      args.request.method
+    )
+  }
+
+  const rows: DonationAllocationPlanRow[] = []
+  const orderIds: Id<"orders">[] = []
+  const seenOrderIds = new Set<string>()
+
+  for (const requested of args.request.rows) {
+    const attendee = await ctx.db.get("orderAttendees", requested.attendeeId)
+    if (!attendee) {
+      throwAllocationError(
+        DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_UNKNOWN_TARGET,
+        `attendee ${String(requested.attendeeId)} does not exist`
+      )
+    }
+
+    const order = await ctx.db.get("orders", attendee.orderId)
+    if (!order) {
+      throwAllocationError(
+        DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_UNKNOWN_TARGET,
+        `order ${String(attendee.orderId)} does not exist`
+      )
+    }
+
+    // Refuse an order with no eventId, and any order outside this event.
+    if (!order.eventId || order.eventId !== args.eventId) {
+      throwAllocationError(
+        DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_CROSS_EVENT,
+        `attendee ${String(attendee._id)} targets an order outside this event`
+      )
+    }
+
+    const orderKey = String(attendee.orderId)
+    if (!seenOrderIds.has(orderKey)) {
+      seenOrderIds.add(orderKey)
+      orderIds.push(attendee.orderId)
+    }
+
+    rows.push({
+      attendeeId: String(requested.attendeeId),
+      orderId: orderKey,
+      amountMinor: requested.amountMinor,
+      scope: requested.scope,
+    })
+  }
+
+  const ceilings = await loadAllocationCeilings(ctx, {
+    donationId: args.donationId,
+    orderIds,
+  })
+
+  return { rows, orderIds, ceilings }
+}
+
+/**
+ * D-01 set-replace, shared by every write path (`allocateDonation` here;
+ * `allocateDonationToAttendee` and `removeDonationAllocation` in later plans).
+ *
+ * The merge key is `attendeeId` (D-02: at most one row per donation+attendee,
+ * identified through `by_donationId_and_attendeeId`). A stored row whose
+ * `(amountMinor, scope, orderId)` are all UNCHANGED is left completely
+ * untouched — no patch — preserving its original `createdAt`/`createdBy`.
+ *
+ * Deliberate asymmetry of the re-stamp rule: a CHANGED
+ * `amountMinor`/`scope` on an existing row IS re-stamped (fresh
+ * `createdAt`/`createdBy`, advancing `submissionId`) because D-19 mandates an
+ * audit only for REMOVAL and D-17 only requires that UNTOUCHED siblings stay
+ * untouched. Changing a row's TARGET (`attendeeId`/`orderId`) is unsupported:
+ * allocations are removed and recreated instead, so a target change is
+ * expressed as a delete + insert, never a patch.
+ *
+ * Uses only `ctx.db`, so N writes are one atomic Convex transaction
+ * (guidelines.md:245); a throw anywhere rolls everything back.
+ */
+async function applyAllocationSetReplace(
+  ctx: MutationCtx,
+  args: {
+    donation: Doc<"payments">
+    eventId: Id<"events">
+    rows: ReadonlyArray<DonationAllocationPlanRow>
+    actor: string
+    submissionId?: Id<"donationAllocationSubmissions">
+  }
+): Promise<void> {
+  const desiredByAttendeeId = new Map<string, DonationAllocationPlanRow>()
+  for (const row of args.rows) {
+    desiredByAttendeeId.set(row.attendeeId, row)
+  }
+
+  const existingRows = await loadRecordedAllocations(ctx, args.donation._id)
+  const existingByAttendeeId = new Map<string, Doc<"donationAllocations">>()
+  for (const row of existingRows) {
+    existingByAttendeeId.set(String(row.attendeeId), row)
+  }
+
+  for (const existing of existingRows) {
+    if (!desiredByAttendeeId.has(String(existing.attendeeId))) {
+      await ctx.db.delete("donationAllocations", existing._id)
+    }
+  }
+
+  const now = Date.now()
+  for (const [attendeeKey, desired] of desiredByAttendeeId) {
+    const existing = existingByAttendeeId.get(attendeeKey)
+
+    if (!existing) {
+      await ctx.db.insert("donationAllocations", {
+        donationId: args.donation._id,
+        eventId: args.eventId,
+        orderId: desired.orderId as Id<"orders">,
+        attendeeId: desired.attendeeId as Id<"orderAttendees">,
+        amountMinor: desired.amountMinor,
+        scope: desired.scope,
+        createdAt: now,
+        createdBy: args.actor,
+        ...(args.submissionId ? { submissionId: args.submissionId } : {}),
+      })
+      continue
+    }
+
+    const unchanged =
+      existing.amountMinor === desired.amountMinor &&
+      existing.scope === desired.scope &&
+      String(existing.orderId) === desired.orderId
+
+    if (unchanged) {
+      // D-04/D-17: never silently rewrite a row whose balance moved. Plan
+      // 55-04's single-row path depends on siblings keeping their provenance.
+      continue
+    }
+
+    await ctx.db.patch("donationAllocations", existing._id, {
+      amountMinor: desired.amountMinor,
+      scope: desired.scope,
+      orderId: desired.orderId as Id<"orders">,
+      createdAt: now,
+      createdBy: args.actor,
+      ...(args.submissionId ? { submissionId: args.submissionId } : {}),
+    })
+  }
+}
+
+/**
+ * The ONE frozen submission-result shape every mutation in this module
+ * returns, so the idempotency ledger (plan 55-03) can store and replay it
+ * verbatim.
+ */
+function serializeAllocationResult(
+  donationId: Id<"payments">,
+  donationAmountMinor: number,
+  rows: ReadonlyArray<DonationAllocationPlanRow>
+) {
+  const remaining = deriveAllocationRemainingMinor({
+    donationAmountMinor,
+    recordedRows: rows,
+  })
+
+  return {
+    donationId,
+    allocatedTotalMinor: sumRecordedAllocationMinor(rows),
+    remainingMinor: remaining.remainingMinor,
+    rows,
+  }
+}
+
+/**
+ * Set-replace batch allocation. NOTE: this mutation must never issue a write
+ * against the `payments` table (DACC-03) — the donation's payment row stays
+ * event-scoped and standalone; only `donationAllocations` rows carry credit.
+ */
+export const allocateDonation = mutation({
+  args: {
+    donationId: v.id("payments"),
+    eventId: v.id("events"),
+    request: allocationRequestValidator,
+  },
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx)
+
+    const donation = await loadDonationForAllocation(ctx, args)
+
+    // Read the donation's existing allocations even though the set-replace
+    // re-reads them, so they join THIS transaction's read set (D-15). A
+    // guarded early return must never skip these reads or the OCC guard
+    // evaporates.
+    await loadRecordedAllocations(ctx, args.donationId)
+
+    const { rows, ceilings } = await resolvePlanRows(ctx, {
+      request: args.request,
+      eventId: args.eventId,
+      donationId: args.donationId,
+    })
+
+    // Validate BEFORE any write, so an over-allocation fails the whole
+    // submission with nothing persisted (D-13). The donation-scoping lives
+    // entirely in `ceilings`, so `DONATION_ALLOCATION_EXCEEDS_CEILING` now
+    // fires for a row that would double-allocate an obligation another
+    // donation already holds. `alreadyClaimedByOrder` is EMPTY because a
+    // set-replace replaces the donation's entire set.
+    validateAllocationPlan({
+      availableMinor: donation.amountMinor,
+      rows,
+      ceilings,
+      alreadyClaimedByOrder: EMPTY_ALREADY_CLAIMED_BY_ORDER,
+    })
+
+    await applyAllocationSetReplace(ctx, {
+      donation,
+      eventId: args.eventId,
+      rows,
+      actor: identity.tokenIdentifier,
+    })
+
+    return serializeAllocationResult(args.donationId, donation.amountMinor, rows)
+  },
+})
