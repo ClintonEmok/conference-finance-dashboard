@@ -606,6 +606,38 @@ export declare const api: {
       { donationId: Id<"payments"> },
       any
     >;
+    previewDonationAllocation: FunctionReference<
+      "query",
+      "public",
+      {
+        donationId: Id<"payments">;
+        eventId: Id<"events">;
+        request:
+          | {
+              method: "manual";
+              rows: Array<{
+                amountMinor: number;
+                attendeeId: Id<"orderAttendees">;
+                scope: "event_charges" | "whole_order";
+              }>;
+            }
+          | {
+              method: "equal";
+              targets: Array<{
+                attendeeId: Id<"orderAttendees">;
+                scope: "event_charges" | "whole_order";
+              }>;
+            }
+          | {
+              method: "largest_balance_first";
+              targets: Array<{
+                attendeeId: Id<"orderAttendees">;
+                scope: "event_charges" | "whole_order";
+              }>;
+            };
+      },
+      any
+    >;
     removeDonationAllocation: FunctionReference<
       "mutation",
       "public",

@@ -1310,3 +1310,124 @@ export const getDonationAllocationSummary = query({
     }
   },
 })
+
+/**
+ * D-07 read-only preview: the SAME server-computed breakdown a commit would
+ * persist, returned BEFORE anything is written.
+ *
+ * READ-ONLY IS STRUCTURAL. This is a `query`, so Convex gives it no write
+ * capability: there is no `ctx.scheduler`, no ledger row, no allocation write
+ * and no counter patch anywhere in this handler — nothing to remember to skip.
+ *
+ * PARITY (T-55-20). It reuses the mutation's exact resolution path —
+ * `resolvePlanRows`, and therefore the ONE donation-scoped
+ * `loadAllocationCeilings` pass — and refuses over-allocation with the writer's
+ * own typed codes, so a previewed amount is never silently clamped on commit.
+ * A `manual` preview describes a SET-REPLACE submission, so it validates with
+ * an EMPTY `alreadyClaimedByOrder`; the distribution methods use the engine's
+ * output verbatim (the engine is provably acceptable to `validateAllocationPlan`
+ * by construction, 55-02), which is why a distribution that cannot place the
+ * whole amount is reported as `leftoverMinor` rather than thrown.
+ *
+ * TWO DIFFERENT NUMBERS, never conflated:
+ *   - `remainderMinor` — the indivisible rounding units handed out one minor
+ *     unit at a time by `allocateMinorAmountByWeight`, reported with the
+ *     attendees that actually absorbed them. It is part of
+ *     `totalAllocatedMinor`; it is NOT money left over.
+ *   - `leftoverMinor` — the part of the donation no scope ceiling or order pool
+ *     could absorb. It stays available for a later submission (DON-05) and a
+ *     non-zero value is SUCCESS.
+ *
+ * `previewOnly: true` exists so a caller can never mistake this payload for a
+ * persisted result. The arguments are compatible with `allocateDonation`, so a
+ * client can compute a preview and then submit the identical `request`.
+ */
+export const previewDonationAllocation = query({
+  args: {
+    donationId: v.id("payments"),
+    eventId: v.id("events"),
+    request: allocationRequestValidator,
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    // For a READ the guards are not swallowed: the UI must be able to explain a
+    // refusal with exactly the code a commit would raise.
+    const donation = await loadDonationForAllocation(ctx, args)
+
+    const recorded = await loadRecordedAllocations(ctx, args.donationId)
+    const { recordedAllocatedMinor, remainingMinor } =
+      deriveAllocationRemainingMinor({
+        donationAmountMinor: donation.amountMinor,
+        recordedRows: recorded,
+      })
+
+    // ONE resolution path, shared with the mutation. `availableMinor` is the
+    // donation's full amount because a preview describes a SET-REPLACE
+    // submission, which re-places the whole donation.
+    const { method, rows, distribution, ceilings } = await resolvePlanRows(ctx, {
+      request: args.request,
+      eventId: args.eventId,
+      donationId: args.donationId,
+      availableMinor: donation.amountMinor,
+    })
+
+    let breakdown: DonationDistributionTargetResult[]
+    let totalAllocatedMinor: number
+    let leftoverMinor: number
+    let remainderMinor: number
+    let remainderRecipientAttendeeIds: string[]
+
+    // `distribution === null` iff the method is `manual` (by construction).
+    if (distribution === null) {
+      // An over-allocation throws the writer's own code — a preview that
+      // silently clamped would defeat D-07/D-13.
+      validateAllocationPlan({
+        availableMinor: donation.amountMinor,
+        rows,
+        ceilings,
+        alreadyClaimedByOrder: EMPTY_ALREADY_CLAIMED_BY_ORDER,
+      })
+
+      breakdown = rows.map((row) => {
+        const ceiling = ceilings.get(row.attendeeId)
+        return {
+          attendeeId: row.attendeeId,
+          orderId: row.orderId,
+          scope: row.scope,
+          ceilingMinor: ceiling
+            ? resolveScopeOutstandingMinor(ceiling, row.scope)
+            : 0,
+          amountMinor: row.amountMinor,
+          extraMinorUnits: 0,
+          skipped: false,
+        }
+      })
+      totalAllocatedMinor = sumRecordedAllocationMinor(rows)
+      leftoverMinor = Math.max(0, donation.amountMinor - totalAllocatedMinor)
+      remainderMinor = 0
+      remainderRecipientAttendeeIds = []
+    } else {
+      breakdown = distribution.breakdown
+      totalAllocatedMinor = distribution.totalAllocatedMinor
+      leftoverMinor = distribution.leftoverMinor
+      remainderMinor = distribution.remainderMinor
+      remainderRecipientAttendeeIds = distribution.remainderRecipientAttendeeIds
+    }
+
+    return {
+      donationId: args.donationId,
+      eventId: args.eventId,
+      donationAmountMinor: donation.amountMinor,
+      recordedAllocatedMinor,
+      remainingMinor,
+      method,
+      totalAllocatedMinor,
+      leftoverMinor,
+      remainderMinor,
+      remainderRecipientAttendeeIds,
+      rows: breakdown,
+      previewOnly: true as const,
+    }
+  },
+})

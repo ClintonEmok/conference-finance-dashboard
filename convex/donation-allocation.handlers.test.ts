@@ -3014,3 +3014,425 @@ test("the row written by allocateDonationToAttendee carries its allocate_one led
   expect(rows[0].submissionId).not.toBeNull()
   expect(rows[0].submissionId).toBe(ledgerRow?._id)
 })
+
+// ---------------------------------------------------------------------------
+// Task 2 (plan 55-04): the read-only preview with writer parity
+// ---------------------------------------------------------------------------
+
+type PreviewBreakdownRow = {
+  attendeeId: string
+  orderId: string
+  scope: string
+  ceilingMinor: number
+  amountMinor: number
+  extraMinorUnits: number
+  skipped: boolean
+  skipReason?: string
+}
+
+type PreviewResult = {
+  donationId: string
+  eventId: string
+  donationAmountMinor: number
+  recordedAllocatedMinor: number
+  remainingMinor: number
+  method: string
+  totalAllocatedMinor: number
+  leftoverMinor: number
+  remainderMinor: number
+  remainderRecipientAttendeeIds: string[]
+  rows: PreviewBreakdownRow[]
+  previewOnly: boolean
+}
+
+/**
+ * The read-only D-07 preview. Argument-compatible with `allocateDonation`, so a
+ * test can preview and then submit the identical request.
+ */
+async function preview(
+  client: TestConvex,
+  args: {
+    donationId: Id<"payments">
+    eventId: Id<"events">
+    request: AllocationRequestInput
+  }
+): Promise<PreviewResult> {
+  return client.query(api.donations.previewDonationAllocation, args)
+}
+
+/** Row counts across all three allocation tables, for the "writes nothing" proof. */
+async function countRows(t: TestConvex) {
+  return t.query(async (ctx) => {
+    let allocations = 0
+    for await (const _row of ctx.db.query("donationAllocations")) allocations += 1
+    let submissions = 0
+    for await (const _row of ctx.db.query("donationAllocationSubmissions")) {
+      submissions += 1
+    }
+    let removals = 0
+    for await (const _row of ctx.db.query("donationAllocationRemovals")) {
+      removals += 1
+    }
+    return { allocations, submissions, removals }
+  })
+}
+
+/** The stable code prefix of a thrown allocation error, for parity assertions. */
+async function rejectionCode(promise: Promise<unknown>): Promise<string> {
+  let message = ""
+  await promise.then(
+    () => {
+      throw new Error("expected the call to reject, but it resolved")
+    },
+    (error: unknown) => {
+      message = error instanceof Error ? error.message : String(error)
+    }
+  )
+  return message.split(":")[0]
+}
+
+test("a preview matches the commit for manual, equal and largest-balance-first", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "preview-parity")
+  const a = await createAttendee(seeded, eventId, {
+    attendeeKey: "pv-a",
+    name: "Attendee A",
+    ticketPriceMinor: 40_000,
+  })
+  const b = await createAttendee(seeded, eventId, {
+    orderId: a.orderId,
+    attendeeKey: "pv-b",
+    name: "Attendee B",
+    ticketPriceMinor: 40_000,
+    sortOrder: 1,
+  })
+  const c = await createAttendee(seeded, eventId, {
+    orderId: a.orderId,
+    attendeeKey: "pv-c",
+    name: "Attendee C",
+    ticketPriceMinor: 40_000,
+    sortOrder: 2,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 100_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  const allTargets: TargetInput[] = [
+    { attendeeId: a.attendeeId, scope: "event_charges" },
+    { attendeeId: b.attendeeId, scope: "event_charges" },
+    { attendeeId: c.attendeeId, scope: "event_charges" },
+  ]
+
+  const cases: Array<{
+    label: string
+    request: AllocationRequestInput
+    remainderMinor: number
+    recipients: string[]
+  }> = [
+    {
+      label: "manual",
+      request: manualRequest([
+        { attendeeId: a.attendeeId, amountMinor: 30_000, scope: "event_charges" },
+        { attendeeId: b.attendeeId, amountMinor: 20_000, scope: "whole_order" },
+      ]),
+      remainderMinor: 0,
+      recipients: [],
+    },
+    {
+      label: "equal",
+      request: { method: "equal", targets: allTargets },
+      // 100_000 / 3 = 33_333.33… → 33_334 / 33_333 / 33_333, one unit to the
+      // first target.
+      remainderMinor: 1,
+      recipients: [String(a.attendeeId)],
+    },
+    {
+      label: "largest_balance_first",
+      request: { method: "largest_balance_first", targets: allTargets },
+      remainderMinor: 0,
+      recipients: [],
+    },
+  ]
+
+  for (const entry of cases) {
+    const pv = await preview(authed, {
+      donationId,
+      eventId,
+      request: entry.request,
+    })
+    expect(pv.previewOnly).toBe(true)
+    expect(pv.method).toBe(entry.label)
+    expect(pv.donationAmountMinor).toBe(100_000)
+    expect(pv.remainderMinor).toBe(entry.remainderMinor)
+    expect(pv.remainderRecipientAttendeeIds).toEqual(entry.recipients)
+
+    const committed = await allocate(authed, {
+      donationId,
+      eventId,
+      request: entry.request,
+    })
+    expect(committed.allocatedTotalMinor).toBe(pv.totalAllocatedMinor)
+    expect(committed.remainingMinor).toBe(pv.leftoverMinor)
+
+    const persisted = await loadAllocationRows(seeded, donationId)
+    const funded = pv.rows.filter((row) => !row.skipped)
+    expect(persisted).toHaveLength(funded.length)
+    for (const row of funded) {
+      const stored = persisted.find((entry2) => entry2.attendeeId === row.attendeeId)
+      expect(stored).toBeDefined()
+      expect(stored?.amountMinor).toBe(row.amountMinor)
+      expect(stored?.scope).toBe(row.scope)
+    }
+
+    // The derived remainder after the commit is exactly the previewed leftover.
+    const summary = await loadSummary(authed, donationId)
+    expect(summary.remainingMinor).toBe(pv.leftoverMinor)
+  }
+})
+
+test("a preview writes nothing at all", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "preview-readonly")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "pv-ro-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  const before = await countRows(seeded)
+  expect(before).toEqual({ allocations: 0, submissions: 0, removals: 0 })
+
+  await preview(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 5_000, scope: "event_charges" },
+    ]),
+  })
+  await preview(authed, {
+    donationId,
+    eventId,
+    request: { method: "equal", targets: [{ attendeeId, scope: "event_charges" }] },
+  })
+
+  // A query has no write capability, so this is structural — but proving it
+  // keeps a future refactor from moving the preview onto a mutation.
+  expect(await countRows(seeded)).toEqual(before)
+})
+
+test("a preview refuses over-allocation with the writer's own codes and writes nothing", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "preview-refusals")
+  const first = await createAttendee(seeded, eventId, {
+    attendeeKey: "pv-refuse-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const second = await createAttendee(seeded, eventId, {
+    orderId: first.orderId,
+    attendeeKey: "pv-refuse-b",
+    name: "Attendee B",
+    ticketPriceMinor: 10_000,
+    sortOrder: 1,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+  const before = await countRows(seeded)
+
+  // Over the donation's remainder.
+  const smallDonationId = await createDonation(seeded, eventId, {
+    amountMinor: 5_000,
+  })
+  const overRemainder = manualRequest([
+    { attendeeId: first.attendeeId, amountMinor: 6_000, scope: "event_charges" },
+  ])
+  await expect(
+    preview(authed, { donationId: smallDonationId, eventId, request: overRemainder })
+  ).rejects.toThrow("DONATION_ALLOCATION_EXCEEDS_REMAINDER")
+  await expect(
+    allocate(authed, { donationId: smallDonationId, eventId, request: overRemainder })
+  ).rejects.toThrow("DONATION_ALLOCATION_EXCEEDS_REMAINDER")
+
+  // Over the attendee's own scope ceiling.
+  const largeDonationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const overCeiling = manualRequest([
+    { attendeeId: first.attendeeId, amountMinor: 15_000, scope: "event_charges" },
+  ])
+  await expect(
+    preview(authed, { donationId: largeDonationId, eventId, request: overCeiling })
+  ).rejects.toThrow("DONATION_ALLOCATION_EXCEEDS_CEILING")
+  await expect(
+    allocate(authed, { donationId: largeDonationId, eventId, request: overCeiling })
+  ).rejects.toThrow("DONATION_ALLOCATION_EXCEEDS_CEILING")
+
+  // CE-1: the scope-mixed pair on the €200 order. Each row passes its OWN scope
+  // check and the remainder check, so ONLY the any-scope order-capacity rule
+  // refuses it — and the preview must refuse it with exactly the commit's code.
+  const ce1DonationId = await createDonation(seeded, eventId, {
+    amountMinor: 30_000,
+  })
+  const ce1 = manualRequest([
+    { attendeeId: first.attendeeId, amountMinor: 10_000, scope: "event_charges" },
+    { attendeeId: second.attendeeId, amountMinor: 20_000, scope: "whole_order" },
+  ])
+  const previewCode = await rejectionCode(
+    preview(authed, { donationId: ce1DonationId, eventId, request: ce1 })
+  )
+  const commitCode = await rejectionCode(
+    allocate(authed, { donationId: ce1DonationId, eventId, request: ce1 })
+  )
+  expect(previewCode).toBe("DONATION_ALLOCATION_EXCEEDS_ORDER_CAPACITY")
+  expect(commitCode).toBe(previewCode)
+
+  expect(await countRows(seeded)).toEqual(before)
+})
+
+test("a preview of an under-capacity distribution reports leftover and the commit persists its rows", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "preview-leftover")
+  const first = await createAttendee(seeded, eventId, {
+    attendeeKey: "pv-left-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const second = await createAttendee(seeded, eventId, {
+    orderId: first.orderId,
+    attendeeKey: "pv-left-b",
+    name: "Attendee B",
+    ticketPriceMinor: 10_000,
+    sortOrder: 1,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 50_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  const request: AllocationRequestInput = {
+    method: "equal",
+    targets: [
+      { attendeeId: first.attendeeId, scope: "event_charges" },
+      { attendeeId: second.attendeeId, scope: "event_charges" },
+    ],
+  }
+
+  const pv = await preview(authed, { donationId, eventId, request })
+  expect(pv.totalAllocatedMinor).toBe(20_000)
+  expect(pv.leftoverMinor).toBe(30_000)
+  expect(pv.rows.every((row) => !row.skipped)).toBe(true)
+
+  const committed = await allocate(authed, { donationId, eventId, request })
+  expect(committed).toMatchObject({
+    allocatedTotalMinor: 20_000,
+    remainingMinor: 30_000,
+  })
+
+  const persisted = await loadAllocationRows(seeded, donationId)
+  expect(persisted).toHaveLength(2)
+  expect(
+    persisted.reduce((sum, row) => sum + row.amountMinor, 0)
+  ).toBe(20_000)
+})
+
+test("a preview reports the identical skipped target and leftover as the commit", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "preview-skip-parity")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "pv-skip-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const firstDonationId = await createDonation(seeded, eventId, {
+    amountMinor: 10_000,
+  })
+  const secondDonationId = await createDonation(seeded, eventId, {
+    amountMinor: 50_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  await allocate(authed, {
+    donationId: firstDonationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 10_000, scope: "event_charges" },
+    ]),
+  })
+
+  const request: AllocationRequestInput = {
+    method: "equal",
+    targets: [{ attendeeId, scope: "event_charges" }],
+  }
+  const pv = await preview(authed, { donationId: secondDonationId, eventId, request })
+  expect(pv.rows).toHaveLength(1)
+  expect(pv.rows[0]).toMatchObject({
+    attendeeId: String(attendeeId),
+    ceilingMinor: 0,
+    amountMinor: 0,
+    skipped: true,
+    skipReason: "zero_scope_balance",
+  })
+  expect(pv.totalAllocatedMinor).toBe(0)
+  expect(pv.leftoverMinor).toBe(50_000)
+
+  const committed = await allocate(authed, {
+    donationId: secondDonationId,
+    eventId,
+    request,
+  })
+  // Preview/commit parity: the commit's derived remainder is the preview's
+  // leftover, and neither wrote a row.
+  expect(committed.remainingMinor).toBe(pv.leftoverMinor)
+  expect(await loadAllocationRows(seeded, secondDonationId)).toHaveLength(0)
+})
+
+test("a preview is authenticated and uses the writer's donation guards", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "preview-guards-one")
+  const otherEventId = await seedEvent(seeded, "preview-guards-two")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "pv-guard-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+  const request = manualRequest([
+    { attendeeId, amountMinor: 5_000, scope: "event_charges" },
+  ])
+
+  const anonymous = convexTest(schema, modules)
+  await expect(
+    anonymous.query(api.donations.previewDonationAllocation, {
+      donationId,
+      eventId,
+      request,
+    })
+  ).rejects.toThrow("Unauthorized")
+
+  // A read that cannot be performed throws the SAME code a commit would, so the
+  // UI can explain the refusal identically.
+  await expect(
+    preview(authed, { donationId, eventId: otherEventId, request })
+  ).rejects.toThrow("DONATION_ALLOCATION_CROSS_EVENT")
+
+  const overpaymentId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+    donationKind: "overpayment",
+  })
+  await expect(
+    preview(authed, { donationId: overpaymentId, eventId, request })
+  ).rejects.toThrow("DONATION_NOT_STANDALONE")
+
+  expect(await countRows(seeded)).toEqual({
+    allocations: 0,
+    submissions: 0,
+    removals: 0,
+  })
+})
