@@ -40,6 +40,208 @@ function manualRequest(rows: ManualRowInput[]) {
   return { method: "manual" as const, rows }
 }
 
+type AllocationRequestInput =
+  | { method: "manual"; rows: ManualRowInput[] }
+  | { method: "equal"; targets: TargetInput[] }
+  | { method: "largest_balance_first"; targets: TargetInput[] }
+
+/**
+ * The allocation mutation now REQUIRES an idempotency key (D-21), so every call
+ * site goes through this helper. Unless a test passes an explicit
+ * `idempotencyKey` (the replay/conflict cases), a fresh key is minted per call —
+ * which is exactly what a real operator client does, and which keeps the
+ * existing "distinct submission" tests reading as distinct submissions.
+ */
+let allocationKeySeq = 0
+function allocate(
+  client: TestConvex,
+  args: {
+    donationId: Id<"payments">
+    eventId: Id<"events">
+    request: AllocationRequestInput
+    idempotencyKey?: string
+  }
+) {
+  allocationKeySeq += 1
+  return client.mutation(api.donations.allocateDonation, {
+    ...args,
+    idempotencyKey: args.idempotencyKey ?? `auto-${allocationKeySeq}`,
+  })
+}
+
+type LedgerRow = {
+  _id: string
+  donationId: string
+  idempotencyKey: string
+  requestDigest: string
+  operation: string
+  actor: string
+  allocatedTotalMinor: number
+  remainingMinor: number
+  rows: Array<{
+    attendeeId: string
+    orderId: string
+    amountMinor: number
+    scope: string
+  }>
+}
+
+/**
+ * The `(donationId, idempotencyKey)` ledger row. Read through the composite
+ * `by_donationId_and_idempotencyKey` index using its `donationId` PREFIX and
+ * matched on the key in memory: `GenericDataModel` types the index range
+ * builder as accepting only one `eq`, while the production lookup chains both.
+ */
+async function loadLedgerRow(
+  t: TestConvex,
+  donationId: Id<"payments">,
+  idempotencyKey: string
+): Promise<LedgerRow | null> {
+  return t.query(async (ctx) => {
+    const row = await ctx.db
+      .query("donationAllocationSubmissions")
+      .withIndex("by_donationId_and_idempotencyKey", (q) =>
+        q.eq("donationId", donationId)
+      )
+      .filter((q) => q.eq(q.field("idempotencyKey"), idempotencyKey))
+      .first()
+
+    if (!row) {
+      return null
+    }
+
+    return {
+      _id: String(row._id),
+      donationId: String(row.donationId),
+      idempotencyKey: String(row.idempotencyKey),
+      requestDigest: String(row.requestDigest),
+      operation: String(row.operation),
+      actor: String(row.actor),
+      allocatedTotalMinor: Number(row.allocatedTotalMinor),
+      remainingMinor: Number(row.remainingMinor),
+      rows: (row.rows as unknown as LedgerRow["rows"]).map((entry) => ({
+        attendeeId: String(entry.attendeeId),
+        orderId: String(entry.orderId),
+        amountMinor: Number(entry.amountMinor),
+        scope: String(entry.scope),
+      })),
+    }
+  })
+}
+
+async function countLedgerRows(t: TestConvex): Promise<number> {
+  return t.query(async (ctx) => {
+    let count = 0
+    for await (const _row of ctx.db.query("donationAllocationSubmissions")) {
+      count += 1
+    }
+    return count
+  })
+}
+
+/** Every `donationAllocations` row for a donation, WITH its provenance stamp. */
+async function loadAllocationRowDetails(t: TestConvex, donationId: Id<"payments">) {
+  return t.query(async (ctx) => {
+    const rows: Array<{
+      _id: string
+      attendeeId: string
+      orderId: string
+      amountMinor: number
+      scope: string
+      createdAt: number
+      createdBy: string
+      submissionId: string | null
+    }> = []
+
+    for await (const row of ctx.db
+      .query("donationAllocations")
+      .withIndex("by_donationId", (q) => q.eq("donationId", donationId))) {
+      rows.push({
+        _id: String(row._id),
+        attendeeId: String(row.attendeeId),
+        orderId: String(row.orderId),
+        amountMinor: Number(row.amountMinor),
+        scope: String(row.scope),
+        createdAt: Number(row.createdAt),
+        createdBy: String(row.createdBy),
+        submissionId: row.submissionId ? String(row.submissionId) : null,
+      })
+    }
+
+    return rows
+  })
+}
+
+/** Every append-only removal audit row for a donation. */
+async function loadRemovalAuditRows(t: TestConvex, donationId: Id<"payments">) {
+  return t.query(async (ctx) => {
+    const rows: Array<{
+      donationId: string
+      eventId: string
+      orderId: string
+      attendeeId: string
+      amountMinor: number
+      scope: string
+      actor: string
+      removedAt: number
+      submissionId: string | null
+    }> = []
+
+    for await (const row of ctx.db
+      .query("donationAllocationRemovals")
+      .withIndex("by_donationId", (q) => q.eq("donationId", donationId))) {
+      rows.push({
+        donationId: String(row.donationId),
+        eventId: String(row.eventId),
+        orderId: String(row.orderId),
+        attendeeId: String(row.attendeeId),
+        amountMinor: Number(row.amountMinor),
+        scope: String(row.scope),
+        actor: String(row.actor),
+        removedAt: Number(row.removedAt),
+        submissionId: row.submissionId ? String(row.submissionId) : null,
+      })
+    }
+
+    return rows
+  })
+}
+
+async function countRemovalAuditRows(t: TestConvex): Promise<number> {
+  return t.query(async (ctx) => {
+    let count = 0
+    for await (const _row of ctx.db.query("donationAllocationRemovals")) {
+      count += 1
+    }
+    return count
+  })
+}
+
+/**
+ * Moves the ceiling BEHIND an order's attendees by repricing its ticket types.
+ * `loadOrderAmountDueBreakdowns` re-prices selections from
+ * `ticketTypes.priceMinor` on every call, so this changes every attendee's
+ * attributable due (and therefore both scope ceilings) without touching a
+ * single allocation row — which is exactly the D-16 staleness fixture.
+ */
+async function reduceTicketPrice(
+  t: TestConvex,
+  orderId: Id<"orders">,
+  priceMinor: number
+): Promise<void> {
+  await t.mutation(async (ctx) => {
+    for await (const selection of ctx.db
+      .query("orderTicketSelections")
+      .withIndex("by_orderId", (q) => q.eq("orderId", orderId))) {
+      await ctx.db.patch(
+        "ticketTypes",
+        selection.ticketTypeId as Id<"ticketTypes">,
+        { priceMinor }
+      )
+    }
+  })
+}
+
 async function seedEvent(t: TestConvex, slug: string): Promise<Id<"events">> {
   return t.mutation(async (ctx) =>
     ctx.db.insert("events", {
@@ -201,7 +403,7 @@ test("allocateDonation requires auth, writes the submitted rows and derives the 
   ])
 
   await expect(
-    anonymous.mutation(api.donations.allocateDonation, {
+    allocate(anonymous, {
       donationId,
       eventId,
       request,
@@ -209,7 +411,7 @@ test("allocateDonation requires auth, writes the submitted rows and derives the 
   ).rejects.toThrow("Unauthorized")
   expect(await countAllocationRows(seeded)).toBe(0)
 
-  const result = await authed.mutation(api.donations.allocateDonation, {
+  const result = await allocate(authed, {
     donationId,
     eventId,
     request,
@@ -250,7 +452,7 @@ test("a second submission is a set-replace and an empty plan clears the allocati
   })
   const authed = seeded.withIdentity(adminIdentity)
 
-  const firstResult = await authed.mutation(api.donations.allocateDonation, {
+  const firstResult = await allocate(authed, {
     donationId,
     eventId,
     request: manualRequest([
@@ -261,7 +463,7 @@ test("a second submission is a set-replace and an empty plan clears the allocati
   expect(firstResult.remainingMinor).toBe(10_000)
   expect(await countAllocationRows(seeded)).toBe(2)
 
-  const secondResult = await authed.mutation(api.donations.allocateDonation, {
+  const secondResult = await allocate(authed, {
     donationId,
     eventId,
     request: manualRequest([
@@ -273,7 +475,7 @@ test("a second submission is a set-replace and an empty plan clears the allocati
   const rows = await loadAllocationRows(seeded, donationId)
   expect(rows.map((row) => row.attendeeId)).toEqual([String(first.attendeeId)])
 
-  const clearedResult = await authed.mutation(api.donations.allocateDonation, {
+  const clearedResult = await allocate(authed, {
     donationId,
     eventId,
     request: manualRequest([]),
@@ -298,7 +500,7 @@ test("over-remainder and over-ceiling submissions write nothing", async () => {
     amountMinor: 5_000,
   })
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId: smallDonationId,
       eventId,
       request: manualRequest([
@@ -313,7 +515,7 @@ test("over-remainder and over-ceiling submissions write nothing", async () => {
     amountMinor: 15_000,
   })
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId: largeDonationId,
       eventId,
       request: manualRequest([
@@ -346,7 +548,7 @@ test("whole_order is the larger attendee-agnostic ceiling (D-12 divergence)", as
   const authed = seeded.withIdentity(adminIdentity)
 
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId,
       eventId,
       request: manualRequest([
@@ -358,7 +560,7 @@ test("whole_order is the larger attendee-agnostic ceiling (D-12 divergence)", as
 
   // The identical amount is accepted under whole_order: the scope is honoured,
   // never inferred.
-  const accepted = await authed.mutation(api.donations.allocateDonation, {
+  const accepted = await allocate(authed, {
     donationId,
     eventId,
     request: manualRequest([
@@ -385,7 +587,7 @@ test("a single-attendee order makes whole_order and event_charges equal", async 
   })
   const authed = seeded.withIdentity(adminIdentity)
 
-  const eventChargesResult = await authed.mutation(api.donations.allocateDonation, {
+  const eventChargesResult = await allocate(authed, {
     donationId,
     eventId,
     request: manualRequest([
@@ -394,7 +596,7 @@ test("a single-attendee order makes whole_order and event_charges equal", async 
   })
   expect(eventChargesResult.remainingMinor).toBe(10_000)
 
-  const wholeOrderResult = await authed.mutation(api.donations.allocateDonation, {
+  const wholeOrderResult = await allocate(authed, {
     donationId,
     eventId,
     request: manualRequest([
@@ -405,7 +607,7 @@ test("a single-attendee order makes whole_order and event_charges equal", async 
 
   for (const scope of ["event_charges", "whole_order"] as const) {
     await expect(
-      authed.mutation(api.donations.allocateDonation, {
+      allocate(authed, {
         donationId,
         eventId,
         request: manualRequest([
@@ -435,7 +637,7 @@ test("cross-donation: an obligation another donation already holds is refused", 
   const authed = seeded.withIdentity(adminIdentity)
 
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId: firstDonationId,
       eventId,
       request: manualRequest([
@@ -448,7 +650,7 @@ test("cross-donation: an obligation another donation already holds is refused", 
   // and this second allocation would be accepted, leaving A allocated 20_000
   // against a 10_000 obligation.
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId: secondDonationId,
       eventId,
       request: manualRequest([
@@ -459,7 +661,7 @@ test("cross-donation: an obligation another donation already holds is refused", 
 
   expect(await countAllocationRows(seeded)).toBe(1)
   // D2's derived remainder is still its full amount: nothing was recorded.
-  const d2Result = await authed.mutation(api.donations.allocateDonation, {
+  const d2Result = await allocate(authed, {
     donationId: secondDonationId,
     eventId,
     request: manualRequest([]),
@@ -491,7 +693,7 @@ test("order capacity rejects a sibling whole_order pair and accepts its counterp
   const authed = seeded.withIdentity(adminIdentity)
 
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId,
       eventId,
       request: manualRequest([
@@ -505,7 +707,7 @@ test("order capacity rejects a sibling whole_order pair and accepts its counterp
   // A's 20_000 is itself legal; the SECOND row has only 0 of pool left, so the
   // refusal is about the pool decrement, not "any over-ceiling row fails".
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId,
       eventId,
       request: manualRequest([
@@ -516,7 +718,7 @@ test("order capacity rejects a sibling whole_order pair and accepts its counterp
   ).rejects.toThrow("DONATION_ALLOCATION_EXCEEDS_ORDER_CAPACITY")
   expect(await countAllocationRows(seeded)).toBe(0)
 
-  const accepted = await authed.mutation(api.donations.allocateDonation, {
+  const accepted = await allocate(authed, {
     donationId,
     eventId,
     request: manualRequest([
@@ -558,7 +760,7 @@ test("CE-1: a scope-mixed pair on one order is rejected with ZERO rows", async (
   // 20_000) and the remainder check passes at 30_000 <= 30_000. Any rule that
   // pools whole_order rows only accepts this.
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId,
       eventId,
       request: manualRequest([
@@ -569,7 +771,7 @@ test("CE-1: a scope-mixed pair on one order is rejected with ZERO rows", async (
   ).rejects.toThrow("DONATION_ALLOCATION_EXCEEDS_ORDER_CAPACITY")
   expect(await countAllocationRows(seeded)).toBe(0)
 
-  const accepted = await authed.mutation(api.donations.allocateDonation, {
+  const accepted = await allocate(authed, {
     donationId,
     eventId,
     request: manualRequest([
@@ -597,7 +799,7 @@ test("an operator can edit their OWN row upward (exclude SELF)", async () => {
   })
   const authed = seeded.withIdentity(adminIdentity)
 
-  await authed.mutation(api.donations.allocateDonation, {
+  await allocate(authed, {
     donationId,
     eventId,
     request: manualRequest([
@@ -607,7 +809,7 @@ test("an operator can edit their OWN row upward (exclude SELF)", async () => {
 
   // If the ceiling included D1's own 6_000, A's ceiling would read 4_000 and
   // this 10_000 edit would be wrongly refused.
-  const raised = await authed.mutation(api.donations.allocateDonation, {
+  const raised = await allocate(authed, {
     donationId,
     eventId,
     request: manualRequest([
@@ -645,7 +847,7 @@ test("whole_order is also other-scoped: a second donation sees the first's claim
   const authed = seeded.withIdentity(adminIdentity)
 
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId: firstDonationId,
       eventId,
       request: manualRequest([
@@ -659,7 +861,7 @@ test("whole_order is also other-scoped: a second donation sees the first's claim
   // the check that fires. A missing (or scope-filtered) by_orderId subtraction
   // reads 20_000 for B and would accept this.
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId: secondDonationId,
       eventId,
       request: manualRequest([
@@ -671,7 +873,7 @@ test("whole_order is also other-scoped: a second donation sees the first's claim
 
   // The bound is the order's outstanding net of D1's row, NOT a blanket
   // refusal of a second donation.
-  const accepted = await authed.mutation(api.donations.allocateDonation, {
+  const accepted = await allocate(authed, {
     donationId: secondDonationId,
     eventId,
     request: manualRequest([
@@ -699,7 +901,7 @@ test("mixed scopes on one attendee are rejected (subtraction spans scopes)", asy
   const authed = seeded.withIdentity(adminIdentity)
 
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId: firstDonationId,
       eventId,
       request: manualRequest([
@@ -711,7 +913,7 @@ test("mixed scopes on one attendee are rejected (subtraction spans scopes)", asy
   // D1's event_charges claim counts against the order's pool, so D2's
   // whole_order ceiling is max(0, 10_000 - 10_000) = 0.
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId: secondDonationId,
       eventId,
       request: manualRequest([
@@ -745,7 +947,7 @@ test("cross-event targets and non-standalone donations fail closed and write not
 
   // A target on another event.
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId,
       eventId,
       request: manualRequest([
@@ -756,7 +958,7 @@ test("cross-event targets and non-standalone donations fail closed and write not
 
   // A same-event target but the wrong event id in the args.
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId,
       eventId: otherEventId,
       request: manualRequest([
@@ -770,7 +972,7 @@ test("cross-event targets and non-standalone donations fail closed and write not
     amountMinor: 15_000,
   })
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId: foreignDonationId,
       eventId,
       request: manualRequest([
@@ -785,7 +987,7 @@ test("cross-event targets and non-standalone donations fail closed and write not
     donationKind: "overpayment",
   })
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId: overpaymentId,
       eventId,
       request: manualRequest([
@@ -800,7 +1002,7 @@ test("cross-event targets and non-standalone donations fail closed and write not
     orderId: "orders_provider_alias",
   })
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId: aliasDonationId,
       eventId,
       request: manualRequest([
@@ -817,7 +1019,7 @@ test("cross-event targets and non-standalone donations fail closed and write not
     await ctx.db.delete("payments", deletedDonationId)
   })
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId: deletedDonationId,
       eventId,
       request: manualRequest([
@@ -843,7 +1045,7 @@ test("duplicate targets and unsupported methods are refused", async () => {
   const authed = seeded.withIdentity(adminIdentity)
 
   await expect(
-    authed.mutation(api.donations.allocateDonation, {
+    allocate(authed, {
       donationId,
       eventId,
       request: manualRequest([
@@ -856,7 +1058,7 @@ test("duplicate targets and unsupported methods are refused", async () => {
   const targets: TargetInput[] = [{ attendeeId, scope: "event_charges" }]
   for (const method of ["equal", "largest_balance_first"] as const) {
     await expect(
-      authed.mutation(api.donations.allocateDonation, {
+      allocate(authed, {
         donationId,
         eventId,
         request: { method, targets },
@@ -880,7 +1082,7 @@ test("DACC-03: a successful allocation never touches the donation payment row", 
   })
   const authed = seeded.withIdentity(adminIdentity)
 
-  await authed.mutation(api.donations.allocateDonation, {
+  await allocate(authed, {
     donationId,
     eventId,
     request: manualRequest([
@@ -927,7 +1129,7 @@ test("a single whole_order row may exceed the attendee's own outstanding (residu
   // targeted-first projection that caps at the attendee's own outstanding and
   // reports 5_000 unapplied. Do not mistake the Phase 55 figure for the
   // canonical economic number.
-  const accepted = await authed.mutation(api.donations.allocateDonation, {
+  const accepted = await allocate(authed, {
     donationId,
     eventId,
     request: manualRequest([
@@ -943,3 +1145,340 @@ test("a single whole_order row may exceed the attendee's own outstanding (residu
     scope: "whole_order",
   })
 })
+
+// ---------------------------------------------------------------------------
+// Task 1 (plan 55-03): idempotent submissions (D-21)
+// ---------------------------------------------------------------------------
+
+test("a retried submission with the same key and digest replays with no second write", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-replay")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "replay-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  const request = manualRequest([
+    { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+  ])
+  const idempotencyKey = "replay-key"
+
+  const first = await allocate(authed, {
+    donationId,
+    eventId,
+    request,
+    idempotencyKey,
+  })
+  expect(first).toMatchObject({
+    donationId,
+    allocatedTotalMinor: 6_000,
+    remainingMinor: 9_000,
+  })
+  expect(await countAllocationRows(seeded)).toBe(1)
+  expect(await countLedgerRows(seeded)).toBe(1)
+
+  const second = await allocate(authed, {
+    donationId,
+    eventId,
+    request,
+    idempotencyKey,
+  })
+
+  // The STORED frozen result comes back verbatim — totals AND rows.
+  expect(second.remainingMinor).toBe(first.remainingMinor)
+  expect(second.allocatedTotalMinor).toBe(first.allocatedTotalMinor)
+  expect(second.rows).toEqual(first.rows)
+  expect(second).toEqual(first)
+
+  // T-55-13: the replay allocated NOTHING a second time.
+  expect(await countAllocationRows(seeded)).toBe(1)
+  expect(await countLedgerRows(seeded)).toBe(1)
+  expect(await loadAllocationRowDetails(seeded, donationId)).toHaveLength(1)
+})
+
+test("the same key with a different digest is a typed conflict and writes nothing", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-conflict")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "conflict-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+  const idempotencyKey = "conflict-key"
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+    ]),
+    idempotencyKey,
+  })
+
+  // A changed amount under the SAME key is not a replay. Returning the stored
+  // result would be a lie (the replacement was never applied), and applying it
+  // would break the replay contract — so it is a typed conflict.
+  await expect(
+    allocate(authed, {
+      donationId,
+      eventId,
+      request: manualRequest([
+        { attendeeId, amountMinor: 5_000, scope: "event_charges" },
+      ]),
+      idempotencyKey,
+    })
+  ).rejects.toThrow("DONATION_ALLOCATION_IDEMPOTENCY_CONFLICT")
+
+  // A changed scope is a different digest too.
+  await expect(
+    allocate(authed, {
+      donationId,
+      eventId,
+      request: manualRequest([
+        { attendeeId, amountMinor: 6_000, scope: "whole_order" },
+      ]),
+      idempotencyKey,
+    })
+  ).rejects.toThrow("DONATION_ALLOCATION_IDEMPOTENCY_CONFLICT")
+
+  expect(await countLedgerRows(seeded)).toBe(1)
+  const rows = await loadAllocationRowDetails(seeded, donationId)
+  expect(rows).toHaveLength(1)
+  expect(rows[0]).toMatchObject({ amountMinor: 6_000, scope: "event_charges" })
+})
+
+test("the same request under a different key applies normally and gains a ledger row", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-fresh-key")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "fresh-key-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  const request = manualRequest([
+    { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+  ])
+
+  await allocate(authed, { donationId, eventId, request, idempotencyKey: "fresh-1" })
+  await allocate(authed, { donationId, eventId, request, idempotencyKey: "fresh-2" })
+
+  // Two submissions, two ledger rows, still ONE allocation row (set-replace).
+  expect(await countLedgerRows(seeded)).toBe(2)
+  expect(await countAllocationRows(seeded)).toBe(1)
+})
+
+test("a reordered-but-equivalent rows array under the same key replays", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-reorder")
+  const first = await createAttendee(seeded, eventId, {
+    attendeeKey: "reorder-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const second = await createAttendee(seeded, eventId, {
+    orderId: first.orderId,
+    attendeeKey: "reorder-b",
+    name: "Attendee B",
+    ticketPriceMinor: 10_000,
+    sortOrder: 1,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 20_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+  const idempotencyKey = "reorder-key"
+
+  const original = await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: first.attendeeId, amountMinor: 6_000, scope: "event_charges" },
+      { attendeeId: second.attendeeId, amountMinor: 4_000, scope: "event_charges" },
+    ]),
+    idempotencyKey,
+  })
+  expect(await countAllocationRows(seeded)).toBe(2)
+
+  // Same set, reversed submission order. The digest canonicalizes `rows` by
+  // attendeeId, so this is the SAME request and must replay — not conflict.
+  const reordered = await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: second.attendeeId, amountMinor: 4_000, scope: "event_charges" },
+      { attendeeId: first.attendeeId, amountMinor: 6_000, scope: "event_charges" },
+    ]),
+    idempotencyKey,
+  })
+
+  expect(reordered).toEqual(original)
+  expect(await countAllocationRows(seeded)).toBe(2)
+  expect(await countLedgerRows(seeded)).toBe(1)
+})
+
+test("an empty or blank idempotency key is refused before any other work", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-blank-key")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "blank-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+  const request = manualRequest([
+    { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+  ])
+
+  for (const idempotencyKey of ["", "   ", "\n\t "]) {
+    await expect(
+      allocate(authed, { donationId, eventId, request, idempotencyKey })
+    ).rejects.toThrow("DONATION_ALLOCATION_INVALID_KEY")
+  }
+
+  // The blank-key guard runs BEFORE the donation guard: a missing donation
+  // would otherwise raise DONATION_ALLOCATION_NOT_FOUND, but a blank key wins,
+  // so a blank key can never be recorded and then mistaken for a replay.
+  const goneDonationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  await seeded.mutation(async (ctx) => {
+    await ctx.db.delete("payments", goneDonationId)
+  })
+  await expect(
+    allocate(authed, {
+      donationId: goneDonationId,
+      eventId,
+      request,
+      idempotencyKey: "   ",
+    })
+  ).rejects.toThrow("DONATION_ALLOCATION_INVALID_KEY")
+
+  expect(await countAllocationRows(seeded)).toBe(0)
+  expect(await countLedgerRows(seeded)).toBe(0)
+})
+
+test("a replay after the ceilings have moved still returns the stored result", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-replay-stale")
+  const { attendeeId, orderId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "replay-stale-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+  const idempotencyKey = "replay-stale-key"
+
+  const request = manualRequest([
+    { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+  ])
+  const first = await allocate(authed, {
+    donationId,
+    eventId,
+    request,
+    idempotencyKey,
+  })
+  expect(first.remainingMinor).toBe(9_000)
+
+  // Move the ceiling behind the stored row: A's attributable outstanding drops
+  // from 10_000 to 4_000, so the stored 6_000 row no longer fits.
+  await reduceTicketPrice(seeded, orderId, 4_000)
+
+  // A FRESH submission of the same plan is now refused — proving the fixture
+  // really moved the ceiling and that the replay below is not succeeding by
+  // accident.
+  await expect(
+    allocate(authed, {
+      donationId,
+      eventId,
+      request,
+      idempotencyKey: "replay-stale-probe",
+    })
+  ).rejects.toThrow("DONATION_ALLOCATION_EXCEEDS_CEILING")
+
+  // The replay returns the STORED answer and never recomputes money.
+  const replay = await allocate(authed, {
+    donationId,
+    eventId,
+    request,
+    idempotencyKey,
+  })
+  expect(replay.remainingMinor).toBe(9_000)
+  expect(replay.allocatedTotalMinor).toBe(6_000)
+  expect(replay.rows).toEqual(first.rows)
+  expect(await countLedgerRows(seeded)).toBe(1)
+})
+
+test("every allocation row carries the ledger row's id as its submissionId", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-provenance")
+  const first = await createAttendee(seeded, eventId, {
+    attendeeKey: "prov-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const second = await createAttendee(seeded, eventId, {
+    orderId: first.orderId,
+    attendeeKey: "prov-b",
+    name: "Attendee B",
+    ticketPriceMinor: 10_000,
+    sortOrder: 1,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 20_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+  const idempotencyKey = "provenance-key"
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: first.attendeeId, amountMinor: 6_000, scope: "event_charges" },
+      { attendeeId: second.attendeeId, amountMinor: 4_000, scope: "event_charges" },
+    ]),
+    idempotencyKey,
+  })
+
+  const ledgerRow = await loadLedgerRow(seeded, donationId, idempotencyKey)
+  expect(ledgerRow).not.toBeNull()
+  expect(ledgerRow?.operation).toBe("allocate")
+  expect(ledgerRow?.actor).toBe(adminIdentity.tokenIdentifier)
+  // The ledger stores the frozen result it will replay.
+  expect(ledgerRow?.allocatedTotalMinor).toBe(10_000)
+  expect(ledgerRow?.remainingMinor).toBe(10_000)
+  expect(ledgerRow?.rows).toHaveLength(2)
+
+  const rows = await loadAllocationRowDetails(seeded, donationId)
+  expect(rows).toHaveLength(2)
+
+  // REGRESSION GUARD for the ledger-insert ORDER: if the ledger row were
+  // inserted AFTER the allocation rows (or `submissionId` were not passed into
+  // the writer), `submissionId` would be undefined here. The schema field is
+  // optional, so NOTHING else in the gate would catch it — assert the strict
+  // equality, never mere field presence.
+  for (const row of rows) {
+    expect(row.submissionId).not.toBeNull()
+    expect(row.submissionId).toBe(ledgerRow?._id)
+  }
+})
+

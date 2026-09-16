@@ -9,7 +9,9 @@ import {
 } from "./finance"
 import { deriveAllocationPaymentBreakdowns } from "../lib/domain/finance/allocation-payment-state"
 import {
+  deriveAllocationReadProjection,
   deriveAllocationRemainingMinor,
+  digestAllocationEnvelope,
   sumRecordedAllocationMinor,
   throwAllocationError,
   validateAllocationPlan,
@@ -522,6 +524,147 @@ async function applyAllocationSetReplace(
   }
 }
 
+// ---------------------------------------------------------------------------
+// D-21 submission ledger (retry idempotency) and the D-19 removal audit.
+//
+// D-15 (Convex transactional conflict) guards CONCURRENT double-spend: the
+// mutation re-reads the donation's rows and the ceilings inside one
+// transaction. It does NOT guard RETRY double-spend — a caller whose response
+// was lost can resubmit and, without this ledger, the set-replace would simply
+// run twice. The two guards are complementary and both are required.
+//
+//   - Every submission carries a caller-minted, opaque `idempotencyKey`. The
+//     server stores `(donationId, idempotencyKey)` plus a SHA-256
+//     `requestDigest` recomputed from the ACTUAL mutation arguments and the
+//     FROZEN result. No handler accepts a digest, a fingerprint, a ceiling or
+//     an amount total from the caller (T-55-14, mirroring CR-09 at
+//     `convex/signupSubmission.ts:387-399`).
+//   - Replay lookup runs through `by_donationId_and_idempotencyKey` and the
+//     digest is compared IN MEMORY: an index on the digest would be dead
+//     weight (schema.ts:1043-1046).
+//   - A matching digest returns the STORED result and writes NOTHING. The
+//     result is never recomputed from the current allocation rows, which may
+//     have drifted since (exactly the contract at
+//     `convex/publicTracking.ts:855-882`).
+//   - A differing digest is a typed `DONATION_ALLOCATION_IDEMPOTENCY_CONFLICT`
+//     — never a misleading "replayed" for a replacement that was not applied.
+//   - The key is scoped per `donationId` ONLY, never per
+//     `(donationId, operation)`: a key identifies ONE SUBMISSION, not one
+//     operation. Reusing an `allocate` key for a `remove` on the same donation
+//     is therefore an intended conflict, not a replay.
+//
+// LEDGER-FIRST ORDERING (load-bearing). The ledger row is inserted BEFORE the
+// rows it describes and its `_id` is passed INTO the writer as
+// `submissionId`, so every written allocation row and every removal-audit row
+// carries provenance. Inserting it afterwards would leave `submissionId`
+// undefined on every row (the schema field is optional, so nothing else would
+// catch it) and silently sever the link Phase 57's reversal primitive depends
+// on.
+// ---------------------------------------------------------------------------
+
+/** One frozen allocation row as the ledger's `v.id(...)` validators store it. */
+type FrozenAllocationRow = {
+  attendeeId: Id<"orderAttendees">
+  orderId: Id<"orders">
+  amountMinor: number
+  scope: "event_charges" | "whole_order"
+}
+
+/** The shape every mutation in this module returns and the ledger replays. */
+type FrozenAllocationResult = {
+  donationId: Id<"payments">
+  allocatedTotalMinor: number
+  remainingMinor: number
+  rows: FrozenAllocationRow[]
+}
+
+/**
+ * Trims the caller-supplied key and refuses a blank one BEFORE any other work,
+ * so an unusable key can never be recorded and a later retry with the same
+ * (blank) key can never be mistaken for a replay. The key is opaque: trimmed
+ * and compared, never parsed.
+ */
+function requireAllocationIdempotencyKey(raw: string): string {
+  const idempotencyKey = raw.trim()
+  if (idempotencyKey.length === 0) {
+    throwAllocationError(
+      DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_INVALID_KEY,
+      "An idempotency key is required."
+    )
+  }
+  return idempotencyKey
+}
+
+/** The `(donationId, idempotencyKey)` ledger lookup, bounded to one row. */
+async function findSubmissionByKey(
+  ctx: FinanceDbCtx,
+  args: { donationId: Id<"payments">; idempotencyKey: string }
+): Promise<Doc<"donationAllocationSubmissions"> | null> {
+  return ctx.db
+    .query("donationAllocationSubmissions")
+    .withIndex("by_donationId_and_idempotencyKey", (q) =>
+      q
+        .eq("donationId", args.donationId)
+        .eq("idempotencyKey", args.idempotencyKey)
+    )
+    .first()
+}
+
+/**
+ * Resolves the D-21 replay contract for an already-fetched ledger row:
+ *   - no row      -> `null`, the caller proceeds with a fresh submission;
+ *   - digest match -> the STORED frozen result, returned verbatim;
+ *   - digest differ -> the typed conflict.
+ */
+function resolveSubmissionReplay(
+  submission: Doc<"donationAllocationSubmissions"> | null,
+  requestDigest: string,
+  donationId: Id<"payments">
+): FrozenAllocationResult | null {
+  if (!submission) {
+    return null
+  }
+
+  if (submission.requestDigest !== requestDigest) {
+    throwAllocationError(
+      DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_IDEMPOTENCY_CONFLICT,
+      "This idempotency key was already used for a different allocation request. Retry with a fresh key."
+    )
+  }
+
+  // Return the FROZEN result. Never recompute money from the current
+  // allocation rows: a ceiling, a ticket price or a payment may have moved
+  // between the original submission and this retry, and a recomputed answer
+  // would break the idempotent-replay contract.
+  return {
+    donationId,
+    allocatedTotalMinor: submission.allocatedTotalMinor,
+    remainingMinor: submission.remainingMinor,
+    rows: submission.rows,
+  }
+}
+
+/**
+ * Projects plan rows onto the ledger's `v.id(...)` validators.
+ *
+ * These are FROZEN VALUE SNAPSHOTS, never re-resolved references: on replay the
+ * stored ids are returned verbatim and are never looked up again, so a since
+ * deleted attendee or order cannot re-link or invalidate a replayed result.
+ * The cast is exactly that statement — the plan row's `attendeeId`/`orderId`
+ * are plain strings by contract (`DonationAllocationPlanRow`), while the
+ * ledger's validator declares the id types.
+ */
+function toLedgerRows(
+  rows: ReadonlyArray<DonationAllocationPlanRow>
+): FrozenAllocationRow[] {
+  return rows.map((row) => ({
+    attendeeId: row.attendeeId as Id<"orderAttendees">,
+    orderId: row.orderId as Id<"orders">,
+    amountMinor: row.amountMinor,
+    scope: row.scope,
+  }))
+}
+
 /**
  * The ONE frozen submission-result shape every mutation in this module
  * returns, so the idempotency ledger (plan 55-03) can store and replay it
@@ -549,22 +692,56 @@ function serializeAllocationResult(
  * Set-replace batch allocation. NOTE: this mutation must never issue a write
  * against the `payments` table (DACC-03) — the donation's payment row stays
  * event-scoped and standalone; only `donationAllocations` rows carry credit.
+ *
+ * Guard order is deliberate and fixed:
+ *   auth -> idempotency key -> donation guards -> server digest -> replay ->
+ *   read set + plan -> validate -> freeze the result -> ledger -> write rows.
+ *
+ * The donation guard sits BEFORE the digest so a cross-event or
+ * non-standalone donation is refused regardless of the key (its digest must
+ * never be recorded against a donation that cannot be allocated), and the
+ * replay lookup sits BEFORE the plan so a replay returns without touching the
+ * ceilings at all.
  */
 export const allocateDonation = mutation({
   args: {
     donationId: v.id("payments"),
     eventId: v.id("events"),
+    // D-21: REQUIRED, never optional. Every submission must be replay-safe, so
+    // there is no path that writes without a ledger row.
+    idempotencyKey: v.string(),
     request: allocationRequestValidator,
   },
   handler: async (ctx, args) => {
     const identity = await requireIdentity(ctx)
 
+    const idempotencyKey = requireAllocationIdempotencyKey(args.idempotencyKey)
+
     const donation = await loadDonationForAllocation(ctx, args)
 
+    // The digest is recomputed server-side from the ACTUAL arguments. Nothing
+    // in `args` can supply it, so a tampered client cannot forge a replay
+    // identity (T-55-14).
+    const requestDigest = await digestAllocationEnvelope({
+      donationId: args.donationId,
+      eventId: args.eventId,
+      operation: "allocate",
+      payload: args.request,
+    })
+
+    const replayed = resolveSubmissionReplay(
+      await findSubmissionByKey(ctx, { donationId: args.donationId, idempotencyKey }),
+      requestDigest,
+      args.donationId
+    )
+    if (replayed) {
+      return replayed
+    }
+
     // Read the donation's existing allocations even though the set-replace
-    // re-reads them, so they join THIS transaction's read set (D-15). A
-    // guarded early return must never skip these reads or the OCC guard
-    // evaporates.
+    // re-reads them, so they join THIS transaction's read set (D-15). The
+    // replay early return above never skips these reads because it writes
+    // nothing, so there is no OCC guard to evaporate.
     await loadRecordedAllocations(ctx, args.donationId)
 
     const { rows, ceilings } = await resolvePlanRows(ctx, {
@@ -586,13 +763,39 @@ export const allocateDonation = mutation({
       alreadyClaimedByOrder: EMPTY_ALREADY_CLAIMED_BY_ORDER,
     })
 
+    // The frozen result is computed from the VALIDATED plan, before any write:
+    // the allocated total, the remainder and the rows are all known from
+    // `rows` and the donation amount, so nothing here depends on a write
+    // having happened.
+    const frozen = serializeAllocationResult(
+      args.donationId,
+      donation.amountMinor,
+      rows
+    )
+
+    // LEDGER FIRST (load-bearing, see the section comment above): the writer
+    // needs `submissionId` as an INPUT, so the row must exist before the
+    // allocation rows it stamps are written.
+    const submissionId = await ctx.db.insert("donationAllocationSubmissions", {
+      donationId: args.donationId,
+      idempotencyKey,
+      requestDigest,
+      operation: "allocate",
+      actor: identity.tokenIdentifier,
+      createdAt: Date.now(),
+      allocatedTotalMinor: frozen.allocatedTotalMinor,
+      remainingMinor: frozen.remainingMinor,
+      rows: toLedgerRows(frozen.rows),
+    })
+
     await applyAllocationSetReplace(ctx, {
       donation,
       eventId: args.eventId,
       rows,
       actor: identity.tokenIdentifier,
+      submissionId,
     })
 
-    return serializeAllocationResult(args.donationId, donation.amountMinor, rows)
+    return frozen
   },
 })

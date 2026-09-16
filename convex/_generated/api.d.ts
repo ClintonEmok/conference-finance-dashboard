@@ -560,6 +560,7 @@ export declare const api: {
       {
         donationId: Id<"payments">;
         eventId: Id<"events">;
+        idempotencyKey: string;
         request:
           | {
               method: "manual";
