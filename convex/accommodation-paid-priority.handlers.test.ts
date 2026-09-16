@@ -713,26 +713,43 @@ test("confirming an assignment maps an inventory-scan truncation to INVENTORY_IN
   expect(assignment?.status).toBeUndefined()
 })
 
-test("allocation board reports an explicit incomplete signal when an authoritative read is capped", async () => {
+test("allocation board leaves hotel reads uncapped but still flags genuinely capped reads", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await seedPaidPriorityEvent(t)
+
+  // Hotel reads are intentionally uncapped: exceeding the old 200-row event-hotel
+  // cap must neither truncate nor mark the board incomplete.
   await t.mutation(async (ctx) => {
-    // Exceed the 200-row event-hotel read cap with duplicate links so the board
-    // must detect truncation instead of silently dropping data.
-    for (let index = 0; index < 201; index += 1) {
+    for (let index = 0; index < 250; index += 1) {
       await ctx.db.insert("accommodationEventHotels", {
         eventId: String(seed.eventId),
         hotelId: `${String(seed.hotelId)}-dup-${String(index)}`,
       })
     }
   })
-
-  const board = await t.query(api.accommodation.getRoomAllocationBoard, {
+  const uncapped = await t.query(api.accommodation.getRoomAllocationBoard, {
     eventId: String(seed.eventId),
   })
-  expect(board.dataCompleteness.incomplete).toBe(true)
-  expect(board.dataCompleteness.reasons).toContain("event hotels")
-  expect(board.summary.incomplete).toBe(true)
+  expect(uncapped.dataCompleteness.incomplete).toBe(false)
+  expect(uncapped.dataCompleteness.reasons).not.toContain("event hotels")
+  expect(uncapped.summary.incomplete).toBe(false)
+
+  // A still-capped authoritative read (room types, cap 100) must surface an
+  // explicit incomplete signal instead of silently dropping data.
+  await t.mutation(async (ctx) => {
+    for (let index = 0; index < 100; index += 1) {
+      await ctx.db.insert("accommodationRoomTypes", {
+        label: `Bulk Type ${String(index)}`,
+        defaultCapacity: 2,
+      })
+    }
+  })
+  const capped = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: String(seed.eventId),
+  })
+  expect(capped.dataCompleteness.incomplete).toBe(true)
+  expect(capped.dataCompleteness.reasons).toContain("room types")
+  expect(capped.summary.incomplete).toBe(true)
 })
 
 test("bed-requiring family members stay visible and actionable with a server-owned follow-up", async () => {

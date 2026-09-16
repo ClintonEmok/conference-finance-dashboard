@@ -91,12 +91,16 @@ async function getAccommodationRoomTypeByStringId(
 }
 
 /**
- * Event-scoped inventory-guard hotel cap. The guard streams each linked hotel's
- * rooms to an exact count (never a silent truncation), so only the number of
- * event-hotel links needs a bound: an event linked to more hotels than this is a
- * genuine, event-relevant read truncation and the guard fails closed.
+ * Streams an entire Convex query into memory. Hotel reads are intentionally
+ * uncapped: hotels and event-hotel links are low-cardinality config, so a fixed
+ * cap would either silently truncate or spuriously fail closed. Convex streams
+ * the query in batches, so no fixed row bound is imposed here.
  */
-const EVENT_INVENTORY_HOTEL_LIMIT = 200
+async function collectAll<T>(source: AsyncIterable<T>): Promise<T[]> {
+  const rows: T[] = []
+  for await (const row of source) rows.push(row)
+  return rows
+}
 
 /**
  * Fail-closed truncation reasons. The requested room's occupancy read and the
@@ -129,9 +133,7 @@ const INVENTORY_INCOMPLETE_MESSAGE =
  *
  * The scan is event-scoped: rooms are shared physical inventory, but an event's
  * resource pool is bounded by the hotels linked to that event, so a busy
- * multi-event deployment can never exhaust another event's rooms. Only a
- * genuinely event-relevant truncation (more linked hotels than the cap) fails
- * closed.
+ * multi-event deployment can never exhaust another event's rooms.
  */
 async function assertEventRoomInventoryAvailable(
   ctx: MutationCtx,
@@ -167,13 +169,11 @@ async function assertEventRoomInventoryAvailable(
   // Scope the candidate rooms to THIS event's hotels. A room belongs to exactly
   // one hotel, so streaming each linked hotel's rooms yields an exact,
   // duplicate-free set without a global room-type scan.
-  const eventHotelLinks = await ctx.db
-    .query("accommodationEventHotels")
-    .withIndex("eventId_hotelId", (q) => q.eq("eventId", eventId))
-    .take(EVENT_INVENTORY_HOTEL_LIMIT + 1)
-  if (eventHotelLinks.length > EVENT_INVENTORY_HOTEL_LIMIT) {
-    throw new Error(INVENTORY_INCOMPLETE_MESSAGE)
-  }
+  const eventHotelLinks = await collectAll(
+    ctx.db
+      .query("accommodationEventHotels")
+      .withIndex("eventId_hotelId", (q) => q.eq("eventId", eventId))
+  )
   const eventHotelIds = new Set(eventHotelLinks.map((link) => link.hotelId))
 
   const sourceIds = new Set(sourceAttendeeIds)
@@ -338,10 +338,11 @@ const ROOM_OCCUPANT_LIMIT = 2_000
  * so a capped result becomes an explicit `dataCompleteness.incomplete` signal
  * instead of a silently truncated "complete" board. The limits are preserved
  * from the pre-existing bounded reads; only the truncation detection is added.
+ * Hotel reads are intentionally uncapped (streamed with `collectAll`) because
+ * hotels and event-hotel links are low-cardinality config, so a fixed cap would
+ * only spuriously flag the board incomplete.
  */
-const BOARD_EVENT_HOTEL_LIMIT = 200
 const BOARD_EVENT_LIMIT = 200
-const BOARD_HOTEL_LIMIT = 200
 const BOARD_ROOM_TYPE_LIMIT = 100
 const BOARD_ROOM_LIMIT = 500
 const BOARD_ATTENDEE_LIMIT = 2_000
@@ -965,14 +966,12 @@ export const getRoomAllocationBoard = query({
       }
     }
 
-    const scopedHotelIds = takeDetecting(
-      await ctx.db
-        .query("accommodationEventHotels")
-        .withIndex("eventId_hotelId", (q) => q.eq("eventId", eventId))
-        .take(BOARD_EVENT_HOTEL_LIMIT + 1),
-      BOARD_EVENT_HOTEL_LIMIT,
-      "event hotels",
-      markBoardIncomplete
+    const scopedHotelIds = (
+      await collectAll(
+        ctx.db
+          .query("accommodationEventHotels")
+          .withIndex("eventId_hotelId", (q) => q.eq("eventId", eventId))
+      )
     ).map((eh) => eh.hotelId)
 
     const [
@@ -986,7 +985,7 @@ export const getRoomAllocationBoard = query({
       accommodationCategoriesRaw,
     ] = await Promise.all([
       ctx.db.query("events").take(BOARD_EVENT_LIMIT + 1),
-      ctx.db.query("accommodationHotels").take(BOARD_HOTEL_LIMIT + 1),
+      collectAll(ctx.db.query("accommodationHotels")),
       ctx.db.query("accommodationRoomTypes").take(BOARD_ROOM_TYPE_LIMIT + 1),
       ctx.db.query("accommodationRooms").take(BOARD_ROOM_LIMIT + 1),
       ctx.db.query("orderAttendees").take(BOARD_ATTENDEE_LIMIT + 1),
@@ -1006,12 +1005,7 @@ export const getRoomAllocationBoard = query({
       "events",
       markBoardIncomplete
     )
-    const hotels = takeDetecting(
-      hotelsRaw,
-      BOARD_HOTEL_LIMIT,
-      "hotels",
-      markBoardIncomplete
-    )
+    const hotels = hotelsRaw
     const roomTypes = takeDetecting(
       roomTypesRaw,
       BOARD_ROOM_TYPE_LIMIT,
@@ -2115,13 +2109,8 @@ export const getRoomAllocationBoard = query({
       return a.attendeeId.localeCompare(b.attendeeId)
     })
 
-    const eventHotels = takeDetecting(
-      await ctx.db
-        .query("accommodationEventHotels")
-        .take(BOARD_EVENT_HOTEL_LIMIT + 1),
-      BOARD_EVENT_HOTEL_LIMIT,
-      "event hotel assignments",
-      markBoardIncomplete
+    const eventHotels = await collectAll(
+      ctx.db.query("accommodationEventHotels")
     )
     const eventHotelsByEvent: Record<string, string[]> = {}
     for (const eh of eventHotels) {
@@ -2218,8 +2207,8 @@ export const getHotels = query({
   args: {},
   handler: async (ctx) => {
     await requireIdentity(ctx)
-    // Bounded: small number of hotels
-    return await ctx.db.query("accommodationHotels").take(200)
+    // Hotels are low-cardinality config; read the full set.
+    return await collectAll(ctx.db.query("accommodationHotels"))
   },
 })
 
@@ -2254,7 +2243,7 @@ export const getRoomsWithDetails = query({
     // Bounded: config tables capped for inventory view
     const [rooms, hotels, roomTypes] = await Promise.all([
       ctx.db.query("accommodationRooms").take(500),
-      ctx.db.query("accommodationHotels").take(200),
+      collectAll(ctx.db.query("accommodationHotels")),
       ctx.db.query("accommodationRoomTypes").take(100),
     ])
 
@@ -2296,12 +2285,12 @@ export const listAccommodationInventory = query({
     const [canonicalEvents, hotels, roomTypes, rooms] =
       await Promise.all([
         ctx.db.query("events").take(200),
-        ctx.db.query("accommodationHotels").take(200),
+        collectAll(ctx.db.query("accommodationHotels")),
         ctx.db.query("accommodationRoomTypes").take(100),
         ctx.db.query("accommodationRooms").take(500),
       ])
 
-    const eventHotels = await ctx.db.query("accommodationEventHotels").take(200)
+    const eventHotels = await collectAll(ctx.db.query("accommodationEventHotels"))
 
     const eventHotelsByHotel = eventHotels.reduce(
       (acc, eh) => {
@@ -2577,10 +2566,11 @@ export const createRooms = mutation({
     const shouldGenerateSlots = args.autoGenerateSlots !== false
     if (shouldGenerateSlots) {
       // Find all events linked to this hotel
-      const linkedEvents = await ctx.db
-        .query("accommodationEventHotels")
-        .withIndex("hotelId", (q) => q.eq("hotelId", args.hotelId))
-        .take(50)
+      const linkedEvents = await collectAll(
+        ctx.db
+          .query("accommodationEventHotels")
+          .withIndex("hotelId", (q) => q.eq("hotelId", args.hotelId))
+      )
 
       // Generate slots for each new room in each linked event
       for (const link of linkedEvents) {
@@ -3063,11 +3053,11 @@ export const getEventHotels = query({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    // Bounded: one event links to limited hotels
-    const eventHotels = await ctx.db
-      .query("accommodationEventHotels")
-      .withIndex("eventId_hotelId", (q) => q.eq("eventId", args.eventId))
-      .take(50)
+    const eventHotels = await collectAll(
+      ctx.db
+        .query("accommodationEventHotels")
+        .withIndex("eventId_hotelId", (q) => q.eq("eventId", args.eventId))
+    )
 
     const hotels = await Promise.all(
       eventHotels.map((eh) => getAccommodationHotelByStringId(ctx, eh.hotelId))
@@ -3315,10 +3305,11 @@ export const deleteHotel = mutation({
       }
     }
 
-    const eventHotels = await ctx.db
-      .query("accommodationEventHotels")
-      .withIndex("hotelId", (q) => q.eq("hotelId", args.hotelId))
-      .take(50)
+    const eventHotels = await collectAll(
+      ctx.db
+        .query("accommodationEventHotels")
+        .withIndex("hotelId", (q) => q.eq("hotelId", args.hotelId))
+    )
 
     for (const room of rooms) {
       await ctx.db.delete("accommodationRooms", room._id)
@@ -3695,12 +3686,13 @@ export const getAccommodationSummaryForEvent = query({
       throw new Error("Event not found")
     }
 
-    const eventHotels = await ctx.db
-      .query("accommodationEventHotels")
-      .withIndex("eventId_hotelId", (q) =>
-        q.eq("eventId", args.eventId as unknown as string)
-      )
-      .take(50)
+    const eventHotels = await collectAll(
+      ctx.db
+        .query("accommodationEventHotels")
+        .withIndex("eventId_hotelId", (q) =>
+          q.eq("eventId", args.eventId as unknown as string)
+        )
+    )
 
     const slots = await ctx.db
       .query("accommodationSlots")
