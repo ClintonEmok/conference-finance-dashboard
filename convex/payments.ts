@@ -14,6 +14,10 @@ import {
   isOrderAppliedPayment,
 } from "../lib/domain/finance/amounts"
 import {
+  resolveTikkieLinkPurpose,
+  tikkieLinkPurposeValidator,
+} from "../lib/domain/finance/tikkie-link-purpose"
+import {
   paymentSourceValidator,
   paymentStatusValidator,
   paymentDocValidator,
@@ -453,14 +457,20 @@ export const logReconciliationPayment = mutation({
 export const upsertTikkiePayment = mutation({
   args: {
     sourceId: v.string(),
+    eventId: v.optional(v.string()),
     payerName: v.string(),
     payerAccountNumber: v.optional(v.string()),
     amountMinor: v.number(),
     paidAt: v.number(),
     providerPayload: v.optional(v.any()),
+    purpose: v.optional(tikkieLinkPurposeValidator),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    const eventId = args.eventId
+      ? ctx.db.normalizeId("events", args.eventId) ?? undefined
+      : undefined
+    const purpose = resolveTikkieLinkPurpose(args.purpose)
     const existing = await ctx.db
       .query("payments")
       .withIndex("source_sourceId", (q) =>
@@ -469,7 +479,7 @@ export const upsertTikkiePayment = mutation({
       .first()
 
     if (existing) {
-      const updates = buildTikkiePaymentPatch(existing, args)
+      const updates = buildTikkiePaymentPatch(existing, { ...args, eventId })
       if (Object.keys(updates).length === 0) {
         return { id: existing._id, inserted: false, updated: false }
       }
@@ -477,6 +487,10 @@ export const upsertTikkiePayment = mutation({
       await ctx.db.patch(existing._id, updates)
 
       return { id: existing._id, inserted: false, updated: true }
+    }
+
+    if (purpose === "donation" && !eventId) {
+      throw new Error("Donation payments require a resolvable event id")
     }
 
     const id = await ctx.db.insert("payments", {
@@ -487,7 +501,9 @@ export const upsertTikkiePayment = mutation({
       amountMinor: args.amountMinor,
       paidAt: args.paidAt,
       providerPayload: args.providerPayload,
-      status: "unassigned",
+      ...(purpose === "donation"
+        ? buildDonationClassification({ eventId })
+        : { eventId, status: "unassigned" as const }),
     })
 
     return { id, inserted: true, updated: false }
@@ -967,11 +983,13 @@ export const internalUpsertTikkiePayment = internalMutation({
     amountMinor: v.number(),
     paidAt: v.number(),
     providerPayload: v.optional(v.any()),
+    purpose: v.optional(tikkieLinkPurposeValidator),
   },
   handler: async (ctx, args) => {
     const eventId = args.eventId
       ? ctx.db.normalizeId("events", args.eventId) ?? undefined
       : undefined
+    const purpose = resolveTikkieLinkPurpose(args.purpose)
     const existing = await ctx.db
       .query("payments")
       .withIndex("source_sourceId", (q) =>
@@ -992,16 +1010,21 @@ export const internalUpsertTikkiePayment = internalMutation({
       return { id: existing._id, inserted: false, updated: true }
     }
 
+    if (purpose === "donation" && !eventId) {
+      throw new Error("Donation payments require a resolvable event id")
+    }
+
     const id = await ctx.db.insert("payments", {
       source: "tikkie",
       sourceId: args.sourceId,
-      eventId,
       payerName: args.payerName,
       payerAccountNumber: args.payerAccountNumber,
       amountMinor: args.amountMinor,
       paidAt: args.paidAt,
       providerPayload: args.providerPayload,
-      status: "unassigned",
+      ...(purpose === "donation"
+        ? buildDonationClassification({ eventId })
+        : { eventId, status: "unassigned" as const }),
     })
     return { id, inserted: true, updated: false }
   },

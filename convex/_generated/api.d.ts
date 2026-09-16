@@ -1565,10 +1565,12 @@ export declare const api: {
       "public",
       {
         amountMinor: number;
+        eventId?: string;
         paidAt: number;
         payerAccountNumber?: string;
         payerName: string;
         providerPayload?: any;
+        purpose?: "payment" | "donation";
         sourceId: string;
       },
       any
@@ -2719,6 +2721,7 @@ export declare const internal: {
         payerAccountNumber?: string;
         payerName: string;
         providerPayload?: any;
+        purpose?: "payment" | "donation";
         sourceId: string;
       },
       any
