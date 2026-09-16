@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireApiUser } from "@/lib/auth/server"
 import { createEventTikkieLink } from "@/lib/domain/finance/tikkie-event-links"
+import { isDonationLink } from "@/lib/domain/finance/tikkie-link-purpose"
 import {
   enforceTikkieMonthlyCreationQuota,
   getTikkieMonthlyCreationQuotaStatus,
@@ -36,6 +37,8 @@ type EventTikkiePayment = {
   orderId?: string
 }
 
+type EventLinkRow = Record<string, unknown> & { purpose?: string | null }
+
 function readPaymentRequestToken(providerPayload: unknown): string | null {
   if (
     typeof providerPayload !== "object" ||
@@ -66,6 +69,43 @@ function mapStatus(
   }
 
   return "unmatched"
+}
+
+function groupPaymentsByLink(
+  links: EventLinkRow[],
+  tikkiePayments: UnifiedPayment[]
+): EventTikkiePayment[] {
+  return links.flatMap((link) => {
+    const linkToken =
+      typeof link.paymentRequestToken === "string"
+        ? link.paymentRequestToken
+        : ""
+
+    return tikkiePayments
+      .filter((payment) => {
+        const sourceId =
+          typeof payment.sourceId === "string" ? payment.sourceId.trim() : ""
+        if (!sourceId) {
+          return false
+        }
+
+        const paymentRequestToken = readPaymentRequestToken(
+          payment.providerPayload
+        )
+
+        return paymentRequestToken === linkToken
+      })
+      .map((payment) => ({
+        _id: payment._id,
+        paymentLinkId: String(link._id),
+        paymentToken: payment.sourceId ?? payment._id,
+        payerName: payment.payerName,
+        amountMinor: payment.amountMinor,
+        paidAt: payment.paidAt,
+        matchStatus: mapStatus(payment.status),
+        orderId: payment.orderId,
+      }))
+  })
 }
 
 function badRequest(message: string) {
@@ -163,7 +203,7 @@ export async function GET(request: Request) {
 
   try {
     const allLinks = await convexQuery(api.tikkie.getPaymentLinks, {})
-    const links = (allLinks as Array<Record<string, unknown>>)
+    const eventLinks = (allLinks as EventLinkRow[])
       .filter((link) => link.linkType === "event" && link.eventId === eventId)
       .sort((a, b) => {
         const timeDiff =
@@ -173,12 +213,15 @@ export async function GET(request: Request) {
         return String(b._id).localeCompare(String(a._id))
       })
 
-    if (links.length === 0) {
+    if (eventLinks.length === 0) {
       const quota = await getTikkieMonthlyCreationQuotaStatus()
       return NextResponse.json({
         link: null,
         links: [],
+        donationLink: null,
+        donationLinks: [],
         payments: [],
+        donationPayments: [],
         quota,
         stats: {
           totalPayments: 0,
@@ -186,68 +229,56 @@ export async function GET(request: Request) {
           unmatchedPayments: 0,
           totalAmountMinor: 0,
         },
+        donationStats: {
+          totalPayments: 0,
+          totalAmountMinor: 0,
+        },
       })
     }
+
+    const donationLinks = eventLinks.filter((link) => isDonationLink(link))
+    const paymentLinks = eventLinks.filter((link) => !isDonationLink(link))
 
     const tikkiePayments = (await convexQuery(api.payments.getPayments, {
       source: "tikkie",
     })) as UnifiedPayment[]
 
-    const paymentGroups = links.map((link) => {
-      const linkToken =
-        typeof link.paymentRequestToken === "string"
-          ? link.paymentRequestToken
-          : ""
+    const payments = groupPaymentsByLink(paymentLinks, tikkiePayments)
+    const donationPayments = groupPaymentsByLink(donationLinks, tikkiePayments)
 
-      return tikkiePayments
-        .filter((payment) => {
-          const sourceId =
-            typeof payment.sourceId === "string" ? payment.sourceId.trim() : ""
-          if (!sourceId) {
-            return false
-          }
-
-          const paymentRequestToken = readPaymentRequestToken(
-            payment.providerPayload
-          )
-
-          return paymentRequestToken === linkToken
-        })
-        .map((payment) => ({
-          _id: payment._id,
-          paymentLinkId: String(link._id),
-          paymentToken: payment.sourceId ?? payment._id,
-          payerName: payment.payerName,
-          amountMinor: payment.amountMinor,
-          paidAt: payment.paidAt,
-          matchStatus: mapStatus(payment.status),
-          orderId: payment.orderId,
-        }))
-    })
-
-    const payments = paymentGroups.flat()
-
-    const matchedPayments = (payments as Array<Record<string, unknown>>).filter(
-      (p) => p.matchStatus !== "unmatched"
+    const matchedPayments = payments.filter(
+      (payment) => payment.matchStatus !== "unmatched"
     )
-    const unmatchedPayments = (
-      payments as Array<Record<string, unknown>>
-    ).filter((p) => p.matchStatus === "unmatched")
-    const totalAmountMinor = (
-      payments as Array<Record<string, unknown>>
-    ).reduce((sum, p) => sum + ((p.amountMinor as number) ?? 0), 0)
+    const unmatchedPayments = payments.filter(
+      (payment) => payment.matchStatus === "unmatched"
+    )
+    const totalAmountMinor = payments.reduce(
+      (sum, payment) => sum + payment.amountMinor,
+      0
+    )
+    const donationTotalAmountMinor = donationPayments.reduce(
+      (sum, payment) => sum + payment.amountMinor,
+      0
+    )
     const quota = await getTikkieMonthlyCreationQuotaStatus()
 
     return NextResponse.json({
-      link: links[0],
-      links,
+      link: paymentLinks[0] ?? null,
+      links: paymentLinks,
+      donationLink: donationLinks[0] ?? null,
+      donationLinks,
       payments,
+      donationPayments,
       quota,
       stats: {
-        totalPayments: (payments as unknown[]).length,
+        totalPayments: payments.length,
         matchedPayments: matchedPayments.length,
         unmatchedPayments: unmatchedPayments.length,
         totalAmountMinor,
+      },
+      donationStats: {
+        totalPayments: donationPayments.length,
+        totalAmountMinor: donationTotalAmountMinor,
       },
     })
   } catch (error) {
@@ -301,6 +332,15 @@ export async function POST(request: Request) {
     return badRequest(parsedExpiryDate.error)
   }
 
+  const parsedPurpose = body.purpose
+  if (
+    parsedPurpose !== undefined &&
+    parsedPurpose !== "payment" &&
+    parsedPurpose !== "donation"
+  ) {
+    return badRequest("'purpose' must be 'payment' or 'donation' when provided")
+  }
+
   try {
     const quotaBefore = await enforceTikkieMonthlyCreationQuota()
 
@@ -313,6 +353,7 @@ export async function POST(request: Request) {
       expiryDate: parsedExpiryDate.expiryDate,
       expiryDays:
         typeof body.expiryDays === "number" ? body.expiryDays : undefined,
+      purpose: parsedPurpose ?? "payment",
     })
 
     const quotaAfter = result.created

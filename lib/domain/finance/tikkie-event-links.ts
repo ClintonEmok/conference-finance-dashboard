@@ -1,6 +1,7 @@
 import { createPaymentRequest } from "@/lib/integrations/tikkie/client"
 import { api } from "@/lib/convex/api"
 import { convexMutation } from "@/lib/convex/server"
+import { resolveTikkieLinkPurpose, type TikkieLinkPurpose } from "./tikkie-link-purpose"
 import { TIKKIE_TEXT_LIMIT } from "./tikkie-links"
 
 function toTikkieDate(value: Date) {
@@ -17,6 +18,7 @@ export type EventTikkieLinkView = {
   description: string
   expiryDate: string
   createdAt: string
+  purpose: TikkieLinkPurpose
   url?: string
 }
 
@@ -27,6 +29,7 @@ export type CreateEventTikkieLinkParams = {
   description?: string
   expiryDays?: number
   expiryDate?: string
+  purpose?: TikkieLinkPurpose
 }
 
 export type CreateEventTikkieLinkResult = {
@@ -42,9 +45,12 @@ export async function createEventTikkieLink(
   const expiryDate = params.expiryDate
     ? new Date(`${params.expiryDate}T00:00:00.000Z`)
     : new Date(Date.now() + (params.expiryDays ?? 14) * 24 * 60 * 60 * 1000)
+  const purpose = resolveTikkieLinkPurpose(params.purpose)
   const description =
     params.description?.slice(0, TIKKIE_TEXT_LIMIT) ??
-    `Event ${params.eventId}`.slice(0, TIKKIE_TEXT_LIMIT)
+    (purpose === "donation"
+      ? `Donation ${params.eventId}`.slice(0, TIKKIE_TEXT_LIMIT)
+      : `Event ${params.eventId}`.slice(0, TIKKIE_TEXT_LIMIT))
 
   const providerResponse = await createPaymentRequest({
     amountInCents: providerAmountInCents,
@@ -62,6 +68,7 @@ export async function createEventTikkieLink(
     description,
     expiryDate: expiryDate.getTime(),
     providerPayload: providerResponse,
+    purpose,
   })
 
   return {
@@ -75,6 +82,7 @@ export async function createEventTikkieLink(
       description,
       expiryDate: expiryDate.toISOString(),
       createdAt: new Date().toISOString(),
+      purpose,
       url: providerResponse.url,
     },
     created: true,
