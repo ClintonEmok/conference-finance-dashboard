@@ -13,7 +13,7 @@
  * so the codebase keeps a single largest-remainder convention (D-05) rather
  * than inventing a second. `convex/donations.ts` bundles this file, and the
  * Convex bundler resolves relative paths only, so it must stay free of the
- * `@/` alias and of React.
+ * TypeScript path alias and of React.
  *
  * Locked rules (55-CONTEXT):
  *   - D-01: the remaining balance is derived from RECORDED rows, never stored.
@@ -700,6 +700,177 @@ export function distributeLargestBalanceFirst(input: {
     weights: ranked.map(() => 1),
     activeSelector: selectTopRankedTargetWithHeadroom,
   })
+}
+
+/**
+ * The ONE pure entry point every distribution call goes through: turn a method
+ * + the operator's selected targets + the server-owned ceilings into validated
+ * plan rows plus a fully reported breakdown (D-07).
+ *
+ * Refusal order is fixed so the code a caller sees for a given bad request is
+ * predictable, and the structural codes match `validateAllocationPlan`'s so the
+ * two paths can never disagree:
+ *
+ *   empty -> plan-too-large -> duplicate -> unknown target -> unsupported method
+ *
+ * `manual` is refused here on purpose: manual amounts are explicit operator
+ * inputs that have their own validation path, so this orchestrator — which
+ * derives amounts — never invents them.
+ *
+ * A skipped target is reported in `breakdown` with `skipped: true` and one of
+ * the two reasons, and never appears in `rows`. A distribution that cannot place
+ * the whole amount returns the unplaced part as `leftoverMinor` (DON-05); that
+ * is SUCCESS, so this function never throws for insufficient capacity.
+ */
+export function buildDistributionPlan(input: {
+  method: DonationDistributionMethod
+  availableMinor: number
+  targets: ReadonlyArray<DonationDistributionTarget>
+  ceilings: ReadonlyMap<string, AllocationCeiling>
+}): DonationDistributionPlan {
+  const targets = input.targets
+
+  if (targets.length === 0) {
+    throwAllocationError(
+      DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_EMPTY_PLAN,
+      "a distribution needs at least one selected target"
+    )
+  }
+
+  if (targets.length > MAX_ALLOCATION_PLAN_ROWS) {
+    throwAllocationError(
+      DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_PLAN_TOO_LARGE,
+      `a submission may carry at most ${MAX_ALLOCATION_PLAN_ROWS} targets`
+    )
+  }
+
+  const seenAttendeeIds = new Set<string>()
+  for (const target of targets) {
+    if (seenAttendeeIds.has(target.attendeeId)) {
+      throwAllocationError(
+        DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_DUPLICATE_TARGET,
+        `attendee ${target.attendeeId} appears more than once`
+      )
+    }
+    seenAttendeeIds.add(target.attendeeId)
+  }
+
+  for (const target of targets) {
+    const ceiling = input.ceilings.get(target.attendeeId)
+    if (!ceiling || ceiling.orderId !== target.orderId) {
+      throwAllocationError(
+        DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_UNKNOWN_TARGET,
+        `no ceiling for attendee ${target.attendeeId} on order ${target.orderId}`
+      )
+    }
+  }
+
+  const totalMinor = normalizeMinorAmount(input.availableMinor)
+
+  if (input.method === "manual") {
+    throwAllocationError(
+      DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_UNSUPPORTED_METHOD,
+      "manual distributions supply explicit per-attendee amounts"
+    )
+  }
+
+  // Equal keeps the submitted order; largest-balance-first reports the ranked
+  // order, so the breakdown (and therefore `rows`) mirrors the fill order.
+  const orderedTargets =
+    input.method === "largest_balance_first"
+      ? rankTargetsByScopeBalance(targets, input.ceilings)
+      : [...targets]
+
+  const distribution =
+    input.method === "largest_balance_first"
+      ? distributeLargestBalanceFirst({
+          totalMinor,
+          targets: orderedTargets,
+          ceilings: input.ceilings,
+        })
+      : distributeEqually({
+          totalMinor,
+          targets: orderedTargets,
+          ceilings: input.ceilings,
+        })
+
+  const breakdown = orderedTargets.map<DonationDistributionTargetResult>(
+    (target) => {
+      const ceiling = input.ceilings.get(target.attendeeId) as AllocationCeiling
+      const ceilingMinor = resolveScopeOutstandingMinor(ceiling, target.scope)
+      const amountMinor =
+        distribution.amountsByAttendeeId.get(target.attendeeId) ?? 0
+      const extraMinorUnits =
+        distribution.extraUnitsByAttendeeId.get(target.attendeeId) ?? 0
+
+      const result: DonationDistributionTargetResult = {
+        attendeeId: target.attendeeId,
+        orderId: target.orderId,
+        scope: target.scope,
+        ceilingMinor,
+        amountMinor,
+        extraMinorUnits,
+        skipped: false,
+      }
+
+      // `skipped` is set in EACH of the two branches; both fields stay unset
+      // only when the target was actually funded.
+      if (ceilingMinor <= 0) {
+        result.skipped = true
+        result.skipReason = "zero_scope_balance"
+      } else if (amountMinor === 0) {
+        result.skipped = true
+        result.skipReason = "no_funds_remaining"
+      }
+
+      return result
+    }
+  )
+
+  // A skipped target is never written as a row, and by construction no funded
+  // entry is zero: a target is skipped whenever its amount is 0.
+  const rows: DonationAllocationPlanRow[] = breakdown
+    .filter((entry) => !entry.skipped)
+    .map((entry) => ({
+      attendeeId: entry.attendeeId,
+      orderId: entry.orderId,
+      amountMinor: entry.amountMinor,
+      scope: entry.scope,
+    }))
+
+  const totalAllocatedMinor = breakdown.reduce(
+    (sum, entry) => sum + entry.amountMinor,
+    0
+  )
+
+  // INVARIANT (by construction, stated so it is never regressed): the engine
+  // never places more than `totalMinor` — every take is clamped by the live
+  // `remaining` — so `totalAllocatedMinor <= totalMinor`, no `rows` entry is
+  // <= 0, and `totalAllocatedMinor + leftoverMinor === totalMinor` always
+  // holds. That is why `validateAllocationPlan` can never reject the engine's
+  // own output, and why preview and commit can share it.
+  const leftoverMinor = Math.max(0, totalMinor - totalAllocatedMinor)
+
+  const remainderMinor = breakdown.reduce(
+    (sum, entry) => sum + entry.extraMinorUnits,
+    0
+  )
+
+  // D-07/DON-03: name exactly who absorbed the extra minor unit(s) — only units
+  // that actually landed count.
+  const remainderRecipientAttendeeIds = breakdown
+    .filter((entry) => entry.extraMinorUnits > 0)
+    .map((entry) => entry.attendeeId)
+
+  return {
+    method: input.method,
+    rows,
+    breakdown,
+    totalAllocatedMinor,
+    leftoverMinor,
+    remainderMinor,
+    remainderRecipientAttendeeIds,
+  }
 }
 
 /** One row of the staleness read projection (D-16/D-18). */
