@@ -7,19 +7,28 @@
  * staleness read projection, and the request digest used for retry
  * idempotency.
  *
- * This module is deliberately dependency-free: it never reads the database,
- * never formats display values, and imports nothing — not even the shared
- * `./amounts` helper (it does not need it). `convex/donations.ts` bundles this
- * file, and the Convex bundler resolves relative paths only, so it must stay
- * free of the `@/` alias and of React.
+ * This module owns money arithmetic only: it never reads the database and
+ * never formats display values. Its ONE import is the shared `./amounts`
+ * helper (`allocateMinorAmountByWeight`), reused for every distribution round
+ * so the codebase keeps a single largest-remainder convention (D-05) rather
+ * than inventing a second. `convex/donations.ts` bundles this file, and the
+ * Convex bundler resolves relative paths only, so it must stay free of the
+ * `@/` alias and of React.
  *
  * Locked rules (55-CONTEXT):
  *   - D-01: the remaining balance is derived from RECORDED rows, never stored.
+ *   - D-05: every distribution round calls `allocateMinorAmountByWeight`.
+ *   - D-06: the waterfall caps each attendee and redistributes the unabsorbed
+ *     excess until the amount is exhausted or every ceiling is reached.
  *   - D-13: over-allocation is rejected, never clamped; the whole submission
  *     fails with a typed error and nothing is written.
  *   - D-14: scope is a closed union, always supplied, never inferred.
  *   - D-16/D-18: staleness is applied = min(recorded, current ceiling) and the
  *     unabsorbed excess is reported; nothing goes negative.
+ *   - DON-03/D-05: an equal split is exactly equal as the minor unit allows,
+ *     and the indivisible remainder is reported unit by unit.
+ *   - DON-05: a distribution that cannot place the whole amount is SUCCESS —
+ *     the unplaced part is returned as leftover for a later allocation.
  *   - The aggregate bound is ONE order-capacity rule with three terms:
  *
  *       capacity(O, D) = orderOutstanding(O)
@@ -36,6 +45,8 @@
  *     allocation, from this or any other donation, can push an order's total
  *     allocated amount above its outstanding.
  */
+
+import { allocateMinorAmountByWeight } from "./amounts"
 
 export type DonationAllocationScope = "event_charges" | "whole_order"
 
@@ -299,6 +310,316 @@ export function validateAllocationPlan(input: {
 
     poolRemainingByOrderId.set(row.orderId, poolRemaining - row.amountMinor)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Distribution engine (DON-03/04/05, D-05..D-10, D-20)
+//
+// Every rounding decision funnels through `allocateMinorAmountByWeight`, so the
+// whole app keeps ONE largest-remainder convention (D-05). The waterfall here
+// composes AROUND that helper: it clamps each take against the target's own
+// scope ceiling and against its order's LIVE shared pool, then re-offers the
+// unplaced surplus in the next round (D-06). A surplus that no ceiling or pool
+// can absorb is returned as leftover and is a SUCCESS, never a typed refusal
+// (DON-05).
+// ---------------------------------------------------------------------------
+
+/**
+ * One of the three operator-selectable distribution methods.
+ *   - `manual` — explicit per-attendee amounts; those are operator inputs with
+ *     their own validation path, so `buildDistributionPlan` never invents them.
+ *   - `equal` — the amount is split as evenly as the minor unit allows.
+ *   - `largest_balance_first` — targets fill in descending scope-balance order.
+ */
+export type DonationDistributionMethod =
+  | "manual"
+  | "equal"
+  | "largest_balance_first"
+
+/** One selected target: an attendee, its order, and the chosen scope. */
+export type DonationDistributionTarget = {
+  attendeeId: string
+  orderId: string
+  scope: DonationAllocationScope
+}
+
+/**
+ * One target's outcome. `ceilingMinor` is the target's OWN scope ceiling — the
+ * same number the ranking uses (D-08). `skipped` is set for BOTH skip reasons
+ * (D-20): an already-cleared scope balance, or a distribution that ran out of
+ * money before reaching the target. A skipped target is never a `rows` entry.
+ */
+export type DonationDistributionTargetResult = {
+  attendeeId: string
+  orderId: string
+  scope: DonationAllocationScope
+  ceilingMinor: number
+  amountMinor: number
+  extraMinorUnits: number
+  skipped: boolean
+  skipReason?: "zero_scope_balance" | "no_funds_remaining"
+}
+
+/**
+ * The full server-computed distribution for one submission (D-07).
+ *
+ * TWO DIFFERENT NUMBERS, never conflated:
+ *   - `remainderMinor` — the INDIVISIBLE rounding remainder handed out one
+ *     minor unit at a time by `allocateMinorAmountByWeight`, reported together
+ *     with the attendees that actually absorbed those units (DON-03/D-07). It
+ *     is part of `totalAllocatedMinor`; it is NOT money left over.
+ *   - `leftoverMinor` — the part of the donation no scope ceiling or order pool
+ *     could absorb. It stays available for a later allocation (DON-05), and a
+ *     non-zero leftover is SUCCESS.
+ */
+export type DonationDistributionPlan = {
+  method: DonationDistributionMethod
+  rows: DonationAllocationPlanRow[]
+  breakdown: DonationDistributionTargetResult[]
+  totalAllocatedMinor: number
+  leftoverMinor: number
+  remainderMinor: number
+  remainderRecipientAttendeeIds: string[]
+}
+
+/**
+ * The active-set strategy for one waterfall round. The default is every target
+ * with headroom (the equal-split rule); largest-balance-first supplies a
+ * strategy that names only the top-ranked target still carrying headroom.
+ */
+export type AllocationWaterfallActiveSelector = (
+  headroom: ReadonlyArray<number>,
+  round: number
+) => number[]
+
+export type AllocationWaterfallInput = {
+  totalMinor: number
+  targets: ReadonlyArray<DonationDistributionTarget>
+  ceilings: ReadonlyMap<string, AllocationCeiling>
+  /** TARGET-indexed weights; an equal split passes 1 for every target. */
+  weights: ReadonlyArray<number>
+  activeSelector?: AllocationWaterfallActiveSelector
+}
+
+export type AllocationWaterfallResult = {
+  amountsByAttendeeId: Map<string, number>
+  extraUnitsByAttendeeId: Map<string, number>
+}
+
+/** Every target with headroom — the equal-split active rule. */
+function selectEveryTargetWithHeadroom(
+  headroom: ReadonlyArray<number>
+): number[] {
+  const active: number[] = []
+  for (let index = 0; index < headroom.length; index++) {
+    if (headroom[index] > 0) {
+      active.push(index)
+    }
+  }
+  return active
+}
+
+/**
+ * The D-06 waterfall, shared by every method (D-05 reuses the same rounding
+ * helper for every round; D-06 reuses the same redistribution).
+ *
+ * Two constraints bound every take, and they are SEPARATE — never collapsed:
+ *   1. the target's own scope ceiling (`event_charges` carries a per-attendee
+ *      cap; a `whole_order` target is capped only by its order's pool), and
+ *   2. its order's SHARED pool, one pool per order consumed by EVERY target of
+ *      that order whatever the target's scope.
+ *
+ * `headroom[i]` is the ROUND-START snapshot of those two constraints, but the
+ * `take` is additionally clamped against the order's LIVE pool and the pool is
+ * debited IMMEDIATELY. That live clamp is load-bearing: on its own the snapshot
+ * lets two or more targets of the SAME order each draw the full pool, which
+ * would emit rows summing above the order's outstanding — a plan
+ * `validateAllocationPlan` must reject, breaking preview/commit parity. With the
+ * live debit, the engine's rows for an order can never exceed its outstanding.
+ *
+ * The helper always distributes the whole `roundRemainingMinor`, so a target
+ * whose take was clamped leaves its surplus in `remaining` for the next round;
+ * that IS the redistribution. The loop terminates because every round that does
+ * not finish the amount permanently removes at least one target (its ceiling is
+ * reached or its order's pool is exhausted); `maxRounds` is a belt-and-braces
+ * bound, and any residual amount is left as leftover rather than looping.
+ */
+export function runAllocationWaterfall(
+  input: AllocationWaterfallInput
+): AllocationWaterfallResult {
+  const targets = input.targets
+  const targetCount = targets.length
+
+  const amounts = new Array<number>(targetCount).fill(0)
+  const extraUnits = new Array<number>(targetCount).fill(0)
+
+  // TARGET-indexed weights, normalized exactly as the helper normalizes its
+  // own, so the recomputed exact share below is the very number the helper used.
+  const weights = new Array<number>(targetCount)
+  for (let index = 0; index < targetCount; index++) {
+    const raw = input.weights[index]
+    weights[index] = Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0
+  }
+
+  // ONE shared per-order pool, initialised lazily to the attendee-agnostic
+  // whole-order outstanding. EVERY target of an order draws on it, whatever
+  // that target's scope, so it is counted once per round no matter how many
+  // sibling rows the submission carries.
+  const orderPoolRemaining = new Map<string, number>()
+
+  const ensureOrderPool = (target: DonationDistributionTarget): number => {
+    const existing = orderPoolRemaining.get(target.orderId)
+    if (existing !== undefined) {
+      return existing
+    }
+    const ceiling = input.ceilings.get(target.attendeeId)
+    const initial = ceiling
+      ? resolveScopeOutstandingMinor(ceiling, "whole_order")
+      : 0
+    orderPoolRemaining.set(target.orderId, initial)
+    return initial
+  }
+
+  // TARGET-indexed per-attendee cap. `whole_order` has none of its own — the
+  // shared order pool is its only cap (D-12, attendee-agnostic).
+  const attendeeCapRemaining = new Array<number>(targetCount)
+  for (let index = 0; index < targetCount; index++) {
+    const target = targets[index]
+    if (target.scope === "whole_order") {
+      attendeeCapRemaining[index] = Number.POSITIVE_INFINITY
+      continue
+    }
+    const ceiling = input.ceilings.get(target.attendeeId)
+    attendeeCapRemaining[index] = ceiling
+      ? resolveScopeOutstandingMinor(ceiling, "event_charges")
+      : 0
+  }
+
+  let remaining = normalizeMinorAmount(input.totalMinor)
+  const maxRounds = targetCount + 1
+
+  for (let round = 0; round < maxRounds && remaining > 0; round++) {
+    // ROUND-START headroom: the pool is re-read here, so an order exhausted by
+    // an earlier round reports 0 and drops its targets out of the active set.
+    const headroom = new Array<number>(targetCount)
+    for (let index = 0; index < targetCount; index++) {
+      const target = targets[index]
+      headroom[index] = Math.min(
+        ensureOrderPool(target),
+        attendeeCapRemaining[index]
+      )
+    }
+
+    const active = input.activeSelector
+      ? input.activeSelector(headroom, round)
+      : selectEveryTargetWithHeadroom(headroom)
+
+    if (active.length === 0) {
+      // No target can absorb anything; leave the rest as leftover (DON-05).
+      break
+    }
+
+    // Summed over the ACTIVE subset only. Never index a compacted weight array
+    // with a target index — that yields `undefined` and a NaN exact share.
+    let activeWeightSum = 0
+    for (const index of active) {
+      activeWeightSum += weights[index]
+    }
+
+    // Round cap: each DISTINCT active order contributes its live pool ONCE,
+    // because every row of this submission consumes that same pool.
+    let roundCapacity = 0
+    const activeOrderIds = new Set<string>()
+    for (const index of active) {
+      const orderId = targets[index].orderId
+      if (activeOrderIds.has(orderId)) {
+        continue
+      }
+      activeOrderIds.add(orderId)
+      roundCapacity += orderPoolRemaining.get(orderId) ?? 0
+    }
+
+    // SNAPSHOT the round-start base the helper will use, BEFORE the loop below
+    // mutates `remaining`.
+    const roundRemainingMinor = Math.min(remaining, roundCapacity)
+    if (roundRemainingMinor <= 0 || activeWeightSum <= 0) {
+      break
+    }
+
+    const roundResult = allocateMinorAmountByWeight(
+      roundRemainingMinor,
+      active.map((index) => ({
+        id: String(index),
+        weightMinor: weights[index],
+      }))
+    )
+
+    for (const index of active) {
+      const target = targets[index]
+      const take = Math.min(
+        roundResult.get(String(index)) ?? 0,
+        headroom[index],
+        orderPoolRemaining.get(target.orderId) ?? 0
+      )
+
+      if (take <= 0) {
+        continue
+      }
+
+      // The exact share is recomputed from the ROUND-START total, the
+      // TARGET-indexed weight and the ACTIVE-only weight sum — the same numbers
+      // the helper used. It is measured from the CLAMPED take, so a unit the
+      // helper awarded to a target whose take was then capped never counts: it
+      // did not land, it is still in `remaining`, and it is re-offered next
+      // round. A capped target must never be reported as a remainder recipient.
+      const exactShare =
+        (roundRemainingMinor * weights[index]) / activeWeightSum
+      extraUnits[index] += Math.max(0, take - Math.floor(exactShare))
+      amounts[index] += take
+
+      // Debit IMMEDIATELY, so the next target of this order sees the reduced
+      // pool rather than a fresh round-start snapshot. EVERY accepted take
+      // debits it, ANY scope.
+      orderPoolRemaining.set(
+        target.orderId,
+        (orderPoolRemaining.get(target.orderId) ?? 0) - take
+      )
+
+      if (target.scope === "event_charges") {
+        attendeeCapRemaining[index] -= take
+      }
+
+      remaining -= take
+    }
+  }
+
+  const amountsByAttendeeId = new Map<string, number>()
+  const extraUnitsByAttendeeId = new Map<string, number>()
+  for (let index = 0; index < targetCount; index++) {
+    const attendeeId = targets[index].attendeeId
+    amountsByAttendeeId.set(attendeeId, amounts[index])
+    extraUnitsByAttendeeId.set(attendeeId, extraUnits[index])
+  }
+
+  return { amountsByAttendeeId, extraUnitsByAttendeeId }
+}
+
+/**
+ * Equal split (D-05): the same waterfall with a weight of 1 for every target.
+ * Passing `headroom` as the weight would silently turn this into a proportional
+ * split — the weights are deliberately uniform.
+ */
+export function distributeEqually(input: {
+  totalMinor: number
+  targets: ReadonlyArray<DonationDistributionTarget>
+  ceilings: ReadonlyMap<string, AllocationCeiling>
+}): AllocationWaterfallResult {
+  return runAllocationWaterfall({
+    totalMinor: input.totalMinor,
+    targets: input.targets,
+    ceilings: input.ceilings,
+    weights: input.targets.map(() => 1),
+  })
 }
 
 /** One row of the staleness read projection (D-16/D-18). */
