@@ -1482,3 +1482,404 @@ test("every allocation row carries the ledger row's id as its submissionId", asy
   }
 })
 
+// ---------------------------------------------------------------------------
+// Task 2 (plan 55-03): removal as a hard delete plus an append-only audit
+// ---------------------------------------------------------------------------
+
+test("removing one allocation hard-deletes it, audits it, and leaves the siblings alone", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-remove")
+  const first = await createAttendee(seeded, eventId, {
+    attendeeKey: "remove-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const second = await createAttendee(seeded, eventId, {
+    orderId: first.orderId,
+    attendeeKey: "remove-b",
+    name: "Attendee B",
+    ticketPriceMinor: 10_000,
+    sortOrder: 1,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 20_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  const allocated = await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: first.attendeeId, amountMinor: 6_000, scope: "event_charges" },
+      { attendeeId: second.attendeeId, amountMinor: 4_000, scope: "whole_order" },
+    ]),
+  })
+  expect(allocated.remainingMinor).toBe(10_000)
+  const beforeRows = await loadAllocationRowDetails(seeded, donationId)
+  const survivorRow = beforeRows.find(
+    (row) => row.attendeeId === String(second.attendeeId)
+  )
+  expect(survivorRow).toBeDefined()
+
+  const removal = await authed.mutation(api.donations.removeDonationAllocation, {
+    donationId,
+    eventId,
+    attendeeId: first.attendeeId,
+    idempotencyKey: "remove-1",
+  })
+
+  // The freed amount returns to the DERIVED remainder and nothing is clamped:
+  // the pre-removal remainder was 10_000 and exactly the removed 6_000 comes
+  // back.
+  expect(removal.remainingMinor).toBe(16_000)
+  expect(removal.allocatedTotalMinor).toBe(4_000)
+  expect(removal.rows).toHaveLength(1)
+
+  const afterRows = await loadAllocationRowDetails(seeded, donationId)
+  expect(afterRows).toHaveLength(1)
+  expect(afterRows[0].attendeeId).toBe(String(second.attendeeId))
+
+  // The untouched sibling keeps its amount AND its provenance byte-identical.
+  expect(afterRows[0]).toMatchObject({
+    amountMinor: 4_000,
+    scope: "whole_order",
+    createdAt: survivorRow?.createdAt,
+    createdBy: survivorRow?.createdBy,
+    submissionId: survivorRow?.submissionId,
+  })
+
+  // T-55-15: exactly one immutable audit row with the full action recorded.
+  const audits = await loadRemovalAuditRows(seeded, donationId)
+  expect(audits).toHaveLength(1)
+  expect(audits[0]).toMatchObject({
+    donationId: String(donationId),
+    eventId: String(eventId),
+    orderId: String(first.orderId),
+    attendeeId: String(first.attendeeId),
+    amountMinor: 6_000,
+    scope: "event_charges",
+    actor: adminIdentity.tokenIdentifier,
+  })
+  expect(audits[0].removedAt).toBeGreaterThan(0)
+
+  // No soft-delete tombstone survives.
+  const rawRows = await seeded.run(async (ctx) => {
+    const rows: Array<Record<string, unknown>> = []
+    for await (const row of ctx.db
+      .query("donationAllocations")
+      .withIndex("by_donationId", (q) => q.eq("donationId", donationId))) {
+      rows.push(row as unknown as Record<string, unknown>)
+    }
+    return rows
+  })
+  expect(rawRows).toHaveLength(1)
+  expect(rawRows[0].removedAt).toBeUndefined()
+  expect(rawRows[0].status).toBeUndefined()
+})
+
+test("removing the same allocation twice with the same key replays with one audit row", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-remove-replay")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "remove-replay-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+    ]),
+  })
+
+  const firstRemoval = await authed.mutation(
+    api.donations.removeDonationAllocation,
+    { donationId, eventId, attendeeId, idempotencyKey: "remove-replay-key" }
+  )
+  const secondRemoval = await authed.mutation(
+    api.donations.removeDonationAllocation,
+    { donationId, eventId, attendeeId, idempotencyKey: "remove-replay-key" }
+  )
+
+  expect(firstRemoval.remainingMinor).toBe(15_000)
+  expect(secondRemoval).toEqual(firstRemoval)
+  expect(await countRemovalAuditRows(seeded)).toBe(1)
+  expect(await countAllocationRows(seeded)).toBe(0)
+  expect(await countLedgerRows(seeded)).toBe(2)
+})
+
+test("a removal audit row carries the remove submission's id as its submissionId", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-remove-provenance")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "remove-prov-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+  const idempotencyKey = "remove-provenance-key"
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+    ]),
+  })
+  await authed.mutation(api.donations.removeDonationAllocation, {
+    donationId,
+    eventId,
+    attendeeId,
+    idempotencyKey,
+  })
+
+  const ledgerRow = await loadLedgerRow(seeded, donationId, idempotencyKey)
+  expect(ledgerRow).not.toBeNull()
+  expect(ledgerRow?.operation).toBe("remove")
+  expect(ledgerRow?.actor).toBe(adminIdentity.tokenIdentifier)
+
+  const audits = await loadRemovalAuditRows(seeded, donationId)
+  expect(audits).toHaveLength(1)
+  // Same contract the batch path guarantees: assert the strict equality, never
+  // mere field presence.
+  expect(audits[0].submissionId).not.toBeNull()
+  expect(audits[0].submissionId).toBe(ledgerRow?._id)
+})
+
+test("reusing an allocate key for a removal is an intended conflict and deletes nothing", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-remove-conflict")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "remove-conflict-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+  const allocationKey = "shared-key"
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+    ]),
+    idempotencyKey: allocationKey,
+  })
+
+  // A key identifies ONE SUBMISSION, not one operation: the key is scoped per
+  // donation only, so this is a conflict rather than a replay.
+  await expect(
+    authed.mutation(api.donations.removeDonationAllocation, {
+      donationId,
+      eventId,
+      attendeeId,
+      idempotencyKey: allocationKey,
+    })
+  ).rejects.toThrow("DONATION_ALLOCATION_IDEMPOTENCY_CONFLICT")
+
+  expect(await countAllocationRows(seeded)).toBe(1)
+  expect(await countRemovalAuditRows(seeded)).toBe(0)
+  expect(await countLedgerRows(seeded)).toBe(1)
+})
+
+test("removing a non-existent allocation is refused with no audit row", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-remove-missing")
+  const first = await createAttendee(seeded, eventId, {
+    attendeeKey: "remove-missing-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const second = await createAttendee(seeded, eventId, {
+    orderId: first.orderId,
+    attendeeKey: "remove-missing-b",
+    name: "Attendee B",
+    ticketPriceMinor: 10_000,
+    sortOrder: 1,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: first.attendeeId, amountMinor: 6_000, scope: "event_charges" },
+    ]),
+  })
+
+  // B has no row on this donation.
+  await expect(
+    authed.mutation(api.donations.removeDonationAllocation, {
+      donationId,
+      eventId,
+      attendeeId: second.attendeeId,
+      idempotencyKey: "remove-missing-key",
+    })
+  ).rejects.toThrow("DONATION_ALLOCATION_NOT_FOUND")
+
+  // And a removal against a donation with no allocations at all.
+  const emptyDonationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  await expect(
+    authed.mutation(api.donations.removeDonationAllocation, {
+      donationId: emptyDonationId,
+      eventId,
+      attendeeId: first.attendeeId,
+      idempotencyKey: "remove-missing-key-2",
+    })
+  ).rejects.toThrow("DONATION_ALLOCATION_NOT_FOUND")
+
+  expect(await countAllocationRows(seeded)).toBe(1)
+  expect(await countRemovalAuditRows(seeded)).toBe(0)
+})
+
+test("removal is refused for a cross-event or non-standalone donation and writes nothing", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-remove-guards-one")
+  const otherEventId = await seedEvent(seeded, "alloc-remove-guards-two")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "remove-guard-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+    ]),
+  })
+
+  // Wrong event id in the args.
+  await expect(
+    authed.mutation(api.donations.removeDonationAllocation, {
+      donationId,
+      eventId: otherEventId,
+      attendeeId,
+      idempotencyKey: "remove-guard-1",
+    })
+  ).rejects.toThrow("DONATION_ALLOCATION_CROSS_EVENT")
+
+  // A donation that is not a same-event standalone donation.
+  const overpaymentId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+    donationKind: "overpayment",
+  })
+  await expect(
+    authed.mutation(api.donations.removeDonationAllocation, {
+      donationId: overpaymentId,
+      eventId,
+      attendeeId,
+      idempotencyKey: "remove-guard-2",
+    })
+  ).rejects.toThrow("DONATION_NOT_STANDALONE")
+
+  // A blank key is refused before anything else.
+  await expect(
+    authed.mutation(api.donations.removeDonationAllocation, {
+      donationId,
+      eventId,
+      attendeeId,
+      idempotencyKey: " ",
+    })
+  ).rejects.toThrow("DONATION_ALLOCATION_INVALID_KEY")
+
+  expect(await countAllocationRows(seeded)).toBe(1)
+  expect(await countRemovalAuditRows(seeded)).toBe(0)
+})
+
+test("unauthenticated removal is unauthorized and deletes nothing", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-remove-auth")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "remove-auth-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+    ]),
+  })
+
+  const anonymous = convexTest(schema, modules)
+  await expect(
+    anonymous.mutation(api.donations.removeDonationAllocation, {
+      donationId,
+      eventId,
+      attendeeId,
+      idempotencyKey: "remove-anon",
+    })
+  ).rejects.toThrow("Unauthorized")
+
+  expect(await countAllocationRows(seeded)).toBe(1)
+  expect(await countRemovalAuditRows(seeded)).toBe(0)
+})
+
+test("DACC-03: a removal never touches the donation payment row", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-remove-dacc03")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "remove-dacc-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 6_000, scope: "event_charges" },
+    ]),
+  })
+  await authed.mutation(api.donations.removeDonationAllocation, {
+    donationId,
+    eventId,
+    attendeeId,
+    idempotencyKey: "remove-dacc-key",
+  })
+
+  const donation = await seeded.query(async (ctx) =>
+    ctx.db.get("payments", donationId)
+  )
+  expect(donation).toMatchObject({
+    donationKind: "standalone",
+    status: "donation",
+    amountMinor: 15_000,
+  })
+  expect(donation?.orderId).toBeUndefined()
+  expect(donation?.eventId).toBe(eventId)
+})
+
+

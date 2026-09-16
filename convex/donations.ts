@@ -437,8 +437,10 @@ async function resolvePlanRows(
 }
 
 /**
- * D-01 set-replace, shared by every write path (`allocateDonation` here;
- * `allocateDonationToAttendee` and `removeDonationAllocation` in later plans).
+ * D-01 set-replace, shared by every set-replace write path (`allocateDonation`
+ * below; `allocateDonationToAttendee` in plan 55-04). Removal is NOT a
+ * set-replace: `removeDonationAllocation` hard-deletes one row and appends one
+ * audit row instead (D-19).
  *
  * The merge key is `attendeeId` (D-02: at most one row per donation+attendee,
  * identified through `by_donationId_and_attendeeId`). A stored row whose
@@ -797,5 +799,138 @@ export const allocateDonation = mutation({
     })
 
     return frozen
+  },
+})
+
+/**
+ * D-19 removal: a HARD delete of one allocation row plus ONE append-only
+ * `donationAllocationRemovals` audit row, written in the same transaction.
+ *
+ * Why hard delete and not a `removedAt`/`status` soft flag: Convex has no
+ * partial-unique index (RESEARCH Pitfall 4), so a soft row would keep occupying
+ * the `(donationId, attendeeId)` slot and break D-02's at-most-one-row
+ * invariant — a re-allocation to the same attendee would collide with the
+ * tombstone. The audit row preserves the operator's action instead, and gives
+ * Phase 57 an exact reversal primitive.
+ *
+ * NOTHING is clamped, re-spent or redistributed automatically (D-03): the freed
+ * amount simply returns to the donation's DERIVED remainder.
+ *
+ * This path is deliberately NOT ceiling-bounded — the freed amount can never
+ * exceed the recorded amount, so there is no ceiling to load and no ceiling to
+ * over-run. Removal never writes to the `payments` table (DACC-03).
+ */
+export const removeDonationAllocation = mutation({
+  args: {
+    donationId: v.id("payments"),
+    eventId: v.id("events"),
+    attendeeId: v.id("orderAttendees"),
+    idempotencyKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx)
+
+    const idempotencyKey = requireAllocationIdempotencyKey(args.idempotencyKey)
+
+    const donation = await loadDonationForAllocation(ctx, args)
+
+    const requestDigest = await digestAllocationEnvelope({
+      donationId: args.donationId,
+      eventId: args.eventId,
+      operation: "remove",
+      payload: { attendeeId: args.attendeeId },
+    })
+
+    // The key is scoped per donation and NOT per operation, so reusing an
+    // `allocate` key here is an intended conflict: a key identifies ONE
+    // submission, and a digest mismatch means this is not the submission the
+    // key was minted for.
+    const replayed = resolveSubmissionReplay(
+      await findSubmissionByKey(ctx, {
+        donationId: args.donationId,
+        idempotencyKey,
+      }),
+      requestDigest,
+      args.donationId
+    )
+    if (replayed) {
+      return replayed
+    }
+
+    // Join the donation's rows to this transaction's read set (D-15) before
+    // touching the target row.
+    const recorded = await loadRecordedAllocations(ctx, args.donationId)
+
+    // D-02 identity: at most one row per (donation, attendee).
+    const row = await ctx.db
+      .query("donationAllocations")
+      .withIndex("by_donationId_and_attendeeId", (q) =>
+        q
+          .eq("donationId", args.donationId)
+          .eq("attendeeId", args.attendeeId)
+      )
+      .first()
+
+    if (!row) {
+      throwAllocationError(
+        DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_NOT_FOUND,
+        `No allocation exists for this attendee on this donation.`
+      )
+    }
+
+    // The post-removal state is computed BEFORE the delete, from the rows
+    // already in hand. The surviving rows keep their recorded amounts and their
+    // provenance: a removal never re-stamps a sibling (D-17).
+    const frozenRows: FrozenAllocationRow[] = recorded
+      .filter((existing) => existing._id !== row._id)
+      .map((existing) => ({
+        attendeeId: existing.attendeeId,
+        orderId: existing.orderId,
+        amountMinor: existing.amountMinor,
+        scope: existing.scope,
+      }))
+
+    const allocatedTotalMinor = sumRecordedAllocationMinor(frozenRows)
+    const remainingMinor = deriveAllocationRemainingMinor({
+      donationAmountMinor: donation.amountMinor,
+      recordedRows: frozenRows,
+    }).remainingMinor
+
+    // LEDGER FIRST, exactly as the batch path: the audit row below needs
+    // `submissionId` as an INPUT.
+    const submissionId = await ctx.db.insert("donationAllocationSubmissions", {
+      donationId: args.donationId,
+      idempotencyKey,
+      requestDigest,
+      operation: "remove",
+      actor: identity.tokenIdentifier,
+      createdAt: Date.now(),
+      allocatedTotalMinor,
+      remainingMinor,
+      rows: frozenRows,
+    })
+
+    await ctx.db.delete("donationAllocations", row._id)
+
+    // T-55-15: a deletion with no trace is repudiation. One immutable row
+    // records donation, attendee, order, amount, scope, actor and timestamp.
+    await ctx.db.insert("donationAllocationRemovals", {
+      donationId: args.donationId,
+      eventId: args.eventId,
+      orderId: row.orderId,
+      attendeeId: args.attendeeId,
+      amountMinor: row.amountMinor,
+      scope: row.scope,
+      actor: identity.tokenIdentifier,
+      removedAt: Date.now(),
+      submissionId,
+    })
+
+    return {
+      donationId: args.donationId,
+      allocatedTotalMinor,
+      remainingMinor,
+      rows: frozenRows,
+    }
   },
 })

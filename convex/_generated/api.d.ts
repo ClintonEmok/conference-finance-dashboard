@@ -587,6 +587,17 @@ export declare const api: {
       },
       any
     >;
+    removeDonationAllocation: FunctionReference<
+      "mutation",
+      "public",
+      {
+        attendeeId: Id<"orderAttendees">;
+        donationId: Id<"payments">;
+        eventId: Id<"events">;
+        idempotencyKey: string;
+      },
+      any
+    >;
   };
   emailActions: {
     resendOrderConfirmation: FunctionReference<
