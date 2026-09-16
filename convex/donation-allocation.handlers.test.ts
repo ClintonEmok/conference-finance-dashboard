@@ -3436,3 +3436,445 @@ test("a preview is authenticated and uses the writer's donation guards", async (
     removals: 0,
   })
 })
+
+// ---------------------------------------------------------------------------
+// Task 3 (plan 55-04): cross-method regression and the DACC-03 close-out
+// ---------------------------------------------------------------------------
+
+/** Rows per attendee for one donation — the D-02 at-most-one invariant. */
+async function countRowsByAttendee(
+  t: TestConvex,
+  donationId: Id<"payments">
+) {
+  return t.query(async (ctx) => {
+    const counts: Record<string, number> = {}
+    for await (const row of ctx.db
+      .query("donationAllocations")
+      .withIndex("by_donationId", (q) => q.eq("donationId", donationId))) {
+      const key = String(row.attendeeId)
+      counts[key] = (counts[key] ?? 0) + 1
+    }
+    return counts
+  })
+}
+
+/** An order-assigned payment that `isOrderAppliedPayment` counts. */
+async function createAppliedPayment(
+  t: TestConvex,
+  eventId: Id<"events">,
+  orderId: Id<"orders">,
+  amountMinor: number
+): Promise<Id<"payments">> {
+  return t.mutation(async (ctx) =>
+    ctx.db.insert("payments", {
+      source: "cash" as const,
+      eventId,
+      orderId: String(orderId),
+      payerName: "Payer",
+      amountMinor,
+      paidAt: BASE_AT,
+      status: "auto_matched" as const,
+    })
+  )
+}
+
+/** Every payment row of an event, in a comparable shape (DACC-03 snapshots). */
+async function loadPaymentRows(t: TestConvex, eventId: Id<"events">) {
+  return t.query(async (ctx) => {
+    const rows: Array<{
+      _id: string
+      amountMinor: number
+      status: string | null
+      donationKind: string | null
+      orderId: string | null
+      eventId: string | null
+    }> = []
+    for await (const row of ctx.db
+      .query("payments")
+      .withIndex("eventId", (q) => q.eq("eventId", eventId))) {
+      rows.push({
+        _id: String(row._id),
+        amountMinor: Number(row.amountMinor),
+        status: row.status ? String(row.status) : null,
+        donationKind: row.donationKind ? String(row.donationKind) : null,
+        orderId: row.orderId ? String(row.orderId) : null,
+        eventId: row.eventId ? String(row.eventId) : null,
+      })
+    }
+    return rows
+  })
+}
+
+test("method matrix: every submission leaves exactly the set it implies and one row per attendee", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "matrix")
+  const a = await createAttendee(seeded, eventId, {
+    attendeeKey: "matrix-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const b = await createAttendee(seeded, eventId, {
+    orderId: a.orderId,
+    attendeeKey: "matrix-b",
+    name: "Attendee B",
+    ticketPriceMinor: 10_000,
+    sortOrder: 1,
+  })
+  const c = await createAttendee(seeded, eventId, {
+    orderId: a.orderId,
+    attendeeKey: "matrix-c",
+    name: "Attendee C",
+    ticketPriceMinor: 10_000,
+    sortOrder: 2,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 25_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  const targets: TargetInput[] = [
+    { attendeeId: a.attendeeId, scope: "event_charges" },
+    { attendeeId: b.attendeeId, scope: "event_charges" },
+    { attendeeId: c.attendeeId, scope: "event_charges" },
+  ]
+
+  const assertInvariants = async (expected: Record<string, number>) => {
+    const stored = await loadAllocationRows(seeded, donationId)
+    const actual: Record<string, number> = {}
+    for (const row of stored) {
+      actual[row.attendeeId] = row.amountMinor
+    }
+    expect(actual).toEqual(expected)
+
+    // Set-replace: the derived remainder is the donation minus the stored rows,
+    // with no orphaned rows left behind.
+    const summary = await loadSummary(authed, donationId)
+    expect(summary.remainingMinor).toBe(
+      25_000 - stored.reduce((sum, row) => sum + row.amountMinor, 0)
+    )
+
+    // D-02: never more than one row per (donation, attendee).
+    const counts = await countRowsByAttendee(seeded, donationId)
+    for (const value of Object.values(counts)) {
+      expect(value).toBe(1)
+    }
+  }
+
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: a.attendeeId, amountMinor: 5_000, scope: "event_charges" },
+    ]),
+  })
+  await assertInvariants({ [String(a.attendeeId)]: 5_000 })
+
+  // 25_000 / 3 → 8_334 / 8_333 / 8_333.
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: { method: "equal", targets },
+  })
+  await assertInvariants({
+    [String(a.attendeeId)]: 8_334,
+    [String(b.attendeeId)]: 8_333,
+    [String(c.attendeeId)]: 8_333,
+  })
+
+  // Largest balance first: equal balances rank by selection order, so A and B
+  // fill to their 10_000 ceilings and C takes the remaining 5_000.
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request: { method: "largest_balance_first", targets },
+  })
+  await assertInvariants({
+    [String(a.attendeeId)]: 10_000,
+    [String(b.attendeeId)]: 10_000,
+    [String(c.attendeeId)]: 5_000,
+  })
+})
+
+test("a partial allocation leaves a reusable remainder that a later submission spends", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "partial-later")
+  const first = await createAttendee(seeded, eventId, {
+    attendeeKey: "partial-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const second = await createAttendee(seeded, eventId, {
+    orderId: first.orderId,
+    attendeeKey: "partial-b",
+    name: "Attendee B",
+    ticketPriceMinor: 10_000,
+    sortOrder: 1,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  const firstResult = await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: first.attendeeId, amountMinor: 10_000, scope: "event_charges" },
+    ]),
+    idempotencyKey: "partial-key-1",
+  })
+  expect(firstResult.remainingMinor).toBe(5_000)
+
+  const midSummary = await loadSummary(authed, donationId)
+  expect(midSummary.remainingMinor).toBeGreaterThan(0)
+
+  const secondResult = await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: first.attendeeId, amountMinor: 10_000, scope: "event_charges" },
+      { attendeeId: second.attendeeId, amountMinor: 5_000, scope: "event_charges" },
+    ]),
+    idempotencyKey: "partial-key-2",
+  })
+  expect(secondResult.remainingMinor).toBe(0)
+
+  // Two distinct ledger rows for the SAME donation.
+  const firstLedger = await loadLedgerRow(seeded, donationId, "partial-key-1")
+  const secondLedger = await loadLedgerRow(seeded, donationId, "partial-key-2")
+  expect(firstLedger).not.toBeNull()
+  expect(secondLedger).not.toBeNull()
+  expect(firstLedger?._id).not.toBe(secondLedger?._id)
+  expect(await countLedgerRows(seeded)).toBe(2)
+})
+
+test("leftover after a distribution is success and the leftover stays allocatable", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "dist-leftover")
+  const first = await createAttendee(seeded, eventId, {
+    attendeeKey: "dist-left-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const second = await createAttendee(seeded, eventId, {
+    orderId: first.orderId,
+    attendeeKey: "dist-left-b",
+    name: "Attendee B",
+    ticketPriceMinor: 10_000,
+    sortOrder: 1,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  // Another donation fully claims A, so A is skipped by the split below.
+  const otherDonationId = await createDonation(seeded, eventId, {
+    amountMinor: 10_000,
+  })
+  await allocate(authed, {
+    donationId: otherDonationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: first.attendeeId, amountMinor: 10_000, scope: "event_charges" },
+    ]),
+  })
+
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 25_000,
+  })
+  const split = await allocate(authed, {
+    donationId,
+    eventId,
+    request: {
+      method: "equal",
+      targets: [
+        { attendeeId: first.attendeeId, scope: "event_charges" },
+        { attendeeId: second.attendeeId, scope: "event_charges" },
+      ],
+    },
+  })
+  // No throw: the unplaceable part is reported as the derived remainder.
+  expect(split).toMatchObject({
+    allocatedTotalMinor: 10_000,
+    remainingMinor: 15_000,
+  })
+
+  const stored = await loadAllocationRows(seeded, donationId)
+  expect(stored).toHaveLength(1)
+  expect(stored[0].attendeeId).toBe(String(second.attendeeId))
+
+  // The leftover is spent by a later submission against a fresh order.
+  const third = await createAttendee(seeded, eventId, {
+    attendeeKey: "dist-left-c",
+    name: "Attendee C",
+    ticketPriceMinor: 20_000,
+  })
+  const followUp = await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: second.attendeeId, amountMinor: 10_000, scope: "event_charges" },
+      { attendeeId: third.attendeeId, amountMinor: 15_000, scope: "event_charges" },
+    ]),
+  })
+  expect(followUp.remainingMinor).toBe(0)
+})
+
+test("a target whose event_charges are covered by applied payments is skipped (D-20)", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "dist-zero")
+  const { attendeeId, orderId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "dist-zero-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  await createAppliedPayment(seeded, eventId, orderId, 10_000)
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 5_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  const request: AllocationRequestInput = {
+    method: "equal",
+    targets: [{ attendeeId, scope: "event_charges" }],
+  }
+
+  const pv = await preview(authed, { donationId, eventId, request })
+  expect(pv.rows[0]).toMatchObject({
+    ceilingMinor: 0,
+    amountMinor: 0,
+    skipped: true,
+    skipReason: "zero_scope_balance",
+  })
+  expect(pv.leftoverMinor).toBe(5_000)
+
+  const committed = await allocate(authed, { donationId, eventId, request })
+  expect(committed).toMatchObject({
+    allocatedTotalMinor: 0,
+    remainingMinor: 5_000,
+  })
+  expect(await loadAllocationRows(seeded, donationId)).toHaveLength(0)
+})
+
+test("scope is recorded exactly as chosen and bounds the row differently (DON-07)", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "scope-honoured")
+  const first = await createAttendee(seeded, eventId, {
+    attendeeKey: "scope-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  await createAttendee(seeded, eventId, {
+    orderId: first.orderId,
+    attendeeKey: "scope-b",
+    name: "Attendee B",
+    ticketPriceMinor: 10_000,
+    sortOrder: 1,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 30_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  // A's OWN attributable outstanding is 10_000; the order's is 20_000. The same
+  // 20_000 that `whole_order` accepts is refused under `event_charges`.
+  const wholeOrder = await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: first.attendeeId, amountMinor: 20_000, scope: "whole_order" },
+    ]),
+  })
+  expect(wholeOrder.remainingMinor).toBe(10_000)
+  expect((await loadAllocationRows(seeded, donationId))[0].scope).toBe(
+    "whole_order"
+  )
+
+  const eventCharges = await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId: first.attendeeId, amountMinor: 10_000, scope: "event_charges" },
+    ]),
+  })
+  expect(eventCharges.remainingMinor).toBe(20_000)
+  expect((await loadAllocationRows(seeded, donationId))[0].scope).toBe(
+    "event_charges"
+  )
+
+  await expect(
+    allocate(authed, {
+      donationId,
+      eventId,
+      request: manualRequest([
+        { attendeeId: first.attendeeId, amountMinor: 20_000, scope: "event_charges" },
+      ]),
+    })
+  ).rejects.toThrow("DONATION_ALLOCATION_EXCEEDS_CEILING")
+})
+
+test("DACC-03: no allocation path — batch, single-row, removal or replay — touches a payment", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "dacc-final")
+  const first = await createAttendee(seeded, eventId, {
+    attendeeKey: "dacc-final-a",
+    name: "Attendee A",
+    ticketPriceMinor: 10_000,
+  })
+  const second = await createAttendee(seeded, eventId, {
+    orderId: first.orderId,
+    attendeeKey: "dacc-final-b",
+    name: "Attendee B",
+    ticketPriceMinor: 10_000,
+    sortOrder: 1,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+  const paymentsBefore = await loadPaymentRows(seeded, eventId)
+
+  const request = manualRequest([
+    { attendeeId: first.attendeeId, amountMinor: 10_000, scope: "event_charges" },
+  ])
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request,
+    idempotencyKey: "dacc-final-key",
+  })
+  await allocateOne(authed, {
+    donationId,
+    eventId,
+    attendeeId: second.attendeeId,
+    amountMinor: 5_000,
+    scope: "event_charges",
+  })
+  await authed.mutation(api.donations.removeDonationAllocation, {
+    donationId,
+    eventId,
+    attendeeId: first.attendeeId,
+    idempotencyKey: "dacc-final-remove",
+  })
+  // The replay returns its stored result and writes nothing.
+  await allocate(authed, {
+    donationId,
+    eventId,
+    request,
+    idempotencyKey: "dacc-final-key",
+  })
+
+  // No payment row was created, reassigned, patched or deleted by this module —
+  // the donation's own row included.
+  expect(await loadPaymentRows(seeded, eventId)).toEqual(paymentsBefore)
+
+  const donation = await seeded.query(async (ctx) =>
+    ctx.db.get("payments", donationId)
+  )
+  expect(donation).toMatchObject({
+    donationKind: "standalone",
+    status: "donation",
+    amountMinor: 15_000,
+  })
+  expect(donation?.orderId).toBeUndefined()
+})
+
+
