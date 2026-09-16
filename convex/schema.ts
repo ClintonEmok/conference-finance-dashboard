@@ -819,6 +819,7 @@ export default defineSchema({
       providerPayload: v.optional(v.any()),
       providerLastCheckedAt: v.optional(v.number()),
       statusUpdatedAt: v.optional(v.number()),
+      purpose: v.optional(v.union(v.literal("payment"), v.literal("donation"))),
     })
   )
     .index("paymentRequestToken", ["paymentRequestToken"])
@@ -832,7 +833,8 @@ export default defineSchema({
     .index("orderId", ["orderId"])
     .index("eventId_linkType", ["eventId", "linkType"])
     .index("eventId", ["eventId"])
-    .index("linkType", ["linkType"]),
+    .index("linkType", ["linkType"])
+    .index("by_eventId_and_purpose", ["eventId", "purpose"]),
 
   tikkiePaymentLinkTransitions: defineTable(
     v.object({

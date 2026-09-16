@@ -1865,6 +1865,7 @@ export type DataModel = {
       providerOrderId: string;
       providerPayload?: any;
       providerStatus: string;
+      purpose?: "payment" | "donation";
       referenceId?: string;
       status?: "created" | "paid" | "expired";
       statusSource?: "create" | "webhook" | "poll";
@@ -1888,6 +1889,7 @@ export type DataModel = {
       | "providerOrderId"
       | "providerPayload"
       | "providerStatus"
+      | "purpose"
       | "referenceId"
       | "status"
       | "statusSource"
@@ -1895,6 +1897,7 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_eventId_and_purpose: ["eventId", "purpose", "_creationTime"];
       by_linkType_and_status_and_statusUpdatedAt: [
         "linkType",
         "status",
