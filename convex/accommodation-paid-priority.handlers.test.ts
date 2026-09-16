@@ -162,7 +162,9 @@ test("allocation board separates occupants from beds and redacts foreign occupan
     availableBeds: 2,
     foreignOccupants: 1,
     occupancyIncomplete: false,
+    incomplete: false,
   })
+  expect(board.dataCompleteness).toEqual({ incomplete: false, reasons: [] })
 
   const inventory = await t.query(api.accommodation.listAccommodationInventory, {})
   const inventoryRoom = inventory.rooms.find(
@@ -407,8 +409,16 @@ test("provider bridges are resolved globally and provider-only occupancy consume
     occupantCount: 1,
     occupiedBeds: 1,
     foreignOccupantCount: 0,
+    occupancyIncomplete: true,
+    // WR-03: an incomplete identity projection is never labelled confidently.
+    availability: "review",
   })
   expect(secondRoom).toMatchObject({ occupantCount: 1, occupiedBeds: 1 })
+  expect(
+    board.rooms.some(
+      (room: { availability: string }) => room.availability === "review"
+    )
+  ).toBe(true)
 
   await t.mutation(api.accommodation.upsertEventAccommodationResource, {
     eventId: seed.eventId,
@@ -427,6 +437,479 @@ test("provider bridges are resolved globally and provider-only occupancy consume
       eventId: String(seed.eventId),
     })
   ).rejects.toThrow(/event resource limit reached/)
+})
+
+test("a canonical bridge counts once and is never projected as a second provider identity", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const bridged = await createOrder(t, seed, {
+    attendeeKey: "same-room-bridge",
+    name: "Same Room Bridge",
+  })
+  await t.mutation(async (ctx) => {
+    await ctx.db.patch("orderAttendees", bridged.attendeeId, {
+      assignedRoomId: String(seed.roomId),
+    })
+    await ctx.db.insert("ticketTailorAttendees", {
+      providerAttendeeId: "provider-same-room",
+      providerEventId: "provider-event",
+      providerOrderId: "provider-order",
+      orderId: bridged.orderId,
+      attendeeId: bridged.attendeeId,
+      assignedRoomId: String(seed.roomId),
+      rawPayload: {},
+    })
+  })
+
+  const board = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: String(seed.eventId),
+  })
+  const room = board.rooms.find(
+    (candidate: { id: string }) => candidate.id === String(seed.roomId)
+  )
+  expect(room).toMatchObject({
+    occupantCount: 1,
+    occupiedBeds: 1,
+    occupancyIncomplete: false,
+  })
+  expect(
+    room?.occupants.filter(
+      (occupant: { attendeeId: string }) =>
+        occupant.attendeeId === String(bridged.attendeeId)
+    )
+  ).toHaveLength(1)
+})
+
+test("a provider row without an explicit bridge keeps an unassigned family parent actionable", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const noBedTicketId = await createNoBedTicket(t, seed.eventId)
+  const parent = await createOrder(t, seed, {
+    attendeeKey: "provider-visible-parent",
+    name: "Provider Visible Parent",
+  })
+  const child = await createOrder(t, seed, {
+    attendeeKey: "provider-visible-child",
+    name: "Provider Visible Child",
+    ticketTypeId: noBedTicketId,
+  })
+  await linkFamily(t, String(parent.attendeeId), [
+    String(parent.attendeeId),
+    String(child.attendeeId),
+  ])
+  await t.mutation(async (ctx) => {
+    // Deliberately NO explicit `attendeeId` bridge. The provider row sits on the
+    // parent's (single-member) order at the parent's would-be room; the removed
+    // fallback must not infer the canonical parent from that order.
+    await ctx.db.insert("ticketTailorAttendees", {
+      providerAttendeeId: "provider-unassigned-parent",
+      providerEventId: "provider-event",
+      providerOrderId: "provider-order",
+      orderId: parent.orderId,
+      assignedRoomId: String(seed.roomId),
+      rawPayload: {},
+    })
+  })
+
+  const board = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: String(seed.eventId),
+  })
+  // The canonical parent is authoritative and stays a visible placement unit.
+  expect(
+    board.unassignedAttendees.map(
+      (row: { attendeeId: string }) => row.attendeeId
+    )
+  ).toContain(String(parent.attendeeId))
+  // The provider row is never projected as a canonical occupant: the room's
+  // canonical occupant list stays empty. Because the row has no safe bridge the
+  // room is flagged for review instead of being treated as confidently empty.
+  const room = board.rooms.find(
+    (candidate: { id: string }) => candidate.id === String(seed.roomId)
+  )
+  expect(room?.occupants).toHaveLength(0)
+  expect(room).toMatchObject({
+    occupancyIncomplete: true,
+    providerProjectionIncomplete: true,
+  })
+})
+
+test("confirming a bed-consuming assignment reports incomplete occupancy, not a full room", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const parent = await createOrder(t, seed, {
+    attendeeKey: "incomplete-occupancy-parent",
+    name: "Incomplete Occupancy Parent",
+  })
+  // Drive the room's provider-occupant read to the occupancy cap so loadRoomOccupancy
+  // cannot label the room confidently full or available.
+  await t.mutation(async (ctx) => {
+    for (let index = 0; index < 2000; index += 1) {
+      await ctx.db.insert("ticketTailorAttendees", {
+        providerAttendeeId: `provider-occupancy-${String(index)}`,
+        providerEventId: "provider-event",
+        providerOrderId: "provider-order",
+        orderId: parent.orderId,
+        assignedRoomId: String(seed.roomId),
+        rawPayload: {},
+      })
+    }
+  })
+  const slotId = await createAssignableSlot(
+    t,
+    seed,
+    seed.roomId,
+    "P-101-INCOMPLETE-01"
+  )
+  const assignmentId = await t.mutation(async (ctx) =>
+    ctx.db.insert("orderAssignments", {
+      orderId: parent.orderId,
+      attendeeId: parent.attendeeId,
+      slotId: slotId!,
+      assignmentIntent: "assign",
+      sortOrder: 0,
+    })
+  )
+
+  const result = await t.mutation(api.accommodation.confirmBuyerAssignment, {
+    assignmentId,
+  })
+  expect(result).toMatchObject({
+    success: false,
+    error: "OCCUPANCY_INCOMPLETE",
+  })
+  expect(result.message).not.toMatch(/full capacity/i)
+  // No write happened: the parent is unplaced and the assignment is unconfirmed.
+  expect(await loadAssignedRooms(t, [parent.attendeeId])).toEqual([null])
+  const assignment = await t.query(async (ctx) =>
+    ctx.db.get("orderAssignments", assignmentId)
+  )
+  expect(assignment?.status).toBeUndefined()
+})
+
+test("family placement writes fail closed when the member read truncates", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const parent = await createOrder(t, seed, {
+    attendeeKey: "truncated-family-parent",
+    name: "Truncated Family Parent",
+  })
+  const familyGroupId = await linkFamily(t, String(parent.attendeeId), [
+    String(parent.attendeeId),
+  ])
+  // Exceed FAMILY_GROUP_MEMBER_LIMIT (200) so resolveFamilyPlacementUnit's
+  // bounded member read truncates: the write path must fail closed instead of
+  // placing/unassigning only the subset it managed to read.
+  await t.mutation(async (ctx) => {
+    for (let index = 0; index < 200; index += 1) {
+      await ctx.db.insert("attendeeFamilyMembers", {
+        familyGroupId: String(familyGroupId),
+        attendeeId: `synthetic-family-member-${String(index)}`,
+        relationship: "child",
+      })
+    }
+  })
+
+  // Both assignment mutations reject before the first attendee patch.
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(parent.attendeeId),
+      roomId: String(seed.roomId),
+      eventId: String(seed.eventId),
+    })
+  ).rejects.toThrow("Family data is incomplete")
+  await expect(
+    t.mutation(api.accommodation.assignRoomToAttendee, {
+      attendeeId: String(parent.attendeeId),
+      roomId: String(seed.roomId),
+      eventId: String(seed.eventId),
+    })
+  ).rejects.toThrow("Family data is incomplete")
+  expect(await loadAssignedRooms(t, [parent.attendeeId])).toEqual([null])
+
+  // Both unassignment mutations reject too, leaving the existing assignment
+  // intact rather than removing part of the family.
+  await t.mutation(async (ctx) => {
+    await ctx.db.patch("orderAttendees", parent.attendeeId, {
+      assignedRoomId: String(seed.roomId),
+    })
+  })
+  await expect(
+    t.mutation(api.accommodation.unassignAttendeeFromRoom, {
+      attendeeId: String(parent.attendeeId),
+      eventId: String(seed.eventId),
+    })
+  ).rejects.toThrow("Family data is incomplete")
+  await expect(
+    t.mutation(api.accommodation.unassignRoomFromAttendee, {
+      attendeeId: String(parent.attendeeId),
+      eventId: String(seed.eventId),
+    })
+  ).rejects.toThrow("Family data is incomplete")
+  expect(await loadAssignedRooms(t, [parent.attendeeId])).toEqual([
+    String(seed.roomId),
+  ])
+})
+
+test("confirming an assignment maps an inventory-scan truncation to INVENTORY_INCOMPLETE", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const order = await createOrder(t, seed, {
+    attendeeKey: "inventory-incomplete-attendee",
+    name: "Inventory Incomplete Attendee",
+  })
+  // An event room resource activates the inventory guard for this room type.
+  await t.mutation(async (ctx) => {
+    await ctx.db.insert("eventAccommodationResources", {
+      eventId: seed.eventId,
+      kind: "room",
+      roomTypeId: seed.roomTypeId,
+      count: 5,
+    })
+  })
+  // Truncate the provider-occupant read of an unrelated candidate room so the
+  // inventory scan cannot verify room usage. The requested room stays clean, so
+  // the failure must NOT be reported as the requested room's occupancy.
+  await t.mutation(async (ctx) => {
+    for (let index = 0; index < 2001; index += 1) {
+      await ctx.db.insert("ticketTailorAttendees", {
+        providerAttendeeId: `provider-inventory-${String(index)}`,
+        providerEventId: "provider-event",
+        providerOrderId: "provider-order",
+        orderId: order.orderId,
+        assignedRoomId: String(seed.secondRoomId),
+        rawPayload: {},
+      })
+    }
+  })
+  const slotId = await createAssignableSlot(
+    t,
+    seed,
+    seed.roomId,
+    "P-101-INVENTORY-01"
+  )
+  const assignmentId = await t.mutation(async (ctx) =>
+    ctx.db.insert("orderAssignments", {
+      orderId: order.orderId,
+      attendeeId: order.attendeeId,
+      slotId: slotId!,
+      assignmentIntent: "assign",
+      sortOrder: 0,
+    })
+  )
+
+  const result = await t.mutation(api.accommodation.confirmBuyerAssignment, {
+    assignmentId,
+  })
+  expect(result).toMatchObject({
+    success: false,
+    error: "INVENTORY_INCOMPLETE",
+  })
+  expect(result.message).not.toMatch(/full capacity/i)
+  // No write happened: the attendee is unplaced and the assignment is unconfirmed.
+  expect(await loadAssignedRooms(t, [order.attendeeId])).toEqual([null])
+  const assignment = await t.query(async (ctx) =>
+    ctx.db.get("orderAssignments", assignmentId)
+  )
+  expect(assignment?.status).toBeUndefined()
+})
+
+test("allocation board leaves hotel reads uncapped but still flags genuinely capped reads", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+
+  // Hotel reads are intentionally uncapped: exceeding the old 200-row event-hotel
+  // cap must neither truncate nor mark the board incomplete.
+  await t.mutation(async (ctx) => {
+    for (let index = 0; index < 250; index += 1) {
+      await ctx.db.insert("accommodationEventHotels", {
+        eventId: String(seed.eventId),
+        hotelId: `${String(seed.hotelId)}-dup-${String(index)}`,
+      })
+    }
+  })
+  const uncapped = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: String(seed.eventId),
+  })
+  expect(uncapped.dataCompleteness.incomplete).toBe(false)
+  expect(uncapped.dataCompleteness.reasons).not.toContain("event hotels")
+  expect(uncapped.summary.incomplete).toBe(false)
+
+  // A still-capped authoritative read (room types, cap 100) must surface an
+  // explicit incomplete signal instead of silently dropping data.
+  await t.mutation(async (ctx) => {
+    for (let index = 0; index < 100; index += 1) {
+      await ctx.db.insert("accommodationRoomTypes", {
+        label: `Bulk Type ${String(index)}`,
+        defaultCapacity: 2,
+      })
+    }
+  })
+  const capped = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: String(seed.eventId),
+  })
+  expect(capped.dataCompleteness.incomplete).toBe(true)
+  expect(capped.dataCompleteness.reasons).toContain("room types")
+  expect(capped.summary.incomplete).toBe(true)
+})
+
+test("bed-requiring family members stay visible and actionable with a server-owned follow-up", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const noBedTicketId = await createNoBedTicket(t, seed.eventId)
+  const bedTicketId = await createBedTicket(t, seed.eventId)
+  const parent = await createOrder(t, seed, {
+    attendeeKey: "separate-parent",
+    name: "Separate Parent",
+    allocatedRoomTypeId: String(seed.roomTypeId),
+  })
+  const noBedChild = await createOrder(t, seed, {
+    attendeeKey: "separate-no-bed-child",
+    name: "Separate No Bed Child",
+    ticketTypeId: noBedTicketId,
+  })
+  const bedChild = await createOrder(t, seed, {
+    attendeeKey: "separate-bed-child",
+    name: "Separate Bed Child",
+    ticketTypeId: bedTicketId,
+  })
+  await linkFamily(
+    t,
+    String(parent.attendeeId),
+    [
+      String(parent.attendeeId),
+      String(noBedChild.attendeeId),
+      String(bedChild.attendeeId),
+    ],
+    "Separate Family"
+  )
+
+  const board = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: String(seed.eventId),
+  })
+  const parentRow = board.unassignedAttendees.find(
+    (row: { attendeeId: string }) => row.attendeeId === String(parent.attendeeId)
+  )
+  expect(parentRow).toMatchObject({
+    familyRole: "parent",
+    eligibleChildCount: 1,
+    separateMemberCount: 1,
+  })
+  expect(parentRow?.separateMembers).toEqual([
+    expect.objectContaining({
+      attendeeId: String(bedChild.attendeeId),
+      requiresBed: true,
+    }),
+  ])
+  // The bed-requiring member is its own placement unit, not suppressed.
+  expect(
+    board.unassignedAttendees.find(
+      (row: { attendeeId: string }) => row.attendeeId === String(bedChild.attendeeId)
+    )
+  ).toMatchObject({
+    familyRole: "child",
+    separatePlacementRequired: true,
+    requiresBed: true,
+  })
+  // The no-bed child still follows the parent and stays suppressed.
+  expect(
+    board.unassignedAttendees.map(
+      (row: { attendeeId: string }) => row.attendeeId
+    )
+  ).not.toContain(String(noBedChild.attendeeId))
+  // Explicit server-owned follow-up keeps it in operational state.
+  expect(board.familyFollowUps).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        attendeeId: String(bedChild.attendeeId),
+        state: "Separate placement required",
+      }),
+    ])
+  )
+
+  // Parent placement moves only the parent and no-bed child; the separate
+  // member survives in the queue and can still be placed on its own.
+  await t.mutation(api.accommodation.assignAttendeeToRoom, {
+    attendeeId: String(parent.attendeeId),
+    roomId: String(seed.roomId),
+    eventId: String(seed.eventId),
+  })
+  const afterParentBoard = await t.query(
+    api.accommodation.getRoomAllocationBoard,
+    { eventId: String(seed.eventId) }
+  )
+  expect(
+    afterParentBoard.unassignedAttendees.map(
+      (row: { attendeeId: string }) => row.attendeeId
+    )
+  ).toContain(String(bedChild.attendeeId))
+  expect(await loadAssignedRooms(t, [bedChild.attendeeId])).toEqual([null])
+
+  await expect(
+    t.mutation(api.accommodation.assignAttendeeToRoom, {
+      attendeeId: String(bedChild.attendeeId),
+      roomId: String(seed.secondRoomId),
+      eventId: String(seed.eventId),
+    })
+  ).resolves.toMatchObject({ ok: true })
+  expect(await loadAssignedRooms(t, [bedChild.attendeeId])).toEqual([
+    String(seed.secondRoomId),
+  ])
+})
+
+test("family follow-ups respect the active board filters", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const seed = await seedPaidPriorityEvent(t)
+  const noBedTicketId = await createNoBedTicket(t, seed.eventId)
+  const parentA = await createOrder(t, seed, {
+    attendeeKey: "filter-parent-a",
+    name: "Filter Parent A",
+  })
+  const childA = await createOrder(t, seed, {
+    attendeeKey: "filter-child-a",
+    name: "Filter Child A",
+    ticketTypeId: noBedTicketId,
+  })
+  const familyGroupA = await linkFamily(t, String(parentA.attendeeId), [
+    String(parentA.attendeeId),
+    String(childA.attendeeId),
+  ])
+  const parentB = await createOrder(t, seed, {
+    attendeeKey: "filter-parent-b",
+    name: "Filter Parent B",
+  })
+  const childB = await createOrder(t, seed, {
+    attendeeKey: "filter-child-b",
+    name: "Filter Child B",
+    ticketTypeId: noBedTicketId,
+  })
+  await linkFamily(t, String(parentB.attendeeId), [
+    String(parentB.attendeeId),
+    String(childB.attendeeId),
+  ])
+
+  const unfiltered = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: String(seed.eventId),
+  })
+  expect(
+    unfiltered.familyFollowUps.map(
+      (followUp: { attendeeId: string }) => followUp.attendeeId
+    )
+  ).toEqual(
+    expect.arrayContaining([
+      String(childA.attendeeId),
+      String(childB.attendeeId),
+    ])
+  )
+
+  const filtered = await t.query(api.accommodation.getRoomAllocationBoard, {
+    eventId: String(seed.eventId),
+    familyGroupId: String(familyGroupA),
+  })
+  const filteredFollowUpIds = filtered.familyFollowUps.map(
+    (followUp: { attendeeId: string }) => followUp.attendeeId
+  )
+  expect(filteredFollowUpIds).toContain(String(childA.attendeeId))
+  expect(filteredFollowUpIds).not.toContain(String(childB.attendeeId))
 })
 
 test("assignment and unassignment reject foreign events and unlinked hotels", async () => {
@@ -805,6 +1288,25 @@ async function createNoBedTicket(
       availabilityState: "selectable",
       accommodationIncluded: true,
       requiresBed: false,
+      updatedAt: BASE_EVENT_AT,
+    })
+  )) as Id<"ticketTypes">
+}
+
+async function createBedTicket(
+  t: TestConvexForDataModel<GenericDataModel>,
+  eventId: Id<"events">
+) {
+  return (await t.mutation(async (ctx) =>
+    ctx.db.insert("ticketTypes", {
+      eventId,
+      label: "Bed family ticket",
+      priceMinor: TICKET_PRICE_MINOR,
+      isActive: true,
+      visibility: "public",
+      availabilityState: "selectable",
+      accommodationIncluded: true,
+      requiresBed: true,
       updatedAt: BASE_EVENT_AT,
     })
   )) as Id<"ticketTypes">

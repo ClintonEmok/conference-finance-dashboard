@@ -4,9 +4,6 @@ import type { Id } from "./_generated/dataModel"
 import { assertProductionDeployment } from "../lib/domain/legacy/production-deployment-guard"
 import {
   MAX_CANONICAL_ROWS_PER_INVOCATION,
-  MAX_DOCUMENTS_WRITTEN_PER_INVOCATION,
-  MAX_PROJECTION_POSTINGS_PER_SUBJECT,
-  MAX_RELATED_DOCUMENTS_READ_PER_INVOCATION,
   SearchProjectionBlocked,
   upsertAttendeeSearchDocument,
   upsertOrderSearchDocument,
@@ -44,8 +41,9 @@ export default internalMutation({
     if (!Number.isInteger(args.batchSize) || args.batchSize < 1 || args.batchSize > MAX_CANONICAL_ROWS_PER_INVOCATION) {
       throw new Error(`batchSize must be an integer between 1 and ${MAX_CANONICAL_ROWS_PER_INVOCATION}.`)
     }
-    // The single-row contract is intentional: projection replacement can
-    // consume up to 129 writes and must remain atomic with its canonical page.
+    // The single-row contract is intentional: each invocation refreshes one
+    // canonical subject's projection (a single upsert plus bounded reads) so
+    // the write stays atomic with its canonical page.
     const page = args.kind === "order"
       ? await ctx.db.query("orders").order("asc").paginate({ numItems: args.batchSize, cursor: args.cursor })
       : await ctx.db.query("orderAttendees").order("asc").paginate({ numItems: args.batchSize, cursor: args.cursor })
@@ -88,8 +86,6 @@ export const verifySearchProjections = internalQuery({
   returns: v.object({
     missing: v.number(),
     stale: v.number(),
-    duplicatePostings: v.number(),
-    orphanedPostings: v.number(),
     blockedJobs: v.number(),
     pendingJobs: v.number(),
     diagnostics: v.array(diagnosticValidator),
@@ -116,33 +112,17 @@ export const verifySearchProjections = internalQuery({
         if (isEligible) { missing++; diagnostics.push({ subjectId: String(attendee._id), reason: "missing attendee projection" }) }
       } else if (!isEligible) { if (projection.isSearchable) stale++ }
     }
-    const postings = await boundedTake(ctx.db.query("searchDocumentTerms").order("asc"))
-    const keys = new Map<string, number>(); let orphanedPostings = 0
-    for (const posting of postings.rows) {
-      const key = `${posting.documentKey}:${posting.term}`; keys.set(key, (keys.get(key) ?? 0) + 1)
-      const projection = await ctx.db.query("searchDocuments").withIndex("by_kind_and_subjectId", (q) => q.eq("kind", posting.kind).eq("subjectId", posting.subjectId)).unique()
-      if (!projection || projection.eventId !== posting.eventId) orphanedPostings++
-    }
-    const duplicatePostings = [...keys.values()].filter((count) => count > 1).length
     const jobs = await boundedTake(ctx.db.query("searchProjectionFanoutJobs").order("asc"))
     return {
-      missing, stale, duplicatePostings, orphanedPostings,
+      missing, stale,
       blockedJobs: jobs.rows.filter((job) => job.status === "blocked").length,
       pendingJobs: jobs.rows.filter((job) => job.status === "pending" || job.status === "running").length,
       diagnostics: diagnostics.slice(0, 100),
-      truncated: orderRows.truncated || attendeeRows.truncated || postings.truncated || jobs.truncated,
+      truncated: orderRows.truncated || attendeeRows.truncated || jobs.truncated,
     }
   },
 })
 
 async function internalEvent(ctx: QueryCtx, eventId: Id<"events">) {
   return (await ctx.db.get("events", eventId))?.primarySourceKind === "internal"
-}
-
-// Keep these imports visible in generated contract review: these are the
-// explicit budgets used by the backfill's shared projection implementation.
-export const SEARCH_BACKFILL_BUDGETS = {
-  maxPostings: MAX_PROJECTION_POSTINGS_PER_SUBJECT,
-  maxRelatedReads: MAX_RELATED_DOCUMENTS_READ_PER_INVOCATION,
-  maxWrites: MAX_DOCUMENTS_WRITTEN_PER_INVOCATION,
 }

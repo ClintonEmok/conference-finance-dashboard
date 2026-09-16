@@ -50,48 +50,27 @@ function normalizeDocId<TableName extends keyof DocTables>(
   return normalizedId
 }
 
-async function assertEventAssignmentScope(
-  ctx: MutationCtx,
-  eventIdValue: string,
-  attendee: Doc<"orderAttendees">,
-  room: Doc<"accommodationRooms">
+type AccommodationCtx = QueryCtx | MutationCtx
+
+/**
+ * Read-only string-id resolvers shared by query and mutation handlers. Access
+ * is resolved through the caller's authenticated context; these helpers never
+ * widen the database surface (no `any` context).
+ */
+async function getAccommodationHotelByStringId(
+  ctx: AccommodationCtx,
+  hotelId: string
 ) {
-  const eventId = normalizeDocId(
-    ctx,
-    "events",
-    eventIdValue,
-    "Event not found"
-  )
-  const event = await ctx.db.get("events", eventId)
-  if (!event) {
-    throw new Error("Event not found")
-  }
-  const order = await ctx.db.get("orders", attendee.orderId)
-  if (!order || String(order.eventId) !== String(eventId)) {
-    throw new Error("Attendee does not belong to this event")
-  }
-
-  const eventHotelLink = await ctx.db
-    .query("accommodationEventHotels")
-    .withIndex("eventId_hotelId", (q) =>
-      q.eq("eventId", eventId).eq("hotelId", room.hotelId as string)
-    )
-    .first()
-  if (!eventHotelLink) {
-    throw new Error("Room hotel is not enabled for this event")
-  }
-
-  return { eventId, order }
-}
-
-async function getAccommodationHotelByStringId(ctx: any, hotelId: string) {
   const normalizedHotelId = ctx.db.normalizeId("accommodationHotels", hotelId)
   return normalizedHotelId
     ? await ctx.db.get("accommodationHotels", normalizedHotelId)
     : null
 }
 
-async function getAccommodationRoomByStringId(ctx: any, roomId: string) {
+async function getAccommodationRoomByStringId(
+  ctx: AccommodationCtx,
+  roomId: string
+) {
   const normalizedRoomId = ctx.db.normalizeId("accommodationRooms", roomId)
   return normalizedRoomId
     ? await ctx.db.get("accommodationRooms", normalizedRoomId)
@@ -99,7 +78,7 @@ async function getAccommodationRoomByStringId(ctx: any, roomId: string) {
 }
 
 async function getAccommodationRoomTypeByStringId(
-  ctx: any,
+  ctx: AccommodationCtx,
   roomTypeId: string
 ) {
   const normalizedRoomTypeId = ctx.db.normalizeId(
@@ -112,6 +91,36 @@ async function getAccommodationRoomTypeByStringId(
 }
 
 /**
+ * Streams an entire Convex query into memory. Hotel reads are intentionally
+ * uncapped: hotels and event-hotel links are low-cardinality config, so a fixed
+ * cap would either silently truncate or spuriously fail closed. Convex streams
+ * the query in batches, so no fixed row bound is imposed here.
+ */
+async function collectAll<T>(source: AsyncIterable<T>): Promise<T[]> {
+  const rows: T[] = []
+  for await (const row of source) rows.push(row)
+  return rows
+}
+
+/**
+ * Fail-closed truncation reasons. The requested room's occupancy read and the
+ * event inventory/resource scan are distinct failure modes and must stay
+ * distinguishable: `confirmBuyerAssignment` maps them to different result codes
+ * (`OCCUPANCY_INCOMPLETE` vs `INVENTORY_INCOMPLETE`). Conflating the two would
+ * misreport an unrelated candidate-room read as the requested room's occupancy.
+ *
+ * Detection keys off the reason prefix, because the requested-room occupancy
+ * reason is shared by more than one message with different suffixes (the family
+ * bed check and the physical-room scan).
+ */
+const OCCUPANCY_INCOMPLETE_REASON = "Occupancy data is incomplete"
+const OCCUPANCY_INCOMPLETE_MESSAGE =
+  `${OCCUPANCY_INCOMPLETE_REASON}; verify room usage before changing placement`
+const INVENTORY_INCOMPLETE_REASON = "Accommodation inventory is incomplete"
+const INVENTORY_INCOMPLETE_MESSAGE =
+  `${INVENTORY_INCOMPLETE_REASON}; verify room usage before changing placement`
+
+/**
  * RMG-03: event-resource inventory guard. When the event has
  * `eventAccommodationResources` rows (kind "room") for the target room's room
  * type, the number of DISTINCT rooms of that type that currently hold at
@@ -121,40 +130,70 @@ async function getAccommodationRoomTypeByStringId(
  * assignment/confirmation write. When the event has no resource rows for the
  * room type (legacy/pre-resource setups), it is a no-op — the existing room
  * capacity check still applies.
+ *
+ * The scan is event-scoped: rooms are shared physical inventory, but an event's
+ * resource pool is bounded by the hotels linked to that event, so a busy
+ * multi-event deployment can never exhaust another event's rooms.
  */
 async function assertEventRoomInventoryAvailable(
   ctx: MutationCtx,
   order: Doc<"orders"> | null,
   room: Doc<"accommodationRooms">,
-  targetRoomHasOccupants: boolean
+  targetRoomHasOccupants: boolean,
+  sourceAttendeeIds: string[] = []
 ): Promise<void> {
   if (!order?.eventId || !room.roomTypeId) {
     return
   }
+  const eventId = order.eventId
+  const roomTypeId = room.roomTypeId
   const resource = await ctx.db
     .query("eventAccommodationResources")
     .withIndex("by_eventId_and_kind_and_roomTypeId", (q) =>
       q
-        .eq("eventId", order.eventId as Id<"events">)
+        .eq("eventId", eventId as Id<"events">)
         .eq("kind", "room")
-        .eq("roomTypeId", room.roomTypeId as Id<"accommodationRoomTypes">)
+        .eq("roomTypeId", roomTypeId as Id<"accommodationRoomTypes">)
     )
     .first()
-  if (!resource || resource.count <= 0) {
+  if (!resource) {
     return
   }
+  if (resource.count < 0) {
+    throw new Error("Invalid accommodation inventory configuration")
+  }
+  if (resource.count === 0) {
+    throw new Error("No accommodation inventory remains for this room type")
+  }
 
-  const roomsOfType = await ctx.db
-    .query("accommodationRooms")
-    .withIndex("roomTypeId", (q) =>
-      q.eq("roomTypeId", room.roomTypeId as Id<"accommodationRoomTypes">)
-    )
-    .take(500)
+  // Scope the candidate rooms to THIS event's hotels. A room belongs to exactly
+  // one hotel, so streaming each linked hotel's rooms yields an exact,
+  // duplicate-free set without a global room-type scan.
+  const eventHotelLinks = await collectAll(
+    ctx.db
+      .query("accommodationEventHotels")
+      .withIndex("eventId_hotelId", (q) => q.eq("eventId", eventId))
+  )
+  const eventHotelIds = new Set(eventHotelLinks.map((link) => link.hotelId))
 
+  const sourceIds = new Set(sourceAttendeeIds)
   let usedRooms = 0
-  for (const candidate of roomsOfType) {
-    if (await hasPhysicalRoomOccupants(ctx, String(candidate._id))) {
-      usedRooms += 1
+
+  for (const hotelId of eventHotelIds) {
+    for await (const candidate of ctx.db
+      .query("accommodationRooms")
+      .withIndex("hotelId_label", (q) => q.eq("hotelId", hotelId))) {
+      if (candidate.roomTypeId !== roomTypeId) continue
+      if (
+        await hasPhysicalRoomOccupants(
+          ctx,
+          String(candidate._id),
+          sourceIds,
+          INVENTORY_INCOMPLETE_MESSAGE
+        )
+      ) {
+        usedRooms += 1
+      }
     }
   }
 
@@ -171,23 +210,37 @@ async function assertEventRoomInventoryAvailable(
  * loadRoomOccupancy, without loading bed metadata for every room of a type.
  * A provider row bridged to any canonical attendee is never physical presence
  * in its stale provider room; the canonical assignment is authoritative.
+ *
+ * `incompleteMessage` labels a truncated provider read for the caller's context:
+ * the requested room's occupancy by default, or the event inventory scan's own
+ * message when called for an unrelated candidate room.
  */
 async function hasPhysicalRoomOccupants(
   ctx: Pick<MutationCtx, "db">,
-  roomId: string
+  roomId: string,
+  excludedCanonicalIds: Set<string> = new Set(),
+  incompleteMessage: string = OCCUPANCY_INCOMPLETE_MESSAGE
 ): Promise<boolean> {
+  // Only a non-excluded member matters, and `_id`s are distinct, so reading one
+  // row more than the exclusion set is provably sufficient (pigeonhole): if any
+  // non-excluded occupant exists it must surface within this bound. This keeps
+  // the read proportional to the small source set instead of the room cap.
+  const canonicalReadLimit = excludedCanonicalIds.size + 1
   const canonicalOccupants = await ctx.db
     .query("orderAttendees")
     .withIndex("by_assignedRoomId", (q) => q.eq("assignedRoomId", roomId))
-    .take(1)
-  if (canonicalOccupants.length > 0) {
+    .take(canonicalReadLimit)
+  if (canonicalOccupants.some((attendee) => !excludedCanonicalIds.has(String(attendee._id)))) {
     return true
   }
 
   const providerOccupants = await ctx.db
     .query("ticketTailorAttendees")
     .withIndex("by_assignedRoomId", (q) => q.eq("assignedRoomId", roomId))
-    .take(ROOM_OCCUPANT_LIMIT)
+    .take(ROOM_OCCUPANT_LIMIT + 1)
+  if (providerOccupants.length > ROOM_OCCUPANT_LIMIT) {
+    throw new Error(incompleteMessage)
+  }
   if (providerOccupants.length === 0) {
     return false
   }
@@ -201,15 +254,14 @@ async function hasPhysicalRoomOccupants(
   )
   return providerOccupants.some((providerAttendee, index) => {
     // Missing/invalid bridges are provider-only physical occupants.
-    return !providerAttendee.attendeeId || bridges[index] === null
+    if (!providerAttendee.attendeeId || bridges[index] === null) return true
+    const bridge = bridges[index]
+    return (
+      bridge !== null &&
+      !excludedCanonicalIds.has(String(bridge._id)) &&
+      bridge.assignedRoomId === roomId
+    )
   })
-}
-
-async function getAttendeeByStringId(ctx: any, attendeeId: string) {
-  const normalizedAttendeeId = ctx.db.normalizeId("orderAttendees", attendeeId)
-  return normalizedAttendeeId
-    ? await ctx.db.get("orderAttendees", normalizedAttendeeId)
-    : null
 }
 
 function normalizeOptionalString(
@@ -280,6 +332,59 @@ function paymentStateRank(
 
 const ROOM_OCCUPANT_LIMIT = 2_000
 
+/**
+ * Authoritative-board read caps (CR-07). Each authoritative collection is read
+ * with `.take(limit + 1)` and run through `takeDetecting`/`flattenDetecting`
+ * so a capped result becomes an explicit `dataCompleteness.incomplete` signal
+ * instead of a silently truncated "complete" board. The limits are preserved
+ * from the pre-existing bounded reads; only the truncation detection is added.
+ * Hotel reads are intentionally uncapped (streamed with `collectAll`) because
+ * hotels and event-hotel links are low-cardinality config, so a fixed cap would
+ * only spuriously flag the board incomplete.
+ */
+const BOARD_EVENT_LIMIT = 200
+const BOARD_ROOM_TYPE_LIMIT = 100
+const BOARD_ROOM_LIMIT = 500
+const BOARD_ATTENDEE_LIMIT = 2_000
+const BOARD_SLOT_LIMIT = 1_000
+const BOARD_EVENT_ORDER_LIMIT = 500
+const BOARD_CATEGORY_LIMIT = 100
+const BOARD_ORDER_COLLECTION_LIMIT = 100
+
+/**
+ * Returns a bounded slice while recording a completeness reason when the read
+ * overflowed. Callers must `.take(limit + 1)` so an exact-limit result is never
+ * mistaken for truncation.
+ */
+function takeDetecting<T>(
+  rows: T[],
+  limit: number,
+  reason: string,
+  markIncomplete: (reason: string) => void
+): T[] {
+  if (rows.length > limit) {
+    markIncomplete(reason)
+    return rows.slice(0, limit)
+  }
+  return rows
+}
+
+/**
+ * Flattens per-parent bounded groups (for example per-order collections) while
+ * recording one completeness reason when any single group overflowed.
+ */
+function flattenDetecting<T>(
+  groups: ReadonlyArray<T[]>,
+  limit: number,
+  reason: string,
+  markIncomplete: (reason: string) => void
+): T[] {
+  if (groups.some((rows) => rows.length > limit)) {
+    markIncomplete(reason)
+  }
+  return groups.flatMap((rows) => rows.slice(0, limit))
+}
+
 type RoomOccupancy = {
   occupantCount: number
   occupiedBeds: number
@@ -348,6 +453,23 @@ function emptyFamilyUnit(input: {
 }
 
 /**
+ * Bound on the members read for a single family group. The read is executed
+ * with `.take(limit + 1)` so a family group larger than the cap surfaces an
+ * explicit `dataCompleteness.incomplete` reason instead of being silently
+ * truncated.
+ */
+const FAMILY_GROUP_MEMBER_LIMIT = 200
+
+/**
+ * The board read path surfaces `dataCompleteness` instead of throwing, but a
+ * write must never place or unassign a subset of a family whose membership read
+ * truncated. Write-path validators pass this callback so the mutation fails
+ * closed before any attendee patch.
+ */
+const FAMILY_DATA_INCOMPLETE_MESSAGE =
+  "Family data is incomplete; verify family membership before changing placement"
+
+/**
  * Resolve one attendee to a server-owned placement unit. Family tables contain
  * raw string IDs, so this boundary deliberately re-normalizes every reference,
  * validates the declared primary, validates every membership, and then joins
@@ -359,7 +481,8 @@ async function resolveFamilyPlacementUnit(
   ctx: Pick<QueryCtx, "db">,
   eventId: string,
   attendee: Doc<"orderAttendees">,
-  knownRequirements?: Map<string, BedRequirementResult>
+  knownRequirements?: Map<string, BedRequirementResult>,
+  onIncomplete?: (reason: string) => void
 ): Promise<FamilyPlacementUnit> {
   const requirement =
     knownRequirements?.get(String(attendee._id)) ??
@@ -416,7 +539,10 @@ async function resolveFamilyPlacementUnit(
   const groupMembers = await ctx.db
     .query("attendeeFamilyMembers")
     .withIndex("familyGroupId", (q) => q.eq("familyGroupId", groupId))
-    .take(200)
+    .take(FAMILY_GROUP_MEMBER_LIMIT + 1)
+  if (groupMembers.length > FAMILY_GROUP_MEMBER_LIMIT) {
+    onIncomplete?.("family members")
+  }
 
   const normalizedMemberIds: Id<"orderAttendees">[] = []
   let malformedMembership = groupMembers.length === 0
@@ -530,10 +656,22 @@ async function resolveFamilyPlacementUnit(
       requirement: requirements.get(String(member._id))!,
       familyState: "unresolved" as FamilyResolutionState,
     }))
-  const separateMembers = resolvedMembers.filter(
-    (member) => String(member._id) !== String(parent._id) &&
-      !eligibleChildren.some((child) => String(child.attendee._id) === String(member._id))
-  )
+  // CR-06 follow-up: only members that can actually be placed on their own are
+  // separate placement items. A member that is no longer accommodation-eligible
+  // (for example a ticket-only attendee) could never be placed, so advertising
+  // it forever as "Separate placement required" is misleading. Genuinely
+  // placeable bed-requiring members stay in the set.
+  const separateMembers = resolvedMembers.filter((member) => {
+    if (String(member._id) === String(parent._id)) return false
+    if (
+      eligibleChildren.some(
+        (child) => String(child.attendee._id) === String(member._id)
+      )
+    ) {
+      return false
+    }
+    return requirements.get(String(member._id))?.placementEligible === true
+  })
 
   const childRooms = eligibleChildren
     .map((child) => child.attendee.assignedRoomId)
@@ -571,6 +709,18 @@ async function resolveFamilyPlacementUnit(
     requirements,
     reason: null,
   }
+}
+
+/**
+ * CR-06: separate family members that still need their own placement. A
+ * separate member that has already been placed is no longer an operational
+ * item, so it is excluded from the queue/room projection and follow-ups.
+ */
+function unassignedSeparateMembers(
+  unit: FamilyPlacementUnit | undefined
+): Doc<"orderAttendees">[] {
+  if (!unit || unit.familyRole !== "parent") return []
+  return unit.separateMembers.filter((member) => !member.assignedRoomId)
 }
 
 /**
@@ -649,39 +799,6 @@ async function loadRoomOccupancy(
     foreignOccupantCount,
     incomplete,
   }
-}
-
-async function assertRoomCapacityForAttendee(
-  ctx: MutationCtx,
-  attendee: Doc<"orderAttendees">,
-  room: Doc<"accommodationRooms">
-): Promise<{ requirement: Awaited<ReturnType<typeof resolveAttendeeBedRequirement>>; occupancy: RoomOccupancy }> {
-  const requirement = await resolveAttendeeBedRequirement(ctx, attendee._id)
-  if (!requirement.placementEligible) {
-    throw new Error("Attendee is not eligible for accommodation placement")
-  }
-
-  const occupancy = await loadRoomOccupancy(
-    ctx,
-    String(room._id),
-    room.capacity,
-    null
-  )
-  const alreadyAssigned = attendee.assignedRoomId === String(room._id)
-  const incomingBedDelta =
-    alreadyAssigned || !requirement.requiresBed ? 0 : 1
-
-  if (occupancy.incomplete && incomingBedDelta > 0) {
-    throw new Error(
-      "Occupancy data is incomplete; verify before assigning a bed-consuming attendee"
-    )
-  }
-
-  if (occupancy.occupiedBeds + incomingBedDelta > room.capacity) {
-    throw new Error("Room is already full")
-  }
-
-  return { requirement, occupancy }
 }
 
 export function attendeeMatchesSignalFilters(input: {
@@ -839,39 +956,95 @@ export const getRoomAllocationBoard = query({
     }
     const eventId = String(canonicalEventId)
 
+    // CR-07: every authoritative collection below is read with `.take(limit+1)`
+    // and unwrapped through the detecting helpers so a capped read becomes an
+    // explicit incomplete signal rather than a silently truncated board.
+    const boardIncompleteReasons: string[] = []
+    const markBoardIncomplete = (reason: string) => {
+      if (!boardIncompleteReasons.includes(reason)) {
+        boardIncompleteReasons.push(reason)
+      }
+    }
+
+    // The event<->hotel join table is the only place the relationship lives
+    // (`events` has no hotel ref). Reading it by eventId yields exactly the
+    // hotels that show for this event.
     const scopedHotelIds = (
-      await ctx.db
-        .query("accommodationEventHotels")
-        .withIndex("eventId_hotelId", (q) => q.eq("eventId", eventId))
-        .take(200)
-    ).map((eh) => eh.hotelId)
+      await collectAll(
+        ctx.db
+          .query("accommodationEventHotels")
+          .withIndex("eventId_hotelId", (q) => q.eq("eventId", eventId))
+      )
+    ).map((link) => link.hotelId)
 
     const [
-      events,
-      canonicalEvents,
-      hotels,
-      roomTypes,
-      rooms,
-      allOrderAttendees,
-      accommodationSlotDocs,
-      allOrders,
-      accommodationCategoriesDocs,
+      canonicalEventsRaw,
+      hotelsRaw,
+      roomTypesRaw,
+      roomsRaw,
+      allOrderAttendeesRaw,
+      accommodationSlotsRaw,
+      allOrdersRaw,
+      accommodationCategoriesRaw,
     ] = await Promise.all([
-      ctx.db.query("ticketTailorEvents").take(200),
-      ctx.db.query("events").take(200),
-      ctx.db.query("accommodationHotels").take(200),
-      ctx.db.query("accommodationRoomTypes").take(100),
-      ctx.db.query("accommodationRooms").take(500),
-      ctx.db.query("orderAttendees").take(2000),
-      ctx.db.query("accommodationSlots").take(1000),
+      ctx.db.query("events").take(BOARD_EVENT_LIMIT + 1),
+      collectAll(ctx.db.query("accommodationHotels")),
+      ctx.db.query("accommodationRoomTypes").take(BOARD_ROOM_TYPE_LIMIT + 1),
+      ctx.db.query("accommodationRooms").take(BOARD_ROOM_LIMIT + 1),
+      ctx.db.query("orderAttendees").take(BOARD_ATTENDEE_LIMIT + 1),
+      ctx.db.query("accommodationSlots").take(BOARD_SLOT_LIMIT + 1),
       ctx.db
         .query("orders")
         .withIndex("by_eventId", (q) =>
           q.eq("eventId", eventId as Id<"events">)
         )
-        .take(500),
-      ctx.db.query("accommodationCategories").take(100),
+        .take(BOARD_EVENT_ORDER_LIMIT + 1),
+      ctx.db.query("accommodationCategories").take(BOARD_CATEGORY_LIMIT + 1),
     ])
+
+    const canonicalEvents = takeDetecting(
+      canonicalEventsRaw,
+      BOARD_EVENT_LIMIT,
+      "events",
+      markBoardIncomplete
+    )
+    const hotels = hotelsRaw
+    const roomTypes = takeDetecting(
+      roomTypesRaw,
+      BOARD_ROOM_TYPE_LIMIT,
+      "room types",
+      markBoardIncomplete
+    )
+    const rooms = takeDetecting(
+      roomsRaw,
+      BOARD_ROOM_LIMIT,
+      "rooms",
+      markBoardIncomplete
+    )
+    const allOrderAttendees = takeDetecting(
+      allOrderAttendeesRaw,
+      BOARD_ATTENDEE_LIMIT,
+      "attendees",
+      markBoardIncomplete
+    )
+    const accommodationSlotDocs = takeDetecting(
+      accommodationSlotsRaw,
+      BOARD_SLOT_LIMIT,
+      "accommodation slots",
+      markBoardIncomplete
+    )
+    const allOrders = takeDetecting(
+      allOrdersRaw,
+      BOARD_EVENT_ORDER_LIMIT,
+      "event orders",
+      markBoardIncomplete
+    )
+    const accommodationCategoriesDocs = takeDetecting(
+      accommodationCategoriesRaw,
+      BOARD_CATEGORY_LIMIT,
+      "accommodation categories",
+      markBoardIncomplete
+    )
 
     const normalizedLocationFilter = normalizeOptionalString(args.location)
 
@@ -887,18 +1060,22 @@ export const getRoomAllocationBoard = query({
         (!eventId || String(order.eventId) === String(eventId))
     )
 
-    const scopedTicketSelectionDocs = scopedOrders.length
-      ? (
-          await Promise.all(
-            scopedOrders.map((order) =>
-              ctx.db
-                .query("orderTicketSelections")
-                .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
-                .take(100)
-            )
+    const scopedTicketSelectionGroups = scopedOrders.length
+      ? await Promise.all(
+          scopedOrders.map((order) =>
+            ctx.db
+              .query("orderTicketSelections")
+              .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+              .take(BOARD_ORDER_COLLECTION_LIMIT + 1)
           )
-        ).flat()
+        )
       : []
+    const scopedTicketSelectionDocs = flattenDetecting(
+      scopedTicketSelectionGroups,
+      BOARD_ORDER_COLLECTION_LIMIT,
+      "order ticket selections",
+      markBoardIncomplete
+    )
     const scopedTicketTypeIds = Array.from(
       new Set(scopedTicketSelectionDocs.map((selection) => selection.ticketTypeId))
     )
@@ -997,27 +1174,42 @@ export const getRoomAllocationBoard = query({
     // stored selection and option rows.
     const scopedOrderIds = scopedOrders.map((s) => s._id)
 
-    const [accommodationSelectionDocs, accommodationOptionDocs] =
-      scopedOrderIds.length
-        ? await Promise.all([
-            Promise.all(
-              scopedOrderIds.map((oid) =>
-                ctx.db
-                  .query("orderAccommodationSelections")
-                  .withIndex("by_orderId", (q) => q.eq("orderId", oid))
-                  .take(100)
-              )
-            ).then((results) => results.flat()),
-            Promise.all(
-              scopedOrderIds.map((oid) =>
-                ctx.db
-                  .query("orderAccommodationOptionSelections")
-                  .withIndex("by_orderId", (q) => q.eq("orderId", oid))
-                  .take(100)
-              )
-            ).then((results) => results.flat()),
-          ])
-        : [[], []]
+    const [accommodationSelectionGroups, accommodationOptionGroups]: [
+      Doc<"orderAccommodationSelections">[][],
+      Doc<"orderAccommodationOptionSelections">[][],
+    ] = scopedOrderIds.length
+      ? await Promise.all([
+          Promise.all(
+            scopedOrderIds.map((oid) =>
+              ctx.db
+                .query("orderAccommodationSelections")
+                .withIndex("by_orderId", (q) => q.eq("orderId", oid))
+                .take(BOARD_ORDER_COLLECTION_LIMIT + 1)
+            )
+          ),
+          Promise.all(
+            scopedOrderIds.map((oid) =>
+              ctx.db
+                .query("orderAccommodationOptionSelections")
+                .withIndex("by_orderId", (q) => q.eq("orderId", oid))
+                .take(BOARD_ORDER_COLLECTION_LIMIT + 1)
+            )
+          ),
+        ])
+      : [[], []]
+
+    const accommodationSelectionDocs = flattenDetecting(
+      accommodationSelectionGroups,
+      BOARD_ORDER_COLLECTION_LIMIT,
+      "order accommodation selections",
+      markBoardIncomplete
+    )
+    const accommodationOptionDocs = flattenDetecting(
+      accommodationOptionGroups,
+      BOARD_ORDER_COLLECTION_LIMIT,
+      "order accommodation options",
+      markBoardIncomplete
+    )
 
     const categoryById = new Map(
       accommodationCategoriesDocs.map((c) => [c._id as string, c])
@@ -1106,7 +1298,8 @@ export const getRoomAllocationBoard = query({
           ctx,
           eventId,
           attendee,
-          scopedBedRequirements
+          scopedBedRequirements,
+          markBoardIncomplete
         )
       )
     }
@@ -1114,6 +1307,7 @@ export const getRoomAllocationBoard = query({
     type FamilyFollowUpState =
       | "Needs family link"
       | "Waiting for parent room"
+      | "Separate placement required"
       | "inconsistent"
     const familyFollowUps: Array<{
       attendeeId: string
@@ -1147,51 +1341,9 @@ export const getRoomAllocationBoard = query({
       })
     }
 
-    for (const attendee of scopedAttendees) {
-      const unit = familyUnitByAttendeeId.get(String(attendee._id))!
-      const requirement = scopedBedRequirements.get(String(attendee._id))
-      if (!requirement?.placementEligible) continue
-
-      if (!unit.valid && unit.familyState === "needs-family-link") {
-        addFamilyFollowUp({
-          attendee,
-          unit,
-          state: "Needs family link",
-          message:
-            "Review attendee details and link a valid family parent before placing this no-bed attendee.",
-        })
-      } else if (!unit.valid || unit.familyState === "inconsistent") {
-        addFamilyFollowUp({
-          attendee,
-          unit,
-          state: "inconsistent",
-          message: "Review the family relationship before placing this attendee.",
-        })
-      } else if (
-        unit.familyRole === "child" &&
-        unit.parent &&
-        !unit.parent.assignedRoomId &&
-        unit.eligibleChildren.some(
-          (child) => String(child.attendee._id) === String(attendee._id)
-        )
-      ) {
-        addFamilyFollowUp({
-          attendee,
-          unit,
-          state: "Waiting for parent room",
-          message: "Place the parent to assign this child to the same room.",
-        })
-      }
-    }
-
-    const eventUnassignedAttendees = scopedAttendees.filter((attendee) => {
-      const requirement = scopedBedRequirements.get(String(attendee._id))
-      return (
-        !attendee.assignedRoomId &&
-        requirement?.placementEligible === true
-      )
-    })
-
+    // WR-04: the same server-side predicate that filters the unassigned queue
+    // also filters follow-ups, so a filtered board never advertises unrelated
+    // blocked family follow-ups.
     const attendeePassesFilters = (attendee: Doc<"orderAttendees">) => {
       const unit = familyUnitByAttendeeId.get(String(attendee._id))!
       const genderType =
@@ -1224,6 +1376,76 @@ export const getRoomAllocationBoard = query({
         return false
       return true
     }
+
+    const isSeparatePlacementMember = (
+      unit: FamilyPlacementUnit,
+      attendee: Doc<"orderAttendees">
+    ) =>
+      unit.separateMembers.some(
+        (member) => String(member._id) === String(attendee._id)
+      )
+
+    for (const attendee of scopedAttendees) {
+      const unit = familyUnitByAttendeeId.get(String(attendee._id))!
+      const requirement = scopedBedRequirements.get(String(attendee._id))
+      if (!requirement?.placementEligible) continue
+      if (!attendeePassesFilters(attendee)) continue
+
+      if (!unit.valid && unit.familyState === "needs-family-link") {
+        addFamilyFollowUp({
+          attendee,
+          unit,
+          state: "Needs family link",
+          message:
+            "Review attendee details and link a valid family parent before placing this no-bed attendee.",
+        })
+      } else if (!unit.valid || unit.familyState === "inconsistent") {
+        addFamilyFollowUp({
+          attendee,
+          unit,
+          state: "inconsistent",
+          message: "Review the family relationship before placing this attendee.",
+        })
+      } else if (
+        !attendee.assignedRoomId &&
+        isSeparatePlacementMember(unit, attendee)
+      ) {
+        // CR-06: a bed-requiring (or otherwise non-followable) family member is
+        // deliberately excluded from the parent's atomic child set. It stays a
+        // first-class placement unit in the queue and receives an explicit
+        // server-owned follow-up so it can never disappear from operational
+        // state once the parent is placed.
+        addFamilyFollowUp({
+          attendee,
+          unit,
+          state: "Separate placement required",
+          message:
+            "This family member requires a separate placement and is not moved with the parent. Assign them to a room directly.",
+        })
+      } else if (
+        unit.familyRole === "child" &&
+        unit.parent &&
+        !unit.parent.assignedRoomId &&
+        unit.eligibleChildren.some(
+          (child) => String(child.attendee._id) === String(attendee._id)
+        )
+      ) {
+        addFamilyFollowUp({
+          attendee,
+          unit,
+          state: "Waiting for parent room",
+          message: "Place the parent to assign this child to the same room.",
+        })
+      }
+    }
+
+    const eventUnassignedAttendees = scopedAttendees.filter((attendee) => {
+      const requirement = scopedBedRequirements.get(String(attendee._id))
+      return (
+        !attendee.assignedRoomId &&
+        requirement?.placementEligible === true
+      )
+    })
 
     const unassignedAttendees = eventUnassignedAttendees.filter((attendee) => {
       const unit = familyUnitByAttendeeId.get(String(attendee._id))!
@@ -1271,18 +1493,17 @@ export const getRoomAllocationBoard = query({
       )
     )
 
-    type ProviderRoomProjection = {
-      provider: Doc<"ticketTailorAttendees">
-      order: Doc<"orders"> | null
-      canonicalAttendee: Doc<"orderAttendees"> | null
-      safelyBridgedCanonicalId: string | null
-    }
-    const providerRoomProjectionByRoom = new Map<
-      string,
-      ProviderRoomProjection[]
-    >()
+    // CR-04/CR-05: one provider-reconciliation rule for the whole board. A
+    // provider row with a resolvable canonical `attendeeId` bridge is owned by
+    // that canonical record — assignment state is globally canonical, so the
+    // provider row is never projected or counted as a second identity, even
+    // when it carries a stale room value. A provider row with no resolvable
+    // bridge is physical occupancy (counted by loadRoomOccupancy) but has no
+    // safe selected-event identity, so the room projection is marked
+    // incomplete and must be reviewed before further placement. This is the
+    // same rule used by loadRoomOccupancy/hasPhysicalRoomOccupants, so
+    // occupancy, projection, queue suppression, and capacity writes agree.
     const providerProjectionIncompleteRooms = new Set<string>()
-    const providerCoveredCanonicalIds = new Set<string>()
     await Promise.all(
       filteredRooms.map(async (room) => {
         const providerRows = await ctx.db
@@ -1291,38 +1512,15 @@ export const getRoomAllocationBoard = query({
             q.eq("assignedRoomId", String(room._id))
           )
           .take(ROOM_OCCUPANT_LIMIT)
-        const projections: ProviderRoomProjection[] = []
         for (const provider of providerRows) {
           const canonicalAttendee = provider.attendeeId
             ? await ctx.db.get("orderAttendees", provider.attendeeId)
             : null
-          // A canonical bridge owns assignment state globally. If it exists,
-          // its provider row is intentionally omitted from this room even when
-          // the provider has a stale room value.
           if (canonicalAttendee) continue
-
           const order = await ctx.db.get("orders", provider.orderId)
           if (!order || String(order.eventId) !== eventId) continue
-          const orderMembers = await ctx.db
-            .query("orderAttendees")
-            .withIndex("by_orderId", (q) => q.eq("orderId", provider.orderId))
-            .take(2)
-          if (orderMembers.length === 1) {
-            providerCoveredCanonicalIds.add(String(orderMembers[0]!._id))
-            projections.push({
-              provider,
-              order,
-              canonicalAttendee: orderMembers[0]!,
-              safelyBridgedCanonicalId: String(orderMembers[0]!._id),
-            })
-          } else {
-            // A provider row with no safe order/attendee bridge remains an
-            // aggregate physical occupant, not an invented selected-event
-            // identity. Keep the room review-needed and redact the row.
-            providerProjectionIncompleteRooms.add(String(room._id))
-          }
+          providerProjectionIncompleteRooms.add(String(room._id))
         }
-        providerRoomProjectionByRoom.set(String(room._id), projections)
       })
     )
 
@@ -1373,6 +1571,7 @@ export const getRoomAllocationBoard = query({
           orderId: order?._id ?? null,
           attendeeName: a.name ?? null,
           attendeeEmail: a.email ?? null,
+          genderType: normalizeGender(a.gender),
           providerOrderId: order?.providerOrderId ?? null,
           providerEventId: order?.providerEventId ?? null,
           eventId: canonicalEvent?._id ?? null,
@@ -1405,45 +1604,13 @@ export const getRoomAllocationBoard = query({
                 }))
               : [],
           eligibleChildCount: familyUnit?.eligibleChildren.length ?? 0,
-          separateMemberCount: familyUnit?.separateMembers.length ?? 0,
-        }
-      })
-      const providerOnlyOccupants = (
-        providerRoomProjectionByRoom.get(String(room._id)) ?? []
-      ).map(({ provider, order, canonicalAttendee }) => {
-        const canonicalEvent = canonicalEventById.get(String(order?.eventId))
-        const canonicalPayment = canonicalAttendee
-          ? paymentById.get(String(canonicalAttendee._id))
-          : null
-        return {
-          attendeeId: canonicalAttendee?._id ?? `provider:${String(provider._id)}`,
-          attendeeName: provider.name ?? canonicalAttendee?.name ?? null,
-          attendeeEmail: provider.email ?? canonicalAttendee?.email ?? null,
-          orderId: order?._id ?? null,
-          providerOrderId: provider.providerOrderId,
-          providerEventId: provider.providerEventId,
-          eventId: canonicalEvent?._id ?? null,
-          eventName: canonicalEvent?.title ?? null,
-          ticketTypeLabel: provider.ticketTypeLabel ?? null,
-          paymentState: canonicalPayment?.paymentState ?? null,
-          amountDueMinor: canonicalPayment?.amountDueMinor ?? null,
-          paidAmountMinor: canonicalPayment?.paidAmountMinor ?? null,
-          occupancy: null,
-          nightBeforeLevel: null,
-          nightBeforeOccupancy: null,
-          categoryLabel: null,
-          optionKeys: [],
-          requiresBed: true,
-          nightBeforeMismatch: false,
-          familyRole: "solo" as const,
-          familyGroupId: null,
-          familyLabel: null,
-          familyParentAttendeeId: null,
-          familyState: "placed" as const,
-          eligibleChildren: [],
-          eligibleChildCount: 0,
-          separateMemberCount: 0,
-          providerOnly: true,
+          separateMemberCount: unassignedSeparateMembers(familyUnit).length,
+          separateMembers: unassignedSeparateMembers(familyUnit).map((member) => ({
+            attendeeId: String(member._id),
+            attendeeName: member.name ?? null,
+            requiresBed:
+              scopedBedRequirements.get(String(member._id))?.requiresBed ?? true,
+          })),
         }
       })
       const roomProjectionIncomplete = providerProjectionIncompleteRooms.has(
@@ -1458,8 +1625,14 @@ export const getRoomAllocationBoard = query({
       }
       const occupiedBeds = physicalOccupancy.occupiedBeds
       const availableBeds = physicalOccupancy.availableBeds
-      const availability =
-        physicalOccupancy.occupantCount === 0
+      const occupancyIncomplete =
+        physicalOccupancy.incomplete || roomProjectionIncomplete
+      // WR-03: an incomplete physical or identity projection must never be
+      // labelled as a confident empty/available/full room. `review` is the
+      // explicit incomplete status consumed by the board UI.
+      const availability = occupancyIncomplete
+        ? "review"
+        : physicalOccupancy.occupantCount === 0
           ? "empty"
           : availableBeds === 0
             ? "full"
@@ -1471,8 +1644,7 @@ export const getRoomAllocationBoard = query({
         capacity: room.capacity,
         occupantCount: physicalOccupancy.occupantCount,
         foreignOccupantCount: physicalOccupancy.foreignOccupantCount,
-         occupancyIncomplete:
-           physicalOccupancy.incomplete || roomProjectionIncomplete,
+        occupancyIncomplete,
         occupiedBeds,
         availableBeds,
         availability,
@@ -1487,7 +1659,7 @@ export const getRoomAllocationBoard = query({
               defaultCapacity: roomType.defaultCapacity,
             }
           : undefined,
-        occupants: [...occupants, ...providerOnlyOccupants],
+        occupants,
         providerProjectionIncomplete: roomProjectionIncomplete,
         pendingAssignments: pendingAssignmentsByRoom.get(room._id) ?? [],
       }
@@ -1503,9 +1675,7 @@ export const getRoomAllocationBoard = query({
       legacyOrderMemberIdsByAttendeeId.set(String(attendee._id), ids)
     }
 
-    const mappedUnassignedAttendees = unassignedAttendees
-      .filter((attendee) => !providerCoveredCanonicalIds.has(String(attendee._id)))
-      .map((a) => {
+    const mappedUnassignedAttendees = unassignedAttendees.map((a) => {
       const order = orderById.get(a.orderId as string)
       const canonicalEvent = order
         ? canonicalEventById.get(order.eventId as string)
@@ -1581,11 +1751,17 @@ export const getRoomAllocationBoard = query({
           familyState: child.familyState,
         })),
         eligibleChildCount: familyUnit.eligibleChildren.length,
-        separateMemberCount: familyUnit.separateMembers.length,
-        separateMembers: familyUnit.separateMembers.map((member) => ({
+        separateMemberCount: unassignedSeparateMembers(familyUnit).length,
+        separateMembers: unassignedSeparateMembers(familyUnit).map((member) => ({
           attendeeId: String(member._id),
           attendeeName: member.name ?? null,
+          requiresBed:
+            scopedBedRequirements.get(String(member._id))?.requiresBed ?? true,
+          familyState: familyUnit.familyState,
         })),
+        separatePlacementRequired: familyUnit.separateMembers.some(
+          (member) => String(member._id) === String(a._id)
+        ),
         paymentState: payment?.paymentState ?? null,
         amountDueMinor: payment?.amountDueMinor ?? null,
         paidAmountMinor: payment?.paidAmountMinor ?? null,
@@ -1624,7 +1800,10 @@ export const getRoomAllocationBoard = query({
     // --- Canonical submission queue rows ---
     const submissionIds = scopedOrders.map((s) => s._id)
 
-    const [orderAttendeesList, orderAssignmentsList] = submissionIds.length
+    const [orderAttendeeGroups, orderAssignmentGroups]: [
+      Doc<"orderAttendees">[][],
+      Doc<"orderAssignments">[][],
+    ] = submissionIds.length
       ? await Promise.all([
           Promise.all(
             submissionIds.map((sid) =>
@@ -1633,9 +1812,9 @@ export const getRoomAllocationBoard = query({
                 .withIndex("by_orderId", (q) =>
                   q.eq("orderId", sid as Id<"orders">)
                 )
-                .take(100)
+                .take(BOARD_ORDER_COLLECTION_LIMIT + 1)
             )
-          ).then((results) => results.flat()),
+          ),
           Promise.all(
             submissionIds.map((sid) =>
               ctx.db
@@ -1643,11 +1822,24 @@ export const getRoomAllocationBoard = query({
                 .withIndex("by_orderId", (q) =>
                   q.eq("orderId", sid as Id<"orders">)
                 )
-                .take(100)
+                .take(BOARD_ORDER_COLLECTION_LIMIT + 1)
             )
-          ).then((results) => results.flat()),
+          ),
         ])
       : [[], []]
+
+    const orderAttendeesList = flattenDetecting(
+      orderAttendeeGroups,
+      BOARD_ORDER_COLLECTION_LIMIT,
+      "order attendees",
+      markBoardIncomplete
+    )
+    const orderAssignmentsList = flattenDetecting(
+      orderAssignmentGroups,
+      BOARD_ORDER_COLLECTION_LIMIT,
+      "order assignments",
+      markBoardIncomplete
+    )
 
     // orderById already declared above
 
@@ -1920,17 +2112,15 @@ export const getRoomAllocationBoard = query({
       return a.attendeeId.localeCompare(b.attendeeId)
     })
 
-    const eventHotels = await ctx.db.query("accommodationEventHotels").take(200)
-    const eventHotelsByEvent: Record<string, string[]> = {}
-    for (const eh of eventHotels) {
-      if (!eventHotelsByEvent[eh.eventId]) {
-        eventHotelsByEvent[eh.eventId] = []
-      }
-      eventHotelsByEvent[eh.eventId].push(eh.hotelId)
-    }
-
     return {
       generatedAt: new Date().toISOString(),
+      // CR-07: explicit server-owned completeness signal. When any authoritative
+      // board read was capped, `incomplete` is true and `reasons` names the
+      // truncated collection(s); the UI must not claim placement is complete.
+      dataCompleteness: {
+        incomplete: boardIncompleteReasons.length > 0,
+        reasons: boardIncompleteReasons,
+      },
       filters: {
         eventId: eventId ?? null,
         search: null,
@@ -1960,7 +2150,6 @@ export const getRoomAllocationBoard = query({
         .map((h) => ({
           id: h._id,
           name: h.name,
-          assignedEventIds: eventHotelsByEvent[h._id] ?? [],
         })),
       roomTypes: roomTypes.map((rt) => ({
         id: rt._id,
@@ -1997,6 +2186,7 @@ export const getRoomAllocationBoard = query({
           0
         ),
         occupancyIncomplete: mappedRooms.some((r) => r.occupancyIncomplete),
+        incomplete: boardIncompleteReasons.length > 0,
         unassignedAttendeesCount: mappedUnassignedAttendees.length,
         familyFollowUpsCount: familyFollowUps.length,
       },
@@ -2008,8 +2198,8 @@ export const getHotels = query({
   args: {},
   handler: async (ctx) => {
     await requireIdentity(ctx)
-    // Bounded: small number of hotels
-    return await ctx.db.query("accommodationHotels").take(200)
+    // Hotels are low-cardinality config; read the full set.
+    return await collectAll(ctx.db.query("accommodationHotels"))
   },
 })
 
@@ -2044,7 +2234,7 @@ export const getRoomsWithDetails = query({
     // Bounded: config tables capped for inventory view
     const [rooms, hotels, roomTypes] = await Promise.all([
       ctx.db.query("accommodationRooms").take(500),
-      ctx.db.query("accommodationHotels").take(200),
+      collectAll(ctx.db.query("accommodationHotels")),
       ctx.db.query("accommodationRoomTypes").take(100),
     ])
 
@@ -2086,21 +2276,10 @@ export const listAccommodationInventory = query({
     const [canonicalEvents, hotels, roomTypes, rooms] =
       await Promise.all([
         ctx.db.query("events").take(200),
-        ctx.db.query("accommodationHotels").take(200),
+        collectAll(ctx.db.query("accommodationHotels")),
         ctx.db.query("accommodationRoomTypes").take(100),
         ctx.db.query("accommodationRooms").take(500),
       ])
-
-    const eventHotels = await ctx.db.query("accommodationEventHotels").take(200)
-
-    const eventHotelsByHotel = eventHotels.reduce(
-      (acc, eh) => {
-        if (!acc[eh.hotelId]) acc[eh.hotelId] = []
-        acc[eh.hotelId].push(eh.eventId)
-        return acc
-      },
-      {} as Record<string, string[]>
-    )
 
     const roomsByHotel = rooms.reduce(
       (acc, room) => {
@@ -2149,7 +2328,6 @@ export const listAccommodationInventory = query({
         address: hotel.address ?? null,
         notes: hotel.notes ?? null,
         roomCount: roomsByHotel[hotel._id]?.length ?? 0,
-        assignedEventIds: eventHotelsByHotel[hotel._id] ?? [],
       })),
       roomTypes: roomTypes.map((rt) => ({
         id: rt._id,
@@ -2367,10 +2545,11 @@ export const createRooms = mutation({
     const shouldGenerateSlots = args.autoGenerateSlots !== false
     if (shouldGenerateSlots) {
       // Find all events linked to this hotel
-      const linkedEvents = await ctx.db
-        .query("accommodationEventHotels")
-        .withIndex("hotelId", (q) => q.eq("hotelId", args.hotelId))
-        .take(50)
+      const linkedEvents = await collectAll(
+        ctx.db
+          .query("accommodationEventHotels")
+          .withIndex("hotelId", (q) => q.eq("hotelId", args.hotelId))
+      )
 
       // Generate slots for each new room in each linked event
       for (const link of linkedEvents) {
@@ -2534,6 +2713,15 @@ function throwFamilyResolutionError(unit: FamilyPlacementUnit): never {
 }
 
 /**
+ * Write-path `onIncomplete` callback: a family group whose membership read
+ * overflowed `FAMILY_GROUP_MEMBER_LIMIT` must not be partially placed or
+ * unassigned, so the mutation aborts here before its first attendee patch.
+ */
+function failOnIncompleteFamilyData(): never {
+  throw new Error(FAMILY_DATA_INCOMPLETE_MESSAGE)
+}
+
+/**
  * Read-only validation for a complete parent-led target. All relationship,
  * live bed, physical occupancy, inventory, and capacity checks happen before
  * commitFamilyRoomOutcome performs its first attendee patch.
@@ -2565,7 +2753,13 @@ async function validateFamilyRoomOutcome(
   if (!attendee) throw new Error("Attendee not found")
   if (!room) throw new Error("Room not found")
 
-  const familyUnit = await resolveFamilyPlacementUnit(ctx, String(eventId), attendee)
+  const familyUnit = await resolveFamilyPlacementUnit(
+    ctx,
+    String(eventId),
+    attendee,
+    undefined,
+    failOnIncompleteFamilyData
+  )
   if (!familyUnit.valid) throwFamilyResolutionError(familyUnit)
 
   // Family links are currently best-effort. Keep the atomic parent-led path
@@ -2636,11 +2830,18 @@ async function validateFamilyRoomOutcome(
     throw new Error("Room is already full")
   }
   const parentOrder = await ctx.db.get("orders", unit.parent.orderId)
+  const affectedIds = affectedAttendees.map((member) => String(member._id))
+  const targetHasRemainingOccupants = await hasPhysicalRoomOccupants(
+    ctx,
+    String(room._id),
+    new Set(affectedIds)
+  )
   await assertEventRoomInventoryAvailable(
     ctx,
     parentOrder,
     room,
-    occupancy.occupantCount > 0
+    targetHasRemainingOccupants,
+    affectedIds
   )
 
   return {
@@ -2708,7 +2909,13 @@ async function validateFamilyUnassignment(
   if (!attendee) {
     throw new Error("Attendee not found or not assigned to any room")
   }
-  const familyUnit = await resolveFamilyPlacementUnit(ctx, String(eventId), attendee)
+  const familyUnit = await resolveFamilyPlacementUnit(
+    ctx,
+    String(eventId),
+    attendee,
+    undefined,
+    failOnIncompleteFamilyData
+  )
   if (!familyUnit.valid) throwFamilyResolutionError(familyUnit)
 
   const unit =
@@ -2825,11 +3032,11 @@ export const getEventHotels = query({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    // Bounded: one event links to limited hotels
-    const eventHotels = await ctx.db
-      .query("accommodationEventHotels")
-      .withIndex("eventId_hotelId", (q) => q.eq("eventId", args.eventId))
-      .take(50)
+    const eventHotels = await collectAll(
+      ctx.db
+        .query("accommodationEventHotels")
+        .withIndex("eventId_hotelId", (q) => q.eq("eventId", args.eventId))
+    )
 
     const hotels = await Promise.all(
       eventHotels.map((eh) => getAccommodationHotelByStringId(ctx, eh.hotelId))
@@ -3077,10 +3284,11 @@ export const deleteHotel = mutation({
       }
     }
 
-    const eventHotels = await ctx.db
-      .query("accommodationEventHotels")
-      .withIndex("hotelId", (q) => q.eq("hotelId", args.hotelId))
-      .take(50)
+    const eventHotels = await collectAll(
+      ctx.db
+        .query("accommodationEventHotels")
+        .withIndex("hotelId", (q) => q.eq("hotelId", args.hotelId))
+    )
 
     for (const room of rooms) {
       await ctx.db.delete("accommodationRooms", room._id)
@@ -3457,12 +3665,13 @@ export const getAccommodationSummaryForEvent = query({
       throw new Error("Event not found")
     }
 
-    const eventHotels = await ctx.db
-      .query("accommodationEventHotels")
-      .withIndex("eventId_hotelId", (q) =>
-        q.eq("eventId", args.eventId as unknown as string)
-      )
-      .take(50)
+    const eventHotels = await collectAll(
+      ctx.db
+        .query("accommodationEventHotels")
+        .withIndex("eventId_hotelId", (q) =>
+          q.eq("eventId", args.eventId as unknown as string)
+        )
+    )
 
     const slots = await ctx.db
       .query("accommodationSlots")
@@ -3554,6 +3763,9 @@ export const confirmBuyerAssignment = mutation({
     if (!room) {
       throw new Error("Room not found")
     }
+    if (slot.hotelId !== room.hotelId) {
+      throw new Error("Slot does not belong to its room's hotel")
+    }
 
     let outcome: ValidatedFamilyRoomOutcome
     try {
@@ -3565,14 +3777,20 @@ export const confirmBuyerAssignment = mutation({
       })
     } catch (error: unknown) {
       const reason = mutationErrorMessage(error)
-      if (
-        !reason.includes("Room is already full") &&
-        !reason.includes("Occupancy data is incomplete")
-      ) {
+      const roomFull = reason.includes("Room is already full")
+      const occupancyIncomplete = reason.includes(OCCUPANCY_INCOMPLETE_REASON)
+      // The event inventory/resource scan throws its own message (including from
+      // an unrelated candidate room's provider read), so it must never be
+      // reported as the requested room's occupancy failure.
+      const inventoryIncomplete = reason.includes(INVENTORY_INCOMPLETE_REASON)
+      if (!roomFull && !occupancyIncomplete && !inventoryIncomplete) {
         throw error
       }
 
-      // Room is full - find alternative rooms with capacity
+      // Room is full (or a bounded read is incomplete) - find alternative rooms
+      // with capacity. An incomplete read is a fail-safe, not a full room, so it
+      // is reported with its own code/message rather than a misleading "full
+      // capacity".
       const allSlots = await ctx.db
         .query("accommodationSlots")
         .withIndex("by_eventId", (q) => q.eq("eventId", order.eventId!))
@@ -3624,8 +3842,16 @@ export const confirmBuyerAssignment = mutation({
 
       return {
         success: false,
-        error: "ROOM_FULL",
-        message: "The requested room is at full capacity",
+        error: occupancyIncomplete
+          ? "OCCUPANCY_INCOMPLETE"
+          : inventoryIncomplete
+            ? "INVENTORY_INCOMPLETE"
+            : "ROOM_FULL",
+        message: occupancyIncomplete
+          ? "Occupancy data for the requested room is incomplete. Verify room usage before assigning; this is a fail-safe, not a full room."
+          : inventoryIncomplete
+            ? "Accommodation inventory for this event is incomplete. Verify room usage before assigning; this is a fail-safe, not a full room."
+            : "The requested room is at full capacity",
         alternatives,
       }
     }

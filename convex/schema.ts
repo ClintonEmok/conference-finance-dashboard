@@ -206,8 +206,19 @@ export default defineSchema({
       "subjectId",
       "eventId",
     ])
-    .index("by_kind_and_subjectId", ["kind", "subjectId"]),
+    .index("by_kind_and_subjectId", ["kind", "subjectId"])
+    .searchIndex("search_text", {
+      searchField: "searchText",
+      filterFields: ["kind", "eventId"],
+    }),
 
+  /**
+   * @deprecated Term postings were replaced by the native
+   * `searchDocuments.search_text` full-text search index. This table is no
+   * longer read or written by application code; it is retained only because
+   * dropping a non-empty table is a destructive deploy. Its removal is
+   * slated for a separate, operator-gated migration.
+   */
   searchDocumentTerms: defineTable(
     v.object({
       documentKey: v.string(),

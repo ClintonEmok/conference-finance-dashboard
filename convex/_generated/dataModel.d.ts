@@ -1269,7 +1269,12 @@ export type DataModel = {
       ];
       by_kind_and_subjectId: ["kind", "subjectId", "_creationTime"];
     };
-    searchIndexes: {};
+    searchIndexes: {
+      search_text: {
+        searchField: "searchText";
+        filterFields: "eventId" | "kind";
+      };
+    };
     vectorIndexes: {};
   };
   searchDocumentTerms: {

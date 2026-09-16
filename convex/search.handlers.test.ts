@@ -5,7 +5,10 @@ import type { GenericDataModel } from "convex/server"
 import { api, internal } from "./_generated/api"
 import schema from "./schema"
 import {
+  deleteSearchProjection,
+  normalizeSearch,
   paginateSearchDocuments,
+  searchTerms,
   upsertAttendeeSearchDocument,
   upsertOrderSearchDocument,
 } from "./search"
@@ -69,21 +72,22 @@ test("projection text is canonical, joined, idempotent, and excludes merged subj
   expect(rows.find((row) => row.kind === "order")?.searchText).toContain("old-alpha")
   expect(rows.find((row) => row.kind === "attendee")?.searchText).toContain("volunteer pass")
   expect(rows.find((row) => row.kind === "attendee")?.searchText).toContain("alpha family")
-  expect((await t.run(async (ctx) => await ctx.db.query("searchDocumentTerms").take(100))).length).toBeGreaterThan(0)
   await t.mutation(async (ctx) => { await upsertOrderSearchDocument(ctx, ids.merged) })
   const mergedProjection = await t.run(async (ctx) => await ctx.db.query("searchDocuments").withIndex("by_kind_and_subjectId", (q) => q.eq("kind", "order").eq("subjectId", String(ids.merged))).unique())
   expect(mergedProjection).toBeNull()
 })
 
-test("term cursor search is prefix-aware, deduplicated, newest-first, and rejects mismatches", async () => {
+test("native term search resolves a single projection by full word and prefix", async () => {
   const t = fresh().withIdentity(identity); const ids = await seed(t)
   await t.mutation(async (ctx) => { await upsertOrderSearchDocument(ctx, ids.order); await upsertOrderSearchDocument(ctx, ids.newer) })
-  const first = await t.run(async (ctx) => paginateSearchDocuments(ctx, { kind: "order", eventId: ids.internalEvent, search: "pro", numItems: 1, cursor: null }))
-  expect(first.page).toHaveLength(1); expect(first.page[0].subjectId).toBe(String(ids.newer))
-  expect(first.isDone).toBe(false)
-  const second = await t.run(async (ctx) => paginateSearchDocuments(ctx, { kind: "order", eventId: ids.internalEvent, search: "pro", numItems: 1, cursor: first.continueCursor }))
-  expect(second.page[0].subjectId).toBe(String(ids.order)); expect(second.page[0].subjectId).not.toBe(first.page[0].subjectId)
-  await expect(t.run(async (ctx) => paginateSearchDocuments(ctx, { kind: "attendee", eventId: ids.internalEvent, search: "pro", numItems: 1, cursor: first.continueCursor }))).rejects.toThrow(/does not match/)
+  // Production returns relevance (BM25) order; convex-test returns document
+  // order. Both match when a document contains any query term (OR). Restrict
+  // assertions to single-result membership so both behave identically.
+  const exact = await t.run(async (ctx) => paginateSearchDocuments(ctx, { kind: "order", eventId: ids.internalEvent, search: "beta", numItems: 10, cursor: null }))
+  expect(exact.page.map((row) => row.subjectId)).toEqual([String(ids.newer)])
+  expect(exact.isDone).toBe(true)
+  const prefix = await t.run(async (ctx) => paginateSearchDocuments(ctx, { kind: "order", eventId: ids.internalEvent, search: "bet", numItems: 10, cursor: null }))
+  expect(prefix.page.map((row) => row.subjectId)).toEqual([String(ids.newer)])
 })
 
 test("order ledger search retains core-only searchable orders", async () => {
@@ -98,33 +102,15 @@ test("order ledger search retains core-only searchable orders", async () => {
   expect(result.orders[0]?.buyerName).toBe("Alice Example")
 })
 
-test("one posting scan preserves a multi-term subject split across a page boundary", async () => {
-  const t = fresh().withIdentity(identity)
-  const ids = await seed(t)
-  const event = await t.run(async (ctx) => ctx.db.get("events", ids.internalEvent))
-  if (!event) throw new Error("seed event required")
-  await t.mutation(async (ctx) => {
-    // Keep the qualifying subject at the end of the descending posting scan.
-    // Its two postings must be reassembled across the 200-row scan boundary.
-    for (let index = 100; index < 299; index++) {
-      const subjectId = `subject-${index}`
-      await ctx.db.insert("searchDocuments", { kind: "order", subjectId, eventId: event._id, searchText: "", sortAt: 1_000, isSearchable: true, updatedAt: 1 })
-      await ctx.db.insert("searchDocumentTerms", { documentKey: `order:${subjectId}`, kind: "order", eventId: event._id, term: "other", sortAt: 1_000, subjectId })
-    }
-    const subjectId = "subject-000"
-    await ctx.db.insert("searchDocuments", { kind: "order", subjectId, eventId: event._id, searchText: "", sortAt: 1_000, isSearchable: true, updatedAt: 1 })
-    for (const term of ["alpha", "alphabet"]) {
-      await ctx.db.insert("searchDocumentTerms", { documentKey: `order:${subjectId}`, kind: "order", eventId: event._id, term, sortAt: 1_000, subjectId })
-    }
-  })
-
-  const first = await t.run(async (ctx) => paginateSearchDocuments(ctx, { kind: "order", eventId: event._id, search: "alpha alph", numItems: 1, cursor: null }))
-  expect(first.page).toEqual([])
-  expect(first.isDone).toBe(false)
-  await expect(t.run(async (ctx) => paginateSearchDocuments(ctx, { kind: "order", eventId: event._id, search: "alpha beta", numItems: 1, cursor: first.continueCursor }))).rejects.toThrow(/does not match/)
-  const second = await t.run(async (ctx) => paginateSearchDocuments(ctx, { kind: "order", eventId: event._id, search: "alpha alph", numItems: 1, cursor: first.continueCursor }))
-  expect(second.page).toHaveLength(1)
-  expect(second.page[0].subjectId).toBe("subject-000")
+test("multi-term search matches subjects containing any query term", async () => {
+  const t = fresh().withIdentity(identity); const ids = await seed(t)
+  await t.mutation(async (ctx) => { await upsertOrderSearchDocument(ctx, ids.order); await upsertOrderSearchDocument(ctx, ids.newer) })
+  // "alice" and "old" (the booking-ref alias) exist only on the older order, so
+  // the expected result is identical under production OR/relevance ordering and
+  // convex-test OR/document ordering.
+  const result = await t.run(async (ctx) => paginateSearchDocuments(ctx, { kind: "order", eventId: ids.internalEvent, search: "alice old", numItems: 10, cursor: null }))
+  expect(result.page.map((row) => row.subjectId)).toEqual([String(ids.order)])
+  expect(result.isDone).toBe(true)
 })
 
 test("empty search advances one bounded projection page at a time", async () => {
@@ -169,7 +155,7 @@ test("verification authorization fails before it reads", async () => {
   await expect(t.query(internal.backfillSearchProjections.verifySearchProjections, { authorize: false, allowedDeploymentUrl: deployment })).rejects.toThrow(/AUTHORIZATION_REQUIRED/)
 })
 
-test("posting budget rejects an oversized replacement before any write", async () => {
+test("alias budget rejects an oversized replacement before any write", async () => {
   const t = fresh().withIdentity(identity); const ids = await seed(t)
   await t.mutation(async (ctx) => {
     for (let index = 0; index < 65; index++) {
@@ -180,4 +166,72 @@ test("posting budget rejects an oversized replacement before any write", async (
   })
   await expect(t.mutation(async (ctx) => upsertOrderSearchDocument(ctx, ids.order))).rejects.toThrow(/more than 64/)
   expect(await t.run(async (ctx) => ctx.db.query("searchDocuments").take(10))).toHaveLength(0)
+})
+
+test("search input is trimmed, collapsed, lowercased, and bounded", () => {
+  expect(normalizeSearch("  Alice   Van   Dijk  ")).toBe("alice van dijk")
+  expect(normalizeSearch(undefined)).toBe("")
+  expect(() => normalizeSearch("x".repeat(513))).toThrow(/512/)
+  expect(normalizeSearch("x".repeat(512))).toHaveLength(512)
+})
+
+test("search terms are deduplicated, unicode-aware, and capped at 16", () => {
+  expect(searchTerms("Alpha ALPHA beta Alpha")).toEqual(["alpha", "beta"])
+  expect(searchTerms("Café crème")).toEqual(["café", "crème"])
+  const terms = Array.from({ length: 16 }, (_, index) => `term${index}`).join(" ")
+  expect(searchTerms(terms)).toHaveLength(16)
+  expect(() => searchTerms(`${terms} term16`)).toThrow(/16 terms/)
+})
+
+test("deleteSearchProjection removes the projection document", async () => {
+  const t = fresh().withIdentity(identity)
+  const ids = await seed(t)
+  await t.mutation(async (ctx) => {
+    await upsertOrderSearchDocument(ctx, ids.order)
+  })
+
+  const before = await t.run(async (ctx) => ctx.db
+    .query("searchDocuments")
+    .withIndex("by_kind_and_subjectId", (q) => q.eq("kind", "order").eq("subjectId", String(ids.order)))
+    .unique())
+  expect(before).not.toBeNull()
+
+  await t.mutation(async (ctx) => {
+    await deleteSearchProjection(ctx, "order", String(ids.order))
+  })
+
+  const after = await t.run(async (ctx) => ctx.db
+    .query("searchDocuments")
+    .withIndex("by_kind_and_subjectId", (q) => q.eq("kind", "order").eq("subjectId", String(ids.order)))
+    .unique())
+  expect(after).toBeNull()
+})
+
+test("non-searchable projections are excluded from both term and empty search", async () => {
+  const t = fresh().withIdentity(identity)
+  const ids = await seed(t)
+  await t.mutation(async (ctx) => {
+    await upsertOrderSearchDocument(ctx, ids.order)
+    await upsertOrderSearchDocument(ctx, ids.newer)
+  })
+
+  // Simulate a removal that flips a projection non-searchable and clears its
+  // indexed text, proving visibility is gated on isSearchable and a blank
+  // searchText no longer matches the native search index.
+  await t.mutation(async (ctx) => {
+    const document = await ctx.db
+      .query("searchDocuments")
+      .withIndex("by_kind_and_subjectId", (q) => q.eq("kind", "order").eq("subjectId", String(ids.order)))
+      .unique()
+    if (document) await ctx.db.patch("searchDocuments", document._id, { isSearchable: false, searchText: "" })
+  })
+
+  const empty = await t.run(async (ctx) => paginateSearchDocuments(ctx, { kind: "order", eventId: ids.internalEvent, numItems: 10, cursor: null }))
+  expect(empty.page.map((row) => row.subjectId)).toEqual([String(ids.newer)])
+
+  const term = await t.run(async (ctx) => paginateSearchDocuments(ctx, { kind: "order", eventId: ids.internalEvent, search: "alpha", numItems: 10, cursor: null }))
+  expect(term.page).toEqual([])
+
+  const visible = await t.run(async (ctx) => paginateSearchDocuments(ctx, { kind: "order", eventId: ids.internalEvent, search: "beta", numItems: 10, cursor: null }))
+  expect(visible.page.map((row) => row.subjectId)).toEqual([String(ids.newer)])
 })

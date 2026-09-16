@@ -13,7 +13,6 @@ export type AccommodationInventory = {
     address: string | null
     notes: string | null
     roomCount: number
-    assignedEventIds: string[]
   }>
   roomTypes: Array<{
     id: string

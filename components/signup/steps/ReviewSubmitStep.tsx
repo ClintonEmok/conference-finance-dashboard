@@ -24,6 +24,8 @@ type ReviewSubmitStepProps = {
 function formatAttendeeGender(gender: string): string {
   if (gender === "male") return "Male"
   if (gender === "female") return "Female"
+  if (gender === "mixed") return "Unknown"
+  if (gender === "unknown") return "Unknown"
   return gender || "Not specified"
 }
 

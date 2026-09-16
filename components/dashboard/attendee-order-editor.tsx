@@ -1236,7 +1236,6 @@ export function AttendeeOrderEditor({
                 <SelectItem value="__none__">Not set</SelectItem>
                 <SelectItem value="MALE">Male</SelectItem>
                 <SelectItem value="FEMALE">Female</SelectItem>
-                <SelectItem value="MIXED">Mixed</SelectItem>
                 <SelectItem value="UNKNOWN">Unknown</SelectItem>
               </SelectContent>
             </Select>
