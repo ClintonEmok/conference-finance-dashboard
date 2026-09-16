@@ -587,6 +587,19 @@ export declare const api: {
       },
       any
     >;
+    allocateDonationToAttendee: FunctionReference<
+      "mutation",
+      "public",
+      {
+        amountMinor: number;
+        attendeeId: Id<"orderAttendees">;
+        donationId: Id<"payments">;
+        eventId: Id<"events">;
+        idempotencyKey: string;
+        scope: "event_charges" | "whole_order";
+      },
+      any
+    >;
     getDonationAllocationSummary: FunctionReference<
       "query",
       "public",
