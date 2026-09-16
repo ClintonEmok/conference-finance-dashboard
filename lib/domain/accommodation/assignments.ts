@@ -121,7 +121,6 @@ export type RoomAllocationBoard = {
   hotels: Array<{
     id: string
     name: string
-    assignedEventIds: string[]
   }>
   roomTypes: Array<{
     id: string

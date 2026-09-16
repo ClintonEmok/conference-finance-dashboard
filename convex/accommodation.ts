@@ -966,13 +966,16 @@ export const getRoomAllocationBoard = query({
       }
     }
 
+    // The event<->hotel join table is the only place the relationship lives
+    // (`events` has no hotel ref). Reading it by eventId yields exactly the
+    // hotels that show for this event.
     const scopedHotelIds = (
       await collectAll(
         ctx.db
           .query("accommodationEventHotels")
           .withIndex("eventId_hotelId", (q) => q.eq("eventId", eventId))
       )
-    ).map((eh) => eh.hotelId)
+    ).map((link) => link.hotelId)
 
     const [
       canonicalEventsRaw,
@@ -2109,17 +2112,6 @@ export const getRoomAllocationBoard = query({
       return a.attendeeId.localeCompare(b.attendeeId)
     })
 
-    const eventHotels = await collectAll(
-      ctx.db.query("accommodationEventHotels")
-    )
-    const eventHotelsByEvent: Record<string, string[]> = {}
-    for (const eh of eventHotels) {
-      if (!eventHotelsByEvent[eh.eventId]) {
-        eventHotelsByEvent[eh.eventId] = []
-      }
-      eventHotelsByEvent[eh.eventId].push(eh.hotelId)
-    }
-
     return {
       generatedAt: new Date().toISOString(),
       // CR-07: explicit server-owned completeness signal. When any authoritative
@@ -2158,7 +2150,6 @@ export const getRoomAllocationBoard = query({
         .map((h) => ({
           id: h._id,
           name: h.name,
-          assignedEventIds: eventHotelsByEvent[h._id] ?? [],
         })),
       roomTypes: roomTypes.map((rt) => ({
         id: rt._id,
@@ -2290,17 +2281,6 @@ export const listAccommodationInventory = query({
         ctx.db.query("accommodationRooms").take(500),
       ])
 
-    const eventHotels = await collectAll(ctx.db.query("accommodationEventHotels"))
-
-    const eventHotelsByHotel = eventHotels.reduce(
-      (acc, eh) => {
-        if (!acc[eh.hotelId]) acc[eh.hotelId] = []
-        acc[eh.hotelId].push(eh.eventId)
-        return acc
-      },
-      {} as Record<string, string[]>
-    )
-
     const roomsByHotel = rooms.reduce(
       (acc, room) => {
         if (!acc[room.hotelId]) acc[room.hotelId] = []
@@ -2348,7 +2328,6 @@ export const listAccommodationInventory = query({
         address: hotel.address ?? null,
         notes: hotel.notes ?? null,
         roomCount: roomsByHotel[hotel._id]?.length ?? 0,
-        assignedEventIds: eventHotelsByHotel[hotel._id] ?? [],
       })),
       roomTypes: roomTypes.map((rt) => ({
         id: rt._id,

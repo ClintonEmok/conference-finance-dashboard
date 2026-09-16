@@ -27,7 +27,7 @@ function buildBoard(
       hasPriority: null,
     },
     availableEvents: [],
-    hotels: [{ id: "hotel-1", name: "Main Hotel", assignedEventIds: [] }],
+    hotels: [{ id: "hotel-1", name: "Main Hotel" }],
     roomTypes: [{ id: "type-1", label: "Shared", defaultCapacity: 2 }],
     rooms: [],
     unassignedAttendees: [],
