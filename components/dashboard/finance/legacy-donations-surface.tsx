@@ -19,7 +19,7 @@ import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard
 
 type Donation = {
   id: string
-  source: "cash" | "bank_transfer"
+  source: "cash" | "bank_transfer" | "tikkie"
   payerName: string
   amountMinor: number
   paidAt: string
@@ -83,7 +83,7 @@ export default function EventDonationPage({
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold">Donations</p>
-          <p className="text-xs text-muted-foreground">{event.title} · cash and bank transfer donations</p>
+          <p className="text-xs text-muted-foreground">{event.title} · cash, bank transfer and Tikkie donations</p>
         </div>
         <Button onClick={() => setShowForm((current) => !current)} className="h-9 rounded-lg">
           <Plus className="mr-2 size-4" />
