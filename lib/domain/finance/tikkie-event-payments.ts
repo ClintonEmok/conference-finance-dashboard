@@ -3,6 +3,8 @@ import { api } from "@/lib/convex/api"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
 import type { Id } from "@/convex/_generated/dataModel"
 
+import { resolveTikkieLinkPurpose } from "./tikkie-link-purpose"
+
 export type TikkieEventPaymentView = {
   id: string
   paymentLinkId: string
@@ -94,9 +96,9 @@ export async function fetchAndStoreTikkiePayments(
 export async function syncAllEventPaymentLinks(): Promise<SyncAllResult> {
   const allLinks = await convexQuery(api.tikkie.getPaymentLinks, {})
 
-  const eventLinks = (allLinks as Array<Record<string, unknown>>).filter(
-    (l) => l.linkType === "event" && l.eventId
-  )
+  const eventLinks = (
+    allLinks as Array<Record<string, unknown> & { purpose?: string | null }>
+  ).filter((l) => l.linkType === "event" && l.eventId)
 
   let paymentsFetched = 0
   let paymentsNew = 0
@@ -110,12 +112,12 @@ export async function syncAllEventPaymentLinks(): Promise<SyncAllResult> {
     paymentsFetched += result.fetched
     paymentsNew += result.stored
 
-    const matchResult = await convexMutation(
-      api.tikkie.autoMatchTikkiePayments,
-      {
-        eventId: link.eventId as string,
-      }
-    )
+    const matchResult =
+      resolveTikkieLinkPurpose(link.purpose) === "donation"
+        ? { matchedCount: 0 }
+        : await convexMutation(api.tikkie.autoMatchTikkiePayments, {
+            eventId: link.eventId as string,
+          })
     autoMatched += matchResult.matchedCount
   }
 

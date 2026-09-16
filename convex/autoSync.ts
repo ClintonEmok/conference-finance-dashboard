@@ -1,12 +1,14 @@
 import { internalAction, type ActionCtx } from "./_generated/server"
 import type { Id } from "./_generated/dataModel"
 import { internal } from "./_generated/api"
+import { SCAN_LIMIT_PER_STATUS } from "./sync/internal"
 import {
   evaluateOrderPaymentMatch,
   scoreAttendeeMatch,
   scoreNameMatch,
   type OrderPaymentMatchCandidate,
 } from "../lib/domain/finance/payment-matching"
+import { resolveTikkieLinkPurpose } from "../lib/domain/finance/tikkie-link-purpose"
 
 // ---------------------------------------------------------------------------
 // Tikkie payments auto-sync — calls Tikkie API directly and writes via
@@ -228,6 +230,8 @@ async function runTikkieAutoSync(ctx: AutoSyncCtx) {
   }
 
   let linksScanned = 0
+  let paymentLinksScanned = 0
+  let donationLinksScanned = 0
   let paymentsFetched = 0
   let newPayments = 0
   let updatedPayments = 0
@@ -237,11 +241,12 @@ async function runTikkieAutoSync(ctx: AutoSyncCtx) {
 
   try {
     // 1. Fetch active event payment links from Convex
-    const allLinks = await ctx.runQuery(
+    const linkScan = await ctx.runQuery(
       internal.sync.internalGetTikkiePaymentLinks,
       {}
     )
     const now = Date.now()
+    const allLinks = linkScan.links
     const paymentLinks = allLinks
       .filter(
         (l: {
@@ -249,6 +254,7 @@ async function runTikkieAutoSync(ctx: AutoSyncCtx) {
           paymentRequestToken?: string
           status?: string
           expiryDate?: number
+          purpose?: string
         }) =>
           l.linkType === "event" &&
           Boolean(l.paymentRequestToken?.trim()) &&
@@ -269,6 +275,21 @@ async function runTikkieAutoSync(ctx: AutoSyncCtx) {
       .slice(0, 50)
 
     linksScanned = paymentLinks.length
+    for (const link of paymentLinks) {
+      if (resolveTikkieLinkPurpose(link.purpose) === "donation") {
+        donationLinksScanned += 1
+      } else {
+        paymentLinksScanned += 1
+      }
+    }
+
+    if (linkScan.saturated) {
+      console.warn("Tikkie link scan saturated", {
+        limitPerStatus: SCAN_LIMIT_PER_STATUS,
+        paymentLinksScanned,
+        donationLinksScanned,
+      })
+    }
 
     // 2. For each link, fetch payments from Tikkie API and upsert
     for (const link of paymentLinks) {
@@ -321,6 +342,7 @@ async function runTikkieAutoSync(ctx: AutoSyncCtx) {
             {
               sourceId,
               eventId: link.eventId,
+              purpose: resolveTikkieLinkPurpose(link.purpose),
               payerName,
               payerAccountNumber,
               amountMinor,
@@ -365,6 +387,8 @@ async function runTikkieAutoSync(ctx: AutoSyncCtx) {
     console.log("Tikkie auto-sync completed", {
       status: errors.length > 0 ? "partial" : "success",
       linksScanned,
+      paymentLinksScanned,
+      donationLinksScanned,
       paymentsFetched,
       newPayments,
       updatedPayments,

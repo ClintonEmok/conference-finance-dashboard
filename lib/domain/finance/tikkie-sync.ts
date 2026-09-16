@@ -2,6 +2,7 @@ import { api } from "@/lib/convex/api"
 import { convexMutation, convexQuery } from "@/lib/convex/server"
 
 import { autoMatchPayments, syncTikkiePayments } from "./payments"
+import { resolveTikkieLinkPurpose } from "./tikkie-link-purpose"
 
 type TikkieLink = {
   _creationTime: number
@@ -10,6 +11,8 @@ type TikkieLink = {
   expiryDate?: number
   linkType?: "event" | "order"
   statusUpdatedAt?: number
+  eventId?: string
+  purpose?: string
 }
 
 export type RunTikkieSyncResult = {
@@ -76,7 +79,10 @@ export async function runTikkieSync(): Promise<RunTikkieSyncResult> {
 
   for (const link of paymentLinks) {
     try {
-      const syncResult = await syncTikkiePayments(link.paymentRequestToken)
+      const syncResult = await syncTikkiePayments(link.paymentRequestToken, {
+        eventId: link.eventId,
+        purpose: resolveTikkieLinkPurpose(link.purpose),
+      })
       result.paymentsFetched += syncResult.paymentsFetched
       result.newPayments += syncResult.newPayments
       result.existingPayments += syncResult.existingPayments
