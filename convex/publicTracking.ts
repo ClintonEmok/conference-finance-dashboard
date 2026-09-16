@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel"
 
 import { loadOrderAmountDueBreakdowns } from "./finance"
 import { isOrderAppliedPayment } from "../lib/domain/finance/amounts"
+import { isDonationLink } from "../lib/domain/finance/tikkie-link-purpose"
 import {
   SUPERIOR_UPGRADE_OPTION_KEY,
   loadPublicSignupAccommodationContext,
@@ -146,7 +147,7 @@ async function loadTrackingByOrder(
     .take(20)
 
   const latestEventLink = eventLinks
-    .filter((link) => link.linkType === "event")
+    .filter((link) => link.linkType === "event" && !isDonationLink(link))
     .sort((a, b) => {
       const timeDiff = (b._creationTime ?? 0) - (a._creationTime ?? 0)
       if (timeDiff !== 0) return timeDiff

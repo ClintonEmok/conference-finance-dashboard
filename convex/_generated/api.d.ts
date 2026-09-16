@@ -2154,6 +2154,7 @@ export declare const api: {
         providerEventId: string;
         providerPayload?: any;
         providerStatus: string;
+        purpose?: "payment" | "donation";
         referenceId?: string;
       },
       any
@@ -2194,6 +2195,17 @@ export declare const api: {
       "public",
       { templateId: Id<"tikkiePaymentTemplates"> },
       any
+    >;
+    getEventDonationLink: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      null | {
+        amountMinor?: number;
+        createdAt: number;
+        description?: string;
+        paymentUrl: string;
+      }
     >;
     getEventPaymentLink: FunctionReference<
       "query",

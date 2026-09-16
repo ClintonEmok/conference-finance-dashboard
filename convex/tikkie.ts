@@ -3,6 +3,11 @@ import { v } from "convex/values"
 import { requireIdentity } from "./auth"
 import type { Id } from "./_generated/dataModel"
 import { formatPaymentReference } from "../lib/domain/finance/payment-reference"
+import {
+  isDonationLink,
+  resolveTikkieLinkPurpose,
+  tikkieLinkPurposeValidator,
+} from "../lib/domain/finance/tikkie-link-purpose"
 import { loadOrderAmountDueBreakdowns } from "./finance"
 
 // Constants for quota enforcement
@@ -349,7 +354,7 @@ export const getEventPaymentLink = query({
       .take(50)
 
     const eventLinks = links
-      .filter((l) => l.linkType === "event")
+      .filter((l) => l.linkType === "event" && !isDonationLink(l))
       .sort((a, b) => {
         const timeDiff = (b._creationTime ?? 0) - (a._creationTime ?? 0)
         if (timeDiff !== 0) return timeDiff
@@ -380,6 +385,49 @@ export const getEventPaymentLinkForSuccess = query({
     const links = await ctx.db
       .query("tikkiePaymentLinks")
       .withIndex("eventId", (q) => q.eq("eventId", args.eventId))
+      .take(50)
+
+    const eventLinks = links
+      .filter((l) => l.linkType === "event" && !isDonationLink(l))
+      .sort((a, b) => {
+        const timeDiff = (b._creationTime ?? 0) - (a._creationTime ?? 0)
+        if (timeDiff !== 0) return timeDiff
+        return b._id.localeCompare(a._id)
+      })
+
+    const latest = eventLinks[0]
+    if (!latest) {
+      return null
+    }
+
+    return {
+      paymentUrl: latest.paymentRequestUrl,
+      amountMinor: latest.amountMinor ?? undefined,
+      description: latest.description ?? undefined,
+      createdAt: latest._creationTime ?? Date.now(),
+    }
+  },
+})
+
+export const getEventDonationLink = query({
+  args: { eventId: v.id("events") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      paymentUrl: v.string(),
+      amountMinor: v.optional(v.number()),
+      description: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    // Bounded: indexed by event and purpose; "donation" is always written explicitly
+    const links = await ctx.db
+      .query("tikkiePaymentLinks")
+      .withIndex("by_eventId_and_purpose", (q) =>
+        q.eq("eventId", args.eventId).eq("purpose", "donation")
+      )
+      .order("desc")
       .take(50)
 
     const eventLinks = links
@@ -416,6 +464,7 @@ export const createEventPaymentLink = mutation({
     expiryDate: v.number(),
     referenceId: v.optional(v.string()),
     providerPayload: v.optional(v.any()),
+    purpose: v.optional(tikkieLinkPurposeValidator),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
@@ -445,6 +494,7 @@ export const createEventPaymentLink = mutation({
       referenceId: formatPaymentReference(args.referenceId) ?? undefined,
       providerPayload: args.providerPayload,
       statusUpdatedAt: Date.now(),
+      purpose: resolveTikkieLinkPurpose(args.purpose),
     })
     return id
   },
@@ -566,7 +616,9 @@ export const autoMatchTikkiePayments = mutation({
       )
       .take(50)
 
-    const eventLinks = links.filter((l) => l.linkType === "event")
+    const eventLinks = links.filter(
+      (l) => l.linkType === "event" && !isDonationLink(l)
+    )
     if (eventLinks.length === 0) {
       return { matchedCount: 0, totalUnmatched: 0 }
     }
