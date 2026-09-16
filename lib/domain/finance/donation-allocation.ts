@@ -622,6 +622,86 @@ export function distributeEqually(input: {
   })
 }
 
+/**
+ * The largest-balance-first active rule (D-10): only the highest-ranked target
+ * that still carries headroom. Headroom is re-read every round, so a target
+ * whose own ceiling was reached — or whose order's shared pool was exhausted by
+ * an earlier target — drops out and the next one down the ranked list takes
+ * over.
+ */
+function selectTopRankedTargetWithHeadroom(
+  headroom: ReadonlyArray<number>
+): number[] {
+  for (let index = 0; index < headroom.length; index++) {
+    if (headroom[index] > 0) {
+      return [index]
+    }
+  }
+  return []
+}
+
+/**
+ * Ranks targets by each target's OWN selected-scope balance, descending
+ * (D-08). The ranking basis and the enforced cap are the same number, so the
+ * order always matches the ceiling that will actually bind — never the
+ * attendee's due, the donation amount, or a single shared ceiling.
+ *
+ * Equal balances break by the target's index in the submitted array (stable
+ * selection order, D-09) — the same stable-index convention
+ * `allocateMinorAmountByWeight` uses for its remainder tie-break. The index
+ * array sort is explicit rather than relying on the engine's sort stability.
+ */
+export function rankTargetsByScopeBalance(
+  targets: ReadonlyArray<DonationDistributionTarget>,
+  ceilings: ReadonlyMap<string, AllocationCeiling>
+): DonationDistributionTarget[] {
+  const ranked = targets.map((target, index) => {
+    const ceiling = ceilings.get(target.attendeeId)
+    return {
+      target,
+      index,
+      balance: ceiling
+        ? resolveScopeOutstandingMinor(ceiling, target.scope)
+        : 0,
+    }
+  })
+
+  ranked.sort((left, right) =>
+    left.balance !== right.balance
+      ? right.balance - left.balance
+      : left.index - right.index
+  )
+
+  return ranked.map((entry) => entry.target)
+}
+
+/**
+ * Largest-balance-first (DON-04, D-08, D-09, D-10): rank by each target's own
+ * scope balance, fill the top-ranked target to its ceiling, then continue down
+ * the ranked list until the amount is exhausted or every listed ceiling is
+ * reached.
+ *
+ * A target whose scope balance is already zero ranks last, receives 0 and is
+ * returned as skipped with no allocation row (D-20). Leftover after every
+ * listed ceiling is reached is SUCCESS — the unplaced amount stays available
+ * for a later allocation (DON-05) and is never an error.
+ */
+export function distributeLargestBalanceFirst(input: {
+  totalMinor: number
+  targets: ReadonlyArray<DonationDistributionTarget>
+  ceilings: ReadonlyMap<string, AllocationCeiling>
+}): AllocationWaterfallResult {
+  const ranked = rankTargetsByScopeBalance(input.targets, input.ceilings)
+
+  return runAllocationWaterfall({
+    totalMinor: input.totalMinor,
+    targets: ranked,
+    ceilings: input.ceilings,
+    weights: ranked.map(() => 1),
+    activeSelector: selectTopRankedTargetWithHeadroom,
+  })
+}
+
 /** One row of the staleness read projection (D-16/D-18). */
 export type DonationAllocationReadRow = {
   attendeeId: string
