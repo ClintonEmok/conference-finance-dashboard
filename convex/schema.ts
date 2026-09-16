@@ -990,6 +990,115 @@ export default defineSchema({
     ])
     .index("paidAt", ["paidAt"]),
 
+  /**
+   * Donation allocation credit layer (Phase 55, D-01/D-02/D-14/D-22).
+   *
+   * One credit row per `(donationId, attendeeId)` carrying the operator-chosen
+   * `scope` and the amount. The donation's remaining balance is DERIVED from
+   * these rows (`donation amount - sum of them`), never stored (D-01). The
+   * allocation set is never stored as a child array on the `payments` row
+   * (guidelines.md:157) — each allocation is its own bounded row.
+   *
+   * `orderId` is typed `v.id("orders")` (unlike `payments.orderId`, which is an
+   * optional string used for provider aliases, D-22). The D-02 at-most-one-row
+   * invariant is backed by `by_donationId_and_attendeeId` — the index the
+   * roadmap's proposed list omitted.
+   */
+  donationAllocations: defineTable(
+    v.object({
+      donationId: v.id("payments"),
+      eventId: v.id("events"),
+      orderId: v.id("orders"),
+      attendeeId: v.id("orderAttendees"),
+      // Integer minor units, always > 0.
+      amountMinor: v.number(),
+      // D-14: the scope is chosen by the operator and recorded, never inferred
+      // from the amount or the balance.
+      scope: v.union(v.literal("event_charges"), v.literal("whole_order")),
+      createdAt: v.number(),
+      // Actor derived from `identity.tokenIdentifier`, never an argument.
+      createdBy: v.string(),
+      submissionId: v.optional(v.id("donationAllocationSubmissions")),
+    })
+  )
+    .index("by_donationId", ["donationId"])
+    .index("by_donationId_and_attendeeId", ["donationId", "attendeeId"])
+    .index("by_eventId_and_createdAt", ["eventId", "createdAt"])
+    .index("by_orderId", ["orderId"])
+    .index("by_attendeeId", ["attendeeId"]),
+
+  /**
+   * Donation allocation submission ledger (D-21). Mirrors the
+   * `orderAccommodationEditAudits` shape: one immutable row per applied
+   * submission, keyed `(donationId, idempotencyKey)` with a `requestDigest`.
+   *
+   * `rows` is the FROZEN server result returned on replay, so a retry never
+   * recomputes money from mutable allocation rows that may have drifted. It is
+   * a bounded immutable snapshot (bounded by `MAX_ALLOCATION_PLAN_ROWS` in the
+   * pure module), not an unbounded child array (guidelines.md:157).
+   *
+   * `orderIdempotency` cannot be reused: its `orderId` is a required
+   * `v.id("orders")` and a donation has no order.
+   *
+   * `by_donationId_and_requestDigest` is deliberately NOT declared: nothing in
+   * Phase 55 queries by digest — the replay lookup fetches the row through the
+   * key index and compares `requestDigest` in memory. Add it only if a
+   * digest-scoped reader actually appears.
+   */
+  donationAllocationSubmissions: defineTable(
+    v.object({
+      donationId: v.id("payments"),
+      idempotencyKey: v.string(),
+      requestDigest: v.string(),
+      operation: v.union(
+        v.literal("allocate"),
+        v.literal("allocate_one"),
+        v.literal("remove")
+      ),
+      actor: v.string(),
+      createdAt: v.number(),
+      allocatedTotalMinor: v.number(),
+      remainingMinor: v.number(),
+      rows: v.array(
+        v.object({
+          attendeeId: v.id("orderAttendees"),
+          orderId: v.id("orders"),
+          amountMinor: v.number(),
+          scope: v.union(
+            v.literal("event_charges"),
+            v.literal("whole_order")
+          ),
+        })
+      ),
+    })
+  ).index("by_donationId_and_idempotencyKey", [
+    "donationId",
+    "idempotencyKey",
+  ]),
+
+  /**
+   * Append-only removal audit (D-19). Removing an allocation is a hard delete
+   * plus this immutable row, preserving the operator's action while keeping the
+   * D-02 per-`(donation, attendee)` invariant intact (no soft-delete rows).
+   * Mirrors the `orderAccommodationEditAudits` precedent.
+   */
+  donationAllocationRemovals: defineTable(
+    v.object({
+      donationId: v.id("payments"),
+      eventId: v.id("events"),
+      orderId: v.id("orders"),
+      attendeeId: v.id("orderAttendees"),
+      amountMinor: v.number(),
+      scope: v.union(v.literal("event_charges"), v.literal("whole_order")),
+      actor: v.string(),
+      removedAt: v.number(),
+      submissionId: v.optional(v.id("donationAllocationSubmissions")),
+    })
+  )
+    .index("by_donationId", ["donationId"])
+    .index("by_donationId_and_attendeeId", ["donationId", "attendeeId"])
+    .index("by_eventId_and_removedAt", ["eventId", "removedAt"]),
+
   roomAllocations: defineTable(
     v.object({
       eventId: v.string(),

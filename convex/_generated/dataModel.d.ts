@@ -280,6 +280,131 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  donationAllocationRemovals: {
+    document: {
+      actor: string;
+      amountMinor: number;
+      attendeeId: Id<"orderAttendees">;
+      donationId: Id<"payments">;
+      eventId: Id<"events">;
+      orderId: Id<"orders">;
+      removedAt: number;
+      scope: "event_charges" | "whole_order";
+      submissionId?: Id<"donationAllocationSubmissions">;
+      _id: Id<"donationAllocationRemovals">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "actor"
+      | "amountMinor"
+      | "attendeeId"
+      | "donationId"
+      | "eventId"
+      | "orderId"
+      | "removedAt"
+      | "scope"
+      | "submissionId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_donationId: ["donationId", "_creationTime"];
+      by_donationId_and_attendeeId: [
+        "donationId",
+        "attendeeId",
+        "_creationTime",
+      ];
+      by_eventId_and_removedAt: ["eventId", "removedAt", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  donationAllocations: {
+    document: {
+      amountMinor: number;
+      attendeeId: Id<"orderAttendees">;
+      createdAt: number;
+      createdBy: string;
+      donationId: Id<"payments">;
+      eventId: Id<"events">;
+      orderId: Id<"orders">;
+      scope: "event_charges" | "whole_order";
+      submissionId?: Id<"donationAllocationSubmissions">;
+      _id: Id<"donationAllocations">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "amountMinor"
+      | "attendeeId"
+      | "createdAt"
+      | "createdBy"
+      | "donationId"
+      | "eventId"
+      | "orderId"
+      | "scope"
+      | "submissionId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_attendeeId: ["attendeeId", "_creationTime"];
+      by_donationId: ["donationId", "_creationTime"];
+      by_donationId_and_attendeeId: [
+        "donationId",
+        "attendeeId",
+        "_creationTime",
+      ];
+      by_eventId_and_createdAt: ["eventId", "createdAt", "_creationTime"];
+      by_orderId: ["orderId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  donationAllocationSubmissions: {
+    document: {
+      actor: string;
+      allocatedTotalMinor: number;
+      createdAt: number;
+      donationId: Id<"payments">;
+      idempotencyKey: string;
+      operation: "allocate" | "allocate_one" | "remove";
+      remainingMinor: number;
+      requestDigest: string;
+      rows: Array<{
+        amountMinor: number;
+        attendeeId: Id<"orderAttendees">;
+        orderId: Id<"orders">;
+        scope: "event_charges" | "whole_order";
+      }>;
+      _id: Id<"donationAllocationSubmissions">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "actor"
+      | "allocatedTotalMinor"
+      | "createdAt"
+      | "donationId"
+      | "idempotencyKey"
+      | "operation"
+      | "remainingMinor"
+      | "requestDigest"
+      | "rows";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_donationId_and_idempotencyKey: [
+        "donationId",
+        "idempotencyKey",
+        "_creationTime",
+      ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   emailBroadcastRecipients: {
     document: {
       attempts: number;
