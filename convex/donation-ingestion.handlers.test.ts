@@ -2,7 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest"
 import { convexTest } from "convex-test"
 
-import { internal } from "./_generated/api"
+import { api, internal } from "./_generated/api"
 import schema from "./schema"
 
 process.env.TIKKIE_API_KEY = "test-key"
@@ -139,4 +139,35 @@ test("the cron pull classifies a donation-link payment as a standalone donation 
     eventId,
   })
   expect(paymentRow?.orderId).toBeUndefined()
+
+  // Gap 1 (D-03): the row the real cron action just classified is visible in
+  // the event donation-income read. One identity-authed query, no new fixture.
+  const income = await t
+    .withIdentity({
+      tokenIdentifier: "test:ingestion-admin",
+      name: "Admin",
+      email: "admin@example.com",
+    })
+    .query(api.donations.getEventDonationIncome, { eventId })
+
+  expect(income.donations).toHaveLength(1)
+  expect(income.donations[0]).toMatchObject({
+    donationId: donationRow?._id,
+    source: "tikkie",
+    donationAmountMinor: 2_500,
+    allocatedMinor: 0,
+    unallocatedRemainderMinor: 2_500,
+    allocationCount: 0,
+  })
+  expect(income.totals).toEqual({
+    donationCount: 1,
+    donationsMinor: 2_500,
+    allocatedMinor: 0,
+    unallocatedRemainderMinor: 2_500,
+  })
+
+  // The unassigned payment-link row is not donation income.
+  expect(
+    income.donations.every((row) => row.donationId !== paymentRow?._id)
+  ).toBe(true)
 })
