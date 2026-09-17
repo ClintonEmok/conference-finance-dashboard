@@ -553,6 +553,18 @@ export declare const api: {
       any
     >;
   };
+  donationDeletion: {
+    deleteDonation: FunctionReference<
+      "mutation",
+      "public",
+      {
+        donationId: Id<"payments">;
+        eventId: Id<"events">;
+        idempotencyKey: string;
+      },
+      any
+    >;
+  };
   donations: {
     allocateDonation: FunctionReference<
       "mutation",
