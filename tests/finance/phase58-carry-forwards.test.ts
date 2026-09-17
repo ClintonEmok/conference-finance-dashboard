@@ -13,9 +13,11 @@ import { resolve } from "node:path"
  *     summed; the card must render three separate server figures.
  *  2. `convex/orders.ts` carried two zero-caller payment-total helpers
  *     (`loadPaymentTotalsByOrderKey`, `getMatchedPaymentTotalForOrder`) — a
- *     latent second paid derivation. They are deleted, and the registered
- *     divergent surface's marker must survive so the Phase 56 coverage walk
- *     still collects the file.
+ *     latent second paid derivation. They are deleted, and the file now pins
+ *     the canonical settlement basis instead: Phase 60 D-01 migrated
+ *     `syncFullyPaidOrders` to `loadCanonicalOrderBalances`, so the
+ *     payment-only marker the file used to carry is gone (the Phase 56
+ *     register edit itself lands in 60-03).
  *
  * This suite is a static guard: it fails if either carry-forward regresses.
  */
@@ -90,13 +92,17 @@ describe("phase 58 carry-forwards (phase 56 verification findings)", () => {
       expect(orders).not.toContain("isOrderAppliedPayment")
     })
 
-    test("the registered divergent surface keeps its coverage marker", () => {
+    test("orders.ts now pins the canonical settlement basis, not the payment-only marker", () => {
       const orders = readSource(ORDERS)
 
-      // `syncFullyPaidOrders` keeps its payment-only basis on purpose; the
-      // marker is what keeps `convex/orders.ts` inside the Phase 56 coverage
-      // walk's EXPECTED_COVERAGE_FILES. Removing it fails the Phase 56 audit.
-      expect(orders).toContain("loadMatchedPaymentTotalsByOrderId")
+      // Phase 60 D-01 migrated `syncFullyPaidOrders` to
+      // `loadCanonicalOrderBalances`: the settlement decision reads the
+      // allocation-aware outstanding, so an allocation-cleared order settles.
+      // `convex/orders.ts` therefore left the Phase 56 payment-only register and
+      // the coverage walk no longer collects it (the register edit lands in
+      // 60-03). The payment-only loader must not return.
+      expect(orders).not.toContain("loadMatchedPaymentTotalsByOrderId")
+      expect(orders).toContain("loadCanonicalOrderBalances")
     })
   })
 })

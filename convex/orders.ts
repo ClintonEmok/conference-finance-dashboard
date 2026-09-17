@@ -10,7 +10,6 @@ import {
 } from "../lib/types/order"
 import {
   loadCanonicalOrderBalances,
-  loadMatchedPaymentTotalsByOrderId,
   loadOrderAmountDueBreakdowns,
   loadOrderPaymentAttributions,
 } from "./finance"
@@ -510,14 +509,16 @@ export const syncFullyPaidOrders = internalMutation({
       (order) => order.status !== "paid"
     )
 
-    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+    // ONE settlement basis (Phase 60 D-01): the canonical allocation-aware
+    // outstanding nets donation-allocation credit, so an order cleared solely
+    // by an allocation settles exactly like one cleared by payments. This job
+    // never consults the payment-only total as a second opinion, and a missing
+    // canonical balance is fail-closed (the guard below) — never a
+    // provider-total fallback.
+    const canonicalBalancesByOrderId = await loadCanonicalOrderBalances({
       ctx,
-      ordersToReconcile
-    )
-    const matchedTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
-      ctx,
-      ordersToReconcile
-    )
+      orders: ordersToReconcile,
+    })
 
     let updated = 0
 
@@ -531,16 +532,12 @@ export const syncFullyPaidOrders = internalMutation({
         continue
       }
 
-      // Re-verify matched amounts against current state to avoid race condition
-      const currentAmountDueMinor =
-        amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-        order.totalAmountMinor ??
-        0
-      const currentPaidAmountMinor = matchedTotalsByOrderId.get(String(order._id)) ?? 0
-
-      if (currentPaidAmountMinor < currentAmountDueMinor) {
-        continue
-      }
+      // Re-verify the canonical settlement against current state to avoid a
+      // race condition. The allocation-aware outstanding is the decision: a
+      // missing balance is never treated as settled.
+      const canonical = canonicalBalancesByOrderId.get(String(order._id))
+      if (!canonical) continue
+      if (canonical.outstandingAmountMinor > 0) continue
 
       const statusPatch = buildCanonicalOrderStatusPatch({
         normalizedStatus: "paid",
