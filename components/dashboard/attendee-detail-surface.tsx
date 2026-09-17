@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { formatMoney } from "@/lib/format"
+import { donationsHref } from "@/lib/dashboard/workspace-routes"
 import {
   Dialog,
   DialogContent,
@@ -291,8 +292,20 @@ export default function AttendeeDetailPage({
                   <p className={cn("text-2xl font-black tabular-nums tracking-tighter", stat.color)}>
                     {stat.value}
                   </p>
+                  {stat.label === "Amount Paid" ? (
+                    <p className="mt-1 text-xs text-muted-foreground">Allocated credit</p>
+                  ) : null}
                 </div>
               ))}
+            </div>
+
+            <div className="mb-6 flex justify-end">
+              <Link
+                href={donationsHref(eventSlug, { attendeeId: payload.attendee.id })}
+                className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+              >
+                View allocations
+              </Link>
             </div>
 
             <div className="space-y-3">
