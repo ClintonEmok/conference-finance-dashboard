@@ -1046,6 +1046,30 @@ export default defineSchema({
    * Phase 55 queries by digest — the replay lookup fetches the row through the
    * key index and compares `requestDigest` in memory. Add it only if a
    * digest-scoped reader actually appears.
+   *
+   * §"Deletion rows (Phase 57)". One row per deleted donation serves BOTH the
+   * D-21 replay ledger and the donation-level deletion audit — the same Phase 45
+   * `orderAccommodationEditAudits` double duty this table was shaped for. For
+   * `operation: "delete"` the fields mean:
+   *   - `allocatedTotalMinor` = Σ of the reversed allocation amounts;
+   *   - `remainingMinor` = donation amount − Σ reversed (the never-credited
+   *     remainder that returns to event donation income);
+   *   - `rows` = the FROZEN reversed rows, so `allocationCount = rows.length`
+   *     and a replay returns each reversal verbatim;
+   *   - `eventId` = the donation's event, and `donationAmountMinor` = the
+   *     donation's recorded amount, both stored explicitly so a zero-allocation
+   *     deletion still records which event it belonged to and what it was worth
+   *     (removal rows carry `eventId` only when N > 0, so they cannot).
+   *
+   * `donationAmountMinor` is stored rather than inferred from
+   * `allocatedTotalMinor + remainingMinor`: a derived amount cannot be audited
+   * against, and a future rounding/ceiling change must not silently rewrite the
+   * history of a deletion that already happened.
+   *
+   * The per-allocation `donationAllocationRemovals` rows keep their own
+   * `submissionId` pointing at THIS table. Do NOT widen
+   * `donationAllocationRemovals.submissionId` (`:1097`, below) — reusing this
+   * table is precisely what avoids a second validator widening.
    */
   donationAllocationSubmissions: defineTable(
     v.object({
@@ -1055,12 +1079,18 @@ export default defineSchema({
       operation: v.union(
         v.literal("allocate"),
         v.literal("allocate_one"),
-        v.literal("remove")
+        v.literal("remove"),
+        v.literal("delete")
       ),
       actor: v.string(),
       createdAt: v.number(),
       allocatedTotalMinor: v.number(),
       remainingMinor: v.number(),
+      // Phase 57 deletion rows only (see the doc comment above). Optional so
+      // every existing allocate / allocate_one / remove row validates
+      // unchanged — no backfill and no migration.
+      eventId: v.optional(v.id("events")),
+      donationAmountMinor: v.optional(v.number()),
       rows: v.array(
         v.object({
           attendeeId: v.id("orderAttendees"),
@@ -1076,7 +1106,11 @@ export default defineSchema({
   ).index("by_donationId_and_idempotencyKey", [
     "donationId",
     "idempotencyKey",
-  ]),
+  ])
+    // The bounded "does this donation already have a delete submission?" lookup
+    // behind Phase 57's already-deleted refusal. `donationId` and `operation`
+    // are both required fields, so every existing row is indexed.
+    .index("by_donationId_and_operation", ["donationId", "operation"]),
 
   /**
    * Append-only removal audit (D-19). Removing an allocation is a hard delete

@@ -367,9 +367,11 @@ export type DataModel = {
       actor: string;
       allocatedTotalMinor: number;
       createdAt: number;
+      donationAmountMinor?: number;
       donationId: Id<"payments">;
+      eventId?: Id<"events">;
       idempotencyKey: string;
-      operation: "allocate" | "allocate_one" | "remove";
+      operation: "allocate" | "allocate_one" | "remove" | "delete";
       remainingMinor: number;
       requestDigest: string;
       rows: Array<{
@@ -387,7 +389,9 @@ export type DataModel = {
       | "actor"
       | "allocatedTotalMinor"
       | "createdAt"
+      | "donationAmountMinor"
       | "donationId"
+      | "eventId"
       | "idempotencyKey"
       | "operation"
       | "remainingMinor"
@@ -401,6 +405,7 @@ export type DataModel = {
         "idempotencyKey",
         "_creationTime",
       ];
+      by_donationId_and_operation: ["donationId", "operation", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
