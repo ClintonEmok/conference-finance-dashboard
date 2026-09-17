@@ -1,4 +1,7 @@
 /// <reference types="vite/client" />
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
 import { expect, test } from "vitest"
 import { convexTest, type TestConvexForDataModel } from "convex-test"
 import type { GenericDataModel } from "convex/server"
@@ -79,6 +82,19 @@ type AllocationRow = {
 
 function fresh() {
   return convexTest(schema, modules)
+}
+
+/**
+ * The declaration slice from `startMarker` to the next top-level export — the
+ * house `sourceSlice` idiom from `donation-delete.handlers.test.ts`, used here
+ * to pin the ORDER of statements inside the public mutation.
+ */
+function sourceSlice(source: string, startMarker: string): string {
+  const start = source.indexOf(startMarker)
+  expect(start, `${startMarker} is missing`).toBeGreaterThanOrEqual(0)
+
+  const end = source.indexOf("\nexport ", start + 1)
+  return end === -1 ? source.slice(start) : source.slice(start, end)
 }
 
 async function seedEvent(t: TestConvex, slug: string): Promise<Id<"events">> {
@@ -448,4 +464,54 @@ test("an order-linked overpayment row is not refused (predicate exactness)", asy
   expect(row?.orderId).toBe(String(orderId))
   expect(row?.donationKind).toBeUndefined()
   expect(row?.status).toBe("manual_assignment")
+})
+
+// ---------------------------------------------------------------------------
+// Test 5 (structural) — the refusal precedes every write in the source
+// ---------------------------------------------------------------------------
+
+/**
+ * Hardened after a surviving mutant: patching the row BEFORE the throw is
+ * invisible at runtime, because a thrown mutation is rolled back by the
+ * platform (the same transaction guarantee Phase 57 recorded as probe-only).
+ * A runtime post-state assertion therefore cannot distinguish "refuse before
+ * writing" from "write, then throw". Only the source ORDER can, so the
+ * inertness is pinned structurally here: the refusal must appear before every
+ * `payments` write inside the public mutation's own declaration slice.
+ */
+test("inertness is structural: the refusal precedes every write in the public mutation", () => {
+  const paymentsSource = readFileSync(
+    resolve(import.meta.dirname, "payments.ts"),
+    "utf8"
+  )
+  const assignSlice = sourceSlice(
+    paymentsSource,
+    "export const assignPaymentToOrder"
+  )
+
+  const refusalAt = assignSlice.indexOf(STANDALONE_REFUSAL_CODE)
+  expect(
+    refusalAt,
+    "the standalone refusal code must be thrown inside the public mutation"
+  ).toBeGreaterThanOrEqual(0)
+
+  for (const write of [
+    'ctx.db.patch("payments"',
+    'ctx.db.insert("payments"',
+    'ctx.db.replace("payments"',
+    'ctx.db.delete("payments"',
+  ] as const) {
+    const writeAt = assignSlice.indexOf(write)
+    if (writeAt === -1) {
+      continue
+    }
+    expect(
+      refusalAt,
+      `${write} appears before the standalone refusal — the refusal must be inert, so it must precede every write`
+    ).toBeLessThan(writeAt)
+  }
+
+  // The guard reads the row's own classification and refuses exactly the
+  // standalone class (the overpayment control above covers the other class).
+  expect(assignSlice).toContain('payment?.donationKind === "standalone"')
 })
