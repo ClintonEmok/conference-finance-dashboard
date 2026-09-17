@@ -586,6 +586,27 @@ test("AE-1b — the set-replace quote refuses 22 000 on the 20 000 order, the co
       })
     )
   ).toBe("DONATION_ALLOCATION_EXCEEDS_CEILING")
+
+  // 6. The COMPLEMENT of step 5, pinned so no future reader "fixes" the quote
+  //    path into refusing a single 12 000 row: this preview validates with an
+  //    EMPTY alreadyClaimedByOrder, so the order pool is the order's FULL
+  //    20 000, Maria's 12 000 row fits both her own ceiling and the pool, and
+  //    the row RESOLVES. On the set-replace quote the order bound is only
+  //    reachable through the multi-row shape of step 1 — never from a single
+  //    row while this donation is the order's only claimant.
+  const singleRow = await preview(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      {
+        attendeeId: maria.attendeeId,
+        amountMinor: 12_000,
+        scope: "event_charges",
+      },
+    ]),
+  })
+  expect(singleRow.totalAllocatedMinor).toBe(12_000)
+  expect(singleRow.leftoverMinor).toBe(10_000)
 })
 
 // ---------------------------------------------------------------------------
