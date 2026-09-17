@@ -5,13 +5,15 @@ import { useConvexAuth } from "convex/react"
 import {
   Calendar,
   ChevronRight,
-  CreditCard,
   ExternalLink,
+  HandCoins,
   ListOrdered,
   Mail,
+  Scale,
   Settings,
   Users,
   Ticket,
+  Wallet,
   BedDouble,
   Building2,
   SlidersHorizontal,
@@ -21,7 +23,12 @@ import Link from "next/link"
 
 import { useEventBySlug } from "@/lib/convex/hooks/events"
 import { useEventAllocationSummaryForOverview } from "@/lib/convex/hooks/accommodation"
-import { accommodationHref } from "@/lib/dashboard/workspace-routes"
+import {
+  accommodationHref,
+  donationsHref,
+  paymentsHref,
+  reconciliationHref,
+} from "@/lib/dashboard/workspace-routes"
 import { getAllocationNavigationAccessibleLabel, getAllocationNavigationCount, isAccommodationSetupNavigationActive, isAllocationNavigationActive } from "@/lib/dashboard/accommodation-navigation"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -186,9 +193,19 @@ function SidebarContentInner({
       href: `/dashboard/events/${slug}/tickets`,
     },
     {
-      label: "Finance",
-      icon: CreditCard,
-      href: `/dashboard/events/${slug}/finance`,
+      label: "Payments",
+      icon: Wallet,
+      href: paymentsHref(slug),
+    },
+    {
+      label: "Donations",
+      icon: HandCoins,
+      href: donationsHref(slug),
+    },
+    {
+      label: "Reconciliation",
+      icon: Scale,
+      href: reconciliationHref(slug),
     },
     {
       label: "Orders",
@@ -310,11 +327,6 @@ function getSectionActive(label: string, pathname: string, slug: string) {
   const eventRoot = `/dashboard/events/${slug}`
 
   if (label === "Overview") return pathname === eventRoot
-  if (label === "Finance") {
-    return ["finance", "payments", "donation", "reconciliation"].some(
-      (section) => pathname === `${eventRoot}/${section}` || pathname.startsWith(`${eventRoot}/${section}/`)
-    )
-  }
   if (label === "Orders") {
     return pathname === `${eventRoot}/orders` || pathname.startsWith(`${eventRoot}/orders/`)
   }

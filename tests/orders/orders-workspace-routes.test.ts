@@ -140,17 +140,93 @@ describe("sidebar ownership", () => {
     expect(layout).toContain('label: "Orders"')
     expect(layout).toContain("ListOrdered")
     expect(layout).toContain("`/dashboard/events/${slug}/orders`")
-  })
-
-  it("separates Orders from Finance section-active matching", () => {
-    const layout = readSource("app/dashboard/events/[slug]/layout.tsx")
     expect(layout).toContain('label === "Orders"')
     expect(layout).toContain("pathname.startsWith(`${eventRoot}/orders/`)")
-    // Finance matches only its own workspace plus the legacy payment paths.
-    const financeBranch = layout.match(
-      /label === "Finance"[\s\S]*?reconciliation"\]/
+  })
+
+  it("replaces the Finance item with the three dedicated money items (AE-4)", () => {
+    const layout = readSource("app/dashboard/events/[slug]/layout.tsx")
+
+    // The Finance section-active special case is gone: with three items that
+    // predicate would light all three at once.
+    expect(layout).not.toContain('label === "Finance"')
+    expect(layout).not.toContain('["finance", "payments", "donation", "reconciliation"]')
+    expect(layout).not.toContain('label: "Finance"')
+
+    for (const token of [
+      'label: "Payments"',
+      'label: "Donations"',
+      'label: "Reconciliation"',
+      "icon: Wallet",
+      "icon: HandCoins",
+      "icon: Scale",
+    ])
+      expect(layout, token).toContain(token)
+
+    for (const token of [
+      "paymentsHref(slug)",
+      "donationsHref(slug)",
+      "reconciliationHref(slug)",
+    ])
+      expect(layout, token).toContain(token)
+
+    // CreditCard is freed, not reused — a fourth card glyph would make the
+    // three money items indistinguishable in the collapsed rail.
+    expect(layout).not.toContain("CreditCard")
+
+    // The generic final branch resolves each label to its own path.
+    expect(layout).toContain("label.toLowerCase()")
+  })
+
+  it("orders the three money items between Tickets and Orders, each with its own href", () => {
+    const layout = readSource("app/dashboard/events/[slug]/layout.tsx")
+    const ordered = [
+      'label: "Tickets"',
+      'label: "Payments"',
+      "icon: Wallet",
+      "paymentsHref(slug)",
+      'label: "Donations"',
+      "icon: HandCoins",
+      "donationsHref(slug)",
+      'label: "Reconciliation"',
+      "icon: Scale",
+      "reconciliationHref(slug)",
+      'label: "Orders"',
+    ].map((token) => ({ token, index: layout.indexOf(token) }))
+
+    for (const { token, index } of ordered)
+      expect(index, token).toBeGreaterThan(-1)
+    for (let i = 1; i < ordered.length; i += 1)
+      expect(
+        ordered[i].index,
+        `${ordered[i].token} after ${ordered[i - 1].token}`
+      ).toBeGreaterThan(ordered[i - 1].index)
+  })
+
+  it("adds no descriptor, count or badge to the three money items", () => {
+    const layout = readSource("app/dashboard/events/[slug]/layout.tsx")
+    const start = layout.lastIndexOf("{", layout.indexOf('label: "Payments"'))
+    const end = layout.indexOf('label: "Orders"')
+    const moneyBlock = layout.slice(start, end)
+
+    // Exactly three item literals, and each carries ONLY label/icon/href — a
+    // descriptor line, a count or a badge would fail the literal regexes.
+    expect(moneyBlock.match(/label: "/g)).toHaveLength(3)
+    expect(moneyBlock.match(/icon: /g)).toHaveLength(3)
+    expect(moneyBlock.match(/href: /g)).toHaveLength(3)
+    expect(moneyBlock).not.toContain("show:")
+    expect(moneyBlock).not.toMatch(/count|badge|descriptor/i)
+    expect(moneyBlock).toMatch(
+      /\{\s*label: "Payments",\s*icon: Wallet,\s*href: paymentsHref\(slug\),\s*\}/
     )
-    expect(financeBranch).not.toBeNull()
-    expect(financeBranch![0]).not.toContain('"orders"')
+    expect(moneyBlock).toMatch(
+      /\{\s*label: "Donations",\s*icon: HandCoins,\s*href: donationsHref\(slug\),\s*\}/
+    )
+    expect(moneyBlock).toMatch(
+      /\{\s*label: "Reconciliation",\s*icon: Scale,\s*href: reconciliationHref\(slug\),\s*\}/
+    )
+
+    // The descriptor block still belongs to Allocation alone.
+    expect(layout).toContain('item.label === "Allocation" ?')
   })
 })
