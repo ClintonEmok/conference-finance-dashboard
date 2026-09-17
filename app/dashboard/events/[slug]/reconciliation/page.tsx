@@ -1,7 +1,23 @@
-import { redirect } from "next/navigation"
-import { financeHref } from "@/lib/dashboard/workspace-routes"
+"use client"
 
-export default async function LegacyReconciliationPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params
-  redirect(financeHref(slug, "reconciliation"))
+import { useParams } from "next/navigation"
+
+import { WorkspaceFrame } from "@/components/dashboard/workspace-frame"
+import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
+import EventReconciliationPage from "@/components/dashboard/finance/legacy-reconciliation-surface"
+
+export default function ReconciliationPage() {
+  const { slug } = useParams<{ slug: string }>()
+  const { event } = useEventDashboard()
+
+  return (
+    <WorkspaceFrame
+      title="Reconciliation"
+      eventLabel={event.title}
+      workspaceLabel="Reconciliation"
+      workspaceId="reconciliation"
+    >
+      <EventReconciliationPage slug={slug} event={event} />
+    </WorkspaceFrame>
+  )
 }
