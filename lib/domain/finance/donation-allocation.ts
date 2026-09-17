@@ -348,6 +348,9 @@ export type DonationDistributionTarget = {
  * same number the ranking uses (D-08). `skipped` is set for BOTH skip reasons
  * (D-20): an already-cleared scope balance, or a distribution that ran out of
  * money before reaching the target. A skipped target is never a `rows` entry.
+ *
+ * This type stays CEILING-ONLY: the preview payload extends it with the WRITABLE
+ * figure and its projection boolean via `DonationAllocationPreviewRow`.
  */
 export type DonationDistributionTargetResult = {
   attendeeId: string
@@ -358,6 +361,25 @@ export type DonationDistributionTargetResult = {
   extraMinorUnits: number
   skipped: boolean
   skipReason?: "zero_scope_balance" | "no_funds_remaining"
+}
+
+/**
+ * One row of a `previewDonationAllocation` payload (Phase 58, plan 58-11): the
+ * engine/manual breakdown entry plus the row's WRITABLE figure.
+ *
+ * `ceilingMinor` stays the BARE scope ceiling — the value the ranking uses and
+ * the number the dialog labels `Scope balance`. `effectiveCapacityMinor` is the
+ * SAME server-owned figure the summary's read projection reports —
+ * `min(scope ceiling, order remaining capacity)` from
+ * `deriveAllocationReadProjection` — so the editor can lead with the writable
+ * amount without a client-side `min`. `exceedsCapacity` is the projection's own
+ * boolean, carried for symmetry with `DonationAllocationReadRow`: on a
+ * SUCCESSFUL quote it is false for every returned row (a plan that breached the
+ * bound would have been refused), and no consumer renders a band from it.
+ */
+export type DonationAllocationPreviewRow = DonationDistributionTargetResult & {
+  effectiveCapacityMinor: number
+  exceedsCapacity: boolean
 }
 
 /**

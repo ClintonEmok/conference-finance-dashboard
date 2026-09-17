@@ -21,6 +21,7 @@ import {
   DONATION_ALLOCATION_ERROR_CODES,
   type AllocationCeiling,
   type DonationAllocationPlanRow,
+  type DonationAllocationPreviewRow,
   type DonationDistributionMethod,
   type DonationDistributionPlan,
   type DonationDistributionTarget,
@@ -1441,6 +1442,14 @@ export const getDonationAllocationSummary = query({
  *     could absorb. It stays available for a later submission (DON-05) and a
  *     non-zero value is SUCCESS.
  *
+ * EVERY returned row carries BOTH numbers (Phase 58, plan 58-11): the bare
+ * `ceilingMinor` (the target's own scope balance) AND the writable
+ * `effectiveCapacityMinor` / `exceedsCapacity`, attached by the SAME
+ * `deriveAllocationReadProjection` the summary renders — so the editor never
+ * synthesises a client-side `min` and the quote cannot drift from the record.
+ * The attachment is additive; the engine, the validator, the ceilings loader
+ * and the summary path are untouched.
+ *
  * `previewOnly: true` exists so a caller can never mistake this payload for a
  * persisted result. The arguments are compatible with `allocateDonation`, so a
  * client can compute a preview and then submit the identical `request`.
@@ -1518,6 +1527,33 @@ export const previewDonationAllocation = query({
       remainderRecipientAttendeeIds = distribution.remainderRecipientAttendeeIds
     }
 
+    // Phase 58 (58-11): attach the WRITABLE figure to every returned row. This
+    // is the SAME derivation the summary uses (1:1 by index, the read path's own
+    // idiom), run over the plan that WOULD be written — so a target whose scope
+    // ceiling exceeds the order's remaining capacity reports the capacity, not
+    // the bare ceiling. `deriveAllocationReadProjection` maps its input array
+    // 1:1, so `breakdown` and `writableProjection` stay index-aligned. Nothing
+    // below the preview path changes: `ceilingMinor` stays the bare scope
+    // ceiling and the engine/validator are untouched.
+    const writableProjection = deriveAllocationReadProjection({
+      rows: breakdown.map((entry) => ({
+        attendeeId: entry.attendeeId,
+        orderId: entry.orderId,
+        amountMinor: entry.amountMinor,
+        scope: entry.scope,
+      })),
+      ceilings,
+    })
+
+    const rowsWithCapacity: DonationAllocationPreviewRow[] = breakdown.map(
+      (entry, index) => ({
+        ...entry,
+        effectiveCapacityMinor:
+          writableProjection[index].effectiveCapacityMinor,
+        exceedsCapacity: writableProjection[index].exceedsCapacity,
+      })
+    )
+
     return {
       donationId: args.donationId,
       eventId: args.eventId,
@@ -1529,7 +1565,7 @@ export const previewDonationAllocation = query({
       leftoverMinor,
       remainderMinor,
       remainderRecipientAttendeeIds,
-      rows: breakdown,
+      rows: rowsWithCapacity,
       previewOnly: true as const,
     }
   },
