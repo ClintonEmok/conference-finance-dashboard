@@ -564,13 +564,302 @@ test("DVER-02: a standalone donation is counted once — allocated against the a
   })
 
   // --- Non-vacuous: the write is behind us ---------------------------------
+  // The baseline is asserted (not merely read), so every "after" figure below
+  // is a MOVE from the pre-state rather than a restatement of it.
   const balancesAfter = await readBalances(t, orderIds)
+  const attributionsAfter = await readAttributions(t, orderIds)
   const income = await readIncome(authed, fixture.eventId)
 
   expect(balanceFor(balancesBefore, fixture.orderAId).paidAmountMinor).toBe(0)
-  expect(balanceFor(balancesAfter, fixture.orderAId).paidAmountMinor).toBe(6_000)
   expect(incomeBefore.totals.allocatedMinor).toBe(0)
-  expect(income.totals.allocatedMinor).toBe(11_000)
   expect(incomeBefore.totals.unallocatedRemainderMinor).toBe(27_000)
-  expect(income.totals.unallocatedRemainderMinor).toBe(16_000)
+
+  // =========================================================================
+  // (1) ORDER SIDE — the allocated portion counts ONCE, and it is EXACTLY the
+  // allocation. Every figure below is `loadCanonicalOrderBalances`' own output.
+  // =========================================================================
+
+  // Order A — due 20_000 / paid 6_000 / outstanding 14_000. The
+  // `allocationCreditMinor` 0 is CORRECT AND LOAD-BEARING: that field is
+  // `whole_order`-ONLY (STATE 56-03/56-05), and A's credit is `event_charges`,
+  // so a future widening of the field's meaning must be a conscious decision
+  // that fails here first.
+  expect(balanceFor(balancesAfter, fixture.orderAId)).toEqual({
+    amountDueMinor: 20_000,
+    appliedPaymentMinor: 0,
+    allocationCreditMinor: 0,
+    paidAmountMinor: 6_000,
+    outstandingAmountMinor: 14_000,
+    donationAmountMinor: 0,
+    appliedAmountMinor: 6_000,
+  })
+
+  // Order B — due 5_000 / paid 5_000 / outstanding 0, with the 5_000
+  // `whole_order` credit visible in `allocationCreditMinor`.
+  expect(balanceFor(balancesAfter, fixture.orderBId)).toEqual({
+    amountDueMinor: 5_000,
+    appliedPaymentMinor: 0,
+    allocationCreditMinor: 5_000,
+    paidAmountMinor: 5_000,
+    outstandingAmountMinor: 0,
+    donationAmountMinor: 0,
+    appliedAmountMinor: 5_000,
+  })
+
+  // Order C — the payment-only CONTROL, proving `appliedPaymentMinor` still
+  // means what it always did: the real 4_000 payment alone.
+  expect(balanceFor(balancesAfter, fixture.orderCId)).toEqual({
+    amountDueMinor: 4_000,
+    appliedPaymentMinor: 4_000,
+    allocationCreditMinor: 0,
+    paidAmountMinor: 4_000,
+    outstandingAmountMinor: 0,
+    donationAmountMinor: 0,
+    appliedAmountMinor: 4_000,
+  })
+
+  // THE BRIDGE: Σ(paidAmountMinor − appliedPaymentMinor) over the event's
+  // orders === the income projection's allocated total. The subtraction is
+  // between two OWNER reads, never a locally derived balance.
+  //   6_000 + 5_000 + 0 = 11_000, and the control contributes exactly 0.
+  const bridgeTotal = orderIds.reduce((sum, orderId) => {
+    const balance = balanceFor(balancesAfter, orderId)
+    return sum + (balance.paidAmountMinor - balance.appliedPaymentMinor)
+  }, 0)
+  expect(bridgeTotal).toBe(11_000)
+  expect(bridgeTotal).toBe(income.totals.allocatedMinor)
+
+  // =========================================================================
+  // (2) PER-ATTENDEE — the invariant that makes "once" observable. Every
+  // figure is `loadOrderPaymentAttributions`' own output.
+  // =========================================================================
+
+  const attributionA = attributionFor(attributionsAfter, fixture.orderAId)
+  const attributionB = attributionFor(attributionsAfter, fixture.orderBId)
+
+  // Order A's order-level credit composition: the 6_000 is TARGETED
+  // (`event_charges`), the pool holds no whole-order credit, and nothing was
+  // reported unapplied (the submission is inside every ceiling).
+  expect(attributionA).toMatchObject({
+    appliedPaymentsMinor: 0,
+    targetedCreditMinor: 6_000,
+    wholeOrderCreditMinor: 0,
+    orderPoolMinor: 0,
+    unattributedTargetedCreditMinor: 0,
+  })
+
+  // Maria: due 12_000, targeted credit exactly the recorded 6_000 — below her
+  // attributable outstanding (12_000 − 0), so no cap and no excess — with no
+  // payment share and no pool share.
+  expect(attendeeFor(attributionA, fixture.mariaId)).toEqual({
+    attendeeId: String(fixture.mariaId),
+    amountDueMinor: 12_000,
+    paymentShareMinor: 0,
+    targetedCreditMinor: 6_000,
+    unappliedTargetedCreditMinor: 0,
+    poolShareMinor: 0,
+    paidAmountMinor: 6_000,
+    outstandingAmountMinor: 6_000,
+  })
+
+  // Tom: nothing was allocated to him. The credit must not leak across the
+  // order's attendees (the defect a due-weight fold would cause).
+  expect(attendeeFor(attributionA, fixture.tomId)).toEqual({
+    attendeeId: String(fixture.tomId),
+    amountDueMinor: 8_000,
+    paymentShareMinor: 0,
+    targetedCreditMinor: 0,
+    unappliedTargetedCreditMinor: 0,
+    poolShareMinor: 0,
+    paidAmountMinor: 0,
+    outstandingAmountMinor: 8_000,
+  })
+
+  // Order B: the whole_order credit joins the order pool and, on a
+  // single-attendee order, lands exactly on that attendee.
+  expect(attributionB).toMatchObject({
+    appliedPaymentsMinor: 0,
+    targetedCreditMinor: 0,
+    wholeOrderCreditMinor: 5_000,
+    orderPoolMinor: 5_000,
+    unattributedTargetedCreditMinor: 0,
+  })
+  expect(attendeeFor(attributionB, fixture.soloId)).toEqual({
+    attendeeId: String(fixture.soloId),
+    amountDueMinor: 5_000,
+    paymentShareMinor: 0,
+    targetedCreditMinor: 0,
+    unappliedTargetedCreditMinor: 0,
+    poolShareMinor: 5_000,
+    paidAmountMinor: 5_000,
+    outstandingAmountMinor: 0,
+  })
+
+  // Σ per-attendee paid === order paid, and Σ per-attendee outstanding ===
+  // order outstanding, for BOTH allocation-bearing orders. Both sums are over
+  // the owner's own rows — an invariant check, not a money derivation.
+  const sumPaidA = attributionA.byAttendeeId.reduce(
+    (sum, row) => sum + row.paidAmountMinor,
+    0
+  )
+  const sumOutstandingA = attributionA.byAttendeeId.reduce(
+    (sum, row) => sum + row.outstandingAmountMinor,
+    0
+  )
+  expect(sumPaidA).toBe(attributionA.orderPaidAmountMinor)
+  expect(sumPaidA).toBe(6_000)
+  expect(sumOutstandingA).toBe(attributionA.orderOutstandingAmountMinor)
+  expect(sumOutstandingA).toBe(14_000)
+
+  const sumPaidB = attributionB.byAttendeeId.reduce(
+    (sum, row) => sum + row.paidAmountMinor,
+    0
+  )
+  expect(sumPaidB).toBe(attributionB.orderPaidAmountMinor)
+  expect(sumPaidB).toBe(5_000)
+
+  // The order-level echo for A and B: order paid === applied payments +
+  // targeted credit + whole-order credit. The terms are the OWNER's own
+  // fields, so this is the invariant check that no credit went missing or
+  // appeared twice, never a second owner of the figure.
+  expect(attributionA.orderPaidAmountMinor).toBe(
+    attributionA.appliedPaymentsMinor +
+      attributionA.targetedCreditMinor +
+      attributionA.wholeOrderCreditMinor
+  )
+  expect(attributionA.orderPaidAmountMinor).toBe(6_000)
+  expect(attributionB.orderPaidAmountMinor).toBe(
+    attributionB.appliedPaymentsMinor +
+      attributionB.targetedCreditMinor +
+      attributionB.wholeOrderCreditMinor
+  )
+  expect(attributionB.orderPaidAmountMinor).toBe(5_000)
+
+  // =========================================================================
+  // (3) INCOME SIDE — the remainder counts ONCE, and each donation's
+  // composition is exact.
+  // =========================================================================
+
+  expect(income.donations).toHaveLength(2)
+
+  // D1: 20_000 = 11_000 allocated + 9_000 remainder, from two recorded rows.
+  expect(incomeRowFor(income, fixture.donationD1Id)).toMatchObject({
+    donationAmountMinor: 20_000,
+    allocatedMinor: 11_000,
+    unallocatedRemainderMinor: 9_000,
+    allocationCount: 2,
+  })
+  // D2: 7_000 = 0 allocated + 7_000 remainder, no recorded rows.
+  expect(incomeRowFor(income, fixture.donationD2Id)).toMatchObject({
+    donationAmountMinor: 7_000,
+    allocatedMinor: 0,
+    unallocatedRemainderMinor: 7_000,
+    allocationCount: 0,
+  })
+
+  expect(income.totals).toEqual({
+    donationCount: 2,
+    donationsMinor: 27_000,
+    allocatedMinor: 11_000,
+    unallocatedRemainderMinor: 16_000,
+  })
+
+  // Every row's composition is exact...
+  for (const row of income.donations) {
+    expect(row.allocatedMinor + row.unallocatedRemainderMinor).toBe(
+      row.donationAmountMinor
+    )
+  }
+  // ...the totals ARE the row sums (no second accounting anywhere), and the
+  // owner's documented identity holds: faces = allocated + remainder.
+  const summedAllocated = income.donations.reduce(
+    (sum, row) => sum + row.allocatedMinor,
+    0
+  )
+  const summedRemainder = income.donations.reduce(
+    (sum, row) => sum + row.unallocatedRemainderMinor,
+    0
+  )
+  expect(summedAllocated).toBe(income.totals.allocatedMinor)
+  expect(summedRemainder).toBe(income.totals.unallocatedRemainderMinor)
+  expect(income.totals.donationsMinor).toBe(
+    income.totals.allocatedMinor + income.totals.unallocatedRemainderMinor
+  )
+
+  // THE FACE-NEVER-DOUBLED NEGATIVES. Each `not.toBe` names the wrong
+  // implementation it would catch:
+  //   - income reported as the FACES: a build that counted the face in income
+  //     as well would read 27_000 of remainder (= donationsMinor) instead of
+  //     the 16_000 remainder.
+  expect(income.totals.unallocatedRemainderMinor).not.toBe(
+    income.totals.donationsMinor
+  )
+  //   - income reported as allocated + faces: the same build with the
+  //     allocation left in place would read 38_000 = 11_000 + 27_000.
+  expect(income.totals.unallocatedRemainderMinor).not.toBe(
+    income.totals.allocatedMinor + income.totals.donationsMinor
+  )
+  //   - the FACES counted against the orders: 27_000 of order credit instead
+  //     of the 11_000 the allocation actually wrote.
+  expect(bridgeTotal).not.toBe(income.totals.donationsMinor)
+  //   - D1's FACE counted against its order: 20_000 of credit instead of the
+  //     11_000 allocated across the two orders.
+  expect(bridgeTotal).not.toBe(20_000)
+
+  // =========================================================================
+  // (4) THE PREDICATE AND ROW-LEVEL NEGATIVES (the READ half of DACC-03; the
+  // WRITE half — no allocation path touches a payment row — is pinned at
+  // convex/donation-allocation.handlers.test.ts:3814).
+  // =========================================================================
+
+  const rawD1 = await t.query(async (ctx) =>
+    ctx.db.get("payments", fixture.donationD1Id)
+  )
+  const rawD2 = await t.query(async (ctx) =>
+    ctx.db.get("payments", fixture.donationD2Id)
+  )
+  if (!rawD1 || !rawD2) {
+    throw new Error("a standalone donation row is missing after allocation")
+  }
+
+  // The donation's own row stays event-scoped and standalone after the
+  // allocation: it was never assigned to an order.
+  expect(rawD1.orderId).toBeUndefined()
+  expect(rawD1.status).toBe("donation")
+  expect(rawD1.donationKind).toBe("standalone")
+  expect(rawD2.orderId).toBeUndefined()
+  expect(rawD2.status).toBe("donation")
+  expect(rawD2.donationKind).toBe("standalone")
+
+  // ...which is exactly WHY orders A and B show `appliedPaymentMinor` 0: the
+  // `isOrderAppliedPayment` predicate excludes a standalone donation, so the
+  // credit can only arrive through the allocation layer above.
+  expect(isOrderAppliedPayment(rawD1)).toBe(false)
+  expect(isOrderAppliedPayment(rawD2)).toBe(false)
+
+  // Credit never manufactures an overpayment: `deriveBalanceAmounts`'
+  // overpayment class stays 0 on every order because the capacity bound keeps
+  // credit inside the order's own outstanding.
+  expect(balanceFor(balancesAfter, fixture.orderAId).donationAmountMinor).toBe(
+    0
+  )
+  expect(balanceFor(balancesAfter, fixture.orderBId).donationAmountMinor).toBe(
+    0
+  )
+  expect(balanceFor(balancesAfter, fixture.orderCId).donationAmountMinor).toBe(
+    0
+  )
+
+  // =========================================================================
+  // (5) IDEMPOTENCE — re-deriving every figure twice returns deeply equal
+  // values (the 56-05 property re-asserted on this fixture). No total grows.
+  // =========================================================================
+
+  const balancesSecond = await readBalances(t, orderIds)
+  const attributionsSecond = await readAttributions(t, orderIds)
+  const incomeSecond = await readIncome(authed, fixture.eventId)
+
+  expect(balancesSecond).toEqual(balancesAfter)
+  expect(attributionsSecond).toEqual(attributionsAfter)
+  expect(incomeSecond).toEqual(income)
 })
