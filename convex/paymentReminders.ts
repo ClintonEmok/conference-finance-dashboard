@@ -16,10 +16,7 @@ import {
   resolveBroadcastAudience,
   type BroadcastSelection,
 } from "./emailBroadcasts"
-import {
-  loadMatchedPaymentTotalsByOrderId,
-  loadOrderAmountDueBreakdowns,
-} from "./finance"
+import { loadCanonicalOrderBalances } from "./finance"
 import {
   classifyPaymentReminder,
   automaticPeriod,
@@ -211,20 +208,22 @@ async function eligibleDeliveries(
       orderIds.map((orderId) => getActiveReminderOrder(ctx, eventId, orderId))
     )
   ).filter((value): value is ActiveReminderOrder => value !== null)
-  const due = await loadOrderAmountDueBreakdowns(
+  // Phase 60 D-01: reminder eligibility is the canonical settlement question.
+  // ONE read of the canonical owner — its outstanding already nets donation
+  // allocation credit, and no payment-only figure is consulted as a second
+  // opinion. The classifier below derives the outstanding by construction.
+  const canonicalBalancesByOrderId = await loadCanonicalOrderBalances({
     ctx,
-    active.map(({ order }) => order)
-  )
-  const paid = await loadMatchedPaymentTotalsByOrderId(
-    ctx,
-    active.map(({ order }) => order)
-  )
+    orders: active.map(({ order }) => order),
+  })
   return active.flatMap((activeOrder) => {
-    const breakdown = due.get(String(activeOrder.order._id))
-    if (!breakdown) return []
+    const canonical = canonicalBalancesByOrderId.get(
+      String(activeOrder.order._id)
+    )
+    if (!canonical) return []
     const policy = classifyPaymentReminder({
-      amountDueMinor: breakdown.amountDueMinor,
-      paidAmountMinor: paid.get(String(activeOrder.order._id)) ?? 0,
+      amountDueMinor: canonical.amountDueMinor,
+      paidAmountMinor: canonical.paidAmountMinor,
       dueAt,
       now,
     })
@@ -390,17 +389,19 @@ export const getDeliveryContext = internalQuery({
         ? await getActiveReminderOrder(ctx, delivery.eventId, delivery.orderId)
         : null
     if (!event || !active) return { delivery, order: null, event: null }
-    const due = await loadOrderAmountDueBreakdowns(ctx, [active.order])
-    const paid = await loadMatchedPaymentTotalsByOrderId(ctx, [active.order])
-    const breakdown = due.get(String(active.order._id))
+    // Phase 60 D-01: the read model must never disagree with the selector it
+    // explains — same canonical basis, no payment-only second opinion.
+    const canonical = (
+      await loadCanonicalOrderBalances({ ctx, orders: [active.order] })
+    ).get(String(active.order._id))
     const settings = await ctx.db
       .query("eventPaymentReminderSettings")
       .withIndex("by_eventId", (q) => q.eq("eventId", delivery.eventId))
       .unique()
-    const policy = breakdown
+    const policy = canonical
       ? classifyPaymentReminder({
-          amountDueMinor: breakdown.amountDueMinor,
-          paidAmountMinor: paid.get(String(active.order._id)) ?? 0,
+          amountDueMinor: canonical.amountDueMinor,
+          paidAmountMinor: canonical.paidAmountMinor,
           dueAt: settings?.dueAt,
           now: Date.now(),
         })
