@@ -77,10 +77,16 @@ export function scopeLabel(scope: AllocationScope): string {
  * operator as an intent, never as the stored `event_charges`/`whole_order`
  * values. The recorded-scope nouns above stay for recorded facts (the record
  * chip and the skip copy).
+ *
+ * KEY ORDER IS THE CHOOSER'S OPTION ORDER. `SCOPE_CHOICES =
+ * Object.keys(ALLOCATION_SCOPE_INTENT_LABELS)` (58-08) feeds both the bulk and
+ * the per-row scope selects, so the DEFAULT scope (`whole_order`, the simple
+ * case) leads the list — the value's default and its lead position agree.
+ * Values are untouched (Phase 58, 58-09).
  */
 export const ALLOCATION_SCOPE_INTENT_LABELS: Record<AllocationScope, string> = {
-  event_charges: "Restrict to this attendee only",
   whole_order: "Apply to the whole order",
+  event_charges: "Restrict to this attendee only",
 }
 
 /** The intent shown for a scope value (never the raw string). */

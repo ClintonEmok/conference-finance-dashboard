@@ -255,6 +255,28 @@ describe("donation record — DACC-04 and effective capacity", () => {
   })
 })
 
+describe("scope chooser order", () => {
+  it("leads the chooser's option list with the default scope", () => {
+    // The dialog renders `SCOPE_CHOICES = Object.keys(
+    // ALLOCATION_SCOPE_INTENT_LABELS)`, so the vocabulary's KEY ORDER is the
+    // option order the operator sees. The simple case (`whole_order`) is the
+    // default, so it must lead the list; the values and the default are
+    // untouched.
+    const vocabulary = readSource(
+      "lib/dashboard/donation-allocation-request.ts"
+    )
+    const block = vocabulary.slice(
+      vocabulary.indexOf("ALLOCATION_SCOPE_INTENT_LABELS: Record")
+    )
+    const wholeOrderIndex = block.indexOf("whole_order:")
+    const eventChargesIndex = block.indexOf("event_charges:")
+
+    expect(wholeOrderIndex).toBeGreaterThan(-1)
+    expect(eventChargesIndex).toBeGreaterThan(-1)
+    expect(wholeOrderIndex).toBeLessThan(eventChargesIndex)
+  })
+})
+
 describe("no money arithmetic on either surface", () => {
   it("has no operator before or after a *Minor identifier", () => {
     for (const source of [workspace, record]) {
