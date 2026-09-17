@@ -6,6 +6,7 @@ import type { GenericDataModel } from "convex/server"
 import { api } from "./_generated/api"
 import schema from "./schema"
 import { loadAllocationCeilings } from "./donations"
+import { loadCanonicalOrderBalances } from "./finance"
 import type { Id } from "./_generated/dataModel"
 
 const modules = import.meta.glob("./**/*.ts")
@@ -282,6 +283,34 @@ async function loadCeilings(
       { donationId, orderIds }
     )
     return Array.from(ceilings.values())
+  })
+}
+
+/**
+ * One order's canonical balance, read through Phase 56's owner
+ * (`loadCanonicalOrderBalances`). Returned as a plain object because `t.run`
+ * serializes its result and a `Map` is not a Convex value.
+ */
+async function loadCanonicalBalance(t: TestConvex, orderId: Id<"orders">) {
+  return t.run(async (ctx) => {
+    const balances = await loadCanonicalOrderBalances({
+      ctx: ctx as unknown as Parameters<
+        typeof loadCanonicalOrderBalances
+      >[0]["ctx"],
+      orders: [{ _id: orderId }],
+    })
+
+    const balance = balances.get(String(orderId))
+    if (!balance) {
+      throw new Error(`no canonical balance for order ${String(orderId)}`)
+    }
+
+    return {
+      appliedPaymentMinor: balance.appliedPaymentMinor,
+      allocationCreditMinor: balance.allocationCreditMinor,
+      paidAmountMinor: balance.paidAmountMinor,
+      outstandingAmountMinor: balance.outstandingAmountMinor,
+    }
   })
 }
 
@@ -3875,6 +3904,156 @@ test("DACC-03: no allocation path — batch, single-row, removal or replay — t
     amountMinor: 15_000,
   })
   expect(donation?.orderId).toBeUndefined()
+})
+
+// ---------------------------------------------------------------------------
+// Phase 60 D-03 coverage pins: the Tikkie allocation capability and the
+// cross-donation mixed-scope shared pool
+// ---------------------------------------------------------------------------
+
+test("a Tikkie-sourced donation is allocatable: the production upsert seeds it and the canonical figures move (capability pin, DON-07 / Phase 59 SC2)", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-tikkie-pin")
+  const { orderId, attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "alloc-tikkie-pin-a",
+    name: "Attendee A",
+    ticketPriceMinor: 5_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  // Seeded through the PRODUCTION upsert the cron path uses, not a raw insert:
+  // this is the Tikkie inflow class the UI leaves un-gated.
+  const seededTikkie = await authed.mutation(api.payments.upsertTikkiePayment, {
+    sourceId: "tikkie-allocation-pin-1",
+    eventId: String(eventId),
+    purpose: "donation",
+    payerName: "Tikkie donor",
+    amountMinor: 12_500,
+    paidAt: BASE_AT,
+  })
+  expect(seededTikkie.inserted).toBe(true)
+
+  const donationId = seededTikkie.id
+  const rowBefore = await seeded.query(async (ctx) =>
+    ctx.db.get("payments", donationId)
+  )
+  expect(rowBefore).toMatchObject({
+    source: "tikkie",
+    status: "donation",
+    donationKind: "standalone",
+  })
+  expect(rowBefore?.orderId).toBeUndefined()
+
+  const before = await loadCanonicalBalance(seeded, orderId)
+  expect(before).toEqual({
+    appliedPaymentMinor: 0,
+    allocationCreditMinor: 0,
+    paidAmountMinor: 0,
+    outstandingAmountMinor: 5_000,
+  })
+
+  // The loader has no source predicate and the client is un-gated, so a Tikkie
+  // donation allocates exactly like a manual one.
+  const allocated = await allocate(authed, {
+    donationId,
+    eventId,
+    request: manualRequest([
+      { attendeeId, amountMinor: 3_000, scope: "whole_order" },
+    ]),
+  })
+  expect(allocated.remainingMinor).toBe(9_500)
+
+  const after = await loadCanonicalBalance(seeded, orderId)
+  expect(after).toEqual({
+    appliedPaymentMinor: 0,
+    allocationCreditMinor: 3_000,
+    paidAmountMinor: 3_000,
+    outstandingAmountMinor: 2_000,
+  })
+
+  // The credit lives in `donationAllocations` only (DACC-03): the donation's
+  // payment row is byte-identical, still standalone and event-scoped.
+  const rowAfter = await seeded.query(async (ctx) =>
+    ctx.db.get("payments", donationId)
+  )
+  expect(rowAfter).toEqual(rowBefore)
+})
+
+test("D1 whole_order + D2 event_charges: the row passes its own ceiling but breaches the shared pool (write-time refusal)", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "alloc-mixed-scope-pool")
+  const a = await createAttendee(seeded, eventId, {
+    attendeeKey: "mixed-pool-a",
+    name: "Attendee A",
+    ticketPriceMinor: 12_000,
+  })
+  const b = await createAttendee(seeded, eventId, {
+    orderId: a.orderId,
+    attendeeKey: "mixed-pool-b",
+    name: "Attendee B",
+    ticketPriceMinor: 8_000,
+    sortOrder: 1,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  // D1 claims 18 000 of the 20 000 order pool under whole_order.
+  const d1 = await createDonation(seeded, eventId, { amountMinor: 40_000 })
+  const d1Accepted = await allocate(authed, {
+    donationId: d1,
+    eventId,
+    request: manualRequest([
+      { attendeeId: b.attendeeId, amountMinor: 18_000, scope: "whole_order" },
+    ]),
+  })
+  expect(d1Accepted.remainingMinor).toBe(22_000)
+  expect(await countAllocationRows(seeded)).toBe(1)
+
+  const d2 = await createDonation(seeded, eventId, { amountMinor: 15_000 })
+  expect(await loadAllocationRows(seeded, d2)).toHaveLength(0)
+
+  // THE MIXED-SCOPE CASE. D2's 5 000 row is `event_charges`, and D1's
+  // `whole_order` row is NOT subtracted from the attendee scope, so A's own
+  // ceiling still reads 12 000 and this row is not an EXCEEDS_CEILING refusal.
+  // D2's order pool, however, is 20 000 − 18 000 = 2 000, so the same row
+  // breaches the shared pool.
+  await expect(
+    allocate(authed, {
+      donationId: d2,
+      eventId,
+      request: manualRequest([
+        { attendeeId: a.attendeeId, amountMinor: 5_000, scope: "event_charges" },
+      ]),
+    })
+  ).rejects.toThrow("DONATION_ALLOCATION_EXCEEDS_ORDER_CAPACITY")
+
+  // Inert: no row was written anywhere, and D2's derived remainder is full.
+  expect(await countAllocationRows(seeded)).toBe(1)
+  expect(await loadAllocationRows(seeded, d2)).toHaveLength(0)
+  const d2Remainder = await allocate(authed, {
+    donationId: d2,
+    eventId,
+    request: manualRequest([]),
+  })
+  expect(d2Remainder.remainingMinor).toBe(15_000)
+
+  // Control: 2 000 fits the remaining pool exactly and is accepted, proving
+  // the refusal bound was the shared pool, not the row's own ceiling.
+  const control = await allocate(authed, {
+    donationId: d2,
+    eventId,
+    request: manualRequest([
+      { attendeeId: a.attendeeId, amountMinor: 2_000, scope: "event_charges" },
+    ]),
+  })
+  expect(control.remainingMinor).toBe(13_000)
+  expect(await countAllocationRows(seeded)).toBe(2)
+  const d2Rows = await loadAllocationRows(seeded, d2)
+  expect(d2Rows).toHaveLength(1)
+  expect(d2Rows[0]).toMatchObject({
+    attendeeId: String(a.attendeeId),
+    amountMinor: 2_000,
+    scope: "event_charges",
+  })
 })
 
 
