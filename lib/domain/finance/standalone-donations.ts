@@ -10,11 +10,12 @@ export type StandaloneDonation = {
   /** The donation's face value. */
   amountMinor: number
   /**
-   * The donation's composition, derived server-side from its recorded
+   * The donation's composition, derived server-side from its RECORDED
    * `donationAllocations` rows (plan 56-05 returns both). `allocatedMinor`
    * already counts against its target attendee/order through the canonical
    * attribution; `unallocatedRemainderMinor` is the event donation income.
-   * Consumers USE these figures and never subtract the remainder locally.
+   * Consumers USE these figures: never subtract the remainder locally and
+   * never re-derive either figure from `amountMinor`.
    */
   allocatedMinor: number
   unallocatedRemainderMinor: number

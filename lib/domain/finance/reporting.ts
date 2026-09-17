@@ -44,6 +44,13 @@ export type RevenueOverview = {
     amountDueMinor: number
     matchedAmountMinor: number
     donationMinor: number
+    /**
+     * The donation's composition. `standalone` rows carry the server-derived
+     * figures (`getStandaloneDonations`); `overpayment` rows carry 0 for both
+     * because an order overpayment has no allocations of its own.
+     */
+    allocatedMinor: number
+    unallocatedRemainderMinor: number
     currency: string | null
     type: "overpayment" | "standalone"
   }>
@@ -53,7 +60,21 @@ export type RevenueOverview = {
     refundedMinor: number
     netMinor: number
     overpaidMinor: number
+    /**
+     * Event donation INCOME — Σ standalone `unallocatedRemainderMinor`, never
+     * the donations' face value. The allocated part is credited to orders (see
+     * the canonical order rows) and is reported once in
+     * `standaloneAllocatedMinor`; the two are disjoint and are never added
+     * into one figure.
+     */
     standaloneDonationMinor: number
+    /**
+     * Σ standalone `allocatedMinor` — the part of the donations' face value
+     * already counted against an attendee/order through the canonical
+     * attribution. Disjoint from `overpaidMinor` (`deriveBalanceAmounts`'s
+     * order-overpayment class).
+     */
+    standaloneAllocatedMinor: number
   }
   statusCounts: Record<CanonicalStatus, number>
   trend: Array<{
@@ -194,7 +215,11 @@ export async function getRevenueOverview(
   let paidMinor = 0
   let refundedMinor = 0
   let overpaidMinor = 0
+  // Event donation INCOME (Σ unallocated remainders) and the allocated part of
+  // the same donations (Σ recorded allocation credit). Kept as two disjoint
+  // figures: the allocated part is already inside the canonical order rows.
   let standaloneDonationMinor = 0
+  let standaloneAllocatedMinor = 0
   const donations: RevenueOverview["donations"] = []
 
   for (const order of orders) {
@@ -236,6 +261,12 @@ export async function getRevenueOverview(
       refundedMinor += amountMinor
     }
 
+    // Overpayment class: `deriveBalanceAmounts` owns it and nothing here may
+    // sum it with the standalone-donation composition below.
+    // `overpaidMinor` / `donationAmountMinor` (order overpayments) and
+    // `standaloneDonationMinor` / `standaloneAllocatedMinor` (standalone
+    // donation composition) are DISJOINT classes describing different money:
+    // never add them into one number.
     const balance = deriveBalanceAmounts(amountMinor, order.matchedAmountMinor ?? 0)
     current.overpaidMinor += balance.donationAmountMinor
     overpaidMinor += balance.donationAmountMinor
@@ -252,6 +283,9 @@ export async function getRevenueOverview(
         amountDueMinor: balance.amountDueMinor,
         matchedAmountMinor: balance.paidAmountMinor,
         donationMinor: balance.donationAmountMinor,
+        // An order overpayment has no allocations of its own.
+        allocatedMinor: 0,
+        unallocatedRemainderMinor: 0,
         currency: order.currency,
         type: "overpayment",
       })
@@ -261,9 +295,22 @@ export async function getRevenueOverview(
     trendMap.set(bucket, current)
   }
 
-  // Add standalone donations to the donations array and totals
+  // Add standalone donations to the donations array and totals.
+  //
+  // The split is deliberate and load-bearing:
+  //  - cash received (`paidMinor`, and the trend's `paidMinor`) uses the
+  //    donation's FULL `amountMinor` — the money did arrive;
+  //  - donation INCOME (`standaloneDonationMinor`) uses the server-derived
+  //    `unallocatedRemainderMinor` only;
+  //  - the allocated part (`standaloneAllocatedMinor`) is credited to the
+  //    donation's target attendees/orders (see the canonical order rows) and is
+  //    deliberately NOT counted again here.
+  // This is the last no-double-count hole on the summary: reporting the whole
+  // amount as income while its allocations reduce canonical order outstanding
+  // describes the same money twice.
   for (const donation of standaloneDonations) {
-    standaloneDonationMinor += donation.amountMinor
+    standaloneDonationMinor += donation.unallocatedRemainderMinor
+    standaloneAllocatedMinor += donation.allocatedMinor
     paidMinor += donation.amountMinor
 
     const eventInfo = availableEvents.find((e) => e.eventId === donation.eventId)
@@ -298,6 +345,8 @@ export async function getRevenueOverview(
       amountDueMinor: 0,
       matchedAmountMinor: 0,
       donationMinor: donation.amountMinor,
+      allocatedMinor: donation.allocatedMinor,
+      unallocatedRemainderMinor: donation.unallocatedRemainderMinor,
       currency: eventInfo?.currency ?? null,
       type: "standalone",
     })
@@ -338,6 +387,7 @@ export async function getRevenueOverview(
       netMinor,
       overpaidMinor,
       standaloneDonationMinor,
+      standaloneAllocatedMinor,
     },
     statusCounts,
     trend,
