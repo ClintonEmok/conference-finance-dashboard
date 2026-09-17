@@ -7,7 +7,17 @@ export type StandaloneDonation = {
   _creationTime: number
   source: "cash" | "bank_transfer" | "tikkie"
   payerName: string
+  /** The donation's face value. */
   amountMinor: number
+  /**
+   * The donation's composition, derived server-side from its recorded
+   * `donationAllocations` rows (plan 56-05 returns both). `allocatedMinor`
+   * already counts against its target attendee/order through the canonical
+   * attribution; `unallocatedRemainderMinor` is the event donation income.
+   * Consumers USE these figures and never subtract the remainder locally.
+   */
+  allocatedMinor: number
+  unallocatedRemainderMinor: number
   paidAt: number
   eventId?: Id<"events">
   notes?: string
