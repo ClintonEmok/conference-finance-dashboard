@@ -6,7 +6,10 @@ import {
   defaultAccommodationTab,
   defaultFinanceTab,
   defaultOrdersTab,
+  donationsHref,
   financeHref,
+  financeTabHref,
+  financeTabPaths,
   financeTabs,
   legacyAccommodationHref,
   legacyFinanceHref,
@@ -16,7 +19,9 @@ import {
   parseFinanceTab,
   parseOrdersIntent,
   parseOrdersTab,
+  paymentsHref,
   readWorkspaceIntent,
+  reconciliationHref,
 } from "./workspace-routes"
 
 describe("workspace route contracts", () => {
@@ -52,7 +57,9 @@ describe("workspace route contracts", () => {
     expect(accommodationHref("spring retreat", "hotels")).toBe(
       "/dashboard/events/spring%20retreat/accommodation?tab=hotels"
     )
-    expect(accommodationHref("event/one", "allocation", { roomId: "room/7" })).toBe(
+    expect(
+      accommodationHref("event/one", "allocation", { roomId: "room/7" })
+    ).toBe(
       "/dashboard/events/event%2Fone/accommodation/allocation?roomId=room%2F7"
     )
   })
@@ -107,9 +114,7 @@ describe("workspace route contracts", () => {
     )
     expect(
       legacyAccommodationHref("event", "allocation", { roomId: "room/9" })
-    ).toBe(
-      "/dashboard/events/event/accommodation/allocation?roomId=room%2F9"
-    )
+    ).toBe("/dashboard/events/event/accommodation/allocation?roomId=room%2F9")
   })
 
   it("builds the canonical event Communications URL", () => {
@@ -130,6 +135,68 @@ describe("workspace route contracts", () => {
     )
     expect(communicationsHref("event", "history")).toBe(
       "/dashboard/events/event/communications?view=history"
+    )
+  })
+})
+
+describe("dedicated payments & donations route contracts (phase 58)", () => {
+  it("builds the canonical dedicated hrefs with no intent", () => {
+    expect(paymentsHref("event")).toBe("/dashboard/events/event/payments")
+    expect(donationsHref("event")).toBe("/dashboard/events/event/donations")
+    expect(reconciliationHref("event")).toBe(
+      "/dashboard/events/event/reconciliation"
+    )
+  })
+
+  it("encodes the slug and every defined intent param", () => {
+    expect(paymentsHref("spring retreat", { orderId: "order/42" })).toBe(
+      "/dashboard/events/spring%20retreat/payments?orderId=order%2F42"
+    )
+    expect(donationsHref("event", { donationId: "pay_9" })).toBe(
+      "/dashboard/events/event/donations?donationId=pay_9"
+    )
+    expect(reconciliationHref("event/one", { orderId: "order/7" })).toBe(
+      "/dashboard/events/event%2Fone/reconciliation?orderId=order%2F7"
+    )
+    expect(
+      donationsHref("event", { attendeeId: "att_1", orderId: "o_1" })
+    ).toBe("/dashboard/events/event/donations?attendeeId=att_1&orderId=o_1")
+    expect(paymentsHref("event", { orderId: undefined })).toBe(
+      "/dashboard/events/event/payments"
+    )
+  })
+
+  it("never carries a tab param on any canonical money href", () => {
+    const hrefs = [
+      paymentsHref("event"),
+      donationsHref("event"),
+      reconciliationHref("event"),
+      paymentsHref("event", { orderId: "o_1" }),
+      donationsHref("event", { donationId: "d_1" }),
+      reconciliationHref("event", { attendeeId: "a_1" }),
+    ]
+    for (const href of hrefs) expect(href).not.toContain("tab=")
+  })
+
+  it("maps every legacy finance tab onto its dedicated href from one table", () => {
+    expect(financeTabPaths).toEqual({
+      payments: "payments",
+      donations: "donations",
+      reconciliation: "reconciliation",
+    })
+    expect(financeTabHref("event", "payments")).toBe(paymentsHref("event"))
+    expect(financeTabHref("event", "donations")).toBe(donationsHref("event"))
+    expect(financeTabHref("event", "reconciliation")).toBe(
+      reconciliationHref("event")
+    )
+    for (const tab of financeTabs) {
+      expect(financeTabHref("event", tab)).not.toContain("tab=")
+    }
+  })
+
+  it("keeps the legacy finance href building the ?tab= URL", () => {
+    expect(financeHref("event", "donations")).toBe(
+      "/dashboard/events/event/finance?tab=donations"
     )
   })
 })
