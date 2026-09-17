@@ -2,6 +2,7 @@ import type { Id } from "./_generated/dataModel"
 import type { MutationCtx, QueryCtx } from "./_generated/server"
 
 import {
+  deriveBalanceAmounts,
   deriveOrderAmountBreakdown,
   isOrderAppliedPayment,
 } from "../lib/domain/finance/amounts"
@@ -786,6 +787,113 @@ export async function loadOrderPaymentAttributions(input: {
   }
 
   return attributionByOrderId
+}
+
+/** One order's canonical, allocation-aware balance (Phase 56, DACC-01). */
+export type CanonicalOrderBalance = {
+  amountDueMinor: number
+  /** Σ real applied payments (isOrderAppliedPayment). Never a standalone donation. */
+  appliedPaymentMinor: number
+  /** Σ whole_order allocation credit attributed to this order's pool. */
+  allocationCreditMinor: number
+  /** Canonical paid = Σ per-attendee paid = applied payments + allocation credit. */
+  paidAmountMinor: number
+  outstandingAmountMinor: number
+  /** deriveBalanceAmounts' overpayment class — that function stays its only owner. */
+  donationAmountMinor: number
+  appliedAmountMinor: number
+}
+
+/**
+ * THE ONE order-level canonical balance owner (Phase 56, DACC-01 / D-06).
+ *
+ * One owner, one composition. This function joins the canonical attributable
+ * amount due (`loadOrderAmountDueBreakdowns`) with the shared allocation-aware
+ * attribution owner (`loadOrderPaymentAttributions`) and passes the result
+ * through `deriveBalanceAmounts`, whose cap-applied-and-report-excess shape
+ * stays the ONLY owner of the overpayment figure. No consumer may rebuild a
+ * paid / outstanding / overpayment figure of its own from payments or from
+ * `donationAllocations`; every order-level money surface (order ledger,
+ * reconciliation, status counts, order payment summary, customer tracker,
+ * permalink edit read) reads this Map and nothing else.
+ *
+ * `paidAmountMinor` is PAYMENT + ALLOCATION CREDIT (`attribution
+ * .orderPaidAmountMinor`). `appliedPaymentMinor` is PAYMENT-ONLY and keeps
+ * `isOrderAppliedPayment` semantics unchanged (D-06): standalone donations stay
+ * excluded, and the allocation credit arrives exclusively through the
+ * attribution owner's recorded-credit read — never by rewriting the donation's
+ * own `payments` row (D-07). The attribution already performed the single
+ * payment-alias read over the scoped orders, so this owner must never call
+ * `loadMatchedPaymentTotalsByOrderId` a second time (a redundant payments pass
+ * that would change no figure — both are the same `isOrderAppliedPayment` sum).
+ *
+ * `donationAmountMinor` is the ORDER-OVERPAYMENT class and can never be
+ * inflated by allocation credit: the Phase 55 order-capacity rule keeps
+ * Σ allocation rows on the order ≤ the order's outstanding, so the canonical
+ * paid figure fed to `deriveBalanceAmounts` cannot cross the due beyond what
+ * real payments already did.
+ *
+ * Every read is index-backed and bounded: the existing payment-alias reads plus
+ * one `for await` iteration of `donationAllocations.by_orderId` per scoped
+ * order. No unbounded table scan anywhere in this path.
+ *
+ * D-11: the outstanding base is the canonical ATTRIBUTABLE due
+ * (`amountDueMinor`), and `orders.totalAmountMinor` is a provider/write-time
+ * total that is NEVER used as an outstanding base anywhere in this owner. The
+ * consumer-level `?? order.totalAmountMinor ?? null` fallbacks stay only as
+ * display fallbacks for a missing row, never as a term in the balance.
+ *
+ * Orders absent from the resolved due map are OMITTED from the returned Map —
+ * never fabricated as a zero-due row, mirroring `loadOrderPaymentAttributions`
+ * (and the allocation board adapter before it). Consumers read with
+ * `balances.get(key)` and keep their existing `canonical?.` fallbacks.
+ */
+export async function loadCanonicalOrderBalances(input: {
+  ctx: FinanceDbCtx
+  orders: OrderRef[]
+  /** Optional pre-computed due breakdown so a caller that already priced the order set does not price it twice. */
+  dueBreakdownsByOrderId?: Map<string, OrderAmountDueBreakdown>
+}): Promise<Map<string, CanonicalOrderBalance>> {
+  // ONE pricing pass: the caller's due breakdown when already computed, the
+  // canonical loader otherwise. Never both.
+  const dueBreakdownsByOrderId =
+    input.dueBreakdownsByOrderId ??
+    (await loadOrderAmountDueBreakdowns(input.ctx, input.orders))
+
+  const attributionByOrderId = await loadOrderPaymentAttributions({
+    ctx: input.ctx,
+    orders: input.orders,
+    dueBreakdownsByOrderId,
+  })
+
+  const balancesByOrderId = new Map<string, CanonicalOrderBalance>()
+
+  for (const order of input.orders) {
+    const orderKey = String(order._id)
+    const attribution = attributionByOrderId.get(orderKey)
+    if (!attribution) {
+      // Same omission rule as the attribution owner: a missing due breakdown
+      // is never a zero balance.
+      continue
+    }
+
+    const balance = deriveBalanceAmounts(
+      attribution.amountDueMinor,
+      attribution.orderPaidAmountMinor
+    )
+
+    balancesByOrderId.set(orderKey, {
+      amountDueMinor: attribution.amountDueMinor,
+      appliedPaymentMinor: attribution.appliedPaymentsMinor,
+      allocationCreditMinor: attribution.wholeOrderCreditMinor,
+      paidAmountMinor: attribution.orderPaidAmountMinor,
+      outstandingAmountMinor: attribution.orderOutstandingAmountMinor,
+      donationAmountMinor: balance.donationAmountMinor,
+      appliedAmountMinor: balance.appliedAmountMinor,
+    })
+  }
+
+  return balancesByOrderId
 }
 
 export type AllocationAttendeePaymentRow = {
