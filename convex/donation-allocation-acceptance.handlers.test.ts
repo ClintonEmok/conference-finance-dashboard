@@ -10,12 +10,14 @@ import type { Id } from "./_generated/dataModel"
 /**
  * Phase 58's ACCEPTANCE EXAMPLES, on real writes.
  *
- * AE-1a..1e are the locked effective-capacity worked case and its neighbours,
+ * AE-1a..1f are the locked effective-capacity worked case and its neighbours,
  * machine-checked through the production quote (`previewDonationAllocation`),
  * the two commit paths (`allocateDonationToAttendee` additive and
  * `allocateDonation` set-replace) and the read projection
- * (`getDonationAllocationSummary`). Every amount is an exact integer minor
- * unit — never a shape assertion.
+ * (`getDonationAllocationSummary`). AE-1f (plan 58-11) adds the preview row's
+ * WRITABLE figure (`effectiveCapacityMinor`/`exceedsCapacity`) and the exact
+ * order-capacity boundary. Every amount is an exact integer minor unit — never
+ * a shape assertion.
  *
  * HARNESS PROVENANCE: `fresh`, `manualRequest`, `allocate`, `allocateOne`,
  * `seedEvent` (:349), `createAttendee` (:373), `createDonation` (:434),
@@ -311,6 +313,8 @@ type PreviewBreakdownRow = {
   extraMinorUnits: number
   skipped: boolean
   skipReason?: string
+  effectiveCapacityMinor: number
+  exceedsCapacity: boolean
 }
 
 type PreviewResult = {
@@ -782,4 +786,172 @@ test("AE-1e — the commit's frozen remainingMinor equals the preview's leftover
   const summary = await loadSummary(authed, donationId)
   expect(summary.recordedAllocatedMinor).toBe(10_001)
   expect(summary.remainingMinor).toBe(0)
+})
+
+// ---------------------------------------------------------------------------
+// AE-1f — the preview row's WRITABLE figure (both quote branches) + boundary
+// ---------------------------------------------------------------------------
+
+test("AE-1f — another donation's €150 claim leaves Maria's €120 balance only €50 writable: €50.00 fits, €50.01 refuses with the ORDER code", async () => {
+  const seeded = fresh()
+  const { eventId, maria, tom } = await seedMariaAndTom(
+    seeded,
+    "ae1f-preview-writable"
+  )
+  const authed = seeded.withIdentity(adminIdentity)
+
+  // 1. ANOTHER donation D2 records 15 000 whole_order to Tom, consuming the
+  //    order's 20 000 pool before D1 is quoted. It belongs to D2, so it is a
+  //    subtracted OTHER claim in every ceiling D1 loads
+  //    (`loadAllocationCeilings` excludes SELF and subtracts OTHERS).
+  const d2 = await createDonation(seeded, eventId, { amountMinor: 15_000 })
+  const d2Committed = await allocateOne(authed, {
+    donationId: d2,
+    eventId,
+    attendeeId: tom.attendeeId,
+    amountMinor: 15_000,
+    scope: "whole_order",
+  })
+  expect(d2Committed.allocatedTotalMinor).toBe(15_000)
+  expect(d2Committed.remainingMinor).toBe(0)
+
+  // 2. D1 — the donation quoted below — carries no recorded rows of its own.
+  const d1 = await createDonation(seeded, eventId, { amountMinor: 12_000 })
+
+  // 3. THE FITTING QUOTE, with the derivation stated rather than memorised:
+  //    D1's ceilings subtract D2's 15 000 any-scope claim, so
+  //    wholeOrderOutstandingMinor is 20 000 − 15 000 = 5 000 while Maria's
+  //    eventChargesOutstandingMinor stays 12 000 − 0 = 12 000. The projection's
+  //    min(12 000, 5 000 − 0) = 5 000.
+  const quoted = await preview(authed, {
+    donationId: d1,
+    eventId,
+    request: manualRequest([
+      {
+        attendeeId: maria.attendeeId,
+        amountMinor: 5_000,
+        scope: "event_charges",
+      },
+    ]),
+  })
+  const mariaRow = previewRowFor(quoted, maria.attendeeId)
+  // The BARE scope ceiling: D2's whole_order claim does not touch an
+  // attendee-scoped figure.
+  expect(mariaRow.ceilingMinor).toBe(12_000)
+  // The WRITABLE figure: the order capacity, not the ceiling.
+  expect(mariaRow.effectiveCapacityMinor).toBe(5_000)
+  expect(mariaRow.amountMinor).toBe(5_000)
+  expect(mariaRow.skipped).toBe(false)
+  expect(mariaRow.exceedsCapacity).toBe(false)
+  expect(quoted.totalAllocatedMinor).toBe(5_000)
+
+  // 4. THE FIELD-DISCRIMINATION SUB-CASE (load-bearing — do not drop): a 3 000
+  //    quote must still report 5 000. A 5 000-amount quote alone cannot
+  //    distinguish the capacity from the planned amount (or from the ceiling);
+  //    this one can.
+  const shortQuote = await preview(authed, {
+    donationId: d1,
+    eventId,
+    request: manualRequest([
+      {
+        attendeeId: maria.attendeeId,
+        amountMinor: 3_000,
+        scope: "event_charges",
+      },
+    ]),
+  })
+  const shortRow = previewRowFor(shortQuote, maria.attendeeId)
+  expect(shortRow.amountMinor).toBe(3_000)
+  expect(shortRow.effectiveCapacityMinor).toBe(5_000)
+
+  // 5. THE DISTRIBUTION BRANCH CARRIES THE FIELDS TOO — a build that attaches
+  //    them only in the manual branch must fail here: this row comes from
+  //    `distribution.breakdown`, not the manual `rows.map`. The engine places
+  //    min(scope 12 000, pool 5 000) = 5 000, so the quote allocates 5 000 and
+  //    leaves the remaining 7 000 as leftover (DON-05).
+  const distributed = await preview(authed, {
+    donationId: d1,
+    eventId,
+    request: {
+      method: "equal",
+      targets: [{ attendeeId: maria.attendeeId, scope: "event_charges" }],
+    },
+  })
+  expect(distributed.totalAllocatedMinor).toBe(5_000)
+  const distributedRow = previewRowFor(distributed, maria.attendeeId)
+  expect(distributedRow.ceilingMinor).toBe(12_000)
+  expect(distributedRow.effectiveCapacityMinor).toBe(5_000)
+  expect(distributedRow.amountMinor).toBe(5_000)
+  expect(distributedRow.skipped).toBe(false)
+  expect(distributedRow.exceedsCapacity).toBe(false)
+
+  // 6. THE BOUNDARY. Derivation: 5 001 <= available 12 000 passes the remainder
+  //    check (donation-allocation.ts:260-266); 5 001 <= Maria's ceiling 12 000
+  //    passes the per-row check (:268-281); the order pool (:291-312) is
+  //    wholeOrderOutstanding 5 000 − alreadyClaimedByOrder 0 (set-replace,
+  //    convex/donations.ts:1492) → 5 001 breaches it. €50.00 is exactly
+  //    writable; €50.01 is not.
+  expect(
+    await rejectionCode(
+      preview(authed, {
+        donationId: d1,
+        eventId,
+        request: manualRequest([
+          {
+            attendeeId: maria.attendeeId,
+            amountMinor: 5_001,
+            scope: "event_charges",
+          },
+        ]),
+      })
+    )
+  ).toBe("DONATION_ALLOCATION_EXCEEDS_ORDER_CAPACITY")
+
+  // 7. HER OWN BALANCE IS NOT THE WRITABLE BOUND — the full 12 000 refuses with
+  //    the SAME code: available 12 000 passes at equality, her ceiling passes at
+  //    equality, and the 5 000 order pool refuses.
+  expect(
+    await rejectionCode(
+      preview(authed, {
+        donationId: d1,
+        eventId,
+        request: manualRequest([
+          {
+            attendeeId: maria.attendeeId,
+            amountMinor: 12_000,
+            scope: "event_charges",
+          },
+        ]),
+      })
+    )
+  ).toBe("DONATION_ALLOCATION_EXCEEDS_ORDER_CAPACITY")
+
+  // 8. PREVIEW / READ PARITY OF THE NEW FIELD (last — it writes to D1). The
+  //    quote's writable figure and the summary's are the SAME number, so the new
+  //    field cannot drift from the read projection.
+  const committed = await allocate(authed, {
+    donationId: d1,
+    eventId,
+    request: manualRequest([
+      {
+        attendeeId: maria.attendeeId,
+        amountMinor: 5_000,
+        scope: "event_charges",
+      },
+    ]),
+  })
+  expect(committed.allocatedTotalMinor).toBe(5_000)
+  expect(committed.remainingMinor).toBe(7_000)
+
+  const summary = await loadSummary(authed, d1)
+  expect(rowFigures(summaryRowFor(summary, maria.attendeeId))).toEqual({
+    scope: "event_charges",
+    scopeOutstandingMinor: 12_000,
+    effectiveCapacityMinor: 5_000,
+    amountMinor: 5_000,
+    appliedMinor: 5_000,
+    unappliedMinor: 0,
+    exceedsCeiling: false,
+    exceedsCapacity: false,
+  })
 })
