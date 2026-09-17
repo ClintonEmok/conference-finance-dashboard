@@ -60,8 +60,8 @@ export type OrderAttendeeRow = {
   ticketTypeLabel: string
   amountDueMinor: number
   // Phase 56 server-owned per-attendee money, mapped verbatim from
-  // `getOrderWithAttendees` — labelled `Allocated credit` / `Remaining` on the
-  // row and never summed into an order-level figure here.
+  // `getOrderWithAttendees`: the row renders the two figures as separate
+  // labelled lines and never derives or totals them on the client.
   paidAmountMinor: number
   outstandingAmountMinor: number
 }
