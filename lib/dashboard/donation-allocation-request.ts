@@ -72,6 +72,25 @@ export function scopeLabel(scope: AllocationScope): string {
   return ALLOCATION_SCOPE_LABELS[scope]
 }
 
+/**
+ * The CHOOSER's vocabulary (Phase 58, 58-08): scope is presented to the
+ * operator as an intent, never as the stored `event_charges`/`whole_order`
+ * values. The recorded-scope nouns above stay for recorded facts (the record
+ * chip and the skip copy).
+ */
+export const ALLOCATION_SCOPE_INTENT_LABELS: Record<AllocationScope, string> = {
+  event_charges: "Restrict to this attendee only",
+  whole_order: "Apply to the whole order",
+}
+
+/** The intent shown for a scope value (never the raw string). */
+export function scopeIntentLabel(scope: AllocationScope): string {
+  return ALLOCATION_SCOPE_INTENT_LABELS[scope]
+}
+
+/** The default scope: the simple case, applying to the whole order. */
+export const DEFAULT_ALLOCATION_SCOPE: AllocationScope = "whole_order"
+
 export const ALLOCATION_METHOD_OPTIONS: ReadonlyArray<{
   value: AllocationMethod
   label: string
