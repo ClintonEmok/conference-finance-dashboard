@@ -231,12 +231,19 @@ function deleteDonation(
   })
 }
 
-/** The stable code prefix of a rejected call, for parity assertions. */
+/**
+ * The stable code prefix of a settled refusal — or `"RESOLVED"` if the call
+ * unexpectedly resolved. Adapted from `donation-allocation.handlers.test.ts`'s
+ * `rejectionCode` with ONE deliberate difference: it never throws on resolve,
+ * so the caller's inertness snapshot assertion is always reached. A "refusal"
+ * that commits a write and returns must fail the snapshot; if this helper threw
+ * first, that regression would be masked by the rejection assertion.
+ */
 async function rejectionCode(promise: Promise<unknown>): Promise<string> {
   let message = ""
   await promise.then(
     () => {
-      throw new Error("expected the call to reject, but it resolved")
+      message = "RESOLVED"
     },
     (error: unknown) => {
       message = error instanceof Error ? error.message : String(error)
@@ -830,8 +837,10 @@ test("case 5: a key already used by another operation on the same donation is a 
       idempotencyKey: "shared-allocation-key",
     })
   )
-  expect(codeOne).toBe("DONATION_DELETE_IDEMPOTENCY_CONFLICT")
+  // The snapshot assertion comes FIRST: an inertness regression must be
+  // reported as a changed table, never masked by the code assertion.
   expect(await snapshotDeletionTables(seeded)).toEqual(beforeOne)
+  expect(codeOne).toBe("DONATION_DELETE_IDEMPOTENCY_CONFLICT")
   expect(
     await seeded.query(async (ctx) => ctx.db.get("payments", donationOne))
   ).not.toBeNull()
@@ -867,8 +876,8 @@ test("case 5: a key already used by another operation on the same donation is a 
       idempotencyKey: "shared-removal-key",
     })
   )
-  expect(codeTwo).toBe("DONATION_DELETE_IDEMPOTENCY_CONFLICT")
   expect(await snapshotDeletionTables(seeded)).toEqual(beforeTwo)
+  expect(codeTwo).toBe("DONATION_DELETE_IDEMPOTENCY_CONFLICT")
   expect(
     await seeded.query(async (ctx) => ctx.db.get("payments", donationTwo))
   ).not.toBeNull()
@@ -917,9 +926,9 @@ test("case 6: a fresh key after a completed deletion refuses with ALREADY_DELETE
       idempotencyKey: "already-second-delete",
     })
   )
-  expect(code).toBe("DONATION_DELETE_ALREADY_DELETED")
   // The refusal changes nothing — the post-deletion state is untouched.
   expect(await snapshotDeletionTables(seeded)).toEqual(postDeletion)
+  expect(code).toBe("DONATION_DELETE_ALREADY_DELETED")
 })
 
 // ---------------------------------------------------------------------------
@@ -960,8 +969,8 @@ test("case 7: a never-existing donation or event refuses with NOT_FOUND and chan
       idempotencyKey: "ghost-donation",
     })
   )
-  expect(donationCode).toBe("DONATION_DELETE_NOT_FOUND")
   expect(await snapshotDeletionTables(seeded)).toEqual(beforeDonationCase)
+  expect(donationCode).toBe("DONATION_DELETE_NOT_FOUND")
 
   // A well-formed event id whose row never existed: the live donation is
   // untouched because the event check fires before any donation work.
@@ -973,8 +982,8 @@ test("case 7: a never-existing donation or event refuses with NOT_FOUND and chan
       idempotencyKey: "ghost-event",
     })
   )
-  expect(eventCode).toBe("DONATION_DELETE_NOT_FOUND")
   expect(await snapshotDeletionTables(seeded)).toEqual(beforeEventCase)
+  expect(eventCode).toBe("DONATION_DELETE_NOT_FOUND")
   expect(
     await seeded.query(async (ctx) => ctx.db.get("payments", donationId))
   ).not.toBeNull()
@@ -1017,8 +1026,8 @@ test("case 8: a blank key is refused before any work, and a padded key is record
       idempotencyKey: "   ",
     })
   )
-  expect(code).toBe("DONATION_DELETE_INVALID_KEY")
   expect(await snapshotDeletionTables(seeded)).toEqual(before)
+  expect(code).toBe("DONATION_DELETE_INVALID_KEY")
   expect(
     await seeded.query(async (ctx) => ctx.db.get("payments", donationId))
   ).not.toBeNull()
@@ -1179,8 +1188,8 @@ test("case 9: refuses every non-standalone shape with NOT_STANDALONE and inert s
         idempotencyKey: `not-standalone-${shape.label}`,
       })
     )
-    expect(code, shape.label).toBe("DONATION_DELETE_NOT_STANDALONE")
     expect(await snapshotDeletionTables(seeded), shape.label).toEqual(before)
+    expect(code, shape.label).toBe("DONATION_DELETE_NOT_STANDALONE")
   }
 })
 
@@ -1227,8 +1236,8 @@ test("case 10: refuses cross-event and eventless donations with CROSS_EVENT and 
         idempotencyKey: `cross-event-${entry.label}`,
       })
     )
-    expect(code, entry.label).toBe("DONATION_DELETE_CROSS_EVENT")
     expect(await snapshotDeletionTables(seeded), entry.label).toEqual(before)
+    expect(code, entry.label).toBe("DONATION_DELETE_CROSS_EVENT")
   }
 })
 
@@ -1270,8 +1279,8 @@ test("case 11: refuses a Tikkie donation and DEMONSTRATES the resurrection hazar
       idempotencyKey: "tikkie-refusal",
     })
   )
-  expect(code).toBe("DONATION_DELETE_TIKKIE_SOURCED")
   expect(await snapshotDeletionTables(seeded)).toEqual(before)
+  expect(code).toBe("DONATION_DELETE_TIKKIE_SOURCED")
 
   // THE RESURRECTION DEMONSTRATION. A naive hard delete of this row would be
   // undone by a later poll: the poller re-fetches from
