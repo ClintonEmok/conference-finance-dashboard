@@ -8,7 +8,6 @@ import {
   orderLedgerRowValidator,
   orderSearchRowValidator,
 } from "../lib/types/order"
-import { isOrderAppliedPayment } from "../lib/domain/finance/amounts"
 import {
   loadCanonicalOrderBalances,
   loadMatchedPaymentTotalsByOrderId,
@@ -817,49 +816,7 @@ function isInternalEvent(
   return eventSourceKindsById.get(String(eventId)) === "internal"
 }
 
-async function loadPaymentTotalsByOrderKey(ctx: QueryCtx) {
-  const payments = await ctx.db.query("payments").take(1000)
-  const totalsByOrderKey = new Map<string, number>()
-
-  for (const payment of payments) {
-    if (!isOrderAppliedPayment(payment)) {
-      continue
-    }
-
-    const rawOrderId =
-      typeof payment.orderId === "string" ? payment.orderId.trim() : ""
-    if (!rawOrderId) {
-      continue
-    }
-
-    totalsByOrderKey.set(
-      rawOrderId,
-      (totalsByOrderKey.get(rawOrderId) ?? 0) + payment.amountMinor
-    )
-  }
-
-  return totalsByOrderKey
-}
-
-function getMatchedPaymentTotalForOrder(
-  order: {
-    _id: Id<"orders">
-    providerOrderId?: string | null
-  },
-  totalsByOrderKey: Map<string, number>
-) {
-  const keys = new Set<string>([String(order._id)])
-  if (order.providerOrderId) {
-    keys.add(order.providerOrderId)
-  }
-
-  let total = 0
-  for (const key of keys) {
-    total += totalsByOrderKey.get(key) ?? 0
-  }
-
-  return total
-}
+// A payment-only paid derivation lived here, had zero callers, and must not return — allocation-aware consumers use loadCanonicalOrderBalances / loadOrderPaymentAttributions.
 
 export const getOrdersWithFilters = query({
   args: {

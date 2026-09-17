@@ -79,4 +79,24 @@ describe("phase 58 carry-forwards (phase 56 verification findings)", () => {
       expect(types).toContain("overpaidMinor: number")
     })
   })
+
+  describe("the dead payment-total helpers stay deleted", () => {
+    test("a payment-only paid derivation has zero callers and must not return", () => {
+      const orders = readSource(ORDERS)
+
+      expect(orders).not.toContain("loadPaymentTotalsByOrderKey")
+      expect(orders).not.toContain("getMatchedPaymentTotalForOrder")
+      // The import existed only for the deleted helper; every use is gone.
+      expect(orders).not.toContain("isOrderAppliedPayment")
+    })
+
+    test("the registered divergent surface keeps its coverage marker", () => {
+      const orders = readSource(ORDERS)
+
+      // `syncFullyPaidOrders` keeps its payment-only basis on purpose; the
+      // marker is what keeps `convex/orders.ts` inside the Phase 56 coverage
+      // walk's EXPECTED_COVERAGE_FILES. Removing it fails the Phase 56 audit.
+      expect(orders).toContain("loadMatchedPaymentTotalsByOrderId")
+    })
+  })
 })
