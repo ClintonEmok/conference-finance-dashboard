@@ -51,6 +51,10 @@ type OrderAttendeePayload = {
     ticketTypeLabel: string
     normalizedStatus: string
     amountDueMinor: number
+    // Phase 56 server-owned per-attendee money: the panel renders these
+    // verbatim and never re-derives them from the payments list.
+    paidAmountMinor: number
+    outstandingAmountMinor: number
   }>
 }
 
@@ -457,6 +461,8 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
             email: attendee.email,
             ticketTypeLabel: attendee.ticketTypeLabel,
             amountDueMinor: attendee.amountDueMinor,
+            paidAmountMinor: attendee.paidAmountMinor,
+            outstandingAmountMinor: attendee.outstandingAmountMinor,
           }))}
           slug={slug}
           eventId={String(event?._id ?? "")}

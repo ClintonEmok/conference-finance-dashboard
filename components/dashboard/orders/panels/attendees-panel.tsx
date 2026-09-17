@@ -45,6 +45,7 @@ import {
 import { api } from "@/lib/convex/api"
 import { formatMoney } from "@/lib/format"
 import { useTicketTypesForEvent } from "@/lib/convex/hooks/events"
+import { donationsHref } from "@/lib/dashboard/workspace-routes"
 import {
   AttendeeOrderEditor,
   matchEditorSelection,
@@ -58,6 +59,11 @@ export type OrderAttendeeRow = {
   email: string | null
   ticketTypeLabel: string
   amountDueMinor: number
+  // Phase 56 server-owned per-attendee money, mapped verbatim from
+  // `getOrderWithAttendees` — labelled `Allocated credit` / `Remaining` on the
+  // row and never summed into an order-level figure here.
+  paidAmountMinor: number
+  outstandingAmountMinor: number
 }
 
 type AttendeeDetailSnapshot = {
@@ -412,6 +418,24 @@ export function AttendeesPanel({
                       <p className="text-sm font-black tabular-nums">
                         {formatMoney(attendee.amountDueMinor)}
                       </p>
+                      <div className="mt-1.5 flex items-center justify-end gap-2 text-xs text-muted-foreground">
+                        <span>Allocated credit</span>
+                        <span className="font-mono tabular-nums text-foreground">
+                          {formatMoney(attendee.paidAmountMinor)}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex items-center justify-end gap-2 text-xs text-muted-foreground">
+                        <span>Remaining</span>
+                        <span className="font-mono tabular-nums text-foreground">
+                          {formatMoney(attendee.outstandingAmountMinor)}
+                        </span>
+                      </div>
+                      <Link
+                        href={donationsHref(slug, { orderId })}
+                        className="mt-1 inline-block text-xs text-primary underline-offset-2 hover:underline"
+                      >
+                        View allocations
+                      </Link>
                       <div className="mt-2 flex items-center justify-end gap-1.5">
                         <Button
                           type="button"
