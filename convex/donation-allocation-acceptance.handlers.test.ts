@@ -10,7 +10,8 @@ import type { Id } from "./_generated/dataModel"
 /**
  * Phase 58's ACCEPTANCE EXAMPLES, on real writes.
  *
- * AE-1a..1f are the locked effective-capacity worked case and its neighbours,
+ * AE-1a..1f (plus 59-01's AE-1d-recorded, the reported==recorded remainder
+ * proof) are the locked effective-capacity worked case and its neighbours,
  * machine-checked through the production quote (`previewDonationAllocation`),
  * the two commit paths (`allocateDonationToAttendee` additive and
  * `allocateDonation` set-replace) and the read projection
@@ -23,8 +24,10 @@ import type { Id } from "./_generated/dataModel"
  * `seedEvent` (:349), `createAttendee` (:373), `createDonation` (:434),
  * `loadSummary` (:317), `preview` (:3052) and `rejectionCode` (:3081) are
  * copied from `convex/donation-allocation.handlers.test.ts` (the Phase 55
- * harness) so this suite starts from the same fixtures and idioms. No
- * production file is touched by this file.
+ * harness) so this suite starts from the same fixtures and idioms.
+ * `loadAllocationRows` (59-01) is the file-local reader for the raw stored
+ * `donationAllocations` rows, mirroring that harness's
+ * `loadAllocationRowDetails`. No production file is touched by this file.
  *
  * FIXTURE RULE (makes every case non-vacuous): ONE event and ONE order per
  * case, with a distinct slug per case. The ceiling projection is
@@ -386,6 +389,47 @@ function rowFigures(row: SummaryRow) {
   }
 }
 
+/**
+ * Every STORED `donationAllocations` row for a donation, read straight from
+ * the database through `by_donationId` — mirrors the Phase 55 harness's
+ * `loadAllocationRowDetails` (convex/donation-allocation.handlers.test.ts:190).
+ * The mutation's returned payload is the writer's word; this reader is the
+ * database's.
+ */
+async function loadAllocationRows(
+  t: TestConvex,
+  donationId: Id<"payments">
+): Promise<
+  Array<{
+    attendeeId: string
+    orderId: string
+    amountMinor: number
+    scope: string
+  }>
+> {
+  return t.query(async (ctx) => {
+    const rows: Array<{
+      attendeeId: string
+      orderId: string
+      amountMinor: number
+      scope: string
+    }> = []
+
+    for await (const row of ctx.db
+      .query("donationAllocations")
+      .withIndex("by_donationId", (q) => q.eq("donationId", donationId))) {
+      rows.push({
+        attendeeId: String(row.attendeeId),
+        orderId: String(row.orderId),
+        amountMinor: Number(row.amountMinor),
+        scope: String(row.scope),
+      })
+    }
+
+    return rows
+  })
+}
+
 // ---------------------------------------------------------------------------
 // AE-1a — the LOCKED worked case, additive path + read projection
 // ---------------------------------------------------------------------------
@@ -718,6 +762,159 @@ test("AE-1d — 10 001 split equally across three 3 500 orders allocates all 10 
   expect(quoted.rows.reduce((sum, row) => sum + row.amountMinor, 0)).toBe(
     quoted.totalAllocatedMinor
   )
+})
+
+// ---------------------------------------------------------------------------
+// AE-1d-recorded — the remainder the operator is SHOWN is the one RECORDED
+// ---------------------------------------------------------------------------
+
+test("AE-1d-recorded — repeated identical quotes report the identical remainder and the named recipients' rows carry the extra units, in the frozen result and in the database", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "ae1d-recorded-remainder")
+  // AE-1d's fixture, freshly seeded (its own event, three DISTINCT orders, no
+  // order shared between cases): each attendee's own scope balance is 3 500,
+  // so every 3 334 / 3 333 share fits. The 10 001 donation is LOAD-BEARING:
+  // it leaves exactly TWO indivisible minor units after the three equal whole
+  // shares, so exactly two recipients absorb one extra unit each. Do not
+  // simplify the fixture to a clean division — the two-unit remainder is the
+  // subject of this case.
+  const a1 = await createAttendee(seeded, eventId, {
+    attendeeKey: "ae1d-recorded-a1",
+    name: "A1",
+    ticketPriceMinor: 3_500,
+  })
+  const a2 = await createAttendee(seeded, eventId, {
+    attendeeKey: "ae1d-recorded-a2",
+    name: "A2",
+    ticketPriceMinor: 3_500,
+  })
+  const a3 = await createAttendee(seeded, eventId, {
+    attendeeKey: "ae1d-recorded-a3",
+    name: "A3",
+    ticketPriceMinor: 3_500,
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 10_001,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  const request: AllocationRequestInput = {
+    method: "equal",
+    targets: [
+      { attendeeId: a1.attendeeId, scope: "event_charges" },
+      { attendeeId: a2.attendeeId, scope: "event_charges" },
+      { attendeeId: a3.attendeeId, scope: "event_charges" },
+    ],
+  }
+
+  // (1) DETERMINISM AT THE OPERATOR BOUNDARY. The SAME request quoted twice
+  // reports the identical remainder surface. The unit-level determinism is
+  // already pinned by the pure engine's own suite
+  // (tests/finance/donation-allocation.test.ts:837) and is NOT re-written
+  // here; this is the FULL server path — `previewDonationAllocation` and the
+  // engine behind it — where the operator's report is actually produced.
+  const first = await preview(authed, { donationId, eventId, request })
+  const second = await preview(authed, { donationId, eventId, request })
+
+  expect(first.remainderMinor).toBe(2)
+  expect(second.remainderMinor).toBe(2)
+  // The recipients are named in SUBMITTED order (the stable selection order,
+  // D-09) on BOTH calls, and the two calls agree with each other.
+  expect(first.remainderRecipientAttendeeIds).toEqual([
+    String(a1.attendeeId),
+    String(a2.attendeeId),
+  ])
+  expect(second.remainderRecipientAttendeeIds).toEqual(
+    first.remainderRecipientAttendeeIds
+  )
+  // Identical row amounts across identical quotes...
+  expect(second.rows.map((row) => row.amountMinor)).toEqual(
+    first.rows.map((row) => row.amountMinor)
+  )
+  // ...the multiset of extra units is [1, 1, 0]...
+  expect(
+    first.rows
+      .map((row) => row.extraMinorUnits)
+      .sort((left, right) => left - right)
+  ).toEqual([0, 1, 1])
+  // ...and the amounts sort to [3 334, 3 334, 3 333], fully placed: the
+  // remainder is part of `totalAllocatedMinor`, never money left over.
+  expect(
+    first.rows.map((row) => row.amountMinor).sort((left, right) => right - left)
+  ).toEqual([3_334, 3_334, 3_333])
+  expect(first.totalAllocatedMinor).toBe(10_001)
+  expect(first.leftoverMinor).toBe(0)
+  expect(second.totalAllocatedMinor).toBe(10_001)
+  expect(second.leftoverMinor).toBe(0)
+
+  // (2) THE REPORT IS WHAT GETS RECORDED. Commit the identical request.
+  const committed = await allocate(authed, { donationId, eventId, request })
+
+  expect(committed.allocatedTotalMinor).toBe(10_001)
+  // The frozen post-submission figure equals the preview's `leftoverMinor`
+  // (0), never its pre-submission `remainingMinor` (10 001) — the AE-1e
+  // pairing, restated here so this case stands alone.
+  expect(committed.remainingMinor).toBe(second.leftoverMinor)
+  expect(committed.remainingMinor).not.toBe(second.remainingMinor)
+
+  // The frozen rows carry the extra units on EXACTLY the attendee IDs the
+  // preview named, mapped by attendeeId so a row-order change cannot hide a
+  // mismatch.
+  const frozenByAttendee = new Map<string, number>()
+  for (const row of committed.rows) {
+    frozenByAttendee.set(String(row.attendeeId), row.amountMinor)
+  }
+  expect(frozenByAttendee.get(String(a1.attendeeId))).toBe(3_334)
+  expect(frozenByAttendee.get(String(a2.attendeeId))).toBe(3_334)
+  expect(frozenByAttendee.get(String(a3.attendeeId))).toBe(3_333)
+  // Every recipient the operator was told about is a row that received its
+  // extra unit: a truncated report fails here, a reordered one at step 1.
+  expect(
+    second.remainderRecipientAttendeeIds.map((attendeeId) =>
+      frozenByAttendee.get(attendeeId)
+    )
+  ).toEqual([3_334, 3_334])
+  // The frozen rows sum to the donation amount — nothing lost, nothing
+  // manufactured. (`allocateDonation` declares no `returns` validator, so the
+  // mutation result is `any`; the reducer params are annotated so the test
+  // stays typecheck-clean.)
+  expect(
+    committed.rows.reduce(
+      (sum: number, row: { amountMinor: number }) => sum + row.amountMinor,
+      0
+    )
+  ).toBe(10_001)
+
+  // The DATABASE, not the returned payload, is the final authority for what
+  // was recorded: the stored rows carry the same per-recipient amounts.
+  const stored = await loadAllocationRows(seeded, donationId)
+  const storedByAttendee = new Map<string, number>()
+  for (const row of stored) {
+    storedByAttendee.set(row.attendeeId, row.amountMinor)
+  }
+  expect(stored).toHaveLength(3)
+  expect([...storedByAttendee.keys()].sort()).toEqual(
+    [String(a1.attendeeId), String(a2.attendeeId), String(a3.attendeeId)].sort()
+  )
+  expect(storedByAttendee).toEqual(frozenByAttendee)
+
+  // (3) THE RECORD PANEL READS THE SAME MONEY. Only the recorded
+  // `amountMinor` / `attendeeId` / `scope` are asserted — the staleness
+  // figures (`appliedMinor` / `unappliedMinor`) are Phase 55's scope-ceiling
+  // signal, deliberately NOT a canonical balance here.
+  const summary = await loadSummary(authed, donationId)
+  expect(summary.recordedAllocatedMinor).toBe(10_001)
+  expect(summary.remainingMinor).toBe(0)
+  expect(summary.rows).toHaveLength(3)
+  for (const expected of [
+    { attendeeId: a1.attendeeId, amountMinor: 3_334 },
+    { attendeeId: a2.attendeeId, amountMinor: 3_334 },
+    { attendeeId: a3.attendeeId, amountMinor: 3_333 },
+  ]) {
+    const row = summaryRowFor(summary, expected.attendeeId)
+    expect(row.amountMinor).toBe(expected.amountMinor)
+    expect(row.scope).toBe("event_charges")
+  }
 })
 
 // ---------------------------------------------------------------------------
