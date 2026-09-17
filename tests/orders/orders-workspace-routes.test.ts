@@ -159,7 +159,9 @@ describe("sidebar ownership", () => {
     // The Finance section-active special case is gone: with three items that
     // predicate would light all three at once.
     expect(layout).not.toContain('label === "Finance"')
-    expect(layout).not.toContain('["finance", "payments", "donation", "reconciliation"]')
+    expect(layout).not.toContain(
+      '["finance", "payments", "donation", "reconciliation"]'
+    )
     expect(layout).not.toContain('label: "Finance"')
 
     for (const token of [

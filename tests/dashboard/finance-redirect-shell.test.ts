@@ -124,9 +124,7 @@ describe("AE-3 the /finance legacy redirect mapping", () => {
         tab: "reconciliation",
         futureFilter: "x",
       })
-    ).resolves.toBe(
-      "/dashboard/events/retreat/reconciliation?futureFilter=x"
-    )
+    ).resolves.toBe("/dashboard/events/retreat/reconciliation?futureFilter=x")
   })
 
   it("drops the tab param from every target and never emits `tab=`", async () => {
@@ -227,7 +225,9 @@ describe("the redirect shell source contract", () => {
     const shell = readSource(SHELL)
 
     expect(shell).toContain("redirect(")
-    expect(shell).toMatch(/export default async function FinanceRedirectPage\s*\(/)
+    expect(shell).toMatch(
+      /export default async function FinanceRedirectPage\s*\(/
+    )
     expect(shell).toContain("financeTabHref(")
     expect(shell).toContain("parseFinanceTab(")
     expect(shell).toContain("URLSearchParams")
@@ -256,7 +256,9 @@ describe("the redirect shell source contract", () => {
   it("the singular shim forwards outward and produces no tab param", () => {
     const singular = readSource(SINGULAR)
 
-    expect(singular).toMatch(/export default async function LegacyDonationPage\s*\(/)
+    expect(singular).toMatch(
+      /export default async function LegacyDonationPage\s*\(/
+    )
     expect(singular).toContain("donationsHref(slug)")
     expect(singular).not.toContain("financeHref(")
     expect(singular).not.toContain("financeTabHref(")
