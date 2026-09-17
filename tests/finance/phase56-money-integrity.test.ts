@@ -82,28 +82,17 @@ const CANONICAL_SET_FILES = [
  * `convex/payments.ts` DO contain canonical loaders in other functions. That is
  * why the marker and the "still not canonical" assertions are scoped to the
  * function slice — the file-level form would fail by construction.
+ *
+ * Phase 60 D-01 shrank this register 6 → 3: the status-write path
+ * (`orders.syncFullyPaidOrders`) and both reminder surfaces
+ * (`paymentReminders.eligibleDeliveries`, `getDeliveryContext`) moved to the
+ * canonical settlement basis and are FORBIDDEN from staying registered (case
+ * 7a). Each removal is PAIRED with a replacing test — the behavioural suites
+ * from 60-01 (`convex/canonical-order-balance.handlers.test.ts`) and 60-02
+ * (`convex/payment-reminder.handlers.test.ts`) plus case 8's structural slices.
+ * A shrunk register with no replacing test would be a weakened guard, not a fix.
  */
 const PHASE_56_PAYMENT_ONLY_DIVERGENCES = [
-  {
-    path: "convex/paymentReminders.ts",
-    functionName: "eligibleDeliveries",
-    marker: "loadMatchedPaymentTotalsByOrderId",
-    reason:
-      "Reminder eligibility is an ACTION path: it chooses which orders to chase. Allocation credit is not a payment (D-06), so the selector keeps the payment-only paid basis until action semantics are revisited.",
-  },
-  {
-    path: "convex/paymentReminders.ts",
-    functionName: "getDeliveryContext",
-    marker: "loadMatchedPaymentTotalsByOrderId",
-    reason: "The reminder action's read model — same class as eligibleDeliveries.",
-  },
-  {
-    path: "convex/orders.ts",
-    functionName: "syncFullyPaidOrders",
-    marker: "loadMatchedPaymentTotalsByOrderId",
-    reason:
-      "Status-write action: flips orders.status from the payment-only total. Allocation credit is not a payment (D-06) and status semantics are out of scope for Phase 56.",
-  },
   {
     path: "convex/payments.ts",
     functionName: "logReconciliationPayment",
@@ -142,15 +131,20 @@ const REGISTERED_DIVERGENT_FILES: readonly string[] =
  * cannot silently match nothing. `convex/reports.ts` is allowed as canonical but
  * is not collected: it references none of the three payment-only symbols (it
  * reads the allocation-aware attribution owner instead).
+ *
+ * `convex/orders.ts` and `convex/paymentReminders.ts` are no longer collected:
+ * Phase 60 D-01 migrated their payment-only references to the canonical owner
+ * (`convex/orders.ts` remains canonical in `CANONICAL_SET_FILES`;
+ * `convex/tikkie.ts` remains registered but outside this walk). Case 8 asserts
+ * BOTH files are absent from the collected set, so a reintroduced payment-only
+ * symbol in either fails loudly.
  */
 const EXPECTED_COVERAGE_FILES = [
   "convex/finance.ts",
   "lib/domain/finance/matched-payments.ts",
   "lib/domain/finance/amounts.ts",
-  "convex/orders.ts",
   "convex/payments.ts",
   "convex/publicTracking.ts",
-  "convex/paymentReminders.ts",
   "convex/donations.ts",
 ] as const
 
@@ -226,7 +220,10 @@ function walkProductionSources(
     }
     if (!/\.tsx?$/.test(entry.name)) continue
     if (/\.test\.tsx?$/.test(entry.name)) continue
-    acc.push({ path: childPath, source: readFileSync(resolve(root, childPath), "utf8") })
+    acc.push({
+      path: childPath,
+      source: readFileSync(resolve(root, childPath), "utf8"),
+    })
   }
   return acc
 }
@@ -428,26 +425,39 @@ describe("phase 56 canonical donation accounting source audit", () => {
     // A missing declaration is a register defect: THROW, never fall back to a
     // whole-file slice and never pass silently.
     expect(() =>
-      functionSlice(source, "noSuchSurfaceNameHere", "convex/paymentReminders.ts")
+      functionSlice(
+        source,
+        "noSuchSurfaceNameHere",
+        "convex/paymentReminders.ts"
+      )
     ).toThrow(/No declaration found for noSuchSurfaceNameHere/)
 
     // The load-bearing case from the plan: `eligibleDeliveries` has call sites
-    // at `:103` (before) and `:259`/`:570` (after) its declaration at `:202`,
-    // so an `indexOf`-anchored slice (103→131) and a `lastIndexOf`-anchored
-    // slice (570→634) both MISS the registered marker at `:218`.
+    // at `:100` (before) and `:258`/`:571` (after) its declaration at `:199`,
+    // so an `indexOf`-anchored slice (100→131) and a `lastIndexOf`-anchored
+    // slice (571→…) both MISS the canonical read at `:215`. Phase 60 D-01
+    // changed the slice CONTENT — the canonical owner replaced the payment-only
+    // marker — while the anchoring proof itself is unchanged and still
+    // load-bearing: the assertion below is only satisfiable when the slice
+    // starts on the declaration, never on a call site.
     const declarationSlice = functionSlice(
       source,
       "eligibleDeliveries",
       "convex/paymentReminders.ts"
     )
-    expect(declarationSlice).toContain("loadMatchedPaymentTotalsByOrderId")
-    expect(declarationSlice.split("\n")[0]).toBe("async function eligibleDeliveries(")
-    // Sanity: the call site BEFORE the declaration is genuinely outside it.
+    expect(declarationSlice).toContain("loadCanonicalOrderBalances")
+    expect(declarationSlice).not.toContain("loadMatchedPaymentTotalsByOrderId")
+    expect(declarationSlice.split("\n")[0]).toBe(
+      "async function eligibleDeliveries("
+    )
+    // Sanity: the call site BEFORE the declaration is genuinely outside it, so
+    // the canonical read above belongs to the declaration span (not to some
+    // earlier fragment an indexOf anchor would have captured).
     const callSiteBefore = source.slice(
       source.indexOf("eligibleDeliveries"),
       source.indexOf("async function eligibleDeliveries")
     )
-    expect(callSiteBefore).not.toContain("loadMatchedPaymentTotalsByOrderId")
+    expect(callSiteBefore).not.toContain("loadCanonicalOrderBalances")
   })
 
   test("case 7b — coverage is complete: every payment-only reference is a definition, canonical, or registered", () => {
@@ -483,5 +493,43 @@ describe("phase 56 canonical donation accounting source audit", () => {
     // `convex/tikkie.ts` registers a surface but references none of the three
     // scan symbols, so it is legitimately outside this walk.
     expect(collectedPaths).not.toContain("convex/tikkie.ts")
+  })
+
+  test("case 8 — the migrated settlement surfaces consume the canonical owner and left the scan set (Phase 60 D-01)", () => {
+    // The structural half of the replacing pairs: each removed register entry
+    // is replaced by this slice assertion (the behavioural halves live in
+    // 60-01/60-02's suites). A migrated surface that re-acquires a payment-only
+    // basis — or drops the canonical read — must fail loudly here.
+    const MIGRATED_SURFACES = [
+      { path: "convex/orders.ts", surfaceName: "syncFullyPaidOrders" },
+      { path: "convex/paymentReminders.ts", surfaceName: "eligibleDeliveries" },
+      { path: "convex/paymentReminders.ts", surfaceName: "getDeliveryContext" },
+    ] as const
+
+    for (const surface of MIGRATED_SURFACES) {
+      const source = readSource(surface.path)
+      const slice = functionSlice(source, surface.surfaceName, surface.path)
+      expect(
+        slice,
+        `${surface.path}:${surface.surfaceName} must consume the canonical settlement owner`
+      ).toContain("loadCanonicalOrderBalances")
+      for (const symbol of PAYMENT_ONLY_SYMBOLS) {
+        expect(
+          slice.includes(symbol),
+          `${surface.path}:${surface.surfaceName} must not reference ${symbol}`
+        ).toBe(false)
+      }
+    }
+
+    // The walk half: neither migrated file may be collected again while it
+    // stays clean. A shrunk register with a stale walk is the failure mode this
+    // pins against.
+    const collectedPaths = productionSources()
+      .filter(({ source }) =>
+        PAYMENT_ONLY_SYMBOLS.some((symbol) => source.includes(symbol))
+      )
+      .map(({ path }) => path)
+    expect(collectedPaths).not.toContain("convex/orders.ts")
+    expect(collectedPaths).not.toContain("convex/paymentReminders.ts")
   })
 })
