@@ -7,11 +7,14 @@ import {
   ALLOCATION_METHOD_OPTIONS,
   ALLOCATION_REFUSAL_COPY,
   ALLOCATION_REFUSAL_GENERIC,
+  ALLOCATION_SCOPE_INTENT_LABELS,
   ALLOCATION_SCOPE_LABELS,
+  DEFAULT_ALLOCATION_SCOPE,
   allocationRefusalCopy,
   allocationSkipMessage,
   buildAllocationRequest,
   nextAllocationKey,
+  scopeIntentLabel,
   scopeLabel,
 } from "@/lib/dashboard/donation-allocation-request"
 
@@ -358,6 +361,29 @@ describe("scope labels, method options and skip copy", () => {
       { value: "largest_balance_first", label: "Largest balance first" },
       { value: "manual", label: "Manual amounts" },
     ])
+  })
+
+  it("pins the chooser's intent vocabulary, additive to the recorded nouns", () => {
+    // The CHOOSER's copy (58-08). The recorded-scope nouns above stay exactly
+    // as they are — they describe recorded facts, not a choice.
+    expect(ALLOCATION_SCOPE_INTENT_LABELS).toEqual({
+      event_charges: "Restrict to this attendee only",
+      whole_order: "Apply to the whole order",
+    })
+    expect(scopeIntentLabel("event_charges")).toBe(
+      "Restrict to this attendee only"
+    )
+    expect(scopeIntentLabel("whole_order")).toBe("Apply to the whole order")
+    expect(DEFAULT_ALLOCATION_SCOPE).toBe("whole_order")
+
+    // The two vocabularies are deliberately not interchangeable: a chooser
+    // label rendered from the recorded nouns would be the bug this pins.
+    expect(scopeLabel("whole_order")).not.toBe(
+      ALLOCATION_SCOPE_INTENT_LABELS.whole_order
+    )
+    expect(scopeLabel("event_charges")).not.toBe(
+      ALLOCATION_SCOPE_INTENT_LABELS.event_charges
+    )
   })
 
   it("names the skipped target and interpolates its scope", () => {
