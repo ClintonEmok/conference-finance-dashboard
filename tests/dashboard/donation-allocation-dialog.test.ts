@@ -118,6 +118,51 @@ describe("the writable-leading ladder (LOCKED effective-capacity rule)", () => {
     expect(dialog).toContain("Rounding remainder")
     expect(dialog).toContain("remainderRecipientAttendeeIds")
     expect(dialog).toContain("Nothing to allocate")
+
+    // EXACT-EXPRESSION PINS (59-01). The literals above are satisfied by the
+    // `AllocationQuote` type declarations alone, so each rule is bound to the
+    // RENDER EXPRESSION it names:
+    //   - the band renders the server's REMAINDER field, never the leftover
+    //     (different money classes: the remainder WAS allocated, the leftover
+    //     was NOT);
+    expect(
+      dialog,
+      "the remainder band must render formatMoney(quote.remainderMinor), never the leftover"
+    ).toMatch(
+      /Rounding remainder:[\s\S]{0,80}formatMoney\(quote\.remainderMinor\)/
+    )
+    expect(
+      dialog,
+      "the remainder band must not render the leftover field"
+    ).not.toMatch(/Rounding remainder:[\s\S]{0,80}leftoverMinor/)
+    //   - the recipient count is the server's own list length, never a literal:
+    //     this binds the COUNT EXPRESSION itself, immediately after the intro
+    //     text. A looser window would still match the `=== 1` branch below
+    //     after the count is replaced by `{2}` (that branch names the same
+    //     list), so the loose form does not discriminate — M-2 proves it.
+    expect(
+      dialog,
+      "the remainder count must bind quote.remainderRecipientAttendeeIds.length"
+    ).toMatch(
+      /one minor unit each went to\{" "\}\s*\{quote\.remainderRecipientAttendeeIds\.length\}/
+    )
+    //   - the singular/plural branch reads the SAME server list, so a build
+    //     that hardcodes the noun fails;
+    expect(
+      dialog,
+      "the singular/plural branch must read the server's recipient list"
+    ).toMatch(
+      /\{quote\.remainderRecipientAttendeeIds\.length === 1[\s\S]{0,120}"attendee"[\s\S]{0,120}"attendees"/
+    )
+    //   - the per-row `+n minor unit` annotation binds the row's own
+    //     `extraMinorUnits`, and no literal count may be rendered.
+    expect(
+      dialog,
+      "the per-row extra-units annotation must bind row.extraMinorUnits"
+    ).toMatch(/\+\{row\.extraMinorUnits\}\s*minor unit/)
+    expect(dialog, "no literal `+n minor unit` may be rendered").not.toMatch(
+      /\+\d+ minor unit/
+    )
   })
 
   it("synthesises no writable figure client-side", () => {
