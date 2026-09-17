@@ -149,6 +149,18 @@ describe("donations workspace — allocation-count readiness", () => {
     // the delete confirmation must never claim "This removes no allocations.".
     expect(workspace).toContain("allocationCount === undefined")
     expect(workspace).not.toMatch(/allocationCount\s*\?\?\s*0/)
+    // The two regexes above only catch a coercion that binds the identifier
+    // directly; a probe that collapsed the CELL's own tri-state
+    // (`allocationCountByDonationId.get(...) ?? 0`) survived them, so the ban
+    // covers the whole identifier and the tri-state derivation and render are
+    // pinned directly.
+    expect(workspace).not.toMatch(/allocationCount[^\n]*\?\?\s*0/)
+    expect(workspace).toMatch(
+      /allocationCount =\s*income === undefined\s*\?\s*undefined\s*:/
+    )
+    expect(workspace).toMatch(
+      /allocationCount === undefined\s*\?\s*"—"\s*:\s*allocationCount/
+    )
     expect(workspace).toContain('"—"')
     expect(workspace).toContain("Preparing the allocation count…")
     // The dialog receives a known count only — the target is never armed with a
@@ -206,6 +218,29 @@ describe("donation record — DACC-04 and effective capacity", () => {
     expect(record).toContain("Show all")
     expect(record).toContain("scopeLabel(")
     expect(record).toContain("getOrderWithAttendees")
+  })
+
+  it("binds Scope balance and Writable now to their own figures", () => {
+    // The LOCKED presentation: the `Scope balance` column reads
+    // `scopeOutstandingMinor` and the `Writable now` column reads
+    // `effectiveCapacityMinor`, in that order. A swap — the bare scope ceiling
+    // relabelled as the writable amount — satisfies every label pin above, so
+    // the header order AND the cell-binding order are pinned directly.
+    const scopeHeaderIndex = record.indexOf("Scope balance</TableHead>")
+    const writableHeaderIndex = record.indexOf("Writable now</TableHead>")
+    const scopeCellIndex = record.indexOf(
+      "formatMoney(row.scopeOutstandingMinor)"
+    )
+    const writableCellIndex = record.indexOf(
+      "formatMoney(row.effectiveCapacityMinor)"
+    )
+
+    expect(scopeHeaderIndex).toBeGreaterThan(-1)
+    expect(writableHeaderIndex).toBeGreaterThan(-1)
+    expect(scopeCellIndex).toBeGreaterThan(-1)
+    expect(writableCellIndex).toBeGreaterThan(-1)
+    expect(scopeHeaderIndex).toBeLessThan(writableHeaderIndex)
+    expect(scopeCellIndex).toBeLessThan(writableCellIndex)
   })
 
   it("derives no money figure of its own and names each bound", () => {
