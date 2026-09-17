@@ -31,15 +31,34 @@ function readSource(relativePath: string): string {
   return readFileSync(resolve(root, relativePath), "utf8")
 }
 
+/**
+ * Phase 56-03 moved the order-level money surfaces onto the ONE canonical
+ * balance owner: `loadCanonicalOrderBalances` composes
+ * `loadOrderAmountDueBreakdowns` (the amount-due authority) with the
+ * allocation-aware attribution owner, so a consumer may read either — what
+ * this audit forbids is a consumer that reads NEITHER and re-prices on its own.
+ */
+const CANONICAL_AMOUNT_DUE_AUTHORITIES = [
+  "loadOrderAmountDueBreakdowns",
+  "loadCanonicalOrderBalances",
+] as const
+
 describe("canonical money source audit (Phase 45)", () => {
   test("every named money consumer consumes the canonical loader", () => {
     for (const consumer of NAMED_MONEY_CONSUMERS) {
       const source = readSource(consumer)
       expect(
-        source.includes("loadOrderAmountDueBreakdowns"),
-        `${consumer} must consume loadOrderAmountDueBreakdowns (the only amount-due authority)`
+        CANONICAL_AMOUNT_DUE_AUTHORITIES.some((authority) =>
+          source.includes(authority)
+        ),
+        `${consumer} must consume the canonical amount-due authority (loadOrderAmountDueBreakdowns or its order-level owner loadCanonicalOrderBalances)`
       ).toBe(true)
     }
+
+    // The order-level owner itself must keep composing the canonical due loader.
+    expect(readSource("convex/finance.ts")).toContain(
+      "loadCanonicalOrderBalances"
+    )
   })
 
   test("the pure accommodation formula has exactly two callers: the loader and the public quote", () => {
@@ -106,9 +125,11 @@ describe("canonical money source audit (Phase 45)", () => {
     expect(tikkie).toContain("amountDueBreakdownsByOrderId")
     expect(tikkie).toContain("canonicalAmountDueMinor")
     expect(tikkie).toContain("?.amountDueMinor")
-    // public tracking derives due from the canonical breakdown map.
+    // public tracking derives due from the canonical order-level balance (Phase
+    // 56-03), keeping the same `?? order.totalAmountMinor` display fallback.
+    expect(tracking).toContain("loadCanonicalOrderBalances")
     expect(tracking).toContain(
-      "amountDueBreakdown?.amountDueMinor ?? order.totalAmountMinor"
+      "canonical?.amountDueMinor ?? order.totalAmountMinor"
     )
     // payments auto-match and summary derive from the canonical breakdown map.
     expect(payments).toContain("amountDueBreakdownsByOrderId")
