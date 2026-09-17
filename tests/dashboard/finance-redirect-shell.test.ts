@@ -96,6 +96,17 @@ describe("AE-3 the /finance legacy redirect mapping", () => {
     await expect(
       captureRedirect(FinanceRedirectPage, "retreat", { tab: "orders" })
     ).resolves.toBe("/dashboard/events/retreat/payments")
+    // A repeated `tab` arrives as an array and is dropped like any other tab.
+    await expect(
+      captureRedirect(FinanceRedirectPage, "retreat", {
+        tab: ["payments", "donations"],
+      })
+    ).resolves.toBe("/dashboard/events/retreat/payments")
+    await expect(
+      captureRedirect(FinanceRedirectPage, "retreat", {
+        tab: ["donations", "donations"],
+      })
+    ).resolves.toBe("/dashboard/events/retreat/payments")
   })
 
   it("delegates encoding to URLSearchParams for the slug and the values", async () => {
@@ -149,6 +160,9 @@ describe("AE-3 the /finance legacy redirect mapping", () => {
       await captureRedirect(FinanceRedirectPage, "retreat", {
         tab: "donations",
         foo: ["a", "b"],
+      }),
+      await captureRedirect(FinanceRedirectPage, "retreat", {
+        tab: ["payments", "donations"],
       }),
     ]
 
