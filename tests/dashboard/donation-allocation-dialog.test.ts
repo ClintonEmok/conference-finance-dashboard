@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
+import {
+  ALLOCATION_SCOPE_INTENT_LABELS,
+  DEFAULT_ALLOCATION_SCOPE,
+} from "@/lib/dashboard/donation-allocation-request"
+
 /**
  * The allocation editor's structural guard (Phase 58, plan 58-08).
  *
@@ -17,7 +22,9 @@ import { resolve } from "node:path"
  *   - Scope as INTENT: the pickers and the badge render the shared intent
  *     vocabulary, never the raw schema values or the recorded-scope nouns,
  *     while BOTH intents stay reachable in bulk and per row (DON-07; Phase 59
- *     SC2 depends on the choice remaining functional).
+ *     SC2 depends on the choice remaining functional). The option list is
+ *     pinned to the FULL vocabulary — its construction AND both render sites —
+ *     so narrowing or emptying the choice fails (W1).
  *   - The money-free picker: the structural guarantee behind the LOCKED
  *     effective-capacity rule — no per-attendee figure is rendered before the
  *     server quotes one.
@@ -39,6 +46,16 @@ function readSource(relativePath: string): string {
 
 const dialog = readSource(DIALOG_PATH)
 const picker = readSource(PICKER_PATH)
+
+/**
+ * The exact option shape EACH of the two scope controls must render, for every
+ * entry of the complete list. Any narrowing of the list (`.slice(`, `.filter(`,
+ * an empty-array literal) or trimming after the map breaks this shape, so the
+ * count of two is what turns "a chooser exists" into "both scopes are
+ * rendered" — the presence pins alone cannot see that (W1).
+ */
+const SCOPE_OPTION_SITE =
+  /SCOPE_CHOICES\s*\.map\(\(scope\)\s*=>\s*\(\s*<SelectItem key=\{scope\} value=\{scope\}>\s*\{ALLOCATION_SCOPE_INTENT_LABELS\[scope\]\}\s*<\/SelectItem>\s*\)\)/g
 
 describe("the writable-leading ladder (LOCKED effective-capacity rule)", () => {
   it("binds Writable now to the server's effectiveCapacityMinor, primary and first", () => {
@@ -136,11 +153,55 @@ describe("scope as intent (DON-07 stays reachable)", () => {
     expect(dialog).toContain("onValueChange")
     expect(dialog).toContain("setBulkScope")
     expect(dialog).toContain("handleRowScopeChange")
+    // Each control's selection state is BOUND to the scope state (a value
+    // hardcoded to the default would make the chooser cosmetic) and starts on
+    // the shared default.
+    expect(dialog).toContain("value={bulkScope}")
+    expect(dialog).toContain("value={target.scope}")
+    expect(dialog).toMatch(
+      /useState<AllocationScope>\(\s*DEFAULT_ALLOCATION_SCOPE\s*\)/
+    )
     // Each control renders EVERY vocabulary entry (two call sites).
     expect(
       (dialog.match(/\{ALLOCATION_SCOPE_INTENT_LABELS\[scope\]\}/g) ?? [])
         .length
     ).toBe(2)
+  })
+
+  it("builds the option list from the vocabulary and renders it whole at both sites (W1)", () => {
+    // The declaration is pinned as a WHOLE statement: nothing — no `slice(`,
+    // no `filter(`, no literal array, no reassignment — may sit between the
+    // keys call and the cast, and nothing may follow it on the statement
+    // (`(?=\n)` is that end pin).
+    expect(dialog).toMatch(
+      /const SCOPE_CHOICES = Object\.keys\(\s*ALLOCATION_SCOPE_INTENT_LABELS\s*\) as AllocationScope\[\](?=\n)/
+    )
+
+    // BOTH controls render EVERY entry of that list, through the exact option
+    // shape. `SCOPE_CHOICES.slice(0, 1).map(...)`, `SCOPE_CHOICES.filter(...)`,
+    // `{[].map(...)}` and any post-map trimming render fewer than two options
+    // and fail this count (W1).
+    expect(dialog.match(SCOPE_OPTION_SITE) ?? []).toHaveLength(2)
+  })
+
+  it("bans the narrowing idioms around the option list (W1)", () => {
+    // No method other than `.map(` may be called directly on the list...
+    expect(dialog).not.toMatch(/SCOPE_CHOICES\s*\.\s*(?!map\()\w+/)
+    // ...the list may never be indexed...
+    expect(dialog).not.toMatch(/SCOPE_CHOICES\s*\[/)
+    // ...and no empty-array literal may feed an option map.
+    expect(dialog).not.toMatch(/\[\s*\]\s*\.map\(/)
+  })
+
+  it("pins the vocabulary itself: exactly the two scopes, the default leading (W1)", () => {
+    // Read from the MODULE, not the source text: exactly the two scope values,
+    // in the chooser's own order — `Object.keys` order IS the option order, so
+    // the default leads the list (58-09's carry-over from 58-08).
+    const scopes = Object.keys(ALLOCATION_SCOPE_INTENT_LABELS)
+    expect(scopes).toEqual(["whole_order", "event_charges"])
+    expect(scopes[0]).toBe(DEFAULT_ALLOCATION_SCOPE)
+    // Both options carry a distinct operator-facing intent.
+    expect(new Set(Object.values(ALLOCATION_SCOPE_INTENT_LABELS)).size).toBe(2)
   })
 })
 
