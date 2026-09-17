@@ -1,4 +1,7 @@
 /// <reference types="vite/client" />
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
 import { expect, test } from "vitest"
 import { convexTest, type TestConvexForDataModel } from "convex-test"
 import type { GenericDataModel } from "convex/server"
@@ -362,10 +365,7 @@ async function loadAllocationRowDetails(
 }
 
 /** Every append-only removal audit row for a donation. */
-async function loadRemovalAuditRows(
-  t: TestConvex,
-  donationId: Id<"payments">
-) {
+async function loadRemovalAuditRows(t: TestConvex, donationId: Id<"payments">) {
   return t.query(async (ctx) => {
     const rows: Array<{
       donationId: string
@@ -415,7 +415,9 @@ type DeletionSnapshot = {
  * deletion-relevant tables, JSON-cloned, read through bounded `for await`
  * scans. A refusal must leave this deep-equal to its pre-call value.
  */
-async function snapshotDeletionTables(t: TestConvex): Promise<DeletionSnapshot> {
+async function snapshotDeletionTables(
+  t: TestConvex
+): Promise<DeletionSnapshot> {
   return t.run(async (ctx) => {
     const snapshot: DeletionSnapshot = {
       payments: [],
@@ -555,8 +557,16 @@ test("case 2: deletes a standalone donation across both scopes and freezes the a
     eventId,
     idempotencyKey: "happy-allocate",
     request: manualRequest([
-      { attendeeId: first.attendeeId, amountMinor: 25_000, scope: "event_charges" },
-      { attendeeId: second.attendeeId, amountMinor: 20_000, scope: "whole_order" },
+      {
+        attendeeId: first.attendeeId,
+        amountMinor: 25_000,
+        scope: "event_charges",
+      },
+      {
+        attendeeId: second.attendeeId,
+        amountMinor: 20_000,
+        scope: "whole_order",
+      },
     ]),
   })
   // Non-vacuity: the credit layer really moved before the deletion is exercised.
@@ -726,8 +736,16 @@ test("case 4: a same-key replay returns the stored result and writes nothing", a
     eventId,
     idempotencyKey: "replay-allocate",
     request: manualRequest([
-      { attendeeId: first.attendeeId, amountMinor: 25_000, scope: "event_charges" },
-      { attendeeId: second.attendeeId, amountMinor: 20_000, scope: "whole_order" },
+      {
+        attendeeId: first.attendeeId,
+        amountMinor: 25_000,
+        scope: "event_charges",
+      },
+      {
+        attendeeId: second.attendeeId,
+        amountMinor: 20_000,
+        scope: "whole_order",
+      },
     ]),
   })
 
@@ -797,7 +815,11 @@ test("case 5: a key already used by another operation on the same donation is a 
     eventId,
     idempotencyKey: "shared-allocation-key",
     request: manualRequest([
-      { attendeeId: first.attendeeId, amountMinor: 10_000, scope: "event_charges" },
+      {
+        attendeeId: first.attendeeId,
+        amountMinor: 10_000,
+        scope: "event_charges",
+      },
     ]),
   })
   const beforeOne = await snapshotDeletionTables(seeded)
@@ -824,7 +846,11 @@ test("case 5: a key already used by another operation on the same donation is a 
     eventId,
     idempotencyKey: "remove-prep-key",
     request: manualRequest([
-      { attendeeId: second.attendeeId, amountMinor: 5_000, scope: "whole_order" },
+      {
+        attendeeId: second.attendeeId,
+        amountMinor: 5_000,
+        scope: "whole_order",
+      },
     ]),
   })
   await authed.mutation(api.donations.removeDonationAllocation, {
@@ -1015,4 +1041,447 @@ test("case 8: a blank key is refused before any work, and a padded key is record
   expect(
     await seeded.query(async (ctx) => ctx.db.get("payments", donationId))
   ).toBeNull()
+})
+
+// ---------------------------------------------------------------------------
+// Task 2 — source-read helpers for the static pins
+// ---------------------------------------------------------------------------
+
+function sourceSlice(source: string, startMarker: string): string {
+  const start = source.indexOf(startMarker)
+  expect(start, `${startMarker} is missing`).toBeGreaterThanOrEqual(0)
+
+  const end = source.indexOf("\nexport ", start + 1)
+  return end === -1 ? source.slice(start) : source.slice(start, end)
+}
+
+/**
+ * The balanced-parenthesis slice starting at `marker`, so a union's member list
+ * can be asserted without depending on line wrapping or indentation.
+ */
+function balancedSlice(source: string, marker: string): string {
+  const start = source.indexOf(marker)
+  expect(start, `${marker} is missing`).toBeGreaterThanOrEqual(0)
+
+  let depth = 0
+  for (
+    let index = start + marker.length - 1;
+    index < source.length;
+    index += 1
+  ) {
+    const character = source[index]
+    if (character === "(") {
+      depth += 1
+    } else if (character === ")") {
+      depth -= 1
+      if (depth === 0) {
+        return source.slice(start, index + 1)
+      }
+    }
+  }
+
+  throw new Error(`unbalanced marker: ${marker}`)
+}
+
+// ---------------------------------------------------------------------------
+// Case 9 (DDEL-03): the non-standalone class, four shapes, each inert
+// ---------------------------------------------------------------------------
+
+test("case 9: refuses every non-standalone shape with NOT_STANDALONE and inert snapshots", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "del-not-standalone")
+  const first = await createAttendee(seeded, eventId, {
+    attendeeKey: "ns-a",
+    name: "Attendee A",
+    ticketPriceMinor: 20_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  // (a) An order-linked row reclassified through the PRODUCTION mutation: it
+  // keeps its orderId and becomes `donationKind: "overpayment"`, `status:
+  // "donation"` — the shape `markPaymentAsDonation` really writes.
+  const linkedId = await seeded.mutation(async (ctx) =>
+    ctx.db.insert("payments", {
+      source: "cash" as const,
+      eventId,
+      orderId: String(first.orderId),
+      payerName: "Linked payer",
+      amountMinor: 5_000,
+      paidAt: BASE_AT,
+      status: "auto_matched" as const,
+    })
+  )
+  await authed.mutation(api.payments.markPaymentAsDonation, {
+    paymentId: linkedId,
+    eventId,
+  })
+  const linkedRow = await seeded.query(async (ctx) =>
+    ctx.db.get("payments", linkedId)
+  )
+  expect(linkedRow?.donationKind).toBe("overpayment")
+  expect(linkedRow?.status).toBe("donation")
+  expect(linkedRow?.orderId).toBe(String(first.orderId))
+
+  // (b) An ambiguous row — hand-inserted; the donation surface never writes it.
+  const ambiguousId = await seeded.mutation(async (ctx) =>
+    ctx.db.insert("payments", {
+      source: "cash" as const,
+      eventId,
+      payerName: "Ambiguous payer",
+      amountMinor: 5_000,
+      paidAt: BASE_AT,
+      donationKind: "standalone" as const,
+      status: "ambiguous" as const,
+    })
+  )
+
+  // (c) standalone-kind but `unassigned` — never production-writable.
+  const unassignedId = await seeded.mutation(async (ctx) =>
+    ctx.db.insert("payments", {
+      source: "cash" as const,
+      eventId,
+      payerName: "Unassigned payer",
+      amountMinor: 5_000,
+      paidAt: BASE_AT,
+      donationKind: "standalone" as const,
+      status: "unassigned" as const,
+    })
+  )
+
+  // (d) standalone + donation but carrying an `orderId` provider alias — the
+  // link term refuses it independently of the kind and status terms.
+  const aliasId = await seeded.mutation(async (ctx) =>
+    ctx.db.insert("payments", {
+      source: "cash" as const,
+      eventId,
+      orderId: "orders_provider_alias_123",
+      payerName: "Aliased payer",
+      amountMinor: 5_000,
+      paidAt: BASE_AT,
+      donationKind: "standalone" as const,
+      status: "donation" as const,
+    })
+  )
+
+  const shapes: Array<{ label: string; paymentId: Id<"payments"> }> = [
+    { label: "overpayment (order-linked)", paymentId: linkedId },
+    { label: "ambiguous", paymentId: ambiguousId },
+    { label: "unassigned standalone", paymentId: unassignedId },
+    { label: "standalone with an orderId alias", paymentId: aliasId },
+  ]
+
+  for (const shape of shapes) {
+    const before = await snapshotDeletionTables(seeded)
+    const code = await rejectionCode(
+      deleteDonation(authed, {
+        donationId: shape.paymentId,
+        eventId,
+        idempotencyKey: `not-standalone-${shape.label}`,
+      })
+    )
+    expect(code, shape.label).toBe("DONATION_DELETE_NOT_STANDALONE")
+    expect(await snapshotDeletionTables(seeded), shape.label).toEqual(before)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Case 10 (DDEL-03): the cross-event class, both shapes, each inert
+// ---------------------------------------------------------------------------
+
+test("case 10: refuses cross-event and eventless donations with CROSS_EVENT and inert snapshots", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "del-cross-event")
+  const otherEventId = await seedEvent(seeded, "del-cross-event-other")
+  const authed = seeded.withIdentity(adminIdentity)
+
+  // A real donation on ANOTHER event, deleted against the first event.
+  const foreignDonationId = await createDonation(authed, {
+    eventId: otherEventId,
+    amountMinor: 20_000,
+  })
+
+  // An eventless standalone row — hand-inserted; the production surface always
+  // sets the event for a standalone donation.
+  const eventlessId = await seeded.mutation(async (ctx) =>
+    ctx.db.insert("payments", {
+      source: "cash" as const,
+      payerName: "Eventless donor",
+      amountMinor: 20_000,
+      paidAt: BASE_AT,
+      donationKind: "standalone" as const,
+      status: "donation" as const,
+    })
+  )
+
+  const cases: Array<{ label: string; paymentId: Id<"payments"> }> = [
+    { label: "foreign event", paymentId: foreignDonationId },
+    { label: "eventless row", paymentId: eventlessId },
+  ]
+
+  for (const entry of cases) {
+    const before = await snapshotDeletionTables(seeded)
+    const code = await rejectionCode(
+      deleteDonation(authed, {
+        donationId: entry.paymentId,
+        eventId,
+        idempotencyKey: `cross-event-${entry.label}`,
+      })
+    )
+    expect(code, entry.label).toBe("DONATION_DELETE_CROSS_EVENT")
+    expect(await snapshotDeletionTables(seeded), entry.label).toEqual(before)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Case 11 (DDEL-03): the Tikkie class, demonstrated against its mechanism
+// ---------------------------------------------------------------------------
+
+test("case 11: refuses a Tikkie donation and DEMONSTRATES the resurrection hazard", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "del-tikkie")
+  const authed = seeded.withIdentity(adminIdentity)
+  const sourceId = "tikkie-donation-source-1"
+
+  // Seeded through the PRODUCTION upsert: it lands as a standalone donation.
+  const seededTikkie = await authed.mutation(api.payments.upsertTikkiePayment, {
+    sourceId,
+    eventId: String(eventId),
+    purpose: "donation",
+    payerName: "Tikkie donor",
+    amountMinor: 12_500,
+    paidAt: BASE_AT,
+  })
+  expect(seededTikkie.inserted).toBe(true)
+
+  const tikkieRow = await seeded.query(async (ctx) =>
+    ctx.db.get("payments", seededTikkie.id)
+  )
+  expect(tikkieRow?.source).toBe("tikkie")
+  expect(tikkieRow?.sourceId).toBe(sourceId)
+  expect(tikkieRow?.status).toBe("donation")
+  expect(tikkieRow?.donationKind).toBe("standalone")
+
+  // The refusal, inert.
+  const before = await snapshotDeletionTables(seeded)
+  const code = await rejectionCode(
+    deleteDonation(authed, {
+      donationId: seededTikkie.id,
+      eventId,
+      idempotencyKey: "tikkie-refusal",
+    })
+  )
+  expect(code).toBe("DONATION_DELETE_TIKKIE_SOURCED")
+  expect(await snapshotDeletionTables(seeded)).toEqual(before)
+
+  // THE RESURRECTION DEMONSTRATION. A naive hard delete of this row would be
+  // undone by a later poll: the poller re-fetches from
+  // `watermark − TIKKIE_POLL_OVERLAP_MS` (`convex/autoSync.ts:23,68`; the
+  // watermark is persisted at `convex/sync/internal.ts:216`), the upsert finds
+  // no row at `(source, sourceId)` (`convex/payments.ts:480-496`) and
+  // re-inserts it (`:502-513`). Delete the row directly — a raw test mutation,
+  // unguarded, exactly what the handler must never do — and show the next
+  // upsert re-inserting the SAME `(source, sourceId)`.
+  await seeded.mutation(async (ctx) => {
+    await ctx.db.delete("payments", seededTikkie.id)
+  })
+  expect(
+    await seeded.query(async (ctx) => ctx.db.get("payments", seededTikkie.id))
+  ).toBeNull()
+
+  const resurrected = await authed.mutation(api.payments.upsertTikkiePayment, {
+    sourceId,
+    eventId: String(eventId),
+    purpose: "donation",
+    payerName: "Tikkie donor",
+    amountMinor: 12_500,
+    paidAt: BASE_AT,
+  })
+
+  // The upsert returns `{ id, inserted: true, updated: false }` on this branch
+  // (`convex/payments.ts:515`) — assert the FLAG, never a whole-object
+  // deep-equal of the returned object.
+  expect(resurrected.inserted).toBe(true)
+  expect(resurrected.updated).toBe(false)
+  expect(String(resurrected.id)).not.toBe(String(seededTikkie.id))
+
+  const reborn = await seeded.query(async (ctx) =>
+    ctx.db.get("payments", resurrected.id)
+  )
+  expect(reborn?.source).toBe("tikkie")
+  expect(reborn?.sourceId).toBe(sourceId)
+  expect(reborn?.status).toBe("donation")
+  expect(reborn?.donationKind).toBe("standalone")
+  expect(reborn?.eventId).toBe(eventId)
+})
+
+// ---------------------------------------------------------------------------
+// Case 12 (DDEL-03): the unreachable-by-design generic source guard
+// ---------------------------------------------------------------------------
+
+test("case 12: the generic source guard is fail-closed and unreachable at the DB level by design", () => {
+  const domainSource = readFileSync(
+    resolve(import.meta.dirname, "../lib/domain/finance/donation-deletion.ts"),
+    "utf8"
+  )
+
+  // Both manual sources are enumerated in the guard, so a source outside them
+  // is refused by default. (Whitespace-normalised so line wrapping cannot hide
+  // a clause.)
+  const domainFlat = domainSource.replace(/\s+/g, " ")
+  expect(domainFlat).toContain('payment.source !== "cash"')
+  expect(domainFlat).toContain('payment.source !== "bank_transfer"')
+  expect(domainSource).toContain("DONATION_DELETE_PAYMENT_GUARD")
+
+  // That branch is unreachable at the DB level BY DESIGN: the live union has
+  // exactly three members and the schema validator rejects anything else, so
+  // there is no schema-valid row that could reach it — which is why this suite
+  // has NO handler-level case for it. Adding a fourth source to the schema
+  // fails this assertion deliberately: the classifier must be widened first.
+  const schemaSource = readFileSync(
+    resolve(import.meta.dirname, "schema.ts"),
+    "utf8"
+  )
+  const paymentsSlice = sourceSlice(schemaSource, "payments: defineTable(")
+  const sourceUnion = balancedSlice(paymentsSlice, "source: v.union(")
+  expect(sourceUnion.match(/v\.literal\(/g)).toHaveLength(3)
+  expect(sourceUnion).toContain('v.literal("tikkie")')
+  expect(sourceUnion).toContain('v.literal("bank_transfer")')
+  expect(sourceUnion).toContain('v.literal("cash")')
+
+  // The unreachable-branch behaviour itself is owned by the pure classifier
+  // suite (plan 57-02, `tests/finance/donation-deletion.test.ts`); this link
+  // keeps that claim honest.
+  const pureSuiteSource = readFileSync(
+    resolve(import.meta.dirname, "../tests/finance/donation-deletion.test.ts"),
+    "utf8"
+  )
+  expect(pureSuiteSource).toContain("DONATION_DELETE_PAYMENT_GUARD")
+})
+
+// ---------------------------------------------------------------------------
+// Case 13 (DDEL-03): the existing payment-deletion boundary is unchanged
+// ---------------------------------------------------------------------------
+
+test("case 13: deletePayment still refuses a standalone donation and changes nothing", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "del-payment-boundary")
+  const { attendeeId } = await createAttendee(seeded, eventId, {
+    attendeeKey: "boundary-a",
+    name: "Attendee A",
+    ticketPriceMinor: 20_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+  const donationId = await createDonation(authed, {
+    eventId,
+    amountMinor: 25_000,
+  })
+  await allocate(authed, {
+    donationId,
+    eventId,
+    idempotencyKey: "boundary-allocate",
+    request: manualRequest([
+      { attendeeId, amountMinor: 10_000, scope: "event_charges" },
+    ]),
+  })
+
+  const before = await snapshotDeletionTables(seeded)
+  await expect(
+    authed.mutation(api.payments.deletePayment, {
+      paymentId: donationId,
+      eventId,
+    })
+  ).rejects.toThrow("Only unassigned payments can be deleted")
+  expect(await snapshotDeletionTables(seeded)).toEqual(before)
+  expect(
+    await seeded.query(async (ctx) => ctx.db.get("payments", donationId))
+  ).not.toBeNull()
+  expect(await loadAllocationRowDetails(seeded, donationId)).toHaveLength(1)
+  expect(await loadRemovalAuditRows(seeded, donationId)).toEqual([])
+})
+
+// ---------------------------------------------------------------------------
+// Case 14 (structural): the module stays single-transaction and single-write
+// ---------------------------------------------------------------------------
+
+test("case 14: the deletion module stays single-transaction, single-write and outside the Phase 56 scan set", () => {
+  const source = readFileSync(
+    resolve(import.meta.dirname, "donationDeletion.ts"),
+    "utf8"
+  )
+
+  // Exactly ONE payments write: the hard delete. No insert / patch / replace.
+  expect(source.match(/db\.delete\("payments"/g) ?? []).toHaveLength(1)
+  expect(source).not.toContain('db.insert("payments"')
+  expect(source).not.toContain('db.patch("payments"')
+  expect(source).not.toContain('db.replace("payments"')
+
+  // No nested mutation and no scheduler. The scan is PREFIX-ANCHORED on the
+  // `ctx.`-prefixed tokens on purpose: the mandated module header legitimately
+  // contains the phrase "no nested mutations and no scheduler", so a
+  // bare-token scan for the words themselves would fail on correct code.
+  expect(source).not.toContain("ctx.runMutation")
+  expect(source).not.toContain("ctx.scheduler")
+
+  // The reversal goes through the two shared helpers, never a parallel path.
+  expect(source).toContain("loadRecordedAllocations")
+  expect(source).toContain("writeAllocationRemovalAudit")
+
+  // The Phase 56 guard set (case 7b of tests/finance/phase56-money-integrity)
+  // stays out of this module.
+  expect(source).not.toContain("loadMatchedPaymentTotalsByOrderId")
+  expect(source).not.toContain("buildMatchedTotalsByOrderId")
+  expect(source).not.toContain("isOrderAppliedPayment(")
+})
+
+// ---------------------------------------------------------------------------
+// Case 15 (static): the resurrection mechanism is pinned in the source
+// ---------------------------------------------------------------------------
+
+test("case 15: pins the Tikkie resurrection mechanism in the source", () => {
+  const paymentsSource = readFileSync(
+    resolve(import.meta.dirname, "payments.ts"),
+    "utf8"
+  )
+  const upsertSlice = sourceSlice(
+    paymentsSource,
+    "export const upsertTikkiePayment"
+  )
+  // Find by `(source, sourceId)` through the dedicated index, then INSERT a
+  // fresh row when no row matches — the two steps that resurrect a deleted
+  // Tikkie donation.
+  expect(upsertSlice).toContain("source_sourceId")
+  expect(upsertSlice).toContain('eq("source", "tikkie")')
+  expect(upsertSlice).toContain('db.insert("payments"')
+
+  // The poll re-fetches from the overlap window, so a payment removed less than
+  // TIKKIE_POLL_OVERLAP_MS before the last poll is seen again.
+  const autoSyncSource = readFileSync(
+    resolve(import.meta.dirname, "autoSync.ts"),
+    "utf8"
+  )
+  expect(autoSyncSource).toContain("TIKKIE_POLL_OVERLAP_MS")
+  expect(autoSyncSource).toContain(
+    "providerLastCheckedAt - TIKKIE_POLL_OVERLAP_MS"
+  )
+
+  // ...and the watermark itself is persisted on the link row.
+  const syncInternalSource = readFileSync(
+    resolve(import.meta.dirname, "sync/internal.ts"),
+    "utf8"
+  )
+  expect(syncInternalSource).toContain("providerLastCheckedAt: args.checkedAt")
+
+  // The deletion module describes the re-insertion FUNCTIONALLY instead of
+  // naming the sync symbols. The scan normalises case and separators, so a
+  // capitalised, hyphenated or underscored mention still fails — a future
+  // author cannot make the module a second sync owner by naming it.
+  const deletionSource = readFileSync(
+    resolve(import.meta.dirname, "donationDeletion.ts"),
+    "utf8"
+  )
+  const lower = deletionSource.toLowerCase()
+  const flat = lower.replace(/[-_\s]/g, "")
+  expect(flat).not.toContain("autosync")
+  expect(flat).not.toContain("upserttikkiepayment")
+  expect(lower).not.toContain("tombston")
 })
