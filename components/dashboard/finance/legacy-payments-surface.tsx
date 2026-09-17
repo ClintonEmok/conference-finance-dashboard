@@ -10,7 +10,7 @@ import { DashboardQueryState } from "@/components/dashboard/dashboard-query-stat
 import { PaymentCard } from "@/components/payments/payment-card"
 import type { Doc } from "@/convex/_generated/dataModel"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
-import { financeHref } from "@/lib/dashboard/workspace-routes"
+import { reconciliationHref } from "@/lib/dashboard/workspace-routes"
 import type { AttentionQueryState } from "@/lib/dashboard/workspace-attention"
 import {
   useDeletePayment,
@@ -115,18 +115,6 @@ export default function EventPaymentsPage({
 
   return (
     <div className="min-w-0 space-y-6">
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold">Payments</p>
-          <p className="text-xs text-muted-foreground">Payments linked to this event, plus unassigned payments.</p>
-        </div>
-        <Button asChild variant="outline" size="sm" className="h-8 rounded-lg text-[11px] font-bold uppercase">
-          <Link href={financeHref(slug, "reconciliation")}>
-            Match a payment
-            <ArrowRight className="ml-2 size-3" />
-          </Link>
-        </Button>
-      </div>
       {errorMessage && (
         <div role="alert" aria-live="assertive" className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
           {errorMessage}
@@ -151,7 +139,7 @@ export default function EventPaymentsPage({
               <CardDescription>Choose an order to link these payments, or mark one as a donation.</CardDescription>
             </div>
             <Button asChild variant="outline" size="sm" className="h-8 rounded-lg text-[11px] font-bold uppercase">
-              <Link href={financeHref(slug, "reconciliation")}>
+              <Link href={reconciliationHref(slug)}>
                 Choose an order
                 <ArrowRight className="ml-2 size-3" />
               </Link>
@@ -187,7 +175,7 @@ export default function EventPaymentsPage({
                         {successPaymentId === payment._id ? "Done" : "Mark donation"}
                       </Button>
                       <Button asChild variant="outline" size="sm" className="h-8 rounded-lg text-[10px] font-bold uppercase tracking-wider">
-                        <Link href={`/dashboard/events/${slug}/reconciliation`}>Match order</Link>
+                        <Link href={reconciliationHref(slug)}>Match order</Link>
                       </Button>
                     </>
                   }
