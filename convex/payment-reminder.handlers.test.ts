@@ -5,7 +5,9 @@ import { convexTest, type TestConvexForDataModel } from "convex-test"
 import type { GenericDataModel } from "convex/server"
 
 import { api, internal } from "./_generated/api"
+import type { Id } from "./_generated/dataModel"
 import schema from "./schema"
+import { loadCanonicalOrderBalances } from "./finance"
 import { automaticPeriod } from "../lib/domain/payment-reminders"
 
 const modules = import.meta.glob("./**/*.ts")
@@ -91,6 +93,44 @@ async function createOrder(
       sortOrder: 0,
     })
     return orderId
+  })
+}
+
+/**
+ * The canonical order-level balance owner, read exactly as the production
+ * consumers read it. The fixture asserts the owner's own figures before it
+ * asserts anything about reminders, so the clearing is attributable to the
+ * allocation rather than to the surfaces under test.
+ */
+type FinanceLoaderCtx = Parameters<typeof loadCanonicalOrderBalances>[0]["ctx"]
+
+async function readCanonicalBalances(
+  t: TestConvexForDataModel<GenericDataModel>,
+  orderIds: Array<Id<"orders">>
+) {
+  return t.run(async (ctx) => {
+    const balances = await loadCanonicalOrderBalances({
+      ctx: ctx as unknown as FinanceLoaderCtx,
+      orders: orderIds.map((_id) => ({ _id })),
+    })
+    const snapshots: Record<
+      string,
+      {
+        amountDueMinor: number
+        paidAmountMinor: number
+        allocationCreditMinor: number
+        outstandingAmountMinor: number
+      }
+    > = {}
+    for (const [orderKey, balance] of balances) {
+      snapshots[orderKey] = {
+        amountDueMinor: balance.amountDueMinor,
+        paidAmountMinor: balance.paidAmountMinor,
+        allocationCreditMinor: balance.allocationCreditMinor,
+        outstandingAmountMinor: balance.outstandingAmountMinor,
+      }
+    }
+    return snapshots
   })
 }
 
@@ -602,4 +642,174 @@ test("delivery history is authenticated and exposes every delivery state", async
   await expect(
     fresh().query(api.paymentReminders.getReminderDeliveryHistory, { eventId })
   ).rejects.toThrow("Unauthorized")
+})
+
+test("an allocation-cleared order is no longer reminded; a partially allocated order reports the canonical outstanding (settlement basis D-01)", async () => {
+  const t = fresh().withIdentity(adminIdentity)
+  const eventId = await createEvent(t, "settlement-basis-event")
+  const ticketTypeId = await createTicketType(t, eventId)
+  const clearedOrderId = await createOrder(t, eventId, ticketTypeId, {
+    email: "cleared@example.com",
+    bookingRef: "BK-CLEARED",
+  })
+  const partialOrderId = await createOrder(t, eventId, ticketTypeId, {
+    email: "partial@example.com",
+    bookingRef: "BK-PARTIAL",
+  })
+
+  // The suite's `createOrder` returns only the order id, so read each order's
+  // attendee through the bounded `orderAttendees.by_orderId` index — the
+  // allocation names attendees and no row is ever hand-written.
+  const { clearedAttendeeId, partialAttendeeId } = await t.run(async (ctx) => {
+    const cleared = await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", clearedOrderId))
+      .first()
+    const partial = await ctx.db
+      .query("orderAttendees")
+      .withIndex("by_orderId", (q) => q.eq("orderId", partialOrderId))
+      .first()
+    if (!cleared || !partial) {
+      throw new Error("fixture orders must each have exactly one attendee")
+    }
+    return {
+      clearedAttendeeId: cleared._id,
+      partialAttendeeId: partial._id,
+    }
+  })
+
+  // The standalone donation row, in the exact shape the allocation suite seeds
+  // (no orderId, so it is never an order payment).
+  const donationId = await t.mutation(async (ctx) =>
+    ctx.db.insert("payments", {
+      source: "cash",
+      eventId,
+      payerName: "Donor",
+      amountMinor: 2_000,
+      paidAt: Date.now(),
+      donationKind: "standalone",
+      status: "donation",
+    })
+  )
+
+  // Attribution: BEFORE any allocation both orders owe the full 1 000, so
+  // every figure below is a MOVE caused by the allocation.
+  const before = await readCanonicalBalances(t, [clearedOrderId, partialOrderId])
+  expect(before[String(clearedOrderId)]).toMatchObject({
+    amountDueMinor: 1_000,
+    outstandingAmountMinor: 1_000,
+  })
+  expect(before[String(partialOrderId)]).toMatchObject({
+    amountDueMinor: 1_000,
+    outstandingAmountMinor: 1_000,
+  })
+
+  // Seed the two queued deliveries BEFORE the allocation, via the production
+  // scheduling mutation — the send-time read model fixture.
+  const scheduled = await t.mutation(
+    api.paymentReminders.scheduleManualPaymentReminders,
+    {
+      eventId,
+      selection: {
+        mode: "explicit",
+        orderIds: [clearedOrderId, partialOrderId],
+      },
+      authorize: true,
+    }
+  )
+  expect(scheduled.totalRecipients).toBe(2)
+  const deliveries = await t.run(async (ctx) =>
+    ctx.db
+      .query("paymentReminderDeliveries")
+      .withIndex("by_campaignId", (q) =>
+        q.eq("campaignId", scheduled.campaignId)
+      )
+      .collect()
+  )
+  expect(deliveries).toHaveLength(2)
+  const clearedDeliveryId = deliveries.find(
+    (row) => row.orderId === clearedOrderId
+  )?._id
+  const partialDeliveryId = deliveries.find(
+    (row) => row.orderId === partialOrderId
+  )?._id
+  if (!clearedDeliveryId || !partialDeliveryId) {
+    throw new Error("expected one queued delivery per scheduled order")
+  }
+
+  // Allocate 1 000 to the cleared order and 400 to the partial order in ONE
+  // production submission: the donation's set-replace writer performs the
+  // whole write, never hand-written `donationAllocations` rows.
+  await t.mutation(api.donations.allocateDonation, {
+    donationId,
+    eventId,
+    idempotencyKey: "reminder-settlement-basis-1",
+    request: {
+      method: "manual",
+      rows: [
+        {
+          attendeeId: clearedAttendeeId,
+          amountMinor: 1_000,
+          scope: "whole_order",
+        },
+        {
+          attendeeId: partialAttendeeId,
+          amountMinor: 400,
+          scope: "whole_order",
+        },
+      ],
+    },
+  })
+
+  // The canonical owner's own figures: the cleared order is settled by
+  // allocation credit alone; the partial order's canonical paid is 400.
+  const after = await readCanonicalBalances(t, [clearedOrderId, partialOrderId])
+  expect(after[String(clearedOrderId)]).toEqual({
+    amountDueMinor: 1_000,
+    paidAmountMinor: 1_000,
+    allocationCreditMinor: 1_000,
+    outstandingAmountMinor: 0,
+  })
+  expect(after[String(partialOrderId)]).toEqual({
+    amountDueMinor: 1_000,
+    paidAmountMinor: 400,
+    allocationCreditMinor: 400,
+    outstandingAmountMinor: 600,
+  })
+
+  // SELECTOR: only the partial order is still chased.
+  const preview = await t.query(
+    api.paymentReminders.previewPaymentReminderAudience,
+    { eventId }
+  )
+  expect(preview.total).toBe(1)
+  expect(
+    (preview.recipients as Array<{ orderId: string }>).map(
+      (recipient) => recipient.orderId
+    )
+  ).toEqual([String(partialOrderId)])
+
+  // READ MODEL: the queued delivery for the cleared order no longer carries a
+  // payable policy; the partial order's policy is the canonical remainder.
+  const clearedContext = await t.query(
+    internal.paymentReminders.getDeliveryContext,
+    { deliveryId: clearedDeliveryId }
+  )
+  expect(clearedContext?.policy).toBeNull()
+
+  const partialContext = await t.query(
+    internal.paymentReminders.getDeliveryContext,
+    { deliveryId: partialDeliveryId }
+  )
+  expect(partialContext?.policy).toMatchObject({
+    kind: "partial",
+    amountDueMinor: 1_000,
+    paidAmountMinor: 400,
+    outstandingAmountMinor: 600,
+  })
+
+  // Allocation-free control: the existing test "manual reminders queue only
+  // selected eligible IDs and skip a fully paid selection" proves in this same
+  // run that a real payment still clears an order on this consumer — cited,
+  // not duplicated.
 })
