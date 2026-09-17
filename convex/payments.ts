@@ -540,6 +540,18 @@ export const assignPaymentToOrder = mutation({
       throw new Error("Order not found")
     }
     const order = await ctx.db.get("orders", canonicalOrderId)
+    // D-02 (Phase 60): a standalone donation's payment row is NEVER assigned to
+    // an order (Phase 56 D-07). Any credit the donation has given is carried by
+    // its allocation rows, so converting the row would let the order-applied
+    // payment class count the full face while the allocation rows still credit
+    // the order — the same money counted twice. The refusal is inert: it runs
+    // before any write, so the row and its allocations are untouched. An
+    // order-linked overpayment row is a legitimate order-applied class and is
+    // deliberately not refused here.
+    const payment = await ctx.db.get("payments", args.paymentId)
+    if (payment?.donationKind === "standalone") {
+      throw new Error("PAYMENT_ASSIGNMENT_STANDALONE_DONATION_REFUSED")
+    }
     await ctx.db.patch("payments", args.paymentId, {
       orderId: canonicalOrderId,
       eventId: order?.eventId,
