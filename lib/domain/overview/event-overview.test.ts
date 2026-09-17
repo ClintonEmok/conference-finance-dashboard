@@ -24,7 +24,7 @@ function input(overrides: Partial<OverviewInputs> = {}): OverviewInputs {
     event,
     scope,
     revenue: domain({
-      totals: { orderValueMinor: 12345, paidMinor: 9000, refundedMinor: 100, netMinor: 8900, overpaidMinor: 0, standaloneDonationMinor: 400 },
+      totals: { orderValueMinor: 12345, paidMinor: 9000, refundedMinor: 100, netMinor: 8900, overpaidMinor: 0, standaloneDonationMinor: 400, standaloneAllocatedMinor: 0 },
       statusCounts: { paid: 2, refunded: 0, cancelled: 0, pending: 1 },
     }),
     orders: domain({ page: { totalRows: 3 }, totals: { amountDueMinor: 12345, matchedAmountMinor: 9000, outstandingAmountMinor: 3345 } }),
@@ -123,7 +123,7 @@ describe("event overview projection", () => {
     const allocation = projectEventOverview(input({ accommodation: domain({ summary: { hotelsLinked: 1, totalSlots: 10, assignableSlots: 8, submissionsCount: 2, unassignedAttendeesCount: 2 } }) }))
     expect(allocation.exceptions.at(-1)).toMatchObject({ key: "unassigned-attendees", href: "/dashboard/events/spring-conference/accommodation/allocation" })
 
-    const clear = projectEventOverview(input({ revenue: domain({ totals: { orderValueMinor: 12345, paidMinor: 9000, refundedMinor: 100, netMinor: 8900, overpaidMinor: 0, standaloneDonationMinor: 400 }, statusCounts: { paid: 2, refunded: 0, cancelled: 0, pending: 0 } }), reconciliation: domain({ totals: { rows: 0, outstandingMinor: 0 } }) }))
+    const clear = projectEventOverview(input({ revenue: domain({ totals: { orderValueMinor: 12345, paidMinor: 9000, refundedMinor: 100, netMinor: 8900, overpaidMinor: 0, standaloneDonationMinor: 400, standaloneAllocatedMinor: 0 }, statusCounts: { paid: 2, refunded: 0, cancelled: 0, pending: 0 } }), reconciliation: domain({ totals: { rows: 0, outstandingMinor: 0 } }) }))
     expect(clear.exceptions).toEqual([])
   })
 

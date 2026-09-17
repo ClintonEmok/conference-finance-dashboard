@@ -245,7 +245,23 @@ export default function EventOverviewSurface({ params }: { params: Promise<{ slu
 
        <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-4">
          <Card className="min-w-0"><CardHeader><CardTitle>Paid</CardTitle><CardDescription>Applied to orders</CardDescription></CardHeader><CardContent className="min-w-0 text-2xl font-semibold">{orders.status === "ready" && orders.data?.totals ? formatMoney(orders.data.totals.matchedAmountMinor) : domainState(orders, retryRequests)}</CardContent></Card>
-         <Card className="min-w-0"><CardHeader><CardTitle>Donations</CardTitle><CardDescription>Overpayments and standalone</CardDescription></CardHeader><CardContent className="min-w-0 text-2xl font-semibold">{revenue.status === "ready" && revenue.data ? formatMoney(revenue.data.totals.overpaidMinor + revenue.data.totals.standaloneDonationMinor) : domainState(revenue, retryRequests)}</CardContent></Card>
+         <Card className="min-w-0">
+           <CardHeader>
+             <CardTitle>Donation income</CardTitle>
+             <CardDescription>Unallocated standalone donations</CardDescription>
+           </CardHeader>
+           <CardContent className="min-w-0">
+             {revenue.status === "ready" && revenue.data ? (
+               <>
+                 <div className="text-2xl font-semibold">{formatMoney(revenue.data.totals.standaloneDonationMinor)}</div>
+                 <p className="mt-1 text-xs text-muted-foreground">{formatMoney(revenue.data.totals.standaloneAllocatedMinor)} allocated to orders</p>
+                 <p className="mt-1 text-xs text-muted-foreground">{formatMoney(revenue.data.totals.overpaidMinor)} order overpayments</p>
+               </>
+             ) : (
+               domainState(revenue, retryRequests)
+             )}
+           </CardContent>
+         </Card>
         <Card className="min-w-0"><CardHeader><CardTitle>Outstanding</CardTitle><CardDescription>Reconciliation balance</CardDescription></CardHeader><CardContent className="min-w-0 text-2xl font-semibold">{moneyMetric?.state.status === "ready" && moneyMetric.values ? formatMoney(Number(moneyMetric.values.outstandingMinor)) : moneyMetric ? <DashboardQueryState state={moneyMetric.state.status === "ready" ? "unavailable" : moneyMetric.state.status} message={"message" in moneyMetric.state ? moneyMetric.state.message : undefined} onRetry={moneyMetric.state.status === "error" ? retryRequests : undefined} /> : null}</CardContent></Card>
         <Card className="min-w-0"><CardHeader><CardTitle>Next setup</CardTitle><CardDescription>Keep this event operational</CardDescription></CardHeader><CardContent><Button asChild variant="outline"><Link href={`/dashboard/events/${slug}/settings`}>Event Settings <ArrowRight className="ml-2 size-4" aria-hidden="true" /></Link></Button></CardContent></Card>
       </div>
