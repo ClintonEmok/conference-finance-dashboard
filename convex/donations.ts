@@ -343,8 +343,14 @@ async function loadDonationForAllocation(
   return payment
 }
 
-/** Every recorded allocation row for a donation, read through a bounded scan. */
-async function loadRecordedAllocations(
+/**
+ * Every recorded allocation row for a donation, read through a bounded scan.
+ *
+ * Exported for Phase 57's deletion module: the reversal must delete exactly the
+ * rows this read returns, and duplicating the read would let the two paths
+ * drift about what "this donation's allocations" means.
+ */
+export async function loadRecordedAllocations(
   ctx: FinanceDbCtx,
   donationId: Id<"payments">
 ): Promise<Doc<"donationAllocations">[]> {
@@ -739,8 +745,15 @@ function requireAllocationIdempotencyKey(raw: string): string {
   return idempotencyKey
 }
 
-/** The `(donationId, idempotencyKey)` ledger lookup, bounded to one row. */
-async function findSubmissionByKey(
+/**
+ * The `(donationId, idempotencyKey)` ledger lookup, bounded to one row.
+ *
+ * Exported for Phase 57's deletion module. The deletion replay lookup must run
+ * BEFORE its donation guard (the donation row is gone on a retry), so it cannot
+ * reuse `resolveSubmissionReplay`'s ordering — it owns its replay mapping and
+ * uses only this keyed read.
+ */
+export async function findSubmissionByKey(
   ctx: FinanceDbCtx,
   args: { donationId: Id<"payments">; idempotencyKey: string }
 ): Promise<Doc<"donationAllocationSubmissions"> | null> {
@@ -789,6 +802,36 @@ function resolveSubmissionReplay(
 }
 
 /**
+ * THE ONE removal-audit writer (T-55-15). Both `removeDonationAllocation` and
+ * Phase 57's donation deletion write through this function, so a reversed row
+ * and a removed row are the same row shape. The caller deletes the allocation
+ * row itself (`ctx.db.delete("donationAllocations", row._id)`) — this helper
+ * writes ONLY the append-only audit row.
+ */
+export async function writeAllocationRemovalAudit(
+  ctx: MutationCtx,
+  args: {
+    row: Doc<"donationAllocations">
+    eventId: Id<"events">
+    actor: string
+    submissionId: Id<"donationAllocationSubmissions">
+    removedAt: number
+  }
+): Promise<void> {
+  await ctx.db.insert("donationAllocationRemovals", {
+    donationId: args.row.donationId,
+    eventId: args.eventId,
+    orderId: args.row.orderId,
+    attendeeId: args.row.attendeeId,
+    amountMinor: args.row.amountMinor,
+    scope: args.row.scope,
+    actor: args.actor,
+    removedAt: args.removedAt,
+    submissionId: args.submissionId,
+  })
+}
+
+/**
  * Projects plan rows onto the ledger's `v.id(...)` validators.
  *
  * These are FROZEN VALUE SNAPSHOTS, never re-resolved references: on replay the
@@ -797,8 +840,11 @@ function resolveSubmissionReplay(
  * The cast is exactly that statement — the plan row's `attendeeId`/`orderId`
  * are plain strings by contract (`DonationAllocationPlanRow`), while the
  * ledger's validator declares the id types.
+ *
+ * Exported for Phase 57's deletion module, whose frozen reversal rows must be
+ * stamped through the same mapper the allocation ledger uses.
  */
-function toLedgerRows(
+export function toLedgerRows(
   rows: ReadonlyArray<DonationAllocationPlanRow>
 ): FrozenAllocationRow[] {
   return rows.map((row) => ({
@@ -1253,16 +1299,12 @@ export const removeDonationAllocation = mutation({
 
     // T-55-15: a deletion with no trace is repudiation. One immutable row
     // records donation, attendee, order, amount, scope, actor and timestamp.
-    await ctx.db.insert("donationAllocationRemovals", {
-      donationId: args.donationId,
+    await writeAllocationRemovalAudit(ctx, {
+      row,
       eventId: args.eventId,
-      orderId: row.orderId,
-      attendeeId: args.attendeeId,
-      amountMinor: row.amountMinor,
-      scope: row.scope,
       actor: identity.tokenIdentifier,
-      removedAt: Date.now(),
       submissionId,
+      removedAt: Date.now(),
     })
 
     return {
