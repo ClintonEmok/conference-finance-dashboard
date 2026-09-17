@@ -3,21 +3,31 @@ import { readFileSync, readdirSync } from "node:fs"
 import { resolve } from "node:path"
 
 /**
- * Phase 59 source audit — the Phase 58 allocation surface set carries no
- * client-side money formula (SC5's static half).
+ * Phase 59 source audit — SC5's two static halves:
  *
- * THE RULE: every figure the Phase 58 surfaces render is a SERVER field, and
- * the ONE formatter is `formatMoney` in `lib/format.ts`. This suite is a static
- * guard, two clauses deep:
+ *  A. no client-side money formula on the Phase 58 allocation paths, and
+ *  B. no path assigns a donation's payment row to an order.
+ *
+ * HALF A — every figure the Phase 58 surfaces render is a SERVER field, and the
+ * ONE formatter is `formatMoney` in `lib/format.ts`. Four clauses:
  *
  *  1. the `*Minor` arithmetic sweep — over the WHOLE
  *     `components/dashboard/finance/` directory (a directory walk, never a
  *     hand-maintained list, so a NEW file a future phase adds there is swept
  *     automatically — what the per-file guards cannot do) plus the five pinned
- *     route pages and the four `lib/dashboard/` modules; and
+ *     route pages and the four `lib/dashboard/` modules;
  *  2. the hand-rolled-currency clause (`Intl.NumberFormat`, `.toFixed(`,
  *     `/ 100`) over the same pinned set, with two DELIBERATE exclusions
- *     documented at `CURRENCY_CLAUSE_EXCLUSIONS` below.
+ *     documented at `CURRENCY_CLAUSE_EXCLUSIONS` below;
+ *  3. the money-render clause (the formatter is imported AND called, or the
+ *     delete dialog's copy builder owns the format); and
+ *  4. the payment-only-paid-symbol clause on the three allocation surfaces.
+ *
+ * HALF B — `PAYMENTS_WRITE_AUDITED_SET` (the second describe): no
+ * `insert`/`patch`/`replace` against `payments`; EXACTLY ONE
+ * `db.delete("payments", …)` in the set, pinned to the deletion module and to
+ * the exact statement `db.delete("payments", args.donationId)`; and no
+ * `assignPaymentToOrder` reference in any casing or separator style.
  *
  * WHY THIS FILE EXISTS (59-CONTEXT gap 3): per-file guards exist —
  * `tests/dashboard/donation-allocation-dialog.test.ts:253-256` (the money-free
@@ -26,8 +36,14 @@ import { resolve } from "node:path"
  * `tests/dashboard/dacc-04-allocation-visibility.test.ts:105-111` (no
  * per-attendee sum) and `tests/dashboard/donation-deletion-dialog.test.ts:72-82`
  * (no money math in the delete dialog) — but none of them is a consolidated
- * audit of the Phase 58 SURFACE SET. This suite is additive: it re-reads the
- * shipped bytes independently and never replaces a per-file guard.
+ * audit of the Phase 58 SURFACE SET. Half B is NOT a duplicate either, and the
+ * overlap is NAMED: Phase 56's case 4
+ * (`tests/finance/phase56-money-integrity.test.ts:301`) asserts the
+ * no-payments-write rule for `convex/finance.ts`, `convex/donations.ts` and the
+ * two attribution/income domain modules; this suite EXTENDS that rule to the
+ * deletion module and the remaining domain/lib modules and adds the
+ * `assignPaymentToOrder` ban. This suite is additive: it re-reads the shipped
+ * bytes independently and never replaces a per-file guard.
  *
  * NON-VACUITY (the W1 lesson): the expected file set is READ, not assumed. A
  * renamed or moved file throws ENOENT inside `case 1` and fails the suite, and
@@ -36,9 +52,13 @@ import { resolve } from "node:path"
  *
  * A TEXT SCAN IS NOT A CALL GRAPH: these clauses scan source text. A literal
  * reference in a comment fires (that is the recorded M-4 probe for the
- * `assignPaymentToOrder` clause in this file's second half), while a computed
- * or dynamically-built reference would not. The guard is cheap and loud, never
- * a security boundary.
+ * `assignPaymentToOrder` clause), while a computed or dynamically-built
+ * reference would not. The guard is cheap and loud, never a security boundary.
+ *
+ * SCOPE NOTE (repo truth): `convex/payments.ts:607` carries the payments
+ * feature's own `db.delete("payments", args.paymentId)` — outside this audit's
+ * donation-scoped set by design. Half B's "exactly ONE" is a count over the
+ * seven-file set, never a repo-wide claim.
  */
 
 const root = resolve(import.meta.dirname, "../..")
@@ -148,6 +168,32 @@ const CURRENCY_CLAUSE_EXCLUSIONS = [
   "lib/format.ts",
 ] as const
 
+/**
+ * HALF B's audited set: every Convex, domain and lib module on the donation
+ * allocation/deletion path. The overlap with Phase 56's case 4 is deliberate
+ * and named in this file's header — case 4 covers FOUR of these files and no
+ * delete-module or `assignPaymentToOrder` clause; this set EXTENDS it.
+ */
+const PAYMENTS_WRITE_AUDITED_SET = [
+  "convex/donations.ts",
+  "convex/donationDeletion.ts",
+  "lib/domain/finance/donation-allocation.ts",
+  "lib/domain/finance/donation-attribution.ts",
+  "lib/domain/finance/donation-deletion.ts",
+  "lib/domain/finance/donation-income.ts",
+  "lib/dashboard/donation-allocation-request.ts",
+] as const
+
+/** The ONE file allowed to write to `payments` — and only by hard delete. */
+const DELETION_MODULE = "convex/donationDeletion.ts"
+
+/**
+ * The exact permitted statement (57-03's count-1 gate, now audited): the
+ * deletion may only delete the donation's OWN payment row. A relocation inside
+ * the module, a second write, or a changed argument all fail `case 7`.
+ */
+const PERMITTED_PAYMENTS_DELETE = 'db.delete("payments", args.donationId)'
+
 function readSource(relativePath: string): string {
   return readFileSync(resolve(root, relativePath), "utf8")
 }
@@ -226,7 +272,11 @@ describe("phase 59 allocation money audit — the Phase 58 surface set", () => {
 
   test("case 3 — no hand-rolled currency on any pinned Phase 58 surface", () => {
     for (const path of PHASE_58_SURFACE_SET) {
-      for (const idiom of ["Intl.NumberFormat", ".toFixed(", "/ 100"] as const) {
+      for (const idiom of [
+        "Intl.NumberFormat",
+        ".toFixed(",
+        "/ 100",
+      ] as const) {
         expect(
           readSource(path),
           `${path} hand-rolls currency (found ${idiom}) — money renders through formatMoney from @/lib/format`
@@ -276,10 +326,9 @@ describe("phase 59 allocation money audit — the Phase 58 surface set", () => {
         source,
         `${path} must import the house formatter from @/lib/format`
       ).toMatch(/from "@\/lib\/format"/)
-      expect(
-        source,
-        `${path} must call formatMoney(…)`
-      ).toMatch(/formatMoney\(/)
+      expect(source, `${path} must call formatMoney(…)`).toMatch(
+        /formatMoney\(/
+      )
     }
 
     // The delete dialog is the exception that proves the discriminator: it
@@ -309,6 +358,88 @@ describe("phase 59 allocation money audit — the Phase 58 surface set", () => {
           `${path} names the payment-only paid symbol ${symbol} — a hand-rolled paid total on the donations UI must fail here, not in review`
         ).not.toContain(symbol)
       }
+    }
+  })
+})
+
+describe("phase 59 allocation money audit — the payments-write clause", () => {
+  test("case 6 — no payments row is inserted, patched or replaced on a donation path", () => {
+    // Phase 56's case 4 (`tests/finance/phase56-money-integrity.test.ts:301`)
+    // asserts this for `convex/finance.ts`, `convex/donations.ts` and the two
+    // attribution/income domain modules. This clause EXTENDS it to the deletion
+    // module and the remaining domain/lib modules — the overlap is deliberate
+    // and named, never an unacknowledged duplicate.
+    for (const path of PAYMENTS_WRITE_AUDITED_SET) {
+      expect(
+        readSource(path),
+        `${path} must not insert, patch or replace a payments row — allocation credit arrives only through the allocation layer`
+      ).not.toMatch(/db\.(?:insert|patch|replace)\(\s*"payments"/)
+    }
+  })
+
+  test("case 7 — exactly ONE payments delete in the set, pinned to its file and statement", () => {
+    const counts = new Map<string, number>()
+    for (const path of PAYMENTS_WRITE_AUDITED_SET) {
+      const matches = readSource(path).match(/db\.delete\("payments"/g) ?? []
+      counts.set(path, matches.length)
+    }
+
+    const total = [...counts.values()].reduce((sum, count) => sum + count, 0)
+    const breakdown = [...counts.entries()]
+      .map(([path, count]) => `${path}:${count}`)
+      .join(", ")
+    expect(
+      total,
+      `the audited set must contain exactly ONE payments delete (${breakdown})`
+    ).toBe(1)
+    expect(
+      counts.get(DELETION_MODULE),
+      `${DELETION_MODULE} must own the one permitted payments delete`
+    ).toBe(1)
+    for (const path of PAYMENTS_WRITE_AUDITED_SET) {
+      if (path === DELETION_MODULE) continue
+      expect(counts.get(path), `${path} must contain no payments delete`).toBe(
+        0
+      )
+    }
+
+    // Pinned to the exact statement, so a relocation inside the module fails.
+    const deletion = readSource(DELETION_MODULE)
+    expect(
+      deletion,
+      `${DELETION_MODULE} must still contain the exact permitted statement`
+    ).toContain(PERMITTED_PAYMENTS_DELETE)
+    expect(
+      deletion,
+      `${DELETION_MODULE} must still carry the permitted delete as a statement`
+    ).toMatch(/await ctx\.db\.delete\("payments", args\.donationId\)/)
+
+    // (iv) the permitted form carries ONLY the donation id: every
+    // `db.delete("payments", …)` argument is enumerated and must be exactly
+    // `args.donationId`. Enumerated — not lookahead-ed — on purpose: a
+    // negative lookahead backtracks over the separating whitespace and
+    // false-fails correct code (found while writing this clause). Kept simple
+    // and explicit rather than clever.
+    const deleteArgs = [
+      ...deletion.matchAll(/db\.delete\(\s*"payments"\s*,\s*([^)]*)\)/g),
+    ].map((match) => match[1].trim())
+    expect(
+      deleteArgs,
+      `${DELETION_MODULE} may only delete the donation's own payment row`
+    ).toEqual(["args.donationId"])
+  })
+
+  test("case 8 — no file in the set references assignPaymentToOrder in any casing or separator style", () => {
+    // The literal SC5 clause: a donation's payment row may never be assigned an
+    // order — that mutation is what `assignPaymentToOrder` does elsewhere.
+    // Normalizing (lower case; `_`, `-`, `.` stripped) catches the snake/kebab/
+    // dotted spellings of the symbol.
+    for (const path of PAYMENTS_WRITE_AUDITED_SET) {
+      const normalized = readSource(path).toLowerCase().replace(/[_.-]/g, "")
+      expect(
+        normalized,
+        `${path} references assignPaymentToOrder — a donation's payment row may never be assigned to an order`
+      ).not.toContain("assignpaymenttoorder")
     }
   })
 })
