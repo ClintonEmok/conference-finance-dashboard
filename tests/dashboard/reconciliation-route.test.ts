@@ -64,7 +64,13 @@ describe("reconciliation surface byte stability", () => {
 
   it("keeps the moved surface's entry point and logging hooks", () => {
     expect(surface).toContain("export default function EventReconciliationPage")
+    // A bare `toContain` treats the old name as a prefix of a rename
+    // (`…EventReconciliationPageMutated`); the signature with its opening paren
+    // is the boundary that makes an entry-point edit fail fast, matching the
+    // phase's `git diff --exit-code` acceptance.
+    expect(surface).toMatch(/export default function EventReconciliationPage\s*\(/)
     expect(surface).toContain("useLogReconciliationPayment")
+    expect(surface).toMatch(/useLogReconciliationPayment\b/)
   })
 
   it("keeps the narrow and long-text browser backstops", () => {
