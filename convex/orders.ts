@@ -8,11 +8,12 @@ import {
   orderLedgerRowValidator,
   orderSearchRowValidator,
 } from "../lib/types/order"
+import { isOrderAppliedPayment } from "../lib/domain/finance/amounts"
 import {
-  deriveBalanceAmounts,
-  isOrderAppliedPayment,
-} from "../lib/domain/finance/amounts"
-import { loadMatchedPaymentTotalsByOrderId, loadOrderAmountDueBreakdowns } from "./finance"
+  loadCanonicalOrderBalances,
+  loadMatchedPaymentTotalsByOrderId,
+  loadOrderAmountDueBreakdowns,
+} from "./finance"
 import {
   loadOrderAttendeesWithExtensions,
   loadOrderWithExtension,
@@ -948,28 +949,30 @@ export const getOrdersWithFilters = query({
 
     const totalRows = normalizedSearch ? null : visibleOrders.length
     const totalPages = normalizedSearch ? null : Math.max(1, Math.ceil(visibleOrders.length / pageSize))
-    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+    // ONE order-level balance owner (Phase 56): the ledger totals and every
+    // ledger row consume the same canonical paid / outstanding figure as the
+    // reconciliation row and the order payment summary. Rebuilding the
+    // due + paid + deriveBalanceAmounts triple here would be a second owner and
+    // is exactly the divergence this phase exists to prevent.
+    const canonicalBalancesByOrderId = await loadCanonicalOrderBalances({
       ctx,
-      visibleOrders
-    )
-    const matchedPaymentTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
-      ctx,
-      visibleOrders
-    )
+      orders: visibleOrders,
+    })
 
     const totals = visibleOrders.reduce(
       (acc, order) => {
+        const canonical = canonicalBalancesByOrderId.get(String(order._id))
         const amountDueMinor =
-          amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-          order.totalAmountMinor ??
-          0
-        const matchedAmountMinor =
-          matchedPaymentTotalsByOrderId.get(String(order._id)) ?? 0
-        const balance = deriveBalanceAmounts(amountDueMinor, matchedAmountMinor)
+          canonical?.amountDueMinor ?? order.totalAmountMinor ?? 0
 
         acc.amountDueMinor += amountDueMinor
-        acc.matchedAmountMinor += balance.appliedAmountMinor
-        acc.outstandingAmountMinor += balance.outstandingAmountMinor
+        // The CAPPED canonical figure: for an allocated order it equals
+        // `paidAmountMinor` (the Phase 55 allocation bound keeps credit inside
+        // the remaining outstanding), while an overpaid allocation-free order
+        // keeps the pre-Phase-56 capped value — due 100 / paid 150 still
+        // contributes 100 here, never the uncapped 150.
+        acc.matchedAmountMinor += canonical?.appliedAmountMinor ?? 0
+        acc.outstandingAmountMinor += canonical?.outstandingAmountMinor ?? 0
         return acc
       },
       {
@@ -985,12 +988,9 @@ export const getOrdersWithFilters = query({
     const eventNamesById = await loadEventNamesById(ctx)
     const eventSlugsById = await loadEventSlugsById(ctx)
     const ordersWithEvent = paginatedOrders.map((order) => {
+      const canonical = canonicalBalancesByOrderId.get(String(order._id))
       const amountDueMinor =
-        amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-        order.totalAmountMinor ??
-        null
-       const matchedAmountMinor = matchedPaymentTotalsByOrderId.get(String(order._id))
-      const balance = deriveBalanceAmounts(amountDueMinor, matchedAmountMinor)
+        canonical?.amountDueMinor ?? order.totalAmountMinor ?? null
 
       return {
         orderId: order._id,
@@ -1006,8 +1006,13 @@ export const getOrdersWithFilters = query({
           : null,
         archiveReason: order.archiveReason ?? null,
         amountDueMinor,
-        matchedAmountMinor: matchedAmountMinor ?? 0,
-        outstandingAmountMinor: balance.outstandingAmountMinor,
+        // `matchedAmountMinor` now carries the canonically applied credit
+        // INCLUDING allocation-attributed donation credit (Phase 56), and stays
+        // the uncapped paired total exactly as it always was: due 100 / paid
+        // 150 still reads 150. The name is kept because the validator is a
+        // published contract.
+        matchedAmountMinor: canonical?.paidAmountMinor ?? 0,
+        outstandingAmountMinor: canonical?.outstandingAmountMinor ?? 0,
         totalAmountMinor: order.totalAmountMinor ?? null,
         currency: order.currency ?? null,
         orderedAt: order.orderedAt
@@ -1145,14 +1150,14 @@ export const getOrdersForReconciliation = query({
     const visibleOrders = filtered.filter((order) =>
       isInternalEvent(eventSourceKindsById, order.eventId)
     )
-    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+    // ONE order-level balance owner (Phase 56): the reconciliation row is the
+    // ledger's money row, so its amount due, canonical paid (payments +
+    // allocation credit), applied / overpayment classes and outstanding all
+    // come from `loadCanonicalOrderBalances` — never from a local recomposition.
+    const canonicalBalancesByOrderId = await loadCanonicalOrderBalances({
       ctx,
-      visibleOrders
-    )
-    const matchedTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
-      ctx,
-      visibleOrders
-    )
+      orders: visibleOrders,
+    })
 
     // Join with extension data for additional fields, preserving canonical order._id
     const withExtensions = await loadOrdersWithExtensions(ctx, visibleOrders)
@@ -1163,15 +1168,9 @@ export const getOrdersForReconciliation = query({
     return withExtensions
       .sort((a, b) => sortOrdersByNewest(a.order, b.order))
       .map(({ order, extension }) => {
+        const canonical = canonicalBalancesByOrderId.get(String(order._id))
         const amountDueMinor =
-          amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-          order.totalAmountMinor ??
-          null
-        const matchedAmountMinor =
-          matchedTotalsByOrderId.get(String(order._id)) ?? 0
-        const balance = amountDueMinor === null
-          ? null
-          : deriveBalanceAmounts(amountDueMinor, matchedAmountMinor)
+          canonical?.amountDueMinor ?? order.totalAmountMinor ?? null
 
         return {
           orderId: order._id,
@@ -1190,10 +1189,11 @@ export const getOrdersForReconciliation = query({
           archiveReason: extension?.archiveReason ?? null,
           amountDueMinor,
           totalAmountMinor: order.totalAmountMinor ?? null,
-          matchedAmountMinor,
-          appliedAmountMinor: balance?.appliedAmountMinor ?? null,
-          donationAmountMinor: balance?.donationAmountMinor ?? null,
-          outstandingAmountMinor: balance?.outstandingAmountMinor ?? 0,
+          // Canonical paid, including allocation credit (Phase 56).
+          matchedAmountMinor: canonical?.paidAmountMinor ?? 0,
+          appliedAmountMinor: canonical?.appliedAmountMinor ?? null,
+          donationAmountMinor: canonical?.donationAmountMinor ?? null,
+          outstandingAmountMinor: canonical?.outstandingAmountMinor ?? 0,
           currency: order.currency ?? null,
           orderedAt: order.orderedAt
             ? new Date(order.orderedAt).toISOString()
@@ -1482,12 +1482,13 @@ export const getOrderPaymentStatus = query({
     )
 
     const payments = await ctx.db.query("payments").order("desc").take(1000)
-    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+    // ONE order-level balance owner (Phase 56): the status buckets key off the
+    // canonical paid figure, so an order cleared by an allocated donation
+    // counts as `paid` on the payment-status summary instead of `partial`.
+    const canonicalBalancesByOrderId = await loadCanonicalOrderBalances({
       ctx,
-      canonicalVisibleOrders
-    )
-    const matchedPaymentTotalsByOrderId =
-      await loadMatchedPaymentTotalsByOrderId(ctx, canonicalVisibleOrders)
+      orders: canonicalVisibleOrders,
+    })
 
     const statusCounts = {
       unassigned: 0,
@@ -1499,15 +1500,13 @@ export const getOrderPaymentStatus = query({
     let totalPaidAmount = 0
 
     for (const order of canonicalVisibleOrders) {
+      const canonical = canonicalBalancesByOrderId.get(String(order._id))
       const orderTotal =
-        amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-        order.totalAmountMinor ??
-        0
+        canonical?.amountDueMinor ?? order.totalAmountMinor ?? 0
       if (orderTotal <= 0) continue
 
-      const matchedAmount = matchedPaymentTotalsByOrderId.get(String(order._id)) ?? 0
-      const balance = deriveBalanceAmounts(orderTotal, matchedAmount)
-      totalPaidAmount += balance.appliedAmountMinor
+      const matchedAmount = canonical?.paidAmountMinor ?? 0
+      totalPaidAmount += canonical?.appliedAmountMinor ?? 0
 
       if (matchedAmount === 0) {
         statusCounts.unassigned++

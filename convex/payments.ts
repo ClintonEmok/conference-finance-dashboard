@@ -23,6 +23,7 @@ import {
   paymentDocValidator,
 } from "../lib/types/payment"
 import {
+  loadCanonicalOrderBalances,
   loadMatchedPaymentTotalsByOrderId,
   loadOrderAmountDueBreakdowns,
 } from "./finance"
@@ -947,24 +948,26 @@ export const getPaymentSummary = query({
     }
     const orderPayments = [...paymentsById.values()]
 
-    const totalPaid = orderPayments
-      .filter((p) => isOrderAppliedPayment(p))
-      .reduce((sum, p) => sum + p.amountMinor, 0)
+    // ONE order-level balance owner (Phase 56): the order-detail summary is the
+    // same money report as the ledger row and the reconciliation row, so its
+    // canonical paid (payments + allocation credit), amount due and outstanding
+    // all come from `loadCanonicalOrderBalances`. When no order row exists
+    // there is no canonical balance to report — the guard mirrors the
+    // pre-Phase-56 conditional loader call.
+    const canonicalBalancesByOrderId = order
+      ? await loadCanonicalOrderBalances({ ctx, orders: [order] })
+      : null
+    const canonical = canonicalBalancesByOrderId?.get(
+      String(order?._id ?? "")
+    )
 
-    const amountDueBreakdownByOrderId = order
-      ? await loadOrderAmountDueBreakdowns(ctx, [order])
-      : new Map()
-    const orderTotal =
-      amountDueBreakdownByOrderId.get(String(order?._id ?? ""))
-        ?.amountDueMinor ??
-      order?.totalAmountMinor ??
-      0
-    const balance = deriveBalanceAmounts(orderTotal, totalPaid)
-
+    // The payment LIST stays the payment list, not a balance: `paymentCount` is
+    // still the count of stored payment rows on the order (an allocation is
+    // not a payment).
     return {
-      totalPaid,
-      orderTotal,
-      remaining: balance.outstandingAmountMinor,
+      totalPaid: canonical?.paidAmountMinor ?? 0,
+      orderTotal: canonical?.amountDueMinor ?? order?.totalAmountMinor ?? 0,
+      remaining: canonical?.outstandingAmountMinor ?? 0,
       paymentCount: orderPayments.length,
     }
   },
