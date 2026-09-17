@@ -606,6 +606,30 @@ export declare const api: {
       { donationId: Id<"payments"> },
       any
     >;
+    getEventDonationIncome: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      {
+        donations: Array<{
+          allocatedMinor: number;
+          allocationCount: number;
+          donationAmountMinor: number;
+          donationId: Id<"payments">;
+          paidAt: number;
+          payerName: string;
+          source: "tikkie" | "bank_transfer" | "cash";
+          unallocatedRemainderMinor: number;
+        }>;
+        eventId: Id<"events">;
+        totals: {
+          allocatedMinor: number;
+          donationCount: number;
+          donationsMinor: number;
+          unallocatedRemainderMinor: number;
+        };
+      }
+    >;
     previewDonationAllocation: FunctionReference<
       "query",
       "public",

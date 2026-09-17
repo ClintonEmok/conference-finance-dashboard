@@ -1,6 +1,9 @@
 import { query, mutation, internalMutation } from "./_generated/server"
 import { v } from "convex/values"
-import { paginationOptsValidator } from "convex/server"
+import {
+  paginationOptsValidator,
+  type PaginationResult,
+} from "convex/server"
 import { requireIdentity } from "./auth"
 import type { Doc, Id } from "./_generated/dataModel"
 import type { MutationCtx } from "./_generated/server"
@@ -13,6 +16,7 @@ import {
   deriveBalanceAmounts,
   isOrderAppliedPayment,
 } from "../lib/domain/finance/amounts"
+import { deriveEventDonationIncome } from "../lib/domain/finance/donation-income"
 import {
   resolveTikkieLinkPurpose,
   tikkieLinkPurposeValidator,
@@ -27,6 +31,7 @@ import {
   loadMatchedPaymentTotalsByOrderId,
   loadOrderAmountDueBreakdowns,
 } from "./finance"
+import { loadRecordedAllocatedMinorByDonationIds } from "./donations"
 
 type TikkiePaymentUpsert = {
   eventId?: Id<"events">
@@ -709,9 +714,16 @@ export const getStandaloneDonations = query({
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
 
+    // ONE local holds the page for all EIGHT range branches (eventId ×
+    // {from+to, from, to, none} plus the same four on the global index). The
+    // index, range, ordering and pagination arguments are unchanged; the final
+    // `else` always assigns, so the enrichment below is the ONLY return path
+    // and no branch can ship raw rows.
+    let page: PaginationResult<Doc<"payments">>
+
     if (args.eventId) {
       if (args.from !== undefined && args.to !== undefined) {
-        return await ctx.db
+        page = await ctx.db
           .query("payments")
           .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
             q
@@ -722,10 +734,8 @@ export const getStandaloneDonations = query({
           )
           .order("desc")
           .paginate(args.paginationOpts)
-      }
-
-      if (args.from !== undefined) {
-        return await ctx.db
+      } else if (args.from !== undefined) {
+        page = await ctx.db
           .query("payments")
           .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
             q
@@ -735,10 +745,8 @@ export const getStandaloneDonations = query({
           )
           .order("desc")
           .paginate(args.paginationOpts)
-      }
-
-      if (args.to !== undefined) {
-        return await ctx.db
+      } else if (args.to !== undefined) {
+        page = await ctx.db
           .query("payments")
           .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
             q
@@ -748,19 +756,17 @@ export const getStandaloneDonations = query({
           )
           .order("desc")
           .paginate(args.paginationOpts)
+      } else {
+        page = await ctx.db
+          .query("payments")
+          .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
+            q.eq("donationKind", "standalone").eq("eventId", args.eventId!)
+          )
+          .order("desc")
+          .paginate(args.paginationOpts)
       }
-
-      return await ctx.db
-        .query("payments")
-        .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
-          q.eq("donationKind", "standalone").eq("eventId", args.eventId!)
-        )
-        .order("desc")
-        .paginate(args.paginationOpts)
-    }
-
-    if (args.from !== undefined && args.to !== undefined) {
-      return await ctx.db
+    } else if (args.from !== undefined && args.to !== undefined) {
+      page = await ctx.db
         .query("payments")
         .withIndex("by_donationKind_and_paidAt", (q) =>
           q
@@ -770,35 +776,89 @@ export const getStandaloneDonations = query({
         )
         .order("desc")
         .paginate(args.paginationOpts)
-    }
-
-    if (args.from !== undefined) {
-      return await ctx.db
+    } else if (args.from !== undefined) {
+      page = await ctx.db
         .query("payments")
         .withIndex("by_donationKind_and_paidAt", (q) =>
           q.eq("donationKind", "standalone").gte("paidAt", args.from!)
         )
         .order("desc")
         .paginate(args.paginationOpts)
-    }
-
-    if (args.to !== undefined) {
-      return await ctx.db
+    } else if (args.to !== undefined) {
+      page = await ctx.db
         .query("payments")
         .withIndex("by_donationKind_and_paidAt", (q) =>
           q.eq("donationKind", "standalone").lte("paidAt", args.to!)
         )
         .order("desc")
         .paginate(args.paginationOpts)
+    } else {
+      page = await ctx.db
+        .query("payments")
+        .withIndex("by_donationKind_and_paidAt", (q) =>
+          q.eq("donationKind", "standalone")
+        )
+        .order("desc")
+        .paginate(args.paginationOpts)
     }
 
-    return await ctx.db
-      .query("payments")
-      .withIndex("by_donationKind_and_paidAt", (q) =>
-        q.eq("donationKind", "standalone")
-      )
-      .order("desc")
-      .paginate(args.paginationOpts)
+    // ONE shared enrichment step for ALL eight branches (Phase 56, 56-05):
+    // every returned donation carries its recorded allocation composition —
+    // `allocatedMinor` (counted once against its attendee/order through the
+    // canonical attribution) and `unallocatedRemainderMinor` (the event
+    // donation income) — so a consumer never re-reads allocation rows to
+    // compute a remainder. The page is already bounded by `paginationOpts` and
+    // the credit read is bounded by these donations' own allocation counts.
+    // Spreading `page` keeps `isDone` and `continueCursor` intact; the query
+    // has no `returns` validator, so the added fields are additive.
+    const allocatedSummaries = await loadRecordedAllocatedMinorByDonationIds(
+      ctx,
+      page.page.map((row) => row._id)
+    )
+
+    // The shared reader is contractually total; a missing entry is a bug and
+    // must never be read as a zero allocation — that would report the whole
+    // donation as income while its credit still counts against attendees, the
+    // very double-count this phase forbids. Fail closed instead.
+    const composition = deriveEventDonationIncome({
+      donations: page.page.map((row) => {
+        const summary = allocatedSummaries.get(String(row._id))
+        if (!summary) {
+          throw new Error(
+            `missing recorded allocation summary for donation ${String(row._id)}`
+          )
+        }
+
+        return {
+          donationId: String(row._id),
+          amountMinor: row.amountMinor,
+          recordedAllocations: [{ amountMinor: summary.allocatedMinor }],
+        }
+      }),
+    })
+
+    const compositionByDonationId = new Map(
+      composition.rows.map((row) => [row.donationId, row])
+    )
+
+    const enrichedRows = page.page.map((row) => {
+      const income = compositionByDonationId.get(String(row._id))
+      if (!income) {
+        // Fail closed: a missing composition must never be read as a zero
+        // remainder. The composer maps its input 1:1, so this cannot happen.
+        throw new Error(
+          `missing donation-income composition for donation ${String(row._id)}`
+        )
+      }
+
+      return {
+        ...row,
+        allocatedMinor: income.allocatedMinor,
+        unallocatedRemainderMinor: income.unallocatedRemainderMinor,
+      }
+    })
+
+    return { ...page, page: enrichedRows }
   },
 })
 

@@ -8,6 +8,7 @@ import {
   loadOrderAmountDueBreakdowns,
 } from "./finance"
 import { deriveAllocationPaymentBreakdowns } from "../lib/domain/finance/allocation-payment-state"
+import { deriveEventDonationIncome } from "../lib/domain/finance/donation-income"
 import {
   buildDistributionPlan,
   deriveAllocationReadProjection,
@@ -354,6 +355,66 @@ async function loadRecordedAllocations(
     rows.push(row)
   }
   return rows
+}
+
+/**
+ * THE ONE reader of per-donation recorded allocation SUMS (Phase 56, 56-05).
+ *
+ * Both donation-list consumers (`payments.getStandaloneDonations` and
+ * `getEventDonationIncome` below) read their per-donation allocated amount from
+ * here, so neither has to load allocation rows to compute a remainder and the
+ * two projections can never disagree about the same donation.
+ *
+ * Every requested donation gets an entry — zeros when it has none — so callers
+ * never branch on `undefined`. The sum uses Phase 55's own
+ * `sumRecordedAllocationMinor` normalization over the donation's RECORDED rows
+ * (never the stale applied figures of `deriveAllocationReadProjection`): a row
+ * whose ceiling has since dropped must not free budget (D-01 / T-55-16).
+ *
+ * `donationAllocations` is read through `by_donationId` with `for await`, so
+ * each donation's range is bounded by its own allocation count. No unbounded
+ * collect anywhere in this path.
+ */
+export async function loadRecordedAllocatedMinorByDonationIds(
+  ctx: FinanceDbCtx,
+  donationIds: ReadonlyArray<Id<"payments">>
+): Promise<Map<string, { allocatedMinor: number; allocationCount: number }>> {
+  const summaries = new Map<
+    string,
+    { allocatedMinor: number; allocationCount: number }
+  >()
+
+  const uniqueDonationIds: Id<"payments">[] = []
+  const seenDonationIds = new Set<string>()
+  for (const donationId of donationIds) {
+    const donationKey = String(donationId)
+    if (!seenDonationIds.has(donationKey)) {
+      seenDonationIds.add(donationKey)
+      uniqueDonationIds.push(donationId)
+    }
+  }
+
+  if (uniqueDonationIds.length === 0) {
+    return summaries
+  }
+
+  await Promise.all(
+    uniqueDonationIds.map(async (donationId) => {
+      const recordedRows: { amountMinor: number }[] = []
+      for await (const row of ctx.db
+        .query("donationAllocations")
+        .withIndex("by_donationId", (q) => q.eq("donationId", donationId))) {
+        recordedRows.push({ amountMinor: row.amountMinor })
+      }
+
+      summaries.set(String(donationId), {
+        allocatedMinor: sumRecordedAllocationMinor(recordedRows),
+        allocationCount: recordedRows.length,
+      })
+    })
+  )
+
+  return summaries
 }
 
 /**
@@ -1428,6 +1489,122 @@ export const previewDonationAllocation = query({
       remainderRecipientAttendeeIds,
       rows: breakdown,
       previewOnly: true as const,
+    }
+  },
+})
+
+/**
+ * Event-scoped donation-income projection (Phase 56, DACC-02 / D-08).
+ *
+ * Every standalone donation of the event is reported with its composition:
+ *
+ *   - `allocatedMinor` — already counted ONCE against its target attendee/order
+ *     through the canonical attribution owner, and
+ *   - `unallocatedRemainderMinor` — the event donation income, counted ONCE
+ *     here. A donation of X with Y allocated contributes Y to the attendee side
+ *     and X − Y here, never X to both.
+ *
+ * `totals.unallocatedRemainderMinor` IS the event donation-income figure.
+ *
+ * It is DISJOINT from `deriveBalanceAmounts`' `donationAmountMinor`, which is
+ * the ORDER-OVERPAYMENT class: a standalone donation has no `orderId`,
+ * `isOrderAppliedPayment` excludes it and it can never surface there, and the
+ * Phase 55 capacity bound keeps allocation credit inside the order's own
+ * outstanding, so credit can never manufacture an overpayment either. The two
+ * classes must never be summed — that is why this query reads no orders and
+ * recomputes no order balance (the overpayment class stays owned by the order
+ * queries).
+ *
+ * The read is event-scoped and index-backed: `payments` through
+ * `by_donationKind_and_eventId_and_paidAt` with `for await` (bounded by one
+ * event, so a large donation list is never truncated), and the per-donation
+ * allocated sums through the shared `loadRecordedAllocatedMinorByDonationIds`
+ * reader. The remainder is Phase 55's own derivation, so this projection can
+ * never free budget the writer considers spent.
+ */
+export const getEventDonationIncome = query({
+  args: { eventId: v.id("events") },
+  returns: v.object({
+    eventId: v.id("events"),
+    donations: v.array(
+      v.object({
+        donationId: v.id("payments"),
+        payerName: v.string(),
+        paidAt: v.number(),
+        source: v.union(
+          v.literal("tikkie"),
+          v.literal("bank_transfer"),
+          v.literal("cash")
+        ),
+        donationAmountMinor: v.number(),
+        allocatedMinor: v.number(),
+        unallocatedRemainderMinor: v.number(),
+        allocationCount: v.number(),
+      })
+    ),
+    totals: v.object({
+      donationCount: v.number(),
+      donationsMinor: v.number(),
+      allocatedMinor: v.number(),
+      unallocatedRemainderMinor: v.number(),
+    }),
+  }),
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const donations: Doc<"payments">[] = []
+    for await (const donation of ctx.db
+      .query("payments")
+      .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
+        q.eq("donationKind", "standalone").eq("eventId", args.eventId)
+      )) {
+      donations.push(donation)
+    }
+
+    const allocatedSummaries = await loadRecordedAllocatedMinorByDonationIds(
+      ctx,
+      donations.map((donation) => donation._id)
+    )
+
+    // The shared reader is contractually total (every requested donation has an
+    // entry); a missing entry is a bug and must never be read as a zero
+    // allocation, which would invert the remainder.
+    const recordedSums = donations.map((donation) => {
+      const summary = allocatedSummaries.get(String(donation._id))
+      if (!summary) {
+        throw new Error(
+          `missing recorded allocation summary for donation ${String(donation._id)}`
+        )
+      }
+      return summary
+    })
+
+    // The shared reader already summed each donation's RECORDED rows with
+    // Phase 55's own normalization, so the composer receives that sum as the
+    // aggregate row it needs; the remainder it derives is the SAME one the
+    // writer and the read projection use. `allocationCount` below comes from
+    // the reader (the composer counts the aggregate row it was handed).
+    const breakdown = deriveEventDonationIncome({
+      donations: donations.map((donation, index) => ({
+        donationId: String(donation._id),
+        amountMinor: donation.amountMinor,
+        recordedAllocations: [{ amountMinor: recordedSums[index].allocatedMinor }],
+      })),
+    })
+
+    // The composer maps its input 1:1 without sorting, so `breakdown.rows` is
+    // index-aligned with `donations` (pinned by the pure module's suite).
+    return {
+      eventId: args.eventId,
+      donations: donations.map((donation, index) => ({
+        ...breakdown.rows[index],
+        donationId: donation._id,
+        payerName: donation.payerName,
+        paidAt: donation.paidAt,
+        source: donation.source,
+        allocationCount: recordedSums[index].allocationCount,
+      })),
+      totals: breakdown.totals,
     }
   },
 })
