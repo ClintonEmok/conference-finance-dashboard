@@ -6,7 +6,7 @@ import { expect, test } from "vitest"
 import { convexTest, type TestConvexForDataModel } from "convex-test"
 import type { GenericDataModel } from "convex/server"
 
-import { api } from "./_generated/api"
+import { api, internal } from "./_generated/api"
 import schema from "./schema"
 import type { Id } from "./_generated/dataModel"
 import {
@@ -767,4 +767,170 @@ test("the canonical balance owner stays index-backed and bounded", () => {
   expect(ownerSlice).toContain("deriveBalanceAmounts")
   expect(ownerSlice).not.toContain("loadMatchedPaymentTotalsByOrderId(")
   expect(ownerSlice).not.toContain(".collect(")
+})
+
+// ---------------------------------------------------------------------------
+// Case 7: the settlement basis (Phase 60 D-01) — proven on the real WRITE
+// ---------------------------------------------------------------------------
+
+test("a donation allocation clears the order and the real sync job flips its status to paid (settlement basis D-01)", async () => {
+  const seeded = fresh()
+  const authed = seeded.withIdentity(adminIdentity)
+  const eventId = await seedEvent(seeded, "canonical-settlement-basis")
+
+  // Order A: due 20000 (A1 12000 / A2 8000), NO payments. It is cleared SOLELY
+  // by a whole_order allocation, so the payment-only basis cannot settle it.
+  const a1 = await createAttendee(seeded, eventId, {
+    attendeeKey: "a-a1",
+    name: "A One",
+    ticketPriceMinor: 12_000,
+  })
+  await createAttendee(seeded, eventId, {
+    orderId: a1.orderId,
+    attendeeKey: "a-a2",
+    name: "A Two",
+    ticketPriceMinor: 8_000,
+    sortOrder: 1,
+  })
+
+  // Control P (allocation-free, fully paid): due 4000 with a real applied
+  // payment. It must keep settling exactly as it did before the migration.
+  const p = await createAttendee(seeded, eventId, {
+    attendeeKey: "p-a",
+    name: "P One",
+    ticketPriceMinor: 4_000,
+  })
+  await createAppliedPayment(seeded, eventId, p.orderId, 4_000)
+
+  // Control Q (allocation-free, unpaid): due 5000, no payment.
+  const q = await createAttendee(seeded, eventId, {
+    attendeeKey: "q-a",
+    name: "Q One",
+    ticketPriceMinor: 5_000,
+  })
+
+  // Control R (partially allocated): due 5000 with a 3000 whole_order
+  // allocation. Partial credit must NOT settle the order.
+  const r = await createAttendee(seeded, eventId, {
+    attendeeKey: "r-a",
+    name: "R One",
+    ticketPriceMinor: 5_000,
+  })
+
+  // Both allocations run through the production mutation, never a hand-written
+  // donationAllocations row.
+  const donationA = await createStandaloneDonation(authed, {
+    eventId,
+    amountMinor: 20_000,
+  })
+  const allocationA = await authed.mutation(api.donations.allocateDonation, {
+    donationId: donationA,
+    eventId,
+    request: manualRequest([
+      { attendeeId: a1.attendeeId, amountMinor: 20_000, scope: "whole_order" },
+    ]),
+    idempotencyKey: "canonical-settlement-a",
+  })
+  expect(allocationA).toMatchObject({
+    donationId: donationA,
+    allocatedTotalMinor: 20_000,
+    remainingMinor: 0,
+  })
+
+  const donationR = await createStandaloneDonation(authed, {
+    eventId,
+    amountMinor: 3_000,
+  })
+  const allocationR = await authed.mutation(api.donations.allocateDonation, {
+    donationId: donationR,
+    eventId,
+    request: manualRequest([
+      { attendeeId: r.attendeeId, amountMinor: 3_000, scope: "whole_order" },
+    ]),
+    idempotencyKey: "canonical-settlement-r",
+  })
+  expect(allocationR).toMatchObject({
+    donationId: donationR,
+    allocatedTotalMinor: 3_000,
+    remainingMinor: 0,
+  })
+
+  // The clearing is attributable to the allocation: A carries allocation credit
+  // and ZERO applied payment. R carries partial credit with a real outstanding.
+  const snapshots = await readCanonicalBalances(seeded, [
+    a1.orderId,
+    p.orderId,
+    q.orderId,
+    r.orderId,
+  ])
+  expect(snapshots[String(a1.orderId)]).toMatchObject({
+    amountDueMinor: 20_000,
+    appliedPaymentMinor: 0,
+    allocationCreditMinor: 20_000,
+    paidAmountMinor: 20_000,
+    outstandingAmountMinor: 0,
+  })
+  expect(snapshots[String(p.orderId)]).toMatchObject({
+    amountDueMinor: 4_000,
+    appliedPaymentMinor: 4_000,
+    allocationCreditMinor: 0,
+    paidAmountMinor: 4_000,
+    outstandingAmountMinor: 0,
+  })
+  expect(snapshots[String(q.orderId)]).toMatchObject({
+    amountDueMinor: 5_000,
+    appliedPaymentMinor: 0,
+    allocationCreditMinor: 0,
+    paidAmountMinor: 0,
+    outstandingAmountMinor: 5_000,
+  })
+  expect(snapshots[String(r.orderId)]).toMatchObject({
+    amountDueMinor: 5_000,
+    appliedPaymentMinor: 0,
+    allocationCreditMinor: 3_000,
+    paidAmountMinor: 3_000,
+    outstandingAmountMinor: 2_000,
+  })
+
+  // Capture the ACTUAL stored status per order before the job runs (the order
+  // seeds leave it undefined) so the controls compare against repo truth rather
+  // than an assumed pre-state.
+  const orderIds = [a1.orderId, p.orderId, q.orderId, r.orderId] as const
+  const readStatuses = () =>
+    seeded.run(async (ctx) => {
+      const statuses: Record<string, string | undefined> = {}
+      for (const orderId of orderIds) {
+        const order = await ctx.db.get("orders", orderId)
+        statuses[String(orderId)] = order?.status
+      }
+      return statuses
+    })
+  const statusBefore = await readStatuses()
+
+  // None of the four orders starts settled — the sync job is what writes it.
+  for (const orderId of orderIds) {
+    expect(statusBefore[String(orderId)]).not.toBe("paid")
+  }
+
+  const report = await seeded.mutation(internal.orders.syncFullyPaidOrders, {})
+  const statusAfter = await readStatuses()
+
+  // THE new behaviour: the allocation alone cleared order A, so the real job
+  // flips its stored status to paid.
+  expect(statusAfter[String(a1.orderId)]).toBe("paid")
+
+  // Backward compatibility (Phase 56 D-10): the allocation-free fully-paid
+  // order still settles exactly as before the migration.
+  expect(statusAfter[String(p.orderId)]).toBe("paid")
+
+  // The unpaid and partially-allocated controls are identical to their
+  // pre-sync status — partial credit does not settle.
+  expect(statusAfter[String(q.orderId)]).toBe(statusBefore[String(q.orderId)])
+  expect(statusAfter[String(r.orderId)]).toBe(statusBefore[String(r.orderId)])
+  expect(statusAfter[String(q.orderId)]).not.toBe("paid")
+  expect(statusAfter[String(r.orderId)]).not.toBe("paid")
+
+  // The report counts exactly the settled set (A + P) across the four active
+  // orders.
+  expect(report).toEqual({ scanned: 4, updated: 2 })
 })
