@@ -1176,6 +1176,8 @@ export declare const api: {
           id: Id<"orderAttendees">;
           name: string;
           normalizedStatus: string;
+          outstandingAmountMinor: number;
+          paidAmountMinor: number;
           roommateAvoid: string | null;
           roommatePreference: string | null;
           ticketTypeLabel: string;

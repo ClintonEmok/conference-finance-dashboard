@@ -13,6 +13,7 @@ import {
   loadCanonicalOrderBalances,
   loadMatchedPaymentTotalsByOrderId,
   loadOrderAmountDueBreakdowns,
+  loadOrderPaymentAttributions,
 } from "./finance"
 import {
   loadOrderAttendeesWithExtensions,
@@ -1365,6 +1366,10 @@ export const getOrderWithAttendees = query({
           ticketTypeLabel: v.string(),
           normalizedStatus: v.string(),
           amountDueMinor: v.number(),
+          // Phase 56 — server-owned per-attendee money. Additive fields: the
+          // client reads these and must never re-derive them.
+          paidAmountMinor: v.number(),
+          outstandingAmountMinor: v.number(),
         })
       ),
     }),
@@ -1374,11 +1379,24 @@ export const getOrderWithAttendees = query({
     const order = await ctx.db.get("orders", args.orderId)
     if (!order) return null
 
+    // ONE pricing pass: the due breakdown is computed once and handed to the
+    // per-attendee attribution owner. The per-attendee paid / outstanding figure
+    // is the CANONICAL attributed figure from `loadOrderPaymentAttributions`
+    // (applied payments + allocation credit distributed by remaining need) — the
+    // client must not re-derive it from payments.
     const amountDueBreakdownByOrderId = await loadOrderAmountDueBreakdowns(
       ctx,
       [{ _id: order._id }]
     )
     const amountDueBreakdown = amountDueBreakdownByOrderId.get(
+      String(order._id)
+    )
+    const attendeeAttributionsByOrderId = await loadOrderPaymentAttributions({
+      ctx,
+      orders: [{ _id: order._id }],
+      dueBreakdownsByOrderId: amountDueBreakdownByOrderId,
+    })
+    const attendeeAttribution = attendeeAttributionsByOrderId.get(
       String(order._id)
     )
 
@@ -1419,17 +1437,30 @@ export const getOrderWithAttendees = query({
             ? new Date(order.submittedAt).toISOString()
             : null,
       },
-      attendees: attendees.map((a) => ({
-        id: a._id,
-        name: a.name ?? "Unnamed attendee",
-        email: a.email ?? null,
-        roommatePreference: a.roommatePreference ?? null,
-        roommateAvoid: a.roommateAvoid ?? null,
-        ticketTypeLabel: "-",
-        normalizedStatus: "pending",
-        amountDueMinor:
-          amountDueBreakdown?.amountDueByAttendeeId.get(String(a._id)) ?? 0,
-      })),
+      attendees: attendees.map((a) => {
+        // Server-owned per-attendee money: paid / outstanding come from the ONE
+        // allocation-aware attribution owner. An attendee cleared by an
+        // allocation reads as cleared here, exactly as on the order ledger.
+        // Absent from the attribution map is the same case as absent from the
+        // due map today — zero, never a fabricated balance.
+        const attributionRow = attendeeAttribution?.byAttendeeId.get(
+          String(a._id)
+        )
+
+        return {
+          id: a._id,
+          name: a.name ?? "Unnamed attendee",
+          email: a.email ?? null,
+          roommatePreference: a.roommatePreference ?? null,
+          roommateAvoid: a.roommateAvoid ?? null,
+          ticketTypeLabel: "-",
+          normalizedStatus: "pending",
+          amountDueMinor:
+            amountDueBreakdown?.amountDueByAttendeeId.get(String(a._id)) ?? 0,
+          paidAmountMinor: attributionRow?.paidAmountMinor ?? 0,
+          outstandingAmountMinor: attributionRow?.outstandingAmountMinor ?? 0,
+        }
+      }),
     }
   },
 })

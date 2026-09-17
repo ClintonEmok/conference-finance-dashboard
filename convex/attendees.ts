@@ -5,7 +5,7 @@ import { requireIdentity } from "./auth"
 import { api } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
 import type { MutationCtx, QueryCtx } from "./_generated/server"
-import { loadOrderAmountDueBreakdowns } from "./finance"
+import { loadOrderAmountDueBreakdowns, loadOrderPaymentAttributions } from "./finance"
 import {
   loadPublicSignupAccommodationContext,
   resolvePublicSignupSelection,
@@ -516,10 +516,33 @@ export const getAttendeeLedgerPage = query({
         orderSubmittedAt: order.submittedAt ?? null, orderOrderedAt: order.orderedAt ?? null,
         allocatedRoomTypeId: attendee.allocatedRoomTypeId ?? null, customAnswers: extension?.customAnswers ?? null,
         amountDueMinor: 0,
+        // Phase 56 — server-owned per-attendee money; filled below from the
+        // canonical attribution owner, never re-derived by the client.
+        paidAmountMinor: 0,
+        outstandingAmountMinor: 0,
       })
     }
     const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [...orders.values()])
-    for (const row of rows) row.amountDueMinor = breakdowns.get(String(row.orderId))?.amountDueByAttendeeId.get(String(row._id)) ?? 0
+    // ONE pricing pass: the due breakdown computed above is reused by the
+    // attribution owner, whose per-attendee paid / outstanding is the canonical
+    // figure (applied payments + allocation credit distributed by remaining
+    // need). The added read is one indexed `donationAllocations` pass per order
+    // on this page — the page is already bounded by `paginateSearchDocuments`
+    // and `LEDGER_PAGE_MAX`; no payments rescan is added.
+    const attributionsByOrderId = await loadOrderPaymentAttributions({
+      ctx,
+      orders: [...orders.values()],
+      dueBreakdownsByOrderId: breakdowns,
+    })
+    for (const row of rows) {
+      const breakdown = breakdowns.get(String(row.orderId))
+      const attributionRow = attributionsByOrderId
+        .get(String(row.orderId))
+        ?.byAttendeeId.get(String(row._id))
+      row.amountDueMinor = breakdown?.amountDueByAttendeeId.get(String(row._id)) ?? 0
+      row.paidAmountMinor = attributionRow?.paidAmountMinor ?? 0
+      row.outstandingAmountMinor = attributionRow?.outstandingAmountMinor ?? 0
+    }
     return {
       dateMode, from: dateMode === "all-time" ? null : from, to: dateMode === "all-time" ? null : to,
       rows, page: { hasNextPage: hasNext, nextCursor: hasNext ? encodeLedgerCursor({ version: 1, signature, searchCursor: cursor }) : null, totalRows: null, totalPages: null },
