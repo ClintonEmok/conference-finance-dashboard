@@ -113,18 +113,27 @@ describe("root-level event routes", () => {
   })
 })
 
+/**
+ * Forced expectation update (Phase 58, UI-SPEC G3) — NOT a product change.
+ *
+ * The tab host retired to a redirect shell when the inversion landed: the
+ * `FinanceWorkspace` tab host, its three tab wrappers and the superseded
+ * `legacy-donations-surface` are deleted, and the old host-content assertions
+ * (`FinanceOrdersTab`, `financeHref(slug, "orders")`, the tab labels) are moot
+ * — the module cannot come back without its deletion assertion failing first.
+ * The host content they used to pin is now covered by the payments/donations
+ * workspace guards.
+ */
 describe("Finance no longer owns Orders", () => {
-  it("removes the Orders tab and FinanceOrdersTab usage from Finance", () => {
-    const finance = readSource(
-      "components/dashboard/finance/finance-workspace.tsx"
-    )
-    expect(finance).not.toContain("FinanceOrdersTab")
-    expect(finance).not.toContain('value: "orders"')
-    expect(finance).not.toContain('financeHref(slug, "orders")')
-    expect(finance).toContain("ordersHref(slug)")
-    expect(finance).toContain('label: "Payments"')
-    expect(finance).toContain('label: "Donations"')
-    expect(finance).toContain('label: "Reconciliation"')
+  it("retires the tab host and its wrappers with no importer surviving", () => {
+    for (const retired of [
+      "components/dashboard/finance/finance-workspace.tsx",
+      "components/dashboard/finance/payments-tab.tsx",
+      "components/dashboard/finance/donations-tab.tsx",
+      "components/dashboard/finance/reconciliation-tab.tsx",
+      "components/dashboard/finance/legacy-donations-surface.tsx",
+    ])
+      expect(() => readSource(retired), retired).toThrow()
   })
 
   it("deletes the obsolete Finance orders tab file", () => {

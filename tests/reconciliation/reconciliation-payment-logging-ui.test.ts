@@ -4,7 +4,7 @@ import { expect, test } from "vitest"
 
 const root = resolve(import.meta.dirname, "../..")
 const surface = readFileSync(resolve(root, "components/dashboard/finance/legacy-reconciliation-surface.tsx"), "utf8")
-const workspace = readFileSync(resolve(root, "components/dashboard/finance/finance-workspace.tsx"), "utf8")
+const workspace = readFileSync(resolve(root, "components/dashboard/finance/payments-workspace.tsx"), "utf8")
 
 test("Log New preserves the selected order and exact field/copy contract", () => {
   for (const label of [
@@ -54,16 +54,29 @@ test("Log New sends canonical ids and omits blank optional fields", () => {
   expect(surface).not.toContain("clientUser")
 })
 
-test("Finance summary remains reactive and consumes server projections", () => {
+/**
+ * Forced expectation update (Phase 58, UI-SPEC G3) — NOT a product change.
+ *
+ * The assertion set moved from the retired tab host to the dedicated payments
+ * workspace. The old `row.appliedAmountMinor` / `row.donationAmountMinor` /
+ * `"Unavailable"` assertions belonged to the host's `FinanceSummaryCards`,
+ * whose `reconciliation.data.reduce(...)` sum was a client-side money formula
+ * the UI-SPEC forbids from returning; the new workspace renders the moved
+ * surface plus the server-fed attention queue and computes no money at all.
+ * The file's first two tests (the moved reconciliation surface) are untouched.
+ */
+test("The payments workspace consumes server projections and renders no client-side money", () => {
+  expect(workspace).toMatch(/export function PaymentsWorkspace\s*\(/)
   expect(workspace).toContain("api.orders.getOrdersForReconciliation")
   expect(workspace).toContain("api.payments.getUnassignedPayments")
-  expect(workspace).toContain("api.payments.getPayments")
-  expect(workspace).toContain("row.appliedAmountMinor")
-  expect(workspace).toContain("row.donationAmountMinor")
-  expect(workspace).toContain('"Unavailable"')
+  expect(workspace).toContain("buildFinanceAttentionItems")
+  expect(workspace).toContain("reconciliationHref(slug)")
+  expect(workspace).toContain("paymentsHref(slug)")
   expect(workspace).not.toContain("deriveBalanceAmounts")
   expect(workspace).not.toContain("window.location.reload")
   expect(workspace).not.toContain("refetch(")
+  expect(workspace).not.toContain("FinanceSummaryCards")
+  expect(workspace).not.toContain(".reduce(")
 })
 
 test("narrow and long-text browser backstops remain explicitly deferred to Phase 50", () => {
