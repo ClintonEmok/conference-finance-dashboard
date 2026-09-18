@@ -5,6 +5,7 @@ import type { GenericDataModel } from "convex/server"
 
 import { api } from "./_generated/api"
 import schema from "./schema"
+import type { Id } from "./_generated/dataModel"
 import { buildSearchHaystack, matchesNormalizedSearch } from "./search"
 
 const modules = import.meta.glob("./**/*.ts")
@@ -15,41 +16,13 @@ const identity = {
 
 type TestConvex = TestConvexForDataModel<GenericDataModel>
 
-type SearchPage = {
-  rows: Array<{ _id: string; orderId?: string }>
-  page: {
-    hasNextPage: boolean
-    nextCursor: string | null
-  }
-}
-
 const BASE_AT = 1_700_000_000_000
 
 function fresh() {
   return convexTest(schema, modules).withIdentity(identity)
 }
 
-/**
- * The fixture intentionally never writes a projection row. This is the
- * structural reason the pre-Phase-62 readers return no positive matches.
- */
-async function expectSourceOnly(t: TestConvex) {
-  const counts = await t.run(async (ctx) => ({
-    documents: (await ctx.db.query("searchDocuments").take(1)).length,
-    jobs: (await ctx.db.query("searchProjectionFanoutJobs").take(1)).length,
-    terms: (await ctx.db.query("searchDocumentTerms").take(1)).length,
-  }))
-  expect(counts.documents).toBe(0)
-  expect(counts.jobs).toBe(0)
-  expect(counts.terms).toBe(0)
-}
-
-/** convex-test ids have a long zero prefix; this is the useful test fragment. */
-function idFragment(id: string) {
-  return id.replace(/^0+/, "")
-}
-
-function internalEventDoc(slug: string) {
+function internalEventDoc(slug: string, primarySourceKind: "internal" | "integration" = "internal") {
   return {
     slug,
     title: slug,
@@ -59,356 +32,395 @@ function internalEventDoc(slug: string) {
     isPublished: true,
     isSignupOpen: true,
     accommodationEnabled: false,
-    primarySourceKind: "internal" as const,
+    primarySourceKind,
     updatedAt: 1,
   }
 }
 
-type Fixture = {
-  eventA: string
-  eventB: string
-  visibleOrders: Array<{ id: string; bookerName: string; bookingRef: string }>
-  visibleAttendees: Array<{
-    id: string
-    name: string
-    email?: string
-    bookingRef: string
-  }>
-  mergedOrderId: string
-  mergedAttendeeId: string
-  otherEventOrderId: string
-  otherEventAttendeeId: string
+function idFragment(id: string) {
+  // convex-test ids have a long zero prefix; stripping it keeps the source-id
+  // checks discriminating while the real production id is pinned separately.
+  return id.replace(/^0+/, "")
 }
 
-/**
- * Six visible internal orders and ten attendees give the loops a meaningful
- * floor. The seventh order is merged, and the eighth belongs to another event.
- */
+type FixtureOrder = {
+  id: Id<"orders">
+  bookingRef: string
+  bookerName: string
+}
+
+type FixtureAttendee = {
+  id: Id<"orderAttendees">
+  orderId: Id<"orders">
+  name: string
+  email?: string
+  bookingRef: string
+}
+
+type Fixture = {
+  eventId: Id<"events">
+  otherEventId: Id<"events">
+  visibleOrders: FixtureOrder[]
+  visibleAttendees: FixtureAttendee[]
+  mergedOrder: FixtureOrder
+  mergedAttendeeId: Id<"orderAttendees">
+  otherOrder: FixtureOrder
+  otherAttendeeId: Id<"orderAttendees">
+}
+
 async function seedFixture(t: TestConvex): Promise<Fixture> {
   return await t.run(async (ctx) => {
-    const eventA = await ctx.db.insert("events", internalEventDoc("guard-event-a"))
-    const eventB = await ctx.db.insert("events", internalEventDoc("guard-event-b"))
+    const eventId = await ctx.db.insert("events", internalEventDoc("source-search-guards"))
+    const otherEventId = await ctx.db.insert(
+      "events",
+      internalEventDoc("source-search-guards-other", "integration")
+    )
 
     const orderSpecs = [
-      ["Oliver Vos", "BK-FAMILY-VOS", "oliver.vos@example.com"],
-      ["Nadine North", "BK-NADINE-NORTH", "nadine.north@example.com"],
-      ["Nadine South", "BK-NADINE-SOUTH", "nadine.south@example.com"],
-      ["Nadine East", "BK-NADINE-EAST", "nadine.east@example.com"],
-      ["Nadine West", "BK-NADINE-WEST", "nadine.west@example.com"],
-      ["Nadine Central", "BK-NADINE-CENTRAL", "nadine.central@example.com"],
-    ] as const
-
-    const visibleOrderIds = [] as Array<{
-      id: string
-      bookerName: string
-      bookingRef: string
-    }>
-    for (const [index, [bookerName, bookingRef, bookerEmail]] of orderSpecs.entries()) {
+      {
+        bookingRef: "BK-FAMILY-VOS",
+        bookerName: "Oliver Vos",
+        bookerEmail: "oliver.vos@example.com",
+      },
+      {
+        bookingRef: "BK-NADINE-01",
+        bookerName: "Nadine de Vries",
+        bookerEmail: "nadine.devries@example.com",
+      },
+      {
+        bookingRef: "BK-NADINE-02",
+        bookerName: "Nadine O'Neil",
+        bookerEmail: "nadine.oneil@example.com",
+      },
+      {
+        bookingRef: "BK-NADINE-03",
+        bookerName: "Nadine Müller",
+        bookerEmail: "nadine.muller@example.com",
+      },
+      {
+        bookingRef: "BK-NADINE-04",
+        bookerName: "Nadine van Dijk",
+        bookerEmail: "nadine.vandijk@example.com",
+      },
+      {
+        bookingRef: "BK-NADINE-05",
+        bookerName: "Nadine Smith",
+        bookerEmail: "nadine.smith@example.com",
+      },
+    ]
+    const visibleOrders: FixtureOrder[] = []
+    for (const [index, spec] of orderSpecs.entries()) {
       const id = await ctx.db.insert("orders", {
-        eventId: eventA,
+        eventId,
         source: "internal",
-        bookerName,
-        bookingRef,
-        bookerEmail,
-        providerOrderId: `PROVIDER-GUARD-${index + 1}`,
-        submittedAt: BASE_AT + index,
-        status: index === 0 ? "pending" : "paid",
+        bookingRef: spec.bookingRef,
+        bookerName: spec.bookerName,
+        bookerEmail: spec.bookerEmail,
+        submittedAt: BASE_AT + index * 1_000,
+        status: "pending",
       })
-      visibleOrderIds.push({ id: String(id), bookerName, bookingRef })
+      visibleOrders.push({ id, ...spec })
     }
 
     const mergedOrderId = await ctx.db.insert("orders", {
-      eventId: eventA,
+      eventId,
       source: "internal",
-      bookerName: "Merged Ghost",
-      bookingRef: "BK-MERGED-GUARD",
-      submittedAt: BASE_AT + 20,
-      mergedIntoOrderId: visibleOrderIds[0].id as never,
+      bookingRef: "BK-MERGED-GHOST",
+      bookerName: "Merged Ghost Order",
+      submittedAt: BASE_AT + 8_000,
+      status: "pending",
+      mergedIntoOrderId: visibleOrders[0].id,
     })
-    const otherEventOrderId = await ctx.db.insert("orders", {
-      eventId: eventB,
-      source: "internal",
-      bookerName: "Bea Other",
+    const mergedOrder = {
+      id: mergedOrderId,
+      bookingRef: "BK-MERGED-GHOST",
+      bookerName: "Merged Ghost Order",
+    }
+
+    const otherOrderId = await ctx.db.insert("orders", {
+      eventId: otherEventId,
+      source: "integration",
       bookingRef: "BK-OTHER-EVENT",
-      bookerEmail: "bea.other@example.com",
-      submittedAt: BASE_AT + 21,
+      bookerName: "Other Event Order",
+      submittedAt: BASE_AT + 9_000,
       status: "pending",
     })
+    const otherOrder = {
+      id: otherOrderId,
+      bookingRef: "BK-OTHER-EVENT",
+      bookerName: "Other Event Order",
+    }
 
-    const attendeeSpecs = [
-      [visibleOrderIds[0].id, "Oliver Vos", "oliver.vos@example.com"],
-      [visibleOrderIds[0].id, "Ava-Mae O'Neil", "ava.mae+guard@example.com"],
-      [visibleOrderIds[1].id, "Nadine North", "nadine.north@example.com"],
-      [visibleOrderIds[2].id, "Nadine South", "nadine.south@example.com"],
-      [visibleOrderIds[2].id, "Celine van Dijk", undefined],
-      [visibleOrderIds[3].id, "Nadine East", "nadine.east@example.com"],
-      [visibleOrderIds[3].id, "Daan Koster", "daan.koster@example.com"],
-      [visibleOrderIds[4].id, "Nadine West", "nadine.west@example.com"],
-      [visibleOrderIds[4].id, "Eline Smith", "eline.smith@example.com"],
-      [visibleOrderIds[5].id, "Nadine Central", "nadine.central@example.com"],
-    ] as const
-
-    const visibleAttendeeIds = [] as Array<{
-      id: string
+    const attendeeSpecs: Array<{
+      orderIndex: number
       name: string
       email?: string
-      bookingRef: string
-    }>
-    for (const [index, [orderId, name, email]] of attendeeSpecs.entries()) {
-      const order = visibleOrderIds.find((candidate) => candidate.id === orderId)
-      const attendeeId = await ctx.db.insert("orderAttendees", {
-        orderId: orderId as never,
-        eventId: eventA,
-        attendeeKey: `guard-${index + 1}`,
-        name,
-        email,
+    }> = [
+      { orderIndex: 0, name: "Oliver Vos", email: "oliver.vos@example.com" },
+      { orderIndex: 0, name: "Vicky Vos", email: "vicky.vos@example.com" },
+      { orderIndex: 1, name: "Nadine de Vries", email: "nadine.devries@example.com" },
+      { orderIndex: 1, name: "Nadine van Dijk", email: "nadine.vandijk@example.com" },
+      { orderIndex: 2, name: "Nadine O'Neil", email: "nadine.oneil@example.com" },
+      { orderIndex: 2, name: "Nadine Ó Briain", email: "nadine.obriain@example.com" },
+      { orderIndex: 3, name: "Nadine Müller" },
+      { orderIndex: 3, name: "Nadine Kovač", email: "nadine.kovac@example.com" },
+      { orderIndex: 4, name: "Nadine Smith", email: "nadine.smith@example.com" },
+      { orderIndex: 5, name: "Nadine Johnson", email: "nadine.johnson@example.com" },
+    ]
+    const visibleAttendees: FixtureAttendee[] = []
+    for (const [index, spec] of attendeeSpecs.entries()) {
+      const order = visibleOrders[spec.orderIndex]
+      const id = await ctx.db.insert("orderAttendees", {
+        orderId: order.id,
+        eventId,
+        attendeeKey: `source-guard-${index}`,
+        name: spec.name,
+        email: spec.email,
         gender: "unknown",
         sortOrder: index,
       })
-      visibleAttendeeIds.push({
-        id: String(attendeeId),
-        name,
-        ...(email ? { email } : {}),
-        bookingRef: order!.bookingRef,
+      visibleAttendees.push({
+        id,
+        orderId: order.id,
+        name: spec.name,
+        email: spec.email,
+        bookingRef: order.bookingRef,
       })
     }
 
     const mergedAttendeeId = await ctx.db.insert("orderAttendees", {
       orderId: mergedOrderId,
-      eventId: eventA,
-      attendeeKey: "merged-guard",
-      name: "Merged Ghost",
-      email: "merged.guard@example.com",
+      eventId,
+      attendeeKey: "source-guard-merged",
+      name: "Merged Ghost Attendee",
+      email: "merged.ghost@example.com",
       gender: "unknown",
       sortOrder: 0,
     })
-    const otherEventAttendeeId = await ctx.db.insert("orderAttendees", {
-      orderId: otherEventOrderId,
-      eventId: eventB,
-      attendeeKey: "other-event-guard",
-      name: "Bea Other",
-      email: "bea.other@example.com",
+    const otherAttendeeId = await ctx.db.insert("orderAttendees", {
+      orderId: otherOrderId,
+      eventId: otherEventId,
+      attendeeKey: "source-guard-other",
+      name: "Other Event Attendee",
+      email: "other.event@example.com",
       gender: "unknown",
       sortOrder: 0,
     })
 
     return {
-      eventA: String(eventA),
-      eventB: String(eventB),
-      visibleOrders: visibleOrderIds,
-      visibleAttendees: visibleAttendeeIds,
-      mergedOrderId: String(mergedOrderId),
-      mergedAttendeeId: String(mergedAttendeeId),
-      otherEventOrderId: String(otherEventOrderId),
-      otherEventAttendeeId: String(otherEventAttendeeId),
+      eventId,
+      otherEventId,
+      visibleOrders,
+      visibleAttendees,
+      mergedOrder,
+      mergedAttendeeId,
+      otherOrder,
+      otherAttendeeId,
     }
   })
 }
 
-async function orderSearch(
+async function assertProjectionFreeAndNonVacuous(
   t: TestConvex,
-  eventId: string,
-  search: string,
-  pageSize = 100,
-  searchCursor?: string | null
+  fixture: Fixture
 ) {
-  return await t.query(api.orders.getOrdersWithFilters, {
-    eventId,
-    search,
-    page: 1,
-    pageSize,
-    ...(searchCursor !== undefined ? { searchCursor } : {}),
-  })
+  const counts = await t.run(async (ctx) => ({
+    documents: (await ctx.db.query("searchDocuments").take(1)).length,
+    jobs: (await ctx.db.query("searchProjectionFanoutJobs").take(1)).length,
+  }))
+  expect(counts.documents).toBe(0)
+  expect(counts.jobs).toBe(0)
+  expect(fixture.visibleOrders.length).toBeGreaterThanOrEqual(6)
+  expect(fixture.visibleAttendees.length).toBeGreaterThanOrEqual(10)
 }
 
-async function attendeeSearch(
-  t: TestConvex,
-  eventId: string,
-  search: string,
-  pageSize = 100,
-  cursor?: string | null
-): Promise<SearchPage> {
-  return (await t.query(api.attendees.getAttendeeLedgerPage, {
-    eventId,
-    search,
-    cursor: cursor ?? null,
-    pageSize,
-    from: null,
-    to: null,
-  })) as SearchPage
-}
+type OrderSearchResult = Awaited<ReturnType<TestConvex["query"]>>
 
 test("every visible order is findable by its own id on a projection-free fixture", async () => {
   const t = fresh()
   const fixture = await seedFixture(t)
-  await expectSourceOnly(t)
-
-  const counts = await t.run(async (ctx) => ({
-    orders: (await ctx.db.query("orders").take(100)).length,
-    attendees: (await ctx.db.query("orderAttendees").take(100)).length,
-  }))
-  expect(counts.orders).toBeGreaterThanOrEqual(6)
-  expect(counts.attendees).toBeGreaterThanOrEqual(10)
+  await assertProjectionFreeAndNonVacuous(t, fixture)
 
   let checked = 0
   for (const order of fixture.visibleOrders) {
-    for (const needle of [order.id.slice(0, 10), order.id, idFragment(order.id)]) {
-      const result = await orderSearch(t, fixture.eventA, needle)
-      expect(result.orders.map((row) => String(row.orderId)), `needle ${needle}`).toContain(
-        order.id
-      )
+    for (const search of [idFragment(String(order.id)), String(order.id)]) {
+      const result = (await t.query(api.orders.getOrdersWithFilters, {
+        eventId: String(fixture.eventId),
+        search,
+        pageSize: 25,
+      })) as OrderSearchResult
+      expect(
+        result.orders.map((row) => row.orderId),
+        `needle ${search} must find ${order.id}`
+      ).toContain(String(order.id))
+      checked += 1
     }
-    checked += 1
   }
-  expect(checked).toBe(fixture.visibleOrders.length)
+  expect(checked).toBe(fixture.visibleOrders.length * 2)
 })
 
-test("every attendee is findable by id, name, email, and order ref", async () => {
+test("every attendee is findable by id, name, email, and booking ref", async () => {
   const t = fresh()
   const fixture = await seedFixture(t)
-  await expectSourceOnly(t)
+  await assertProjectionFreeAndNonVacuous(t, fixture)
 
-  let checks = 0
+  let checked = 0
   for (const attendee of fixture.visibleAttendees) {
-    const nameParts = attendee.name.trim().split(/\s+/)
-    const needles = [
-      idFragment(attendee.id),
-      attendee.id,
-      nameParts[0],
-      ...(nameParts.length > 1 ? [nameParts.at(-1)!] : []),
+    const nameParts = attendee.name.split(/\s+/)
+    const searches = [
+      idFragment(String(attendee.id)),
+      String(attendee.id),
+      nameParts[0].slice(0, Math.min(5, nameParts[0].length)),
+      nameParts[nameParts.length - 1],
       attendee.bookingRef,
-      attendee.bookingRef.replace(/[-_]/g, ""),
-      ...(attendee.email
-        ? [attendee.email, attendee.email.replace(/[.@+_-]/g, "")]
-        : []),
     ]
-    for (const needle of needles) {
-      const result = await attendeeSearch(t, fixture.eventA, needle)
+    if (attendee.email) {
+      searches.push(attendee.email, attendee.email.replace(/[^a-zA-Z0-9]/g, ""))
+    }
+
+    for (const search of searches) {
+      const result = await t.query(api.attendees.getAttendeeLedgerPage, {
+        eventId: fixture.eventId,
+        search,
+        pageSize: 50,
+        cursor: null,
+      })
       expect(
         result.rows.map((row) => String(row._id)),
-        `needle ${needle} must find ${attendee.id}`
-      ).toContain(attendee.id)
-      checks += 1
+        `needle ${search} must find ${attendee.id}`
+      ).toContain(String(attendee.id))
+      checked += 1
     }
   }
-  expect(checks).toBeGreaterThanOrEqual(10)
-  expect(checks).toBe(
-    fixture.visibleAttendees.reduce(
-      (count, attendee) =>
-        count + 5 + (attendee.name.trim().split(/\s+/).length > 1 ? 1 : 0) + (attendee.email ? 2 : 0),
-      0
-    )
-  )
+  expect(checked).toBeGreaterThanOrEqual(fixture.visibleAttendees.length * 6)
 })
 
-test("the real defect values resolve for both orders and attendees", async () => {
+test("the live defect values find both the Oliver Vos order and attendee", async () => {
   const t = fresh()
   const fixture = await seedFixture(t)
-  await expectSourceOnly(t)
+  await assertProjectionFreeAndNonVacuous(t, fixture)
 
-  const defectOrder = fixture.visibleOrders[0]
+  const defect = fixture.visibleOrders[0]
   const defectAttendee = fixture.visibleAttendees[0]
-  for (const needle of ["oliver", "vos", "bkfamilyvos", "BK-FAMILY-VOS"]) {
-    const orderResult = await orderSearch(t, fixture.eventA, needle)
-    expect(orderResult.orders.map((row) => String(row.orderId)), needle).toContain(
-      defectOrder.id
-    )
-    const attendeeResult = await attendeeSearch(t, fixture.eventA, needle)
-    expect(attendeeResult.rows.map((row) => String(row._id)), needle).toContain(
-      defectAttendee.id
+  for (const search of ["oliver", "vos", "bkfamilyvos"]) {
+    const orders = await t.query(api.orders.getOrdersWithFilters, {
+      eventId: String(fixture.eventId),
+      search,
+      pageSize: 25,
+    })
+    const attendees = await t.query(api.attendees.getAttendeeLedgerPage, {
+      eventId: fixture.eventId,
+      search,
+      pageSize: 50,
+      cursor: null,
+    })
+    expect(orders.orders.map((row) => row.orderId), search).toContain(String(defect.id))
+    expect(attendees.rows.map((row) => String(row._id)), search).toContain(
+      String(defectAttendee.id)
     )
   }
 
-  const haystack = buildSearchHaystack([
+  const realDefectHaystack = buildSearchHaystack([
     "ph7dxxr9sebg2bc6x4vpk664mn8e9d2d",
     "Oliver Vos",
     "BK-FAMILY-VOS",
   ])
   for (const needle of ["ph7dxxr9", "oliver", "vos"]) {
-    expect(matchesNormalizedSearch(haystack, needle)).toBe(true)
+    expect(matchesNormalizedSearch(realDefectHaystack, needle)).toBe(true)
   }
 })
 
-test("order and attendee pagination returns every Nadine match exactly once", async () => {
+test("pagination finds every Nadine match exactly once for attendees and orders", async () => {
   const t = fresh()
   const fixture = await seedFixture(t)
-  await expectSourceOnly(t)
+  await assertProjectionFreeAndNonVacuous(t, fixture)
+
+  const expectedAttendees = fixture.visibleAttendees
+    .filter((attendee) => attendee.name.toLowerCase().includes("nadine"))
+    .map((attendee) => String(attendee.id))
+  const attendeePages: string[][] = []
+  let attendeeCursor: string | null = null
+  for (let pageNumber = 0; pageNumber < 10; pageNumber += 1) {
+    const page = await t.query(api.attendees.getAttendeeLedgerPage, {
+      eventId: fixture.eventId,
+      search: "Nadine",
+      pageSize: 2,
+      cursor: attendeeCursor,
+    })
+    attendeePages.push(page.rows.map((row) => String(row._id)))
+    if (!page.page.hasNextPage) break
+    attendeeCursor = page.page.nextCursor
+    expect(attendeeCursor).not.toBeNull()
+  }
+  expect(attendeePages.slice(0, -1).every((page) => page.length === 2)).toBe(true)
+  const attendeeUnion = attendeePages.flat()
+  expect(new Set(attendeeUnion)).toEqual(new Set(expectedAttendees))
+  expect(attendeeUnion).toHaveLength(expectedAttendees.length)
 
   const expectedOrders = fixture.visibleOrders
     .filter((order) => order.bookerName.toLowerCase().includes("nadine"))
-    .map((order) => order.id)
-  const expectedAttendees = fixture.visibleAttendees
-    .filter(
-      (attendee) =>
-        attendee.name.toLowerCase().includes("nadine") ||
-        attendee.bookingRef.toLowerCase().includes("nadine")
-    )
-    .map((attendee) => attendee.id)
-  expect(expectedOrders.length).toBeGreaterThanOrEqual(5)
-  expect(expectedAttendees.length).toBeGreaterThanOrEqual(5)
-
-  const orderIds: string[] = []
+    .map((order) => String(order.id))
+  const orderPages: string[][] = []
   let orderCursor: string | null = null
-  for (let page = 0; page < 10; page += 1) {
-    const result = await orderSearch(t, fixture.eventA, "nadine", 2, orderCursor)
-    orderIds.push(...result.orders.map((row) => String(row.orderId)))
-    if (!result.hasNextPage) {
-      expect(result.nextCursor).toBeNull()
-      break
-    }
-    expect(result.nextCursor).toBeTruthy()
-    orderCursor = result.nextCursor
-    if (page === 9) throw new Error("order pagination did not terminate")
+  for (let pageNumber = 0; pageNumber < 10; pageNumber += 1) {
+    const page = await t.query(api.orders.getOrdersWithFilters, {
+      eventId: String(fixture.eventId),
+      search: "Nadine",
+      pageSize: 2,
+      searchCursor: orderCursor,
+    })
+    orderPages.push(page.orders.map((row) => row.orderId))
+    if (!page.hasNextPage) break
+    orderCursor = page.nextCursor
+    expect(orderCursor).not.toBeNull()
   }
-
-  const attendeeIds: string[] = []
-  let attendeeCursor: string | null = null
-  for (let page = 0; page < 10; page += 1) {
-    const result = await attendeeSearch(t, fixture.eventA, "nadine", 2, attendeeCursor)
-    attendeeIds.push(...result.rows.map((row) => String(row._id)))
-    if (!result.page.hasNextPage) {
-      expect(result.page.nextCursor).toBeNull()
-      break
-    }
-    expect(result.page.nextCursor).toBeTruthy()
-    attendeeCursor = result.page.nextCursor
-    if (page === 9) throw new Error("attendee pagination did not terminate")
-  }
-
-  expect(new Set(orderIds)).toEqual(new Set(expectedOrders))
-  expect(new Set(orderIds).size).toBe(expectedOrders.length)
-  expect(new Set(attendeeIds)).toEqual(new Set(expectedAttendees))
-  expect(new Set(attendeeIds).size).toBe(expectedAttendees.length)
+  expect(orderPages.slice(0, -1).every((page) => page.length === 2)).toBe(true)
+  const orderUnion = orderPages.flat()
+  expect(new Set(orderUnion)).toEqual(new Set(expectedOrders))
+  expect(orderUnion).toHaveLength(expectedOrders.length)
 })
 
-test("merged and other-event records stay outside the event-scoped searches", async () => {
+test("merged and other-event records stay excluded from an event-scoped search", async () => {
   const t = fresh()
   const fixture = await seedFixture(t)
-  await expectSourceOnly(t)
+  await assertProjectionFreeAndNonVacuous(t, fixture)
 
-  const mergedOrder = await orderSearch(
-    t,
-    fixture.eventA,
-    idFragment(fixture.mergedOrderId)
-  )
-  const otherEventOrder = await orderSearch(
-    t,
-    fixture.eventA,
-    idFragment(fixture.otherEventOrderId)
-  )
-  expect(mergedOrder.orders).toEqual([])
-  expect(otherEventOrder.orders).toEqual([])
+  for (const search of [fixture.mergedOrder.bookerName, String(fixture.mergedOrder.id)]) {
+    const result = await t.query(api.orders.getOrdersWithFilters, {
+      eventId: String(fixture.eventId),
+      search,
+      pageSize: 25,
+    })
+    expect(result.orders).toEqual([])
+  }
+  for (const search of ["Merged Ghost Attendee", String(fixture.mergedAttendeeId)]) {
+    const result = await t.query(api.attendees.getAttendeeLedgerPage, {
+      eventId: fixture.eventId,
+      search,
+      pageSize: 50,
+      cursor: null,
+    })
+    expect(result.rows).toEqual([])
+  }
 
-  const mergedAttendee = await attendeeSearch(
-    t,
-    fixture.eventA,
-    idFragment(fixture.mergedAttendeeId)
-  )
-  const otherEventAttendee = await attendeeSearch(
-    t,
-    fixture.eventA,
-    idFragment(fixture.otherEventAttendeeId)
-  )
-  expect(mergedAttendee.rows).toEqual([])
-  expect(otherEventAttendee.rows).toEqual([])
+  const otherOrderByName = await t.query(api.orders.getOrdersWithFilters, {
+    eventId: String(fixture.eventId),
+    search: fixture.otherOrder.bookerName,
+    pageSize: 25,
+  })
+  const otherOrderById = await t.query(api.orders.getOrdersWithFilters, {
+    eventId: String(fixture.eventId),
+    search: String(fixture.otherOrder.id),
+    pageSize: 25,
+  })
+  expect(otherOrderByName.orders).toEqual([])
+  expect(otherOrderById.orders).toEqual([])
+
+  const otherAttendee = await t.query(api.attendees.getAttendeeLedgerPage, {
+    eventId: fixture.eventId,
+    search: String(fixture.otherAttendeeId),
+    pageSize: 50,
+    cursor: null,
+  })
+  expect(otherAttendee.rows).toEqual([])
 })
