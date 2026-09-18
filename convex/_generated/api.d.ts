@@ -1060,6 +1060,32 @@ export declare const api: {
       },
       any
     >;
+    getOrderAllocationLedger: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events">; orderId: Id<"orders"> },
+      {
+        allocationRows: Array<{
+          amountMinor: number;
+          attendeeId: Id<"orderAttendees">;
+          donationId: Id<"payments">;
+          recordedAt: number;
+          scope: "event_charges" | "whole_order";
+        }>;
+        balances: {
+          allocationCreditMinor: number;
+          amountDueMinor: number;
+          appliedAmountMinor: number;
+          appliedPaymentMinor: number;
+          donationAmountMinor: number;
+          outstandingAmountMinor: number;
+          paidAmountMinor: number;
+        } | null;
+        coveragePercent: number | null;
+        orderId: Id<"orders">;
+        sharedOutstandingPerAttendeeMinor: number | null;
+      } | null
+    >;
     getOrderById: FunctionReference<
       "query",
       "public",

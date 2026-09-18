@@ -1419,6 +1419,171 @@ export const getOrderWithAttendees = query({
   },
 })
 
+/**
+ * D-07 / the UI-SPEC G2 gap: the additive per-order allocation + canonical
+ * balance read consumed by the order detail surface (plan 61-09).
+ *
+ * The order detail must reconcile with donation credit: its payments list
+ * excludes allocation credit entirely, and until now no read exposed an
+ * order's allocation rows (target + scope). This query returns those rows
+ * (donation, amount, target attendee, scope, recorded time) beside the
+ * order's balance.
+ *
+ * Every MONEY field is `loadCanonicalOrderBalances` output VERBATIM — the
+ * canonical owner is the only place the paid / outstanding / overpayment
+ * figure is composed. The read must never recompose one from the rows or
+ * from payments, and it runs no second pricing or payments pass.
+ *
+ * The rows are read once, bounded, through `donationAllocations.by_orderId`
+ * with `for await`: no unbounded collect, no fixed cap — a cap would silently
+ * drop credit and overstate outstanding (the same rule the canonical owner
+ * documents). No sort: index order is stable and the UI renders as given.
+ *
+ * `coveragePercent` and `sharedOutstandingPerAttendeeMinor` are display
+ * scalars computed ONCE here from the canonical owner's output so the client
+ * performs zero arithmetic — a MOVE of the formulas the order surface used
+ * to run (`due > 0 → min(100, round(paid / due * 100))`, `due === 0 → 100`;
+ * `ceil(outstanding / attendeeCount)` when attendees exist), never a new
+ * money owner.
+ *
+ * Visibility guards mirror `getOrderWithAttendees`: only the requested event
+ * (explicit equality, never an inferred scope), only internal events, and
+ * removed / merged orders are refused. An order absent from the canonical
+ * owner's resolved due map yields `balances: null` — mirroring the owner's
+ * omission rule, never fabricated as a zero-due balance.
+ */
+export const getOrderAllocationLedger = query({
+  args: {
+    orderId: v.id("orders"),
+    eventId: v.id("events"),
+  },
+  returns: v.union(
+    v.object({
+      orderId: v.id("orders"),
+      /** `loadCanonicalOrderBalances` output VERBATIM; null mirrors the owner's omission rule. */
+      balances: v.union(
+        v.object({
+          amountDueMinor: v.number(),
+          appliedPaymentMinor: v.number(),
+          allocationCreditMinor: v.number(),
+          paidAmountMinor: v.number(),
+          outstandingAmountMinor: v.number(),
+          donationAmountMinor: v.number(),
+          appliedAmountMinor: v.number(),
+        }),
+        v.null()
+      ),
+      /** Presentation-only scalars; see the doc comment (no money ownership). */
+      coveragePercent: v.union(v.number(), v.null()),
+      sharedOutstandingPerAttendeeMinor: v.union(v.number(), v.null()),
+      /** One entry per recorded allocation row; index order. */
+      allocationRows: v.array(
+        v.object({
+          donationId: v.id("payments"),
+          attendeeId: v.id("orderAttendees"),
+          amountMinor: v.number(),
+          scope: v.union(v.literal("event_charges"), v.literal("whole_order")),
+          recordedAt: v.number(),
+        })
+      ),
+    }),
+    v.null()
+  ),
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const order = await ctx.db.get("orders", args.orderId)
+    if (!order) return null
+
+    // Explicit event scoping: the read serves only the event the caller asked
+    // for, never an inferred scope.
+    if (String(order.eventId) !== String(args.eventId)) return null
+
+    const eventSourceKindsById = await loadEventSourceKindsById(ctx)
+    if (!isInternalEvent(eventSourceKindsById, order.eventId)) return null
+
+    const extension =
+      (await loadOrderWithExtension(ctx, order._id))?.extension ?? null
+    if (extension && isOrderRemoved(extension)) return null
+    if (isOrderMergedCore(order)) return null
+
+    // ONE balance pass: the canonical owner prices the order itself. No direct
+    // per-attendee attribution / due-breakdown call beside it — that would be
+    // a second pricing or payments pass that changes no figure.
+    const balancesByOrderId = await loadCanonicalOrderBalances({
+      ctx,
+      orders: [{ _id: order._id }],
+    })
+
+    const attendeeCount = (
+      await loadOrderAttendeesWithExtensions(ctx, order._id)
+    ).length
+
+    const allocationRows: Array<{
+      donationId: Id<"payments">
+      attendeeId: Id<"orderAttendees">
+      amountMinor: number
+      scope: "event_charges" | "whole_order"
+      recordedAt: number
+    }> = []
+
+    // Bounded per-order read through the declared index: for-await only.
+    for await (const row of ctx.db
+      .query("donationAllocations")
+      .withIndex("by_orderId", (q) => q.eq("orderId", order._id))) {
+      allocationRows.push({
+        donationId: row.donationId,
+        attendeeId: row.attendeeId,
+        amountMinor: row.amountMinor,
+        scope: row.scope,
+        recordedAt: row.createdAt,
+      })
+    }
+
+    const balance = balancesByOrderId.get(String(order._id)) ?? null
+    const coveragePercent =
+      balance === null
+        ? null
+        : balance.amountDueMinor > 0
+          ? Math.min(
+              100,
+              Math.round(
+                (balance.paidAmountMinor / balance.amountDueMinor) * 100
+              )
+            )
+          : balance.amountDueMinor === 0
+            ? 100
+            : null
+    const sharedOutstandingPerAttendeeMinor =
+      balance === null || attendeeCount === 0
+        ? null
+        : Math.ceil(balance.outstandingAmountMinor / attendeeCount)
+
+    // List the fields explicitly (not a spread) so the returns validator stays
+    // legible and a future owner field is a deliberate edit here.
+    const balanceForReturn =
+      balance === null
+        ? null
+        : {
+            amountDueMinor: balance.amountDueMinor,
+            appliedPaymentMinor: balance.appliedPaymentMinor,
+            allocationCreditMinor: balance.allocationCreditMinor,
+            paidAmountMinor: balance.paidAmountMinor,
+            outstandingAmountMinor: balance.outstandingAmountMinor,
+            donationAmountMinor: balance.donationAmountMinor,
+            appliedAmountMinor: balance.appliedAmountMinor,
+          }
+
+    return {
+      orderId: order._id,
+      balances: balanceForReturn,
+      coveragePercent,
+      sharedOutstandingPerAttendeeMinor,
+      allocationRows,
+    }
+  },
+})
+
 export const getOrderPaymentStatus = query({
   args: {},
   returns: v.object({
