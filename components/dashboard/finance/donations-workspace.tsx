@@ -23,6 +23,7 @@ import { DonationAllocationDialog } from "./donation-allocation-dialog"
 import { DonationDeleteDialog } from "./donation-delete-dialog"
 import { DonationRecordPanel } from "./donation-record-panel"
 import { api } from "@/lib/convex/api"
+import { buildDonationDeleteDescription } from "@/lib/dashboard/donation-delete-availability"
 import { buildDonationDeletionSuccess } from "@/lib/dashboard/donation-deletion-copy"
 import { donationsHref } from "@/lib/dashboard/workspace-routes"
 import { formatMoney } from "@/lib/format"
@@ -56,12 +57,6 @@ type DeleteTarget = {
   amountMinor: number
   allocationCount: number
 }
-
-/** The row-level delete refusals, exposed through `title`/`aria-describedby`. */
-const TIKKIE_DELETE_REFUSAL =
-  "Tikkie-sourced donations cannot be deleted — the payment sync would recreate this donation."
-const ALLOCATION_COUNT_PENDING = "Preparing the allocation count…"
-const DELETE_REFUSAL_DESCRIBED_BY_ID = "donations-delete-availability"
 
 export function DonationsWorkspace({ slug }: { slug: string }) {
   const { event } = useEventDashboard()
@@ -224,6 +219,14 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
                         ? undefined
                         : allocationCountByDonationId.get(String(row._id))
                     const isSelected = selectedDonationId === String(row._id)
+                    // The delete description is PER-ROW and CONDITIONAL — a row
+                    // must never announce a reason that is not true of it (the
+                    // shared-element defect this replaces).
+                    const deleteDescription = buildDonationDeleteDescription({
+                      source: row.source,
+                      allocationCount,
+                    })
+                    const deleteDescriptionId = `donation-delete-availability-${row._id}`
                     return (
                       <TableRow
                         key={row._id}
@@ -285,22 +288,12 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
                               variant="destructive"
                               size="sm"
                               className="h-8 rounded-lg"
-                              disabled={
-                                row.source === "tikkie" ||
-                                allocationCount === undefined
-                              }
-                              title={
-                                row.source === "tikkie"
-                                  ? TIKKIE_DELETE_REFUSAL
-                                  : allocationCount === undefined
-                                    ? ALLOCATION_COUNT_PENDING
-                                    : undefined
-                              }
+                              disabled={deleteDescription !== null}
+                              title={deleteDescription ?? undefined}
                               aria-describedby={
-                                row.source === "tikkie" ||
-                                allocationCount === undefined
-                                  ? DELETE_REFUSAL_DESCRIBED_BY_ID
-                                  : undefined
+                                deleteDescription === null
+                                  ? undefined
+                                  : deleteDescriptionId
                               }
                               onClick={() => {
                                 if (allocationCount === undefined) return
@@ -315,6 +308,11 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
                             >
                               Delete donation
                             </Button>
+                            {deleteDescription !== null && (
+                              <p id={deleteDescriptionId} className="sr-only">
+                                {deleteDescription}
+                              </p>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -322,10 +320,6 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
                   })}
                 </TableBody>
               </Table>
-              {/* The delete refusals the row buttons reference; rendered once. */}
-              <p id={DELETE_REFUSAL_DESCRIBED_BY_ID} className="sr-only">
-                {TIKKIE_DELETE_REFUSAL} {ALLOCATION_COUNT_PENDING}
-              </p>
             </>
           )}
 
