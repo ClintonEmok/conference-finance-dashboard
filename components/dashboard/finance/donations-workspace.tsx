@@ -349,9 +349,14 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
           )}
         </div>
 
+        {/* React requires unique keys among siblings. The record panel and the
+            two dialogs below are siblings in this list: when all three keyed on
+            the bare donation id, opening the Allocate dialog for the selected
+            donation duplicated the panel and left stale copies behind (61-01).
+            Each key namespaces the ELEMENT, so one donation can host all three. */}
         {selectedRow !== undefined && selectedAllocationCount !== undefined && (
           <DonationRecordPanel
-            key={selectedRow._id}
+            key={`record-${selectedRow._id}`}
             donationId={selectedRow._id}
             eventId={event._id}
             payerName={selectedRow.payerName}
@@ -385,7 +390,7 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
 
         {allocationTarget !== null && (
           <DonationAllocationDialog
-            key={allocationTarget.donationId}
+            key={`allocation-${allocationTarget.donationId}`}
             open
             onOpenChange={(next) => {
               if (!next) setAllocationTarget(null)
@@ -407,7 +412,7 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
 
         {deleteTarget !== null && (
           <DonationDeleteDialog
-            key={deleteTarget.donationId}
+            key={`deletion-${deleteTarget.donationId}`}
             open
             onOpenChange={(next) => {
               if (!next) setDeleteTarget(null)

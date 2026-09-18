@@ -41,8 +41,10 @@ export type DonationDeletionResult = {
  * pending a pre-confirmation fetch.
  *
  * The hosting page remounts this component per donation via
- * `key={deleteTarget.donationId}` (58-09), so a different donation gets a fresh
- * key from the state initializer without an effect.
+ * `key={`deletion-${deleteTarget.donationId}`}` (61-01 namespaced the 58-09
+ * key so it can no longer collide with the record panel or the allocation
+ * dialog, which are siblings in the same children list), so a different
+ * donation gets a fresh key from the state initializer without an effect.
  */
 export type DonationDeleteDialogProps = {
   open: boolean

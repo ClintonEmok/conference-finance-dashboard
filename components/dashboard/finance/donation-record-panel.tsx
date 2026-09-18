@@ -266,8 +266,12 @@ export function DonationRecordPanel({
           </TableRow>
         </TableHeader>
         <TableBody className="divide-y divide-border/40">
-          {visibleRows.map((row) => (
-            <TableRow key={`${row.orderId}:${row.attendeeId}`}>
+          {/* The ordinal keeps each rendered row unique when one donation holds
+              two allocations to the same target (orderId + attendeeId alone
+              collided — 61-01). The rows are an append-only, payload-ordered
+              list, so the index is stable for a given summary payload. */}
+          {visibleRows.map((row, index) => (
+            <TableRow key={`${row.orderId}:${row.attendeeId}:${index}`}>
               <TableCell>
                 <AllocationTargetLabel
                   orderId={row.orderId}

@@ -136,8 +136,16 @@ describe("donations workspace — intent and row actions", () => {
   it("wires both dialogs and remounts them per donation", () => {
     expect(workspace).toContain("<DonationAllocationDialog")
     expect(workspace).toContain("<DonationDeleteDialog")
-    expect(workspace).toMatch(/key=\{allocationTarget\.donationId\}/)
-    expect(workspace).toMatch(/key=\{deleteTarget\.donationId\}/)
+    // The keys are namespaced by element (61-01): a bare donation id collided
+    // with the record panel and duplicated it. The `record-` key is pinned in
+    // `donation-key-collision.test.ts`; 61-03 rewrites this suite when the
+    // record blocks move to the detail host.
+    expect(workspace).toMatch(
+      /key=\{`allocation-\$\{allocationTarget\.donationId\}`\}/
+    )
+    expect(workspace).toMatch(
+      /key=\{`deletion-\$\{deleteTarget\.donationId\}`\}/
+    )
     expect(workspace).toContain("buildDonationDeletionSuccess")
     expect(workspace).toContain('role="status"')
   })
