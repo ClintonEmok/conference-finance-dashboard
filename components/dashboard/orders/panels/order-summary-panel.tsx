@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils"
 import type { ReactNode } from "react"
 
 export type OrderSummaryOrder = {
-  id: string
+  bookingRef: string | null
   normalizedStatus: "paid" | "refunded" | "cancelled" | "pending" | null
   isArchived?: boolean
 }
@@ -78,7 +78,7 @@ export function OrderSummaryPanel({
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <span className="rounded-lg bg-primary/10 px-3 py-1 font-mono text-xl font-bold tracking-tight text-primary">
-                {order.id}
+                {order.bookingRef ?? "No booking reference"}
               </span>
               <Badge
                 variant={statusBadgeVariant(order.normalizedStatus ?? null)}
@@ -86,12 +86,9 @@ export function OrderSummaryPanel({
               >
                 {order.normalizedStatus ?? "pending"}
               </Badge>
-              <Badge variant="outline" className="font-mono text-[10px] uppercase">
-                {slug}
-              </Badge>
             </div>
             <CardDescription className="text-sm font-medium">
-              {eventTitle} · /dashboard/events/{slug}/orders/{order.id}
+              {eventTitle}
             </CardDescription>
           </div>
 

@@ -211,3 +211,46 @@ describe("breadcrumbs and confirmation markers", () => {
     expect(editor).not.toContain("window.confirm")
   })
 })
+
+describe("order summary reads as human labels (D-08 correction)", () => {
+  const panelSource = () =>
+    readSource("components/dashboard/orders/panels/order-summary-panel.tsx")
+
+  it("headlines the booking reference and drops the raw order id", () => {
+    const raw = panelSource()
+    const panel = stripComments(raw)
+
+    // The prominent heading is the human identifier, with a neutral fallback...
+    expect(panel).toContain('order.bookingRef ?? "No booking reference"')
+    // ...the raw id is neither rendered nor part of the panel's contract.
+    expect(raw).not.toContain("{order.id}")
+    expect(panel).not.toMatch(/\bid: string\b/)
+  })
+
+  it("drops the slug badge but keeps the back link on the slug", () => {
+    const raw = panelSource()
+    const panel = stripComments(raw)
+
+    expect(raw).not.toMatch(/\{slug\}\s*<\/Badge>/)
+    expect(panel).toContain("/dashboard/events/${slug}/orders")
+  })
+
+  it("drops the raw path line and keeps the event title as the description", () => {
+    const raw = panelSource()
+    const panel = stripComments(raw)
+
+    expect(raw).not.toContain("/dashboard/events/{slug}/orders/{order.id}")
+    expect(panel).toMatch(
+      /<CardDescription[^>]*>\s*\{eventTitle\}\s*<\/CardDescription>/
+    )
+  })
+
+  it("keeps the meaningful status badge", () => {
+    const panel = stripComments(panelSource())
+
+    expect(panel).toContain(
+      "statusBadgeVariant(order.normalizedStatus ?? null)"
+    )
+    expect(panel).toContain('order.normalizedStatus ?? "pending"')
+  })
+})
