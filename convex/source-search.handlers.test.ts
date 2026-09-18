@@ -228,27 +228,6 @@ test("the cursor codec round-trips and stays signature-bound", () => {
   }
 })
 
-test("the legacy projection apparatus stays exported for 62-04 to retire (delete this case in 62-04)", async () => {
-  const search = await import("./search")
-  const legacyExports: Array<keyof typeof search> = [
-    "paginateSearchDocuments",
-    "maintainOrderSearchProjection",
-    "upsertOrderSearchDocument",
-    "upsertAttendeeSearchDocument",
-    "deleteSearchProjection",
-    "refreshAttendeeSearchDocumentsForOrder",
-    "refreshAttendeeSearchDocumentsForTicketType",
-    "refreshAttendeeSearchDocumentsForFamily",
-    "enqueueSearchProjectionFanout",
-    "startSearchProjectionFanout",
-    "continueSearchProjectionFanout",
-    "SearchProjectionBlocked",
-  ]
-  for (const name of legacyExports) {
-    expect(search[name], `legacy export ${name}`).toBeDefined()
-  }
-})
-
 // ---------------------------------------------------------------------------
 // Task 2 — collectSourceSearchPage: boundary, cap, resume, and async proofs
 // ---------------------------------------------------------------------------
