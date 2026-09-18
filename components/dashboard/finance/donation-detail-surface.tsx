@@ -10,8 +10,10 @@ import { useEventDashboard } from "@/components/dashboard/event-dashboard-contex
 import { api } from "@/lib/convex/api"
 import { usePaymentById } from "@/lib/convex/hooks/payments"
 import { buildDonationDeletionSuccess } from "@/lib/dashboard/donation-deletion-copy"
+import { buildAllocationRemovalSuccess } from "@/lib/dashboard/donation-allocation-removal-copy"
 import { donationsHref } from "@/lib/dashboard/workspace-routes"
 import { DonationAllocationDialog } from "./donation-allocation-dialog"
+import { DonationAllocationRemovalDialog } from "./donation-allocation-removal-dialog"
 import { DonationDeleteDialog } from "./donation-delete-dialog"
 import { DonationRecordPanel } from "./donation-record-panel"
 import type { Id } from "@/convex/_generated/dataModel"
@@ -19,8 +21,9 @@ import type { Id } from "@/convex/_generated/dataModel"
 /**
  * The dedicated donation detail host (Phase 61, D-01).
  *
- * The list stays a list; this route owns the relocated record and the SAME two
- * dialogs. Three properties are load-bearing:
+ * The list stays a list; this route owns the relocated record, the SAME two
+ * allocation/deletion dialogs, and D-06's light per-allocation removal
+ * confirmation. Four properties are load-bearing:
  *
  *   1. The id SHAPE gate runs first and skips the subscription for an id that
  *      is not 32 lowercase alphanumerics, so the common malformed case never
@@ -60,6 +63,16 @@ type DeleteTarget = {
   payerName: string
   amountMinor: number
   allocationCount: number
+}
+
+/**
+ * One armed per-allocation removal (D-06). `amountMinor` is the row's RECORDED
+ * amount — removal frees what was recorded, never the lower applied figure.
+ */
+type RemovalTarget = {
+  attendeeId: Id<"orderAttendees">
+  orderId: Id<"orders">
+  amountMinor: number
 }
 
 /** The record's way back — one link, three states. */
@@ -209,6 +222,24 @@ function DonationDetailSurfaceInner({
   const [allocationTarget, setAllocationTarget] =
     useState<AllocationTarget | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
+  const [removalTarget, setRemovalTarget] = useState<RemovalTarget | null>(null)
+  const [removalSuccess, setRemovalSuccess] = useState<{
+    amountMinor: number
+  } | null>(null)
+
+  // The removal target's attendee name, resolved from the order the allocation
+  // credited. An unresolved target falls back to the raw attendee id — never an
+  // invented label (the record's own convention).
+  const removalOrder = useQuery(
+    api.orders.getOrderWithAttendees,
+    removalTarget === null ? "skip" : { orderId: removalTarget.orderId }
+  )
+  const removalAttendeeName =
+    removalTarget === null
+      ? ""
+      : (removalOrder?.attendees.find(
+          (entry) => String(entry.id) === String(removalTarget.attendeeId)
+        )?.name ?? String(removalTarget.attendeeId))
 
   // TRI-STATE: `income === undefined` means the projection has not resolved
   // yet. The entry is the record's readiness gate — the panel's `allocationCount`
@@ -284,6 +315,22 @@ function DonationDetailSurfaceInner({
         </div>
       )}
 
+      {/* D-06's freed-amount band: the removal counterpart of the list-level
+          allocation band (61-03's workspace owns that one). It reports the
+          amount the removal returned to the donation's unallocated remainder;
+          the reload-token bump in `onRemoved` is what refreshes the record. */}
+      {removalSuccess !== null && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm font-medium text-emerald-700 dark:text-emerald-300"
+        >
+          {buildAllocationRemovalSuccess({
+            amountMinor: removalSuccess.amountMinor,
+          })}
+        </div>
+      )}
+
       <DonationRecordPanel
         key={`record-${donationId}`}
         donationId={payment._id}
@@ -310,6 +357,14 @@ function DonationDetailSurfaceInner({
             amountMinor: payment.amountMinor,
             allocationCount,
           })
+        }}
+        onRemoveAllocation={(target) => {
+          // Arming a removal clears every other confirmation band so no stale
+          // "recorded"/"deleted" message can sit beside the new confirmation.
+          setRemovalSuccess(null)
+          setAllocationSuccess(null)
+          setDeletionSuccess(null)
+          setRemovalTarget(target)
         }}
       />
 
@@ -350,6 +405,31 @@ function DonationDetailSurfaceInner({
           onDeleted={(result) => {
             setDeletionSuccess({ allocationCount: result.allocationCount })
             setAllocationSuccess(null)
+            setReloadToken((token) => token + 1)
+          }}
+        />
+      )}
+
+      {removalTarget !== null && (
+        <DonationAllocationRemovalDialog
+          key={`removal-${removalTarget.attendeeId}`}
+          open
+          onOpenChange={(next) => {
+            if (!next) setRemovalTarget(null)
+          }}
+          donationId={payment._id}
+          eventId={event._id}
+          attendeeId={removalTarget.attendeeId}
+          amountMinor={removalTarget.amountMinor}
+          attendeeName={removalAttendeeName}
+          onRemoved={() => {
+            // The reload-token bump is what makes the panel re-read and show
+            // the updated Allocated/Remaining figures — without it the removal
+            // would be silent and the figures stale.
+            setRemovalSuccess({ amountMinor: removalTarget.amountMinor })
+            setRemovalTarget(null)
+            setAllocationSuccess(null)
+            setDeletionSuccess(null)
             setReloadToken((token) => token + 1)
           }}
         />

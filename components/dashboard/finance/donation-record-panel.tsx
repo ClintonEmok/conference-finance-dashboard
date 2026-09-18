@@ -39,6 +39,10 @@ import {
  * a row's `effectiveCapacityMinor` is rendered VERBATIM as `Writable now` and
  * the bare `scopeOutstandingMinor` is demoted to supporting `Scope balance`, so
  * the bare scope ceiling can never be misread as the writable amount (AE-1).
+ *
+ * The per-row `Remove` action (Phase 61, D-06) only ARMS the host's
+ * confirmation with the row's RECORDED amount — this file holds no mutation
+ * and no removal logic; the removal dialog is the one call site.
  */
 
 /** One row of `getDonationAllocationSummary.rows` (Phase 55's read projection). */
@@ -91,6 +95,17 @@ export type DonationRecordPanelProps = {
   } | null
   onAllocate: () => void
   onDelete: () => void
+  /**
+   * D-06: arms the host's removal confirmation with THIS row's RECORDED
+   * amount. The panel only arms — the removal dialog is the one mutation call
+   * site. The prop is REQUIRED: the panel is hosted only by the detail surface,
+   * so a missing seam must fail to compile rather than silently no-op.
+   */
+  onRemoveAllocation: (target: {
+    attendeeId: Id<"orderAttendees">
+    orderId: Id<"orders">
+    amountMinor: number
+  }) => void
 }
 
 const TIKKIE_DELETE_REFUSAL =
@@ -181,6 +196,7 @@ export function DonationRecordPanel({
   allocationSuccess,
   onAllocate,
   onDelete,
+  onRemoveAllocation,
 }: DonationRecordPanelProps) {
   const convex = useConvex()
   const [summary, setSummary] = useState<DonationAllocationSummary | null>(null)
@@ -263,6 +279,7 @@ export function DonationRecordPanel({
             <TableHead>Applied</TableHead>
             <TableHead>Not applied</TableHead>
             <TableHead>Recorded at / by</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody className="divide-y divide-border/40">
@@ -302,6 +319,23 @@ export function DonationRecordPanel({
                 <span className="block text-xs text-muted-foreground">
                   {row.createdBy}
                 </span>
+              </TableCell>
+              <TableCell className="text-right">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 rounded-lg"
+                  onClick={() =>
+                    onRemoveAllocation({
+                      attendeeId: row.attendeeId as Id<"orderAttendees">,
+                      orderId: row.orderId as Id<"orders">,
+                      amountMinor: row.amountMinor,
+                    })
+                  }
+                >
+                  Remove
+                </Button>
               </TableCell>
             </TableRow>
           ))}
