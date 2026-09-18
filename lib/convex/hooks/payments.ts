@@ -8,13 +8,27 @@ export function usePayments(args?: {
   eventId?: Id<"events">
   orderId?: string
   source?: "tikkie" | "bank_transfer" | "cash"
-  status?: "auto_matched" | "manual_assignment" | "ambiguous" | "unassigned" | "donation"
+  status?:
+    | "auto_matched"
+    | "manual_assignment"
+    | "ambiguous"
+    | "unassigned"
+    | "donation"
 }) {
   return useQuery(api.payments.getPayments, args ?? "skip")
 }
 
-export function usePaymentById(paymentId: Id<"payments">) {
-  return useQuery(api.payments.getPaymentById, { paymentId })
+/**
+ * Null-tolerant: the donation detail route's `donationId` is a free URL
+ * segment, and passing a malformed string into the query would throw Convex's
+ * argument validation DURING RENDER (straight into the error boundary, past
+ * the promised not-found state). `null` skips the subscription entirely.
+ */
+export function usePaymentById(paymentId: Id<"payments"> | null) {
+  return useQuery(
+    api.payments.getPaymentById,
+    paymentId === null ? "skip" : { paymentId }
+  )
 }
 
 export function useUnassignedPayments(enabled = true) {
