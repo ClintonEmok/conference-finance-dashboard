@@ -46,6 +46,18 @@ function readSource(relativePath: string): string {
   return readFileSync(resolve(ROOT, relativePath), "utf8")
 }
 
+/**
+ * Removes block and line comments before a presence scan. Without this, a doc
+ * comment naming the centring classes satisfies the pin even when the real
+ * markup was reverted (the decoy-comment probe); a presentation guard must
+ * never be satisfiable by a comment.
+ */
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|\s)\/\/[^\n]*$/gm, "")
+}
+
 function walkSourceFiles(relativeRoot: string): string[] {
   const out: string[] = []
   const visit = (relativeDir: string) => {
@@ -272,6 +284,25 @@ describe("donation detail surface — the two failure states are distinct", () =
     expect(missing).not.toContain("We could not load this donation")
     expect(missing).not.toContain("Something went wrong")
     expect(missing).not.toContain("Try again")
+  })
+
+  it("centres and enlarges the true not-found state locally (D-08)", () => {
+    const missing = topLevelSlice(surface, "function DonationNotFound(")
+    const mountStart = missing.indexOf("<DashboardQueryState")
+    const mountEnd = missing.indexOf("/>", mountStart)
+    expect(mountStart).toBeGreaterThan(-1)
+    expect(mountEnd).toBeGreaterThan(mountStart)
+    // Comments are stripped BEFORE the class scan: a comment naming the
+    // classes can no longer satisfy the pin (the decoy-comment probe).
+    const stateMount = stripComments(missing.slice(mountStart, mountEnd))
+
+    // The centring and the larger type ride on THIS mount's className, so the
+    // shared component's default presentation is untouched for every other
+    // consumer and the change stays local to the not-found state.
+    expect(stateMount).toMatch(/className="[^"]*\bitems-center\b[^"]*"/)
+    expect(stateMount).toMatch(/className="[^"]*\bjustify-center\b[^"]*"/)
+    expect(stateMount).toMatch(/className="[^"]*\btext-center\b[^"]*"/)
+    expect(stateMount).toMatch(/className="[^"]*\btext-lg\b[^"]*"/)
   })
 
   it("routes each failure mode to its own state, never the other", () => {

@@ -101,6 +101,7 @@ function DonationNotFound({ slug }: { slug: string }) {
         state="empty"
         title="Donation not found"
         message="This donation is not available for this event."
+        className="mx-auto flex min-h-[50vh] max-w-md flex-col items-center justify-center space-y-3 text-center text-lg"
       />
     </div>
   )
