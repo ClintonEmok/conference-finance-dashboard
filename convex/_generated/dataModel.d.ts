@@ -953,6 +953,7 @@ export type DataModel = {
       attendeeKey: string;
       dietaryRestrictions?: string;
       email?: string;
+      eventId?: Id<"events">;
       gender: "male" | "female" | "mixed" | "unknown";
       location?: string;
       name: string;
@@ -974,6 +975,7 @@ export type DataModel = {
       | "attendeeKey"
       | "dietaryRestrictions"
       | "email"
+      | "eventId"
       | "gender"
       | "location"
       | "name"
@@ -988,6 +990,7 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_allocationPriority: ["allocationPriority", "_creationTime"];
       by_assignedRoomId: ["assignedRoomId", "_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
       by_orderId: ["orderId", "_creationTime"];
     };
     searchIndexes: {};

@@ -912,6 +912,8 @@ export const addAttendeeToOrder = mutation({
     const email = args.email?.trim() || undefined
     const attendeeId = await ctx.db.insert("orderAttendees", {
       orderId: args.orderId,
+      // D-06: the copy is written in the same mutation as the row it lives on.
+      eventId: args.eventId,
       attendeeKey,
       name,
       ...(email ? { email } : {}),
@@ -1329,6 +1331,12 @@ export const moveAttendeeToOrder = mutation({
       throw new Error("Target order not found")
     }
 
+    // D-06 invariant (Phase 62): `orderAttendees.eventId` is a write-once copy
+    // of the order's event. Both mutations that re-link `attendee.orderId`
+    // are same-event by construction — this guard (pinned by
+    // `attendee-order-mutations.handlers.test.ts`) and `orders.mergeOrders`
+    // (pinned by `order-merge.handlers.test.ts`) — so the copy cannot go
+    // stale and needs no maintenance at either movers' write sites.
     if (String(sourceOrder.eventId ?? "") !== String(targetOrder.eventId ?? "")) {
       throw new Error("Orders must belong to the same event")
     }

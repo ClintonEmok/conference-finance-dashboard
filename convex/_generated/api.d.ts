@@ -2484,6 +2484,26 @@ export declare const internal: {
   autoSync: {
     autoSyncTikkiePayments: FunctionReference<"action", "internal", {}, any>;
   };
+  backfillAttendeeEventIds: {
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        allowedDeploymentUrl?: string;
+        authorize: boolean;
+        batchSize: number;
+        cursor: string | null;
+      },
+      {
+        diagnostics: Array<{ reason: string; subjectId: string }>;
+        isDone: boolean;
+        nextCursor: string | null;
+        patched: number;
+        processed: number;
+        skipped: number;
+      }
+    >;
+  };
   backfillLegacyAccommodationPreferences: {
     default: FunctionReference<
       "mutation",

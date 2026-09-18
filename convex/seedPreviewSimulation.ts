@@ -217,6 +217,14 @@ export default internalMutation({
     const idMap = new Map<string, string>()
     const logicalByReal = new Map<string, string>()
     const insertedByTable: Record<string, number> = {}
+    // D-06 (Phase 62): every production insert of an `orderAttendees` row must
+    // write `eventId` in the same mutation. This seed inserts through a
+    // dynamic table name, so the copy cannot be added as a literal field on a
+    // literal insert; it is derived from the already-mapped order instead
+    // (orders are seeded before their attendees by SEED_ORDER). Without it
+    // every seeded attendee would be legacy-shaped and invisible to the
+    // `by_eventId` scan until the backfill re-runs.
+    const eventIdByRealOrderId = new Map<string, string>()
 
     // Precompute logical ID by stable key across the snapshot so that when an
     // existing (already-seeded) row is found by its stable key, its real ID is
@@ -263,6 +271,13 @@ export default internalMutation({
             logicalByReal.set(realId, logicalId)
           }
         }
+        if (table === "orders") {
+          const realOrderId = String((doc as { _id: string })._id)
+          const realEventId = (doc as { eventId?: unknown }).eventId
+          if (typeof realEventId === "string") {
+            eventIdByRealOrderId.set(realOrderId, realEventId)
+          }
+        }
       }
       let inserted = 0
       for (const row of rows) {
@@ -271,10 +286,26 @@ export default internalMutation({
           continue
         }
         const insertRow = remapLogicalReferences(row, refs, idMap)
+        if (table === "orderAttendees") {
+          const mappedOrderId =
+            typeof insertRow.orderId === "string" ? insertRow.orderId : null
+          const mappedEventId = mappedOrderId
+            ? eventIdByRealOrderId.get(mappedOrderId)
+            : undefined
+          if (!mappedEventId) {
+            throw new Error(
+              "Seed preview: an orderAttendees row could not resolve its order's eventId; refusing to insert a legacy-shaped attendee row."
+            )
+          }
+          insertRow.eventId = mappedEventId
+        }
         const realId = await ctx.db.insert(
           table as never,
           insertRow as never
         )
+        if (table === "orders" && typeof insertRow.eventId === "string") {
+          eventIdByRealOrderId.set(String(realId), insertRow.eventId)
+        }
         idMap.set(String(row._id), String(realId))
         logicalByReal.set(String(realId), String(row._id))
         if (key) {

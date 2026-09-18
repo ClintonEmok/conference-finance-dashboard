@@ -867,6 +867,8 @@ export const submitSignupEnvelope = mutation({
     for (const [sortOrder, attendee] of args.attendees.entries()) {
       const attendeeId = await ctx.db.insert("orderAttendees", {
         orderId: submissionId,
+        // D-06: written with the row, so it cannot be forgotten or drift.
+        eventId: args.eventId,
         attendeeKey: attendee.attendeeKey,
         name: attendee.name,
         email: normalizeOptionalString(attendee.email),

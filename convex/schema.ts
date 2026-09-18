@@ -313,6 +313,14 @@ export default defineSchema({
   orderAttendees: defineTable(
     v.object({
       orderId: v.id("orders"),
+      // D-06 (Phase 62): copied from the attendee's order in the same mutation
+      // that inserts the row. An order's event cannot change — both movers
+      // (orders.mergeOrders, attendees.moveAttendeeToOrder) refuse cross-event
+      // targets — so this copy cannot go stale. It makes the event-scoped
+      // attendee search a single `by_eventId` range. Optional for additive
+      // deployment: legacy rows predate the field and are filled by the
+      // operator-gated `backfillAttendeeEventIds` migration.
+      eventId: v.optional(v.id("events")),
       attendeeKey: v.string(),
       name: v.string(),
       email: v.optional(v.string()),
@@ -342,6 +350,7 @@ export default defineSchema({
     })
   )
     .index("by_orderId", ["orderId"])
+    .index("by_eventId", ["eventId"])
     .index("by_assignedRoomId", ["assignedRoomId"])
     .index("by_allocationPriority", ["allocationPriority"]),
 

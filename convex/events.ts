@@ -531,6 +531,8 @@ export const createManualAttendee = mutation({
     // Create the attendee
     const attendeeId = await ctx.db.insert("orderAttendees", {
       orderId,
+      // D-06: written with the row, so it cannot be forgotten or drift.
+      eventId: args.eventId,
       attendeeKey: "attendee-1",
       name: args.attendeeName,
       email: args.attendeeEmail,
