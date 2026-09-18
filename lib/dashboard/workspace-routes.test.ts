@@ -11,6 +11,7 @@ import {
   financeTabHref,
   financeTabPaths,
   financeTabs,
+  donationDetailHref,
   legacyAccommodationHref,
   legacyFinanceHref,
   ordersHref,
@@ -197,6 +198,34 @@ describe("dedicated payments & donations route contracts (phase 58)", () => {
   it("keeps the legacy finance href building the ?tab= URL", () => {
     expect(financeHref("event", "donations")).toBe(
       "/dashboard/events/event/finance?tab=donations"
+    )
+  })
+})
+
+describe("donation detail route contract (phase 61)", () => {
+  it("builds the canonical event-scoped donation detail path", () => {
+    expect(donationDetailHref("event", "pay_9")).toBe(
+      "/dashboard/events/event/donations/pay_9"
+    )
+  })
+
+  it("encodes both path segments", () => {
+    expect(donationDetailHref("spring retreat", "pay/9")).toBe(
+      "/dashboard/events/spring%20retreat/donations/pay%2F9"
+    )
+    expect(donationDetailHref("event/one", "a?b#c")).toBe(
+      "/dashboard/events/event%2Fone/donations/a%3Fb%23c"
+    )
+  })
+
+  it("is distinct from the list URL and from the legacy query intent", () => {
+    const detail = donationDetailHref("event", "d_1")
+    expect(detail).not.toBe(donationsHref("event"))
+    expect(detail).not.toBe(donationsHref("event", { donationId: "d_1" }))
+    // The query form remains a valid legacy intent URL — the list page adopts
+    // it — but it is no longer produced anywhere in-app.
+    expect(donationsHref("event", { donationId: "d_1" })).toBe(
+      "/dashboard/events/event/donations?donationId=d_1"
     )
   })
 })

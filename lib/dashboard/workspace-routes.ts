@@ -178,6 +178,13 @@ export const donationsHref = (slug: string, intent?: WorkspaceRouteIntent) =>
   dedicatedHref(slug, financeTabPaths.donations, intent)
 
 /**
+ * The canonical event-scoped donation DETAIL URL. The list's `?donationId=`
+ * intent resolves here; no in-app producer may emit the query form again.
+ */
+export const donationDetailHref = (slug: string, donationId: string) =>
+  `/dashboard/events/${encodeURIComponent(slug)}/donations/${encodeURIComponent(donationId)}`
+
+/**
  * The canonical event-scoped Reconciliation URL — the ONLY in-app producer of
  * this destination. The href never carries a `tab` parameter.
  */

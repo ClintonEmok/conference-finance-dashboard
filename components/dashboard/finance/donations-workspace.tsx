@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { usePaginatedQuery, useQuery } from "convex/react"
 import { Plus } from "lucide-react"
 
@@ -21,11 +21,10 @@ import { WorkspaceFrame } from "@/components/dashboard/workspace-frame"
 import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 import { DonationAllocationDialog } from "./donation-allocation-dialog"
 import { DonationDeleteDialog } from "./donation-delete-dialog"
-import { DonationRecordPanel } from "./donation-record-panel"
 import { api } from "@/lib/convex/api"
 import { buildDonationDeleteDescription } from "@/lib/dashboard/donation-delete-availability"
 import { buildDonationDeletionSuccess } from "@/lib/dashboard/donation-deletion-copy"
-import { donationsHref } from "@/lib/dashboard/workspace-routes"
+import { donationDetailHref } from "@/lib/dashboard/workspace-routes"
 import { formatMoney } from "@/lib/format"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
 
@@ -61,7 +60,6 @@ type DeleteTarget = {
 export function DonationsWorkspace({ slug }: { slug: string }) {
   const { event } = useEventDashboard()
   const router = useRouter()
-  const searchParams = useSearchParams()
 
   const income = useQuery(api.donations.getEventDonationIncome, {
     eventId: event._id,
@@ -83,15 +81,15 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
   const [allocationTarget, setAllocationTarget] =
     useState<AllocationTarget | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
-  const [recordReloadToken, setRecordReloadToken] = useState(0)
 
   // DACC-04 link-through: the order and attendee financial views link here with
   // `orderId` / `attendeeId` for INTENT PRESERVATION only. No locked read
-  // resolves donations by attendee or order, so this page tolerates those
-  // params and does NOT fabricate a filter over data it does not have — the
-  // record below is where each allocation's target attendee and recorded scope
-  // are shown in full. `donationId` is the only param this page reads.
-  const selectedDonationId = searchParams.get("donationId")
+  // resolves donations by attendee or order, so this list tolerates those
+  // params by NOT reading any search param at all — it never fabricates a
+  // filter over data it does not have. The `?donationId=` legacy intent is
+  // adopted exactly once by the PAGE (`donations/page.tsx`), which resolves it
+  // onto the dedicated detail route — the record on that route is where each
+  // allocation's target attendee and recorded scope are shown in full.
 
   // ONE map, built from the server projection only. The count is TRI-STATE:
   // `income === undefined` means the projection has not resolved yet, and an
@@ -107,21 +105,6 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
       ),
     [income]
   )
-
-  const selectedRow: DonationListRow | undefined =
-    selectedDonationId === null
-      ? undefined
-      : donations.results.find((row) => String(row._id) === selectedDonationId)
-
-  const selectedAllocationCount =
-    selectedRow === undefined || income === undefined
-      ? undefined
-      : allocationCountByDonationId.get(String(selectedRow._id))
-
-  function selectDonation(donationId: Id<"payments">) {
-    const nextHref = donationsHref(slug, { donationId: String(donationId) })
-    router.replace(nextHref, { scroll: false })
-  }
 
   return (
     <WorkspaceFrame
@@ -174,6 +157,23 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
           />
         )}
 
+        {/* A successful allocation launched from this list must confirm here:
+            the record panel that used to render this band left the list with
+            61-03, so `allocationSuccess` would otherwise be dead state and the
+            operator would get NO feedback. Both figures come from the dialog's
+            own result payload — nothing is re-derived. */}
+        {allocationSuccess !== null && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm font-medium text-emerald-700 dark:text-emerald-300"
+          >
+            Allocation recorded.{" "}
+            {formatMoney(allocationSuccess.allocatedTotalMinor)} allocated;{" "}
+            {formatMoney(allocationSuccess.leftoverMinor)} left unallocated.
+          </div>
+        )}
+
         {deletionSuccess !== null && (
           <div
             role="status"
@@ -218,7 +218,6 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
                       income === undefined
                         ? undefined
                         : allocationCountByDonationId.get(String(row._id))
-                    const isSelected = selectedDonationId === String(row._id)
                     // The delete description is PER-ROW and CONDITIONAL — a row
                     // must never announce a reason that is not true of it (the
                     // shared-element defect this replaces).
@@ -230,7 +229,6 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
                     return (
                       <TableRow
                         key={row._id}
-                        aria-current={isSelected ? "true" : undefined}
                         className="transition-colors hover:bg-black/5 dark:hover:bg-white/5"
                       >
                         <TableCell className="max-w-48 truncate font-medium text-foreground">
@@ -263,7 +261,9 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
                               variant="ghost"
                               size="sm"
                               className="h-8 rounded-lg"
-                              onClick={() => selectDonation(row._id)}
+                              onClick={() =>
+                                router.push(donationDetailHref(slug, row._id))
+                              }
                             >
                               Select
                             </Button>
@@ -273,7 +273,6 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
                               size="sm"
                               className="h-8 rounded-lg"
                               onClick={() => {
-                                selectDonation(row._id)
                                 setAllocationTarget({
                                   donationId: row._id,
                                   payerName: row.payerName,
@@ -297,7 +296,6 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
                               }
                               onClick={() => {
                                 if (allocationCount === undefined) return
-                                selectDonation(row._id)
                                 setDeleteTarget({
                                   donationId: row._id,
                                   payerName: row.payerName,
@@ -343,45 +341,13 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
           )}
         </div>
 
-        {/* React requires unique keys among siblings. The record panel and the
-            two dialogs below are siblings in this list: when all three keyed on
-            the bare donation id, opening the Allocate dialog for the selected
-            donation duplicated the panel and left stale copies behind (61-01).
-            Each key namespaces the ELEMENT, so one donation can host all three. */}
-        {selectedRow !== undefined && selectedAllocationCount !== undefined && (
-          <DonationRecordPanel
-            key={`record-${selectedRow._id}`}
-            donationId={selectedRow._id}
-            eventId={event._id}
-            payerName={selectedRow.payerName}
-            amountMinor={selectedRow.amountMinor}
-            source={selectedRow.source}
-            paidAt={selectedRow.paidAt}
-            notes={selectedRow.notes ?? null}
-            allocationCount={selectedAllocationCount}
-            reloadToken={recordReloadToken}
-            allocationSuccess={allocationSuccess}
-            onAllocate={() => {
-              if (selectedRow === undefined) return
-              setAllocationTarget({
-                donationId: selectedRow._id,
-                payerName: selectedRow.payerName,
-                amountMinor: selectedRow.amountMinor,
-              })
-            }}
-            onDelete={() => {
-              if (selectedRow === undefined) return
-              if (selectedAllocationCount === undefined) return
-              setDeleteTarget({
-                donationId: selectedRow._id,
-                payerName: selectedRow.payerName,
-                amountMinor: selectedRow.amountMinor,
-                allocationCount: selectedAllocationCount,
-              })
-            }}
-          />
-        )}
-
+        {/* The record panel left this list for the dedicated detail route
+            (61-03); the two dialogs below remain, armed from the row actions.
+            React requires unique keys among siblings: each key still namespaces
+            the ELEMENT (`allocation-` / `deletion-`) so one donation can never
+            collide — the `record-` namespace now lives on the detail host
+            (`donation-detail-surface.tsx`), still pinned by
+            `tests/dashboard/donation-key-collision.test.ts`. */}
         {allocationTarget !== null && (
           <DonationAllocationDialog
             key={`allocation-${allocationTarget.donationId}`}
@@ -399,7 +365,6 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
                 leftoverMinor: result.leftoverMinor,
               })
               setDeletionSuccess(null)
-              setRecordReloadToken((token) => token + 1)
             }}
           />
         )}
@@ -419,8 +384,6 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
             onDeleted={(result) => {
               setDeletionSuccess({ allocationCount: result.allocationCount })
               setAllocationSuccess(null)
-              setRecordReloadToken((token) => token + 1)
-              router.replace(donationsHref(slug))
             }}
           />
         )}
