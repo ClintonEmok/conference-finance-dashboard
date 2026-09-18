@@ -369,11 +369,9 @@ function OrderAttendeeRows({ orderId }: { orderId: string }) {
 export type ReconciliationOrderRow = {
   orderId: string
   eventTitle: string | null
-  totalAmountMinor: number | null
   amountDueMinor: number | null
   matchedAmountMinor: number | undefined
   appliedAmountMinor: number | null | undefined
-  donationAmountMinor: number | null | undefined
   outstandingAmountMinor: number | undefined
   normalizedStatus: CanonicalOrderStatus
   buyerName: string | null
