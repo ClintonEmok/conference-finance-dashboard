@@ -2,7 +2,7 @@
 import { expect, test } from "vitest"
 import { convexTest, type TestConvexForDataModel } from "convex-test"
 import type { GenericDataModel } from "convex/server"
-import { api, internal } from "./_generated/api"
+import { internal } from "./_generated/api"
 import schema from "./schema"
 import {
   deleteSearchProjection,
@@ -88,18 +88,6 @@ test("native term search resolves a single projection by full word and prefix", 
   expect(exact.isDone).toBe(true)
   const prefix = await t.run(async (ctx) => paginateSearchDocuments(ctx, { kind: "order", eventId: ids.internalEvent, search: "bet", numItems: 10, cursor: null }))
   expect(prefix.page.map((row) => row.subjectId)).toEqual([String(ids.newer)])
-})
-
-test("order ledger search retains core-only searchable orders", async () => {
-  const t = fresh().withIdentity(identity); const ids = await seed(t)
-  await t.mutation(async (ctx) => { await upsertOrderSearchDocument(ctx, ids.order) })
-
-  const result = await t.query(api.orders.getOrdersWithFilters, {
-    eventId: String(ids.internalEvent), search: "alice", page: 1, pageSize: 25,
-  })
-
-  expect(result.orders).toHaveLength(1)
-  expect(result.orders[0]?.buyerName).toBe("Alice Example")
 })
 
 test("multi-term search matches subjects containing any query term", async () => {

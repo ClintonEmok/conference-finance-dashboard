@@ -72,9 +72,10 @@ export type OrderLedgerResult = {
 const DEFAULT_PAGE = 1
 const DEFAULT_PAGE_SIZE = 25
 const MAX_PAGE_SIZE = 200
+// The server owns the needle cap (`MAX_SOURCE_SEARCH_LENGTH` in
+// `convex/search.ts`): folded substring search has no term vocabulary, so
+// there is deliberately no term-count limit here.
 const MAX_SEARCH_LENGTH = 512
-// Matches Convex native full-text search's hard limit of 16 terms per query.
-const MAX_SEARCH_TERMS = 16
 
 function parseDate(
   value: Date | string | null | undefined,
@@ -160,10 +161,6 @@ export async function getOrderLedger(
     : ""
   if (search.length > MAX_SEARCH_LENGTH) {
     throw new Error(`Invalid 'search'. Maximum length is ${MAX_SEARCH_LENGTH} characters.`)
-  }
-  const searchTermCount = new Set(search.match(/[\p{L}\p{N}]+/gu) ?? []).size
-  if (searchTermCount > MAX_SEARCH_TERMS) {
-    throw new Error(`Invalid 'search'. Maximum ${MAX_SEARCH_TERMS} terms are supported.`)
   }
   const searchCursor = filters.searchCursor?.trim() || null
   if (searchCursor && !search) {
