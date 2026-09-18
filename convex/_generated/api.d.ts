@@ -1595,7 +1595,12 @@ export declare const api: {
       },
       any
     >;
-    getUnassignedPayments: FunctionReference<"query", "public", {}, any>;
+    getUnassignedPayments: FunctionReference<
+      "query",
+      "public",
+      { search?: string },
+      any
+    >;
     logReconciliationPayment: FunctionReference<
       "mutation",
       "public",

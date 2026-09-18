@@ -298,7 +298,7 @@ test("(d) a donation-link payment is never matched and its link is never scanned
     }
   )
 
-  const unassigned = await t.query(api.payments.getUnassignedPayments)
+  const unassigned = await t.query(api.payments.getUnassignedPayments, {})
   expect(
     unassigned.some((payment: Doc<"payments">) => payment._id === donation.id)
   ).toBe(false)

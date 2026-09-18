@@ -32,6 +32,12 @@ import {
   loadOrderAmountDueBreakdowns,
 } from "./finance"
 import { loadRecordedAllocatedMinorByDonationIds } from "./donations"
+import {
+  buildSearchHaystack,
+  collectSourceSearchPage,
+  matchesNormalizedSearch,
+  requireSearchNeedle,
+} from "./search"
 
 type TikkiePaymentUpsert = {
   eventId?: Id<"events">
@@ -325,9 +331,45 @@ export const getPaymentById = query({
 })
 
 export const getUnassignedPayments = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { search: v.optional(v.string()) },
+  handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    const needle = requireSearchNeedle(args.search)
+    if (needle) {
+      // Bounded source search: scan at most 4,000 unassigned candidates per
+      // call (20 fetches of 200), well below Convex's 32,000-document and
+      // 4,096-call budgets. This replaces the old 500-row browse-cap search
+      // boundary while preserving the published array return type and 500-row
+      // result cap.
+      const collected = await collectSourceSearchPage({
+        fetchPage: async (cursor, limit) => {
+          const page = await ctx.db
+            .query("payments")
+            .withIndex("status", (q) => q.eq("status", "unassigned"))
+            .paginate({ numItems: limit, cursor })
+          return {
+            items: page.page,
+            continueCursor: page.isDone ? null : page.continueCursor,
+            isDone: page.isDone,
+          }
+        },
+        matches: (payment) =>
+          matchesNormalizedSearch(
+            buildSearchHaystack([
+              payment.payerName,
+              payment.reference,
+              payment.notes,
+              payment.source,
+            ]),
+            needle
+          ),
+        pageSize: 500,
+        cursor: null,
+        scanCap: 4_000,
+      })
+      return collected.rows
+    }
+
     // Bounded: indexed status query, capped
     return await ctx.db
       .query("payments")

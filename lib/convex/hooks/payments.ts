@@ -31,8 +31,11 @@ export function usePaymentById(paymentId: Id<"payments"> | null) {
   )
 }
 
-export function useUnassignedPayments(enabled = true) {
-  return useQuery(api.payments.getUnassignedPayments, enabled ? {} : "skip")
+export function useUnassignedPayments(enabled = true, search?: string) {
+  return useQuery(
+    api.payments.getUnassignedPayments,
+    !enabled ? "skip" : search?.trim() ? { search } : {}
+  )
 }
 
 export function usePaymentSummary(orderId: string) {

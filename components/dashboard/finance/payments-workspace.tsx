@@ -35,7 +35,7 @@ export function PaymentsWorkspace({ slug }: { slug: string }) {
     eventId: event._id,
     limit: 250,
   })
-  const unassignedPaymentsResult = useQuery(api.payments.getUnassignedPayments)
+  const unassignedPaymentsResult = useQuery(api.payments.getUnassignedPayments, {})
 
   const reconciliationState = toQueryState(
     reconciliationResult as

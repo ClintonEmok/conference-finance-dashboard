@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useMemo, useState, type FormEvent } from "react"
+import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react"
 import { useQuery } from "convex/react"
 import {
   Banknote,
@@ -37,6 +37,8 @@ import type { Id, Doc } from "@/convex/_generated/dataModel"
 
 type CanonicalOrderStatus = "paid" | "refunded" | "cancelled" | "pending"
 
+const SEARCH_DEBOUNCE_MS = 250
+
 function PaymentAssignList({
   orderId,
   onAssigned,
@@ -46,7 +48,19 @@ function PaymentAssignList({
   onAssigned: () => void
   parentUnassignedPayments?: AttentionQueryState<ReadonlyArray<Doc<"payments">>>
 }) {
-  const fallbackUnassignedPayments = useUnassignedPayments(!parentUnassignedPayments)
+  const hasParentUnassignedPayments = parentUnassignedPayments !== undefined
+  const [searchQuery, setSearchQuery] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(searchQuery), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(handle)
+  }, [searchQuery])
+
+  const fallbackUnassignedPayments = useUnassignedPayments(
+    !hasParentUnassignedPayments,
+    debouncedSearch
+  )
   const unassignedState = parentUnassignedPayments ?? (
     fallbackUnassignedPayments === undefined
       ? { status: "pending" as const }
@@ -54,10 +68,16 @@ function PaymentAssignList({
   )
   const assignPayment = useAssignPaymentToOrder()
   const [assigningId, setAssigningId] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState("")
   const [assignError, setAssignError] = useState<string | null>(null)
 
   const filteredPayments = useMemo(() => {
+    // The fallback query already searched the full bounded source range with
+    // the server's punctuation/whitespace fold. Applying the old page-local
+    // filter here would silently discard valid server matches. Parent hosts
+    // own their read and therefore retain the historical client filter.
+    if (!hasParentUnassignedPayments) {
+      return unassignedState.status === "ready" ? unassignedState.data : []
+    }
     if (unassignedState.status !== "ready" || !searchQuery.trim()) {
       return unassignedState.status === "ready" ? unassignedState.data : []
     }
@@ -69,7 +89,7 @@ function PaymentAssignList({
         p.notes?.toLowerCase().includes(query) ||
         p.source?.toLowerCase().includes(query)
     )
-  }, [unassignedState, searchQuery])
+  }, [hasParentUnassignedPayments, unassignedState, searchQuery])
 
   async function handleAssign(paymentId: Id<"payments">) {
     setAssigningId(paymentId)
