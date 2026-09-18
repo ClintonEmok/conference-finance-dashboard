@@ -427,3 +427,94 @@ export function decodeSearchCursor(raw: string): {
   }
   return { signature: payload.signature, cursor }
 }
+
+export type SourceSearchFetchedPage<T> = {
+  items: T[]
+  continueCursor: string | null
+  isDone: boolean
+}
+
+export type SourceSearchPage<T> = {
+  rows: T[]
+  continueCursor: string | null
+  isDone: boolean
+  scanned: number
+}
+
+/** Consecutive empty non-final fetched pages tolerated before the collector gives up and leaves a resumable cursor. */
+const MAX_CONSECUTIVE_EMPTY_SOURCE_PAGES = 4
+
+/**
+ * Page a source query until `pageSize` matches are found, the source is
+ * exhausted, or `scanCap` candidates have been scanned.
+ *
+ * Returns `{ rows, continueCursor: isDone ? null : cursor, isDone, scanned }`
+ * where `scanned` counts fetched CANDIDATES (not matches) and
+ * `continueCursor` is null exactly when `isDone`.
+ *
+ * The no-overshoot invariant: each internal fetch requests
+ * `limit = min(fetchBatch, pageSize - rows.length)`, and the collector
+ * consumes the WHOLE fetched page before advancing the cursor. `rows` can
+ * only grow by one per candidate, so filling `pageSize` inside a page is
+ * possible only when every candidate of that page matched — the stop
+ * therefore lands exactly on a fetched-page boundary. No mid-page stop
+ * means nothing is skipped at a boundary and nothing is duplicated on
+ * resume. A fixed (larger) fetch size can overshoot mid-page and the
+ * page-level cursor would then skip the unconsumed candidates.
+ *
+ * `matches` may be async: a consumer can match cheap fields first and only
+ * then perform a validated join read. A predicate throw propagates.
+ */
+export async function collectSourceSearchPage<T>(args: {
+  fetchPage: (
+    cursor: string | null,
+    limit: number
+  ) => Promise<SourceSearchFetchedPage<T>>
+  matches: (item: T) => boolean | Promise<boolean>
+  pageSize: number
+  cursor: string | null
+  scanCap: number
+  fetchBatch?: number
+}): Promise<SourceSearchPage<T>> {
+  const { pageSize, scanCap } = args
+  if (
+    !Number.isInteger(pageSize) ||
+    pageSize < 1 ||
+    pageSize > SOURCE_SEARCH_PAGE_MAX
+  ) {
+    throw new Error("Invalid source search page size.")
+  }
+  if (!Number.isFinite(scanCap) || scanCap < 1) {
+    throw new Error("Invalid source search scan cap.")
+  }
+  const rawBatch = args.fetchBatch ?? SOURCE_SEARCH_FETCH_BATCH
+  const fetchBatch = Number.isFinite(rawBatch)
+    ? Math.max(1, Math.floor(rawBatch))
+    : SOURCE_SEARCH_FETCH_BATCH
+
+  const rows: T[] = []
+  let cursor = args.cursor
+  let isDone = false
+  let scanned = 0
+  let consecutiveEmptyPages = 0
+
+  while (rows.length < pageSize && !isDone && scanned < scanCap) {
+    const need = pageSize - rows.length
+    const limit = Math.min(fetchBatch, need)
+    const page = await args.fetchPage(cursor, limit)
+    scanned += page.items.length
+    for (const item of page.items) {
+      if (await args.matches(item)) rows.push(item)
+    }
+    cursor = page.continueCursor
+    isDone = page.isDone
+    if (page.items.length === 0 && !isDone) {
+      consecutiveEmptyPages += 1
+      if (consecutiveEmptyPages >= MAX_CONSECUTIVE_EMPTY_SOURCE_PAGES) break
+    } else {
+      consecutiveEmptyPages = 0
+    }
+  }
+
+  return { rows, continueCursor: isDone ? null : cursor, isDone, scanned }
+}
