@@ -13,12 +13,21 @@ import {
 import type { Id } from "@/convex/_generated/dataModel"
 import { AssignPaymentSheet } from "@/app/dashboard/manage-orders/[orderId]/assign-payment-sheet"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
+import {
+  DonationAllocationDialog,
+  type DonationAllocationInitialTarget,
+} from "@/components/dashboard/finance/donation-allocation-dialog"
+import { formatMoney } from "@/lib/format"
 import { OrderSummaryPanel } from "./panels/order-summary-panel"
 import { OrderActionsPanel } from "./panels/order-actions-panel"
 import { OrderDetailsPanel, type OrderEditDraft } from "./panels/order-details-panel"
 import { AttendeesPanel } from "./panels/attendees-panel"
 import { PaymentsPanel, type OrderPaymentRow } from "./panels/payments-panel"
 import { MergeOrderDialog } from "./panels/merge-order-dialog"
+import {
+  AllocateDonationToOrder,
+  type AllocateDonationChoice,
+} from "./panels/allocate-donation-to-order"
 
 type PageProps = {
   slug: string
@@ -143,7 +152,34 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
 
   const [isMergeDialogOpen, setIsMergeDialogOpen] = useState(false)
 
+  // D-02: the order-entry allocation session. The chooser picks a donation,
+  // the shared editor receives it pre-scoped to this order's attendees, and
+  // the dialog's own result feeds the status band.
+  const [isAllocateChooserOpen, setIsAllocateChooserOpen] = useState(false)
+  const [allocationDonation, setAllocationDonation] =
+    useState<AllocateDonationChoice | null>(null)
+  const [allocationSuccess, setAllocationSuccess] = useState<{
+    allocatedTotalMinor: number
+    leftoverMinor: number
+  } | null>(null)
+
   const orderPayload = (payload ?? null) as OrderAttendeePayload | null
+
+  // The pre-scoping seam: the WHOLE order attendee list, each at the editor's
+  // default (whole-order) scope. `undefined` until the order payload resolves;
+  // the editor treats an absent prop as today's empty selection.
+  const orderTargets = useMemo<DonationAllocationInitialTarget[] | undefined>(
+    () =>
+      orderPayload
+        ? orderPayload.attendees.map((attendee) => ({
+            attendeeId: attendee.id as Id<"orderAttendees">,
+            name: attendee.name,
+            orderRef: orderPayload.order.bookingRef,
+            ticketTypeLabel: attendee.ticketTypeLabel,
+          }))
+        : undefined,
+    [orderPayload]
+  )
 
   useEffect(() => {
     if (!orderPayload) return
@@ -434,9 +470,25 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
             deleteError={deleteError}
             onDelete={() => void deleteOrder()}
             onOpenMergeDialog={() => setIsMergeDialogOpen(true)}
+            onOpenAllocateDialog={() => {
+              setAllocationSuccess(null)
+              setIsAllocateChooserOpen(true)
+            }}
           />
         }
       />
+
+      {allocationSuccess !== null && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm font-medium text-emerald-700 dark:text-emerald-300"
+        >
+          Allocation recorded.{" "}
+          {formatMoney(allocationSuccess.allocatedTotalMinor)} allocated;{" "}
+          {formatMoney(allocationSuccess.leftoverMinor)} left unallocated.
+        </div>
+      )}
 
       <OrderDetailsPanel
         order={orderPayload.order}
@@ -498,6 +550,36 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
         slug={slug}
         eventId={String(event?._id ?? "")}
       />
+
+      <AllocateDonationToOrder
+        open={isAllocateChooserOpen}
+        onOpenChange={setIsAllocateChooserOpen}
+        eventId={event._id}
+        onSelect={(donation) => {
+          setIsAllocateChooserOpen(false)
+          setAllocationSuccess(null)
+          setAllocationDonation(donation)
+        }}
+      />
+
+      {allocationDonation !== null && (
+        <DonationAllocationDialog
+          key={`allocation-${allocationDonation.donationId}`}
+          open
+          onOpenChange={(next) => {
+            if (!next) setAllocationDonation(null)
+          }}
+          donationId={allocationDonation.donationId}
+          eventId={event._id}
+          payerName={allocationDonation.payerName}
+          amountMinor={allocationDonation.amountMinor}
+          initialTargets={orderTargets}
+          onAllocated={(result) => {
+            setAllocationSuccess(result)
+            setAllocationDonation(null)
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -3,6 +3,7 @@
 import {
   AlertCircle,
   CheckCircle2,
+  HandCoins,
   Loader2,
   Mail,
   Merge,
@@ -33,6 +34,7 @@ type OrderActionsPanelProps = {
   deleteError: string | null
   onDelete: () => void
   onOpenMergeDialog: () => void
+  onOpenAllocateDialog: () => void
 }
 
 export function OrderActionsPanel({
@@ -48,6 +50,7 @@ export function OrderActionsPanel({
   deleteError,
   onDelete,
   onOpenMergeDialog,
+  onOpenAllocateDialog,
 }: OrderActionsPanelProps) {
   return (
     <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -83,6 +86,15 @@ export function OrderActionsPanel({
       >
         <Merge className="mr-2 size-3.5" />
         Merge order
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onOpenAllocateDialog}
+        className="h-9 rounded-lg border-white/20 text-[11px] font-bold tracking-wider uppercase"
+      >
+        <HandCoins className="mr-2 size-3.5" />
+        Allocate a donation to this order
       </Button>
       <Button
         variant="destructive"
