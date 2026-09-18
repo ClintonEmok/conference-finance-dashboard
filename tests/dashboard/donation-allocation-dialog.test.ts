@@ -330,3 +330,46 @@ describe("no client-side money arithmetic in either file", () => {
     }
   })
 })
+
+describe("order-launched initial targets (Phase 61, D-02 additive seam)", () => {
+  it("accepts an optional initialTargets prop and exports its contract", () => {
+    // OPTIONAL: the existing hosts (`donations-workspace.tsx`) pass no such
+    // prop and must keep compiling and behaving exactly as today.
+    expect(dialog).toMatch(
+      /initialTargets\?:\s*ReadonlyArray<DonationAllocationInitialTarget>/
+    )
+    expect(dialog).toMatch(/export type DonationAllocationInitialTarget = \{/)
+    for (const field of [
+      'attendeeId: Id<"orderAttendees">',
+      "name: string",
+      "orderRef: string | null",
+      "ticketTypeLabel: string | null",
+    ]) {
+      expect(dialog).toContain(field)
+    }
+  })
+
+  it("seeds targets ONLY through the lazy state initializer, at the default scope", () => {
+    // The initializer must be the FUNCTION form (runs on mount, not on every
+    // render) and must map the prop through the shared default scope.
+    expect(dialog).toMatch(
+      /useState<DraftTarget\[\]>\(\s*\(\)\s*=>\s*\(?[\s\S]{0,160}?initialTargets[\s\S]{0,160}?DEFAULT_ALLOCATION_SCOPE/
+    )
+    // Absent prop → exactly today's [].
+    expect(dialog).toMatch(/initialTargets\s*\?\?\s*\[\]/)
+  })
+
+  it("never re-syncs initialTargets from an effect — an initializer, not a controlled value", () => {
+    // A host remount is the refresh mechanism; an effect (or any post-mount
+    // read) that re-applied the prop would clobber the operator's per-row
+    // edits. Every legitimate mention sits above the first effect.
+    const firstEffect = dialog.indexOf("useEffect(")
+    const lastMention = dialog.lastIndexOf("initialTargets")
+    expect(firstEffect).toBeGreaterThan(-1)
+    expect(lastMention).toBeGreaterThan(-1)
+    expect(
+      lastMention,
+      "initialTargets must be read before the first effect and never inside one"
+    ).toBeLessThan(firstEffect)
+  })
+})

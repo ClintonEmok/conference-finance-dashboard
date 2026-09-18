@@ -107,6 +107,18 @@ type DonationAllocationSummary = {
   remainingMinor: number
 }
 
+/**
+ * One target an order-launched session seeds the editor with (Phase 61, D-02).
+ * The host derives it from the order payload; the dialog itself adds only the
+ * scope, so no allocation semantics live outside this file.
+ */
+export type DonationAllocationInitialTarget = {
+  attendeeId: Id<"orderAttendees">
+  name: string
+  orderRef: string | null
+  ticketTypeLabel: string | null
+}
+
 /** One selected target as the dialog holds it. */
 type DraftTarget = {
   attendeeId: Id<"orderAttendees">
@@ -124,6 +136,13 @@ export type DonationAllocationDialogProps = {
   payerName: string
   // The list row's face value (`getStandaloneDonations`).
   amountMinor: number
+  /**
+   * Optional initial targets for an order-launched session (Phase 61, D-02).
+   * USED ONLY AS THE `targets` STATE INITIALIZER — never re-synced: the host
+   * remounts the dialog per donation (`key={`allocation-${donationId}`}`),
+   * so a fresh mount is the refresh mechanism. Absent → exactly today's [].
+   */
+  initialTargets?: ReadonlyArray<DonationAllocationInitialTarget>
   onAllocated: (result: {
     allocatedTotalMinor: number
     leftoverMinor: number
@@ -202,13 +221,22 @@ export function DonationAllocationDialog({
   eventId,
   payerName,
   amountMinor,
+  initialTargets,
   onAllocated,
 }: DonationAllocationDialogProps) {
   const convex = useConvex()
   const allocateDonation = useMutation(api.donations.allocateDonation)
 
   const [method, setMethod] = useState<AllocationMethod>("equal")
-  const [targets, setTargets] = useState<DraftTarget[]>([])
+  // INITIALIZER ONLY (D-02): the lazy form runs once per mount — the host
+  // remounts per donation, so a fresh mount is the refresh mechanism. An
+  // effect that re-applied this prop would clobber a per-row scope override.
+  const [targets, setTargets] = useState<DraftTarget[]>(() =>
+    (initialTargets ?? []).map((target) => ({
+      ...target,
+      scope: DEFAULT_ALLOCATION_SCOPE,
+    }))
+  )
   const [amounts, setAmounts] = useState<Record<string, string>>({})
   const [bulkScope, setBulkScope] = useState<AllocationScope>(
     DEFAULT_ALLOCATION_SCOPE
