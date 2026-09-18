@@ -1,9 +1,6 @@
 import { query, mutation, internalMutation } from "./_generated/server"
 import { v } from "convex/values"
-import {
-  paginationOptsValidator,
-  type PaginationResult,
-} from "convex/server"
+import { paginationOptsValidator, type PaginationResult } from "convex/server"
 import { requireIdentity } from "./auth"
 import type { Doc, Id } from "./_generated/dataModel"
 import type { MutationCtx } from "./_generated/server"
@@ -37,6 +34,8 @@ import {
   collectSourceSearchPage,
   matchesNormalizedSearch,
   requireSearchNeedle,
+  decodeSourceScanBoundary,
+  encodeSourceScanBoundary,
 } from "./search"
 
 type TikkiePaymentUpsert = {
@@ -343,15 +342,52 @@ export const getUnassignedPayments = query({
       // result cap.
       const collected = await collectSourceSearchPage({
         fetchPage: async (cursor, limit) => {
-          const page = await ctx.db
-            .query("payments")
-            .withIndex("status", (q) => q.eq("status", "unassigned"))
-            .paginate({ numItems: limit, cursor })
-          return {
-            items: page.page,
-            continueCursor: page.isDone ? null : page.continueCursor,
-            isDone: page.isDone,
+          // Convex allows only ONE paginated query per function execution, so
+          // the scan cannot re-`.paginate()` across fetches. It scans with
+          // `.take()` and carries its own `_creationTime` boundary cursor.
+          // This scan is ASCENDING (the status index has no `.order()`), so it
+          // advances with a lower bound: `.gte`. An upper bound (`.lte`) would
+          // re-read the same prefix forever and stop at the first page.
+          const bound = decodeSourceScanBoundary(cursor)
+          const excluded = new Set(bound?.ids ?? [])
+          const takeCount = limit + excluded.size + 1
+          const rows = await (
+            bound === null
+              ? ctx.db
+                  .query("payments")
+                  .withIndex("status", (q) => q.eq("status", "unassigned"))
+              : ctx.db
+                  .query("payments")
+                  .withIndex("status", (q) =>
+                    q.eq("status", "unassigned").gte("_creationTime", bound.t)
+                  )
+          ).take(takeCount)
+          const fresh =
+            bound === null
+              ? rows
+              : rows.filter(
+                  (row) =>
+                    !(
+                      row._creationTime === bound.t &&
+                      excluded.has(String(row._id))
+                    )
+                )
+          const hasMore = fresh.length > limit
+          const items = hasMore ? fresh.slice(0, limit) : fresh
+          const last = items[items.length - 1]
+          let continueCursor: string | null = null
+          if (hasMore && last) {
+            const t = last._creationTime
+            const carried = bound !== null && bound.t === t ? bound.ids : []
+            const atT = items
+              .filter((row) => row._creationTime === t)
+              .map((row) => String(row._id))
+            continueCursor = encodeSourceScanBoundary(
+              t,
+              Array.from(new Set([...carried, ...atT]))
+            )
           }
+          return { items, continueCursor, isDone: !hasMore }
         },
         matches: (payment) =>
           matchesNormalizedSearch(
@@ -516,7 +552,7 @@ export const upsertTikkiePayment = mutation({
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     const eventId = args.eventId
-      ? ctx.db.normalizeId("events", args.eventId) ?? undefined
+      ? (ctx.db.normalizeId("events", args.eventId) ?? undefined)
       : undefined
     const purpose = resolveTikkieLinkPurpose(args.purpose)
     const existing = await ctx.db
@@ -946,11 +982,12 @@ export const autoMatchPayments = mutation({
       .take(1000)
     // Keep the existing bank-transfer dashboard behavior independent of the
     // event-scoped Tikkie optimization.
-    const bankPayments = (await ctx.db
-      .query("payments")
-      .withIndex("status", (q) => q.eq("status", "unassigned"))
-      .take(1000))
-      .filter((payment) => payment.source === "bank_transfer")
+    const bankPayments = (
+      await ctx.db
+        .query("payments")
+        .withIndex("status", (q) => q.eq("status", "unassigned"))
+        .take(1000)
+    ).filter((payment) => payment.source === "bank_transfer")
     const unassignedPayments = [...eventTikkiePayments, ...bankPayments]
     const matched: string[] = []
 
@@ -971,26 +1008,31 @@ export const autoMatchPayments = mutation({
       }
     }
 
-    const orderMatchCandidates: OrderPaymentMatchCandidate[] = await Promise.all(
-      orders.map(async (order) => {
-        const priorPayments = await ctx.db
-          .query("payments")
-          .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))
-          .take(100)
-        return {
-        orderId: String(order._id),
-        bookerName: order.bookerName ?? null,
-        attendeeNames: attendeesByOrder.get(String(order._id)) ?? [],
-        amountDueMinor:
-          amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-          order.totalAmountMinor ??
-          0,
-        payerAccountNumbers: priorPayments
-          .filter((payment) => payment.source === "tikkie" && payment.payerAccountNumber)
-          .map((payment) => payment.payerAccountNumber as string),
-        }
-      })
-    )
+    const orderMatchCandidates: OrderPaymentMatchCandidate[] =
+      await Promise.all(
+        orders.map(async (order) => {
+          const priorPayments = await ctx.db
+            .query("payments")
+            .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))
+            .take(100)
+          return {
+            orderId: String(order._id),
+            bookerName: order.bookerName ?? null,
+            attendeeNames: attendeesByOrder.get(String(order._id)) ?? [],
+            amountDueMinor:
+              amountDueBreakdownsByOrderId.get(String(order._id))
+                ?.amountDueMinor ??
+              order.totalAmountMinor ??
+              0,
+            payerAccountNumbers: priorPayments
+              .filter(
+                (payment) =>
+                  payment.source === "tikkie" && payment.payerAccountNumber
+              )
+              .map((payment) => payment.payerAccountNumber as string),
+          }
+        })
+      )
 
     for (const payment of unassignedPayments) {
       const match = evaluateOrderPaymentMatch(
@@ -1004,7 +1046,8 @@ export const autoMatchPayments = mutation({
         await ctx.db.patch("payments", payment._id, {
           orderId: match.orderId as Id<"orders">,
           status: "auto_matched",
-          eventId: (await ctx.db.get("orders", match.orderId as Id<"orders">))?.eventId,
+          eventId: (await ctx.db.get("orders", match.orderId as Id<"orders">))
+            ?.eventId,
           matchedAt: Date.now(),
           matchedBy: "auto",
         })
@@ -1071,9 +1114,7 @@ export const getPaymentSummary = query({
     const canonicalBalancesByOrderId = order
       ? await loadCanonicalOrderBalances({ ctx, orders: [order] })
       : null
-    const canonical = canonicalBalancesByOrderId?.get(
-      String(order?._id ?? "")
-    )
+    const canonical = canonicalBalancesByOrderId?.get(String(order?._id ?? ""))
 
     // The payment LIST stays the payment list, not a balance: `paymentCount` is
     // still the count of stored payment rows on the order (an allocation is
@@ -1104,7 +1145,7 @@ export const internalUpsertTikkiePayment = internalMutation({
   },
   handler: async (ctx, args) => {
     const eventId = args.eventId
-      ? ctx.db.normalizeId("events", args.eventId) ?? undefined
+      ? (ctx.db.normalizeId("events", args.eventId) ?? undefined)
       : undefined
     const purpose = resolveTikkieLinkPurpose(args.purpose)
     const existing = await ctx.db
