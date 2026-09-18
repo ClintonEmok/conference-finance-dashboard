@@ -8,6 +8,18 @@ function readSource(relativePath: string): string {
   return readFileSync(resolve(ROOT, relativePath), "utf8")
 }
 
+/**
+ * Removes block and line comments before a presence scan. Without this, a doc
+ * comment naming the mutation satisfies a pin even when the wiring is gone
+ * (the decoy-comment probe); a label guard must never be satisfiable by a
+ * comment.
+ */
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|\s)\/\/[^\n]*$/gm, "")
+}
+
 describe("OrderDetailSurface panel decomposition", () => {
   it("keeps the public OrderDetailSurface export and its props contract", () => {
     const surface = readSource(
@@ -155,6 +167,40 @@ describe("breadcrumbs and confirmation markers", () => {
     expect(breadcrumbs).toContain("Attendee ")
     expect(breadcrumbs).toContain("Order ")
     expect(breadcrumbs).toContain("routeMap[segment]")
+  })
+
+  it("labels dynamic segments for humans — never an identifier or a raw slug (D-08)", () => {
+    const raw = readSource("components/dashboard/nav-breadcrumbs.tsx")
+    const breadcrumbs = stripComments(raw)
+
+    // Dynamic segments resolve to plain descriptors...
+    expect(breadcrumbs).toContain('label = "Attendee detail"')
+    expect(breadcrumbs).toContain('label = "Order detail"')
+    expect(breadcrumbs).toContain('label = "Donation detail"')
+    expect(breadcrumbs).toContain('label = "Room detail"')
+    // ...the event segment prefers the event title already carried by the
+    // shell's provider (no new read), and the static `new` route stays a label.
+    expect(breadcrumbs).toContain("useOptionalEventDashboard")
+    expect(breadcrumbs).toContain("eventDashboard?.event.title")
+    expect(breadcrumbs).toContain('segment !== "new"')
+    // The raw bytes must contain no identifier-label derivation at all: the
+    // truncating helper is gone, no label interpolates the segment, and the
+    // slug is never uppercased.
+    expect(raw).not.toContain("shortId")
+    expect(raw).not.toMatch(/\$\{segment\}/)
+    expect(raw).not.toMatch(/segment\.toUpperCase\(\)/)
+  })
+
+  it("removes the slug chip from the event shell header but keeps its links (D-08)", () => {
+    const raw = readSource("app/dashboard/events/[slug]/layout.tsx")
+    const layout = stripComments(raw)
+
+    // No label position renders the slug any more...
+    expect(raw).not.toMatch(/>\s*\/\{event\.slug\}/)
+    // ...while the useful header affordances remain.
+    expect(layout).toContain("Public page")
+    expect(layout).toContain("/events/${event.slug}")
+    expect(layout).toContain("Go to home")
   })
 
   it("keeps ticket-change, option-clear, move, and merge confirmations blocking dialogs", () => {

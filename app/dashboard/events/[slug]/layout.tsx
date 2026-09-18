@@ -126,7 +126,6 @@ export default function EventLayout({ children }: EventLayoutProps) {
                   {getStatusBadge(event.isPublished, event.isSignupOpen)}
                 </div>
                 <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                  <span className="font-mono">/{event.slug}</span>
                   <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
                     <Link href={`/events/${event.slug}`} target="_blank">
                       <ExternalLink className="size-3" />

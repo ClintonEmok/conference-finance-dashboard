@@ -38,8 +38,19 @@ export function EventDashboardProvider({
   )
 }
 
+/**
+ * The non-throwing accessor for surfaces that render both inside and outside
+ * the event shell. It returns `null` when no provider is present, so a generic
+ * component (e.g. the breadcrumb) can prefer event-aware labels without
+ * becoming event-shell-only. Surfaces that REQUIRE the event keep using
+ * `useEventDashboard()` and its explicit error.
+ */
+export function useOptionalEventDashboard() {
+  return useContext(EventDashboardContext)
+}
+
 export function useEventDashboard() {
-  const context = useContext(EventDashboardContext)
+  const context = useOptionalEventDashboard()
 
   if (!context) {
     throw new Error(
