@@ -110,7 +110,14 @@ export default function EventPaymentsPage({
     return <DashboardQueryState state="error" message={unassignedState.message} className="rounded-xl border border-destructive/20 bg-destructive/5 p-4" />
   }
 
-  const linkedPayments = eventPayments ?? []
+  // Standalone donations have their own operator surface (`/donations`, the
+  // Phase 58 dedicated page), so a row for one here duplicates a record the
+  // operator already sees there. `overpayment` rows stay: they are order
+  // payments whose excess was treated as a donation, so they belong on the
+  // order-linked list and have no home on `/donations`.
+  const linkedPayments = (eventPayments ?? []).filter(
+    (payment) => payment.donationKind !== "standalone"
+  )
   const pendingDonations = unassignedState.data
 
   return (

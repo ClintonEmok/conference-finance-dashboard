@@ -29,7 +29,12 @@ import {
   paymentsHref,
   reconciliationHref,
 } from "@/lib/dashboard/workspace-routes"
-import { getAllocationNavigationAccessibleLabel, getAllocationNavigationCount, isAccommodationSetupNavigationActive, isAllocationNavigationActive } from "@/lib/dashboard/accommodation-navigation"
+import {
+  getAllocationNavigationAccessibleLabel,
+  getAllocationNavigationCount,
+  isAccommodationSetupNavigationActive,
+  isAllocationNavigationActive,
+} from "@/lib/dashboard/accommodation-navigation"
 import { resolveEventSubpageLabel } from "@/lib/dashboard/event-subpage-label"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -94,10 +99,7 @@ export default function EventLayout({ children }: EventLayoutProps) {
         <p className="mt-2 text-muted-foreground">
           The event with slug "{slug}" does not exist.
         </p>
-        <Link
-          href="/dashboard"
-          className="mt-6 text-primary hover:underline"
-        >
+        <Link href="/dashboard" className="mt-6 text-primary hover:underline">
           Back to picker
         </Link>
       </div>
@@ -109,13 +111,13 @@ export default function EventLayout({ children }: EventLayoutProps) {
       <SidebarProvider>
         <Sidebar
           collapsible="icon"
-          className="border-r border-white/60 dark:border-white/10 group-data-[collapsible=icon]:border-none"
+          className="border-r border-white/60 group-data-[collapsible=icon]:border-none dark:border-white/10"
         >
           <SidebarContentInner slug={slug} pathname={pathname} event={event} />
         </Sidebar>
 
         <SidebarInset className="min-w-0 overflow-x-hidden bg-black/5 dark:bg-white/2">
-          <header className="sticky top-0 z-30 flex min-w-0 h-14 shrink-0 items-center justify-between gap-4 border-b border-white/60 bg-white/80 px-4 backdrop-blur-xl dark:border-white/10 dark:bg-black/40">
+          <header className="sticky top-0 z-30 flex h-14 min-w-0 shrink-0 items-center justify-between gap-4 border-b border-white/60 bg-white/80 px-4 backdrop-blur-xl dark:border-white/10 dark:bg-black/40">
             <div className="flex min-w-0 items-center gap-4">
               <SidebarTrigger className="-ml-1" />
               <SidebarSeparator orientation="vertical" className="mr-2 h-4" />
@@ -127,13 +129,21 @@ export default function EventLayout({ children }: EventLayoutProps) {
                   {getStatusBadge(event.isPublished, event.isSignupOpen)}
                 </div>
                 <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                  <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
+                  <Button
+                    asChild
+                    variant="link"
+                    className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground"
+                  >
                     <Link href={`/events/${event.slug}`} target="_blank">
                       <ExternalLink className="size-3" />
                       Public page
                     </Link>
                   </Button>
-                  <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground">
+                  <Button
+                    asChild
+                    variant="link"
+                    className="h-auto p-0 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground"
+                  >
                     <Link href="/dashboard">Go to home</Link>
                   </Button>
                 </div>
@@ -142,7 +152,7 @@ export default function EventLayout({ children }: EventLayoutProps) {
           </header>
 
           <div className="min-w-0 flex-1 overflow-x-hidden p-4 lg:p-6">
-            <div className="mx-auto min-w-0 max-w-7xl">
+            <div className="mx-auto max-w-7xl min-w-0">
               <div className="animate-in duration-700 fade-in slide-in-from-bottom-2">
                 {children}
               </div>
@@ -172,9 +182,19 @@ function SidebarContentInner({
       : undefined
   )
   const allocationCount = getAllocationNavigationCount(allocationSummary)
-  const allocationStatus = allocationSummary?.status === "success" ? allocationCount !== undefined ? "ready" : "unavailable" : allocationSummary?.status === "error" ? "error" : "pending"
+  const allocationStatus =
+    allocationSummary?.status === "success"
+      ? allocationCount !== undefined
+        ? "ready"
+        : "unavailable"
+      : allocationSummary?.status === "error"
+        ? "error"
+        : "pending"
   const allocationActive = isAllocationNavigationActive(pathname, searchParams)
-  const setupActive = isAccommodationSetupNavigationActive(pathname, searchParams)
+  const setupActive = isAccommodationSetupNavigationActive(
+    pathname,
+    searchParams
+  )
 
   const menuItems = [
     {
@@ -233,11 +253,11 @@ function SidebarContentInner({
   return (
     <>
       <SidebarHeader className="h-[64px] justify-center pt-6 group-data-[collapsible=icon]:h-auto group-data-[collapsible=icon]:p-1 group-data-[collapsible=icon]:pt-4">
-          <EventSwitcher
-            currentSlug={slug}
-            event={event}
-            className="group-data-[collapsible=icon]:rounded-none group-data-[collapsible=icon]:border-none group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:shadow-none group-data-[collapsible=icon]:[&>div]:hidden"
-          />
+        <EventSwitcher
+          currentSlug={slug}
+          event={event}
+          className="group-data-[collapsible=icon]:rounded-none group-data-[collapsible=icon]:border-none group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:shadow-none group-data-[collapsible=icon]:[&>div]:hidden"
+        />
       </SidebarHeader>
 
       <SidebarContent className="gap-0 px-3 pt-3 group-data-[collapsible=icon]:px-1 group-data-[collapsible=icon]:pt-1">
@@ -245,7 +265,10 @@ function SidebarContentInner({
           <nav aria-label="Event navigation" className="space-y-2">
             {menuItems.map((item) => {
               if (item.show === false) return null
-              const isActive = item.label === "Allocation" ? allocationActive : getSectionActive(item.label, pathname, slug)
+              const isActive =
+                item.label === "Allocation"
+                  ? allocationActive
+                  : getSectionActive(item.label, pathname, slug)
               const Icon = item.icon
 
               const subpageLabel = resolveEventSubpageLabel(pathname, item.href)
@@ -254,56 +277,156 @@ function SidebarContentInner({
                 <Link
                   href={item.href}
                   aria-current={isActive ? "page" : undefined}
-                  aria-label={item.label === "Allocation" ? getAllocationNavigationAccessibleLabel(allocationCount, allocationStatus) : undefined}
-                  onClick={() => { if (isMobile) setOpenMobile(false) }}
+                  aria-label={
+                    item.label === "Allocation"
+                      ? getAllocationNavigationAccessibleLabel(
+                          allocationCount,
+                          allocationStatus
+                        )
+                      : undefined
+                  }
+                  onClick={() => {
+                    if (isMobile) setOpenMobile(false)
+                  }}
                   className={cn(
                     "flex min-w-0 items-start justify-between gap-3 rounded-lg border px-4 py-3 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                     "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-none group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-1.5 group-data-[collapsible=icon]:shadow-none",
-                    isActive ? "border-primary/25 bg-primary/10 text-foreground shadow-sm" : "border-border/50 bg-background/60 text-muted-foreground hover:border-primary/20 hover:bg-muted/50 hover:text-foreground"
+                    isActive
+                      ? "border-primary/25 bg-primary/10 text-foreground shadow-sm"
+                      : "border-border/50 bg-background/60 text-muted-foreground hover:border-primary/20 hover:bg-muted/50 hover:text-foreground"
                   )}
                 >
                   <span className="flex min-w-0 items-start gap-3 group-data-[collapsible=icon]:gap-0">
                     <Icon className="mt-0.5 size-4 shrink-0" />
                     <span className="min-w-0 group-data-[collapsible=icon]:hidden">
-                      <span className="block text-sm font-semibold leading-tight">{item.label}</span>
-                      {item.label === "Allocation" ? <><span className="mt-1 block text-xs text-muted-foreground">Place attendees and resolve needs.</span><span className="mt-1 block text-xs text-muted-foreground">{allocationStatus === "pending" ? "Checking placement count…" : allocationStatus === "error" || allocationStatus === "unavailable" ? "Placement count unavailable" : allocationCount === 0 ? "All attendees placed" : `${allocationCount} ${allocationCount === 1 ? "attendee needs placement" : "attendees need placement"}`}</span></> : subpageLabel && <span className="mt-1 block text-[10px] font-black tracking-[0.2em] text-muted-foreground/50 uppercase">{subpageLabel}</span>}
+                      <span className="block text-sm leading-tight font-semibold">
+                        {item.label}
+                      </span>
+                      {item.label === "Allocation" ? (
+                        <>
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            Place attendees and resolve needs.
+                          </span>
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            {allocationStatus === "pending"
+                              ? "Checking placement count…"
+                              : allocationStatus === "error" ||
+                                  allocationStatus === "unavailable"
+                                ? "Placement count unavailable"
+                                : allocationCount === 0
+                                  ? "All attendees placed"
+                                  : `${allocationCount} ${allocationCount === 1 ? "attendee needs placement" : "attendees need placement"}`}
+                          </span>
+                        </>
+                      ) : (
+                        subpageLabel && (
+                          <span className="mt-1 block text-[10px] font-black tracking-[0.2em] text-muted-foreground/50 uppercase">
+                            {subpageLabel}
+                          </span>
+                        )
+                      )}
                     </span>
                   </span>
-                  {item.label === "Allocation" && allocationCount !== undefined && <span aria-hidden="true" className="font-mono tabular-nums text-xs font-semibold group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:-right-1 group-data-[collapsible=icon]:-top-1">{allocationCount}</span>}
-                  {isActive && <ChevronRight className="mt-0.5 size-4 shrink-0 text-primary group-data-[collapsible=icon]:hidden" />}
+                  {item.label === "Allocation" &&
+                    allocationCount !== undefined && (
+                      <span
+                        aria-hidden="true"
+                        className="font-mono text-xs font-semibold tabular-nums group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:-top-1 group-data-[collapsible=icon]:-right-1"
+                      >
+                        {allocationCount}
+                      </span>
+                    )}
+                  {isActive && (
+                    <ChevronRight className="mt-0.5 size-4 shrink-0 text-primary group-data-[collapsible=icon]:hidden" />
+                  )}
                 </Link>
               )
 
               return (
                 <div key={item.href}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    {itemLink}
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="flex items-center gap-2">
-                    <Icon className="size-4 shrink-0" />
-                    {item.label === "Allocation" ? getAllocationNavigationAccessibleLabel(allocationCount, allocationStatus) : item.label}
-                    {subpageLabel && (
-                      <span className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/70 uppercase">
-                        {subpageLabel}
-                      </span>
-                    )}
-                  </TooltipContent>
-                </Tooltip>
-                {item.label === "Allocation" && (
-                  <SidebarGroup className="mt-6 px-0 py-0">
-                    <SidebarGroupLabel className="px-2 text-xs font-semibold">Accommodation Setup</SidebarGroupLabel>
-                    <SidebarGroupContent className="mt-1 space-y-1 pl-3 group-data-[collapsible=icon]:pl-0">
-                      {[
-                        { label: "Hotels & Rooms", icon: Building2, href: accommodationHref(slug, "hotels") },
-                        { label: "Upgrades & Options", icon: SlidersHorizontal, href: accommodationHref(slug, "upgrades-options") },
-                      ].map(({ label, icon: SetupIcon, href }) => {
-                        const active = setupActive && ((label === "Hotels & Rooms" && !searchParams.get("tab")) || (label === "Hotels & Rooms" && searchParams.get("tab") === "hotels") || (label === "Upgrades & Options" && searchParams.get("tab") === "upgrades-options"))
-                        return <Tooltip key={href}><TooltipTrigger asChild><Link href={href} aria-current={active ? "page" : undefined} aria-label={label} onClick={() => { if (isMobile) setOpenMobile(false) }} className={cn("flex min-h-11 min-w-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1", active ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground")}><SetupIcon className="size-4 shrink-0" /><span className="group-data-[collapsible=icon]:hidden">{label}</span></Link></TooltipTrigger><TooltipContent side="right">{label}</TooltipContent></Tooltip>
-                      })}
-                    </SidebarGroupContent>
-                  </SidebarGroup>
+                {item.label === "Payments" && (
+                  <SidebarGroupLabel className="mt-2 h-auto px-4 pt-3 pb-1 text-[10px] font-black tracking-[0.2em] text-muted-foreground/50 uppercase group-data-[collapsible=icon]:hidden">
+                    Finance
+                  </SidebarGroupLabel>
                 )}
+                <Tooltip>
+                    <TooltipTrigger asChild>{itemLink}</TooltipTrigger>
+                    <TooltipContent
+                      side="right"
+                      className="flex items-center gap-2"
+                    >
+                      <Icon className="size-4 shrink-0" />
+                      {item.label === "Allocation"
+                        ? getAllocationNavigationAccessibleLabel(
+                            allocationCount,
+                            allocationStatus
+                          )
+                        : item.label}
+                      {subpageLabel && (
+                        <span className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/70 uppercase">
+                          {subpageLabel}
+                        </span>
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                  {item.label === "Allocation" && (
+                    <SidebarGroup className="mt-6 px-0 py-0">
+                      <SidebarGroupLabel className="px-2 text-xs font-semibold">
+                        Accommodation Setup
+                      </SidebarGroupLabel>
+                      <SidebarGroupContent className="mt-1 space-y-1 pl-3 group-data-[collapsible=icon]:pl-0">
+                        {[
+                          {
+                            label: "Hotels & Rooms",
+                            icon: Building2,
+                            href: accommodationHref(slug, "hotels"),
+                          },
+                          {
+                            label: "Upgrades & Options",
+                            icon: SlidersHorizontal,
+                            href: accommodationHref(slug, "upgrades-options"),
+                          },
+                        ].map(({ label, icon: SetupIcon, href }) => {
+                          const active =
+                            setupActive &&
+                            ((label === "Hotels & Rooms" &&
+                              !searchParams.get("tab")) ||
+                              (label === "Hotels & Rooms" &&
+                                searchParams.get("tab") === "hotels") ||
+                              (label === "Upgrades & Options" &&
+                                searchParams.get("tab") === "upgrades-options"))
+                          return (
+                            <Tooltip key={href}>
+                              <TooltipTrigger asChild>
+                                <Link
+                                  href={href}
+                                  aria-current={active ? "page" : undefined}
+                                  aria-label={label}
+                                  onClick={() => {
+                                    if (isMobile) setOpenMobile(false)
+                                  }}
+                                  className={cn(
+                                    "flex min-h-11 min-w-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                                    active
+                                      ? "bg-primary/10 text-foreground"
+                                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                                  )}
+                                >
+                                  <SetupIcon className="size-4 shrink-0" />
+                                  <span className="group-data-[collapsible=icon]:hidden">
+                                    {label}
+                                  </span>
+                                </Link>
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                {label}
+                              </TooltipContent>
+                            </Tooltip>
+                          )
+                        })}
+                      </SidebarGroupContent>
+                    </SidebarGroup>
+                  )}
                 </div>
               )
             })}
@@ -326,10 +449,19 @@ function getSectionActive(label: string, pathname: string, slug: string) {
 
   if (label === "Overview") return pathname === eventRoot
   if (label === "Orders") {
-    return pathname === `${eventRoot}/orders` || pathname.startsWith(`${eventRoot}/orders/`)
+    return (
+      pathname === `${eventRoot}/orders` ||
+      pathname.startsWith(`${eventRoot}/orders/`)
+    )
   }
   if (label === "Communications") {
-    return pathname === `${eventRoot}/communications` || pathname.startsWith(`${eventRoot}/communications/`)
+    return (
+      pathname === `${eventRoot}/communications` ||
+      pathname.startsWith(`${eventRoot}/communications/`)
+    )
   }
-  return pathname === `/dashboard/events/${slug}/${label.toLowerCase()}` || pathname.startsWith(`/dashboard/events/${slug}/${label.toLowerCase()}/`)
+  return (
+    pathname === `/dashboard/events/${slug}/${label.toLowerCase()}` ||
+    pathname.startsWith(`/dashboard/events/${slug}/${label.toLowerCase()}/`)
+  )
 }
