@@ -276,3 +276,154 @@ export const continueSearchProjectionFanout = internalMutation({
     }
   },
 })
+
+// ---------------------------------------------------------------------------
+// Source-table search primitives (Phase 62 plan 62-01 — Stage 1 retarget)
+//
+// (a) Why substring is code-side: the Convex query filter API exposes only
+// `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `not`, `and`, `or`, and `field` —
+// there is no `contains`/`includes`/`like`/`startsWith`/regex. Matching a
+// mid-word fragment (`amil` inside `family`) is therefore necessarily a
+// code-side `String.includes` over a bounded fetch.
+//
+// (b) One fold, both sides: `normalizeSearchText` is applied to every
+// haystack part (through `buildSearchHaystack`) and to the typed needle
+// (through `requireSearchNeedle`), so no consumer re-implements
+// normalisation. The 512-character cap belongs to the NEEDLE only:
+// haystack fields can be arbitrarily long (notably `payments.notes`), and
+// `normalizeSearchText` must never throw on length — a long field should
+// merely fail to match, never abort the whole query.
+//
+// (c) The cursor codec is signature-bound: `encodeSearchCursor` embeds the
+// request signature (filters + page size) opaquely, and callers must reject
+// a decoded cursor whose signature differs from the current request, so a
+// stale cursor can never resume against different filters.
+//
+// (d) The projection apparatus above this block belongs to Stage 1's
+// retirement (plan 62-04). It is not part of this contract and is untouched
+// here so both retargeted consumers can land before it is deleted.
+//
+// The no-overshoot invariant (the collector): `collectSourceSearchPage`
+// fetches `limit = min(fetchBatch, pageSize - matchedSoFar)` candidates per
+// internal page and consumes the whole fetched page before advancing the
+// cursor. Reaching `pageSize` matches inside a page is therefore possible
+// only when every candidate of that page matched, which means the collector
+// stops exactly on a fetched-page boundary. There is no mid-page stop, so
+// no candidate is skipped at a boundary and none is returned twice across
+// resumptions. A fixed (larger) fetch size can overshoot the target
+// mid-page, and returning a page-level cursor then skips the unconsumed
+// candidates — recall loss. Do not "optimise" the limit away.
+// ---------------------------------------------------------------------------
+
+export const MAX_SOURCE_SEARCH_LENGTH = 512
+/** Hard ceiling for one source-search result page. Consumers keep their own smaller caps (orders 200, ledger 100, payments 500). */
+export const SOURCE_SEARCH_PAGE_MAX = 1_000
+/** Default number of candidates fetched per internal source page. */
+export const SOURCE_SEARCH_FETCH_BATCH = 200
+
+/**
+ * The one fold for BOTH sides of a match: trim → NFKD decomposition →
+ * strip combining marks (diacritics) → lowercase → drop every character
+ * that is not a letter or a number. `"Oliver Vos"`, `"oliver.vos"`,
+ * `"OLIVER VOS"` and `"Olivér Vós"` all fold to `"olivervos"`.
+ *
+ * Never throws on length: this function is mapped over haystack fields.
+ * The 512-character cap is applied to the NEEDLE by `requireSearchNeedle`.
+ */
+export function normalizeSearchText(value: string | null | undefined): string {
+  const raw = value?.trim() ?? ""
+  return raw
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "")
+}
+
+/**
+ * Validate and fold a typed search query. `MAX_SOURCE_SEARCH_LENGTH` caps
+ * the query only — never a haystack field (see `buildSearchHaystack`).
+ */
+export function requireSearchNeedle(value: string | null | undefined): string {
+  const raw = value?.trim() ?? ""
+  if (raw.length > MAX_SOURCE_SEARCH_LENGTH) {
+    throw new Error(
+      `Search input exceeds ${MAX_SOURCE_SEARCH_LENGTH} characters.`
+    )
+  }
+  return normalizeSearchText(raw)
+}
+
+/**
+ * Fold every part through `normalizeSearchText`, drop the empties, and join
+ * with a single space so text from one field cannot silently span into the
+ * next. Applies no length cap: a long field merely contributes a long,
+ * unmatchable segment instead of throwing the whole query.
+ */
+export function buildSearchHaystack(
+  parts: ReadonlyArray<string | null | undefined>
+): string {
+  return parts
+    .map((part) => normalizeSearchText(part))
+    .filter(Boolean)
+    .join(" ")
+}
+
+/**
+ * Mid-word substring match over already-folded text. An empty needle
+ * matches everything (browse); punctuation-only input folds to the empty
+ * needle and therefore also browses.
+ */
+export function matchesNormalizedSearch(
+  haystack: string,
+  needle: string
+): boolean {
+  return needle === "" || haystack.includes(needle)
+}
+
+const SOURCE_SEARCH_CURSOR_PREFIX = "ss1:"
+
+/**
+ * Wrap an internal pagination cursor together with the request signature it
+ * belongs to. Callers must compare the decoded signature against the
+ * current request's signature and reject a mismatch.
+ */
+export function encodeSearchCursor(
+  signature: string,
+  cursor: string | null
+): string {
+  return `${SOURCE_SEARCH_CURSOR_PREFIX}${encodeURIComponent(JSON.stringify({ v: 1, signature, cursor }))}`
+}
+
+/** Decode `encodeSearchCursor` output; throws `Invalid search cursor.` on any malformed payload. */
+export function decodeSearchCursor(raw: string): {
+  signature: string
+  cursor: string | null
+} {
+  if (!raw.startsWith(SOURCE_SEARCH_CURSOR_PREFIX)) {
+    throw new Error("Invalid search cursor.")
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(
+      decodeURIComponent(raw.slice(SOURCE_SEARCH_CURSOR_PREFIX.length))
+    )
+  } catch {
+    throw new Error("Invalid search cursor.")
+  }
+  if (parsed === null || typeof parsed !== "object") {
+    throw new Error("Invalid search cursor.")
+  }
+  const payload = parsed as {
+    v?: unknown
+    signature?: unknown
+    cursor?: unknown
+  }
+  if (payload.v !== 1 || typeof payload.signature !== "string") {
+    throw new Error("Invalid search cursor.")
+  }
+  const cursor = payload.cursor
+  if (cursor !== null && typeof cursor !== "string") {
+    throw new Error("Invalid search cursor.")
+  }
+  return { signature: payload.signature, cursor }
+}
