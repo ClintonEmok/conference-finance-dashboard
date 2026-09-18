@@ -296,9 +296,22 @@ export default function EventSettingsPage({
                 Archiving this event will hide it from all public lists and the dashboard. 
                 Data remains in the database but will be set to a read-only archived state.
               </p>
-              <Button variant="outline" className="rounded-xl border-destructive/20 text-destructive hover:bg-destructive/10 hover:border-destructive/40 bg-transparent h-11 px-6">
+              <Button
+                variant="outline"
+                disabled
+                title="Event archiving is not available yet."
+                aria-describedby="event-archive-unavailable"
+                className="rounded-xl border-destructive/20 text-destructive hover:bg-destructive/10 hover:border-destructive/40 bg-transparent h-11 px-6"
+              >
                 <Trash2 className="mr-3 size-4" /> Archive Event
               </Button>
+              <p
+                id="event-archive-unavailable"
+                className="mt-2 text-xs text-muted-foreground"
+              >
+                Not available yet — event archiving has no backing operation, so
+                this stays disabled rather than appearing to work.
+              </p>
             </div>
           )}
         </CardContent>

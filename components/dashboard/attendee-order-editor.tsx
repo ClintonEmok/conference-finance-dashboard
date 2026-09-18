@@ -1538,7 +1538,8 @@ export function AttendeeOrderEditor({
             <DialogTitle>Move attendee</DialogTitle>
             <DialogDescription>
               Move {attendee.name} to the selected order? The attendee&apos;s
-              ticket, preferences, and payments will move with them.
+              ticket and preferences will move with them. Payments stay on the
+              order they were received against.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

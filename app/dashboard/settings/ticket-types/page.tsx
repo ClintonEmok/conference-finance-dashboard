@@ -434,13 +434,13 @@ export default function TicketTypesSettingsPage() {
               >
                 <div className="space-y-2">
                   <label htmlFor="amountMinor" className="text-sm font-medium">
-                    Amount (in cents)
+                    Amount (in euros)
                   </label>
                   <input
                     id="amountMinor"
                     type="number"
-                    min={1}
-                    step={1}
+                    min="0.01"
+                    step="0.01"
                     value={formState.amountMinor}
                     onChange={(e) =>
                       setFormState((s) => ({
@@ -448,7 +448,7 @@ export default function TicketTypesSettingsPage() {
                         amountMinor: e.target.value,
                       }))
                     }
-                    placeholder="e.g. 2500 for €25.00"
+                    placeholder="e.g. 25.00 for €25.00"
                     required
                     className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                   />
