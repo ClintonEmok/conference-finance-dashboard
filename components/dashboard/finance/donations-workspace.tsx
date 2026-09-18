@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button"
 import {
   Table,
   TableBody,
-  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
@@ -199,7 +198,6 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
           ) : (
             <>
               <Table>
-                <TableCaption>Standalone donations</TableCaption>
                 <TableHeader className="bg-muted/30 text-xs font-bold tracking-wider text-muted-foreground uppercase">
                   <TableRow>
                     <TableHead>Payer</TableHead>

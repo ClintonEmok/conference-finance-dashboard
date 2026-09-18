@@ -19,7 +19,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
   TableBody,
-  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
@@ -268,7 +267,6 @@ export function DonationRecordPanel({
   const historyShell = (
     <div className="min-w-0 rounded-2xl border border-border/50 bg-background/50">
       <Table>
-        <TableCaption>Allocations for this donation</TableCaption>
         <TableHeader className="bg-muted/30 text-xs font-bold tracking-wider text-muted-foreground uppercase">
           <TableRow>
             <TableHead>Target attendee</TableHead>

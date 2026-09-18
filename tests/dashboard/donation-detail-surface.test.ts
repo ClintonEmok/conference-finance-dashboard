@@ -124,7 +124,6 @@ describe("donation record — the moved pins, in full (DACC-04 + effective capac
     expect(record).toContain("Applied")
     expect(record).toContain("Not applied")
     expect(record).toContain("Target attendee")
-    expect(record).toContain("Allocations for this donation")
     expect(record).toContain("No allocations yet")
     expect(record).toContain("Show all")
     expect(record).toContain("scopeLabel(")

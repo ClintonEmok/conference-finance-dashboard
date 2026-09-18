@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
-import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { api } from "@/lib/convex/api"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -416,7 +416,6 @@ export function OrdersSurface({ slug, event }: PageProps) {
 
       <article className="min-w-0 overflow-hidden rounded-xl border border-border/50 bg-card/40">
           <Table>
-            <TableCaption>Orders</TableCaption>
             <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Order</TableHead>

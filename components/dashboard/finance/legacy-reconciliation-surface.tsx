@@ -24,7 +24,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
-import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/convex/api"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
@@ -590,7 +590,6 @@ export default function EventReconciliationPage({
 
       <article className="overflow-hidden rounded-xl border border-border/60 bg-card">
           <Table>
-            <TableCaption>Reconciliation</TableCaption>
             <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Order</TableHead>
