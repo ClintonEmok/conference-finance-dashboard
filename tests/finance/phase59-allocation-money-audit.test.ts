@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
-import { readFileSync, readdirSync } from "node:fs"
-import { resolve } from "node:path"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { posix, resolve } from "node:path"
 
 /**
  * Phase 59 source audit — SC5's two static halves:
@@ -45,6 +45,19 @@ import { resolve } from "node:path"
  * `assignPaymentToOrder` ban. This suite is additive: it re-reads the shipped
  * bytes independently and never replaces a per-file guard.
  *
+ * THE D-07 CORRECTION (Phase 61, plan 61-09). The currency clause's exclusion
+ * list named `components/dashboard/finance/legacy-order-detail-surface.tsx` —
+ * a five-line re-export of `components/dashboard/orders/order-detail-surface.tsx`
+ * — while the live 503-line component sat in NO scanned set and derived its
+ * paid figure from a payments reduce that excluded donation allocation credit
+ * entirely. The re-export stays named in `CURRENCY_CLAUSE_EXCLUSIONS` (its own
+ * bytes contain no currency), and two cases close the class of miss that let
+ * that pin look like coverage: `case 9` scans the live order components for the
+ * portable paid-derivation markers, and `case 10` requires every finance-dir
+ * `legacy-*` file with no logic of its own to resolve its import specifier to a
+ * REGISTERED target that `case 9` itself scans. Case 10 covers re-exports with
+ * no logic, not logic-bearing thin wrappers.
+ *
  * NON-VACUITY (the W1 lesson): the expected file set is READ, not assumed. A
  * renamed or moved file throws ENOENT inside `case 1` and fails the suite, and
  * the directory walk must CONTAIN every expected component by name — a walk
@@ -64,6 +77,17 @@ import { resolve } from "node:path"
 const root = resolve(import.meta.dirname, "../..")
 
 const FINANCE_DIR = "components/dashboard/finance"
+
+/**
+ * The two LIVE order components (D-07's corrected pins). They are not Phase 58
+ * surfaces — they are the components the finance-dir `legacy-*` re-exports
+ * resolve to, and the surface whose local payments reduce the audit missed
+ * because the pin named its five-line re-export instead.
+ */
+const ORDER_DETAIL_SURFACE =
+  "components/dashboard/orders/order-detail-surface.tsx"
+const ORDERS_SURFACE = "components/dashboard/orders/orders-surface.tsx"
+const LIVE_ORDER_COMPONENTS = [ORDER_DETAIL_SURFACE, ORDERS_SURFACE] as const
 
 /**
  * The six Phase 58 UI surfaces, by name. They are the pinned half of the
@@ -247,6 +271,10 @@ describe("phase 59 allocation money audit — the Phase 58 surface set", () => {
       ...walkFinanceSurfaces(),
       ...PHASE_58_ROUTE_PAGES,
       ...PHASE_58_LIB_MODULES,
+      // D-07's correction: the live order components are swept too. They were
+      // the unscanned half of the miss — the finance-dir re-export was swept,
+      // the component it renders was not.
+      ...LIVE_ORDER_COMPONENTS,
     ]
     expect(
       swept.length,
@@ -440,6 +468,115 @@ describe("phase 59 allocation money audit — the payments-write clause", () => 
         normalized,
         `${path} references assignPaymentToOrder — a donation's payment row may never be assigned to an order`
       ).not.toContain("assignpaymenttoorder")
+    }
+  })
+})
+
+/**
+ * The D-07 correction (Phase 61, 61-09). These two cases exist because the
+ * original pin named a re-export that "looked right" while the live component
+ * was unscanned. Case 9 scans the live components themselves; case 10 makes a
+ * re-export-with-no-logic an obligation to audit its target.
+ */
+describe("phase 59 allocation money audit — the D-07 re-export correction", () => {
+  test("case 9 — the live order components derive no paid figure from a payments list", () => {
+    for (const path of LIVE_ORDER_COMPONENTS) {
+      const source = readSource(path)
+      expect(
+        source,
+        `${path} reduces a payments list — a local payments reduce on the order surface is the D-07 second owner (the defect the re-export pin hid)`
+      ).not.toMatch(/\.reduce\(/)
+      expect(
+        source,
+        `${path} names isOrderAppliedPayment — the payment-only classifier derives a paid figure here (D-07)`
+      ).not.toContain("isOrderAppliedPayment")
+      expect(
+        source,
+        `${path} names loadMatchedPaymentTotalsByOrderId — the payment-only loader must not return to the order surface (D-07)`
+      ).not.toContain("loadMatchedPaymentTotalsByOrderId")
+    }
+  })
+
+  /**
+   * The finance-dir re-exports whose targets case 9 must itself scan. Keyed by
+   * the re-export's repo-relative path.
+   */
+  const REEXPORT_TARGETS: Record<string, string> = {
+    [`${FINANCE_DIR}/legacy-order-detail-surface.tsx`]: ORDER_DETAIL_SURFACE,
+    [`${FINANCE_DIR}/legacy-orders-surface.tsx`]: ORDERS_SURFACE,
+  }
+
+  function stripComments(source: string): string {
+    return source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|\s)\/\/[^\n]*$/gm, "")
+  }
+
+  /**
+   * Case 10's boundary: RE-EXPORTS WITH NO LOGIC — a default-exported bare
+   * identifier, with none of the logic markers. A thin wrapper that contains
+   * logic is deliberately out of scope (a different class, left to the other
+   * clauses).
+   */
+  function isReExportWithNoLogic(source: string): boolean {
+    const stripped = stripComments(source)
+    return (
+      /export\s+default\s+[A-Za-z_$][\w$]*/.test(stripped) &&
+      !/function\s|=>|\buseState\b|\buseQuery\b|\buseEffect\b|\buseContext\b|return\s*\(/.test(
+        stripped
+      )
+    )
+  }
+
+  /**
+   * Resolve a re-export's static specifier to a repo-relative POSIX path. The
+   * specifier omits its extension, so `.tsx` is tried before `.ts`; a
+   * specifier that resolves to neither returns null and fails its caller.
+   */
+  function resolveReExportTarget(specifier: string): string | null {
+    for (const extension of [".tsx", ".ts"] as const) {
+      const candidate = posix.normalize(
+        `${FINANCE_DIR}/${specifier}${extension}`
+      )
+      if (existsSync(resolve(root, candidate))) return candidate
+    }
+    return null
+  }
+
+  test("case 10 — no pinned legacy re-export hides an unaudited live component", () => {
+    const legacyFiles = walkFinanceSurfaces().filter((path) =>
+      (path.split("/").pop() ?? "").startsWith("legacy-")
+    )
+    const reExports = legacyFiles.filter((path) =>
+      isReExportWithNoLogic(readSource(path))
+    )
+
+    // Non-vacuity BOTH ways: the two known re-exports are classified (a
+    // classifier that matched nothing cannot pass), and a NEW re-export cannot
+    // appear without registering its target here.
+    expect(
+      reExports.slice().sort(),
+      "the finance-dir re-exports-with-no-logic must be exactly the registered set"
+    ).toEqual(Object.keys(REEXPORT_TARGETS).sort())
+
+    for (const path of reExports) {
+      // The specifier is read from the comment-stripped source for consistency
+      // with the classification — a comment can neither add nor hide it.
+      const match = stripComments(readSource(path)).match(/from\s+"([^"]+)"/)
+      const specifier = match?.[1] ?? ""
+      const resolved = resolveReExportTarget(specifier)
+      expect(
+        resolved,
+        `${path}'s specifier "${specifier}" must resolve to a real file`
+      ).not.toBeNull()
+      expect(
+        resolved,
+        `${path} must resolve to its registered target — a moved or re-pointed re-export is a deliberate edit`
+      ).toBe(REEXPORT_TARGETS[path])
+      expect(
+        LIVE_ORDER_COMPONENTS,
+        `${resolved} hides a live target outside the case 9 scanned set — the exact D-07 miss class`
+      ).toContain(resolved)
     }
   })
 })

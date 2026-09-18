@@ -24,9 +24,11 @@ import { resolve } from "node:path"
  *      `donationsHref(slug, { orderId })` (order view) and
  *      `donationsHref(eventSlug, { attendeeId })` (attendee view). The exact
  *      hrefs are pinned, so an invented filter param fails.
- *   3. No additive per-order read is introduced (that would be a backend
- *      change, explicitly out of this phase): neither view reaches for
- *      `api.donations` / `getDonationAllocationSummary`.
+ *   3. Phase 61 D-07 supersedes the G2 deferral: the order view now reads the
+ *      additive per-order ledger (`api.orders.getOrderAllocationLedger`) —
+ *      the read that lets the order surface reconcile with donation credit.
+ *      The donation-scoped `getDonationAllocationSummary` remains forbidden on
+ *      both views (it is the record's own read, not an order/attendee one).
  *
  * The other half of DACC-04 — the record's per-allocation `Target attendee`
  * and recorded-scope columns — lives on the donation record and is pinned in
@@ -176,8 +178,9 @@ describe("attendee view — the label on the existing figure and the link", () =
   })
 })
 
-describe("no additive per-order read", () => {
-  it("keeps both views on the reads they already had", () => {
+describe("the additive per-order allocation read (Phase 61 D-07 supersedes G2's deferral)", () => {
+  it("is the order view's read, and the donation-scoped summary stays forbidden", () => {
+    expect(surface).toContain("getOrderAllocationLedger")
     for (const source of [surface, panel, attendee]) {
       expect(source).not.toContain("api.donations")
       expect(source).not.toContain("getDonationAllocationSummary")
