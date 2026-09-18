@@ -257,7 +257,7 @@ test("collector: fills a page at a fetched-page boundary and resumes with the un
   const pageSize = 5
   const fetchBatch = 3
   const source = makeSource(120, (position) => position % 10 === 0)
-  const { pages, logs } = await collectAll(source, { pageSize, fetchBatch })
+  const { pages } = await collectAll(source, { pageSize, fetchBatch })
 
   expect(positions(pages[0].rows)).toEqual([10, 20, 30, 40, 50])
   expect(pages[0].isDone).toBe(false)
@@ -273,10 +273,16 @@ test("collector: fills a page at a fetched-page boundary and resumes with the un
     Array.from({ length: 12 }, (_, index) => (index + 1) * 10)
   )
   expect(new Set(union).size).toBe(union.length)
+})
 
-  // The no-overshoot invariant itself, replayed over the fetch log: every
-  // requested limit is at most the remaining need at that moment. A
-  // fixed-size fetch ignoring `pageSize - matched` fails here.
+test("collector: every internal fetch honours the remaining need (the no-overshoot invariant)", async () => {
+  const pageSize = 5
+  const fetchBatch = 3
+  const source = makeSource(120, (position) => position % 10 === 0)
+  const { pages, logs } = await collectAll(source, { pageSize, fetchBatch })
+  // Replay the fetch log: every requested limit is at most the remaining
+  // need at that moment. A fixed-size fetch ignoring `pageSize - matched`
+  // fails here, before any row-count or union evidence above can.
   pages.forEach((_, callIndex) => {
     let matched = 0
     for (const entry of logs[callIndex]) {
