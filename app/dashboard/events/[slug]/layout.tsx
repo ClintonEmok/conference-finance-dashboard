@@ -30,6 +30,7 @@ import {
   reconciliationHref,
 } from "@/lib/dashboard/workspace-routes"
 import { getAllocationNavigationAccessibleLabel, getAllocationNavigationCount, isAccommodationSetupNavigationActive, isAllocationNavigationActive } from "@/lib/dashboard/accommodation-navigation"
+import { resolveEventSubpageLabel } from "@/lib/dashboard/event-subpage-label"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -247,9 +248,7 @@ function SidebarContentInner({
               const isActive = item.label === "Allocation" ? allocationActive : getSectionActive(item.label, pathname, slug)
               const Icon = item.icon
 
-              const subpage = pathname.startsWith(`${item.href}/`)
-                ? pathname.slice(item.href.length + 1).split("/")[0]
-                : null
+              const subpageLabel = resolveEventSubpageLabel(pathname, item.href)
 
               const itemLink = (
                 <Link
@@ -267,7 +266,7 @@ function SidebarContentInner({
                     <Icon className="mt-0.5 size-4 shrink-0" />
                     <span className="min-w-0 group-data-[collapsible=icon]:hidden">
                       <span className="block text-sm font-semibold leading-tight">{item.label}</span>
-                      {item.label === "Allocation" ? <><span className="mt-1 block text-xs text-muted-foreground">Place attendees and resolve needs.</span><span className="mt-1 block text-xs text-muted-foreground">{allocationStatus === "pending" ? "Checking placement count…" : allocationStatus === "error" || allocationStatus === "unavailable" ? "Placement count unavailable" : allocationCount === 0 ? "All attendees placed" : `${allocationCount} ${allocationCount === 1 ? "attendee needs placement" : "attendees need placement"}`}</span></> : subpage && <span className="mt-1 block text-[10px] font-black tracking-[0.2em] text-muted-foreground/50 uppercase">{subpage}</span>}
+                      {item.label === "Allocation" ? <><span className="mt-1 block text-xs text-muted-foreground">Place attendees and resolve needs.</span><span className="mt-1 block text-xs text-muted-foreground">{allocationStatus === "pending" ? "Checking placement count…" : allocationStatus === "error" || allocationStatus === "unavailable" ? "Placement count unavailable" : allocationCount === 0 ? "All attendees placed" : `${allocationCount} ${allocationCount === 1 ? "attendee needs placement" : "attendees need placement"}`}</span></> : subpageLabel && <span className="mt-1 block text-[10px] font-black tracking-[0.2em] text-muted-foreground/50 uppercase">{subpageLabel}</span>}
                     </span>
                   </span>
                   {item.label === "Allocation" && allocationCount !== undefined && <span aria-hidden="true" className="font-mono tabular-nums text-xs font-semibold group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:-right-1 group-data-[collapsible=icon]:-top-1">{allocationCount}</span>}
@@ -284,9 +283,9 @@ function SidebarContentInner({
                   <TooltipContent side="right" className="flex items-center gap-2">
                     <Icon className="size-4 shrink-0" />
                     {item.label === "Allocation" ? getAllocationNavigationAccessibleLabel(allocationCount, allocationStatus) : item.label}
-                    {subpage && (
+                    {subpageLabel && (
                       <span className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/70 uppercase">
-                        /{subpage}
+                        {subpageLabel}
                       </span>
                     )}
                   </TooltipContent>
