@@ -64,9 +64,9 @@ async function seedBeyondBrowseCap(t: TestConvex) {
 
 test("getUnassignedPayments requires identity", async () => {
   const t = convexTest(schema, modules)
-  await expect(
-    t.query(api.payments.getUnassignedPayments, {})
-  ).rejects.toThrow("Unauthorized")
+  await expect(t.query(api.payments.getUnassignedPayments, {})).rejects.toThrow(
+    "Unauthorized"
+  )
 })
 
 test("the browse contract remains capped at 500 and excludes the 501st payment", async () => {

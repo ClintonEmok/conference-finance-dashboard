@@ -22,7 +22,10 @@ function fresh() {
   return convexTest(schema, modules).withIdentity(identity)
 }
 
-function internalEventDoc(slug: string, primarySourceKind: "internal" | "integration" = "internal") {
+function internalEventDoc(
+  slug: string,
+  primarySourceKind: "internal" | "integration" = "internal"
+) {
   return {
     slug,
     title: slug,
@@ -70,7 +73,10 @@ type Fixture = {
 
 async function seedFixture(t: TestConvex): Promise<Fixture> {
   return await t.run(async (ctx) => {
-    const eventId = await ctx.db.insert("events", internalEventDoc("source-search-guards"))
+    const eventId = await ctx.db.insert(
+      "events",
+      internalEventDoc("source-search-guards")
+    )
     const otherEventId = await ctx.db.insert(
       "events",
       internalEventDoc("source-search-guards-other")
@@ -158,14 +164,42 @@ async function seedFixture(t: TestConvex): Promise<Fixture> {
     }> = [
       { orderIndex: 0, name: "Oliver Vos", email: "oliver.vos@example.com" },
       { orderIndex: 0, name: "Vicky Vos", email: "vicky.vos@example.com" },
-      { orderIndex: 1, name: "Nadine de Vries", email: "nadine.devries@example.com" },
-      { orderIndex: 1, name: "Nadine van Dijk", email: "nadine.vandijk@example.com" },
-      { orderIndex: 2, name: "Nadine O'Neil", email: "nadine.oneil@example.com" },
-      { orderIndex: 2, name: "Nadine Ó Briain", email: "nadine.obriain@example.com" },
+      {
+        orderIndex: 1,
+        name: "Nadine de Vries",
+        email: "nadine.devries@example.com",
+      },
+      {
+        orderIndex: 1,
+        name: "Nadine van Dijk",
+        email: "nadine.vandijk@example.com",
+      },
+      {
+        orderIndex: 2,
+        name: "Nadine O'Neil",
+        email: "nadine.oneil@example.com",
+      },
+      {
+        orderIndex: 2,
+        name: "Nadine Ó Briain",
+        email: "nadine.obriain@example.com",
+      },
       { orderIndex: 3, name: "Nadine Müller" },
-      { orderIndex: 3, name: "Nadine Kovač", email: "nadine.kovac@example.com" },
-      { orderIndex: 4, name: "Nadine Smith", email: "nadine.smith@example.com" },
-      { orderIndex: 5, name: "Nadine Johnson", email: "nadine.johnson@example.com" },
+      {
+        orderIndex: 3,
+        name: "Nadine Kovač",
+        email: "nadine.kovac@example.com",
+      },
+      {
+        orderIndex: 4,
+        name: "Nadine Smith",
+        email: "nadine.smith@example.com",
+      },
+      {
+        orderIndex: 5,
+        name: "Nadine Johnson",
+        email: "nadine.johnson@example.com",
+      },
     ]
     const visibleAttendees: FixtureAttendee[] = []
     for (const [index, spec] of attendeeSpecs.entries()) {
@@ -329,10 +363,14 @@ test("the live defect values find both the Oliver Vos order and attendee", async
       pageSize: 50,
       cursor: null,
     })) as AttendeeSearchResult
-    expect(orders.orders.map((row) => row.orderId), search).toContain(String(defect.id))
-    expect(attendees.rows.map((row) => String(row._id)), search).toContain(
-      String(defectAttendee.id)
-    )
+    expect(
+      orders.orders.map((row) => row.orderId),
+      search
+    ).toContain(String(defect.id))
+    expect(
+      attendees.rows.map((row) => String(row._id)),
+      search
+    ).toContain(String(defectAttendee.id))
   }
 
   const realDefectHaystack = buildSearchHaystack([
@@ -368,7 +406,9 @@ test("pagination finds every Nadine match exactly once for attendees and orders"
     attendeeCursor = page.page.nextCursor
     expect(attendeeCursor).not.toBeNull()
   }
-  expect(attendeePages.slice(0, -1).every((page) => page.length === 2)).toBe(true)
+  expect(attendeePages.slice(0, -1).every((page) => page.length === 2)).toBe(
+    true
+  )
   const attendeeUnion = attendeePages.flat()
   expect(new Set(attendeeUnion)).toEqual(new Set(expectedAttendees))
   expect(attendeeUnion).toHaveLength(expectedAttendees.length)
@@ -402,7 +442,10 @@ test("merged and other-event records stay excluded from an event-scoped search",
   const fixture = await seedFixture(t)
   await assertProjectionFreeAndNonVacuous(t, fixture)
 
-  for (const search of [fixture.mergedOrder.bookerName, String(fixture.mergedOrder.id)]) {
+  for (const search of [
+    fixture.mergedOrder.bookerName,
+    String(fixture.mergedOrder.id),
+  ]) {
     const result = await t.query(api.orders.getOrdersWithFilters, {
       eventId: String(fixture.eventId),
       search,
@@ -410,7 +453,10 @@ test("merged and other-event records stay excluded from an event-scoped search",
     })
     expect(result.orders).toEqual([])
   }
-  for (const search of ["Merged Ghost Attendee", String(fixture.mergedAttendeeId)]) {
+  for (const search of [
+    "Merged Ghost Attendee",
+    String(fixture.mergedAttendeeId),
+  ]) {
     const result = (await t.query(api.attendees.getAttendeeLedgerPage, {
       eventId: fixture.eventId,
       search,

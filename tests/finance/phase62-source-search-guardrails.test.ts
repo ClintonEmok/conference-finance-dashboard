@@ -12,7 +12,8 @@ const CONVEX_ROOT = resolve(ROOT, "convex")
  */
 function stripComments(source: string): string {
   let output = ""
-  let state: "code" | "line" | "block" | "single" | "double" | "template" = "code"
+  let state: "code" | "line" | "block" | "single" | "double" | "template" =
+    "code"
   let escaped = false
 
   for (let index = 0; index < source.length; index += 1) {
@@ -120,15 +121,21 @@ describe("Phase 62 source-search static guardrails", () => {
     expect(stripComments(comment)).not.toContain("searchDocuments")
 
     const urlLiteral = 'const url = "https://example.test/searchDocuments"'
-    expect(stripComments(urlLiteral)).toContain("https://example.test/searchDocuments")
+    expect(stripComments(urlLiteral)).toContain(
+      "https://example.test/searchDocuments"
+    )
 
     const fakeWrite = 'const x = ctx.db.insert("searchDocuments", {})'
     expect(stripComments(fakeWrite)).toContain("searchDocuments")
 
     const fakeRemovedComment = "// upsertOrderSearchDocument(row)"
     const fakeRemovedCode = "const x = upsertOrderSearchDocument(row)"
-    expect(stripComments(fakeRemovedComment)).not.toContain("upsertOrderSearchDocument")
-    expect(stripComments(fakeRemovedCode)).toContain("upsertOrderSearchDocument")
+    expect(stripComments(fakeRemovedComment)).not.toContain(
+      "upsertOrderSearchDocument"
+    )
+    expect(stripComments(fakeRemovedCode)).toContain(
+      "upsertOrderSearchDocument"
+    )
   })
 
   test("retained projection table names occur only in schema and the scan set cannot shrink", () => {
@@ -151,9 +158,14 @@ describe("Phase 62 source-search static guardrails", () => {
 
     for (const file of files) {
       const source = stripComments(readSource(file))
-      for (const tableName of ["searchDocuments", "searchProjectionFanoutJobs"]) {
+      for (const tableName of [
+        "searchDocuments",
+        "searchProjectionFanoutJobs",
+      ]) {
         if (source.includes(tableName)) {
-          expect(file, `${tableName} must stay schema-only`).toBe("convex/schema.ts")
+          expect(file, `${tableName} must stay schema-only`).toBe(
+            "convex/schema.ts"
+          )
         }
       }
     }
@@ -180,31 +192,47 @@ describe("Phase 62 source-search static guardrails", () => {
       }
     }
     expect(readSource("convex/search.ts")).toContain("collectSourceSearchPage")
-    expect(existsSync(resolve(ROOT, "convex/backfillSearchProjections.ts"))).toBe(false)
+    expect(
+      existsSync(resolve(ROOT, "convex/backfillSearchProjections.ts"))
+    ).toBe(false)
   })
 
   test("the projection backfill is gone without deleting the source-search module", () => {
     // The positive control makes this absence assertion fail loudly if the
     // production tree is accidentally replaced by an empty/deleted scan.
-    expect(readSource("convex/search.ts")).toContain("export function normalizeSearchText")
-    expect(existsSync(resolve(ROOT, "convex/backfillSearchProjections.ts"))).toBe(false)
+    expect(readSource("convex/search.ts")).toContain(
+      "export function normalizeSearchText"
+    )
+    expect(
+      existsSync(resolve(ROOT, "convex/backfillSearchProjections.ts"))
+    ).toBe(false)
   })
 
   test("all literal attendee inserts copy eventId and the dynamic seed writer is covered", () => {
     const token = 'db.insert("orderAttendees"'
     const hits = convexProductionFiles().flatMap((file) => {
       const source = stripComments(readSource(file))
-      return occurrences(source, token).map((position) => ({ file, source, position }))
+      return occurrences(source, token).map((position) => ({
+        file,
+        source,
+        position,
+      }))
     })
 
     // Three literal sites are expected, but that count is NOT evidence of
     // completeness: seedPreviewSimulation uses a dynamic table name.
     expect(hits).toHaveLength(3)
     expect(new Set(hits.map((hit) => hit.file))).toEqual(
-      new Set(["convex/attendees.ts", "convex/events.ts", "convex/signupSubmission.ts"])
+      new Set([
+        "convex/attendees.ts",
+        "convex/events.ts",
+        "convex/signupSubmission.ts",
+      ])
     )
     for (const hit of hits) {
-      expect(hit.source.slice(hit.position, hit.position + 300)).toContain("eventId")
+      expect(hit.source.slice(hit.position, hit.position + 300)).toContain(
+        "eventId"
+      )
     }
 
     const seed = stripComments(readSource("convex/seedPreviewSimulation.ts"))
@@ -216,8 +244,12 @@ describe("Phase 62 source-search static guardrails", () => {
     // Behavioural backstop: the handler suite seeds through this dynamic path
     // and proves the row is immediately visible through the event-scoped
     // ledger query, before any backfill can run.
-    const seedSuite = readSource("convex/attendee-source-search.handlers.test.ts")
-    expect(seedSuite).toContain('test("the preview seed writes eventId with the row')
+    const seedSuite = readSource(
+      "convex/attendee-source-search.handlers.test.ts"
+    )
+    expect(seedSuite).toContain(
+      'test("the preview seed writes eventId with the row'
+    )
     expect(seedSuite).toContain("eventId: seeded.eventId")
     expect(seedSuite).toContain("search: attendee.name")
     expect(seedSuite).toContain("page.rows.map((row) => String(row._id))")
@@ -234,21 +266,29 @@ describe("Phase 62 source-search static guardrails", () => {
     expect(readSource("convex/order-merge.handlers.test.ts")).toContain(
       'test("mergeOrders rejects cross-event source"'
     )
-    expect(readSource("convex/attendee-order-mutations.handlers.test.ts")).toContain(
+    expect(
+      readSource("convex/attendee-order-mutations.handlers.test.ts")
+    ).toContain(
       'test("moveAttendeeToOrder fails closed on cross-event and missing targets"'
     )
   })
 
   test("reconciliation fallback sends debounced search to the server without re-filtering it", () => {
-    const surface = readSource("components/dashboard/finance/legacy-reconciliation-surface.tsx")
+    const surface = readSource(
+      "components/dashboard/finance/legacy-reconciliation-surface.tsx"
+    )
     expect(surface).toContain("const SEARCH_DEBOUNCE_MS = 250")
-    expect(surface).toContain("const [debouncedSearch, setDebouncedSearch] = useState(\"\")")
+    expect(surface).toContain(
+      'const [debouncedSearch, setDebouncedSearch] = useState("")'
+    )
     expect(surface).toMatch(
       /useUnassignedPayments\(\s*!hasParentUnassignedPayments,\s*debouncedSearch\s*\)/
     )
 
     const fallbackStart = surface.indexOf("if (!hasParentUnassignedPayments)")
-    const parentFilter = surface.indexOf("const query = searchQuery.trim().toLowerCase()")
+    const parentFilter = surface.indexOf(
+      "const query = searchQuery.trim().toLowerCase()"
+    )
     expect(fallbackStart).toBeGreaterThanOrEqual(0)
     expect(parentFilter).toBeGreaterThan(fallbackStart)
     expect(surface.slice(fallbackStart, parentFilter)).toContain(
