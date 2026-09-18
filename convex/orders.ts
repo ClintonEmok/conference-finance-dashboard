@@ -19,10 +19,15 @@ import {
   loadOrdersWithExtensions,
 } from "./provider_boundary"
 import {
+  buildSearchHaystack,
+  collectSourceSearchPage,
+  decodeSearchCursor,
+  encodeSearchCursor,
   enqueueSearchProjectionFanout,
   deleteSearchProjection,
   maintainOrderSearchProjection,
-  paginateSearchDocuments,
+  matchesNormalizedSearch,
+  requireSearchNeedle,
   upsertOrderSearchDocument,
 } from "./search"
 import { planUniqueAttendeeKeys } from "../lib/domain/attendee-key"
@@ -815,6 +820,12 @@ function isInternalEvent(
 
 // A payment-only paid derivation lived here, had zero callers, and must not return — allocation-aware consumers use loadCanonicalOrderBalances / loadOrderPaymentAttributions.
 
+// Source-search scan budget per invocation; continuation is via the search
+// cursor. Aligned with the domain's MAX_PAGE_SIZE so the ledger can never
+// request a page the server rejects.
+const ORDER_SEARCH_SCAN_CAP = 2_000
+const ORDER_SEARCH_PAGE_MAX = 200
+
 export const getOrdersWithFilters = query({
   args: {
     eventId: v.optional(v.string()),
@@ -848,38 +859,170 @@ export const getOrdersWithFilters = query({
   }),
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const normalizedSearch = args.search?.trim().replace(/\s+/g, " ").toLowerCase() ?? ""
     const page = args.page ?? 1
     const pageSize = args.pageSize ?? 25
+    if (
+      !Number.isInteger(pageSize) ||
+      pageSize < 1 ||
+      pageSize > ORDER_SEARCH_PAGE_MAX
+    ) {
+      throw new Error("Invalid order ledger page size.")
+    }
+    // D-01: the source rows are the single truth — this branch does not read
+    // `searchDocuments` (62-04 retires its writers). D-02/D-04: one folded
+    // substring pass over a bounded, resumable scan, with a cursor that is
+    // signature-bound so a stale cursor cannot resume against other filters.
+    const needle = requireSearchNeedle(args.search)
+    if (args.searchCursor != null && !needle) {
+      throw new Error("Invalid order search cursor.")
+    }
     let searchNextCursor: string | null = null
     let searchHasNextPage = false
     let visibleOrders: CandidateOrder[]
 
-    if (normalizedSearch) {
+    if (needle) {
       if (page > 1) throw new Error("Search cursor pagination cannot be combined with offset page pagination.")
       const eventId = args.eventId ? ctx.db.normalizeId("events", args.eventId) : null
       if (args.eventId && !eventId) throw new Error("Invalid 'eventId'.")
-      let cursor = args.searchCursor ?? null
-      const matching: CandidateOrder[] = []
-      const projectionPage = await paginateSearchDocuments(ctx, { kind: "order", eventId: eventId ?? undefined, search: normalizedSearch, cursor, numItems: pageSize })
-      cursor = projectionPage.continueCursor
-      for (const document of projectionPage.page) {
-          const orderId = ctx.db.normalizeId("orders", document.subjectId)
-          if (!orderId) continue
-          const combined = await loadOrderWithExtension(ctx, orderId)
-          if (!combined || !isOrderVisible(combined.extension)) continue
-          const order = { ...combined.order, ...combined.extension, _id: combined.order._id, _creationTime: combined.order._creationTime } as CandidateOrder
-          if ((order as any).mergedIntoOrderId || !matchesOrderFilters(order, args)) continue
-          if (args.location) {
-            const locations = await loadOrderLocationsByOrderId(ctx, [order])
-            if (!matchesLocationFilter(order._id, locations, normalizeLocationLabel(args.location)!)) continue
-          }
-          matching.push(order)
-        if (matching.length >= pageSize) break
+      const signature = JSON.stringify({
+        v: 1,
+        eventId: args.eventId ?? null,
+        search: needle,
+        status: args.status ?? null,
+        location: args.location ? normalizeLocationLabel(args.location) : null,
+        from: args.from ?? null,
+        to: args.to ?? null,
+        pageSize,
+      })
+      let scanCursor: string | null = null
+      if (args.searchCursor != null) {
+        let decoded: { signature: string; cursor: string | null }
+        try {
+          decoded = decodeSearchCursor(args.searchCursor)
+        } catch {
+          throw new Error("Invalid order search cursor.")
+        }
+        if (decoded.signature !== signature) {
+          throw new Error("Order search cursor does not match the request.")
+        }
+        scanCursor = decoded.cursor
       }
-      visibleOrders = matching
-      searchNextCursor = projectionPage.isDone ? null : cursor
-      searchHasNextPage = !projectionPage.isDone
+
+      // One events read per distinct event; a missing event fails closed.
+      const internalEventById = new Map<string, boolean>()
+      const eventIsInternal = async (eventKey: Id<"events">) => {
+        const key = String(eventKey)
+        const cached = internalEventById.get(key)
+        if (cached !== undefined) return cached
+        const event = await ctx.db.get("events", eventKey)
+        const isInternal = event?.primarySourceKind === "internal"
+        internalEventById.set(key, isInternal)
+        return isInternal
+      }
+
+      // Build the merged CandidateOrder exactly as the browse path does.
+      const resolveCandidateOrder = async (
+        orderId: Id<"orders">
+      ): Promise<CandidateOrder | null> => {
+        const combined = await loadOrderWithExtension(ctx, orderId)
+        if (!combined || !isOrderVisible(combined.extension)) return null
+        const order = {
+          ...combined.order,
+          ...combined.extension,
+          _id: combined.order._id,
+          _creationTime: combined.order._creationTime,
+        } as CandidateOrder
+        if ((order as any).mergedIntoOrderId || !matchesOrderFilters(order, args)) return null
+        const kindEventId = eventId ?? order.eventId
+        if (!kindEventId || !(await eventIsInternal(kindEventId))) return null
+        if (args.location) {
+          const locations = await loadOrderLocationsByOrderId(ctx, [order])
+          if (!matchesLocationFilter(order._id, locations, normalizeLocationLabel(args.location)!)) return null
+        }
+        return order
+      }
+
+      // Exact booking-ref alias resolution: one indexed read resolves an old
+      // (merged-away) reference to its surviving target. The target is excluded
+      // from the scan and prepended once on the first page (capacity
+      // permitting), so it is returned exactly once and never lost.
+      let aliasTargetId: string | null = null
+      let aliasOrder: CandidateOrder | null = null
+      const rawRef = args.search?.trim().toUpperCase() ?? ""
+      if (rawRef) {
+        const alias = await ctx.db
+          .query("orderBookingRefAliases")
+          .withIndex("by_bookingRef", (q) => q.eq("bookingRef", rawRef))
+          .first()
+        if (alias) {
+          const resolved = await resolveCandidateOrder(alias.targetOrderId)
+          if (resolved) {
+            aliasTargetId = String(resolved._id)
+            aliasOrder = resolved
+          }
+        }
+      }
+
+      // Cheap fields first: only a folded-substring hit pays for the validated
+      // join read (extension, filters, event kind, location).
+      const resolvedByOrderId = new Map<string, CandidateOrder>()
+      const matches = async (order: Doc<"orders">): Promise<boolean> => {
+        const haystack = buildSearchHaystack([
+          String(order._id),
+          order.bookingRef,
+          order.bookerName,
+          order.bookerEmail,
+          order.providerOrderId,
+        ])
+        if (!matchesNormalizedSearch(haystack, needle)) return false
+        if (order.mergedIntoOrderId) return false
+        if (String(order._id) === aliasTargetId) return false
+        const resolved = await resolveCandidateOrder(order._id)
+        if (!resolved) return false
+        resolvedByOrderId.set(String(order._id), resolved)
+        return true
+      }
+      // A chained query cannot be re-paginated, so the source query is built
+      // per fetch. The collector requests only the remaining need, so filling
+      // the page lands on a fetched-page boundary (no skip, no duplicate).
+      const fetchPage = async (cursor: string | null, limit: number) => {
+        const source = eventId
+          ? ctx.db
+              .query("orders")
+              .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+              .order("desc")
+          : ctx.db.query("orders").order("desc")
+        const sourcePage = await source.paginate({ numItems: limit, cursor })
+        return {
+          items: sourcePage.page,
+          continueCursor: sourcePage.continueCursor,
+          isDone: sourcePage.isDone,
+        }
+      }
+      const collected = await collectSourceSearchPage({
+        fetchPage,
+        matches,
+        pageSize,
+        cursor: scanCursor,
+        scanCap: ORDER_SEARCH_SCAN_CAP,
+      })
+      visibleOrders = collected.rows.flatMap((order) => {
+        const resolved = resolvedByOrderId.get(String(order._id))
+        return resolved ? [resolved] : []
+      })
+      // The alias prepend is NOT gated on scan exhaustion: a scan-cap hit (or
+      // any other full source page) must not swallow the exact-ref lookup. It
+      // is gated on capacity instead, so the page-size contract holds.
+      if (aliasOrder && args.searchCursor == null) {
+        const alreadyReturned = visibleOrders.some(
+          (order) => String(order._id) === aliasTargetId
+        )
+        if (!alreadyReturned && visibleOrders.length < pageSize) {
+          visibleOrders = [aliasOrder, ...visibleOrders].slice(0, pageSize)
+        }
+      }
+      searchNextCursor = collected.isDone ? null : encodeSearchCursor(signature, collected.continueCursor)
+      searchHasNextPage = !collected.isDone
     } else {
       const candidates = await listCandidateOrders(ctx, args, 500)
       const eventSourceKindsById = await loadEventSourceKindsById(ctx)
@@ -902,8 +1045,8 @@ export const getOrdersWithFilters = query({
       visibleOrders = orders.filter((o) => !(o as any).mergedIntoOrderId)
     }
 
-    const totalRows = normalizedSearch ? null : visibleOrders.length
-    const totalPages = normalizedSearch ? null : Math.max(1, Math.ceil(visibleOrders.length / pageSize))
+    const totalRows = needle ? null : visibleOrders.length
+    const totalPages = needle ? null : Math.max(1, Math.ceil(visibleOrders.length / pageSize))
     // ONE order-level balance owner (Phase 56): the ledger totals and every
     // ledger row consume the same canonical paid / outstanding figure as the
     // reconciliation row and the order payment summary. Rebuilding the
@@ -937,8 +1080,8 @@ export const getOrdersWithFilters = query({
       }
     )
 
-    const skip = normalizedSearch ? 0 : (page - 1) * pageSize
-    const paginatedOrders = normalizedSearch ? visibleOrders : visibleOrders.slice(skip, skip + pageSize)
+    const skip = needle ? 0 : (page - 1) * pageSize
+    const paginatedOrders = needle ? visibleOrders : visibleOrders.slice(skip, skip + pageSize)
 
     const eventNamesById = await loadEventNamesById(ctx)
     const eventSlugsById = await loadEventSlugsById(ctx)
@@ -986,8 +1129,8 @@ export const getOrdersWithFilters = query({
     return {
       totalRows,
       totalPages,
-      nextCursor: normalizedSearch ? searchNextCursor : null,
-      hasNextPage: normalizedSearch ? searchHasNextPage : page < (totalPages ?? 1),
+      nextCursor: needle ? searchNextCursor : null,
+      hasNextPage: needle ? searchHasNextPage : page < (totalPages ?? 1),
       totals,
       orders: ordersWithEvent,
     }
