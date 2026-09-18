@@ -22,7 +22,9 @@ import {
   buildSearchHaystack,
   collectSourceSearchPage,
   decodeSearchCursor,
+  decodeSourceScanBoundary,
   encodeSearchCursor,
+  encodeSourceScanBoundary,
   matchesNormalizedSearch,
   requireSearchNeedle,
 } from "./search"
@@ -966,22 +968,65 @@ export const getOrdersWithFilters = query({
         resolvedByOrderId.set(String(order._id), resolved)
         return true
       }
-      // A chained query cannot be re-paginated, so the source query is built
-      // per fetch. The collector requests only the remaining need, so filling
-      // the page lands on a fetched-page boundary (no skip, no duplicate).
+      // Convex allows only ONE paginated query per function execution, so the
+      // scan cannot re-`.paginate()` across fetches — the second call throws
+      // "ran multiple paginated queries". It scans with `.take()` and carries
+      // its own `_creationTime` boundary cursor instead, which preserves the
+      // collector's rule: consume the whole fetched page, resume strictly
+      // after its last candidate, so nothing is skipped or returned twice.
       const fetchPage = async (cursor: string | null, limit: number) => {
-        const source = eventId
-          ? ctx.db
-              .query("orders")
-              .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
-              .order("desc")
-          : ctx.db.query("orders").order("desc")
-        const sourcePage = await source.paginate({ numItems: limit, cursor })
-        return {
-          items: sourcePage.page,
-          continueCursor: sourcePage.continueCursor,
-          isDone: sourcePage.isDone,
+        const bound = decodeSourceScanBoundary(cursor)
+        const excluded = new Set(bound?.ids ?? [])
+        const takeCount = limit + excluded.size + 1
+        let rows: Doc<"orders">[]
+        if (bound === null) {
+          rows = await (eventId
+            ? ctx.db
+                .query("orders")
+                .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+                .order("desc")
+            : ctx.db.query("orders").order("desc")
+          ).take(takeCount)
+        } else {
+          rows = await (eventId
+            ? ctx.db
+                .query("orders")
+                .withIndex("by_eventId", (q) =>
+                  q.eq("eventId", eventId).lte("_creationTime", bound.t)
+                )
+                .order("desc")
+            : ctx.db
+                .query("orders")
+                .order("desc")
+                .filter((q) => q.lte(q.field("_creationTime"), bound.t))
+          ).take(takeCount)
         }
+        const fresh =
+          bound === null
+            ? rows
+            : rows.filter(
+                (row) =>
+                  !(
+                    row._creationTime === bound.t &&
+                    excluded.has(String(row._id))
+                  )
+              )
+        const hasMore = fresh.length > limit
+        const items = hasMore ? fresh.slice(0, limit) : fresh
+        const last = items[items.length - 1]
+        let continueCursor: string | null = null
+        if (hasMore && last) {
+          const t = last._creationTime
+          const carried = bound !== null && bound.t === t ? bound.ids : []
+          const atT = items
+            .filter((row) => row._creationTime === t)
+            .map((row) => String(row._id))
+          continueCursor = encodeSourceScanBoundary(
+            t,
+            Array.from(new Set([...carried, ...atT]))
+          )
+        }
+        return { items, continueCursor, isDone: !hasMore }
       }
       const collected = await collectSourceSearchPage({
         fetchPage,

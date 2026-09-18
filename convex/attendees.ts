@@ -15,6 +15,8 @@ import {
 import {
   buildSearchHaystack,
   collectSourceSearchPage,
+  decodeSourceScanBoundary,
+  encodeSourceScanBoundary,
   matchesNormalizedSearch,
   requireSearchNeedle,
   type SourceSearchFetchedPage,
@@ -495,13 +497,50 @@ export const getAttendeeLedgerPage = query({
     type LedgerCandidate = { attendee: Doc<"orderAttendees">; order: Doc<"orders"> | null }
     const orderCache = new Map<string, Doc<"orders"> | null>()
     const fetchPage = async (cursor: string | null, limit: number): Promise<SourceSearchFetchedPage<LedgerCandidate>> => {
-      // Convex forbids re-chaining a query after pagination begins, so the
-      // scoped/global query is rebuilt on every call (the 62-02 constraint).
-      const page = args.eventId
-        ? await ctx.db.query("orderAttendees").withIndex("by_eventId", (q) => q.eq("eventId", args.eventId!)).order("desc").paginate({ numItems: limit, cursor })
-        : await ctx.db.query("orderAttendees").order("desc").paginate({ numItems: limit, cursor })
+      // Convex allows only ONE paginated query per function execution, so the
+      // scan cannot re-`.paginate()` across fetches. It scans with `.take()`
+      // and carries its own `_creationTime` boundary cursor instead, so a
+      // resumption starts strictly after the last consumed candidate.
+      const bound = decodeSourceScanBoundary(cursor)
+      const excluded = new Set(bound?.ids ?? [])
+      const takeCount = limit + excluded.size + 1
+      let rows: Doc<"orderAttendees">[]
+      if (bound === null) {
+        rows = await (args.eventId
+          ? ctx.db
+              .query("orderAttendees")
+              .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId!))
+              .order("desc")
+          : ctx.db.query("orderAttendees").order("desc")
+        ).take(takeCount)
+      } else {
+        rows = await (args.eventId
+          ? ctx.db
+              .query("orderAttendees")
+              .withIndex("by_eventId", (q) =>
+                q.eq("eventId", args.eventId!).lte("_creationTime", bound.t)
+              )
+              .order("desc")
+          : ctx.db
+              .query("orderAttendees")
+              .order("desc")
+              .filter((q) => q.lte(q.field("_creationTime"), bound.t))
+        ).take(takeCount)
+      }
+      const fresh =
+        bound === null
+          ? rows
+          : rows.filter(
+              (row) =>
+                !(
+                  row._creationTime === bound.t &&
+                  excluded.has(String(row._id))
+                )
+            )
+      const hasMore = fresh.length > limit
+      const scanned = hasMore ? fresh.slice(0, limit) : fresh
       const items: LedgerCandidate[] = []
-      for (const attendee of page.page) {
+      for (const attendee of scanned) {
         // One cached `orders` get per distinct order for the whole call.
         const key = String(attendee.orderId)
         let order: Doc<"orders"> | null
@@ -513,7 +552,20 @@ export const getAttendeeLedgerPage = query({
         }
         items.push({ attendee, order })
       }
-      return { items, continueCursor: page.isDone ? null : page.continueCursor, isDone: page.isDone }
+      const last = scanned[scanned.length - 1]
+      let continueCursor: string | null = null
+      if (hasMore && last) {
+        const t = last._creationTime
+        const carried = bound !== null && bound.t === t ? bound.ids : []
+        const atT = scanned
+          .filter((row) => row._creationTime === t)
+          .map((row) => String(row._id))
+        continueCursor = encodeSourceScanBoundary(
+          t,
+          Array.from(new Set([...carried, ...atT]))
+        )
+      }
+      return { items, continueCursor, isDone: !hasMore }
     }
 
     const matches = ({ attendee, order }: LedgerCandidate) => {

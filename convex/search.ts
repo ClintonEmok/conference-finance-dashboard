@@ -149,6 +149,51 @@ export function decodeSearchCursor(raw: string): {
   return { signature: payload.signature, cursor }
 }
 
+/**
+ * Cursor for a manual `_creationTime`-boundary scan.
+ *
+ * Convex allows only ONE paginated query per function execution, so a
+ * `fetchPage` that is called more than once cannot use `.paginate()`: the
+ * second call throws "ran multiple paginated queries". A scanner therefore
+ * uses `.take()` and carries its own cursor, which is the last consumed
+ * `_creationTime` plus the ids consumed at that timestamp (`ids`), so
+ * candidates sharing a timestamp are neither skipped nor returned twice.
+ */
+export interface SourceScanBoundary {
+  t: number
+  ids: string[]
+}
+
+export function encodeSourceScanBoundary(t: number, ids: string[]): string {
+  return JSON.stringify({ t, ids })
+}
+
+/** Decode `encodeSourceScanBoundary` output; throws `Invalid search cursor.` on any malformed payload. */
+export function decodeSourceScanBoundary(
+  raw: string | null
+): SourceScanBoundary | null {
+  if (raw === null) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error("Invalid search cursor.")
+  }
+  if (parsed === null || typeof parsed !== "object") {
+    throw new Error("Invalid search cursor.")
+  }
+  const payload = parsed as { t?: unknown; ids?: unknown }
+  if (
+    typeof payload.t !== "number" ||
+    !Number.isFinite(payload.t) ||
+    !Array.isArray(payload.ids) ||
+    !payload.ids.every((id) => typeof id === "string")
+  ) {
+    throw new Error("Invalid search cursor.")
+  }
+  return { t: payload.t, ids: payload.ids as string[] }
+}
+
 export type SourceSearchFetchedPage<T> = {
   items: T[]
   continueCursor: string | null
