@@ -791,7 +791,7 @@ test("moveAttendeeToOrder rejects a missing attendee", async () => {
 
 // ---------------------------------------------------------------------------
 // removeAttendeeFromOrder: event scope, transactional cleanup, inventory,
-// search projections, preserved order payments, and canonical amount due.
+// preserved order payments, and canonical amount due.
 // ---------------------------------------------------------------------------
 
 test("removeAttendeeFromOrder requires auth and the supplied event owns the attendee", async () => {
@@ -814,7 +814,7 @@ test("removeAttendeeFromOrder requires auth and the supplied event owns the atte
   ).rejects.toThrow("Attendee does not belong to the supplied event.")
 })
 
-test("removeAttendeeFromOrder deletes attendee-owned rows, decrements inventory, removes search projections, preserves payments, and recomputes due", async () => {
+test("removeAttendeeFromOrder deletes attendee-owned rows, decrements inventory, preserves payments, and recomputes due", async () => {
   const t = fresh().withIdentity(adminIdentity)
   const seed = await seedOrdersForAttendeeMutations(t)
 
@@ -839,24 +839,6 @@ test("removeAttendeeFromOrder deletes attendee-owned rows, decrements inventory,
     await ctx.db.insert("attendeeFamilyMembers", {
       familyGroupId: String(familyGroupId),
       attendeeId: String(seed.noTicketAttendeeId),
-    })
-    await ctx.db.insert("searchDocuments", {
-      kind: "attendee",
-      subjectId: String(seed.attendeeId),
-      eventId: seed.eventId,
-      searchText: "orders buyer",
-      sortAt: 1_750_000_000_000,
-      isSearchable: true,
-      updatedAt: 1_750_000_000_000,
-    })
-    await ctx.db.insert("searchDocuments", {
-      kind: "attendee",
-      subjectId: String(seed.noTicketAttendeeId),
-      eventId: seed.eventId,
-      searchText: "no ticket buyer family",
-      sortAt: 1_750_000_000_000,
-      isSearchable: true,
-      updatedAt: 1_750_000_000_000,
     })
     await ctx.db.insert("payments", {
       source: "bank_transfer",
@@ -910,24 +892,12 @@ test("removeAttendeeFromOrder deletes attendee-owned rows, decrements inventory,
         q.eq("primaryAttendeeId", String(seed.attendeeId))
       )
       .collect()
-    const searchDocument = await ctx.db
-      .query("searchDocuments")
-      .withIndex("by_kind_and_subjectId", (q) =>
-        q.eq("kind", "attendee").eq("subjectId", String(seed.attendeeId))
-      )
-      .unique()
     const survivingFamilyMembers = await ctx.db
       .query("attendeeFamilyMembers")
       .withIndex("attendeeId", (q) =>
         q.eq("attendeeId", String(seed.noTicketAttendeeId))
       )
       .collect()
-    const survivingSearchDocument = await ctx.db
-      .query("searchDocuments")
-      .withIndex("by_kind_and_subjectId", (q) =>
-        q.eq("kind", "attendee").eq("subjectId", String(seed.noTicketAttendeeId))
-      )
-      .unique()
     const payments = await ctx.db
       .query("payments")
       .withIndex("orderId", (q) => q.eq("orderId", String(seed.sourceOrderId)))
@@ -943,9 +913,7 @@ test("removeAttendeeFromOrder deletes attendee-owned rows, decrements inventory,
       extension,
       familyMembers,
       familyGroups,
-      searchDocument,
       survivingFamilyMembers,
-      survivingSearchDocument,
       payments,
       soldCount: ticketType?.soldCount,
     }
@@ -959,12 +927,7 @@ test("removeAttendeeFromOrder deletes attendee-owned rows, decrements inventory,
   expect(remaining.extension).toBeNull()
   expect(remaining.familyMembers).toEqual([])
   expect(remaining.familyGroups).toEqual([])
-  expect(remaining.searchDocument).toBeNull()
   expect(remaining.survivingFamilyMembers).toEqual([])
-  expect(remaining.survivingSearchDocument?.searchText).toContain(
-    "no ticket buyer"
-  )
-  expect(remaining.survivingSearchDocument?.searchText).not.toContain("family")
   expect(remaining.payments).toHaveLength(1)
   expect(remaining.soldCount).toBe(4)
 })

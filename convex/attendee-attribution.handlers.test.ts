@@ -21,7 +21,6 @@ import {
   type AllocationPaymentState,
 } from "../lib/domain/finance/allocation-payment-state"
 import { deriveBalanceAmounts } from "../lib/domain/finance/amounts"
-import { upsertAttendeeSearchDocument } from "./search"
 
 /**
  * Attendee-level agreement proof for Phase 56 plan 04 (success criterion 1).
@@ -228,20 +227,6 @@ async function seedLedgerFixture(
     sortOrder: 1,
   })
   await createAppliedPayment(t, eventId, nA.orderId, 10_000)
-
-  // Legacy projection fixture, retained until 62-04 removes the writers: the
-  // ledger no longer reads `searchDocuments` (it scans source rows since
-  // 62-03), so these rows are dead weight for the assertions below.
-  for (const attendeeId of [
-    lA.attendeeId,
-    lB.attendeeId,
-    nA.attendeeId,
-    nB.attendeeId,
-  ]) {
-    await t.mutation(async (ctx) => {
-      await upsertAttendeeSearchDocument(ctx, attendeeId)
-    })
-  }
 
   const donationId = await createStandaloneDonation(authed, {
     eventId,
