@@ -2522,40 +2522,6 @@ export declare const internal: {
       }
     >;
   };
-  backfillSearchProjections: {
-    default: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        allowedDeploymentUrl?: string;
-        authorize: boolean;
-        batchSize: number;
-        cursor: string | null;
-        kind: "order" | "attendee";
-      },
-      {
-        diagnostics: Array<{ reason: string; subjectId: string }>;
-        isDone: boolean;
-        kind: "order" | "attendee";
-        nextCursor: string | null;
-        processed: number;
-        skipped: number;
-      }
-    >;
-    verifySearchProjections: FunctionReference<
-      "query",
-      "internal",
-      { allowedDeploymentUrl: string; authorize: boolean },
-      {
-        blockedJobs: number;
-        diagnostics: Array<{ reason: string; subjectId: string }>;
-        missing: number;
-        pendingJobs: number;
-        stale: number;
-        truncated: boolean;
-      }
-    >;
-  };
   correctUnprovenPaidOrders: {
     correctUnprovenPaidOrders: FunctionReference<
       "mutation",
@@ -2854,20 +2820,6 @@ export declare const internal: {
         nextCursor: string | null;
         processed: number;
       }
-    >;
-  };
-  search: {
-    continueSearchProjectionFanout: FunctionReference<
-      "mutation",
-      "internal",
-      { jobId: Id<"searchProjectionFanoutJobs"> },
-      any
-    >;
-    startSearchProjectionFanout: FunctionReference<
-      "mutation",
-      "internal",
-      { operation: "order" | "ticketType" | "family"; targetId: string },
-      any
     >;
   };
   seedPreviewSimulation: {

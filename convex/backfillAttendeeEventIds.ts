@@ -12,7 +12,7 @@ import { assertProductionDeployment } from "../lib/domain/legacy/production-depl
  * donation-allocation picker). New rows are written with the field by all four
  * production insert sites, so this only ever fills history.
  *
- * Shape (mirrors `backfillSearchProjections.ts`):
+ * Shape (mirrors the batched, operator-guarded legacy backfills):
  * - Batched and resumable: `ctx.db.query("orderAttendees").order("asc").paginate`
  *   with an opaque `nextCursor`; repeat with the returned cursor until
  *   `isDone: true`. A completed batch is safe to re-run.
