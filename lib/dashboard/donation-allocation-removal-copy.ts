@@ -79,7 +79,8 @@ export const DONATION_ALLOCATION_REMOVAL_REFUSAL_COPY = {
     "This allocation no longer exists. Refresh the record to see the current allocations.",
   DONATION_NOT_STANDALONE:
     "Only standalone donations can be changed. This donation is linked to an order.",
-  DONATION_ALLOCATION_CROSS_EVENT: "This donation belongs to a different event.",
+  DONATION_ALLOCATION_CROSS_EVENT:
+    "This donation belongs to a different event.",
   DONATION_ALLOCATION_IDEMPOTENCY_CONFLICT:
     "This removal was already used for a different request. Close and reopen the dialog.",
 } as const

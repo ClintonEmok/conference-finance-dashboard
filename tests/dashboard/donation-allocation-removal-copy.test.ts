@@ -39,9 +39,7 @@ describe("buildAllocationRemovalConfirmation", () => {
     )
     expect(copy).toContain("Preview Attendee 116")
     expect(copy).toContain("€150.00")
-    expect(copy).toContain(
-      "returns to this donation's unallocated remainder"
-    )
+    expect(copy).toContain("returns to this donation's unallocated remainder")
   })
 
   it("names the RECORDED amount, never a lower applied figure", () => {
