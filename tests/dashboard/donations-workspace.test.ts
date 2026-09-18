@@ -124,13 +124,13 @@ describe("donations workspace — intent and row actions", () => {
 
     expect(allocateAction).not.toContain("disabled")
     expect(allocateAction).not.toContain('source === "tikkie"')
-    expect(deleteAction).toContain('source === "tikkie"')
-    // Every Tikkie gate in the file lives inside the Delete action.
-    expect(workspace.split('source === "tikkie"').length - 1).toBe(
-      deleteAction.split('source === "tikkie"').length - 1
-    )
+    // The Delete gate is the row's OWN description (bug A). The Tikkie source
+    // rule moved into the builder, so no inline source literal may remain
+    // anywhere in the workspace — and the disabled binding must read the
+    // description, not a re-derived predicate.
+    expect(deleteAction).toMatch(/disabled=\{deleteDescription !== null\}/)
+    expect(workspace).not.toContain('source === "tikkie"')
     expect(workspace).not.toMatch(/cannot be allocated/i)
-    expect(workspace).toContain("Tikkie-sourced donations cannot be deleted")
   })
 
   it("wires both dialogs and remounts them per donation", () => {
@@ -170,7 +170,6 @@ describe("donations workspace — allocation-count readiness", () => {
       /allocationCount === undefined\s*\?\s*"—"\s*:\s*allocationCount/
     )
     expect(workspace).toContain('"—"')
-    expect(workspace).toContain("Preparing the allocation count…")
     // The dialog receives a known count only — the target is never armed with a
     // coerced one.
     expect(workspace).toMatch(
@@ -179,6 +178,45 @@ describe("donations workspace — allocation-count readiness", () => {
     expect(workspace).not.toMatch(
       /allocationCount:\s*allocationCountByDonationId\.get\([^)]*\)\s*\?\?\s*0/
     )
+  })
+})
+
+describe("donations workspace — per-row delete description (bug A)", () => {
+  it("derives the description per row from the builder and binds the row's own id", () => {
+    // The call passes the row's source and the TRI-STATE count — never a
+    // coerced value — so the builder is the only owner of the per-row rule.
+    expect(workspace).toMatch(
+      /buildDonationDeleteDescription\(\{\s*source: row\.source,\s*allocationCount,\s*\}\)/
+    )
+    // The id is derived from THIS row; the element renders only while the row
+    // has something true to announce, and carries the description itself.
+    expect(workspace).toMatch(
+      /const deleteDescriptionId = `donation-delete-availability-\$\{row\._id\}`/
+    )
+    expect(workspace).toMatch(
+      /\{deleteDescription !== null && \(\s*<p\s+id=\{deleteDescriptionId\}\s+className="sr-only">\s*\{deleteDescription\}\s*<\/p>\s*\)\}/
+    )
+    // The title announces the same per-row reason as the description — it must
+    // never gain a fallback the description does not have.
+    expect(workspace).toMatch(/title=\{deleteDescription \?\? undefined\}/)
+    // PIN THE BINDING, not just the id: a probe that keeps the per-row id
+    // declared but points aria-describedby at a shared literal id must fail.
+    expect(workspace).toMatch(
+      /aria-describedby=\{\s*deleteDescription === null\s*\?\s*undefined\s*:\s*deleteDescriptionId\s*\}/
+    )
+  })
+
+  it("exiles both copy strings and the retired shared element", () => {
+    // The copy lives in `lib/dashboard/donation-delete-availability.ts` only;
+    // a re-announceable string in this file is the defect returning.
+    expect(workspace).not.toContain(
+      "Tikkie-sourced donations cannot be deleted"
+    )
+    expect(workspace).not.toContain("Preparing the allocation count…")
+    expect(workspace).not.toContain("donations-delete-availability")
+    expect(workspace).not.toContain("TIKKIE_DELETE_REFUSAL")
+    expect(workspace).not.toContain("ALLOCATION_COUNT_PENDING")
+    expect(workspace).not.toContain("DELETE_REFUSAL_DESCRIBED_BY_ID")
   })
 })
 
