@@ -123,6 +123,9 @@ async function createAttendee(
   const attendeeId = await t.mutation(async (ctx) =>
     ctx.db.insert("orderAttendees", {
       orderId,
+      // Phase 62: the ledger scans `orderAttendees.by_eventId` (source rows),
+      // so the fixture carries the additive copy.
+      eventId,
       attendeeKey: input.attendeeKey,
       name: input.name,
       gender: "unknown" as const,
@@ -226,8 +229,9 @@ async function seedLedgerFixture(
   })
   await createAppliedPayment(t, eventId, nA.orderId, 10_000)
 
-  // The bounded ledger pages `searchDocuments`, so each attendee needs its
-  // projection (same step the production order mutations perform).
+  // Legacy projection fixture, retained until 62-04 removes the writers: the
+  // ledger no longer reads `searchDocuments` (it scans source rows since
+  // 62-03), so these rows are dead weight for the assertions below.
   for (const attendeeId of [
     lA.attendeeId,
     lB.attendeeId,

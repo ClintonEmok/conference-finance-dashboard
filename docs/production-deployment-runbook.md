@@ -169,6 +169,38 @@ an incomplete pass; or any unexpected write or deployment identity. Rehearse
 the failed step in preview and investigate before resuming from the last
 known-good returned cursor.
 
+### Attendee `eventId` backfill (operator-only)
+
+> ⛔ **OPERATOR AUTHORIZATION REQUIRED.** The additive `orderAttendees.eventId`
+> copy (Phase 62, D-06) is written with every new attendee row at all four
+> production insert sites, but rows that predate the field carry no `eventId`
+> and are invisible to the event-scoped attendee ledger / donation-allocation
+> picker until they are filled. Phase 62 ran this backfill against the DEV
+> deployment only (149 rows processed, 149 patched, 0 skipped; a re-run
+> patched 0). This section is the production carry-forward.
+
+The mutation is batched, resumable, and idempotent (rows already carrying
+`eventId` are counted and skipped), and it is production-guarded: it fails
+closed before any read or write unless `authorize: true` AND the runtime
+`CONVEX_SITE_URL` resolves to the exact allowed deployment slug. Start at
+`cursor: null`, batch 200, and repeat with each returned opaque `nextCursor`
+until `isDone: true`:
+
+```bash
+npx convex run backfillAttendeeEventIds \
+  '{"cursor":null,"batchSize":200,"authorize":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}' \
+  --prod
+# Repeat with each returned nextCursor until isDone:true. A completed pass is
+# safe to re-run: the second pass patches 0.
+```
+
+Discipline: stop immediately on a guard failure, an invalid cursor, an
+unexpected skip diagnostic, or any incomplete pass; investigate before
+resuming from the last known-good returned cursor. A `skipped` row with the
+diagnostic `eventless or missing order` is left unpatched by design (never
+guessed) and must be understood before continuing. Run this before promoting
+the Phase 62 search surfaces in production.
+
 ### Production attendee-key rekey (operator-only)
 
 > ⛔ **OPERATOR AUTHORIZATION REQUIRED.** This repair is separate from the
