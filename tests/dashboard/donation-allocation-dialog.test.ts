@@ -262,6 +262,18 @@ describe("money-free picker (the structural guarantee)", () => {
     expect(picker).toContain('aria-label="Search attendees"')
   })
 
+  it("keeps the empty state honest when the server reports further pages", () => {
+    // Empty-with-more (62-03): an empty page with `page.hasNextPage` true must
+    // NOT render the bare "no match" copy — the copy changes under the
+    // `hasNextPage` branch, and the Load more control (rendered outside the
+    // empty branch) stays reachable so the scan can be continued.
+    expect(picker).toMatch(/hasNextPage\s*\?[\s\S]{0,32}"No matches yet"/)
+    expect(picker).toMatch(
+      /hasNextPage\s*\?[\s\S]{0,32}"Load more to keep searching this event\."/
+    )
+    expect(picker).toContain("Load more attendees")
+  })
+
   it("keeps selection by attendeeId (it survives searches) and debounces the search", () => {
     // Selection is read from the parent-owned set keyed by the row's id, and
     // the row reports that same id — never a page index.

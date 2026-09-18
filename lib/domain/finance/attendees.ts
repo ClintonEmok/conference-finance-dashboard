@@ -255,13 +255,10 @@ export async function getAttendeeLedger(
     typeof filters.search === "string" && filters.search.trim()
       ? filters.search.trim()
       : null
-  if (search) {
-    // Matches Convex native full-text search's hard limit of 16 terms per query.
-    const termCount = new Set(search.match(/[\p{L}\p{N}]+/gu) ?? []).size
-    if (termCount > 16) {
-      throw new Error("Invalid 'search'. Maximum 16 terms are supported.")
-    }
-  }
+  // Substring search has no term vocabulary (Phase 62, D-02): the retired
+  // native-search "16 terms" rule would silently reject valid queries. The
+  // 512-character needle cap is owned by the server (`requireSearchNeedle` /
+  // `MAX_SOURCE_SEARCH_LENGTH` in `convex/search.ts`).
   const { from, to, dateMode } = normalizeRange(filters)
   const { page, pageSize } = normalizePagination(filters.page, filters.pageSize)
 

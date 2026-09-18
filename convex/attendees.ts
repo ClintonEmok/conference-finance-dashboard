@@ -13,10 +13,14 @@ import {
   type PublicSignupSelectionResolved,
 } from "./signupCatalog"
 import {
+  buildSearchHaystack,
+  collectSourceSearchPage,
   deleteSearchProjection,
   maintainOrderSearchProjection,
-  paginateSearchDocuments,
+  matchesNormalizedSearch,
+  requireSearchNeedle,
   upsertAttendeeSearchDocument,
+  type SourceSearchFetchedPage,
 } from "./search"
 
 type AttendeeResolveCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">
@@ -421,17 +425,25 @@ export const getAttendeesWithTickets = query({
 
 const LEDGER_PAGE_MAX = 100
 const LEDGER_CURSOR_PREFIX = "al:"
+/** Hard candidate-scan budget per invocation, mirroring the orders search path. */
+const ATTENDEE_SEARCH_SCAN_CAP = 2_000
 
 type LedgerCursor = {
-  version: 1
+  version: 2
   signature: string
-  searchCursor: string | null
+  sourceCursor: string | null
 }
 
 function decodeLedgerCursor(cursor: string): LedgerCursor {
   try {
     const value = JSON.parse(decodeURIComponent(cursor.slice(LEDGER_CURSOR_PREFIX.length))) as LedgerCursor
-    if (value.version !== 1 || typeof value.signature !== "string") throw new Error()
+    if (
+      value.version !== 2 ||
+      typeof value.signature !== "string" ||
+      (value.sourceCursor !== null && typeof value.sourceCursor !== "string")
+    ) {
+      throw new Error()
+    }
     return value
   } catch {
     throw new Error("Invalid attendee ledger continuation cursor.")
@@ -442,7 +454,11 @@ function encodeLedgerCursor(value: LedgerCursor) {
   return `${LEDGER_CURSOR_PREFIX}${encodeURIComponent(JSON.stringify(value))}`
 }
 
-/** Bounded canonical attendee ledger search. Legacy collection callers above are intentionally unchanged. */
+/**
+ * Bounded canonical attendee ledger search (D-01 source-table search since
+ * Phase 62: it no longer reads the drifting `searchDocuments` projection).
+ * Legacy collection callers above are intentionally unchanged.
+ */
 export const getAttendeeLedgerPage = query({
   args: {
     eventId: v.optional(v.id("events")),
@@ -457,6 +473,7 @@ export const getAttendeeLedgerPage = query({
     if (!Number.isInteger(args.pageSize) || args.pageSize < 1 || args.pageSize > LEDGER_PAGE_MAX) {
       throw new Error("Invalid attendee ledger page size.")
     }
+    const needle = requireSearchNeedle(args.search)
     const dateMode = args.eventId && args.from == null && args.to == null ? "all-time" : "bounded"
     const now = Date.now()
     const from = args.eventId
@@ -464,37 +481,64 @@ export const getAttendeeLedgerPage = query({
       : (args.from ?? now - 29 * 24 * 60 * 60 * 1000)
     const to = args.to ?? now
     if (from > to) throw new Error("Invalid date range. 'from' must be less than or equal to 'to'.")
-    const signature = JSON.stringify({ eventId: args.eventId ?? null, search: args.search?.trim().toLowerCase() ?? "", from: args.from ?? null, to: args.to ?? null, dateMode })
-    let searchCursor: string | null = null
+    const signature = JSON.stringify({ v: 2, eventId: args.eventId ?? null, search: needle, from: args.from ?? null, to: args.to ?? null, dateMode })
+    let sourceCursor: string | null = null
     if (args.cursor) {
       const decoded = decodeLedgerCursor(args.cursor)
       if (decoded.signature !== signature) throw new Error("Attendee ledger cursor does not match the request.")
-      searchCursor = decoded.searchCursor
+      sourceCursor = decoded.sourceCursor
     }
 
-    const candidates: Array<Doc<"searchDocuments">> = []
-    const result = await paginateSearchDocuments(ctx, { kind: "attendee", eventId: args.eventId, search: args.search, cursor: searchCursor, numItems: args.pageSize })
-    const cursor = result.continueCursor
-    const hasNext = !result.isDone
-    for (const candidate of result.page) {
-        const attendeeId = ctx.db.normalizeId("orderAttendees", candidate.subjectId)
-        if (!attendeeId) continue
-        const attendee = await ctx.db.get("orderAttendees", attendeeId)
-        const order = attendee ? await ctx.db.get("orders", attendee.orderId) : null
-        const orderTime = order?.orderedAt ?? order?.submittedAt ?? null
-        if (attendee && order && (!orderTime || (orderTime >= from && orderTime <= to))) candidates.push(candidate)
-      if (candidates.length >= args.pageSize) break
+    // D-01/D-04: source rows are the truth. The event-scoped scan is a single
+    // `orderAttendees.by_eventId` indexed range (global mode scans the table);
+    // the collector pages it until the result page is full, so a match behind a
+    // long non-match run still fills the page. Attendees written before the
+    // additive `eventId` copy existed are invisible to the indexed scan until
+    // the operator-gated `backfillAttendeeEventIds` migration patches them.
+    type LedgerCandidate = { attendee: Doc<"orderAttendees">; order: Doc<"orders"> | null }
+    const orderCache = new Map<string, Doc<"orders"> | null>()
+    const fetchPage = async (cursor: string | null, limit: number): Promise<SourceSearchFetchedPage<LedgerCandidate>> => {
+      // Convex forbids re-chaining a query after pagination begins, so the
+      // scoped/global query is rebuilt on every call (the 62-02 constraint).
+      const page = args.eventId
+        ? await ctx.db.query("orderAttendees").withIndex("by_eventId", (q) => q.eq("eventId", args.eventId!)).order("desc").paginate({ numItems: limit, cursor })
+        : await ctx.db.query("orderAttendees").order("desc").paginate({ numItems: limit, cursor })
+      const items: LedgerCandidate[] = []
+      for (const attendee of page.page) {
+        // One cached `orders` get per distinct order for the whole call.
+        const key = String(attendee.orderId)
+        let order: Doc<"orders"> | null
+        if (orderCache.has(key)) {
+          order = orderCache.get(key) ?? null
+        } else {
+          order = await ctx.db.get("orders", attendee.orderId)
+          orderCache.set(key, order)
+        }
+        items.push({ attendee, order })
+      }
+      return { items, continueCursor: page.isDone ? null : page.continueCursor, isDone: page.isDone }
     }
+
+    const matches = ({ attendee, order }: LedgerCandidate) => {
+      if (!order) return false
+      if (order.mergedIntoOrderId) return false
+      if (args.eventId && order.eventId !== args.eventId) return false
+      const orderTime = order.orderedAt ?? order.submittedAt ?? null
+      if (orderTime && (orderTime < from || orderTime > to)) return false
+      if (needle === "") return true
+      return matchesNormalizedSearch(
+        buildSearchHaystack([String(attendee._id), attendee.name, attendee.email, order.bookingRef]),
+        needle
+      )
+    }
+
+    const collected = await collectSourceSearchPage({ fetchPage, matches, pageSize: args.pageSize, cursor: sourceCursor, scanCap: ATTENDEE_SEARCH_SCAN_CAP })
+    const hasNext = !collected.isDone
 
     const rows = []
     const orders = new Map<string, Doc<"orders">>()
-    for (const candidate of candidates) {
-      const attendeeId = ctx.db.normalizeId("orderAttendees", candidate.subjectId)
-      if (!attendeeId) continue
-      const attendee = await ctx.db.get("orderAttendees", attendeeId)
-      if (!attendee) continue
-      const order = await ctx.db.get("orders", attendee.orderId)
-      if (!order || order.mergedIntoOrderId || (args.eventId && order.eventId !== args.eventId)) continue
+    for (const { attendee, order } of collected.rows) {
+      if (!order) continue
       orders.set(String(order._id), order)
       const selections = await ctx.db.query("orderTicketSelections").withIndex("by_orderId", q => q.eq("orderId", order._id)).take(100)
       const selection = selections.find(row => row.attendeeId === attendee._id)
@@ -527,7 +571,7 @@ export const getAttendeeLedgerPage = query({
     // attribution owner, whose per-attendee paid / outstanding is the canonical
     // figure (applied payments + allocation credit distributed by remaining
     // need). The added read is one indexed `donationAllocations` pass per order
-    // on this page — the page is already bounded by `paginateSearchDocuments`
+    // on this page — the page is already bounded by the source-scan collector
     // and `LEDGER_PAGE_MAX`; no payments rescan is added.
     const attributionsByOrderId = await loadOrderPaymentAttributions({
       ctx,
@@ -545,7 +589,7 @@ export const getAttendeeLedgerPage = query({
     }
     return {
       dateMode, from: dateMode === "all-time" ? null : from, to: dateMode === "all-time" ? null : to,
-      rows, page: { hasNextPage: hasNext, nextCursor: hasNext ? encodeLedgerCursor({ version: 1, signature, searchCursor: cursor }) : null, totalRows: null, totalPages: null },
+      rows, page: { hasNextPage: hasNext, nextCursor: hasNext ? encodeLedgerCursor({ version: 2, signature, sourceCursor: collected.continueCursor }) : null, totalRows: null, totalPages: null },
     }
   },
 })

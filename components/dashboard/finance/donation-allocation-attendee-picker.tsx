@@ -136,11 +136,19 @@ export function DonationAllocationAttendeePicker({
 
   const showLoadingState = isLoading && rows.length === 0
   const showEmptyState = !isLoading && !error && rows.length === 0
+  // A page can come back empty while the server reports further pages
+  // (`page.hasNextPage`): the source scan keeps a scan-cap resume resumable.
+  // Saying "No attendees match this search" there would be a lie — the copy
+  // must point at the still-reachable `Load more attendees` control instead.
   const emptyTitle = debouncedSearch
-    ? "No attendees match this search"
+    ? hasNextPage
+      ? "No matches yet"
+      : "No attendees match this search"
     : "No attendees to select"
   const emptyMessage = debouncedSearch
-    ? "Try a different name or order reference."
+    ? hasNextPage
+      ? "Load more to keep searching this event."
+      : "Try a different name or order reference."
     : "This event has no attendees yet."
 
   return (
