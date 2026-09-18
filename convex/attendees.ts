@@ -15,11 +15,8 @@ import {
 import {
   buildSearchHaystack,
   collectSourceSearchPage,
-  deleteSearchProjection,
-  maintainOrderSearchProjection,
   matchesNormalizedSearch,
   requireSearchNeedle,
-  upsertAttendeeSearchDocument,
   type SourceSearchFetchedPage,
 } from "./search"
 
@@ -456,7 +453,7 @@ function encodeLedgerCursor(value: LedgerCursor) {
 
 /**
  * Bounded canonical attendee ledger search (D-01 source-table search since
- * Phase 62: it no longer reads the drifting `searchDocuments` projection).
+ * Phase 62: it scans `orderAttendees` and never a derived projection).
  * Legacy collection callers above are intentionally unchanged.
  */
 export const getAttendeeLedgerPage = query({
@@ -876,13 +873,6 @@ export const updateAttendee = mutation({
       )
     }
 
-    if (
-      resolved.canonicalAttendee &&
-      (args.name !== undefined || args.email !== undefined || args.ticketTypeId !== undefined)
-    ) {
-      await upsertAttendeeSearchDocument(ctx, resolved.canonicalAttendee._id)
-    }
-
     return (
       resolved.canonicalAttendee?._id ??
       resolved.ticketTailorAttendee?._id ??
@@ -977,8 +967,6 @@ export const addAttendeeToOrder = mutation({
       soldCount: (ticketType.soldCount ?? 0) + 1,
       updatedAt: now,
     })
-
-    await maintainOrderSearchProjection(ctx, args.orderId)
 
     const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [order])
 
@@ -1493,8 +1481,6 @@ export const moveAttendeeToOrder = mutation({
       })
     }
 
-    await upsertAttendeeSearchDocument(ctx, attendee._id)
-
     // Recompute both orders with the canonical loader in the same mutation.
     const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [
       sourceOrder,
@@ -1647,7 +1633,6 @@ export async function deleteAttendeeScopedRowsAndRecompute(
       q.eq("primaryAttendeeId", String(attendee._id))
     )
     .collect()
-  const survivingFamilyAttendeeIds = new Set<Id<"orderAttendees">>()
   for (const member of familyMembers) {
     const familyGroupId = ctx.db.normalizeId(
       "attendeeFamilyGroups",
@@ -1657,17 +1642,7 @@ export async function deleteAttendeeScopedRowsAndRecompute(
       throw new Error("Attendee family records are inconsistent.")
     }
   }
-  const searchDocument = await ctx.db
-    .query("searchDocuments")
-    .withIndex("by_kind_and_subjectId", (q) =>
-      q.eq("kind", "attendee").eq("subjectId", String(attendee._id))
-    )
-    .unique()
-  if (searchDocument && searchDocument.eventId !== eventId) {
-    throw new Error("Attendee search projection is inconsistent.")
-  }
 
-  await deleteSearchProjection(ctx, "attendee", String(attendee._id))
   await ctx.db.delete("orderTicketSelections", attendeeTicketSelection._id)
   await ctx.db.patch("ticketTypes", ticketType._id, {
     soldCount: Math.max(
@@ -1700,19 +1675,11 @@ export async function deleteAttendeeScopedRowsAndRecompute(
       .withIndex("familyGroupId", (q) => q.eq("familyGroupId", String(group._id)))
       .collect()
     for (const member of members) {
-      if (member.attendeeId !== String(attendee._id)) {
-        const survivorId = ctx.db.normalizeId("orderAttendees", member.attendeeId)
-        if (survivorId) survivingFamilyAttendeeIds.add(survivorId)
-      }
       await ctx.db.delete("attendeeFamilyMembers", member._id)
     }
     await ctx.db.delete("attendeeFamilyGroups", group._id)
   }
   await ctx.db.delete("orderAttendees", attendee._id)
-
-  for (const survivorId of survivingFamilyAttendeeIds) {
-    await upsertAttendeeSearchDocument(ctx, survivorId)
-  }
 
   const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [order])
 

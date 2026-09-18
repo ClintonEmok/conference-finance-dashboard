@@ -2,7 +2,6 @@ import { v } from "convex/values"
 import { internalMutation, internalQuery } from "./_generated/server"
 import { assertProductionDeployment } from "../lib/domain/legacy/production-deployment-guard"
 import { loadOrderAmountDueBreakdowns } from "./finance"
-import { maintainOrderSearchProjection } from "./search"
 
 const DEFAULT_SLUG = "divine-redesign"
 
@@ -88,7 +87,6 @@ export const correctUnprovenPaidOrders = internalMutation({
       }
 
       await ctx.db.patch("orders", order._id, { status: "pending" })
-      await maintainOrderSearchProjection(ctx, order._id)
       flipped += 1
     }
 

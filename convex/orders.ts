@@ -23,12 +23,8 @@ import {
   collectSourceSearchPage,
   decodeSearchCursor,
   encodeSearchCursor,
-  enqueueSearchProjectionFanout,
-  deleteSearchProjection,
-  maintainOrderSearchProjection,
   matchesNormalizedSearch,
   requireSearchNeedle,
-  upsertOrderSearchDocument,
 } from "./search"
 import { planUniqueAttendeeKeys } from "../lib/domain/attendee-key"
 
@@ -253,8 +249,6 @@ export const createOrder = mutation({
       rawPayload: args.rawPayload,
     })
 
-    await maintainOrderSearchProjection(ctx, orderId)
-
     return orderId
   },
 })
@@ -334,8 +328,6 @@ export const upsertOrder = mutation({
         })
       }
 
-      await maintainOrderSearchProjection(ctx, existingOrder._id)
-
       return existingOrder._id
     }
 
@@ -350,8 +342,6 @@ export const upsertOrder = mutation({
       orderId,
       ...extensionData,
     })
-
-    await maintainOrderSearchProjection(ctx, orderId)
 
     return orderId
   },
@@ -387,8 +377,6 @@ export const updateOrderStatus = mutation({
     if (extension) {
       await ctx.db.patch("ticketTailorOrders", extension._id, statusPatch.extensionPatch)
     }
-
-    await maintainOrderSearchProjection(ctx, args.orderId)
 
     return args.orderId
   },
@@ -493,8 +481,6 @@ export const updateOrderDetails = mutation({
       await ctx.db.patch("orders", args.orderId, orderPatch)
     }
 
-    await maintainOrderSearchProjection(ctx, args.orderId)
-
     return args.orderId
   },
 })
@@ -554,8 +540,6 @@ export const syncFullyPaidOrders = internalMutation({
       if (extension) {
         await ctx.db.patch("ticketTailorOrders", extension._id, statusPatch.extensionPatch)
       }
-
-      await maintainOrderSearchProjection(ctx, order._id)
 
       updated += 1
     }
@@ -868,10 +852,10 @@ export const getOrdersWithFilters = query({
     ) {
       throw new Error("Invalid order ledger page size.")
     }
-    // D-01: the source rows are the single truth — this branch does not read
-    // `searchDocuments` (62-04 retires its writers). D-02/D-04: one folded
-    // substring pass over a bounded, resumable scan, with a cursor that is
-    // signature-bound so a stale cursor cannot resume against other filters.
+    // D-01: the source rows are the single truth — search reads `orders` and
+    // never a derived projection. D-02/D-04: one folded substring pass over a
+    // bounded, resumable scan, with a cursor that is signature-bound so a
+    // stale cursor cannot resume against other filters.
     const needle = requireSearchNeedle(args.search)
     if (args.searchCursor != null && !needle) {
       throw new Error("Invalid order search cursor.")
@@ -1894,13 +1878,6 @@ export const removeOrderLocally = mutation({
 
     const attendeeIds = attendees.map((attendee) => attendee._id)
 
-    // Remove projections before child rows disappear; search is never the
-    // source of truth, but it must not retain deleted canonical subjects.
-    await deleteSearchProjection(ctx, "order", String(args.orderId))
-    for (const attendee of attendees) {
-      await deleteSearchProjection(ctx, "attendee", String(attendee._id))
-    }
-
     const ticketSelections = await ctx.db
       .query("orderTicketSelections")
       .withIndex("by_orderId", (q) => q.eq("orderId", args.orderId))
@@ -2648,12 +2625,7 @@ export const mergeOrders = mutation({
         })
       }
 
-      // The source is now non-searchable; moved attendees are refreshed from
-      // the canonical target after all ownership writes below.
-      await upsertOrderSearchDocument(ctx, source.order._id)
     }
-
-    await maintainOrderSearchProjection(ctx, args.targetOrderId)
 
     // ── Recompute target canonical amount due ──────────────────────────
     const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [target])
