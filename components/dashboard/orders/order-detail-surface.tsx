@@ -6,10 +6,6 @@ import { useAction, useConvexAuth, useQuery } from "convex/react"
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 import { api } from "@/lib/convex/api"
 import { useUnassignPayment } from "@/lib/convex/hooks/payments"
-import {
-  deriveBalanceAmounts,
-  isOrderAppliedPayment,
-} from "@/lib/domain/finance/amounts"
 import type { Id } from "@/convex/_generated/dataModel"
 import { AssignPaymentSheet } from "@/app/dashboard/manage-orders/[orderId]/assign-payment-sheet"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
@@ -22,7 +18,11 @@ import { OrderSummaryPanel } from "./panels/order-summary-panel"
 import { OrderActionsPanel } from "./panels/order-actions-panel"
 import { OrderDetailsPanel, type OrderEditDraft } from "./panels/order-details-panel"
 import { AttendeesPanel } from "./panels/attendees-panel"
-import { PaymentsPanel, type OrderPaymentRow } from "./panels/payments-panel"
+import {
+  PaymentsPanel,
+  type OrderAllocationRow,
+  type OrderPaymentRow,
+} from "./panels/payments-panel"
 import { MergeOrderDialog } from "./panels/merge-order-dialog"
 import {
   AllocateDonationToOrder,
@@ -121,6 +121,16 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
     api.payments.getPayments,
     orderId && canQueryProtectedData ? { orderId } : "skip"
   )
+  // D-07: the canonical balance and the order's recorded allocation rows come
+  // from the server's one owner (`getOrderAllocationLedger` →
+  // `loadCanonicalOrderBalances`). This surface renders fields; it derives
+  // nothing from the payments list.
+  const ledger = useQuery(
+    api.orders.getOrderAllocationLedger,
+    orderId && canQueryProtectedData
+      ? { orderId: orderId as Id<"orders">, eventId: event._id }
+      : "skip"
+  )
   const unassignPayment = useUnassignPayment()
   const resendOrderConfirmation = useAction(
     api.emailActions.resendOrderConfirmation
@@ -217,7 +227,8 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
     [paymentDocs]
   )
 
-  const isLoading = payload === undefined || paymentDocs === undefined
+  const isLoading =
+    payload === undefined || paymentDocs === undefined || ledger === undefined
   const eventOrderMismatch =
     payload !== undefined &&
     payload !== null &&
@@ -227,45 +238,45 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
     orderPayload?.order.bookerEmail && orderPayload?.order.bookingRef
   )
 
+  // D-07: every figure is a FIELD of the server's canonical balance
+  // (`getOrderAllocationLedger` → `loadCanonicalOrderBalances`), passed
+  // through verbatim. A local payments reduce used to live here and excluded
+  // donation allocation credit entirely — the second-owner defect this
+  // replaced. The surface performs no money arithmetic of its own: whatever
+  // a figure needs, the read already computed it.
   const metrics = useMemo(() => {
-    const amountDueMinor = typeof orderPayload?.order.amountDueMinor === "number"
-      ? orderPayload.order.amountDueMinor
-      : null
-    const hasKnownDue = amountDueMinor !== null
-    const matchedPayments = payments.filter(
-      (payment) =>
-        isOrderAppliedPayment(payment)
-    )
-    const paidAmountMinor = matchedPayments.reduce(
-      (sum, payment) => sum + payment.amountMinor,
-      0
-    )
-
-    const balance = deriveBalanceAmounts(amountDueMinor, paidAmountMinor)
-    const coverage =
-      amountDueMinor !== null && amountDueMinor > 0
-        ? Math.min(100, Math.round((paidAmountMinor / amountDueMinor) * 100))
-        : amountDueMinor === 0
-          ? 100
-          : null
-
-    const attendeeCount = orderPayload?.attendees.length ?? 0
-    const sharedOutstandingPerAttendeeMinor =
-      hasKnownDue && attendeeCount > 0
-        ? Math.ceil(balance.outstandingAmountMinor / attendeeCount)
-        : null
-
+    const balances = ledger?.balances ?? null
     return {
-      amountDueMinor: hasKnownDue ? balance.amountDueMinor : null,
-      paidAmountMinor: balance.appliedAmountMinor,
-      outstandingAmountMinor: hasKnownDue ? balance.outstandingAmountMinor : null,
-      donationAmountMinor: hasKnownDue ? balance.donationAmountMinor : null,
-      coverage,
-      hasKnownDue,
-      attendeeCount,
-      sharedOutstandingPerAttendeeMinor,
+      amountDueMinor: balances?.amountDueMinor ?? null,
+      paidAmountMinor: balances?.paidAmountMinor ?? null,
+      outstandingAmountMinor: balances?.outstandingAmountMinor ?? null,
+      donationAmountMinor: balances?.donationAmountMinor ?? null,
+      coverage: ledger?.coveragePercent ?? null,
+      hasKnownDue: balances !== null,
+      attendeeCount: orderPayload?.attendees.length ?? 0,
+      sharedOutstandingPerAttendeeMinor:
+        ledger?.sharedOutstandingPerAttendeeMinor ?? null,
     }
-  }, [orderPayload, payments])
+  }, [ledger, orderPayload])
+
+  // Display mapping only: the rows are the server's recorded allocation rows,
+  // and the attendee name is a lookup against the loaded order payload (raw id
+  // fallback — never an invented label). No money is computed here.
+  const allocationRows: OrderAllocationRow[] = useMemo(
+    () =>
+      (ledger?.allocationRows ?? []).map((row) => ({
+        donationId: row.donationId,
+        attendeeId: row.attendeeId,
+        attendeeName:
+          orderPayload?.attendees.find(
+            (attendee) => String(attendee.id) === String(row.attendeeId)
+          )?.name ?? String(row.attendeeId),
+        amountMinor: row.amountMinor,
+        scope: row.scope,
+        recordedAt: new Date(row.recordedAt).toISOString(),
+      })),
+    [ledger, orderPayload]
+  )
 
   async function resendConfirmationEmail() {
     if (!orderId || !canResendConfirmation) return
@@ -525,6 +536,7 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
 
         <PaymentsPanel
           payments={payments}
+          allocations={allocationRows}
           hasKnownDue={metrics.hasKnownDue}
           isUnassigningId={isUnassigningId}
           unassignError={unassignError}
