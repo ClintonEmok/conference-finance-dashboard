@@ -73,7 +73,7 @@ async function seedFixture(t: TestConvex): Promise<Fixture> {
     const eventId = await ctx.db.insert("events", internalEventDoc("source-search-guards"))
     const otherEventId = await ctx.db.insert(
       "events",
-      internalEventDoc("source-search-guards-other", "integration")
+      internalEventDoc("source-search-guards-other")
     )
 
     const orderSpecs = [
@@ -175,7 +175,7 @@ async function seedFixture(t: TestConvex): Promise<Fixture> {
         eventId,
         attendeeKey: `source-guard-${index}`,
         name: spec.name,
-        email: spec.email,
+        ...(spec.email ? { email: spec.email } : {}),
         gender: "unknown",
         sortOrder: index,
       })
@@ -227,14 +227,26 @@ async function assertProjectionFreeAndNonVacuous(
   const counts = await t.run(async (ctx) => ({
     documents: (await ctx.db.query("searchDocuments").take(1)).length,
     jobs: (await ctx.db.query("searchProjectionFanoutJobs").take(1)).length,
+    terms: (await ctx.db.query("searchDocumentTerms").take(1)).length,
   }))
   expect(counts.documents).toBe(0)
   expect(counts.jobs).toBe(0)
+  expect(counts.terms).toBe(0)
   expect(fixture.visibleOrders.length).toBeGreaterThanOrEqual(6)
   expect(fixture.visibleAttendees.length).toBeGreaterThanOrEqual(10)
 }
 
-type OrderSearchResult = Awaited<ReturnType<TestConvex["query"]>>
+type OrderSearchResult = {
+  orders: Array<{ orderId: string }>
+  totalRows: number | null
+  hasNextPage: boolean
+  nextCursor: string | null
+}
+
+type AttendeeSearchResult = {
+  rows: Array<{ _id: string }>
+  page: { hasNextPage: boolean; nextCursor: string | null }
+}
 
 test("every visible order is findable by its own id on a projection-free fixture", async () => {
   const t = fresh()
@@ -279,12 +291,12 @@ test("every attendee is findable by id, name, email, and booking ref", async () 
     }
 
     for (const search of searches) {
-      const result = await t.query(api.attendees.getAttendeeLedgerPage, {
+      const result = (await t.query(api.attendees.getAttendeeLedgerPage, {
         eventId: fixture.eventId,
         search,
         pageSize: 50,
         cursor: null,
-      })
+      })) as AttendeeSearchResult
       expect(
         result.rows.map((row) => String(row._id)),
         `needle ${search} must find ${attendee.id}`
@@ -292,7 +304,10 @@ test("every attendee is findable by id, name, email, and booking ref", async () 
       checked += 1
     }
   }
-  expect(checked).toBeGreaterThanOrEqual(fixture.visibleAttendees.length * 6)
+  const expectedChecks = fixture.visibleAttendees.reduce((count, attendee) => {
+    return count + 5 + (attendee.email ? 2 : 0)
+  }, 0)
+  expect(checked).toBe(expectedChecks)
 })
 
 test("the live defect values find both the Oliver Vos order and attendee", async () => {
@@ -302,18 +317,18 @@ test("the live defect values find both the Oliver Vos order and attendee", async
 
   const defect = fixture.visibleOrders[0]
   const defectAttendee = fixture.visibleAttendees[0]
-  for (const search of ["oliver", "vos", "bkfamilyvos"]) {
+  for (const search of ["oliver", "vos", "bkfamilyvos", "BK-FAMILY-VOS"]) {
     const orders = await t.query(api.orders.getOrdersWithFilters, {
       eventId: String(fixture.eventId),
       search,
       pageSize: 25,
     })
-    const attendees = await t.query(api.attendees.getAttendeeLedgerPage, {
+    const attendees = (await t.query(api.attendees.getAttendeeLedgerPage, {
       eventId: fixture.eventId,
       search,
       pageSize: 50,
       cursor: null,
-    })
+    })) as AttendeeSearchResult
     expect(orders.orders.map((row) => row.orderId), search).toContain(String(defect.id))
     expect(attendees.rows.map((row) => String(row._id)), search).toContain(
       String(defectAttendee.id)
@@ -338,15 +353,16 @@ test("pagination finds every Nadine match exactly once for attendees and orders"
   const expectedAttendees = fixture.visibleAttendees
     .filter((attendee) => attendee.name.toLowerCase().includes("nadine"))
     .map((attendee) => String(attendee.id))
+  expect(expectedAttendees.length).toBeGreaterThanOrEqual(5)
   const attendeePages: string[][] = []
   let attendeeCursor: string | null = null
   for (let pageNumber = 0; pageNumber < 10; pageNumber += 1) {
-    const page = await t.query(api.attendees.getAttendeeLedgerPage, {
+    const page = (await t.query(api.attendees.getAttendeeLedgerPage, {
       eventId: fixture.eventId,
       search: "Nadine",
       pageSize: 2,
       cursor: attendeeCursor,
-    })
+    })) as AttendeeSearchResult
     attendeePages.push(page.rows.map((row) => String(row._id)))
     if (!page.page.hasNextPage) break
     attendeeCursor = page.page.nextCursor
@@ -360,15 +376,16 @@ test("pagination finds every Nadine match exactly once for attendees and orders"
   const expectedOrders = fixture.visibleOrders
     .filter((order) => order.bookerName.toLowerCase().includes("nadine"))
     .map((order) => String(order.id))
+  expect(expectedOrders.length).toBeGreaterThanOrEqual(5)
   const orderPages: string[][] = []
   let orderCursor: string | null = null
   for (let pageNumber = 0; pageNumber < 10; pageNumber += 1) {
-    const page = await t.query(api.orders.getOrdersWithFilters, {
+    const page = (await t.query(api.orders.getOrdersWithFilters, {
       eventId: String(fixture.eventId),
       search: "Nadine",
       pageSize: 2,
       searchCursor: orderCursor,
-    })
+    })) as OrderSearchResult
     orderPages.push(page.orders.map((row) => row.orderId))
     if (!page.hasNextPage) break
     orderCursor = page.nextCursor
@@ -394,12 +411,12 @@ test("merged and other-event records stay excluded from an event-scoped search",
     expect(result.orders).toEqual([])
   }
   for (const search of ["Merged Ghost Attendee", String(fixture.mergedAttendeeId)]) {
-    const result = await t.query(api.attendees.getAttendeeLedgerPage, {
+    const result = (await t.query(api.attendees.getAttendeeLedgerPage, {
       eventId: fixture.eventId,
       search,
       pageSize: 50,
       cursor: null,
-    })
+    })) as AttendeeSearchResult
     expect(result.rows).toEqual([])
   }
 
