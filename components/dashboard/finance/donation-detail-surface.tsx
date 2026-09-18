@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { Component, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useQuery } from "convex/react"
 
+import { Button } from "@/components/ui/button"
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 import { api } from "@/lib/convex/api"
@@ -19,14 +20,19 @@ import type { Id } from "@/convex/_generated/dataModel"
  * The dedicated donation detail host (Phase 61, D-01).
  *
  * The list stays a list; this route owns the relocated record and the SAME two
- * dialogs. Two properties are load-bearing:
+ * dialogs. Three properties are load-bearing:
  *
- *   1. The id SHAPE gate runs FIRST. `donationId` is a free URL segment, and a
- *      malformed id handed to `api.payments.getPaymentById` would throw Convex's
- *      argument validation DURING RENDER — into the route error boundary,
- *      bypassing the promised not-found state. The surface therefore skips the
- *      subscription for a malformed id and renders the not-found state.
- *   2. The record renders ONLY for a standalone donation this event owns and
+ *   1. The id SHAPE gate runs first and skips the subscription for an id that
+ *      is not 32 lowercase alphanumerics, so the common malformed case never
+ *      reaches the query.
+ *   2. Convex's `v.id("payments")` validator is STRICTER than any static shape:
+ *      it checks the id's encoded table number, which is deployment-specific,
+ *      so a fabricated or foreign-table URL segment passes the shape gate and
+ *      still throws DURING RENDER. A local render-error boundary therefore
+ *      catches every read failure and renders a DISTINCT "could not load" state
+ *      with a retry — never the not-found state, which would tell the operator a
+ *      donation does not exist when the query merely failed.
+ *   3. The record renders ONLY for a standalone donation this event owns and
  *      that the event income projection contains. That mirrors the server's
  *      DDEL-03 refusals (non-standalone, cross-event) client-side and keeps the
  *      panel's required `allocationCount` a KNOWN number.
@@ -56,7 +62,126 @@ type DeleteTarget = {
   allocationCount: number
 }
 
+/** The record's way back — one link, three states. */
+function BackToDonations({ slug }: { slug: string }) {
+  return (
+    <Link
+      href={donationsHref(slug)}
+      className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+    >
+      Back to donations
+    </Link>
+  )
+}
+
+/**
+ * The TRUE not-found state: the read resolved and this donation is not
+ * available for this event (deleted, non-standalone, cross-event, or an id the
+ * income projection does not contain). A retry would be a lie — there is
+ * nothing to re-issue — so this state offers only the way back.
+ */
+function DonationNotFound({ slug }: { slug: string }) {
+  return (
+    <div className="min-w-0 space-y-4">
+      <BackToDonations slug={slug} />
+      <DashboardQueryState
+        state="empty"
+        title="Donation not found"
+        message="This donation is not available for this event."
+      />
+    </div>
+  )
+}
+
+/**
+ * The READ-FAILURE state. It must never claim the donation does not exist: the
+ * query failed, which says nothing about existence. It offers BOTH a retry and
+ * the way back.
+ */
+function DonationLoadFailed({
+  slug,
+  onRetry,
+}: {
+  slug: string
+  onRetry: () => void
+}) {
+  return (
+    <div className="min-w-0 space-y-4">
+      <BackToDonations slug={slug} />
+      <div
+        role="alert"
+        aria-live="assertive"
+        className="space-y-2 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm"
+      >
+        <p className="font-medium text-destructive">
+          We could not load this donation
+        </p>
+        <p className="text-muted-foreground">
+          Something went wrong while loading it. Try again, or go back to the
+          donations list.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-9 rounded-lg"
+          onClick={onRetry}
+        >
+          Try again
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The contained render-error boundary around the reading surface. It is keyed
+ * per donation by its host, so switching donations resets it. Resetting on
+ * retry REMOUNTS the children — the inner surface's `useQuery` subscriptions
+ * re-issue the read; a cached failure cannot satisfy the retry chain.
+ */
+class DonationReadBoundary extends Component<
+  {
+    fallback: (retry: () => void) => ReactNode
+    children: ReactNode
+  },
+  { failed: boolean }
+> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  private retry = () => {
+    this.setState({ failed: false })
+  }
+
+  render() {
+    return this.state.failed
+      ? this.props.fallback(this.retry)
+      : this.props.children
+  }
+}
+
 export function DonationDetailSurface({
+  slug,
+  donationId,
+}: {
+  slug: string
+  donationId: string
+}) {
+  return (
+    <DonationReadBoundary
+      key={`read-${donationId}`}
+      fallback={(retry) => <DonationLoadFailed slug={slug} onRetry={retry} />}
+    >
+      <DonationDetailSurfaceInner slug={slug} donationId={donationId} />
+    </DonationReadBoundary>
+  )
+}
+
+function DonationDetailSurfaceInner({
   slug,
   donationId,
 }: {
@@ -97,30 +222,10 @@ export function DonationDetailSurface({
   const allocationCount =
     incomeRow === undefined ? undefined : incomeRow.allocationCount
 
-  const backLink = (
-    <Link
-      href={donationsHref(slug)}
-      className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
-    >
-      Back to donations
-    </Link>
-  )
-
-  const notFoundState = (
-    <div className="min-w-0 space-y-4">
-      {backLink}
-      <DashboardQueryState
-        state="empty"
-        title="Donation not found"
-        message="This donation could not be loaded for this event."
-      />
-    </div>
-  )
-
   // A malformed id must never reach the query — Convex argument validation
-  // would throw into the error boundary instead of this state.
+  // would throw (the containing boundary would catch it) instead of this state.
   if (!isValidDonationId) {
-    return notFoundState
+    return <DonationNotFound slug={slug} />
   }
 
   if (payment === undefined || income === undefined) {
@@ -133,7 +238,7 @@ export function DonationDetailSurface({
     if (deletionSuccess !== null) {
       return (
         <div className="min-w-0 space-y-4">
-          {backLink}
+          <BackToDonations slug={slug} />
           <div
             role="status"
             aria-live="polite"
@@ -147,7 +252,7 @@ export function DonationDetailSurface({
       )
     }
 
-    return notFoundState
+    return <DonationNotFound slug={slug} />
   }
 
   const isStandaloneDonation = payment.donationKind === "standalone"
@@ -158,13 +263,13 @@ export function DonationDetailSurface({
     !belongsToEvent ||
     allocationCount === undefined
   ) {
-    return notFoundState
+    return <DonationNotFound slug={slug} />
   }
 
   return (
     <div className="min-w-0 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        {backLink}
+        <BackToDonations slug={slug} />
       </div>
 
       {deletionSuccess !== null && (

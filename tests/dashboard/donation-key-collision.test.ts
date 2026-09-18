@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 /**
- * The sibling-key uniqueness guard (Phase 61, plan 61-01).
+ * The sibling-key uniqueness guard (Phase 61, plan 61-01; host moved by 61-03).
  *
  * DEFECT: the donations workspace rendered the record panel and both dialogs as
  * children of ONE list, all keyed on the bare donation id. Opening the Allocate
@@ -18,12 +18,16 @@ import { resolve } from "node:path"
  * Panel count grew 1 → 2 → 3 → 4 across Select/Allocate/CANCEL cycles and a
  * reload cleared it.
  *
- * React requires unique keys among siblings. The panel and the two dialogs
- * survive 61-03's restructure, so the keys must stay namespaced by ELEMENT:
- * `record-`, `allocation-`, `deletion-`. The allocation-history rows keyed
- * `${orderId}:${attendeeId}` collided whenever one donation holds two
- * allocations to the same target; the rendered ordinal (`:${index}`) makes them
- * unique per rendered row.
+ * 61-03 MOVED the panel to the dedicated detail route, so the mechanism is
+ * unchanged and its HOST moved: the panel and the two dialogs are siblings in
+ * `donation-detail-surface.tsx` exactly as they were in the list. The invariant
+ * is "the panel and the dialogs are siblings with distinct namespaces",
+ * WHEREVER they are hosted — so the `record-` presence pin follows the panel
+ * (it must stay load-bearing on the new host) and the absence pins cover BOTH
+ * hosts. React requires unique keys among siblings: `record-`, `allocation-`,
+ * `deletion-`. The allocation-history rows keyed `${orderId}:${attendeeId}`
+ * collided whenever one donation holds two allocations to the same target; the
+ * rendered ordinal (`:${index}`) makes them unique per rendered row.
  *
  * The absence pins read the raw source text (comments included): a doc comment
  * naming a retired key is exactly how a text scan gets satisfied falsely.
@@ -33,6 +37,8 @@ import { resolve } from "node:path"
 
 const ROOT = resolve(import.meta.dirname, "../..")
 const WORKSPACE_PATH = "components/dashboard/finance/donations-workspace.tsx"
+const DETAIL_SURFACE_PATH =
+  "components/dashboard/finance/donation-detail-surface.tsx"
 const RECORD_PATH = "components/dashboard/finance/donation-record-panel.tsx"
 const DELETE_DIALOG_PATH =
   "components/dashboard/finance/donation-delete-dialog.tsx"
@@ -42,14 +48,20 @@ function readSource(relativePath: string): string {
 }
 
 const workspace = readSource(WORKSPACE_PATH)
+const detailSurface = readSource(DETAIL_SURFACE_PATH)
 const record = readSource(RECORD_PATH)
 const deleteDialog = readSource(DELETE_DIALOG_PATH)
 
 describe("donation sibling keys — the accumulation defect cannot return", () => {
-  it("keeps every bare donation-id key out of the workspace", () => {
-    expect(workspace).not.toMatch(/key=\{\s*selectedRow\._id\s*\}/)
-    expect(workspace).not.toMatch(/key=\{\s*allocationTarget\.donationId\s*\}/)
-    expect(workspace).not.toMatch(/key=\{\s*deleteTarget\.donationId\s*\}/)
+  it("keeps every bare donation-id key out of BOTH hosts", () => {
+    // The bare forms the collision class is made of. Neither the list nor the
+    // detail host may contain one, comments included.
+    for (const source of [workspace, detailSurface]) {
+      expect(source).not.toMatch(/key=\{\s*selectedRow\._id\s*\}/)
+      expect(source).not.toMatch(/key=\{\s*allocationTarget\.donationId\s*\}/)
+      expect(source).not.toMatch(/key=\{\s*deleteTarget\.donationId\s*\}/)
+      expect(source).not.toMatch(/key=\{\s*donationId\s*\}/)
+    }
   })
 
   it("keeps the retired bare key out of the delete dialog (comments included)", () => {
@@ -68,14 +80,30 @@ describe("donation sibling keys — the accumulation defect cannot return", () =
     )
   })
 
-  it("keys the panel and both dialogs by element namespace", () => {
-    expect(workspace).toMatch(/key=\{\s*`record-\$\{selectedRow\._id\}`\s*\}/)
+  it("keys the panel and both dialogs by element namespace on the detail host", () => {
+    // The rule must stay load-bearing on the NEW host: the panel mount is a
+    // real render beside the two dialogs, and all three namespaces are pinned
+    // there.
+    expect(detailSurface).toContain("<DonationRecordPanel")
+    expect(detailSurface).toMatch(/key=\{\s*`record-\$\{donationId\}`\s*\}/)
+    expect(detailSurface).toMatch(
+      /key=\{\s*`allocation-\$\{allocationTarget\.donationId\}`\s*\}/
+    )
+    expect(detailSurface).toMatch(
+      /key=\{\s*`deletion-\$\{deleteTarget\.donationId\}`\s*\}/
+    )
+  })
+
+  it("keeps the list's dialog namespaces and no record mount", () => {
     expect(workspace).toMatch(
       /key=\{\s*`allocation-\$\{allocationTarget\.donationId\}`\s*\}/
     )
     expect(workspace).toMatch(
       /key=\{\s*`deletion-\$\{deleteTarget\.donationId\}`\s*\}/
     )
+    // The record's only mount is the detail host; the list must not re-acquire
+    // it (that would also re-open the accumulation site).
+    expect(workspace).not.toContain("<DonationRecordPanel")
   })
 
   it("keys the allocation-history rows with the rendered ordinal", () => {

@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 /**
- * The donations page's structural guard (Phase 58, plan 58-09).
+ * The donations LIST's structural guard (Phase 58, plan 58-09; rewritten by
+ * 61-03 when the record panel moved to the dedicated detail route).
  *
  * SURF-02's operator surface is the easiest place in the phase to smuggle in a
  * client-side money formula or a synthesised "writable" figure, so the guard
@@ -22,21 +23,20 @@ import { resolve } from "node:path"
  *      copy may exist anywhere.
  *   3. DACC-04's link-through params (`attendeeId` / `orderId`) are preserved,
  *      NOT filtered: no locked read resolves donations by attendee or order, so
- *      the page must not fabricate a filter over data it does not have. The
- *      record is where each allocation's target and scope are shown in full.
+ *      the list must not fabricate a filter over data it does not have. Since
+ *      61-03 the list reads NO search param at all; the PAGE adopts the legacy
+ *      `?donationId=` intent onto the detail route and the record there is
+ *      where each allocation's target and scope are shown in full.
  *
- * AE-1 presentation pin (the worked case's UI half): the record presents
- * `Scope balance` (€120.00 in the worked case, from `scopeOutstandingMinor`)
- * and `Writable now` (€100.00, from `effectiveCapacityMinor`) as two separately
- * labelled figures, and `Math.min` is absent from the file — the writable figure
- * is read, never synthesised. The numeric proof of the worked case lives in
- * `convex/donation-allocation-acceptance.handlers.test.ts` (58-03).
+ * The record panel's own pins MOVED to `donation-detail-surface.test.ts` in
+ * 61-03 — the full set, not a subset. This file owns the list, its row actions
+ * and its two success bands (a successful allocation from the list must still
+ * confirm on the list).
  */
 
 const ROOT = resolve(import.meta.dirname, "../..")
 const PAGE_PATH = "app/dashboard/events/[slug]/donations/page.tsx"
 const WORKSPACE_PATH = "components/dashboard/finance/donations-workspace.tsx"
-const RECORD_PATH = "components/dashboard/finance/donation-record-panel.tsx"
 
 function readSource(relativePath: string): string {
   return readFileSync(resolve(ROOT, relativePath), "utf8")
@@ -44,7 +44,6 @@ function readSource(relativePath: string): string {
 
 const page = readSource(PAGE_PATH)
 const workspace = readSource(WORKSPACE_PATH)
-const record = readSource(RECORD_PATH)
 
 describe("donations route contract", () => {
   it("is the real plural client page, not a redirect shim", () => {
@@ -55,6 +54,20 @@ describe("donations route contract", () => {
     expect(page).toMatch(/export default function DonationsPage\s*\(/)
     expect(page).not.toContain("redirect(")
     expect(page).not.toContain("financeHref")
+  })
+
+  it("adopts the legacy ?donationId= intent onto the detail route exactly once", () => {
+    // This page is the ONLY resolver of the query form. It emits the route
+    // form and renders nothing while the adoption is in flight, so the list
+    // can never render under a `?donationId=` URL and no chain can loop (the
+    // detail route never redirects back — pinned in the detail guard).
+    expect(page).toContain("useSearchParams")
+    expect(page).toMatch(/searchParams\.get\("donationId"\)/)
+    expect(page).toMatch(
+      /router\.replace\(donationDetailHref\(slug, donationId\)\)/
+    )
+    expect(page).toMatch(/if \(donationId !== null\) return null/)
+    expect(page).not.toContain("redirect(")
   })
 })
 
@@ -101,9 +114,20 @@ describe("donations workspace — server fields and no client sums", () => {
 })
 
 describe("donations workspace — intent and row actions", () => {
-  it("makes the selection shareable through the canonical href", () => {
-    expect(workspace).toContain("donationsHref(slug, { donationId")
-    expect(workspace).toContain("router.replace")
+  it("opens the donation detail route from the row Select action", () => {
+    // 61-03: Select navigates to the dedicated route; the list no longer
+    // selects anything inline and no longer produces the query form.
+    expect(workspace).toContain("donationDetailHref(slug, row._id)")
+    expect(workspace).toContain("router.push")
+    expect(workspace).not.toContain("donationsHref(slug, { donationId")
+    expect(workspace).not.toContain("selectDonation")
+    expect(workspace).not.toContain("router.replace")
+  })
+
+  it("removed the record panel from the list entirely", () => {
+    // The accumulating-container defect's structural site is gone: the list
+    // imports and renders no record host (61-03 / D-01).
+    expect(workspace).not.toContain("DonationRecordPanel")
   })
 
   it("keeps Allocate enabled for every source and gates only Delete", () => {
@@ -137,9 +161,9 @@ describe("donations workspace — intent and row actions", () => {
     expect(workspace).toContain("<DonationAllocationDialog")
     expect(workspace).toContain("<DonationDeleteDialog")
     // The keys are namespaced by element (61-01): a bare donation id collided
-    // with the record panel and duplicated it. The `record-` key is pinned in
-    // `donation-key-collision.test.ts`; 61-03 rewrites this suite when the
-    // record blocks move to the detail host.
+    // with the record panel and duplicated it. The `record-` key now lives on
+    // the detail host and is pinned in `donation-detail-surface.test.ts` and
+    // `donation-key-collision.test.ts`.
     expect(workspace).toMatch(
       /key=\{`allocation-\$\{allocationTarget\.donationId\}`\}/
     )
@@ -148,6 +172,27 @@ describe("donations workspace — intent and row actions", () => {
     )
     expect(workspace).toContain("buildDonationDeletionSuccess")
     expect(workspace).toContain('role="status"')
+  })
+
+  it("keeps BOTH success bands — a list allocation must confirm on the list", () => {
+    // The deletion band survives deletion-from-the-list.
+    expect(workspace).toMatch(
+      /\{buildDonationDeletionSuccess\(\{\s*allocationCount: deletionSuccess\.allocationCount,\s*\}\)\}/
+    )
+    // The allocation band: the record panel that used to render it left with
+    // 61-03, so a successful allocation launched from the list must confirm
+    // HERE or `allocationSuccess` would be dead state. Both figures come from
+    // the dialog's own result payload — no new money figure is introduced.
+    expect(workspace).toMatch(/\{allocationSuccess !== null && \(/)
+    expect(workspace).toMatch(
+      /formatMoney\(allocationSuccess\.allocatedTotalMinor\)/
+    )
+    expect(workspace).toMatch(/formatMoney\(allocationSuccess\.leftoverMinor\)/)
+    expect(workspace).toContain("Allocation recorded.")
+    // Both bands are role="status" regions (the page-level announcement).
+    expect(
+      workspace.match(/role="status"/g)?.length ?? 0
+    ).toBeGreaterThanOrEqual(2)
   })
 })
 
@@ -223,81 +268,18 @@ describe("donations workspace — per-row delete description (bug A)", () => {
 describe("DACC-04 intent preservation", () => {
   it("preserves the link-through params without inventing a filter", () => {
     // `attendeeId` / `orderId` arrive for intent preservation. No locked read
-    // resolves donations by attendee or order, so the only param this page may
-    // read is `donationId`; a fabricated filter over data the page does not
-    // have is exactly what this pin forbids.
-    const reads = workspace.match(/searchParams\.get\([^)]*\)/g) ?? []
-    expect(reads).toEqual(['searchParams.get("donationId")'])
+    // resolves donations by attendee or order, so the list reads NO search
+    // param at all — they are tolerated by the absence of any filter, never
+    // consumed. A fabricated filter over data the list does not have is
+    // exactly what this pin forbids.
+    expect(workspace).not.toContain("searchParams")
     expect(workspace).not.toContain(".filter(")
-  })
-})
-
-describe("donation record — DACC-04 and effective capacity", () => {
-  it("reads the summary imperatively so the error states are real", () => {
-    expect(record).toContain("getDonationAllocationSummary")
-    expect(record).toContain("useConvex")
-    // The SUMMARY read is imperative; the only `useQuery` is the per-row target
-    // name lookup.
-    expect(record).not.toMatch(
-      /useQuery\(\s*api\.donations\.getDonationAllocationSummary/
-    )
-    expect(record).toContain("reloadToken")
-    expect(record).toContain("Try again")
-    expect(record).toContain("Allocations unavailable")
-    expect(record).toContain("Your session has expired")
-  })
-
-  it("renders the effective-capacity figures verbatim", () => {
-    expect(record).toContain("effectiveCapacityMinor")
-    expect(record).toContain("scopeOutstandingMinor")
-    expect(record).toContain("appliedMinor")
-    expect(record).toContain("unappliedMinor")
-    expect(record).toContain("exceedsCeiling")
-    expect(record).toContain("exceedsCapacity")
-    expect(record).toContain("Writable now")
-    expect(record).toContain("Scope balance")
-    expect(record).toContain("Applied")
-    expect(record).toContain("Not applied")
-    expect(record).toContain("Target attendee")
-    expect(record).toContain("Allocations for this donation")
-    expect(record).toContain("No allocations yet")
-    expect(record).toContain("Show all")
-    expect(record).toContain("scopeLabel(")
-    expect(record).toContain("getOrderWithAttendees")
-  })
-
-  it("binds Scope balance and Writable now to their own figures", () => {
-    // The LOCKED presentation: the `Scope balance` column reads
-    // `scopeOutstandingMinor` and the `Writable now` column reads
-    // `effectiveCapacityMinor`, in that order. A swap — the bare scope ceiling
-    // relabelled as the writable amount — satisfies every label pin above, so
-    // the header order AND the cell-binding order are pinned directly.
-    const scopeHeaderIndex = record.indexOf("Scope balance</TableHead>")
-    const writableHeaderIndex = record.indexOf("Writable now</TableHead>")
-    const scopeCellIndex = record.indexOf(
-      "formatMoney(row.scopeOutstandingMinor)"
-    )
-    const writableCellIndex = record.indexOf(
-      "formatMoney(row.effectiveCapacityMinor)"
-    )
-
-    expect(scopeHeaderIndex).toBeGreaterThan(-1)
-    expect(writableHeaderIndex).toBeGreaterThan(-1)
-    expect(scopeCellIndex).toBeGreaterThan(-1)
-    expect(writableCellIndex).toBeGreaterThan(-1)
-    expect(scopeHeaderIndex).toBeLessThan(writableHeaderIndex)
-    expect(scopeCellIndex).toBeLessThan(writableCellIndex)
-  })
-
-  it("derives no money figure of its own and names each bound", () => {
-    expect(record).not.toContain("Math.min(")
-    expect(record).not.toContain("Math.max(")
-    expect(record).not.toContain("reduce(")
-    expect(record).not.toContain("toFixed(")
-    expect(record).not.toContain("amountMinor -")
-    expect(record).toContain("Above this attendee's scope balance.")
-    expect(record).toContain("Above the order's remaining capacity")
-    expect(record).toContain("is not credited.")
+    // The PAGE reads exactly one param: `donationId`, for the adoption hop.
+    const reads = page.match(/searchParams\.get\([^)]*\)/g) ?? []
+    expect(reads).toEqual(['searchParams.get("donationId")'])
+    // `orderId` / `attendeeId` are never read by either file.
+    expect(page).not.toContain('searchParams.get("orderId")')
+    expect(page).not.toContain('searchParams.get("attendeeId")')
   })
 })
 
@@ -323,11 +305,9 @@ describe("scope chooser order", () => {
   })
 })
 
-describe("no money arithmetic on either surface", () => {
+describe("no money arithmetic on the list", () => {
   it("has no operator before or after a *Minor identifier", () => {
-    for (const source of [workspace, record]) {
-      expect(source).not.toMatch(/[A-Za-z]Minor\s*[-+*/]/)
-      expect(source).not.toMatch(/[-+*/]\s*[A-Za-z.]*[Mm]inor/)
-    }
+    expect(workspace).not.toMatch(/[A-Za-z]Minor\s*[-+*/]/)
+    expect(workspace).not.toMatch(/[-+*/]\s*[A-Za-z.]*[Mm]inor/)
   })
 })

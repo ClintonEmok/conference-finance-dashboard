@@ -30,7 +30,8 @@ import { resolve } from "node:path"
  *
  * The other half of DACC-04 — the record's per-allocation `Target attendee`
  * and recorded-scope columns — lives on the donation record and is pinned in
- * `tests/dashboard/donations-workspace.test.ts` (58-09).
+ * `tests/dashboard/donation-detail-surface.test.ts` (61-03 moved it with the
+ * panel; the pins themselves came from `donations-workspace.test.ts`, 58-09).
  */
 
 const ROOT = resolve(import.meta.dirname, "../..")
@@ -73,7 +74,9 @@ describe("order view panel — labelled server figures, no order-level total", (
 
   it("keeps the due figure first and the figures then the link in bound order", () => {
     const dueIndex = panel.indexOf("formatMoney(attendee.amountDueMinor)")
-    const allocatedIndex = panel.indexOf("formatMoney(attendee.paidAmountMinor)")
+    const allocatedIndex = panel.indexOf(
+      "formatMoney(attendee.paidAmountMinor)"
+    )
     const remainingIndex = panel.indexOf(
       "formatMoney(attendee.outstandingAmountMinor)"
     )
@@ -189,6 +192,6 @@ describe("DACC-04 destination", () => {
     expect(page).toContain("DonationsWorkspace")
     // The record's per-allocation target attendee and recorded-scope columns
     // are DACC-04's other half and are pinned in
-    // `tests/dashboard/donations-workspace.test.ts` (58-09).
+    // `tests/dashboard/donation-detail-surface.test.ts` (61-03).
   })
 })
