@@ -829,6 +829,7 @@ export default defineSchema({
       providerLastCheckedAt: v.optional(v.number()),
       statusUpdatedAt: v.optional(v.number()),
       purpose: v.optional(v.union(v.literal("payment"), v.literal("donation"))),
+      donationLocationLabel: v.optional(v.string()),
     })
   )
     .index("paymentRequestToken", ["paymentRequestToken"])
@@ -959,6 +960,7 @@ export default defineSchema({
         v.literal("cash")
       ),
       sourceId: v.optional(v.string()),
+      tikkiePaymentLinkId: v.optional(v.id("tikkiePaymentLinks")),
       payerName: v.string(),
       payerAccountNumber: v.optional(v.string()),
       amountMinor: v.number(),

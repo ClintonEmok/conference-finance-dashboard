@@ -1693,6 +1693,7 @@ export declare const api: {
         providerPayload?: any;
         purpose?: "payment" | "donation";
         sourceId: string;
+        tikkiePaymentLinkId?: Id<"tikkiePaymentLinks">;
       },
       any
     >;
@@ -2270,6 +2271,7 @@ export declare const api: {
       {
         amountMinor: number;
         description: string;
+        donationLocationLabel?: string;
         eventId: string;
         expiryDate: number;
         paymentRequestToken: string;
@@ -2405,6 +2407,12 @@ export declare const api: {
       "mutation",
       "public",
       { orderId: string; paymentId: Id<"tikkiePayments"> },
+      any
+    >;
+    setDonationLocationLabel: FunctionReference<
+      "mutation",
+      "public",
+      { label?: string; linkId: Id<"tikkiePaymentLinks"> },
       any
     >;
     updatePaymentLinkStatus: FunctionReference<
@@ -2830,6 +2838,7 @@ export declare const internal: {
         providerPayload?: any;
         purpose?: "payment" | "donation";
         sourceId: string;
+        tikkiePaymentLinkId?: Id<"tikkiePaymentLinks">;
       },
       any
     >;

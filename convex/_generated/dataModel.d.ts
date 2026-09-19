@@ -1261,6 +1261,7 @@ export type DataModel = {
         | "ambiguous"
         | "unassigned"
         | "donation";
+      tikkiePaymentLinkId?: Id<"tikkiePaymentLinks">;
       _id: Id<"payments">;
       _creationTime: number;
     };
@@ -1281,7 +1282,8 @@ export type DataModel = {
       | "reference"
       | "source"
       | "sourceId"
-      | "status";
+      | "status"
+      | "tikkiePaymentLinkId";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
@@ -1862,6 +1864,7 @@ export type DataModel = {
     document: {
       amountMinor: number;
       description: string;
+      donationLocationLabel?: string;
       eventId?: string;
       expiryDate: number;
       linkType?: "event" | "order";
@@ -1886,6 +1889,7 @@ export type DataModel = {
       | "_id"
       | "amountMinor"
       | "description"
+      | "donationLocationLabel"
       | "eventId"
       | "expiryDate"
       | "linkType"

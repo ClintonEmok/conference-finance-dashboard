@@ -40,6 +40,7 @@ import {
 
 type TikkiePaymentUpsert = {
   eventId?: Id<"events">
+  tikkiePaymentLinkId?: Id<"tikkiePaymentLinks">
   payerName: string
   payerAccountNumber?: string
   amountMinor: number
@@ -99,6 +100,9 @@ function buildTikkiePaymentPatch(
     updates.payerAccountNumber = next.payerAccountNumber
   }
   if (!existing.eventId && next.eventId) updates.eventId = next.eventId
+  if (!existing.tikkiePaymentLinkId && next.tikkiePaymentLinkId) {
+    updates.tikkiePaymentLinkId = next.tikkiePaymentLinkId
+  }
   if (existing.amountMinor !== next.amountMinor) {
     updates.amountMinor = next.amountMinor
   }
@@ -548,6 +552,7 @@ export const upsertTikkiePayment = mutation({
     paidAt: v.number(),
     providerPayload: v.optional(v.any()),
     purpose: v.optional(tikkieLinkPurposeValidator),
+    tikkiePaymentLinkId: v.optional(v.id("tikkiePaymentLinks")),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
@@ -580,6 +585,7 @@ export const upsertTikkiePayment = mutation({
     const id = await ctx.db.insert("payments", {
       source: "tikkie",
       sourceId: args.sourceId,
+      tikkiePaymentLinkId: args.tikkiePaymentLinkId,
       payerName: args.payerName,
       payerAccountNumber: args.payerAccountNumber,
       amountMinor: args.amountMinor,
@@ -1142,6 +1148,7 @@ export const internalUpsertTikkiePayment = internalMutation({
     paidAt: v.number(),
     providerPayload: v.optional(v.any()),
     purpose: v.optional(tikkieLinkPurposeValidator),
+    tikkiePaymentLinkId: v.optional(v.id("tikkiePaymentLinks")),
   },
   handler: async (ctx, args) => {
     const eventId = args.eventId
@@ -1175,6 +1182,7 @@ export const internalUpsertTikkiePayment = internalMutation({
     const id = await ctx.db.insert("payments", {
       source: "tikkie",
       sourceId: args.sourceId,
+      tikkiePaymentLinkId: args.tikkiePaymentLinkId,
       payerName: args.payerName,
       payerAccountNumber: args.payerAccountNumber,
       amountMinor: args.amountMinor,

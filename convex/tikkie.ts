@@ -465,9 +465,15 @@ export const createEventPaymentLink = mutation({
     referenceId: v.optional(v.string()),
     providerPayload: v.optional(v.any()),
     purpose: v.optional(tikkieLinkPurposeValidator),
+    donationLocationLabel: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+
+    const purpose = resolveTikkieLinkPurpose(args.purpose)
+    if (args.donationLocationLabel !== undefined && purpose !== "donation") {
+      throw new Error("Donation location labels require a donation link")
+    }
 
     // Atomic quota check - fail if quota exceeded
     const quota = await checkMonthlyQuota(ctx)
@@ -494,9 +500,37 @@ export const createEventPaymentLink = mutation({
       referenceId: formatPaymentReference(args.referenceId) ?? undefined,
       providerPayload: args.providerPayload,
       statusUpdatedAt: Date.now(),
-      purpose: resolveTikkieLinkPurpose(args.purpose),
+      purpose,
+      ...(purpose === "donation" && args.donationLocationLabel?.trim()
+        ? { donationLocationLabel: args.donationLocationLabel.trim() }
+        : {}),
     })
     return id
+  },
+})
+
+export const setDonationLocationLabel = mutation({
+  args: {
+    linkId: v.id("tikkiePaymentLinks"),
+    label: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const link = await ctx.db.get("tikkiePaymentLinks", args.linkId)
+    if (!link) {
+      throw new Error("Tikkie payment link not found")
+    }
+    if (resolveTikkieLinkPurpose(link.purpose) !== "donation") {
+      throw new Error("Donation location labels require a donation link")
+    }
+
+    const label = args.label?.trim() || undefined
+    await ctx.db.patch("tikkiePaymentLinks", args.linkId, {
+      donationLocationLabel: label,
+    })
+
+    return args.linkId
   },
 })
 
