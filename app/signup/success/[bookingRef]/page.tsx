@@ -59,6 +59,7 @@ export default async function SignupSuccessPage({ params }: SuccessPageProps) {
         event={{
           name: eventData.title,
           startsAt: eventData.startsAt,
+          currency: eventData.currency,
           location: undefined, // Events don't have location yet
           description: undefined,
         }}

@@ -13,6 +13,7 @@ interface SummaryCardProps {
   totalAttendees: number
   totalRooms: number
   totalAmountMinor?: number
+  currency: string
   className?: string
 }
 
@@ -22,6 +23,7 @@ export function SummaryCard({
   totalAttendees,
   totalRooms,
   totalAmountMinor,
+  currency,
   className,
 }: SummaryCardProps) {
   const [copied, setCopied] = useState(false)
@@ -88,7 +90,9 @@ export function SummaryCard({
               <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">Total</span>
             </div>
             <p className="text-2xl font-black text-foreground">
-              {totalAmountMinor !== undefined ? formatMoney(totalAmountMinor) : "—"}
+              {totalAmountMinor !== undefined
+                ? formatMoney(totalAmountMinor, currency)
+                : "—"}
             </p>
           </div>
         </div>

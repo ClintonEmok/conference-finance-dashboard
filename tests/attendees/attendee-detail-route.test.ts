@@ -89,6 +89,7 @@ describe("/api/dashboard/attendees/[attendeeId] route", () => {
       event: {
         id: "event_1",
         name: "Conference",
+        currency: "EUR",
       },
       order: {
         id: "order_1",
@@ -106,6 +107,7 @@ describe("/api/dashboard/attendees/[attendeeId] route", () => {
         outstandingAmountMinor: 2500,
         paidAmountMinor: 2500,
         overpaidAmountMinor: 0,
+        paymentProgressPercent: 100,
         installmentProgress: {
           totalLinks: 1,
           paidLinks: 0,

@@ -92,7 +92,7 @@ export default function CreateEventPage() {
   const [startsAt, setStartsAt] = useState(formatDateTimeLocal(defaultStart))
   const [endsAt, setEndsAt] = useState("")
   const [timezone, setTimezone] = useState("Europe/London")
-  const [currency, setCurrency] = useState("GBP")
+  const [currency, setCurrency] = useState("EUR")
   const [isPublished, setIsPublished] = useState(false)
   const [isSignupOpen, setIsSignupOpen] = useState(false)
   const [accommodationEnabled, setAccommodationEnabled] = useState(false)

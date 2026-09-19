@@ -3,7 +3,7 @@ import Link from "next/link"
 import Image from "next/image"
 import { api } from "@/convex/_generated/api"
 import { fetchQuery } from "convex/nextjs"
-import { Calendar, ExternalLink, Search, Ticket } from "lucide-react"
+import { Calendar, ExternalLink, Heart, Search, Ticket } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { TikkieSection } from "@/components/signup/SuccessPage/TikkieSection"
 
@@ -26,7 +26,10 @@ export default async function PayPage({ params }: PayPageProps) {
 
   const event = await fetchQuery(api.events.getEventBySlug, { slug: eventSlug })
 
-  if (!event) {
+  // `getEventBySlug` is shared with the operator dashboard, which must see
+  // drafts, so the public gate lives here. `isPublished` only — a published
+  // event whose signup has closed must still accept payment.
+  if (!event || !event.isPublished) {
     notFound()
   }
 
@@ -100,7 +103,7 @@ export default async function PayPage({ params }: PayPageProps) {
         </div>
 
         {/* Quick Actions */}
-        <div className="mx-auto mt-12 grid max-w-5xl gap-4 sm:grid-cols-2">
+        <div className="mx-auto mt-12 grid max-w-5xl gap-4 sm:grid-cols-3">
           <Link
             href={`/signup/${eventSlug}`}
             className="group flex items-center gap-4 rounded-2xl border border-border/40 bg-card/40 p-5 shadow-sm backdrop-blur-xl transition-all hover:border-primary/30 hover:bg-card/60 hover:shadow-md"
@@ -128,6 +131,22 @@ export default async function PayPage({ params }: PayPageProps) {
               <p className="text-sm font-bold text-foreground">Manage booking</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Already registered?
+              </p>
+            </div>
+            <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground transition-all group-hover:text-primary group-hover:translate-x-0.5" />
+          </Link>
+
+          <Link
+            href={`/donate/${eventSlug}`}
+            className="group flex items-center gap-4 rounded-2xl border border-border/40 bg-card/40 p-5 shadow-sm backdrop-blur-xl transition-all hover:border-primary/30 hover:bg-card/60 hover:shadow-md"
+          >
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20 transition-all group-hover:bg-primary/15">
+              <Heart className="h-5 w-5" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-bold text-foreground">Donate</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Support this event
               </p>
             </div>
             <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground transition-all group-hover:text-primary group-hover:translate-x-0.5" />

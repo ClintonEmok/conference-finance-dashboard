@@ -45,6 +45,7 @@ import {
 import { api } from "@/lib/convex/api"
 import { formatMoney } from "@/lib/format"
 import { useTicketTypesForEvent } from "@/lib/convex/hooks/events"
+import { donationsHref } from "@/lib/dashboard/workspace-routes"
 import {
   AttendeeOrderEditor,
   matchEditorSelection,
@@ -58,6 +59,11 @@ export type OrderAttendeeRow = {
   email: string | null
   ticketTypeLabel: string
   amountDueMinor: number
+  // Phase 56 server-owned per-attendee money, mapped verbatim from
+  // `getOrderWithAttendees`: the row renders the two figures as separate
+  // labelled lines and never derives or totals them on the client.
+  paidAmountMinor: number
+  outstandingAmountMinor: number
 }
 
 type AttendeeDetailSnapshot = {
@@ -86,6 +92,7 @@ type AttendeesPanelProps = {
   eventId: string
   orderId: string
   bookingRef: string | null
+  currency: string
   onSaved: () => void
 }
 
@@ -121,6 +128,7 @@ export function AttendeesPanel({
   eventId,
   orderId,
   bookingRef,
+  currency,
   onSaved,
 }: AttendeesPanelProps) {
   const editContextRaw = useQuery(
@@ -410,8 +418,26 @@ export function AttendeesPanel({
                     </div>
                     <div className="shrink-0 text-right">
                       <p className="text-sm font-black tabular-nums">
-                        {formatMoney(attendee.amountDueMinor)}
+                        {formatMoney(attendee.amountDueMinor, currency)}
                       </p>
+                      <div className="mt-1.5 flex items-center justify-end gap-2 text-xs text-muted-foreground">
+                        <span>Allocated credit</span>
+                        <span className="font-mono tabular-nums text-foreground">
+                           {formatMoney(attendee.paidAmountMinor, currency)}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex items-center justify-end gap-2 text-xs text-muted-foreground">
+                        <span>Remaining</span>
+                        <span className="font-mono tabular-nums text-foreground">
+                           {formatMoney(attendee.outstandingAmountMinor, currency)}
+                        </span>
+                      </div>
+                      <Link
+                        href={donationsHref(slug, { orderId })}
+                        className="mt-1 inline-block text-xs text-primary underline-offset-2 hover:underline"
+                      >
+                        View allocations
+                      </Link>
                       <div className="mt-2 flex items-center justify-end gap-1.5">
                         <Button
                           type="button"
@@ -577,7 +603,7 @@ export function AttendeesPanel({
                   <SelectContent>
                     {(ticketTypes as AttendeeTicketType[]).map((ticketType) => (
                       <SelectItem key={ticketType._id} value={String(ticketType._id)}>
-                        {ticketType.label} · {formatMoney(ticketType.priceMinor)}
+                        {ticketType.label} · {formatMoney(ticketType.priceMinor, currency)}
                       </SelectItem>
                     ))}
                   </SelectContent>

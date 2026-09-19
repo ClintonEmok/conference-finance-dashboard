@@ -73,13 +73,17 @@ signups run degraded with a Convex warning. Provision both, then verify.
    ```
    Logs `emailType: "announcement_test"`. Never a broadcast.
 
-## 2A. Phase 46 Search-Projection Rollout (preview rehearsal first)
+## 2A. Phase 46/62 Search Rollout (preview rehearsal first)
 
 > **Status: DOCUMENTED, NOT EXECUTED.** This section is the operator procedure
-> for the Phase 46 indexed-search rollout. The preview rehearsal is safe to
-> run only against the exact preview deployment URL. The production backfill
-> remains an explicit, operator-only write; no command in this phase executes
-> a production seed, backfill, broadcast, or other production write.
+> for indexed search. Phase 62 Stage 1 retired the hand-maintained projection:
+> search reads the source tables (`orders`, `orderAttendees`) and the
+> projection is unread and unwritten, so no projection backfill exists. The
+> preview rehearsal is safe to run only against the exact preview deployment
+> URL. The remaining operator-gated production writes for search and legacy
+> data (attendee `eventId` backfill, legacy accommodation backfill, attendee
+> rekey) are named below; no command in this phase executes a production
+> seed, backfill, broadcast, or other production write.
 
 ### Preview rehearsal (safe, sanitized, and repeatable)
 
@@ -100,79 +104,62 @@ and requires an exact canonical match between the runtime `CONVEX_SITE_URL`
 and `allowedDeploymentUrl`; it fails closed before reads or writes when the
 deployment identity or allowlist is absent, malformed, or mismatched.
 
-Backfill each canonical subject kind separately, always starting with
-`cursor: null` and using the implementation-enforced **`batchSize: 1`**. This
-batch size is not the UI page size: one canonical row per invocation keeps the
-projection upsert (and its bounded related reads) atomic with its canonical
-page. Repeat the same command with the returned `nextCursor` until
-`isDone: true`, then repeat the complete cursor sequence for attendees. If a
-run stops after a valid completed batch, resume with that returned cursor; do
-not invent or edit an opaque cursor.
+### Stage 1 retirement record (no projection backfill exists)
+
+Phase 62 Stage 1 (D-03) stopped maintaining the derived search projection:
+search reads the source tables directly, so **no projection backfill exists
+and none is required**. The three projection tables — `searchDocuments`,
+`searchProjectionFanoutJobs`, and the already-deprecated
+`searchDocumentTerms` — remain in `convex/schema.ts`, unread and unwritten;
+nothing in production references them. The remaining operator-gated
+production gate for search is the attendee `eventId` backfill in the next
+section: it makes legacy attendee rows visible to the event-scoped source
+scan (the attendee ledger and the donation-allocation picker).
+
+**Stage 2 (operator-gated; not attempted in Phase 62):** drop **all three**
+tables — `searchDocuments`, `searchProjectionFanoutJobs`, and the
+already-`@deprecated` `searchDocumentTerms` — in one operator-gated
+migration. Dropping a non-empty table is a destructive deploy, so it must
+not be attempted before that migration, and the three must be dropped
+together: clearing only some of them compounds the deprecated-table debt
+instead of retiring it.
+
+### Attendee `eventId` backfill (operator-only)
+
+> ⛔ **OPERATOR AUTHORIZATION REQUIRED.** The additive `orderAttendees.eventId`
+> copy (Phase 62, D-06) is written with every new attendee row at all four
+> production insert sites, but rows that predate the field carry no `eventId`
+> and are invisible to the event-scoped attendee ledger / donation-allocation
+> picker until they are filled. Phase 62 ran this backfill against the DEV
+> deployment only (149 rows processed, 149 patched, 0 skipped; a re-run
+> patched 0). This section is the production carry-forward.
+
+The mutation is batched, resumable, and idempotent (rows already carrying
+`eventId` are counted and skipped), and it is production-guarded: it fails
+closed before any read or write unless `authorize: true` AND the runtime
+`CONVEX_SITE_URL` resolves to the exact allowed deployment slug. Start at
+`cursor: null`, batch 200, and repeat with each returned opaque `nextCursor`
+until `isDone: true`:
 
 ```bash
-npx convex run backfillSearchProjections \
-  --args '{"kind":"order","cursor":null,"batchSize":1,"authorize":true,"allowedDeploymentUrl":"https://<PREVIEW_DEPLOYMENT_SLUG>.convex.site"}'
-# Repeat with the returned nextCursor, then run the same sequence with kind "attendee".
-npx convex run verifySearchProjections \
-  --args '{"authorize":true,"allowedDeploymentUrl":"https://<PREVIEW_DEPLOYMENT_SLUG>.convex.site"}'
+npx convex run backfillAttendeeEventIds \
+  '{"cursor":null,"batchSize":200,"authorize":true,"allowedDeploymentUrl":"https://grateful-pelican-605.convex.cloud"}' \
+  --prod
+# Repeat with each returned nextCursor until isDone:true. A completed pass is
+# safe to re-run: the second pass patches 0.
 ```
 
-`verifySearchProjections` is read-only. Continue only when `missing`, `stale`,
-`blockedJobs`, and `pendingJobs` are all zero and `truncated` is false. (Native
-full-text search replaced the former posting table, so verification no longer
-reports duplicate or orphaned postings.) The sanitized fixture source is
-`tests/fixtures/legacy-preview.snapshot.ts`; its 51/116 coverage is the
-expected full-fixture status, not a claim about production data.
-
-Native full-text search is served by the `searchDocuments.search_text` index.
-That index is **not staged**, so a deploying build synchronously backfills it
-from the existing `searchDocuments` rows. Order matters: deploy the schema first
-(which builds the index over already-projected rows), then run the projection
-backfill above (each upsert updates the index automatically), then verify, then
-promote the search UI. Search returns only documents that are both projected and
-indexed, so an incomplete projection backfill means incomplete search results.
-
-### Production backfill (operator-only; not executed by this phase)
-
-After the preview rehearsal and a reviewed deployment, an authenticated
-operator may run the production procedure below. Replace the placeholder with
-the exact production slug only; this document intentionally does not run it
-and does not provide credentials. The production guard requires both
-`authorize: true` and an exact deployment-slug match between the runtime
-`CONVEX_SITE_URL` and `allowedDeploymentUrl`. It accepts the exact
-`https://<PRODUCTION_DEPLOYMENT_SLUG>.convex.cloud` or corresponding
-`.convex.site` URL for the same slug, but rejects selectors, suffix/prefix
-matches, malformed URLs, missing identity, and missing allowlists before any
-read or write.
-
-```bash
-# OPERATOR RUNBOOK ONLY — do not run as part of Phase 46 automation.
-npx convex run backfillSearchProjections \
-  --args '{"kind":"order","cursor":null,"batchSize":1,"authorize":true,"allowedDeploymentUrl":"https://<PRODUCTION_DEPLOYMENT_SLUG>.convex.cloud"}'
-# Repeat with each returned nextCursor until isDone:true; then repeat from
-# cursor:null for kind:"attendee" and continue until isDone:true.
-npx convex run verifySearchProjections \
-  --args '{"authorize":true,"allowedDeploymentUrl":"https://<PRODUCTION_DEPLOYMENT_SLUG>.convex.cloud"}'
-```
-
-The order-then-attendee sequence is required so each kind has complete
-historical coverage. A completed batch can be rerun safely: projection
-replacement is an idempotent upsert of the single `searchDocuments` row whose
-native full-text search index Convex maintains. Do not skip
-historical backfill merely because live fan-out maintenance is enabled.
-Verification must be authorized but read-only and must pass before enabling or
-promoting the production search UI. Stop immediately and do not proceed to the
-next cursor, kind, or rollout gate when any of the following occurs: guard
-failure; invalid cursor; a skipped/diagnostic row that is not understood;
-missing or stale coverage; `blockedJobs` or `pendingJobs`; `truncated: true`;
-an incomplete pass; or any unexpected write or deployment identity. Rehearse
-the failed step in preview and investigate before resuming from the last
-known-good returned cursor.
+Discipline: stop immediately on a guard failure, an invalid cursor, an
+unexpected skip diagnostic, or any incomplete pass; investigate before
+resuming from the last known-good returned cursor. A `skipped` row with the
+diagnostic `eventless or missing order` is left unpatched by design (never
+guessed) and must be understood before continuing. Run this before promoting
+the Phase 62 search surfaces in production.
 
 ### Production attendee-key rekey (operator-only)
 
 > ⛔ **OPERATOR AUTHORIZATION REQUIRED.** This repair is separate from the
-> search-projection and legacy-accommodation backfills. It repairs existing
+> attendee `eventId` and legacy-accommodation backfills. It repairs existing
 > duplicate or blank `orderAttendees.attendeeKey` values one order at a time;
 > it does not alter attendee IDs or any child foreign keys.
 

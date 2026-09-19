@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Calendar, ChevronRight, CreditCard, Tag } from "lucide-react"
+import { Calendar, ChevronRight, CreditCard, Heart, Tag } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -135,6 +135,20 @@ export function EventEntryContent({ event }: EventEntryContentProps) {
                 <Link href="/booking" className="flex items-center gap-2">
                   Manage booking
                   <CreditCard className="h-4 w-4" />
+                </Link>
+              </Button>
+
+              <Button
+                asChild
+                variant="outline"
+                className="h-12 rounded-2xl border-primary/20 bg-primary/5 text-primary hover:bg-primary/10"
+              >
+                <Link
+                  href={`/donate/${event.slug}`}
+                  className="flex items-center gap-2"
+                >
+                  Donate
+                  <Heart className="h-4 w-4" />
                 </Link>
               </Button>
             </div>

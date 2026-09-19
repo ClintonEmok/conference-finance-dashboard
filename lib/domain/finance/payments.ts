@@ -10,6 +10,10 @@ import {
   selectBestBookerMatch,
   type BookerOnlyMatchCandidate,
 } from "./payment-matching"
+import {
+  resolveTikkieLinkPurpose,
+  type TikkieLinkPurpose,
+} from "./tikkie-link-purpose"
 
 export { formatPaymentReference, PAYMENT_REFERENCE_PREFIX }
 
@@ -348,7 +352,8 @@ export async function markPaymentAsDonation(
 }
 
 export async function syncTikkiePayments(
-  paymentRequestToken: string
+  paymentRequestToken: string,
+  options: { eventId?: string; purpose?: TikkieLinkPurpose } = {}
 ): Promise<SyncTikkiePaymentsResult> {
   const result: SyncTikkiePaymentsResult = {
     paymentsFetched: 0,
@@ -408,6 +413,8 @@ export async function syncTikkiePayments(
         api.payments.upsertTikkiePayment,
         {
           sourceId,
+          eventId: options.eventId,
+          purpose: resolveTikkieLinkPurpose(options.purpose),
           payerName,
           payerAccountNumber,
           amountMinor,

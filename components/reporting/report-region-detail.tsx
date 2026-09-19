@@ -117,10 +117,22 @@ export function ReportRegionDetail({
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             {[
               { label: "Entries", value: report.totals.rows.toLocaleString() },
-              { label: "Amount due", value: formatMoney(report.totals.amountDueMinor) },
-              { label: "Amount paid", value: formatMoney(report.totals.paidMinor) },
-              { label: "Amount outstanding", value: formatMoney(report.totals.outstandingMinor) },
-              { label: "Donation", value: formatMoney(report.totals.overpaidMinor) },
+              {
+                label: "Amount due",
+                value: formatMoney(report.totals.amountDueMinor, report.event.currency),
+              },
+              {
+                label: "Amount paid",
+                value: formatMoney(report.totals.paidMinor, report.event.currency),
+              },
+              {
+                label: "Amount outstanding",
+                value: formatMoney(report.totals.outstandingMinor, report.event.currency),
+              },
+              {
+                label: "Donation",
+                value: formatMoney(report.totals.overpaidMinor, report.event.currency),
+              },
             ].map((card) => (
               <div
                 key={card.label}
@@ -212,13 +224,13 @@ export function ReportRegionDetail({
                             {attendee.ticketTypeLabel ?? "–"}
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-muted-foreground">
-                            {formatMoney(attendee.amountDueMinor)}
+                            {formatMoney(attendee.amountDueMinor, report.event.currency)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-emerald-600">
-                            {formatMoney(attendee.paidMinor)}
+                            {formatMoney(attendee.paidMinor, report.event.currency)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-foreground">
-                            {formatMoney(attendee.outstandingMinor)}
+                            {formatMoney(attendee.outstandingMinor, report.event.currency)}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -270,7 +282,7 @@ export function ReportRegionDetail({
                             Amount due
                           </p>
                           <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
-                            {formatMoney(group.amountDueMinor)}
+                            {formatMoney(group.amountDueMinor, report.event.currency)}
                           </p>
                         </div>
                         <div>
@@ -278,7 +290,7 @@ export function ReportRegionDetail({
                             Amount paid
                           </p>
                           <p className="mt-1 text-sm font-semibold tabular-nums text-emerald-500">
-                            {formatMoney(group.paidMinor)}
+                            {formatMoney(group.paidMinor, report.event.currency)}
                           </p>
                         </div>
                         <div>
@@ -286,7 +298,7 @@ export function ReportRegionDetail({
                             Amount outstanding
                           </p>
                           <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
-                            {formatMoney(group.outstandingMinor)}
+                            {formatMoney(group.outstandingMinor, report.event.currency)}
                           </p>
                         </div>
                       </div>
@@ -307,19 +319,19 @@ export function ReportRegionDetail({
                       <div>
                         <span className="text-sm text-muted-foreground">Amount due </span>
                         <span className="mt-1 block text-lg font-semibold tabular-nums text-foreground">
-                          {formatMoney(group.amountDueMinor)}
+                          {formatMoney(group.amountDueMinor, report.event.currency)}
                         </span>
                       </div>
                       <div>
                         <span className="text-sm text-muted-foreground">Amount paid </span>
                         <span className="mt-1 block text-lg font-semibold tabular-nums text-emerald-500">
-                          {formatMoney(group.paidMinor)}
+                          {formatMoney(group.paidMinor, report.event.currency)}
                         </span>
                       </div>
                       <div>
                         <span className="text-sm text-muted-foreground">Amount outstanding </span>
                         <span className="mt-1 block text-lg font-semibold tabular-nums text-foreground">
-                          {formatMoney(group.outstandingMinor)}
+                          {formatMoney(group.outstandingMinor, report.event.currency)}
                         </span>
                       </div>
                     </div>
@@ -343,13 +355,13 @@ export function ReportRegionDetail({
                                 {attendee.name}
                               </TableCell>
                               <TableCell className="text-right tabular-nums text-muted-foreground">
-                                {formatMoney(attendee.amountDueMinor)}
+                                {formatMoney(attendee.amountDueMinor, report.event.currency)}
                               </TableCell>
                               <TableCell className="text-right tabular-nums text-emerald-600">
-                                {formatMoney(attendee.paidMinor)}
+                                {formatMoney(attendee.paidMinor, report.event.currency)}
                               </TableCell>
                               <TableCell className="text-right tabular-nums text-foreground">
-                                {formatMoney(attendee.outstandingMinor)}
+                                {formatMoney(attendee.outstandingMinor, report.event.currency)}
                               </TableCell>
                               <TableCell className="text-muted-foreground">
                                 {attendee.ticketTypeLabel ?? "–"}

@@ -11,7 +11,6 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
-import { formatMoney } from "@/lib/format"
 import Image from "next/image"
 
 interface SubmissionAttendee {
@@ -49,6 +48,7 @@ interface Submission {
 interface Event {
   name: string
   startsAt: number
+  currency: string
   location?: string
   description?: string
 }
@@ -281,6 +281,7 @@ export function SuccessView({
                 totalAttendees={totalAttendees}
                 totalRooms={totalRooms}
                 totalAmountMinor={submission.totalAmountMinor}
+                currency={event.currency}
               />
 
               <Card className="border-none bg-card/40 shadow-xl ring-1 ring-border/50 backdrop-blur-xl">

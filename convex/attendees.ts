@@ -5,7 +5,7 @@ import { requireIdentity } from "./auth"
 import { api } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
 import type { MutationCtx, QueryCtx } from "./_generated/server"
-import { loadOrderAmountDueBreakdowns } from "./finance"
+import { loadOrderAmountDueBreakdowns, loadOrderPaymentAttributions } from "./finance"
 import {
   loadPublicSignupAccommodationContext,
   resolvePublicSignupSelection,
@@ -13,10 +13,13 @@ import {
   type PublicSignupSelectionResolved,
 } from "./signupCatalog"
 import {
-  deleteSearchProjection,
-  maintainOrderSearchProjection,
-  paginateSearchDocuments,
-  upsertAttendeeSearchDocument,
+  buildSearchHaystack,
+  collectSourceSearchPage,
+  decodeSourceScanBoundary,
+  encodeSourceScanBoundary,
+  matchesNormalizedSearch,
+  requireSearchNeedle,
+  type SourceSearchFetchedPage,
 } from "./search"
 
 type AttendeeResolveCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">
@@ -421,17 +424,25 @@ export const getAttendeesWithTickets = query({
 
 const LEDGER_PAGE_MAX = 100
 const LEDGER_CURSOR_PREFIX = "al:"
+/** Hard candidate-scan budget per invocation, mirroring the orders search path. */
+const ATTENDEE_SEARCH_SCAN_CAP = 2_000
 
 type LedgerCursor = {
-  version: 1
+  version: 2
   signature: string
-  searchCursor: string | null
+  sourceCursor: string | null
 }
 
 function decodeLedgerCursor(cursor: string): LedgerCursor {
   try {
     const value = JSON.parse(decodeURIComponent(cursor.slice(LEDGER_CURSOR_PREFIX.length))) as LedgerCursor
-    if (value.version !== 1 || typeof value.signature !== "string") throw new Error()
+    if (
+      value.version !== 2 ||
+      typeof value.signature !== "string" ||
+      (value.sourceCursor !== null && typeof value.sourceCursor !== "string")
+    ) {
+      throw new Error()
+    }
     return value
   } catch {
     throw new Error("Invalid attendee ledger continuation cursor.")
@@ -442,7 +453,11 @@ function encodeLedgerCursor(value: LedgerCursor) {
   return `${LEDGER_CURSOR_PREFIX}${encodeURIComponent(JSON.stringify(value))}`
 }
 
-/** Bounded canonical attendee ledger search. Legacy collection callers above are intentionally unchanged. */
+/**
+ * Bounded canonical attendee ledger search (D-01 source-table search since
+ * Phase 62: it scans `orderAttendees` and never a derived projection).
+ * Legacy collection callers above are intentionally unchanged.
+ */
 export const getAttendeeLedgerPage = query({
   args: {
     eventId: v.optional(v.id("events")),
@@ -457,6 +472,7 @@ export const getAttendeeLedgerPage = query({
     if (!Number.isInteger(args.pageSize) || args.pageSize < 1 || args.pageSize > LEDGER_PAGE_MAX) {
       throw new Error("Invalid attendee ledger page size.")
     }
+    const needle = requireSearchNeedle(args.search)
     const dateMode = args.eventId && args.from == null && args.to == null ? "all-time" : "bounded"
     const now = Date.now()
     const from = args.eventId
@@ -464,37 +480,114 @@ export const getAttendeeLedgerPage = query({
       : (args.from ?? now - 29 * 24 * 60 * 60 * 1000)
     const to = args.to ?? now
     if (from > to) throw new Error("Invalid date range. 'from' must be less than or equal to 'to'.")
-    const signature = JSON.stringify({ eventId: args.eventId ?? null, search: args.search?.trim().toLowerCase() ?? "", from: args.from ?? null, to: args.to ?? null, dateMode })
-    let searchCursor: string | null = null
+    const signature = JSON.stringify({ v: 2, eventId: args.eventId ?? null, search: needle, from: args.from ?? null, to: args.to ?? null, dateMode })
+    let sourceCursor: string | null = null
     if (args.cursor) {
       const decoded = decodeLedgerCursor(args.cursor)
       if (decoded.signature !== signature) throw new Error("Attendee ledger cursor does not match the request.")
-      searchCursor = decoded.searchCursor
+      sourceCursor = decoded.sourceCursor
     }
 
-    const candidates: Array<Doc<"searchDocuments">> = []
-    const result = await paginateSearchDocuments(ctx, { kind: "attendee", eventId: args.eventId, search: args.search, cursor: searchCursor, numItems: args.pageSize })
-    const cursor = result.continueCursor
-    const hasNext = !result.isDone
-    for (const candidate of result.page) {
-        const attendeeId = ctx.db.normalizeId("orderAttendees", candidate.subjectId)
-        if (!attendeeId) continue
-        const attendee = await ctx.db.get("orderAttendees", attendeeId)
-        const order = attendee ? await ctx.db.get("orders", attendee.orderId) : null
-        const orderTime = order?.orderedAt ?? order?.submittedAt ?? null
-        if (attendee && order && (!orderTime || (orderTime >= from && orderTime <= to))) candidates.push(candidate)
-      if (candidates.length >= args.pageSize) break
+    // D-01/D-04: source rows are the truth. The event-scoped scan is a single
+    // `orderAttendees.by_eventId` indexed range (global mode scans the table);
+    // the collector pages it until the result page is full, so a match behind a
+    // long non-match run still fills the page. Attendees written before the
+    // additive `eventId` copy existed are invisible to the indexed scan until
+    // the operator-gated `backfillAttendeeEventIds` migration patches them.
+    type LedgerCandidate = { attendee: Doc<"orderAttendees">; order: Doc<"orders"> | null }
+    const orderCache = new Map<string, Doc<"orders"> | null>()
+    const fetchPage = async (cursor: string | null, limit: number): Promise<SourceSearchFetchedPage<LedgerCandidate>> => {
+      // Convex allows only ONE paginated query per function execution, so the
+      // scan cannot re-`.paginate()` across fetches. It scans with `.take()`
+      // and carries its own `_creationTime` boundary cursor instead, so a
+      // resumption starts strictly after the last consumed candidate.
+      const bound = decodeSourceScanBoundary(cursor)
+      const excluded = new Set(bound?.ids ?? [])
+      const takeCount = limit + excluded.size + 1
+      let rows: Doc<"orderAttendees">[]
+      if (bound === null) {
+        rows = await (args.eventId
+          ? ctx.db
+              .query("orderAttendees")
+              .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId!))
+              .order("desc")
+          : ctx.db.query("orderAttendees").order("desc")
+        ).take(takeCount)
+      } else {
+        rows = await (args.eventId
+          ? ctx.db
+              .query("orderAttendees")
+              .withIndex("by_eventId", (q) =>
+                q.eq("eventId", args.eventId!).lte("_creationTime", bound.t)
+              )
+              .order("desc")
+          : ctx.db
+              .query("orderAttendees")
+              .order("desc")
+              .filter((q) => q.lte(q.field("_creationTime"), bound.t))
+        ).take(takeCount)
+      }
+      const fresh =
+        bound === null
+          ? rows
+          : rows.filter(
+              (row) =>
+                !(
+                  row._creationTime === bound.t &&
+                  excluded.has(String(row._id))
+                )
+            )
+      const hasMore = fresh.length > limit
+      const scanned = hasMore ? fresh.slice(0, limit) : fresh
+      const items: LedgerCandidate[] = []
+      for (const attendee of scanned) {
+        // One cached `orders` get per distinct order for the whole call.
+        const key = String(attendee.orderId)
+        let order: Doc<"orders"> | null
+        if (orderCache.has(key)) {
+          order = orderCache.get(key) ?? null
+        } else {
+          order = await ctx.db.get("orders", attendee.orderId)
+          orderCache.set(key, order)
+        }
+        items.push({ attendee, order })
+      }
+      const last = scanned[scanned.length - 1]
+      let continueCursor: string | null = null
+      if (hasMore && last) {
+        const t = last._creationTime
+        const carried = bound !== null && bound.t === t ? bound.ids : []
+        const atT = scanned
+          .filter((row) => row._creationTime === t)
+          .map((row) => String(row._id))
+        continueCursor = encodeSourceScanBoundary(
+          t,
+          Array.from(new Set([...carried, ...atT]))
+        )
+      }
+      return { items, continueCursor, isDone: !hasMore }
     }
+
+    const matches = ({ attendee, order }: LedgerCandidate) => {
+      if (!order) return false
+      if (order.mergedIntoOrderId) return false
+      if (args.eventId && order.eventId !== args.eventId) return false
+      const orderTime = order.orderedAt ?? order.submittedAt ?? null
+      if (orderTime && (orderTime < from || orderTime > to)) return false
+      if (needle === "") return true
+      return matchesNormalizedSearch(
+        buildSearchHaystack([String(attendee._id), attendee.name, attendee.email, order.bookingRef]),
+        needle
+      )
+    }
+
+    const collected = await collectSourceSearchPage({ fetchPage, matches, pageSize: args.pageSize, cursor: sourceCursor, scanCap: ATTENDEE_SEARCH_SCAN_CAP })
+    const hasNext = !collected.isDone
 
     const rows = []
     const orders = new Map<string, Doc<"orders">>()
-    for (const candidate of candidates) {
-      const attendeeId = ctx.db.normalizeId("orderAttendees", candidate.subjectId)
-      if (!attendeeId) continue
-      const attendee = await ctx.db.get("orderAttendees", attendeeId)
-      if (!attendee) continue
-      const order = await ctx.db.get("orders", attendee.orderId)
-      if (!order || order.mergedIntoOrderId || (args.eventId && order.eventId !== args.eventId)) continue
+    for (const { attendee, order } of collected.rows) {
+      if (!order) continue
       orders.set(String(order._id), order)
       const selections = await ctx.db.query("orderTicketSelections").withIndex("by_orderId", q => q.eq("orderId", order._id)).take(100)
       const selection = selections.find(row => row.attendeeId === attendee._id)
@@ -516,13 +609,36 @@ export const getAttendeeLedgerPage = query({
         orderSubmittedAt: order.submittedAt ?? null, orderOrderedAt: order.orderedAt ?? null,
         allocatedRoomTypeId: attendee.allocatedRoomTypeId ?? null, customAnswers: extension?.customAnswers ?? null,
         amountDueMinor: 0,
+        // Phase 56 — server-owned per-attendee money; filled below from the
+        // canonical attribution owner, never re-derived by the client.
+        paidAmountMinor: 0,
+        outstandingAmountMinor: 0,
       })
     }
     const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [...orders.values()])
-    for (const row of rows) row.amountDueMinor = breakdowns.get(String(row.orderId))?.amountDueByAttendeeId.get(String(row._id)) ?? 0
+    // ONE pricing pass: the due breakdown computed above is reused by the
+    // attribution owner, whose per-attendee paid / outstanding is the canonical
+    // figure (applied payments + allocation credit distributed by remaining
+    // need). The added read is one indexed `donationAllocations` pass per order
+    // on this page — the page is already bounded by the source-scan collector
+    // and `LEDGER_PAGE_MAX`; no payments rescan is added.
+    const attributionsByOrderId = await loadOrderPaymentAttributions({
+      ctx,
+      orders: [...orders.values()],
+      dueBreakdownsByOrderId: breakdowns,
+    })
+    for (const row of rows) {
+      const breakdown = breakdowns.get(String(row.orderId))
+      const attributionRow = attributionsByOrderId
+        .get(String(row.orderId))
+        ?.byAttendeeId.get(String(row._id))
+      row.amountDueMinor = breakdown?.amountDueByAttendeeId.get(String(row._id)) ?? 0
+      row.paidAmountMinor = attributionRow?.paidAmountMinor ?? 0
+      row.outstandingAmountMinor = attributionRow?.outstandingAmountMinor ?? 0
+    }
     return {
       dateMode, from: dateMode === "all-time" ? null : from, to: dateMode === "all-time" ? null : to,
-      rows, page: { hasNextPage: hasNext, nextCursor: hasNext ? encodeLedgerCursor({ version: 1, signature, searchCursor: cursor }) : null, totalRows: null, totalPages: null },
+      rows, page: { hasNextPage: hasNext, nextCursor: hasNext ? encodeLedgerCursor({ version: 2, signature, sourceCursor: collected.continueCursor }) : null, totalRows: null, totalPages: null },
     }
   },
 })
@@ -809,13 +925,6 @@ export const updateAttendee = mutation({
       )
     }
 
-    if (
-      resolved.canonicalAttendee &&
-      (args.name !== undefined || args.email !== undefined || args.ticketTypeId !== undefined)
-    ) {
-      await upsertAttendeeSearchDocument(ctx, resolved.canonicalAttendee._id)
-    }
-
     return (
       resolved.canonicalAttendee?._id ??
       resolved.ticketTailorAttendee?._id ??
@@ -889,6 +998,8 @@ export const addAttendeeToOrder = mutation({
     const email = args.email?.trim() || undefined
     const attendeeId = await ctx.db.insert("orderAttendees", {
       orderId: args.orderId,
+      // D-06: the copy is written in the same mutation as the row it lives on.
+      eventId: args.eventId,
       attendeeKey,
       name,
       ...(email ? { email } : {}),
@@ -908,8 +1019,6 @@ export const addAttendeeToOrder = mutation({
       soldCount: (ticketType.soldCount ?? 0) + 1,
       updatedAt: now,
     })
-
-    await maintainOrderSearchProjection(ctx, args.orderId)
 
     const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [order])
 
@@ -1306,6 +1415,12 @@ export const moveAttendeeToOrder = mutation({
       throw new Error("Target order not found")
     }
 
+    // D-06 invariant (Phase 62): `orderAttendees.eventId` is a write-once copy
+    // of the order's event. Both mutations that re-link `attendee.orderId`
+    // are same-event by construction — this guard (pinned by
+    // `attendee-order-mutations.handlers.test.ts`) and `orders.mergeOrders`
+    // (pinned by `order-merge.handlers.test.ts`) — so the copy cannot go
+    // stale and needs no maintenance at either movers' write sites.
     if (String(sourceOrder.eventId ?? "") !== String(targetOrder.eventId ?? "")) {
       throw new Error("Orders must belong to the same event")
     }
@@ -1417,8 +1532,6 @@ export const moveAttendeeToOrder = mutation({
         orderId: args.targetOrderId,
       })
     }
-
-    await upsertAttendeeSearchDocument(ctx, attendee._id)
 
     // Recompute both orders with the canonical loader in the same mutation.
     const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [
@@ -1572,7 +1685,6 @@ export async function deleteAttendeeScopedRowsAndRecompute(
       q.eq("primaryAttendeeId", String(attendee._id))
     )
     .collect()
-  const survivingFamilyAttendeeIds = new Set<Id<"orderAttendees">>()
   for (const member of familyMembers) {
     const familyGroupId = ctx.db.normalizeId(
       "attendeeFamilyGroups",
@@ -1582,17 +1694,7 @@ export async function deleteAttendeeScopedRowsAndRecompute(
       throw new Error("Attendee family records are inconsistent.")
     }
   }
-  const searchDocument = await ctx.db
-    .query("searchDocuments")
-    .withIndex("by_kind_and_subjectId", (q) =>
-      q.eq("kind", "attendee").eq("subjectId", String(attendee._id))
-    )
-    .unique()
-  if (searchDocument && searchDocument.eventId !== eventId) {
-    throw new Error("Attendee search projection is inconsistent.")
-  }
 
-  await deleteSearchProjection(ctx, "attendee", String(attendee._id))
   await ctx.db.delete("orderTicketSelections", attendeeTicketSelection._id)
   await ctx.db.patch("ticketTypes", ticketType._id, {
     soldCount: Math.max(
@@ -1625,19 +1727,11 @@ export async function deleteAttendeeScopedRowsAndRecompute(
       .withIndex("familyGroupId", (q) => q.eq("familyGroupId", String(group._id)))
       .collect()
     for (const member of members) {
-      if (member.attendeeId !== String(attendee._id)) {
-        const survivorId = ctx.db.normalizeId("orderAttendees", member.attendeeId)
-        if (survivorId) survivingFamilyAttendeeIds.add(survivorId)
-      }
       await ctx.db.delete("attendeeFamilyMembers", member._id)
     }
     await ctx.db.delete("attendeeFamilyGroups", group._id)
   }
   await ctx.db.delete("orderAttendees", attendee._id)
-
-  for (const survivorId of survivingFamilyAttendeeIds) {
-    await upsertAttendeeSearchDocument(ctx, survivorId)
-  }
 
   const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [order])
 

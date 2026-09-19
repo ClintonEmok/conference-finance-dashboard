@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
-import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { api } from "@/lib/convex/api"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -77,8 +77,8 @@ type PageProps = {
   event: EventDashboardEvent
 }
 
-function moneyDisplay(value: number | null) {
-  return typeof value === "number" ? formatMoney(value) : "Unavailable"
+function moneyDisplay(value: number | null, currency: string) {
+  return typeof value === "number" ? formatMoney(value, currency) : "Unavailable"
 }
 
 function formatNlDateTime(value: string | null) {
@@ -103,7 +103,7 @@ function toIsoBoundary(value: string, boundary: "start" | "end") {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
 }
 
-function OrderAttendeeRows({ orderId }: { orderId: string }) {
+function OrderAttendeeRows({ orderId, currency }: { orderId: string; currency: string }) {
   const data = useQuery(api.orders.getOrderWithAttendees, {
     orderId: orderId as Id<"orders">,
   })
@@ -147,7 +147,7 @@ function OrderAttendeeRows({ orderId }: { orderId: string }) {
                   </p>
                 </div>
                 <span className="font-mono text-sm font-bold tabular-nums text-foreground">
-                  {formatMoney(attendee.amountDueMinor)}
+                  {formatMoney(attendee.amountDueMinor, currency)}
                 </span>
               </div>
             ))}
@@ -416,7 +416,6 @@ export function OrdersSurface({ slug, event }: PageProps) {
 
       <article className="min-w-0 overflow-hidden rounded-xl border border-border/50 bg-card/40">
           <Table>
-            <TableCaption>Orders</TableCaption>
             <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead className="px-6 py-4 text-[10px] font-bold tracking-wider uppercase">Order</TableHead>
@@ -487,9 +486,9 @@ export function OrdersSurface({ slug, event }: PageProps) {
                         <div className="font-bold text-foreground">{row.buyerName || "Anonymous"}</div>
                         <div className="text-[11px] text-muted-foreground/60">{row.buyerEmail}</div>
                       </TableCell>
-<TableCell className="px-6 py-5 font-bold tabular-nums text-foreground">{moneyDisplay(row.amountDueMinor)}</TableCell>
-<TableCell className="px-6 py-5 font-bold tabular-nums text-emerald-600">{moneyDisplay(row.matchedAmountMinor)}</TableCell>
-<TableCell className="px-6 py-5 font-bold tabular-nums text-rose-600">{moneyDisplay(row.outstandingAmountMinor)}</TableCell>
+                  <TableCell className="px-6 py-5 font-bold tabular-nums text-foreground">{moneyDisplay(row.amountDueMinor, event.currency)}</TableCell>
+                  <TableCell className="px-6 py-5 font-bold tabular-nums text-emerald-600">{moneyDisplay(row.matchedAmountMinor, event.currency)}</TableCell>
+                  <TableCell className="px-6 py-5 font-bold tabular-nums text-rose-600">{moneyDisplay(row.outstandingAmountMinor, event.currency)}</TableCell>
                       <TableCell className="px-6 py-5">
                           <Badge
                            aria-label={`Order status: ${row.normalizedStatus}`}
@@ -512,7 +511,7 @@ export function OrdersSurface({ slug, event }: PageProps) {
                          <ChevronRight className="ml-auto size-4 text-muted-foreground" aria-hidden="true" />
                       </TableCell>
                     </TableRow>
-                    <OrderAttendeeRows orderId={row.orderId} />
+                    <OrderAttendeeRows orderId={row.orderId} currency={event.currency} />
                   </Fragment>
                 ))
               )}

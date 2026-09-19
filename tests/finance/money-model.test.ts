@@ -77,6 +77,9 @@ describe("money model", () => {
           eventTitle: "Summer Conference",
           normalizedStatus: "pending" as const,
           amountDueMinor: null,
+          // The canonical row's matched amount — the module feeds this into
+          // `deriveReconciliation` and no longer reads `payments.getPayments`.
+          matchedAmountMinor: 2000,
           totalAmountMinor: 5000,
           currency: "EUR",
           orderedAt: "2026-04-01T10:00:00.000Z",
@@ -97,13 +100,6 @@ describe("money model", () => {
         isDone: true,
         continueCursor: "",
       })
-      .mockResolvedValueOnce([
-        {
-          amountMinor: 2000,
-          orderId: "order_1",
-          status: "manual_assignment" as const,
-        },
-      ])
 
     const result = await getReconciliationRows({ eventId: "event_1" })
 

@@ -32,6 +32,7 @@ import {
 } from "@/lib/convex/hooks/events"
 import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 import { Id } from "@/convex/_generated/dataModel"
+import { formatMoney } from "@/lib/format"
 
 type AttendeeRow = {
   _id: string
@@ -180,6 +181,11 @@ export default function EventAttendeesPage({
       setAttendeeTicketTypeId("")
     } catch (error) {
       console.error("Failed to create attendee:", error)
+      setErrorMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : "Failed to create attendee. Try again."
+      )
     }
   }
 
@@ -467,7 +473,7 @@ export default function EventAttendeesPage({
                   <option value="">Select a ticket type</option>
                   {ticketTypes?.map((ticket: TicketTypeOption) => (
                     <option key={ticket._id} value={ticket._id} className="dark:bg-zinc-900">
-                      {ticket.label} - {event.currency} {(ticket.priceMinor / 100).toFixed(2)}
+                      {ticket.label} - {formatMoney(ticket.priceMinor, event.currency)}
                     </option>
                   ))}
                 </select>

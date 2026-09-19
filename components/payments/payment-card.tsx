@@ -6,6 +6,7 @@ import type { Doc } from "@/convex/_generated/dataModel"
 
 type PaymentCardProps = {
   payment: Doc<"payments">
+  currency: string
   orderLink?: string
   actions?: React.ReactNode
 }
@@ -38,7 +39,12 @@ function formatDateTime(value: number) {
   })
 }
 
-export function PaymentCard({ payment, orderLink, actions }: PaymentCardProps) {
+export function PaymentCard({
+  payment,
+  currency,
+  orderLink,
+  actions,
+}: PaymentCardProps) {
   return (
     <article className="rounded-2xl border border-border/50 bg-background/60 p-4">
       <div className="flex items-start justify-between gap-4">
@@ -50,7 +56,7 @@ export function PaymentCard({ payment, orderLink, actions }: PaymentCardProps) {
           {orderLink && <p className="text-xs text-muted-foreground">Order {orderLink}</p>}
         </div>
         <div className="text-right">
-          <p className="text-sm font-black tabular-nums text-foreground">{formatMoney(payment.amountMinor)}</p>
+          <p className="text-sm font-black tabular-nums text-foreground">{formatMoney(payment.amountMinor, currency)}</p>
           <Badge
             variant={paymentStatusVariant(payment.status)}
             className="mt-1 h-4 px-1.5 text-[9px] font-black uppercase tracking-widest"

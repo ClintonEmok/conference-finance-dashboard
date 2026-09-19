@@ -3,6 +3,7 @@
 import {
   AlertCircle,
   CheckCircle2,
+  HandCoins,
   Loader2,
   Mail,
   Merge,
@@ -26,6 +27,9 @@ type OrderActionsPanelProps = {
   resendMessage: string | null
   resendErrorMessage: string | null
   onResendConfirmation: () => void
+  isResendDialogOpen: boolean
+  onOpenResendDialog: () => void
+  onCloseResendDialog: () => void
   isDeleteDialogOpen: boolean
   onOpenDeleteDialog: () => void
   onCloseDeleteDialog: () => void
@@ -33,6 +37,7 @@ type OrderActionsPanelProps = {
   deleteError: string | null
   onDelete: () => void
   onOpenMergeDialog: () => void
+  onOpenAllocateDialog: () => void
 }
 
 export function OrderActionsPanel({
@@ -41,6 +46,9 @@ export function OrderActionsPanel({
   resendMessage,
   resendErrorMessage,
   onResendConfirmation,
+  isResendDialogOpen,
+  onOpenResendDialog,
+  onCloseResendDialog,
   isDeleteDialogOpen,
   onOpenDeleteDialog,
   onCloseDeleteDialog,
@@ -48,13 +56,14 @@ export function OrderActionsPanel({
   deleteError,
   onDelete,
   onOpenMergeDialog,
+  onOpenAllocateDialog,
 }: OrderActionsPanelProps) {
   return (
     <div className="mt-6 flex flex-wrap items-center gap-3">
       <Button
         variant="outline"
         size="sm"
-        onClick={onResendConfirmation}
+        onClick={onOpenResendDialog}
         disabled={isResendingEmail || !canResendConfirmation}
         className="h-9 rounded-lg border-white/20 text-[11px] font-bold tracking-wider uppercase"
       >
@@ -83,6 +92,15 @@ export function OrderActionsPanel({
       >
         <Merge className="mr-2 size-3.5" />
         Merge order
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onOpenAllocateDialog}
+        className="h-9 rounded-lg border-white/20 text-[11px] font-bold tracking-wider uppercase"
+      >
+        <HandCoins className="mr-2 size-3.5" />
+        Allocate a donation to this order
       </Button>
       <Button
         variant="destructive"
@@ -118,6 +136,37 @@ export function OrderActionsPanel({
           </AlertDescription>
         </Alert>
       )}
+
+      <Dialog
+        open={isResendDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !isResendingEmail) onCloseResendDialog()
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Resend booking confirmation?</DialogTitle>
+            <DialogDescription>
+              Send the booking confirmation email to this customer again.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onCloseResendDialog} disabled={isResendingEmail}>
+              Keep as is
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                onCloseResendDialog()
+                onResendConfirmation()
+              }}
+              disabled={isResendingEmail}
+            >
+              Resend email
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={isDeleteDialogOpen}

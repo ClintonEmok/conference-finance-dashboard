@@ -280,6 +280,136 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  donationAllocationRemovals: {
+    document: {
+      actor: string;
+      amountMinor: number;
+      attendeeId: Id<"orderAttendees">;
+      donationId: Id<"payments">;
+      eventId: Id<"events">;
+      orderId: Id<"orders">;
+      removedAt: number;
+      scope: "event_charges" | "whole_order";
+      submissionId?: Id<"donationAllocationSubmissions">;
+      _id: Id<"donationAllocationRemovals">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "actor"
+      | "amountMinor"
+      | "attendeeId"
+      | "donationId"
+      | "eventId"
+      | "orderId"
+      | "removedAt"
+      | "scope"
+      | "submissionId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_donationId: ["donationId", "_creationTime"];
+      by_donationId_and_attendeeId: [
+        "donationId",
+        "attendeeId",
+        "_creationTime",
+      ];
+      by_eventId_and_removedAt: ["eventId", "removedAt", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  donationAllocations: {
+    document: {
+      amountMinor: number;
+      attendeeId: Id<"orderAttendees">;
+      createdAt: number;
+      createdBy: string;
+      donationId: Id<"payments">;
+      eventId: Id<"events">;
+      orderId: Id<"orders">;
+      scope: "event_charges" | "whole_order";
+      submissionId?: Id<"donationAllocationSubmissions">;
+      _id: Id<"donationAllocations">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "amountMinor"
+      | "attendeeId"
+      | "createdAt"
+      | "createdBy"
+      | "donationId"
+      | "eventId"
+      | "orderId"
+      | "scope"
+      | "submissionId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_attendeeId: ["attendeeId", "_creationTime"];
+      by_donationId: ["donationId", "_creationTime"];
+      by_donationId_and_attendeeId: [
+        "donationId",
+        "attendeeId",
+        "_creationTime",
+      ];
+      by_eventId_and_createdAt: ["eventId", "createdAt", "_creationTime"];
+      by_orderId: ["orderId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  donationAllocationSubmissions: {
+    document: {
+      actor: string;
+      allocatedTotalMinor: number;
+      createdAt: number;
+      donationAmountMinor?: number;
+      donationId: Id<"payments">;
+      eventId?: Id<"events">;
+      idempotencyKey: string;
+      operation: "allocate" | "allocate_one" | "remove" | "delete";
+      remainingMinor: number;
+      requestDigest: string;
+      rows: Array<{
+        amountMinor: number;
+        attendeeId: Id<"orderAttendees">;
+        orderId: Id<"orders">;
+        scope: "event_charges" | "whole_order";
+      }>;
+      _id: Id<"donationAllocationSubmissions">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "actor"
+      | "allocatedTotalMinor"
+      | "createdAt"
+      | "donationAmountMinor"
+      | "donationId"
+      | "eventId"
+      | "idempotencyKey"
+      | "operation"
+      | "remainingMinor"
+      | "requestDigest"
+      | "rows";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_donationId_and_idempotencyKey: [
+        "donationId",
+        "idempotencyKey",
+        "_creationTime",
+      ];
+      by_donationId_and_operation: ["donationId", "operation", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   emailBroadcastRecipients: {
     document: {
       attempts: number;
@@ -823,6 +953,7 @@ export type DataModel = {
       attendeeKey: string;
       dietaryRestrictions?: string;
       email?: string;
+      eventId?: Id<"events">;
       gender: "male" | "female" | "mixed" | "unknown";
       location?: string;
       name: string;
@@ -844,6 +975,7 @@ export type DataModel = {
       | "attendeeKey"
       | "dietaryRestrictions"
       | "email"
+      | "eventId"
       | "gender"
       | "location"
       | "name"
@@ -858,6 +990,7 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_allocationPriority: ["allocationPriority", "_creationTime"];
       by_assignedRoomId: ["assignedRoomId", "_creationTime"];
+      by_eventId: ["eventId", "_creationTime"];
       by_orderId: ["orderId", "_creationTime"];
     };
     searchIndexes: {};
@@ -1740,6 +1873,7 @@ export type DataModel = {
       providerOrderId: string;
       providerPayload?: any;
       providerStatus: string;
+      purpose?: "payment" | "donation";
       referenceId?: string;
       status?: "created" | "paid" | "expired";
       statusSource?: "create" | "webhook" | "poll";
@@ -1763,6 +1897,7 @@ export type DataModel = {
       | "providerOrderId"
       | "providerPayload"
       | "providerStatus"
+      | "purpose"
       | "referenceId"
       | "status"
       | "statusSource"
@@ -1770,6 +1905,7 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_eventId_and_purpose: ["eventId", "purpose", "_creationTime"];
       by_linkType_and_status_and_statusUpdatedAt: [
         "linkType",
         "status",

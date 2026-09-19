@@ -2,8 +2,9 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/s
 import { v } from "convex/values"
 import type { Doc, Id } from "./_generated/dataModel"
 
-import { loadOrderAmountDueBreakdowns } from "./finance"
+import { loadCanonicalOrderBalances } from "./finance"
 import { isOrderAppliedPayment } from "../lib/domain/finance/amounts"
+import { isDonationLink } from "../lib/domain/finance/tikkie-link-purpose"
 import {
   SUPERIOR_UPGRADE_OPTION_KEY,
   loadPublicSignupAccommodationContext,
@@ -29,6 +30,32 @@ import {
   normalizeBookingRef,
   loadOrderByBookingRef,
 } from "./bookingRefs"
+
+/**
+ * Phase 56 plan 03 — PLACEMENT RATIONALE for the canonical tracker / edit read.
+ *
+ * The wiring lives in this plan (not 56-04) because `loadCanonicalOrderBalances`
+ * is introduced by it and the tracker is an order-level money REPORT: the same
+ * class as the order ledger, the reconciliation rows, the status counts and the
+ * order payment summary that 56-03 Task 2 moved. The phase's rule is that
+ * reported money must agree everywhere, and every entry in the Phase 56
+ * divergence register is an ACTION path (reminder selection, status flip,
+ * payment-write guard, Tikkie auto-match candidate selection) — a report is
+ * deliberately NOT registerable. The dependency is acyclic (the loader is
+ * defined in 56-03 Task 1, consumed here) and wave 3 contains only this plan,
+ * so `convex/publicTracking.ts` plus its suite keep same-wave `files_modified`
+ * ownership disjoint (56-04 does not touch this file).
+ *
+ * Both read paths in this file consume that ONE owner:
+ *   - `loadTrackingByOrder` (the customer query behind `getByBookingRef` and
+ *     `getByEmailOrBookingRef`), and
+ *   - `updateAccommodation` (the permalink edit mutation: its no-op branch, its
+ *     `amountDueBefore` audit basis and its after-edit result).
+ *
+ * Public-surface constraint: no field or validator moves. The tracker exposes
+ * no allocation rows, allocated amounts, attendee ids or new payer data, and
+ * `order.totalAmountMinor` stays the stored provider total, verbatim.
+ */
 
 function computeProgress(
   totalPaidMinor: number,
@@ -102,22 +129,28 @@ async function loadTrackingByOrder(
     return null
   }
 
-  const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(ctx, [
-    { _id: order._id },
-  ])
-  const amountDueBreakdown = amountDueBreakdownsByOrderId.get(String(order._id))
+  // ONE order-level balance owner (Phase 56): the tracker is a customer money
+  // report, so the canonical paid (real applied payments + allocation credit),
+  // the due, the outstanding and the overpayment class all come from
+  // `loadCanonicalOrderBalances`. A local payment-only reduce would be a
+  // second owner and would still read "partial" for an allocated order.
+  const canonicalBalancesByOrderId = await loadCanonicalOrderBalances({
+    ctx,
+    orders: [{ _id: order._id }],
+  })
+  const canonical = canonicalBalancesByOrderId.get(String(order._id))
 
-  const matchedPayments = await loadAppliedPaymentRowsForOrder(ctx, order._id)
+  // COUNT-ONLY read: `paymentCount` counts applied payment ROWS (an allocation
+  // is not a payment). The paid FIGURE is canonical above — a reduce over these
+  // rows would be a second owner.
+  const appliedPaymentRows = await loadAppliedPaymentRowsForOrder(ctx, order._id)
 
-  const totalPaidMinor = matchedPayments.reduce(
-    (sum, payment) => sum + payment.amountMinor,
-    0
-  )
-
-  const totalDueMinor =
-    amountDueBreakdown?.amountDueMinor ?? order.totalAmountMinor ?? 0
-  const remainingMinor = Math.max(0, totalDueMinor - totalPaidMinor)
-  const overpaymentDeltaMinor = Math.max(0, totalPaidMinor - totalDueMinor)
+  const totalPaidMinor = canonical?.paidAmountMinor ?? 0
+  const totalDueMinor = canonical?.amountDueMinor ?? order.totalAmountMinor ?? 0
+  const remainingMinor = canonical?.outstandingAmountMinor ?? 0
+  // `deriveBalanceAmounts` is the ONE owner of the overpayment class; never
+  // re-derive it here with a `Math.max(...)`.
+  const overpaymentDeltaMinor = canonical?.donationAmountMinor ?? 0
   const paymentStatus: "unpaid" | "partial" | "paid" | "overpaid" =
     totalPaidMinor === 0
       ? "unpaid"
@@ -146,7 +179,7 @@ async function loadTrackingByOrder(
     .take(20)
 
   const latestEventLink = eventLinks
-    .filter((link) => link.linkType === "event")
+    .filter((link) => link.linkType === "event" && !isDonationLink(link))
     .sort((a, b) => {
       const timeDiff = (b._creationTime ?? 0) - (a._creationTime ?? 0)
       if (timeDiff !== 0) return timeDiff
@@ -177,7 +210,7 @@ async function loadTrackingByOrder(
       remainingMinor,
       progressPercent: computeProgress(totalPaidMinor, totalDueMinor),
       overpaymentDeltaMinor,
-      paymentCount: matchedPayments.length,
+      paymentCount: appliedPaymentRows.length,
       paymentStatus,
     },
     tikkieUrl: selectedLink?.paymentRequestUrl ?? null,
@@ -495,14 +528,6 @@ async function loadAccommodationSelectionsForOrder(
     rows.push(row)
   }
   return rows
-}
-
-async function loadPaidTotalForOrder(
-  ctx: MutationCtx,
-  orderId: Id<"orders">
-): Promise<number> {
-  const matchedPayments = await loadAppliedPaymentRowsForOrder(ctx, orderId)
-  return matchedPayments.reduce((sum, payment) => sum + payment.amountMinor, 0)
 }
 
 function buildEditResult(
@@ -1177,20 +1202,31 @@ export const updateAccommodation = mutation({
 
     // A replacement identical to the current preferences is a true no-op:
     // no selection or audit writes, and the canonical amount is returned.
+    // Pair A: one `loadCanonicalOrderBalances` call replaces the previous
+    // due-breakdown + paid-total pair, so the no-op result reports the same
+    // canonical paid as the tracker and the ledger.
     if (beforeSelectionDigest === afterSelectionDigest) {
-      const breakdown = await loadOrderAmountDueBreakdowns(ctx, [
-        { _id: order._id },
-      ])
-      const amountDue = breakdown.get(String(order._id))?.amountDueMinor ?? 0
-      const totalPaid = await loadPaidTotalForOrder(ctx, order._id)
+      const canonicalBalancesByOrderId = await loadCanonicalOrderBalances({
+        ctx,
+        orders: [{ _id: order._id }],
+      })
+      const canonical = canonicalBalancesByOrderId.get(String(order._id))
+      const amountDue = canonical?.amountDueMinor ?? 0
+      const totalPaid = canonical?.paidAmountMinor ?? 0
       return buildEditResult(bookingRef, "unchanged", amountDue, totalPaid)
     }
 
-    const beforeBreakdown = await loadOrderAmountDueBreakdowns(ctx, [
-      { _id: order._id },
-    ])
+    // The BEFORE-EDIT due, deliberately captured before the selection-patch
+    // loop below and persisted verbatim as `amountDueBeforeMinor` (CR-08).
+    // This is a STANDALONE read, NOT a pair: there is no paid read here and it
+    // must NOT be collapsed into the after-edit read, or the audit row would
+    // record the POST-edit due as the pre-edit basis.
+    const canonicalBalancesBeforeEdit = await loadCanonicalOrderBalances({
+      ctx,
+      orders: [{ _id: order._id }],
+    })
     const amountDueBefore =
-      beforeBreakdown.get(String(order._id))?.amountDueMinor ?? 0
+      canonicalBalancesBeforeEdit.get(String(order._id))?.amountDueMinor ?? 0
 
     // Patch every unconfirmed selection with the server-resolved preference
     // and the current event configuration's stay timestamps/night count, and
@@ -1239,13 +1275,18 @@ export const updateAccommodation = mutation({
       }
     }
 
-    const afterBreakdown = await loadOrderAmountDueBreakdowns(ctx, [
-      { _id: order._id },
-    ])
-    const amountDueAfter =
-      afterBreakdown.get(String(order._id))?.amountDueMinor ?? 0
+    // Pair B: the after-edit read. One canonical call supplies both the
+    // post-edit due and the canonical paid (payments + allocation credit), so
+    // the applied result and its persisted audit fields agree with every other
+    // money surface.
+    const canonicalBalancesAfterEdit = await loadCanonicalOrderBalances({
+      ctx,
+      orders: [{ _id: order._id }],
+    })
+    const canonicalAfterEdit = canonicalBalancesAfterEdit.get(String(order._id))
+    const amountDueAfter = canonicalAfterEdit?.amountDueMinor ?? 0
 
-    const totalPaid = await loadPaidTotalForOrder(ctx, order._id)
+    const totalPaid = canonicalAfterEdit?.paidAmountMinor ?? 0
     const result = buildEditResult(bookingRef, "applied", amountDueAfter, totalPaid)
 
     // One immutable, server-valued audit row per applied edit. The COMPLETE

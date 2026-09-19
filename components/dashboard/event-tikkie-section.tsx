@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { QRCodeSVG } from "qrcode.react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -49,12 +50,16 @@ type TikkieLink = {
   description: string
   expiryDate?: number
   _creationTime?: number
+  purpose?: "payment" | "donation"
 }
 
 type EventData = {
   link: TikkieLink | null
   links: TikkieLink[]
   payments: TikkiePayment[]
+  donationLink?: TikkieLink | null
+  donationLinks?: TikkieLink[]
+  donationPayments?: TikkiePayment[]
   quota?: {
     limit: number
     used: number
@@ -66,6 +71,10 @@ type EventData = {
     totalPayments: number
     matchedPayments: number
     unmatchedPayments: number
+    totalAmountMinor: number
+  }
+  donationStats?: {
+    totalPayments: number
     totalAmountMinor: number
   }
 }
@@ -135,6 +144,9 @@ export function EventTikkieSection({
   const [isCreatingLink, setIsCreatingLink] = useState(false)
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null)
   const [failedCopyLinkId, setFailedCopyLinkId] = useState<string | null>(null)
+  const [createPurpose, setCreatePurpose] = useState<"payment" | "donation">(
+    "payment"
+  )
 
   useEffect(() => {
     if (events.length === 0) {
@@ -184,6 +196,25 @@ export function EventTikkieSection({
     setCreateDescription("")
     setCreateExpiryDate("")
     setCreateAmountError(null)
+    setCreatePurpose("payment")
+  }
+
+  function openCreateModal(purpose: "payment" | "donation") {
+    const selectedEvent = events.find((e) => e.eventId === selectedEventId)
+    setCreateAmountError(null)
+    setCreateAmountEuro(purpose === "donation" ? "0" : "")
+    setCreateDescription(
+      purpose === "donation"
+        ? selectedEvent?.title
+          ? `${selectedEvent.title} donation`
+          : "Donation"
+        : (selectedEvent?.title ?? "")
+    )
+    setCreateExpiryDate(
+      toDateInputValue(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000))
+    )
+    setCreatePurpose(purpose)
+    setIsCreateModalOpen(true)
   }
 
   function parseEuroAmountToMinor(
@@ -217,6 +248,7 @@ export function EventTikkieSection({
     amountEuro: string
     description: string
     expiryDate: string
+    purpose: "payment" | "donation"
   }) {
     if (!selectedEventId) return
     setActionError(null)
@@ -228,6 +260,7 @@ export function EventTikkieSection({
         body: JSON.stringify({
           eventId: selectedEventId,
           providerEventId: selectedEventId,
+          purpose: params.purpose,
           amountEuro: params.amountEuro,
           description: params.description.trim() || undefined,
           expiryDate: params.expiryDate,
@@ -265,6 +298,7 @@ export function EventTikkieSection({
       amountEuro: createAmountEuro.trim(),
       description: createDescription,
       expiryDate: createExpiryDate,
+      purpose: createPurpose,
     })
   }
 
@@ -291,6 +325,8 @@ export function EventTikkieSection({
   }
 
   const links = eventData?.links ?? []
+  const donationLinks = eventData?.donationLinks ?? []
+  const donationStats = eventData?.donationStats
   const hasLink = links.length > 0
   const quota = eventData?.quota
   const projectedUsage = quota
@@ -337,20 +373,7 @@ export function EventTikkieSection({
           {!readOnly && (
             <Button
               size="sm"
-              onClick={() => {
-                setCreateAmountError(null)
-                setCreateAmountEuro("")
-                const selectedEvent = events.find(
-                  (e) => e.eventId === selectedEventId
-                )
-                setCreateDescription(selectedEvent?.title ?? "")
-                setCreateExpiryDate(
-                  toDateInputValue(
-                    new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
-                  )
-                )
-                setIsCreateModalOpen(true)
-              }}
+              onClick={() => openCreateModal("payment")}
               disabled={!selectedEventId}
             >
               Create Tikkie link
@@ -514,6 +537,139 @@ export function EventTikkieSection({
               </div>
             </>
           )}
+
+          {/* Donation link block */}
+          {!isLoading && eventData && (
+            <div className="rounded-lg border border-border bg-background p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Donation link
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    A donation link lets visitors give an open amount and is
+                    recorded as a standalone donation.
+                  </p>
+                </div>
+                {!readOnly && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => openCreateModal("donation")}
+                    disabled={isQuotaExceeded || !selectedEventId}
+                  >
+                    Create donation link
+                  </Button>
+                )}
+              </div>
+
+              {donationLinks.length === 0 ? (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  No donation link for this event yet.
+                </p>
+              ) : (
+                <>
+                  <div className="mt-3 flex flex-wrap items-center gap-4 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
+                    <span>
+                      Received donations:{" "}
+                      <strong>
+                        {formatMinorOrNA(donationStats?.totalAmountMinor ?? 0)}
+                      </strong>
+                    </span>
+                    <span className="text-muted-foreground">
+                      {donationStats?.totalPayments ?? 0} donation payments
+                    </span>
+                  </div>
+
+                  <div className="mt-3 space-y-3">
+                    {donationLinks.map((link, index) => (
+                      <details
+                        key={link._id}
+                        open={index === 0}
+                        className="rounded-lg border border-border bg-background"
+                      >
+                        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-4 py-3">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">
+                              Donation link #{donationLinks.length - index}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Created{" "}
+                              {formatDate(link._creationTime ?? Date.now())} ·{" "}
+                              {link.amountMinor === 0
+                                ? "open amount"
+                                : `${formatMinorOrNA(link.amountMinor)} requested`}
+                            </p>
+                          </div>
+                          <span className="text-xs text-muted-foreground">
+                            Donations only
+                          </span>
+                        </summary>
+
+                        <div className="space-y-4 border-t border-border px-4 py-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0 space-y-1">
+                              <p className="text-sm font-semibold text-foreground">
+                                Donation request details
+                              </p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {link.paymentRequestUrl}
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleCopyLink(link)}
+                            >
+                              {copiedLinkId === link._id
+                                ? "Copied"
+                                : failedCopyLinkId === link._id
+                                  ? "Copy failed"
+                                  : "Copy link"}
+                            </Button>
+                          </div>
+
+                          <div className="flex flex-wrap items-start gap-4">
+                            <div className="rounded-lg border border-border bg-white p-3">
+                              <QRCodeSVG
+                                value={link.paymentRequestUrl}
+                                size={132}
+                                level="H"
+                              />
+                            </div>
+                            <div className="grid flex-1 gap-2 text-sm text-muted-foreground md:grid-cols-2">
+                              <p>
+                                Requested amount:{" "}
+                                <strong className="text-foreground">
+                                  {link.amountMinor === 0
+                                    ? "Open amount (flexible)"
+                                    : formatMinorOrNA(link.amountMinor)}
+                                </strong>
+                              </p>
+                              <p>
+                                Expires:{" "}
+                                <strong className="text-foreground">
+                                  {link.expiryDate
+                                    ? formatDate(link.expiryDate)
+                                    : "unknown"}
+                                </strong>
+                              </p>
+                              <p className="md:col-span-2">
+                                Description:{" "}
+                                <strong className="text-foreground">
+                                  {link.description}
+                                </strong>
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -526,7 +682,11 @@ export function EventTikkieSection({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Create Tikkie link</DialogTitle>
+            <DialogTitle>
+              {createPurpose === "donation"
+                ? "Create donation link"
+                : "Create Tikkie link"}
+            </DialogTitle>
             <DialogDescription>
               Enter amount in euros. Use <strong>0</strong> for an open amount
               link.

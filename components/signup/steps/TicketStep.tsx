@@ -8,6 +8,7 @@ import { type TicketSelectionDraft } from "@/components/signup/state"
 
 type TicketStepProps = {
   ticketSelections: TicketSelectionDraft[]
+  currency: string
   onChange: (nextSelections: TicketSelectionDraft[]) => void
 }
 
@@ -19,7 +20,11 @@ function ticketReasonCopy(reason: TicketSelectionDraft["reason"]) {
   return "Available"
 }
 
-export function TicketStep({ ticketSelections, onChange }: TicketStepProps) {
+export function TicketStep({
+  ticketSelections,
+  currency,
+  onChange,
+}: TicketStepProps) {
   function updateQuantity(
     ticketTypeId: string,
     direction: "decrease" | "increase"
@@ -62,7 +67,7 @@ export function TicketStep({ ticketSelections, onChange }: TicketStepProps) {
                 {ticket.label}
               </CardTitle>
               <p className="text-sm font-medium text-muted-foreground">
-                {formatMoney(ticket.priceMinor)}
+                {formatMoney(ticket.priceMinor, currency)}
               </p>
             </CardHeader>
             <CardContent className="space-y-3">

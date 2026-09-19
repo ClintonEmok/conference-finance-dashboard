@@ -7,12 +7,14 @@ import { Input } from "@/components/ui/input"
 type DonationFormProps = {
   eventId: string
   eventTitle: string
+  currency: string
   onSuccess: () => void
 }
 
 export function DonationForm({
   eventId,
   eventTitle,
+  currency,
   onSuccess,
 }: DonationFormProps) {
   const [payerName, setPayerName] = useState("")
@@ -112,7 +114,7 @@ export function DonationForm({
 
         <div className="space-y-2">
           <label className="text-xs font-bold uppercase text-muted-foreground">
-            Amount (EUR)
+            Amount ({currency})
           </label>
           <Input
             type="number"

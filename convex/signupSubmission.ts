@@ -23,7 +23,6 @@ import {
 } from "../lib/domain/signup/submission-token"
 import { buildTrackPaymentPermalink } from "../lib/domain/track-payment/edit-token"
 import { loadOrderByBookingRef } from "./bookingRefs"
-import { maintainOrderSearchProjection } from "./search"
 
 const IDEMPOTENCY_WINDOW_MS = 2 * 60 * 60 * 1000
 
@@ -867,6 +866,8 @@ export const submitSignupEnvelope = mutation({
     for (const [sortOrder, attendee] of args.attendees.entries()) {
       const attendeeId = await ctx.db.insert("orderAttendees", {
         orderId: submissionId,
+        // D-06: written with the row, so it cannot be forgotten or drift.
+        eventId: args.eventId,
         attendeeKey: attendee.attendeeKey,
         name: attendee.name,
         email: normalizeOptionalString(attendee.email),
@@ -1008,11 +1009,6 @@ export const submitSignupEnvelope = mutation({
         })
       }
     }
-
-    // The order projection is built only after all canonical attendees,
-    // tickets, and accommodation preferences exist so the first searchable
-    // version is complete and its attendee fan-out can be resumed safely.
-    await maintainOrderSearchProjection(ctx, submissionId)
 
     const expiredRecordByKey = idempotencyRecords.find(
       (record) => record.expiresAt < now

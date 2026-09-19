@@ -1,10 +1,6 @@
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
-import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
-import {
-  allocateMinorAmountByWeight,
-  deriveBalanceAmounts,
-} from "@/lib/domain/finance/amounts"
+import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
 
 export type AttendeeLedgerFilters = {
   eventId?: string | null
@@ -197,6 +193,10 @@ type ConvexAttendee = {
   orderAmountDueMinor: number | null
   orderSubmittedAt: number | null
   orderOrderedAt: number | null
+  /** Server-owned per-attendee canonical paid (payments + allocation credit). */
+  paidAmountMinor: number
+  /** Server-owned per-attendee canonical outstanding. */
+  outstandingAmountMinor: number
   customAnswers?: unknown
 }
 
@@ -255,13 +255,10 @@ export async function getAttendeeLedger(
     typeof filters.search === "string" && filters.search.trim()
       ? filters.search.trim()
       : null
-  if (search) {
-    // Matches Convex native full-text search's hard limit of 16 terms per query.
-    const termCount = new Set(search.match(/[\p{L}\p{N}]+/gu) ?? []).size
-    if (termCount > 16) {
-      throw new Error("Invalid 'search'. Maximum 16 terms are supported.")
-    }
-  }
+  // Substring search has no term vocabulary (Phase 62, D-02): the retired
+  // native-search "16 terms" rule would silently reject valid queries. The
+  // 512-character needle cap is owned by the server (`requireSearchNeedle` /
+  // `MAX_SOURCE_SEARCH_LENGTH` in `convex/search.ts`).
   const { from, to, dateMode } = normalizeRange(filters)
   const { page, pageSize } = normalizePagination(filters.page, filters.pageSize)
 
@@ -349,15 +346,15 @@ export async function getAttendeeLedger(
     return orderTime >= from.getTime() && orderTime <= to.getTime()
   })
 
-  const matchedTotalsByOrderId = await buildMatchedTotalsByOrderId(
-    filteredAttendees.map((attendee) => ({
-      orderId: attendee.orderId,
-      providerOrderId: attendee.orderProviderOrderId ?? null,
-    }))
-  )
-
   const paginatedAttendees = filters.searchCursor ? filteredAttendees : filteredAttendees.slice((page - 1) * pageSize, page * pageSize)
 
+  // Per-attendee paid is SERVER-OWNED: `getAttendeeLedgerPage` rows carry the
+  // canonical attributed paid figure (applied payments + allocation credit
+  // distributed by remaining need). It must never be re-derived client-side — a
+  // local due-weighted spread of payments over attendees would disagree with the
+  // order ledger as soon as an allocation clears an attendee.
+  // `deriveBalanceAmounts` stays the ONE owner of the outstanding / overpaid
+  // decomposition.
   const balancesByAttendeeId = new Map<
     string,
     {
@@ -367,32 +364,11 @@ export async function getAttendeeLedger(
     }
   >()
 
-  const attendeesByOrderId = new Map<string, typeof filteredAttendees>()
   for (const attendee of filteredAttendees) {
-    const existing = attendeesByOrderId.get(attendee.orderId) ?? []
-    existing.push(attendee)
-    attendeesByOrderId.set(attendee.orderId, existing)
-  }
-
-  for (const [orderId, attendeesForOrder] of attendeesByOrderId.entries()) {
-    const orderPaidAmountMinor = matchedTotalsByOrderId.get(orderId) ?? 0
-    const paidAmountByAttendeeId = allocateMinorAmountByWeight(
-      orderPaidAmountMinor,
-      attendeesForOrder.map((attendee) => ({
-        id: attendee._id,
-        weightMinor: attendee.amountDueMinor,
-      }))
+    balancesByAttendeeId.set(
+      attendee._id,
+      deriveBalanceAmounts(attendee.amountDueMinor, attendee.paidAmountMinor ?? 0)
     )
-
-    for (const attendee of attendeesForOrder) {
-      balancesByAttendeeId.set(
-        attendee._id,
-        deriveBalanceAmounts(
-          attendee.amountDueMinor,
-          paidAmountByAttendeeId.get(attendee._id) ?? 0
-        )
-      )
-    }
   }
 
   const rows: AttendeeLedgerRow[] = paginatedAttendees.map((attendee) => {

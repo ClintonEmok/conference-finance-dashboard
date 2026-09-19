@@ -1,7 +1,6 @@
 import { v } from "convex/values"
 import { internalMutation } from "./_generated/server"
 import { assertProductionDeployment } from "../lib/domain/legacy/production-deployment-guard"
-import { enqueueSearchProjectionFanout, refreshAttendeeSearchDocumentsForTicketType } from "./search"
 
 /**
  * Corrective production migration for the `divine-redesign` age-band ticket
@@ -88,8 +87,6 @@ export default internalMutation({
           label: fix.label,
           priceMinor: fix.priceMinor,
         })
-        const next = await refreshAttendeeSearchDocumentsForTicketType(ctx, ticket._id, null)
-        if (next !== null) await enqueueSearchProjectionFanout(ctx, "ticketType", String(ticket._id), next)
         ticketsFixed += 1
       }
     }

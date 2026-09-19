@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils"
 import type { ReactNode } from "react"
 
 export type OrderSummaryOrder = {
-  id: string
+  bookingRef: string | null
   normalizedStatus: "paid" | "refunded" | "cancelled" | "pending" | null
   isArchived?: boolean
 }
@@ -43,6 +43,7 @@ export type OrderSummaryMetrics = {
 type OrderSummaryPanelProps = {
   order: OrderSummaryOrder
   eventTitle: string
+  currency: string
   slug: string
   metrics: OrderSummaryMetrics
   hasAssignedPayments: boolean
@@ -62,6 +63,7 @@ function statusBadgeVariant(status: string | null) {
 export function OrderSummaryPanel({
   order,
   eventTitle,
+  currency,
   slug,
   metrics,
   hasAssignedPayments,
@@ -78,7 +80,7 @@ export function OrderSummaryPanel({
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <span className="rounded-lg bg-primary/10 px-3 py-1 font-mono text-xl font-bold tracking-tight text-primary">
-                {order.id}
+                {order.bookingRef ?? "No booking reference"}
               </span>
               <Badge
                 variant={statusBadgeVariant(order.normalizedStatus ?? null)}
@@ -86,12 +88,9 @@ export function OrderSummaryPanel({
               >
                 {order.normalizedStatus ?? "pending"}
               </Badge>
-              <Badge variant="outline" className="font-mono text-[10px] uppercase">
-                {slug}
-              </Badge>
             </div>
             <CardDescription className="text-sm font-medium">
-              {eventTitle} · /dashboard/events/{slug}/orders/{order.id}
+              {eventTitle}
             </CardDescription>
           </div>
 
@@ -132,7 +131,7 @@ export function OrderSummaryPanel({
               label: "Amount Due",
               value:
                 metrics.hasKnownDue && metrics.amountDueMinor !== null
-                  ? formatMoney(metrics.amountDueMinor)
+                  ? formatMoney(metrics.amountDueMinor, currency)
                   : "Unavailable",
               icon: Receipt,
               color: "text-foreground",
@@ -141,7 +140,7 @@ export function OrderSummaryPanel({
               label: "Paid Amount",
               value:
                 typeof metrics.paidAmountMinor === "number"
-                  ? formatMoney(metrics.paidAmountMinor)
+                  ? formatMoney(metrics.paidAmountMinor, currency)
                   : "Unavailable",
               icon: ShieldCheck,
               color: "text-emerald-600 dark:text-emerald-400",
@@ -150,7 +149,7 @@ export function OrderSummaryPanel({
               label: "Outstanding",
               value:
                 metrics.hasKnownDue && metrics.outstandingAmountMinor !== null
-                  ? formatMoney(metrics.outstandingAmountMinor)
+                  ? formatMoney(metrics.outstandingAmountMinor, currency)
                   : "Unavailable",
               icon: Clock,
               color: "text-rose-600 dark:text-rose-400",
@@ -159,7 +158,7 @@ export function OrderSummaryPanel({
               label: "Donation",
               value:
                 metrics.donationAmountMinor !== null
-                  ? formatMoney(metrics.donationAmountMinor)
+                  ? formatMoney(metrics.donationAmountMinor, currency)
                   : "Unavailable",
               icon: AlertCircle,
               color: "text-amber-600 dark:text-amber-300",
@@ -193,7 +192,7 @@ export function OrderSummaryPanel({
           <p className="text-xs font-medium text-muted-foreground">
             {metrics.attendeeCount > 1
               ? metrics.sharedOutstandingPerAttendeeMinor !== null
-                ? `${metrics.attendeeCount} attendee${metrics.attendeeCount === 1 ? "" : "s"}. Outstanding averages ${formatMoney(metrics.sharedOutstandingPerAttendeeMinor)} per ticket.`
+                 ? `${metrics.attendeeCount} attendee${metrics.attendeeCount === 1 ? "" : "s"}. Outstanding averages ${formatMoney(metrics.sharedOutstandingPerAttendeeMinor, currency)} per ticket.`
                 : `${metrics.attendeeCount} attendee${metrics.attendeeCount === 1 ? "" : "s"}. Outstanding average is unavailable.`
               : "Direct progress mapping for a single attendee order."}
           </p>

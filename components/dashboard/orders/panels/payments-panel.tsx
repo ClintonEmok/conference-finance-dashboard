@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { scopeLabel } from "@/lib/dashboard/donation-allocation-request"
 import { formatMoney } from "@/lib/format"
 
 export type PaymentStatus =
@@ -40,8 +41,25 @@ export type OrderPaymentRow = {
   notes: string | null
 }
 
+/**
+ * A recorded donation allocation rendered BESIDE the payments (D-07). It is
+ * deliberately not an `OrderPaymentRow`: no status, no source, and no unlink
+ * affordance — a donation allocation is not a payment (removal lives on the
+ * donation detail, D-06).
+ */
+export type OrderAllocationRow = {
+  donationId: string
+  attendeeId: string
+  attendeeName: string
+  amountMinor: number
+  scope: "event_charges" | "whole_order"
+  recordedAt: string // ISO
+}
+
 type PaymentsPanelProps = {
   payments: OrderPaymentRow[]
+  allocations: OrderAllocationRow[]
+  currency: string
   hasKnownDue: boolean
   isUnassigningId: string | null
   unassignError: string | null
@@ -81,6 +99,8 @@ function paymentStatusVariant(status: PaymentStatus) {
 
 export function PaymentsPanel({
   payments,
+  allocations,
+  currency,
   hasKnownDue,
   isUnassigningId,
   unassignError,
@@ -112,7 +132,7 @@ export function PaymentsPanel({
           </p>
         )}
 
-        {payments.length === 0 ? (
+        {payments.length === 0 && allocations.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-white/20 py-12 text-center">
             <CreditCard className="mx-auto mb-3 size-10 opacity-10" />
             <p className="text-sm font-bold tracking-widest uppercase opacity-40">No payments</p>
@@ -137,7 +157,7 @@ export function PaymentsPanel({
                   </div>
                   <div className="space-y-1 text-right">
                     <p className="text-sm font-black text-foreground tabular-nums">
-                      {formatMoney(payment.amountMinor)}
+                      {formatMoney(payment.amountMinor, currency)}
                     </p>
                     <Badge
                       variant={paymentStatusVariant(payment.status)}
@@ -184,6 +204,61 @@ export function PaymentsPanel({
                       .join(" — ")}
                   </p>
                 )}
+              </article>
+            ))}
+
+            {allocations.map((allocation) => (
+              <article
+                key={`${allocation.donationId}:${allocation.attendeeId}`}
+                className="group relative rounded-2xl border border-primary/20 bg-primary/5 p-4 transition-all hover:bg-primary/10"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="max-w-[60%] space-y-1">
+                    <p className="truncate text-sm font-bold tracking-tight">
+                      Donation allocation
+                    </p>
+                    <div className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground/60">
+                      <span className="truncate">
+                        {allocation.attendeeName}
+                      </span>
+                      <span>•</span>
+                      <span className="shrink-0">
+                        {formatDateTime(allocation.recordedAt)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-1 text-right">
+                    <p className="text-sm font-black text-foreground tabular-nums">
+                      {formatMoney(allocation.amountMinor, currency)}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-2 text-[10px] text-muted-foreground sm:grid-cols-3">
+                  <div className="rounded-xl bg-black/5 px-2.5 py-2 dark:bg-white/5">
+                    <p className="font-black tracking-[0.2em] uppercase opacity-60">
+                      Target
+                    </p>
+                    <p className="mt-1 font-medium text-foreground">
+                      {allocation.attendeeName}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-black/5 px-2.5 py-2 dark:bg-white/5">
+                    <p className="font-black tracking-[0.2em] uppercase opacity-60">
+                      Scope
+                    </p>
+                    <p className="mt-1 font-medium text-foreground">
+                      {scopeLabel(allocation.scope)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-black/5 px-2.5 py-2 dark:bg-white/5">
+                    <p className="font-black tracking-[0.2em] uppercase opacity-60">
+                      Recorded
+                    </p>
+                    <p className="mt-1 font-medium text-foreground">
+                      {formatDateTime(allocation.recordedAt)}
+                    </p>
+                  </div>
+                </div>
               </article>
             ))}
           </div>

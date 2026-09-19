@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { formatMoney } from "@/lib/format"
+import { donationsHref } from "@/lib/dashboard/workspace-routes"
 import {
   Dialog,
   DialogContent,
@@ -55,6 +56,7 @@ type AttendeeDetailPayload = {
   event: {
     id: string
     name: string | null
+    currency: string
   }
   order: {
     id: string
@@ -70,6 +72,7 @@ type AttendeeDetailPayload = {
     outstandingAmountMinor: number
     paidAmountMinor: number
     overpaidAmountMinor: number
+    paymentProgressPercent: number
     installmentProgress: {
       totalLinks: number
       paidLinks: number
@@ -189,9 +192,7 @@ export default function AttendeeDetailPage({
     .join("")
     .toUpperCase()
     .slice(0, 2)
-  const paid = payload.finance.paidAmountMinor
-  const due = payload.attendee.amountDueMinor
-  const paymentProgress = due === 0 ? 100 : Math.min(100, Math.round((paid / due) * 100))
+  const paymentProgress = payload.finance.paymentProgressPercent
 
   return (
     <div className="animate-in space-y-8 pb-12 duration-700 fade-in slide-in-from-bottom-4">
@@ -280,9 +281,9 @@ export default function AttendeeDetailPage({
 
             <div className="mb-8 grid gap-4 grid-cols-1 sm:grid-cols-3">
               {[
-                { label: "Total Due", value: formatMoney(payload.attendee.amountDueMinor), color: "text-foreground", bg: "bg-white/50 dark:bg-white/5" },
-                { label: "Amount Paid", value: formatMoney(payload.finance.paidAmountMinor), color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/5" },
-                { label: "Outstanding", value: formatMoney(payload.finance.outstandingAmountMinor), color: "text-rose-600 dark:text-rose-400", bg: "bg-rose-500/5" }
+                { label: "Total Due", value: formatMoney(payload.attendee.amountDueMinor, payload.event.currency), color: "text-foreground", bg: "bg-white/50 dark:bg-white/5" },
+                { label: "Amount Paid", value: formatMoney(payload.finance.paidAmountMinor, payload.event.currency), color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/5" },
+                { label: "Outstanding", value: formatMoney(payload.finance.outstandingAmountMinor, payload.event.currency), color: "text-rose-600 dark:text-rose-400", bg: "bg-rose-500/5" }
               ].map((stat, i) => (
                 <div key={i} className={cn("rounded-2xl border border-white/60 p-5 shadow-sm dark:border-white/5", stat.bg)}>
                   <p className="text-[10px] font-black tracking-[0.2em] text-muted-foreground/60 uppercase mb-2 px-1">
@@ -291,8 +292,20 @@ export default function AttendeeDetailPage({
                   <p className={cn("text-2xl font-black tabular-nums tracking-tighter", stat.color)}>
                     {stat.value}
                   </p>
+                  {stat.label === "Amount Paid" ? (
+                    <p className="mt-1 text-xs text-muted-foreground">Allocated credit</p>
+                  ) : null}
                 </div>
               ))}
+            </div>
+
+            <div className="mb-6 flex justify-end">
+              <Link
+                href={donationsHref(eventSlug, { attendeeId: payload.attendee.id })}
+                className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+              >
+                View allocations
+              </Link>
             </div>
 
             <div className="space-y-3">
@@ -381,7 +394,7 @@ export default function AttendeeDetailPage({
                           })}
                         </td>
                         <td className="px-8 py-5 text-right font-black text-foreground tabular-nums tracking-tighter">
-                          {item.amountMinor ? formatMoney(item.amountMinor) : "—"}
+                          {item.amountMinor ? formatMoney(item.amountMinor, payload.event.currency) : "—"}
                         </td>
                       </tr>
                     ))

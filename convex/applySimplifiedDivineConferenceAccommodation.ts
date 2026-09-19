@@ -2,7 +2,6 @@ import { v } from "convex/values"
 import { internalMutation } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { assertProductionDeployment } from "../lib/domain/legacy/production-deployment-guard"
-import { enqueueSearchProjectionFanout, refreshAttendeeSearchDocumentsForTicketType } from "./search"
 
 /**
  * Guarded, idempotent production migration for the `divine-redesign`
@@ -363,8 +362,6 @@ export default internalMutation({
       }
       if (Object.keys(patch).length > 0) {
         await ctx.db.patch("ticketTypes", ticket._id, patch)
-        const next = await refreshAttendeeSearchDocumentsForTicketType(ctx, ticket._id, null)
-        if (next !== null) await enqueueSearchProjectionFanout(ctx, "ticketType", String(ticket._id), next)
       }
     }
 
@@ -389,8 +386,6 @@ export default internalMutation({
     }
     if (Object.keys(singleRoomPatch).length > 0) {
       await ctx.db.patch("ticketTypes", singleRoomTicket._id, singleRoomPatch)
-      const next = await refreshAttendeeSearchDocumentsForTicketType(ctx, singleRoomTicket._id, null)
-      if (next !== null) await enqueueSearchProjectionFanout(ctx, "ticketType", String(singleRoomTicket._id), next)
     }
     const singleRoomTicketPriced = Object.keys(singleRoomPatch).includes(
       "priceMinor"

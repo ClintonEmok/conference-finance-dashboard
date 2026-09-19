@@ -313,6 +313,14 @@ export default defineSchema({
   orderAttendees: defineTable(
     v.object({
       orderId: v.id("orders"),
+      // D-06 (Phase 62): copied from the attendee's order in the same mutation
+      // that inserts the row. An order's event cannot change — both movers
+      // (orders.mergeOrders, attendees.moveAttendeeToOrder) refuse cross-event
+      // targets — so this copy cannot go stale. It makes the event-scoped
+      // attendee search a single `by_eventId` range. Optional for additive
+      // deployment: legacy rows predate the field and are filled by the
+      // operator-gated `backfillAttendeeEventIds` migration.
+      eventId: v.optional(v.id("events")),
       attendeeKey: v.string(),
       name: v.string(),
       email: v.optional(v.string()),
@@ -342,6 +350,7 @@ export default defineSchema({
     })
   )
     .index("by_orderId", ["orderId"])
+    .index("by_eventId", ["eventId"])
     .index("by_assignedRoomId", ["assignedRoomId"])
     .index("by_allocationPriority", ["allocationPriority"]),
 
@@ -819,6 +828,7 @@ export default defineSchema({
       providerPayload: v.optional(v.any()),
       providerLastCheckedAt: v.optional(v.number()),
       statusUpdatedAt: v.optional(v.number()),
+      purpose: v.optional(v.union(v.literal("payment"), v.literal("donation"))),
     })
   )
     .index("paymentRequestToken", ["paymentRequestToken"])
@@ -832,7 +842,8 @@ export default defineSchema({
     .index("orderId", ["orderId"])
     .index("eventId_linkType", ["eventId", "linkType"])
     .index("eventId", ["eventId"])
-    .index("linkType", ["linkType"]),
+    .index("linkType", ["linkType"])
+    .index("by_eventId_and_purpose", ["eventId", "purpose"]),
 
   tikkiePaymentLinkTransitions: defineTable(
     v.object({
@@ -989,6 +1000,149 @@ export default defineSchema({
       "paidAt",
     ])
     .index("paidAt", ["paidAt"]),
+
+  /**
+   * Donation allocation credit layer (Phase 55, D-01/D-02/D-14/D-22).
+   *
+   * One credit row per `(donationId, attendeeId)` carrying the operator-chosen
+   * `scope` and the amount. The donation's remaining balance is DERIVED from
+   * these rows (`donation amount - sum of them`), never stored (D-01). The
+   * allocation set is never stored as a child array on the `payments` row
+   * (guidelines.md:157) — each allocation is its own bounded row.
+   *
+   * `orderId` is typed `v.id("orders")` (unlike `payments.orderId`, which is an
+   * optional string used for provider aliases, D-22). The D-02 at-most-one-row
+   * invariant is backed by `by_donationId_and_attendeeId` — the index the
+   * roadmap's proposed list omitted.
+   */
+  donationAllocations: defineTable(
+    v.object({
+      donationId: v.id("payments"),
+      eventId: v.id("events"),
+      orderId: v.id("orders"),
+      attendeeId: v.id("orderAttendees"),
+      // Integer minor units, always > 0.
+      amountMinor: v.number(),
+      // D-14: the scope is chosen by the operator and recorded, never inferred
+      // from the amount or the balance.
+      scope: v.union(v.literal("event_charges"), v.literal("whole_order")),
+      createdAt: v.number(),
+      // Actor derived from `identity.tokenIdentifier`, never an argument.
+      createdBy: v.string(),
+      submissionId: v.optional(v.id("donationAllocationSubmissions")),
+    })
+  )
+    .index("by_donationId", ["donationId"])
+    .index("by_donationId_and_attendeeId", ["donationId", "attendeeId"])
+    .index("by_eventId_and_createdAt", ["eventId", "createdAt"])
+    .index("by_orderId", ["orderId"])
+    .index("by_attendeeId", ["attendeeId"]),
+
+  /**
+   * Donation allocation submission ledger (D-21). Mirrors the
+   * `orderAccommodationEditAudits` shape: one immutable row per applied
+   * submission, keyed `(donationId, idempotencyKey)` with a `requestDigest`.
+   *
+   * `rows` is the FROZEN server result returned on replay, so a retry never
+   * recomputes money from mutable allocation rows that may have drifted. It is
+   * a bounded immutable snapshot (bounded by `MAX_ALLOCATION_PLAN_ROWS` in the
+   * pure module), not an unbounded child array (guidelines.md:157).
+   *
+   * `orderIdempotency` cannot be reused: its `orderId` is a required
+   * `v.id("orders")` and a donation has no order.
+   *
+   * `by_donationId_and_requestDigest` is deliberately NOT declared: nothing in
+   * Phase 55 queries by digest — the replay lookup fetches the row through the
+   * key index and compares `requestDigest` in memory. Add it only if a
+   * digest-scoped reader actually appears.
+   *
+   * §"Deletion rows (Phase 57)". One row per deleted donation serves BOTH the
+   * D-21 replay ledger and the donation-level deletion audit — the same Phase 45
+   * `orderAccommodationEditAudits` double duty this table was shaped for. For
+   * `operation: "delete"` the fields mean:
+   *   - `allocatedTotalMinor` = Σ of the reversed allocation amounts;
+   *   - `remainingMinor` = donation amount − Σ reversed (the never-credited
+   *     remainder that returns to event donation income);
+   *   - `rows` = the FROZEN reversed rows, so `allocationCount = rows.length`
+   *     and a replay returns each reversal verbatim;
+   *   - `eventId` = the donation's event, and `donationAmountMinor` = the
+   *     donation's recorded amount, both stored explicitly so a zero-allocation
+   *     deletion still records which event it belonged to and what it was worth
+   *     (removal rows carry `eventId` only when N > 0, so they cannot).
+   *
+   * `donationAmountMinor` is stored rather than inferred from
+   * `allocatedTotalMinor + remainingMinor`: a derived amount cannot be audited
+   * against, and a future rounding/ceiling change must not silently rewrite the
+   * history of a deletion that already happened.
+   *
+   * The per-allocation `donationAllocationRemovals` rows keep their own
+   * `submissionId` pointing at THIS table. Do NOT widen
+   * `donationAllocationRemovals.submissionId` (`:1097`, below) — reusing this
+   * table is precisely what avoids a second validator widening.
+   */
+  donationAllocationSubmissions: defineTable(
+    v.object({
+      donationId: v.id("payments"),
+      idempotencyKey: v.string(),
+      requestDigest: v.string(),
+      operation: v.union(
+        v.literal("allocate"),
+        v.literal("allocate_one"),
+        v.literal("remove"),
+        v.literal("delete")
+      ),
+      actor: v.string(),
+      createdAt: v.number(),
+      allocatedTotalMinor: v.number(),
+      remainingMinor: v.number(),
+      // Phase 57 deletion rows only (see the doc comment above). Optional so
+      // every existing allocate / allocate_one / remove row validates
+      // unchanged — no backfill and no migration.
+      eventId: v.optional(v.id("events")),
+      donationAmountMinor: v.optional(v.number()),
+      rows: v.array(
+        v.object({
+          attendeeId: v.id("orderAttendees"),
+          orderId: v.id("orders"),
+          amountMinor: v.number(),
+          scope: v.union(
+            v.literal("event_charges"),
+            v.literal("whole_order")
+          ),
+        })
+      ),
+    })
+  ).index("by_donationId_and_idempotencyKey", [
+    "donationId",
+    "idempotencyKey",
+  ])
+    // The bounded "does this donation already have a delete submission?" lookup
+    // behind Phase 57's already-deleted refusal. `donationId` and `operation`
+    // are both required fields, so every existing row is indexed.
+    .index("by_donationId_and_operation", ["donationId", "operation"]),
+
+  /**
+   * Append-only removal audit (D-19). Removing an allocation is a hard delete
+   * plus this immutable row, preserving the operator's action while keeping the
+   * D-02 per-`(donation, attendee)` invariant intact (no soft-delete rows).
+   * Mirrors the `orderAccommodationEditAudits` precedent.
+   */
+  donationAllocationRemovals: defineTable(
+    v.object({
+      donationId: v.id("payments"),
+      eventId: v.id("events"),
+      orderId: v.id("orders"),
+      attendeeId: v.id("orderAttendees"),
+      amountMinor: v.number(),
+      scope: v.union(v.literal("event_charges"), v.literal("whole_order")),
+      actor: v.string(),
+      removedAt: v.number(),
+      submissionId: v.optional(v.id("donationAllocationSubmissions")),
+    })
+  )
+    .index("by_donationId", ["donationId"])
+    .index("by_donationId_and_attendeeId", ["donationId", "attendeeId"])
+    .index("by_eventId_and_removedAt", ["eventId", "removedAt"]),
 
   roomAllocations: defineTable(
     v.object({

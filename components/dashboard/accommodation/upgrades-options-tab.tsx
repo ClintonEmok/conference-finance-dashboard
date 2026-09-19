@@ -84,7 +84,11 @@ export function AccommodationUpgradesOptionsTab({
           pendingOrderCount={data.pendingOrderCount}
           hasAccommodationSelections={data.hasAccommodationSelections}
         />
-        <UpgradesOptionsConfigForm eventId={eventId} config={data} />
+         <UpgradesOptionsConfigForm
+           eventId={eventId}
+           config={data}
+           currency={event.currency}
+         />
         <UpgradesOptionsCatalog
           catalogState={
             catalogState.status === "error"

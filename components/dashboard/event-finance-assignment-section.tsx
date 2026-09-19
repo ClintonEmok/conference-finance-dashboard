@@ -50,11 +50,13 @@ function paymentSourceLabel(source: AssignablePayment["source"]) {
 type EventFinanceAssignmentSectionProps = {
   eventId: string
   eventTitle?: string | null
+  currency: string
 }
 
 export function EventFinanceAssignmentSection({
   eventId,
   eventTitle,
+  currency,
 }: EventFinanceAssignmentSectionProps) {
   const [selectedPayment, setSelectedPayment] =
     useState<AssignablePayment | null>(null)
@@ -139,7 +141,7 @@ export function EventFinanceAssignmentSection({
 
                   <div className="flex flex-col items-start gap-3 sm:items-end">
                     <p className="font-mono text-lg font-semibold tabular-nums">
-                      {formatMoney(payment.amountMinor)}
+                       {formatMoney(payment.amountMinor, currency)}
                     </p>
                     <Button
                       variant="outline"
@@ -156,15 +158,16 @@ export function EventFinanceAssignmentSection({
       </CardContent>
 
       {selectedPayment ? (
-        <AssignDialog
+                       <AssignDialog
           payment={{
             id: selectedPayment._id,
             source: selectedPayment.source,
             payerName: selectedPayment.payerName,
-            payerAccountNumber: selectedPayment.payerAccountNumber ?? null,
-            amountMinor: selectedPayment.amountMinor,
-            paidAt: new Date(selectedPayment.paidAt).toISOString(),
-          }}
+             payerAccountNumber: selectedPayment.payerAccountNumber ?? null,
+             amountMinor: selectedPayment.amountMinor,
+             paidAt: new Date(selectedPayment.paidAt).toISOString(),
+           }}
+           currency={currency}
           open={!!selectedPayment}
           onOpenChange={(open) => {
             if (!open) setSelectedPayment(null)

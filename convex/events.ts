@@ -6,11 +6,6 @@ import {
 } from "./_generated/server"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
-import {
-  enqueueSearchProjectionFanout,
-  maintainOrderSearchProjection,
-  refreshAttendeeSearchDocumentsForTicketType,
-} from "./search"
 
 // =============================================================================
 // CANONICAL EVENTS - Source-agnostic queries using the canonical events table
@@ -403,8 +398,6 @@ export const updateTicketType = mutation({
       ...updates,
       updatedAt: Date.now(),
     })
-    const next = await refreshAttendeeSearchDocumentsForTicketType(ctx, ticketTypeId, null)
-    if (next !== null) await enqueueSearchProjectionFanout(ctx, "ticketType", String(ticketTypeId), next)
     return ticketTypeId
   },
 })
@@ -461,8 +454,6 @@ export const deleteTicketType = mutation({
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
     await ctx.db.delete("ticketTypes", args.ticketTypeId)
-    const next = await refreshAttendeeSearchDocumentsForTicketType(ctx, args.ticketTypeId, null)
-    if (next !== null) await enqueueSearchProjectionFanout(ctx, "ticketType", String(args.ticketTypeId), next)
     return args.ticketTypeId
   },
 })
@@ -531,6 +522,8 @@ export const createManualAttendee = mutation({
     // Create the attendee
     const attendeeId = await ctx.db.insert("orderAttendees", {
       orderId,
+      // D-06: written with the row, so it cannot be forgotten or drift.
+      eventId: args.eventId,
       attendeeKey: "attendee-1",
       name: args.attendeeName,
       email: args.attendeeEmail,
@@ -557,8 +550,6 @@ export const createManualAttendee = mutation({
       soldCount: (ticketType.soldCount || 0) + 1,
       updatedAt: now,
     })
-
-    await maintainOrderSearchProjection(ctx, orderId)
 
     return {
       orderId,

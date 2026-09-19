@@ -553,6 +553,139 @@ export declare const api: {
       any
     >;
   };
+  donationDeletion: {
+    deleteDonation: FunctionReference<
+      "mutation",
+      "public",
+      {
+        donationId: Id<"payments">;
+        eventId: Id<"events">;
+        idempotencyKey: string;
+      },
+      any
+    >;
+  };
+  donations: {
+    allocateDonation: FunctionReference<
+      "mutation",
+      "public",
+      {
+        donationId: Id<"payments">;
+        eventId: Id<"events">;
+        idempotencyKey: string;
+        request:
+          | {
+              method: "manual";
+              rows: Array<{
+                amountMinor: number;
+                attendeeId: Id<"orderAttendees">;
+                scope: "event_charges" | "whole_order";
+              }>;
+            }
+          | {
+              method: "equal";
+              targets: Array<{
+                attendeeId: Id<"orderAttendees">;
+                scope: "event_charges" | "whole_order";
+              }>;
+            }
+          | {
+              method: "largest_balance_first";
+              targets: Array<{
+                attendeeId: Id<"orderAttendees">;
+                scope: "event_charges" | "whole_order";
+              }>;
+            };
+      },
+      any
+    >;
+    allocateDonationToAttendee: FunctionReference<
+      "mutation",
+      "public",
+      {
+        amountMinor: number;
+        attendeeId: Id<"orderAttendees">;
+        donationId: Id<"payments">;
+        eventId: Id<"events">;
+        idempotencyKey: string;
+        scope: "event_charges" | "whole_order";
+      },
+      any
+    >;
+    getDonationAllocationSummary: FunctionReference<
+      "query",
+      "public",
+      { donationId: Id<"payments"> },
+      any
+    >;
+    getEventDonationIncome: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      {
+        donations: Array<{
+          allocatedMinor: number;
+          allocationCount: number;
+          donationAmountMinor: number;
+          donationId: Id<"payments">;
+          paidAt: number;
+          payerName: string;
+          source: "tikkie" | "bank_transfer" | "cash";
+          unallocatedRemainderMinor: number;
+        }>;
+        eventId: Id<"events">;
+        totals: {
+          allocatedMinor: number;
+          donationCount: number;
+          donationsMinor: number;
+          unallocatedRemainderMinor: number;
+        };
+      }
+    >;
+    previewDonationAllocation: FunctionReference<
+      "query",
+      "public",
+      {
+        donationId: Id<"payments">;
+        eventId: Id<"events">;
+        request:
+          | {
+              method: "manual";
+              rows: Array<{
+                amountMinor: number;
+                attendeeId: Id<"orderAttendees">;
+                scope: "event_charges" | "whole_order";
+              }>;
+            }
+          | {
+              method: "equal";
+              targets: Array<{
+                attendeeId: Id<"orderAttendees">;
+                scope: "event_charges" | "whole_order";
+              }>;
+            }
+          | {
+              method: "largest_balance_first";
+              targets: Array<{
+                attendeeId: Id<"orderAttendees">;
+                scope: "event_charges" | "whole_order";
+              }>;
+            };
+      },
+      any
+    >;
+    removeDonationAllocation: FunctionReference<
+      "mutation",
+      "public",
+      {
+        attendeeId: Id<"orderAttendees">;
+        donationId: Id<"payments">;
+        eventId: Id<"events">;
+        idempotencyKey: string;
+      },
+      any
+    >;
+  };
   emailActions: {
     resendOrderConfirmation: FunctionReference<
       "action",
@@ -927,6 +1060,32 @@ export declare const api: {
       },
       any
     >;
+    getOrderAllocationLedger: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events">; orderId: Id<"orders"> },
+      {
+        allocationRows: Array<{
+          amountMinor: number;
+          attendeeId: Id<"orderAttendees">;
+          donationId: Id<"payments">;
+          recordedAt: number;
+          scope: "event_charges" | "whole_order";
+        }>;
+        balances: {
+          allocationCreditMinor: number;
+          amountDueMinor: number;
+          appliedAmountMinor: number;
+          appliedPaymentMinor: number;
+          donationAmountMinor: number;
+          outstandingAmountMinor: number;
+          paidAmountMinor: number;
+        } | null;
+        coveragePercent: number | null;
+        orderId: Id<"orders">;
+        sharedOutstandingPerAttendeeMinor: number | null;
+      } | null
+    >;
     getOrderById: FunctionReference<
       "query",
       "public",
@@ -1079,6 +1238,8 @@ export declare const api: {
           id: Id<"orderAttendees">;
           name: string;
           normalizedStatus: string;
+          outstandingAmountMinor: number;
+          paidAmountMinor: number;
           roommateAvoid: string | null;
           roommatePreference: string | null;
           ticketTypeLabel: string;
@@ -1434,7 +1595,12 @@ export declare const api: {
       },
       any
     >;
-    getUnassignedPayments: FunctionReference<"query", "public", {}, any>;
+    getUnassignedPayments: FunctionReference<
+      "query",
+      "public",
+      { search?: string },
+      any
+    >;
     logReconciliationPayment: FunctionReference<
       "mutation",
       "public",
@@ -1468,10 +1634,12 @@ export declare const api: {
       "public",
       {
         amountMinor: number;
+        eventId?: string;
         paidAt: number;
         payerAccountNumber?: string;
         payerName: string;
         providerPayload?: any;
+        purpose?: "payment" | "donation";
         sourceId: string;
       },
       any
@@ -2057,6 +2225,7 @@ export declare const api: {
         providerEventId: string;
         providerPayload?: any;
         providerStatus: string;
+        purpose?: "payment" | "donation";
         referenceId?: string;
       },
       any
@@ -2097,6 +2266,17 @@ export declare const api: {
       "public",
       { templateId: Id<"tikkiePaymentTemplates"> },
       any
+    >;
+    getEventDonationLink: FunctionReference<
+      "query",
+      "public",
+      { eventId: Id<"events"> },
+      null | {
+        amountMinor?: number;
+        createdAt: number;
+        description?: string;
+        paymentUrl: string;
+      }
     >;
     getEventPaymentLink: FunctionReference<
       "query",
@@ -2309,6 +2489,26 @@ export declare const internal: {
   autoSync: {
     autoSyncTikkiePayments: FunctionReference<"action", "internal", {}, any>;
   };
+  backfillAttendeeEventIds: {
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        allowedDeploymentUrl?: string;
+        authorize: boolean;
+        batchSize: number;
+        cursor: string | null;
+      },
+      {
+        diagnostics: Array<{ reason: string; subjectId: string }>;
+        isDone: boolean;
+        nextCursor: string | null;
+        patched: number;
+        processed: number;
+        skipped: number;
+      }
+    >;
+  };
   backfillLegacyAccommodationPreferences: {
     default: FunctionReference<
       "mutation",
@@ -2324,40 +2524,6 @@ export declare const internal: {
         ordersUnresolved: number;
         slug: string;
         unresolved: Array<{ orderId: string; reason: string }>;
-      }
-    >;
-  };
-  backfillSearchProjections: {
-    default: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        allowedDeploymentUrl?: string;
-        authorize: boolean;
-        batchSize: number;
-        cursor: string | null;
-        kind: "order" | "attendee";
-      },
-      {
-        diagnostics: Array<{ reason: string; subjectId: string }>;
-        isDone: boolean;
-        kind: "order" | "attendee";
-        nextCursor: string | null;
-        processed: number;
-        skipped: number;
-      }
-    >;
-    verifySearchProjections: FunctionReference<
-      "query",
-      "internal",
-      { allowedDeploymentUrl: string; authorize: boolean },
-      {
-        blockedJobs: number;
-        diagnostics: Array<{ reason: string; subjectId: string }>;
-        missing: number;
-        pendingJobs: number;
-        stale: number;
-        truncated: boolean;
       }
     >;
   };
@@ -2610,6 +2776,7 @@ export declare const internal: {
         payerAccountNumber?: string;
         payerName: string;
         providerPayload?: any;
+        purpose?: "payment" | "donation";
         sourceId: string;
       },
       any
@@ -2658,20 +2825,6 @@ export declare const internal: {
         nextCursor: string | null;
         processed: number;
       }
-    >;
-  };
-  search: {
-    continueSearchProjectionFanout: FunctionReference<
-      "mutation",
-      "internal",
-      { jobId: Id<"searchProjectionFanoutJobs"> },
-      any
-    >;
-    startSearchProjectionFanout: FunctionReference<
-      "mutation",
-      "internal",
-      { operation: "order" | "ticketType" | "family"; targetId: string },
-      any
     >;
   };
   seedPreviewSimulation: {

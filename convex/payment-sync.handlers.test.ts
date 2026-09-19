@@ -71,10 +71,17 @@ test("Tikkie link sync returns active event links without scanning order links",
   await insertLink("event", "expired", now - 60_000)
   await insertLink("order", "created", now + 60_000)
 
-  const links = await t.query(internal.sync.internalGetTikkiePaymentLinks, {})
+  const linkScan = await t.query(
+    internal.sync.internalGetTikkiePaymentLinks,
+    {}
+  )
 
-  expect(links).toHaveLength(1)
-  expect(links[0]).toMatchObject({ linkType: "event", status: "created" })
+  expect(linkScan.links).toHaveLength(1)
+  expect(linkScan.links[0]).toMatchObject({
+    linkType: "event",
+    status: "created",
+  })
+  expect(linkScan.saturated).toBe(false)
 })
 
 test("unassigned payment sync is paginated", async () => {

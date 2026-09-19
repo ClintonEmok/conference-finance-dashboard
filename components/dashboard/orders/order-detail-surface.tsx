@@ -6,19 +6,28 @@ import { useAction, useConvexAuth, useQuery } from "convex/react"
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 import { api } from "@/lib/convex/api"
 import { useUnassignPayment } from "@/lib/convex/hooks/payments"
-import {
-  deriveBalanceAmounts,
-  isOrderAppliedPayment,
-} from "@/lib/domain/finance/amounts"
 import type { Id } from "@/convex/_generated/dataModel"
 import { AssignPaymentSheet } from "@/app/dashboard/manage-orders/[orderId]/assign-payment-sheet"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
+import {
+  DonationAllocationDialog,
+  type DonationAllocationInitialTarget,
+} from "@/components/dashboard/finance/donation-allocation-dialog"
+import { formatMoney } from "@/lib/format"
 import { OrderSummaryPanel } from "./panels/order-summary-panel"
 import { OrderActionsPanel } from "./panels/order-actions-panel"
 import { OrderDetailsPanel, type OrderEditDraft } from "./panels/order-details-panel"
 import { AttendeesPanel } from "./panels/attendees-panel"
-import { PaymentsPanel, type OrderPaymentRow } from "./panels/payments-panel"
+import {
+  PaymentsPanel,
+  type OrderAllocationRow,
+  type OrderPaymentRow,
+} from "./panels/payments-panel"
 import { MergeOrderDialog } from "./panels/merge-order-dialog"
+import {
+  AllocateDonationToOrder,
+  type AllocateDonationChoice,
+} from "./panels/allocate-donation-to-order"
 
 type PageProps = {
   slug: string
@@ -51,6 +60,10 @@ type OrderAttendeePayload = {
     ticketTypeLabel: string
     normalizedStatus: string
     amountDueMinor: number
+    // Phase 56 server-owned per-attendee money: the panel renders these
+    // verbatim and never re-derives them from the payments list.
+    paidAmountMinor: number
+    outstandingAmountMinor: number
   }>
 }
 
@@ -108,19 +121,26 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
     api.payments.getPayments,
     orderId && canQueryProtectedData ? { orderId } : "skip"
   )
+  // D-07: the canonical balance and the order's recorded allocation rows come
+  // from the server's one owner (`getOrderAllocationLedger` →
+  // `loadCanonicalOrderBalances`). This surface renders fields; it derives
+  // nothing from the payments list.
+  const ledger = useQuery(
+    api.orders.getOrderAllocationLedger,
+    orderId && canQueryProtectedData
+      ? { orderId: orderId as Id<"orders">, eventId: event._id }
+      : "skip"
+  )
   const unassignPayment = useUnassignPayment()
   const resendOrderConfirmation = useAction(
     api.emailActions.resendOrderConfirmation
   )
 
-  const [isRemoving, setIsRemoving] = useState(false)
-  const [removeErrorMessage, setRemoveErrorMessage] = useState<string | null>(
-    null
-  )
   const [isAssignSheetOpen, setIsAssignSheetOpen] = useState(false)
   const [isUnassigningId, setIsUnassigningId] = useState<string | null>(null)
   const [unassignError, setUnassignError] = useState<string | null>(null)
   const [isResendingEmail, setIsResendingEmail] = useState(false)
+  const [isResendDialogOpen, setIsResendDialogOpen] = useState(false)
   const [resendMessage, setResendMessage] = useState<string | null>(null)
   const [resendErrorMessage, setResendErrorMessage] = useState<string | null>(
     null
@@ -139,7 +159,34 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
 
   const [isMergeDialogOpen, setIsMergeDialogOpen] = useState(false)
 
+  // D-02: the order-entry allocation session. The chooser picks a donation,
+  // the shared editor receives it pre-scoped to this order's attendees, and
+  // the dialog's own result feeds the status band.
+  const [isAllocateChooserOpen, setIsAllocateChooserOpen] = useState(false)
+  const [allocationDonation, setAllocationDonation] =
+    useState<AllocateDonationChoice | null>(null)
+  const [allocationSuccess, setAllocationSuccess] = useState<{
+    allocatedTotalMinor: number
+    leftoverMinor: number
+  } | null>(null)
+
   const orderPayload = (payload ?? null) as OrderAttendeePayload | null
+
+  // The pre-scoping seam: the WHOLE order attendee list, each at the editor's
+  // default (whole-order) scope. `undefined` until the order payload resolves;
+  // the editor treats an absent prop as today's empty selection.
+  const orderTargets = useMemo<DonationAllocationInitialTarget[] | undefined>(
+    () =>
+      orderPayload
+        ? orderPayload.attendees.map((attendee) => ({
+            attendeeId: attendee.id as Id<"orderAttendees">,
+            name: attendee.name,
+            orderRef: orderPayload.order.bookingRef,
+            ticketTypeLabel: attendee.ticketTypeLabel,
+          }))
+        : undefined,
+    [orderPayload]
+  )
 
   useEffect(() => {
     if (!orderPayload) return
@@ -177,7 +224,8 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
     [paymentDocs]
   )
 
-  const isLoading = payload === undefined || paymentDocs === undefined
+  const isLoading =
+    payload === undefined || paymentDocs === undefined || ledger === undefined
   const eventOrderMismatch =
     payload !== undefined &&
     payload !== null &&
@@ -187,53 +235,49 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
     orderPayload?.order.bookerEmail && orderPayload?.order.bookingRef
   )
 
+  // D-07: every figure is a FIELD of the server's canonical balance
+  // (`getOrderAllocationLedger` → `loadCanonicalOrderBalances`), passed
+  // through verbatim. A local payments reduce used to live here and excluded
+  // donation allocation credit entirely — the second-owner defect this
+  // replaced. The surface performs no money arithmetic of its own: whatever
+  // a figure needs, the read already computed it.
   const metrics = useMemo(() => {
-    const amountDueMinor = typeof orderPayload?.order.amountDueMinor === "number"
-      ? orderPayload.order.amountDueMinor
-      : null
-    const hasKnownDue = amountDueMinor !== null
-    const matchedPayments = payments.filter(
-      (payment) =>
-        isOrderAppliedPayment(payment)
-    )
-    const paidAmountMinor = matchedPayments.reduce(
-      (sum, payment) => sum + payment.amountMinor,
-      0
-    )
-
-    const balance = deriveBalanceAmounts(amountDueMinor, paidAmountMinor)
-    const coverage =
-      amountDueMinor !== null && amountDueMinor > 0
-        ? Math.min(100, Math.round((paidAmountMinor / amountDueMinor) * 100))
-        : amountDueMinor === 0
-          ? 100
-          : null
-
-    const attendeeCount = orderPayload?.attendees.length ?? 0
-    const sharedOutstandingPerAttendeeMinor =
-      hasKnownDue && attendeeCount > 0
-        ? Math.ceil(balance.outstandingAmountMinor / attendeeCount)
-        : null
-
+    const balances = ledger?.balances ?? null
     return {
-      amountDueMinor: hasKnownDue ? balance.amountDueMinor : null,
-      paidAmountMinor: balance.appliedAmountMinor,
-      outstandingAmountMinor: hasKnownDue ? balance.outstandingAmountMinor : null,
-      donationAmountMinor: hasKnownDue ? balance.donationAmountMinor : null,
-      coverage,
-      hasKnownDue,
-      attendeeCount,
-      sharedOutstandingPerAttendeeMinor,
+      amountDueMinor: balances?.amountDueMinor ?? null,
+      paidAmountMinor: balances?.paidAmountMinor ?? null,
+      outstandingAmountMinor: balances?.outstandingAmountMinor ?? null,
+      donationAmountMinor: balances?.donationAmountMinor ?? null,
+      coverage: ledger?.coveragePercent ?? null,
+      hasKnownDue: balances !== null,
+      attendeeCount: orderPayload?.attendees.length ?? 0,
+      sharedOutstandingPerAttendeeMinor:
+        ledger?.sharedOutstandingPerAttendeeMinor ?? null,
     }
-  }, [orderPayload, payments])
+  }, [ledger, orderPayload])
+
+  // Display mapping only: the rows are the server's recorded allocation rows,
+  // and the attendee name is a lookup against the loaded order payload (raw id
+  // fallback — never an invented label). No money is computed here.
+  const allocationRows: OrderAllocationRow[] = useMemo(
+    () =>
+      (ledger?.allocationRows ?? []).map((row) => ({
+        donationId: row.donationId,
+        attendeeId: row.attendeeId,
+        attendeeName:
+          orderPayload?.attendees.find(
+            (attendee) => String(attendee.id) === String(row.attendeeId)
+          )?.name ?? String(row.attendeeId),
+        amountMinor: row.amountMinor,
+        scope: row.scope,
+        recordedAt: new Date(row.recordedAt).toISOString(),
+      })),
+    [ledger, orderPayload]
+  )
 
   async function resendConfirmationEmail() {
     if (!orderId || !canResendConfirmation) return
-
-    const confirmed = window.confirm(
-      "Resend the booking confirmation email to this customer?"
-    )
-    if (!confirmed) return
+    setIsResendDialogOpen(false)
 
     setIsResendingEmail(true)
     setResendMessage(null)
@@ -313,39 +357,6 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
     )
   }, [orderPayload])
 
-  async function removeOrderLocally() {
-    if (!orderId || !canDeleteOrder) return
-
-    const confirmed = window.confirm(
-      "Permanently delete this order? Attached payments will be unassigned and attendee records will be deleted. This cannot be undone."
-    )
-    if (!confirmed) return
-
-    setIsRemoving(true)
-    setRemoveErrorMessage(null)
-
-    try {
-      const response = await fetch(
-        `/api/dashboard/orders/${encodeURIComponent(orderId)}`,
-        { method: "DELETE" }
-      )
-
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: { message?: string }
-        } | null
-        setRemoveErrorMessage(body?.error?.message ?? "Failed to remove order.")
-        return
-      }
-
-      window.location.assign(`/dashboard/events/${slug}/orders`)
-    } catch {
-      setRemoveErrorMessage("Network error while removing order.")
-    } finally {
-      setIsRemoving(false)
-    }
-  }
-
   async function deleteOrder() {
     if (!orderId) return
 
@@ -403,13 +414,17 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
       <OrderSummaryPanel
         order={orderPayload.order}
         eventTitle={event.title}
+        currency={event.currency}
         slug={slug}
         metrics={metrics}
         hasAssignedPayments={hasAssignedPayments}
         canDeleteOrder={canDeleteOrder}
-        isRemoving={isRemoving}
-        removeErrorMessage={removeErrorMessage}
-        onRemoveOrder={() => void removeOrderLocally()}
+         isRemoving={isDeleting}
+         removeErrorMessage={deleteError}
+         onRemoveOrder={() => {
+           setDeleteError(null)
+           setIsDeleteDialogOpen(true)
+         }}
         actions={
           <OrderActionsPanel
             canResendConfirmation={canResendConfirmation}
@@ -417,6 +432,9 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
             resendMessage={resendMessage}
             resendErrorMessage={resendErrorMessage}
             onResendConfirmation={() => void resendConfirmationEmail()}
+            isResendDialogOpen={isResendDialogOpen}
+            onOpenResendDialog={() => setIsResendDialogOpen(true)}
+            onCloseResendDialog={() => setIsResendDialogOpen(false)}
             isDeleteDialogOpen={isDeleteDialogOpen}
             onOpenDeleteDialog={() => {
               setDeleteError(null)
@@ -430,9 +448,25 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
             deleteError={deleteError}
             onDelete={() => void deleteOrder()}
             onOpenMergeDialog={() => setIsMergeDialogOpen(true)}
+            onOpenAllocateDialog={() => {
+              setAllocationSuccess(null)
+              setIsAllocateChooserOpen(true)
+            }}
           />
         }
       />
+
+      {allocationSuccess !== null && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm font-medium text-emerald-700 dark:text-emerald-300"
+        >
+          Allocation recorded.{" "}
+           {formatMoney(allocationSuccess.allocatedTotalMinor, event.currency)} allocated;{" "}
+           {formatMoney(allocationSuccess.leftoverMinor, event.currency)} left unallocated.
+        </div>
+      )}
 
       <OrderDetailsPanel
         order={orderPayload.order}
@@ -457,17 +491,22 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
             email: attendee.email,
             ticketTypeLabel: attendee.ticketTypeLabel,
             amountDueMinor: attendee.amountDueMinor,
+            paidAmountMinor: attendee.paidAmountMinor,
+            outstandingAmountMinor: attendee.outstandingAmountMinor,
           }))}
           slug={slug}
           eventId={String(event?._id ?? "")}
-          orderId={orderId}
-          bookingRef={orderPayload.order.bookingRef}
-          onSaved={() => undefined}
+           orderId={orderId}
+           bookingRef={orderPayload.order.bookingRef}
+           currency={event.currency}
+           onSaved={() => undefined}
         />
 
         <PaymentsPanel
-          payments={payments}
-          hasKnownDue={metrics.hasKnownDue}
+           payments={payments}
+           allocations={allocationRows}
+           currency={event.currency}
+           hasKnownDue={metrics.hasKnownDue}
           isUnassigningId={isUnassigningId}
           unassignError={unassignError}
           onOpenAssignSheet={() => setIsAssignSheetOpen(true)}
@@ -480,9 +519,10 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
           open={isAssignSheetOpen}
           onOpenChange={setIsAssignSheetOpen}
           orderId={orderId}
-          outstandingAmountMinor={metrics.outstandingAmountMinor}
-          bookerName={orderPayload?.order.bookerName ?? undefined}
-        />
+           outstandingAmountMinor={metrics.outstandingAmountMinor}
+           bookerName={orderPayload?.order.bookerName ?? undefined}
+           currency={event.currency}
+         />
       )}
 
       <MergeOrderDialog
@@ -491,7 +531,40 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
         orderId={orderId}
         slug={slug}
         eventId={String(event?._id ?? "")}
+        currency={event.currency}
       />
+
+      <AllocateDonationToOrder
+        open={isAllocateChooserOpen}
+        onOpenChange={setIsAllocateChooserOpen}
+        eventId={event._id}
+        currency={event.currency}
+        onSelect={(donation) => {
+          setIsAllocateChooserOpen(false)
+          setAllocationSuccess(null)
+          setAllocationDonation(donation)
+        }}
+      />
+
+      {allocationDonation !== null && (
+        <DonationAllocationDialog
+          key={`allocation-${allocationDonation.donationId}`}
+          open
+          onOpenChange={(next) => {
+            if (!next) setAllocationDonation(null)
+          }}
+          donationId={allocationDonation.donationId}
+          eventId={event._id}
+          payerName={allocationDonation.payerName}
+          amountMinor={allocationDonation.amountMinor}
+          currency={event.currency}
+          initialTargets={orderTargets}
+          onAllocated={(result) => {
+            setAllocationSuccess(result)
+            setAllocationDonation(null)
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -287,19 +287,25 @@ describe("order-ledger domain", () => {
       expect(result.rows[0].orderId).toBe("canonical-order")
     })
 
-    it("rejects search queries with more than 16 terms before querying Convex", async () => {
-      const seventeen = Array.from({ length: 17 }, (_, index) => `term${index}`).join(" ")
-      await expect(getOrderLedger({ search: seventeen })).rejects.toThrow(
-        /Maximum 16 terms/
+    it("bounds search by the 512-character needle cap only — term count is not a limit", async () => {
+      await expect(getOrderLedger({ search: "x".repeat(513) })).rejects.toThrow(
+        /Maximum length is 512/
       )
 
+      const at512 = "x".repeat(512)
+      const termRich = `${Array.from({ length: 24 }, (_, index) => `term-${index}`).join(" ")}  &  punctuation!!!  `
       vi.mocked(convexQuery)
         .mockResolvedValueOnce({ orders: [], totalRows: null, totalPages: null, nextCursor: null, hasNextPage: false, totals: { amountDueMinor: 0, matchedAmountMinor: 0, outstandingAmountMinor: 0 } })
         .mockResolvedValueOnce([])
-      const sixteen = Array.from({ length: 16 }, (_, index) => `term${index}`).join(" ")
-      const result = await getOrderLedger({ search: sixteen })
+        .mockResolvedValueOnce({ orders: [], totalRows: null, totalPages: null, nextCursor: null, hasNextPage: false, totals: { amountDueMinor: 0, matchedAmountMinor: 0, outstandingAmountMinor: 0 } })
+        .mockResolvedValueOnce([])
+      const capped = await getOrderLedger({ search: at512 })
+      const accepted = await getOrderLedger({ search: termRich })
 
-      expect(result.filters.search).toBe(sixteen)
+      expect(capped.filters.search).toBe(at512)
+      expect(accepted.filters.search).toBe(
+        termRich.trim().replace(/\s+/g, " ").toLowerCase()
+      )
     })
 
     it("preserves exact totals for no-search callers", async () => {

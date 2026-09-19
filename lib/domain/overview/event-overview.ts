@@ -22,6 +22,7 @@ export type OverviewInputs = {
     id: string
     slug: string
     title: string
+    currency: string
     startsAt: number | null
     accommodationEnabled: boolean
   }
@@ -39,7 +40,23 @@ export type RevenuePayload = {
     paidMinor: number
     refundedMinor: number
     netMinor: number
+    /**
+     * Event donation INCOME — the server-derived Σ standalone
+     * `unallocatedRemainderMinor`. Disjoint from `standaloneAllocatedMinor` and
+     * from `overpaidMinor`; the three classes are never summed.
+     */
     standaloneDonationMinor: number
+    /**
+     * Σ standalone `allocatedMinor` — the part of a donation's face value
+     * already credited to an order through the canonical attribution. Disjoint
+     * from `standaloneDonationMinor` and `overpaidMinor`; never summed with
+     * either.
+     */
+    standaloneAllocatedMinor: number
+    /**
+     * `deriveBalanceAmounts`'s order-overpayment class. Disjoint from both
+     * standalone-donation figures; never summed with either.
+     */
     overpaidMinor: number
   }
   statusCounts: {

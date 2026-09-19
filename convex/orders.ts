@@ -9,21 +9,24 @@ import {
   orderSearchRowValidator,
 } from "../lib/types/order"
 import {
-  deriveBalanceAmounts,
-  isOrderAppliedPayment,
-} from "../lib/domain/finance/amounts"
-import { loadMatchedPaymentTotalsByOrderId, loadOrderAmountDueBreakdowns } from "./finance"
+  loadCanonicalOrderBalances,
+  loadOrderAmountDueBreakdowns,
+  loadOrderPaymentAttributions,
+} from "./finance"
 import {
   loadOrderAttendeesWithExtensions,
   loadOrderWithExtension,
   loadOrdersWithExtensions,
 } from "./provider_boundary"
 import {
-  enqueueSearchProjectionFanout,
-  deleteSearchProjection,
-  maintainOrderSearchProjection,
-  paginateSearchDocuments,
-  upsertOrderSearchDocument,
+  buildSearchHaystack,
+  collectSourceSearchPage,
+  decodeSearchCursor,
+  decodeSourceScanBoundary,
+  encodeSearchCursor,
+  encodeSourceScanBoundary,
+  matchesNormalizedSearch,
+  requireSearchNeedle,
 } from "./search"
 import { planUniqueAttendeeKeys } from "../lib/domain/attendee-key"
 
@@ -248,8 +251,6 @@ export const createOrder = mutation({
       rawPayload: args.rawPayload,
     })
 
-    await maintainOrderSearchProjection(ctx, orderId)
-
     return orderId
   },
 })
@@ -329,8 +330,6 @@ export const upsertOrder = mutation({
         })
       }
 
-      await maintainOrderSearchProjection(ctx, existingOrder._id)
-
       return existingOrder._id
     }
 
@@ -345,8 +344,6 @@ export const upsertOrder = mutation({
       orderId,
       ...extensionData,
     })
-
-    await maintainOrderSearchProjection(ctx, orderId)
 
     return orderId
   },
@@ -382,8 +379,6 @@ export const updateOrderStatus = mutation({
     if (extension) {
       await ctx.db.patch("ticketTailorOrders", extension._id, statusPatch.extensionPatch)
     }
-
-    await maintainOrderSearchProjection(ctx, args.orderId)
 
     return args.orderId
   },
@@ -488,8 +483,6 @@ export const updateOrderDetails = mutation({
       await ctx.db.patch("orders", args.orderId, orderPatch)
     }
 
-    await maintainOrderSearchProjection(ctx, args.orderId)
-
     return args.orderId
   },
 })
@@ -509,14 +502,16 @@ export const syncFullyPaidOrders = internalMutation({
       (order) => order.status !== "paid"
     )
 
-    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+    // ONE settlement basis (Phase 60 D-01): the canonical allocation-aware
+    // outstanding nets donation-allocation credit, so an order cleared solely
+    // by an allocation settles exactly like one cleared by payments. This job
+    // never consults the payment-only total as a second opinion, and a missing
+    // canonical balance is fail-closed (the guard below) — never a
+    // provider-total fallback.
+    const canonicalBalancesByOrderId = await loadCanonicalOrderBalances({
       ctx,
-      ordersToReconcile
-    )
-    const matchedTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
-      ctx,
-      ordersToReconcile
-    )
+      orders: ordersToReconcile,
+    })
 
     let updated = 0
 
@@ -530,16 +525,12 @@ export const syncFullyPaidOrders = internalMutation({
         continue
       }
 
-      // Re-verify matched amounts against current state to avoid race condition
-      const currentAmountDueMinor =
-        amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-        order.totalAmountMinor ??
-        0
-      const currentPaidAmountMinor = matchedTotalsByOrderId.get(String(order._id)) ?? 0
-
-      if (currentPaidAmountMinor < currentAmountDueMinor) {
-        continue
-      }
+      // Re-verify the canonical settlement against current state to avoid a
+      // race condition. The allocation-aware outstanding is the decision: a
+      // missing balance is never treated as settled.
+      const canonical = canonicalBalancesByOrderId.get(String(order._id))
+      if (!canonical) continue
+      if (canonical.outstandingAmountMinor > 0) continue
 
       const statusPatch = buildCanonicalOrderStatusPatch({
         normalizedStatus: "paid",
@@ -551,8 +542,6 @@ export const syncFullyPaidOrders = internalMutation({
       if (extension) {
         await ctx.db.patch("ticketTailorOrders", extension._id, statusPatch.extensionPatch)
       }
-
-      await maintainOrderSearchProjection(ctx, order._id)
 
       updated += 1
     }
@@ -815,49 +804,13 @@ function isInternalEvent(
   return eventSourceKindsById.get(String(eventId)) === "internal"
 }
 
-async function loadPaymentTotalsByOrderKey(ctx: QueryCtx) {
-  const payments = await ctx.db.query("payments").take(1000)
-  const totalsByOrderKey = new Map<string, number>()
+// A payment-only paid derivation lived here, had zero callers, and must not return — allocation-aware consumers use loadCanonicalOrderBalances / loadOrderPaymentAttributions.
 
-  for (const payment of payments) {
-    if (!isOrderAppliedPayment(payment)) {
-      continue
-    }
-
-    const rawOrderId =
-      typeof payment.orderId === "string" ? payment.orderId.trim() : ""
-    if (!rawOrderId) {
-      continue
-    }
-
-    totalsByOrderKey.set(
-      rawOrderId,
-      (totalsByOrderKey.get(rawOrderId) ?? 0) + payment.amountMinor
-    )
-  }
-
-  return totalsByOrderKey
-}
-
-function getMatchedPaymentTotalForOrder(
-  order: {
-    _id: Id<"orders">
-    providerOrderId?: string | null
-  },
-  totalsByOrderKey: Map<string, number>
-) {
-  const keys = new Set<string>([String(order._id)])
-  if (order.providerOrderId) {
-    keys.add(order.providerOrderId)
-  }
-
-  let total = 0
-  for (const key of keys) {
-    total += totalsByOrderKey.get(key) ?? 0
-  }
-
-  return total
-}
+// Source-search scan budget per invocation; continuation is via the search
+// cursor. Aligned with the domain's MAX_PAGE_SIZE so the ledger can never
+// request a page the server rejects.
+const ORDER_SEARCH_SCAN_CAP = 2_000
+const ORDER_SEARCH_PAGE_MAX = 200
 
 export const getOrdersWithFilters = query({
   args: {
@@ -892,38 +845,213 @@ export const getOrdersWithFilters = query({
   }),
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const normalizedSearch = args.search?.trim().replace(/\s+/g, " ").toLowerCase() ?? ""
     const page = args.page ?? 1
     const pageSize = args.pageSize ?? 25
+    if (
+      !Number.isInteger(pageSize) ||
+      pageSize < 1 ||
+      pageSize > ORDER_SEARCH_PAGE_MAX
+    ) {
+      throw new Error("Invalid order ledger page size.")
+    }
+    // D-01: the source rows are the single truth — search reads `orders` and
+    // never a derived projection. D-02/D-04: one folded substring pass over a
+    // bounded, resumable scan, with a cursor that is signature-bound so a
+    // stale cursor cannot resume against other filters.
+    const needle = requireSearchNeedle(args.search)
+    if (args.searchCursor != null && !needle) {
+      throw new Error("Invalid order search cursor.")
+    }
     let searchNextCursor: string | null = null
     let searchHasNextPage = false
     let visibleOrders: CandidateOrder[]
 
-    if (normalizedSearch) {
+    if (needle) {
       if (page > 1) throw new Error("Search cursor pagination cannot be combined with offset page pagination.")
       const eventId = args.eventId ? ctx.db.normalizeId("events", args.eventId) : null
       if (args.eventId && !eventId) throw new Error("Invalid 'eventId'.")
-      let cursor = args.searchCursor ?? null
-      const matching: CandidateOrder[] = []
-      const projectionPage = await paginateSearchDocuments(ctx, { kind: "order", eventId: eventId ?? undefined, search: normalizedSearch, cursor, numItems: pageSize })
-      cursor = projectionPage.continueCursor
-      for (const document of projectionPage.page) {
-          const orderId = ctx.db.normalizeId("orders", document.subjectId)
-          if (!orderId) continue
-          const combined = await loadOrderWithExtension(ctx, orderId)
-          if (!combined || !isOrderVisible(combined.extension)) continue
-          const order = { ...combined.order, ...combined.extension, _id: combined.order._id, _creationTime: combined.order._creationTime } as CandidateOrder
-          if ((order as any).mergedIntoOrderId || !matchesOrderFilters(order, args)) continue
-          if (args.location) {
-            const locations = await loadOrderLocationsByOrderId(ctx, [order])
-            if (!matchesLocationFilter(order._id, locations, normalizeLocationLabel(args.location)!)) continue
-          }
-          matching.push(order)
-        if (matching.length >= pageSize) break
+      const signature = JSON.stringify({
+        v: 1,
+        eventId: args.eventId ?? null,
+        search: needle,
+        status: args.status ?? null,
+        location: args.location ? normalizeLocationLabel(args.location) : null,
+        from: args.from ?? null,
+        to: args.to ?? null,
+        pageSize,
+      })
+      let scanCursor: string | null = null
+      if (args.searchCursor != null) {
+        let decoded: { signature: string; cursor: string | null }
+        try {
+          decoded = decodeSearchCursor(args.searchCursor)
+        } catch {
+          throw new Error("Invalid order search cursor.")
+        }
+        if (decoded.signature !== signature) {
+          throw new Error("Order search cursor does not match the request.")
+        }
+        scanCursor = decoded.cursor
       }
-      visibleOrders = matching
-      searchNextCursor = projectionPage.isDone ? null : cursor
-      searchHasNextPage = !projectionPage.isDone
+
+      // One events read per distinct event; a missing event fails closed.
+      const internalEventById = new Map<string, boolean>()
+      const eventIsInternal = async (eventKey: Id<"events">) => {
+        const key = String(eventKey)
+        const cached = internalEventById.get(key)
+        if (cached !== undefined) return cached
+        const event = await ctx.db.get("events", eventKey)
+        const isInternal = event?.primarySourceKind === "internal"
+        internalEventById.set(key, isInternal)
+        return isInternal
+      }
+
+      // Build the merged CandidateOrder exactly as the browse path does.
+      const resolveCandidateOrder = async (
+        orderId: Id<"orders">
+      ): Promise<CandidateOrder | null> => {
+        const combined = await loadOrderWithExtension(ctx, orderId)
+        if (!combined || !isOrderVisible(combined.extension)) return null
+        const order = {
+          ...combined.order,
+          ...combined.extension,
+          _id: combined.order._id,
+          _creationTime: combined.order._creationTime,
+        } as CandidateOrder
+        if ((order as any).mergedIntoOrderId || !matchesOrderFilters(order, args)) return null
+        const kindEventId = eventId ?? order.eventId
+        if (!kindEventId || !(await eventIsInternal(kindEventId))) return null
+        if (args.location) {
+          const locations = await loadOrderLocationsByOrderId(ctx, [order])
+          if (!matchesLocationFilter(order._id, locations, normalizeLocationLabel(args.location)!)) return null
+        }
+        return order
+      }
+
+      // Exact booking-ref alias resolution: one indexed read resolves an old
+      // (merged-away) reference to its surviving target. The target is excluded
+      // from the scan and prepended once on the first page (capacity
+      // permitting), so it is returned exactly once and never lost.
+      let aliasTargetId: string | null = null
+      let aliasOrder: CandidateOrder | null = null
+      const rawRef = args.search?.trim().toUpperCase() ?? ""
+      if (rawRef) {
+        const alias = await ctx.db
+          .query("orderBookingRefAliases")
+          .withIndex("by_bookingRef", (q) => q.eq("bookingRef", rawRef))
+          .first()
+        if (alias) {
+          const resolved = await resolveCandidateOrder(alias.targetOrderId)
+          if (resolved) {
+            aliasTargetId = String(resolved._id)
+            aliasOrder = resolved
+          }
+        }
+      }
+
+      // Cheap fields first: only a folded-substring hit pays for the validated
+      // join read (extension, filters, event kind, location).
+      const resolvedByOrderId = new Map<string, CandidateOrder>()
+      const matches = async (order: Doc<"orders">): Promise<boolean> => {
+        const haystack = buildSearchHaystack([
+          String(order._id),
+          order.bookingRef,
+          order.bookerName,
+          order.bookerEmail,
+          order.providerOrderId,
+        ])
+        if (!matchesNormalizedSearch(haystack, needle)) return false
+        if (order.mergedIntoOrderId) return false
+        if (String(order._id) === aliasTargetId) return false
+        const resolved = await resolveCandidateOrder(order._id)
+        if (!resolved) return false
+        resolvedByOrderId.set(String(order._id), resolved)
+        return true
+      }
+      // Convex allows only ONE paginated query per function execution, so the
+      // scan cannot re-`.paginate()` across fetches — the second call throws
+      // "ran multiple paginated queries". It scans with `.take()` and carries
+      // its own `_creationTime` boundary cursor instead, which preserves the
+      // collector's rule: consume the whole fetched page, resume strictly
+      // after its last candidate, so nothing is skipped or returned twice.
+      const fetchPage = async (cursor: string | null, limit: number) => {
+        const bound = decodeSourceScanBoundary(cursor)
+        const excluded = new Set(bound?.ids ?? [])
+        const takeCount = limit + excluded.size + 1
+        let rows: Doc<"orders">[]
+        if (bound === null) {
+          rows = await (eventId
+            ? ctx.db
+                .query("orders")
+                .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+                .order("desc")
+            : ctx.db.query("orders").order("desc")
+          ).take(takeCount)
+        } else {
+          rows = await (eventId
+            ? ctx.db
+                .query("orders")
+                .withIndex("by_eventId", (q) =>
+                  q.eq("eventId", eventId).lte("_creationTime", bound.t)
+                )
+                .order("desc")
+            : ctx.db
+                .query("orders")
+                .order("desc")
+                .filter((q) => q.lte(q.field("_creationTime"), bound.t))
+          ).take(takeCount)
+        }
+        const fresh =
+          bound === null
+            ? rows
+            : rows.filter(
+                (row) =>
+                  !(
+                    row._creationTime === bound.t &&
+                    excluded.has(String(row._id))
+                  )
+              )
+        const hasMore = fresh.length > limit
+        const items = hasMore ? fresh.slice(0, limit) : fresh
+        const last = items[items.length - 1]
+        let continueCursor: string | null = null
+        if (hasMore && last) {
+          const t = last._creationTime
+          const carried = bound !== null && bound.t === t ? bound.ids : []
+          const atT = items
+            .filter((row) => row._creationTime === t)
+            .map((row) => String(row._id))
+          continueCursor = encodeSourceScanBoundary(
+            t,
+            Array.from(new Set([...carried, ...atT]))
+          )
+        }
+        return { items, continueCursor, isDone: !hasMore }
+      }
+      const collected = await collectSourceSearchPage({
+        fetchPage,
+        matches,
+        pageSize,
+        cursor: scanCursor,
+        scanCap: ORDER_SEARCH_SCAN_CAP,
+      })
+      visibleOrders = collected.rows.flatMap((order) => {
+        const resolved = resolvedByOrderId.get(String(order._id))
+        return resolved ? [resolved] : []
+      })
+      // The alias prepend is NOT gated on scan exhaustion: a scan-cap hit (or
+      // any other full source page) must not swallow the exact-ref lookup. It
+      // is gated on capacity instead, so the page-size contract holds.
+      if (aliasOrder && args.searchCursor == null) {
+        const alreadyReturned = visibleOrders.some(
+          (order) => String(order._id) === aliasTargetId
+        )
+        if (!alreadyReturned && visibleOrders.length < pageSize) {
+          visibleOrders = [aliasOrder, ...visibleOrders].slice(0, pageSize)
+        }
+      }
+      searchNextCursor = collected.isDone ? null : encodeSearchCursor(signature, collected.continueCursor)
+      searchHasNextPage = !collected.isDone
     } else {
       const candidates = await listCandidateOrders(ctx, args, 500)
       const eventSourceKindsById = await loadEventSourceKindsById(ctx)
@@ -946,30 +1074,32 @@ export const getOrdersWithFilters = query({
       visibleOrders = orders.filter((o) => !(o as any).mergedIntoOrderId)
     }
 
-    const totalRows = normalizedSearch ? null : visibleOrders.length
-    const totalPages = normalizedSearch ? null : Math.max(1, Math.ceil(visibleOrders.length / pageSize))
-    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+    const totalRows = needle ? null : visibleOrders.length
+    const totalPages = needle ? null : Math.max(1, Math.ceil(visibleOrders.length / pageSize))
+    // ONE order-level balance owner (Phase 56): the ledger totals and every
+    // ledger row consume the same canonical paid / outstanding figure as the
+    // reconciliation row and the order payment summary. Rebuilding the
+    // due + paid + deriveBalanceAmounts triple here would be a second owner and
+    // is exactly the divergence this phase exists to prevent.
+    const canonicalBalancesByOrderId = await loadCanonicalOrderBalances({
       ctx,
-      visibleOrders
-    )
-    const matchedPaymentTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
-      ctx,
-      visibleOrders
-    )
+      orders: visibleOrders,
+    })
 
     const totals = visibleOrders.reduce(
       (acc, order) => {
+        const canonical = canonicalBalancesByOrderId.get(String(order._id))
         const amountDueMinor =
-          amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-          order.totalAmountMinor ??
-          0
-        const matchedAmountMinor =
-          matchedPaymentTotalsByOrderId.get(String(order._id)) ?? 0
-        const balance = deriveBalanceAmounts(amountDueMinor, matchedAmountMinor)
+          canonical?.amountDueMinor ?? order.totalAmountMinor ?? 0
 
         acc.amountDueMinor += amountDueMinor
-        acc.matchedAmountMinor += balance.appliedAmountMinor
-        acc.outstandingAmountMinor += balance.outstandingAmountMinor
+        // The CAPPED canonical figure: for an allocated order it equals
+        // `paidAmountMinor` (the Phase 55 allocation bound keeps credit inside
+        // the remaining outstanding), while an overpaid allocation-free order
+        // keeps the pre-Phase-56 capped value — due 100 / paid 150 still
+        // contributes 100 here, never the uncapped 150.
+        acc.matchedAmountMinor += canonical?.appliedAmountMinor ?? 0
+        acc.outstandingAmountMinor += canonical?.outstandingAmountMinor ?? 0
         return acc
       },
       {
@@ -979,18 +1109,15 @@ export const getOrdersWithFilters = query({
       }
     )
 
-    const skip = normalizedSearch ? 0 : (page - 1) * pageSize
-    const paginatedOrders = normalizedSearch ? visibleOrders : visibleOrders.slice(skip, skip + pageSize)
+    const skip = needle ? 0 : (page - 1) * pageSize
+    const paginatedOrders = needle ? visibleOrders : visibleOrders.slice(skip, skip + pageSize)
 
     const eventNamesById = await loadEventNamesById(ctx)
     const eventSlugsById = await loadEventSlugsById(ctx)
     const ordersWithEvent = paginatedOrders.map((order) => {
+      const canonical = canonicalBalancesByOrderId.get(String(order._id))
       const amountDueMinor =
-        amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-        order.totalAmountMinor ??
-        null
-       const matchedAmountMinor = matchedPaymentTotalsByOrderId.get(String(order._id))
-      const balance = deriveBalanceAmounts(amountDueMinor, matchedAmountMinor)
+        canonical?.amountDueMinor ?? order.totalAmountMinor ?? null
 
       return {
         orderId: order._id,
@@ -1006,8 +1133,13 @@ export const getOrdersWithFilters = query({
           : null,
         archiveReason: order.archiveReason ?? null,
         amountDueMinor,
-        matchedAmountMinor: matchedAmountMinor ?? 0,
-        outstandingAmountMinor: balance.outstandingAmountMinor,
+        // `matchedAmountMinor` now carries the canonically applied credit
+        // INCLUDING allocation-attributed donation credit (Phase 56), and stays
+        // the uncapped paired total exactly as it always was: due 100 / paid
+        // 150 still reads 150. The name is kept because the validator is a
+        // published contract.
+        matchedAmountMinor: canonical?.paidAmountMinor ?? 0,
+        outstandingAmountMinor: canonical?.outstandingAmountMinor ?? 0,
         totalAmountMinor: order.totalAmountMinor ?? null,
         currency: order.currency ?? null,
         orderedAt: order.orderedAt
@@ -1026,8 +1158,8 @@ export const getOrdersWithFilters = query({
     return {
       totalRows,
       totalPages,
-      nextCursor: normalizedSearch ? searchNextCursor : null,
-      hasNextPage: normalizedSearch ? searchHasNextPage : page < (totalPages ?? 1),
+      nextCursor: needle ? searchNextCursor : null,
+      hasNextPage: needle ? searchHasNextPage : page < (totalPages ?? 1),
       totals,
       orders: ordersWithEvent,
     }
@@ -1145,14 +1277,14 @@ export const getOrdersForReconciliation = query({
     const visibleOrders = filtered.filter((order) =>
       isInternalEvent(eventSourceKindsById, order.eventId)
     )
-    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+    // ONE order-level balance owner (Phase 56): the reconciliation row is the
+    // ledger's money row, so its amount due, canonical paid (payments +
+    // allocation credit), applied / overpayment classes and outstanding all
+    // come from `loadCanonicalOrderBalances` — never from a local recomposition.
+    const canonicalBalancesByOrderId = await loadCanonicalOrderBalances({
       ctx,
-      visibleOrders
-    )
-    const matchedTotalsByOrderId = await loadMatchedPaymentTotalsByOrderId(
-      ctx,
-      visibleOrders
-    )
+      orders: visibleOrders,
+    })
 
     // Join with extension data for additional fields, preserving canonical order._id
     const withExtensions = await loadOrdersWithExtensions(ctx, visibleOrders)
@@ -1163,15 +1295,9 @@ export const getOrdersForReconciliation = query({
     return withExtensions
       .sort((a, b) => sortOrdersByNewest(a.order, b.order))
       .map(({ order, extension }) => {
+        const canonical = canonicalBalancesByOrderId.get(String(order._id))
         const amountDueMinor =
-          amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-          order.totalAmountMinor ??
-          null
-        const matchedAmountMinor =
-          matchedTotalsByOrderId.get(String(order._id)) ?? 0
-        const balance = amountDueMinor === null
-          ? null
-          : deriveBalanceAmounts(amountDueMinor, matchedAmountMinor)
+          canonical?.amountDueMinor ?? order.totalAmountMinor ?? null
 
         return {
           orderId: order._id,
@@ -1190,10 +1316,11 @@ export const getOrdersForReconciliation = query({
           archiveReason: extension?.archiveReason ?? null,
           amountDueMinor,
           totalAmountMinor: order.totalAmountMinor ?? null,
-          matchedAmountMinor,
-          appliedAmountMinor: balance?.appliedAmountMinor ?? null,
-          donationAmountMinor: balance?.donationAmountMinor ?? null,
-          outstandingAmountMinor: balance?.outstandingAmountMinor ?? 0,
+          // Canonical paid, including allocation credit (Phase 56).
+          matchedAmountMinor: canonical?.paidAmountMinor ?? 0,
+          appliedAmountMinor: canonical?.appliedAmountMinor ?? null,
+          donationAmountMinor: canonical?.donationAmountMinor ?? null,
+          outstandingAmountMinor: canonical?.outstandingAmountMinor ?? 0,
           currency: order.currency ?? null,
           orderedAt: order.orderedAt
             ? new Date(order.orderedAt).toISOString()
@@ -1365,6 +1492,10 @@ export const getOrderWithAttendees = query({
           ticketTypeLabel: v.string(),
           normalizedStatus: v.string(),
           amountDueMinor: v.number(),
+          // Phase 56 — server-owned per-attendee money. Additive fields: the
+          // client reads these and must never re-derive them.
+          paidAmountMinor: v.number(),
+          outstandingAmountMinor: v.number(),
         })
       ),
     }),
@@ -1374,11 +1505,24 @@ export const getOrderWithAttendees = query({
     const order = await ctx.db.get("orders", args.orderId)
     if (!order) return null
 
+    // ONE pricing pass: the due breakdown is computed once and handed to the
+    // per-attendee attribution owner. The per-attendee paid / outstanding figure
+    // is the CANONICAL attributed figure from `loadOrderPaymentAttributions`
+    // (applied payments + allocation credit distributed by remaining need) — the
+    // client must not re-derive it from payments.
     const amountDueBreakdownByOrderId = await loadOrderAmountDueBreakdowns(
       ctx,
       [{ _id: order._id }]
     )
     const amountDueBreakdown = amountDueBreakdownByOrderId.get(
+      String(order._id)
+    )
+    const attendeeAttributionsByOrderId = await loadOrderPaymentAttributions({
+      ctx,
+      orders: [{ _id: order._id }],
+      dueBreakdownsByOrderId: amountDueBreakdownByOrderId,
+    })
+    const attendeeAttribution = attendeeAttributionsByOrderId.get(
       String(order._id)
     )
 
@@ -1419,17 +1563,195 @@ export const getOrderWithAttendees = query({
             ? new Date(order.submittedAt).toISOString()
             : null,
       },
-      attendees: attendees.map((a) => ({
-        id: a._id,
-        name: a.name ?? "Unnamed attendee",
-        email: a.email ?? null,
-        roommatePreference: a.roommatePreference ?? null,
-        roommateAvoid: a.roommateAvoid ?? null,
-        ticketTypeLabel: "-",
-        normalizedStatus: "pending",
-        amountDueMinor:
-          amountDueBreakdown?.amountDueByAttendeeId.get(String(a._id)) ?? 0,
-      })),
+      attendees: attendees.map((a) => {
+        // Server-owned per-attendee money: paid / outstanding come from the ONE
+        // allocation-aware attribution owner. An attendee cleared by an
+        // allocation reads as cleared here, exactly as on the order ledger.
+        // Absent from the attribution map is the same case as absent from the
+        // due map today — zero, never a fabricated balance.
+        const attributionRow = attendeeAttribution?.byAttendeeId.get(
+          String(a._id)
+        )
+
+        return {
+          id: a._id,
+          name: a.name ?? "Unnamed attendee",
+          email: a.email ?? null,
+          roommatePreference: a.roommatePreference ?? null,
+          roommateAvoid: a.roommateAvoid ?? null,
+          ticketTypeLabel: "-",
+          normalizedStatus: "pending",
+          amountDueMinor:
+            amountDueBreakdown?.amountDueByAttendeeId.get(String(a._id)) ?? 0,
+          paidAmountMinor: attributionRow?.paidAmountMinor ?? 0,
+          outstandingAmountMinor: attributionRow?.outstandingAmountMinor ?? 0,
+        }
+      }),
+    }
+  },
+})
+
+/**
+ * D-07 / the UI-SPEC G2 gap: the additive per-order allocation + canonical
+ * balance read consumed by the order detail surface (plan 61-09).
+ *
+ * The order detail must reconcile with donation credit: its payments list
+ * excludes allocation credit entirely, and until now no read exposed an
+ * order's allocation rows (target + scope). This query returns those rows
+ * (donation, amount, target attendee, scope, recorded time) beside the
+ * order's balance.
+ *
+ * Every MONEY field is `loadCanonicalOrderBalances` output VERBATIM — the
+ * canonical owner is the only place the paid / outstanding / overpayment
+ * figure is composed. The read must never recompose one from the rows or
+ * from payments, and it runs no second pricing or payments pass.
+ *
+ * The rows are read once, bounded, through `donationAllocations.by_orderId`
+ * with `for await`: no unbounded collect, no fixed cap — a cap would silently
+ * drop credit and overstate outstanding (the same rule the canonical owner
+ * documents). No sort: index order is stable and the UI renders as given.
+ *
+ * `coveragePercent` and `sharedOutstandingPerAttendeeMinor` are display
+ * scalars computed ONCE here from the canonical owner's output so the client
+ * performs zero arithmetic — a MOVE of the formulas the order surface used
+ * to run (`due > 0 → min(100, round(paid / due * 100))`, `due === 0 → 100`;
+ * `ceil(outstanding / attendeeCount)` when attendees exist), never a new
+ * money owner.
+ *
+ * Visibility guards mirror `getOrderWithAttendees`: only the requested event
+ * (explicit equality, never an inferred scope), only internal events, and
+ * removed / merged orders are refused. An order absent from the canonical
+ * owner's resolved due map yields `balances: null` — mirroring the owner's
+ * omission rule, never fabricated as a zero-due balance.
+ */
+export const getOrderAllocationLedger = query({
+  args: {
+    orderId: v.id("orders"),
+    eventId: v.id("events"),
+  },
+  returns: v.union(
+    v.object({
+      orderId: v.id("orders"),
+      /** `loadCanonicalOrderBalances` output VERBATIM; null mirrors the owner's omission rule. */
+      balances: v.union(
+        v.object({
+          amountDueMinor: v.number(),
+          appliedPaymentMinor: v.number(),
+          allocationCreditMinor: v.number(),
+          paidAmountMinor: v.number(),
+          outstandingAmountMinor: v.number(),
+          donationAmountMinor: v.number(),
+          appliedAmountMinor: v.number(),
+        }),
+        v.null()
+      ),
+      /** Presentation-only scalars; see the doc comment (no money ownership). */
+      coveragePercent: v.union(v.number(), v.null()),
+      sharedOutstandingPerAttendeeMinor: v.union(v.number(), v.null()),
+      /** One entry per recorded allocation row; index order. */
+      allocationRows: v.array(
+        v.object({
+          donationId: v.id("payments"),
+          attendeeId: v.id("orderAttendees"),
+          amountMinor: v.number(),
+          scope: v.union(v.literal("event_charges"), v.literal("whole_order")),
+          recordedAt: v.number(),
+        })
+      ),
+    }),
+    v.null()
+  ),
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    const order = await ctx.db.get("orders", args.orderId)
+    if (!order) return null
+
+    // Explicit event scoping: the read serves only the event the caller asked
+    // for, never an inferred scope.
+    if (String(order.eventId) !== String(args.eventId)) return null
+
+    const eventSourceKindsById = await loadEventSourceKindsById(ctx)
+    if (!isInternalEvent(eventSourceKindsById, order.eventId)) return null
+
+    const extension =
+      (await loadOrderWithExtension(ctx, order._id))?.extension ?? null
+    if (extension && isOrderRemoved(extension)) return null
+    if (isOrderMergedCore(order)) return null
+
+    // ONE balance pass: the canonical owner prices the order itself. No direct
+    // per-attendee attribution / due-breakdown call beside it — that would be
+    // a second pricing or payments pass that changes no figure.
+    const balancesByOrderId = await loadCanonicalOrderBalances({
+      ctx,
+      orders: [{ _id: order._id }],
+    })
+
+    const attendeeCount = (
+      await loadOrderAttendeesWithExtensions(ctx, order._id)
+    ).length
+
+    const allocationRows: Array<{
+      donationId: Id<"payments">
+      attendeeId: Id<"orderAttendees">
+      amountMinor: number
+      scope: "event_charges" | "whole_order"
+      recordedAt: number
+    }> = []
+
+    // Bounded per-order read through the declared index: for-await only.
+    for await (const row of ctx.db
+      .query("donationAllocations")
+      .withIndex("by_orderId", (q) => q.eq("orderId", order._id))) {
+      allocationRows.push({
+        donationId: row.donationId,
+        attendeeId: row.attendeeId,
+        amountMinor: row.amountMinor,
+        scope: row.scope,
+        recordedAt: row.createdAt,
+      })
+    }
+
+    const balance = balancesByOrderId.get(String(order._id)) ?? null
+    const coveragePercent =
+      balance === null
+        ? null
+        : balance.amountDueMinor > 0
+          ? Math.min(
+              100,
+              Math.round(
+                (balance.paidAmountMinor / balance.amountDueMinor) * 100
+              )
+            )
+          : balance.amountDueMinor === 0
+            ? 100
+            : null
+    const sharedOutstandingPerAttendeeMinor =
+      balance === null || attendeeCount === 0
+        ? null
+        : Math.ceil(balance.outstandingAmountMinor / attendeeCount)
+
+    // List the fields explicitly (not a spread) so the returns validator stays
+    // legible and a future owner field is a deliberate edit here.
+    const balanceForReturn =
+      balance === null
+        ? null
+        : {
+            amountDueMinor: balance.amountDueMinor,
+            appliedPaymentMinor: balance.appliedPaymentMinor,
+            allocationCreditMinor: balance.allocationCreditMinor,
+            paidAmountMinor: balance.paidAmountMinor,
+            outstandingAmountMinor: balance.outstandingAmountMinor,
+            donationAmountMinor: balance.donationAmountMinor,
+            appliedAmountMinor: balance.appliedAmountMinor,
+          }
+
+    return {
+      orderId: order._id,
+      balances: balanceForReturn,
+      coveragePercent,
+      sharedOutstandingPerAttendeeMinor,
+      allocationRows,
     }
   },
 })
@@ -1482,12 +1804,13 @@ export const getOrderPaymentStatus = query({
     )
 
     const payments = await ctx.db.query("payments").order("desc").take(1000)
-    const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(
+    // ONE order-level balance owner (Phase 56): the status buckets key off the
+    // canonical paid figure, so an order cleared by an allocated donation
+    // counts as `paid` on the payment-status summary instead of `partial`.
+    const canonicalBalancesByOrderId = await loadCanonicalOrderBalances({
       ctx,
-      canonicalVisibleOrders
-    )
-    const matchedPaymentTotalsByOrderId =
-      await loadMatchedPaymentTotalsByOrderId(ctx, canonicalVisibleOrders)
+      orders: canonicalVisibleOrders,
+    })
 
     const statusCounts = {
       unassigned: 0,
@@ -1499,15 +1822,13 @@ export const getOrderPaymentStatus = query({
     let totalPaidAmount = 0
 
     for (const order of canonicalVisibleOrders) {
+      const canonical = canonicalBalancesByOrderId.get(String(order._id))
       const orderTotal =
-        amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-        order.totalAmountMinor ??
-        0
+        canonical?.amountDueMinor ?? order.totalAmountMinor ?? 0
       if (orderTotal <= 0) continue
 
-      const matchedAmount = matchedPaymentTotalsByOrderId.get(String(order._id)) ?? 0
-      const balance = deriveBalanceAmounts(orderTotal, matchedAmount)
-      totalPaidAmount += balance.appliedAmountMinor
+      const matchedAmount = canonical?.paidAmountMinor ?? 0
+      totalPaidAmount += canonical?.appliedAmountMinor ?? 0
 
       if (matchedAmount === 0) {
         statusCounts.unassigned++
@@ -1601,13 +1922,6 @@ export const removeOrderLocally = mutation({
       .collect()
 
     const attendeeIds = attendees.map((attendee) => attendee._id)
-
-    // Remove projections before child rows disappear; search is never the
-    // source of truth, but it must not retain deleted canonical subjects.
-    await deleteSearchProjection(ctx, "order", String(args.orderId))
-    for (const attendee of attendees) {
-      await deleteSearchProjection(ctx, "attendee", String(attendee._id))
-    }
 
     const ticketSelections = await ctx.db
       .query("orderTicketSelections")
@@ -2356,12 +2670,7 @@ export const mergeOrders = mutation({
         })
       }
 
-      // The source is now non-searchable; moved attendees are refreshed from
-      // the canonical target after all ownership writes below.
-      await upsertOrderSearchDocument(ctx, source.order._id)
     }
-
-    await maintainOrderSearchProjection(ctx, args.targetOrderId)
 
     // ── Recompute target canonical amount due ──────────────────────────
     const breakdowns = await loadOrderAmountDueBreakdowns(ctx, [target])

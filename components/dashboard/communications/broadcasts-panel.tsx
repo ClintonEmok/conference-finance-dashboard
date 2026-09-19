@@ -10,6 +10,15 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -200,6 +209,7 @@ export function BroadcastsPanel(props: {
 }) {
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all")
   const [recipientStatus, setRecipientStatus] = useState<string>("all")
+  const [confirmAction, setConfirmAction] = useState<"cancel" | "retry" | null>(null)
 
   const broadcast = useQuery(
     api.emailBroadcasts.getBroadcastById,
@@ -238,7 +248,8 @@ export function BroadcastsPanel(props: {
   const progress = total > 0 ? Math.round((done / total) * 100) : 0
 
   return (
-    <Card>
+    <>
+      <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <History className="size-4 text-primary" />
@@ -414,7 +425,7 @@ export function BroadcastsPanel(props: {
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={props.onCancel}
+                      onClick={() => setConfirmAction("cancel")}
                       disabled={!isActive || props.actionPending}
                     >
                       {props.actionPending ? (
@@ -430,7 +441,7 @@ export function BroadcastsPanel(props: {
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={props.onRetry}
+                        onClick={() => setConfirmAction("retry")}
                         disabled={props.actionPending}
                       >
                         {props.actionPending ? (
@@ -544,6 +555,47 @@ export function BroadcastsPanel(props: {
           </div>
         </div>
       </CardContent>
-    </Card>
+      </Card>
+
+    <Dialog
+      open={confirmAction !== null}
+      onOpenChange={(open) => {
+        if (!open && !props.actionPending) setConfirmAction(null)
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {confirmAction === "cancel" ? "Cancel this broadcast?" : "Retry failed recipients?"}
+          </DialogTitle>
+          <DialogDescription>
+            {confirmAction === "cancel"
+              ? "Messages that have not started sending will not be delivered."
+              : "Failed recipients will be queued for another delivery attempt."}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline" disabled={props.actionPending}>
+              Keep it
+            </Button>
+          </DialogClose>
+          <Button
+            type="button"
+            variant={confirmAction === "cancel" ? "destructive" : "default"}
+            disabled={props.actionPending}
+            onClick={() => {
+              const action = confirmAction
+              setConfirmAction(null)
+              if (action === "cancel") props.onCancel()
+              if (action === "retry") props.onRetry()
+            }}
+          >
+            {confirmAction === "cancel" ? "Cancel broadcast" : "Retry recipients"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }

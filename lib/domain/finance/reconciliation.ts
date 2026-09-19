@@ -1,7 +1,6 @@
 import type { CanonicalOrderStatus } from "@/lib/domain/finance/order-ledger"
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
-import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
 import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
 import { listStandaloneDonations } from "@/lib/domain/finance/standalone-donations"
 import type { Id } from "@/convex/_generated/dataModel"
@@ -155,26 +154,28 @@ export async function getReconciliationRows(
     }),
   ])
 
-  const matchedTotalsByOrderId = await buildMatchedTotalsByOrderId(orders)
-
-  // Calculate total standalone donations for this event
-  const totalStandaloneDonations = standaloneDonations.reduce(
-    (sum, donation) => sum + donation.amountMinor,
+  // Standalone donation credit: only the UNALLOCATED REMAINDER is still
+  // unlinked money. The allocated portion already reduced its target order's
+  // outstanding through the canonical attribution, so offsetting the donation's
+  // full `amountMinor` here would subtract the allocated credit a second time.
+  const totalUnallocatedDonationRemainderMinor = standaloneDonations.reduce(
+    (sum, donation) => sum + donation.unallocatedRemainderMinor,
     0
   )
 
   const rows: ReconciliationRow[] = []
   let outstandingMinor = 0
-  // Apply unlinked donations to displayed follow-up rows without linking them
-  // to an attendee or order, keeping row totals consistent with the aggregate.
-  let remainingStandaloneDonationMinor = totalStandaloneDonations
+  // Apply each donation's unallocated remainder to displayed follow-up rows
+  // without linking it to an attendee or order, keeping row totals consistent
+  // with the aggregate. The remainder is the only unlinked money left to display
+  // against follow-up rows.
+  let remainingStandaloneDonationRemainderMinor =
+    totalUnallocatedDonationRemainderMinor
 
   for (const order of orders) {
     const typedOrder = order as typeof order & {
       amountDueMinor?: number | null
     }
-
-    const orderLookupKey = typedOrder.orderId ?? null
 
     const refundedAtDate = typedOrder.refundedAt
       ? new Date(typedOrder.refundedAt)
@@ -185,10 +186,9 @@ export async function getReconciliationRows(
       amountDueMinor: typedOrder.amountDueMinor ?? null,
       totalAmountMinor: typedOrder.totalAmountMinor,
       refundedAt: refundedAtDate,
-      matchedAmountMinor:
-        (orderLookupKey
-          ? matchedTotalsByOrderId.get(orderLookupKey)
-          : undefined) ?? 0,
+      // The row's `matchedAmountMinor` IS the canonical paid including
+      // allocation credit (plan 56-03) — never re-derived here.
+      matchedAmountMinor: typedOrder.matchedAmountMinor ?? 0,
     })
 
     if (reconciliation.reasons.length === 0) {
@@ -196,10 +196,10 @@ export async function getReconciliationRows(
     }
 
     const donationAppliedMinor = Math.min(
-      remainingStandaloneDonationMinor,
+      remainingStandaloneDonationRemainderMinor,
       reconciliation.outstandingMinor
     )
-    remainingStandaloneDonationMinor -= donationAppliedMinor
+    remainingStandaloneDonationRemainderMinor -= donationAppliedMinor
     const adjustedOutstandingMinor =
       reconciliation.outstandingMinor - donationAppliedMinor
 
@@ -234,7 +234,7 @@ export async function getReconciliationRows(
     totals: {
       rows: rows.length,
       outstandingMinor,
-      standaloneDonationMinor: totalStandaloneDonations,
+      standaloneDonationMinor: totalUnallocatedDonationRemainderMinor,
     },
     rows,
   }

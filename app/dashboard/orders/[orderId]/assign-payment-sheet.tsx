@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { formatMoney } from "@/lib/format"
 
 import {
   useUnassignedPayments,
@@ -30,13 +31,7 @@ interface AssignPaymentSheetProps {
   orderId: string
   outstandingAmountMinor: number
   bookerName?: string
-}
-
-function formatMoney(amountMinor: number) {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-  }).format(amountMinor / 100)
+  currency: string
 }
 
 export function AssignPaymentSheet({
@@ -45,6 +40,7 @@ export function AssignPaymentSheet({
   orderId,
   outstandingAmountMinor,
   bookerName,
+  currency,
 }: AssignPaymentSheetProps) {
   const [activeTab, setActiveTab] = useState("link")
 
@@ -106,7 +102,7 @@ export function AssignPaymentSheet({
         <SheetHeader className="mb-6">
           <SheetTitle className="text-xl font-bold">Assign Payment</SheetTitle>
           <SheetDescription>
-            Ledger deficit: <span className="font-bold text-foreground">{formatMoney(outstandingAmountMinor)}</span>
+            Ledger deficit: <span className="font-bold text-foreground">{formatMoney(outstandingAmountMinor, currency)}</span>
           </SheetDescription>
         </SheetHeader>
 
@@ -135,7 +131,7 @@ export function AssignPaymentSheet({
                           <span className="text-[10px] font-medium text-muted-foreground">{new Date(p.paidAt).toLocaleDateString()}</span>
                         </div>
                       </div>
-                      <p className="text-sm font-black font-mono tabular-nums">{formatMoney(p.amountMinor)}</p>
+                      <p className="text-sm font-black font-mono tabular-nums">{formatMoney(p.amountMinor, currency)}</p>
                     </div>
                     {(p.reference || p.notes) && <p className="text-xs text-muted-foreground italic truncate border-t pt-2 mt-1">{[p.reference, p.notes].filter(Boolean).join(" — ")}</p>}
 
@@ -177,7 +173,7 @@ export function AssignPaymentSheet({
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Amount (EUR)</Label>
+                  <Label>Amount ({currency})</Label>
                   <Input
                     type="number"
                     step="0.01"

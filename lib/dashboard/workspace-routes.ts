@@ -84,6 +84,10 @@ function workspaceHref(
   return `/dashboard/events/${encodeURIComponent(slug)}/${workspace}?${params.toString()}`
 }
 
+/**
+ * LEGACY ONLY — `/finance?tab=…` is a redirect shell since Phase 58; in-app
+ * producers must use `paymentsHref` / `donationsHref` / `reconciliationHref`.
+ */
 export const financeHref = (
   slug: string,
   tab: FinanceTab = defaultFinanceTab,
@@ -126,6 +130,84 @@ export const communicationsHref = (
   return view === defaultCommunicationsView ? base : `${base}?view=${view}`
 }
 
+/**
+ * The optional deep-link intent the dedicated money surfaces accept. Every key
+ * is forwarded to the target verbatim; a `tab` param is never part of it.
+ */
+export type WorkspaceRouteIntent = {
+  orderId?: string
+  donationId?: string
+  attendeeId?: string
+}
+
+/**
+ * The legacy `finance?tab=*` → dedicated-path table. This is the ONLY place
+ * that mapping is written; the builders below read their path segments from it
+ * so the table and the destinations cannot disagree.
+ */
+export const financeTabPaths = {
+  payments: "payments",
+  donations: "donations",
+  reconciliation: "reconciliation",
+} as const
+
+function dedicatedHref(
+  slug: string,
+  path: string,
+  intent?: WorkspaceRouteIntent
+) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(intent ?? {}))
+    if (value !== undefined) params.set(key, value)
+  const query = params.toString()
+  return `/dashboard/events/${encodeURIComponent(slug)}/${path}${query ? `?${query}` : ""}`
+}
+
+/**
+ * The canonical event-scoped Payments URL — the ONLY in-app producer of this
+ * destination. The href never carries a `tab` parameter.
+ */
+export const paymentsHref = (slug: string, intent?: WorkspaceRouteIntent) =>
+  dedicatedHref(slug, financeTabPaths.payments, intent)
+
+/**
+ * The canonical event-scoped Donations URL — the ONLY in-app producer of this
+ * destination. The href never carries a `tab` parameter.
+ */
+export const donationsHref = (slug: string, intent?: WorkspaceRouteIntent) =>
+  dedicatedHref(slug, financeTabPaths.donations, intent)
+
+/**
+ * The canonical event-scoped donation DETAIL URL. The list's `?donationId=`
+ * intent resolves here; no in-app producer may emit the query form again.
+ */
+export const donationDetailHref = (slug: string, donationId: string) =>
+  `/dashboard/events/${encodeURIComponent(slug)}/donations/${encodeURIComponent(donationId)}`
+
+/**
+ * The canonical event-scoped Reconciliation URL — the ONLY in-app producer of
+ * this destination. The href never carries a `tab` parameter.
+ */
+export const reconciliationHref = (
+  slug: string,
+  intent?: WorkspaceRouteIntent
+) => dedicatedHref(slug, financeTabPaths.reconciliation, intent)
+
+/**
+ * The single owner of the legacy `finance?tab=*` → dedicated-page mapping.
+ * The `/finance` redirect shell (58-10) is its only caller; it intentionally
+ * drops intent because the shell forwards the incoming query params itself.
+ */
+export const financeTabHref = (slug: string, tab: FinanceTab) => {
+  if (tab === "donations") return donationsHref(slug)
+  if (tab === "reconciliation") return reconciliationHref(slug)
+  return paymentsHref(slug)
+}
+
+/**
+ * LEGACY ONLY — `/finance?tab=…` is a redirect shell since Phase 58; in-app
+ * producers must use `paymentsHref` / `donationsHref` / `reconciliationHref`.
+ */
 export const legacyFinanceHref = (slug: string, tab: FinanceTab) =>
   financeHref(slug, tab)
 export const legacyAccommodationHref = (

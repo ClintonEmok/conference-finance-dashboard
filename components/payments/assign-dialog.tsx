@@ -37,6 +37,7 @@ type Order = {
 
 type AssignDialogProps = {
   payment: Payment
+  currency: string
   open: boolean
   onOpenChange: (open: boolean) => void
   onAssigned: () => void
@@ -61,6 +62,7 @@ function isFiniteMinorValue(value: unknown): value is number {
 
 export function AssignDialog({
   payment,
+  currency,
   open,
   onOpenChange,
   onAssigned,
@@ -134,7 +136,7 @@ export function AssignDialog({
               <span className="text-muted-foreground">Amount:</span>
               <span className="font-medium">
                 {isFiniteMinorValue(payment.amountMinor)
-                  ? formatMoney(payment.amountMinor)
+                   ? formatMoney(payment.amountMinor, currency)
                   : "N/A"}
               </span>
             </div>
@@ -202,7 +204,7 @@ export function AssignDialog({
                     <div className="text-right">
                       <div className="text-sm font-medium">
                         {isFiniteMinorValue(order.amountDueMinor)
-                          ? formatMoney(order.amountDueMinor)
+                           ? formatMoney(order.amountDueMinor, currency)
                           : "N/A"}
                       </div>
                     </div>
@@ -230,7 +232,7 @@ export function AssignDialog({
                 <span className="text-muted-foreground">Amount due:</span>
                 <span className="font-medium">
                   {isFiniteMinorValue(selectedOrder.amountDueMinor)
-                    ? formatMoney(selectedOrder.amountDueMinor)
+                     ? formatMoney(selectedOrder.amountDueMinor, currency)
                     : "N/A"}
                 </span>
               </div>

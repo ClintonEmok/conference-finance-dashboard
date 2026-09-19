@@ -162,6 +162,8 @@ export const internalGetAttendeesByOrder = internalQuery({
   },
 })
 
+export const SCAN_LIMIT_PER_STATUS = 250
+
 export const internalGetTikkiePaymentLinks = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -173,20 +175,27 @@ export const internalGetTikkiePaymentLinks = internalQuery({
             q.eq("linkType", "event").eq("status", status)
           )
           .order("desc")
-          .take(100)
+          .take(SCAN_LIMIT_PER_STATUS)
       )
     )
 
+    const saturated = candidates.some(
+      (links) => links.length === SCAN_LIMIT_PER_STATUS
+    )
+
     const now = Date.now()
-    return candidates
-      .flat()
-      .filter((link) => !link.expiryDate || link.expiryDate > now)
-      .sort(
-        (a, b) =>
-          (b.statusUpdatedAt ?? b._creationTime ?? 0) -
-          (a.statusUpdatedAt ?? a._creationTime ?? 0)
-      )
-      .slice(0, 50)
+    return {
+      links: candidates
+        .flat()
+        .filter((link) => !link.expiryDate || link.expiryDate > now)
+        .sort(
+          (a, b) =>
+            (b.statusUpdatedAt ?? b._creationTime ?? 0) -
+            (a.statusUpdatedAt ?? a._creationTime ?? 0)
+        )
+        .slice(0, 50),
+      saturated,
+    }
   },
 })
 

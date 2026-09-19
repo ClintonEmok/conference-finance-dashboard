@@ -1,11 +1,7 @@
 import { api } from "@/lib/convex/api"
 import { convexQuery } from "@/lib/convex/server"
 import type { Id } from "@/convex/_generated/dataModel"
-import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
-import {
-  allocateMinorAmountByWeight,
-  deriveBalanceAmounts,
-} from "@/lib/domain/finance/amounts"
+import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
 import { matchTemplateForAttendee } from "@/lib/domain/finance/tikkie-templates"
 import {
   deriveTikkieLinkCheckState,
@@ -81,6 +77,10 @@ type OrderWithAttendeesOrder = {
 type OrderWithAttendeesAttendee = {
   id: string
   amountDueMinor: number
+  /** Server-owned per-attendee canonical paid (payments + allocation credit). */
+  paidAmountMinor: number
+  /** Server-owned per-attendee canonical outstanding. */
+  outstandingAmountMinor: number
 }
 
 type PaymentRecord = {
@@ -132,6 +132,7 @@ export type AttendeeDetail = {
   event: {
     id: string
     name: string | null
+    currency: string
   }
   order: {
     id: string
@@ -149,6 +150,7 @@ export type AttendeeDetail = {
     outstandingAmountMinor: number
     paidAmountMinor: number
     overpaidAmountMinor: number
+    paymentProgressPercent: number
     installmentProgress: {
       totalLinks: number
       paidLinks: number
@@ -318,32 +320,29 @@ export async function getAttendeeDetail(
 
   const orderAmountDueMinor =
     order.amountDueMinor ?? order.totalAmountMinor ?? 0
-  const matchedTotalsByOrderId = await buildMatchedTotalsByOrderId([
-    {
-      orderId: order.id,
-      providerOrderId: order.providerOrderId,
-    },
-  ])
-  const paymentMatchKey = order.id
-  const orderPaidAmountMinor = Math.max(
-    0,
-    matchedTotalsByOrderId.get(paymentMatchKey) ?? 0
-  )
-  const paidShareByAttendeeId = allocateMinorAmountByWeight(
-    orderPaidAmountMinor,
-    orderAttendees.map((orderAttendee) => ({
-      id: orderAttendee.id,
-      weightMinor: orderAttendee.amountDueMinor,
-    }))
+  const orderAttendee = orderAttendees.find(
+    (orderAttendee) => orderAttendee.id === attendee._id
   )
   const attendeeAmountDueMinor =
-    orderAttendees.find((orderAttendee) => orderAttendee.id === attendee._id)
-      ?.amountDueMinor ?? attendee.amountDueMinor
-  const attendeePaidAmountMinor = paidShareByAttendeeId.get(attendee._id) ?? 0
+    orderAttendee?.amountDueMinor ?? attendee.amountDueMinor
+  // Per-attendee paid is SERVER-OWNED: `getOrderWithAttendees` carries the
+  // canonical attributed paid figure (applied payments + allocation credit
+  // distributed by remaining need). It must never be re-derived client-side — a
+  // local due-weighted spread of payments would report an attendee cleared by an
+  // allocation as still owing money. `deriveBalanceAmounts` stays the ONE owner
+  // of the outstanding / overpaid decomposition.
+  const attendeePaidAmountMinor = orderAttendee?.paidAmountMinor ?? 0
   const balance = deriveBalanceAmounts(
     attendeeAmountDueMinor,
     attendeePaidAmountMinor
   )
+  const paymentProgressPercent =
+    attendeeAmountDueMinor === 0
+      ? 100
+      : Math.min(
+          100,
+          Math.round((balance.paidAmountMinor / attendeeAmountDueMinor) * 100)
+        )
 
   const paymentHistoryFromTikkie = paymentLinks.flatMap(
     (link: (typeof paymentLinks)[number]) => [
@@ -575,6 +574,7 @@ export async function getAttendeeDetail(
     event: {
       id: event._id,
       name: event.name,
+      currency: event.currency,
     },
     order: {
       id: order.id,
@@ -594,6 +594,7 @@ export async function getAttendeeDetail(
       outstandingAmountMinor: balance.outstandingAmountMinor,
       paidAmountMinor: balance.paidAmountMinor,
       overpaidAmountMinor: balance.overpaidAmountMinor,
+      paymentProgressPercent,
       installmentProgress: {
         totalLinks: paymentLinks.length,
         paidLinks: paymentLinks.filter(

@@ -28,7 +28,11 @@ export function useRoomById(roomId: string) {
 }
 
 export function useRoomTypes() {
-  const roomTypes = useQuery(api.accommodation.getRoomTypes)
+  const { isAuthenticated, isLoading } = useConvexAuth()
+  const roomTypes = useQuery(
+    api.accommodation.getRoomTypes,
+    isAuthenticated && !isLoading ? {} : "skip"
+  )
   return roomTypes ?? []
 }
 

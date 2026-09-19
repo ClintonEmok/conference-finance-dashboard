@@ -1,6 +1,6 @@
 import { query, mutation, internalMutation } from "./_generated/server"
 import { v } from "convex/values"
-import { paginationOptsValidator } from "convex/server"
+import { paginationOptsValidator, type PaginationResult } from "convex/server"
 import { requireIdentity } from "./auth"
 import type { Doc, Id } from "./_generated/dataModel"
 import type { MutationCtx } from "./_generated/server"
@@ -13,15 +13,30 @@ import {
   deriveBalanceAmounts,
   isOrderAppliedPayment,
 } from "../lib/domain/finance/amounts"
+import { deriveEventDonationIncome } from "../lib/domain/finance/donation-income"
+import {
+  resolveTikkieLinkPurpose,
+  tikkieLinkPurposeValidator,
+} from "../lib/domain/finance/tikkie-link-purpose"
 import {
   paymentSourceValidator,
   paymentStatusValidator,
   paymentDocValidator,
 } from "../lib/types/payment"
 import {
+  loadCanonicalOrderBalances,
   loadMatchedPaymentTotalsByOrderId,
   loadOrderAmountDueBreakdowns,
 } from "./finance"
+import { loadRecordedAllocatedMinorByDonationIds } from "./donations"
+import {
+  buildSearchHaystack,
+  collectSourceSearchPage,
+  matchesNormalizedSearch,
+  requireSearchNeedle,
+  decodeSourceScanBoundary,
+  encodeSourceScanBoundary,
+} from "./search"
 
 type TikkiePaymentUpsert = {
   eventId?: Id<"events">
@@ -315,9 +330,82 @@ export const getPaymentById = query({
 })
 
 export const getUnassignedPayments = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { search: v.optional(v.string()) },
+  handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    const needle = requireSearchNeedle(args.search)
+    if (needle) {
+      // Bounded source search: scan at most 4,000 unassigned candidates per
+      // call (20 fetches of 200), well below Convex's 32,000-document and
+      // 4,096-call budgets. This replaces the old 500-row browse-cap search
+      // boundary while preserving the published array return type and 500-row
+      // result cap.
+      const collected = await collectSourceSearchPage({
+        fetchPage: async (cursor, limit) => {
+          // Convex allows only ONE paginated query per function execution, so
+          // the scan cannot re-`.paginate()` across fetches. It scans with
+          // `.take()` and carries its own `_creationTime` boundary cursor.
+          // This scan is ASCENDING (the status index has no `.order()`), so it
+          // advances with a lower bound: `.gte`. An upper bound (`.lte`) would
+          // re-read the same prefix forever and stop at the first page.
+          const bound = decodeSourceScanBoundary(cursor)
+          const excluded = new Set(bound?.ids ?? [])
+          const takeCount = limit + excluded.size + 1
+          const rows = await (
+            bound === null
+              ? ctx.db
+                  .query("payments")
+                  .withIndex("status", (q) => q.eq("status", "unassigned"))
+              : ctx.db
+                  .query("payments")
+                  .withIndex("status", (q) =>
+                    q.eq("status", "unassigned").gte("_creationTime", bound.t)
+                  )
+          ).take(takeCount)
+          const fresh =
+            bound === null
+              ? rows
+              : rows.filter(
+                  (row) =>
+                    !(
+                      row._creationTime === bound.t &&
+                      excluded.has(String(row._id))
+                    )
+                )
+          const hasMore = fresh.length > limit
+          const items = hasMore ? fresh.slice(0, limit) : fresh
+          const last = items[items.length - 1]
+          let continueCursor: string | null = null
+          if (hasMore && last) {
+            const t = last._creationTime
+            const carried = bound !== null && bound.t === t ? bound.ids : []
+            const atT = items
+              .filter((row) => row._creationTime === t)
+              .map((row) => String(row._id))
+            continueCursor = encodeSourceScanBoundary(
+              t,
+              Array.from(new Set([...carried, ...atT]))
+            )
+          }
+          return { items, continueCursor, isDone: !hasMore }
+        },
+        matches: (payment) =>
+          matchesNormalizedSearch(
+            buildSearchHaystack([
+              payment.payerName,
+              payment.reference,
+              payment.notes,
+              payment.source,
+            ]),
+            needle
+          ),
+        pageSize: 500,
+        cursor: null,
+        scanCap: 4_000,
+      })
+      return collected.rows
+    }
+
     // Bounded: indexed status query, capped
     return await ctx.db
       .query("payments")
@@ -453,14 +541,20 @@ export const logReconciliationPayment = mutation({
 export const upsertTikkiePayment = mutation({
   args: {
     sourceId: v.string(),
+    eventId: v.optional(v.string()),
     payerName: v.string(),
     payerAccountNumber: v.optional(v.string()),
     amountMinor: v.number(),
     paidAt: v.number(),
     providerPayload: v.optional(v.any()),
+    purpose: v.optional(tikkieLinkPurposeValidator),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    const eventId = args.eventId
+      ? (ctx.db.normalizeId("events", args.eventId) ?? undefined)
+      : undefined
+    const purpose = resolveTikkieLinkPurpose(args.purpose)
     const existing = await ctx.db
       .query("payments")
       .withIndex("source_sourceId", (q) =>
@@ -469,7 +563,7 @@ export const upsertTikkiePayment = mutation({
       .first()
 
     if (existing) {
-      const updates = buildTikkiePaymentPatch(existing, args)
+      const updates = buildTikkiePaymentPatch(existing, { ...args, eventId })
       if (Object.keys(updates).length === 0) {
         return { id: existing._id, inserted: false, updated: false }
       }
@@ -477,6 +571,10 @@ export const upsertTikkiePayment = mutation({
       await ctx.db.patch(existing._id, updates)
 
       return { id: existing._id, inserted: false, updated: true }
+    }
+
+    if (purpose === "donation" && !eventId) {
+      throw new Error("Donation payments require a resolvable event id")
     }
 
     const id = await ctx.db.insert("payments", {
@@ -487,7 +585,9 @@ export const upsertTikkiePayment = mutation({
       amountMinor: args.amountMinor,
       paidAt: args.paidAt,
       providerPayload: args.providerPayload,
-      status: "unassigned",
+      ...(purpose === "donation"
+        ? buildDonationClassification({ eventId })
+        : { eventId, status: "unassigned" as const }),
     })
 
     return { id, inserted: true, updated: false }
@@ -518,6 +618,18 @@ export const assignPaymentToOrder = mutation({
       throw new Error("Order not found")
     }
     const order = await ctx.db.get("orders", canonicalOrderId)
+    // D-02 (Phase 60): a standalone donation's payment row is NEVER assigned to
+    // an order (Phase 56 D-07). Any credit the donation has given is carried by
+    // its allocation rows, so converting the row would let the order-applied
+    // payment class count the full face while the allocation rows still credit
+    // the order — the same money counted twice. The refusal is inert: it runs
+    // before any write, so the row and its allocations are untouched. An
+    // order-linked overpayment row is a legitimate order-applied class and is
+    // deliberately not refused here.
+    const payment = await ctx.db.get("payments", args.paymentId)
+    if (payment?.donationKind === "standalone") {
+      throw new Error("PAYMENT_ASSIGNMENT_STANDALONE_DONATION_REFUSED")
+    }
     await ctx.db.patch("payments", args.paymentId, {
       orderId: canonicalOrderId,
       eventId: order?.eventId,
@@ -692,9 +804,16 @@ export const getStandaloneDonations = query({
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
 
+    // ONE local holds the page for all EIGHT range branches (eventId ×
+    // {from+to, from, to, none} plus the same four on the global index). The
+    // index, range, ordering and pagination arguments are unchanged; the final
+    // `else` always assigns, so the enrichment below is the ONLY return path
+    // and no branch can ship raw rows.
+    let page: PaginationResult<Doc<"payments">>
+
     if (args.eventId) {
       if (args.from !== undefined && args.to !== undefined) {
-        return await ctx.db
+        page = await ctx.db
           .query("payments")
           .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
             q
@@ -705,10 +824,8 @@ export const getStandaloneDonations = query({
           )
           .order("desc")
           .paginate(args.paginationOpts)
-      }
-
-      if (args.from !== undefined) {
-        return await ctx.db
+      } else if (args.from !== undefined) {
+        page = await ctx.db
           .query("payments")
           .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
             q
@@ -718,10 +835,8 @@ export const getStandaloneDonations = query({
           )
           .order("desc")
           .paginate(args.paginationOpts)
-      }
-
-      if (args.to !== undefined) {
-        return await ctx.db
+      } else if (args.to !== undefined) {
+        page = await ctx.db
           .query("payments")
           .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
             q
@@ -731,19 +846,17 @@ export const getStandaloneDonations = query({
           )
           .order("desc")
           .paginate(args.paginationOpts)
+      } else {
+        page = await ctx.db
+          .query("payments")
+          .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
+            q.eq("donationKind", "standalone").eq("eventId", args.eventId!)
+          )
+          .order("desc")
+          .paginate(args.paginationOpts)
       }
-
-      return await ctx.db
-        .query("payments")
-        .withIndex("by_donationKind_and_eventId_and_paidAt", (q) =>
-          q.eq("donationKind", "standalone").eq("eventId", args.eventId!)
-        )
-        .order("desc")
-        .paginate(args.paginationOpts)
-    }
-
-    if (args.from !== undefined && args.to !== undefined) {
-      return await ctx.db
+    } else if (args.from !== undefined && args.to !== undefined) {
+      page = await ctx.db
         .query("payments")
         .withIndex("by_donationKind_and_paidAt", (q) =>
           q
@@ -753,35 +866,89 @@ export const getStandaloneDonations = query({
         )
         .order("desc")
         .paginate(args.paginationOpts)
-    }
-
-    if (args.from !== undefined) {
-      return await ctx.db
+    } else if (args.from !== undefined) {
+      page = await ctx.db
         .query("payments")
         .withIndex("by_donationKind_and_paidAt", (q) =>
           q.eq("donationKind", "standalone").gte("paidAt", args.from!)
         )
         .order("desc")
         .paginate(args.paginationOpts)
-    }
-
-    if (args.to !== undefined) {
-      return await ctx.db
+    } else if (args.to !== undefined) {
+      page = await ctx.db
         .query("payments")
         .withIndex("by_donationKind_and_paidAt", (q) =>
           q.eq("donationKind", "standalone").lte("paidAt", args.to!)
         )
         .order("desc")
         .paginate(args.paginationOpts)
+    } else {
+      page = await ctx.db
+        .query("payments")
+        .withIndex("by_donationKind_and_paidAt", (q) =>
+          q.eq("donationKind", "standalone")
+        )
+        .order("desc")
+        .paginate(args.paginationOpts)
     }
 
-    return await ctx.db
-      .query("payments")
-      .withIndex("by_donationKind_and_paidAt", (q) =>
-        q.eq("donationKind", "standalone")
-      )
-      .order("desc")
-      .paginate(args.paginationOpts)
+    // ONE shared enrichment step for ALL eight branches (Phase 56, 56-05):
+    // every returned donation carries its recorded allocation composition —
+    // `allocatedMinor` (counted once against its attendee/order through the
+    // canonical attribution) and `unallocatedRemainderMinor` (the event
+    // donation income) — so a consumer never re-reads allocation rows to
+    // compute a remainder. The page is already bounded by `paginationOpts` and
+    // the credit read is bounded by these donations' own allocation counts.
+    // Spreading `page` keeps `isDone` and `continueCursor` intact; the query
+    // has no `returns` validator, so the added fields are additive.
+    const allocatedSummaries = await loadRecordedAllocatedMinorByDonationIds(
+      ctx,
+      page.page.map((row) => row._id)
+    )
+
+    // The shared reader is contractually total; a missing entry is a bug and
+    // must never be read as a zero allocation — that would report the whole
+    // donation as income while its credit still counts against attendees, the
+    // very double-count this phase forbids. Fail closed instead.
+    const composition = deriveEventDonationIncome({
+      donations: page.page.map((row) => {
+        const summary = allocatedSummaries.get(String(row._id))
+        if (!summary) {
+          throw new Error(
+            `missing recorded allocation summary for donation ${String(row._id)}`
+          )
+        }
+
+        return {
+          donationId: String(row._id),
+          amountMinor: row.amountMinor,
+          recordedAllocations: [{ amountMinor: summary.allocatedMinor }],
+        }
+      }),
+    })
+
+    const compositionByDonationId = new Map(
+      composition.rows.map((row) => [row.donationId, row])
+    )
+
+    const enrichedRows = page.page.map((row) => {
+      const income = compositionByDonationId.get(String(row._id))
+      if (!income) {
+        // Fail closed: a missing composition must never be read as a zero
+        // remainder. The composer maps its input 1:1, so this cannot happen.
+        throw new Error(
+          `missing donation-income composition for donation ${String(row._id)}`
+        )
+      }
+
+      return {
+        ...row,
+        allocatedMinor: income.allocatedMinor,
+        unallocatedRemainderMinor: income.unallocatedRemainderMinor,
+      }
+    })
+
+    return { ...page, page: enrichedRows }
   },
 })
 
@@ -815,11 +982,12 @@ export const autoMatchPayments = mutation({
       .take(1000)
     // Keep the existing bank-transfer dashboard behavior independent of the
     // event-scoped Tikkie optimization.
-    const bankPayments = (await ctx.db
-      .query("payments")
-      .withIndex("status", (q) => q.eq("status", "unassigned"))
-      .take(1000))
-      .filter((payment) => payment.source === "bank_transfer")
+    const bankPayments = (
+      await ctx.db
+        .query("payments")
+        .withIndex("status", (q) => q.eq("status", "unassigned"))
+        .take(1000)
+    ).filter((payment) => payment.source === "bank_transfer")
     const unassignedPayments = [...eventTikkiePayments, ...bankPayments]
     const matched: string[] = []
 
@@ -840,26 +1008,31 @@ export const autoMatchPayments = mutation({
       }
     }
 
-    const orderMatchCandidates: OrderPaymentMatchCandidate[] = await Promise.all(
-      orders.map(async (order) => {
-        const priorPayments = await ctx.db
-          .query("payments")
-          .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))
-          .take(100)
-        return {
-        orderId: String(order._id),
-        bookerName: order.bookerName ?? null,
-        attendeeNames: attendeesByOrder.get(String(order._id)) ?? [],
-        amountDueMinor:
-          amountDueBreakdownsByOrderId.get(String(order._id))?.amountDueMinor ??
-          order.totalAmountMinor ??
-          0,
-        payerAccountNumbers: priorPayments
-          .filter((payment) => payment.source === "tikkie" && payment.payerAccountNumber)
-          .map((payment) => payment.payerAccountNumber as string),
-        }
-      })
-    )
+    const orderMatchCandidates: OrderPaymentMatchCandidate[] =
+      await Promise.all(
+        orders.map(async (order) => {
+          const priorPayments = await ctx.db
+            .query("payments")
+            .withIndex("orderId", (q) => q.eq("orderId", String(order._id)))
+            .take(100)
+          return {
+            orderId: String(order._id),
+            bookerName: order.bookerName ?? null,
+            attendeeNames: attendeesByOrder.get(String(order._id)) ?? [],
+            amountDueMinor:
+              amountDueBreakdownsByOrderId.get(String(order._id))
+                ?.amountDueMinor ??
+              order.totalAmountMinor ??
+              0,
+            payerAccountNumbers: priorPayments
+              .filter(
+                (payment) =>
+                  payment.source === "tikkie" && payment.payerAccountNumber
+              )
+              .map((payment) => payment.payerAccountNumber as string),
+          }
+        })
+      )
 
     for (const payment of unassignedPayments) {
       const match = evaluateOrderPaymentMatch(
@@ -873,7 +1046,8 @@ export const autoMatchPayments = mutation({
         await ctx.db.patch("payments", payment._id, {
           orderId: match.orderId as Id<"orders">,
           status: "auto_matched",
-          eventId: (await ctx.db.get("orders", match.orderId as Id<"orders">))?.eventId,
+          eventId: (await ctx.db.get("orders", match.orderId as Id<"orders">))
+            ?.eventId,
           matchedAt: Date.now(),
           matchedBy: "auto",
         })
@@ -931,24 +1105,24 @@ export const getPaymentSummary = query({
     }
     const orderPayments = [...paymentsById.values()]
 
-    const totalPaid = orderPayments
-      .filter((p) => isOrderAppliedPayment(p))
-      .reduce((sum, p) => sum + p.amountMinor, 0)
+    // ONE order-level balance owner (Phase 56): the order-detail summary is the
+    // same money report as the ledger row and the reconciliation row, so its
+    // canonical paid (payments + allocation credit), amount due and outstanding
+    // all come from `loadCanonicalOrderBalances`. When no order row exists
+    // there is no canonical balance to report — the guard mirrors the
+    // pre-Phase-56 conditional loader call.
+    const canonicalBalancesByOrderId = order
+      ? await loadCanonicalOrderBalances({ ctx, orders: [order] })
+      : null
+    const canonical = canonicalBalancesByOrderId?.get(String(order?._id ?? ""))
 
-    const amountDueBreakdownByOrderId = order
-      ? await loadOrderAmountDueBreakdowns(ctx, [order])
-      : new Map()
-    const orderTotal =
-      amountDueBreakdownByOrderId.get(String(order?._id ?? ""))
-        ?.amountDueMinor ??
-      order?.totalAmountMinor ??
-      0
-    const balance = deriveBalanceAmounts(orderTotal, totalPaid)
-
+    // The payment LIST stays the payment list, not a balance: `paymentCount` is
+    // still the count of stored payment rows on the order (an allocation is
+    // not a payment).
     return {
-      totalPaid,
-      orderTotal,
-      remaining: balance.outstandingAmountMinor,
+      totalPaid: canonical?.paidAmountMinor ?? 0,
+      orderTotal: canonical?.amountDueMinor ?? order?.totalAmountMinor ?? 0,
+      remaining: canonical?.outstandingAmountMinor ?? 0,
       paymentCount: orderPayments.length,
     }
   },
@@ -967,11 +1141,13 @@ export const internalUpsertTikkiePayment = internalMutation({
     amountMinor: v.number(),
     paidAt: v.number(),
     providerPayload: v.optional(v.any()),
+    purpose: v.optional(tikkieLinkPurposeValidator),
   },
   handler: async (ctx, args) => {
     const eventId = args.eventId
-      ? ctx.db.normalizeId("events", args.eventId) ?? undefined
+      ? (ctx.db.normalizeId("events", args.eventId) ?? undefined)
       : undefined
+    const purpose = resolveTikkieLinkPurpose(args.purpose)
     const existing = await ctx.db
       .query("payments")
       .withIndex("source_sourceId", (q) =>
@@ -992,16 +1168,21 @@ export const internalUpsertTikkiePayment = internalMutation({
       return { id: existing._id, inserted: false, updated: true }
     }
 
+    if (purpose === "donation" && !eventId) {
+      throw new Error("Donation payments require a resolvable event id")
+    }
+
     const id = await ctx.db.insert("payments", {
       source: "tikkie",
       sourceId: args.sourceId,
-      eventId,
       payerName: args.payerName,
       payerAccountNumber: args.payerAccountNumber,
       amountMinor: args.amountMinor,
       paidAt: args.paidAt,
       providerPayload: args.providerPayload,
-      status: "unassigned",
+      ...(purpose === "donation"
+        ? buildDonationClassification({ eventId })
+        : { eventId, status: "unassigned" as const }),
     })
     return { id, inserted: true, updated: false }
   },

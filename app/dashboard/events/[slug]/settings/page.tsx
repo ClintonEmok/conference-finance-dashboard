@@ -53,6 +53,7 @@ export default function EventSettingsPage({
   
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Form state
   const [editTitle, setEditTitle] = useState("")
@@ -94,13 +95,36 @@ export default function EventSettingsPage({
   if (!event) return null
 
   const saveChanges = async () => {
+    setSaveError(null)
+
+    // An empty Starts At used to reach the mutation as `NaN`, which stored a
+    // nonsense date instead of telling the operator the field was required.
+    if (!editTitle.trim()) {
+      setSaveError("A title is required.")
+      return
+    }
+    const startsAt = parseDateTimeLocal(editStartsAt)
+    if (!Number.isFinite(startsAt)) {
+      setSaveError("A valid start date and time is required.")
+      return
+    }
+    const endsAt = editEndsAt ? parseDateTimeLocal(editEndsAt) : undefined
+    if (endsAt !== undefined && !Number.isFinite(endsAt)) {
+      setSaveError("The end date and time must be valid.")
+      return
+    }
+    if (endsAt !== undefined && endsAt < startsAt) {
+      setSaveError("The end date and time must be after the start date and time.")
+      return
+    }
+
     setIsSaving(true)
     try {
       await updateEvent({
         eventId: event._id,
-        title: editTitle,
-        startsAt: parseDateTimeLocal(editStartsAt),
-        endsAt: editEndsAt ? parseDateTimeLocal(editEndsAt) : undefined,
+        title: editTitle.trim(),
+        startsAt,
+        endsAt,
         timezone: editTimezone,
         currency: editCurrency,
         isPublished: editIsPublished,
@@ -111,6 +135,11 @@ export default function EventSettingsPage({
       setIsEditing(false)
     } catch (err) {
       console.error("Failed to update event:", err)
+      setSaveError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not save the event. Please try again."
+      )
     } finally {
       setIsSaving(false)
     }
@@ -157,6 +186,15 @@ export default function EventSettingsPage({
           )}
         </CardHeader>
         <CardContent className="space-y-8">
+          {saveError ? (
+            <p
+              role="alert"
+              aria-live="assertive"
+              className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive"
+            >
+              {saveError}
+            </p>
+          ) : null}
           <div className="grid gap-8 sm:grid-cols-2">
             <div className="space-y-3">
               <label className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase px-1">Event Title</label>
@@ -296,9 +334,22 @@ export default function EventSettingsPage({
                 Archiving this event will hide it from all public lists and the dashboard. 
                 Data remains in the database but will be set to a read-only archived state.
               </p>
-              <Button variant="outline" className="rounded-xl border-destructive/20 text-destructive hover:bg-destructive/10 hover:border-destructive/40 bg-transparent h-11 px-6">
+              <Button
+                variant="outline"
+                disabled
+                title="Event archiving is not available yet."
+                aria-describedby="event-archive-unavailable"
+                className="rounded-xl border-destructive/20 text-destructive hover:bg-destructive/10 hover:border-destructive/40 bg-transparent h-11 px-6"
+              >
                 <Trash2 className="mr-3 size-4" /> Archive Event
               </Button>
+              <p
+                id="event-archive-unavailable"
+                className="mt-2 text-xs text-muted-foreground"
+              >
+                Not available yet — event archiving has no backing operation, so
+                this stays disabled rather than appearing to work.
+              </p>
             </div>
           )}
         </CardContent>

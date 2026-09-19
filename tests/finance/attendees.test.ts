@@ -4,20 +4,12 @@ vi.mock("@/lib/convex/server", () => ({
   convexQuery: vi.fn(),
 }))
 
-vi.mock("@/lib/domain/finance/matched-payments", () => ({
-  buildMatchedTotalsByOrderId: vi.fn(),
-}))
-
 import { convexQuery } from "@/lib/convex/server"
-import { buildMatchedTotalsByOrderId } from "@/lib/domain/finance/matched-payments"
 import { getAttendeeLedger } from "@/lib/domain/finance/attendees"
 
 describe("attendee-ledger domain", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(buildMatchedTotalsByOrderId).mockResolvedValue(
-      new Map<string, number>()
-    )
   })
 
   describe("getAttendeeLedger", () => {
@@ -148,6 +140,11 @@ describe("attendee-ledger domain", () => {
           ageGroup: null,
           ticketCategory: null,
           assignedRoomId: null,
+          amountDueMinor: 5000,
+          // Server-owned figures: the ledger row must surface these, not a
+          // due-weighted spread rebuilt in the client.
+          paidAmountMinor: 5000,
+          outstandingAmountMinor: 0,
           customAnswers: null,
         },
       ]
@@ -198,6 +195,8 @@ describe("attendee-ledger domain", () => {
       expect(result.rows).toHaveLength(1)
       expect(result.rows[0].attendeeId).toBe("attendee-tt-1")
       expect(result.rows[0].eventId).toBe("event-integration-1")
+      expect(result.rows[0].paidAmountMinor).toBe(5000)
+      expect(result.rows[0].outstandingAmountMinor).toBe(0)
     })
 
     it("handles mixed integration and internal attendees in same result set", async () => {
@@ -221,6 +220,9 @@ describe("attendee-ledger domain", () => {
           ageGroup: null,
           ticketCategory: null,
           assignedRoomId: null,
+          amountDueMinor: 5000,
+          paidAmountMinor: 2000,
+          outstandingAmountMinor: 3000,
           customAnswers: null,
         },
         {
@@ -239,6 +241,9 @@ describe("attendee-ledger domain", () => {
           ageGroup: null,
           ticketCategory: null,
           assignedRoomId: null,
+          amountDueMinor: 3000,
+          paidAmountMinor: 3000,
+          outstandingAmountMinor: 0,
           customAnswers: null,
         },
       ]
@@ -311,6 +316,15 @@ describe("attendee-ledger domain", () => {
       expect(result.rows).toHaveLength(2)
       expect(result.rows.map((r) => r.attendeeId)).toContain("attendee-tt-1")
       expect(result.rows.map((r) => r.attendeeId)).toContain("attendee-sub-1")
+
+      const ttRow = result.rows.find((r) => r.attendeeId === "attendee-tt-1")
+      const subRow = result.rows.find((r) => r.attendeeId === "attendee-sub-1")
+      expect(ttRow?.paidAmountMinor).toBe(2000)
+      expect(ttRow?.outstandingAmountMinor).toBe(3000)
+      expect(ttRow?.overpaidAmountMinor).toBe(0)
+      expect(subRow?.paidAmountMinor).toBe(3000)
+      expect(subRow?.outstandingAmountMinor).toBe(0)
+      expect(subRow?.overpaidAmountMinor).toBe(0)
     })
 
     it("returns empty rows when no attendees match date filter", async () => {
@@ -374,6 +388,9 @@ describe("attendee-ledger domain", () => {
           ageGroup: null,
           ticketCategory: null,
           assignedRoomId: null,
+          amountDueMinor: 5000,
+          paidAmountMinor: 4000,
+          outstandingAmountMinor: 1000,
           customAnswers: {
             location: "Rotterdam",
             remarks: "Near window preferred",
@@ -426,6 +443,109 @@ describe("attendee-ledger domain", () => {
 
       expect(result.rows[0].location).toBe("Rotterdam")
       expect(result.rows[0].remarks).toBe("Near window preferred")
+    })
+
+    it("surfaces the server-provided per-attendee paid figure, never a due-weighted spread", async () => {
+      const now = Date.now()
+
+      // One order, two attendees with EQUAL due. A due-weighted spread of a
+      // 15_000 payment would report 7_500 / 7_500 here; the server says an
+      // allocation cleared the second attendee (15_000 / 0). The client has no
+      // payments read left in this module, so only the server figure can surface.
+      const mockAttendees = [
+        {
+          _id: "attendee-a",
+          providerAttendeeId: null,
+          providerIssuedTicketId: null,
+          providerOrderId: "order-alloc",
+          eventId: "event-internal-1",
+          orderId: "order-alloc",
+          name: "Cleared Attendee",
+          email: null,
+          ticketTypeLabel: "General",
+          genderType: "UNKNOWN" as const,
+          allocationPriority: "NORMAL" as const,
+          priorityReason: null,
+          ageGroup: null,
+          ticketCategory: null,
+          assignedRoomId: null,
+          amountDueMinor: 10_000,
+          paidAmountMinor: 15_000,
+          outstandingAmountMinor: 0,
+          customAnswers: null,
+        },
+        {
+          _id: "attendee-b",
+          providerAttendeeId: null,
+          providerIssuedTicketId: null,
+          providerOrderId: "order-alloc",
+          eventId: "event-internal-1",
+          orderId: "order-alloc",
+          name: "Credit-targeted Attendee",
+          email: null,
+          ticketTypeLabel: "General",
+          genderType: "UNKNOWN" as const,
+          allocationPriority: "NORMAL" as const,
+          priorityReason: null,
+          ageGroup: null,
+          ticketCategory: null,
+          assignedRoomId: null,
+          amountDueMinor: 10_000,
+          paidAmountMinor: 0,
+          outstandingAmountMinor: 10_000,
+          customAnswers: null,
+        },
+      ]
+
+      const mockEvents = [
+        {
+          _id: "event-internal-1",
+          _creationTime: 1743427200000,
+          slug: "internal-retreat",
+          title: "Internal Team Retreat",
+          startsAt: 1743427200000,
+          timezone: "Europe/Amsterdam",
+          currency: "EUR",
+          isPublished: true,
+          isSignupOpen: true,
+          accommodationEnabled: true,
+          primarySourceKind: "internal" as const,
+          updatedAt: 1743427200000,
+        },
+      ]
+
+      const mockOrders = [
+        {
+          _id: "order-alloc",
+          providerOrderId: "order-alloc",
+          eventId: "event-internal-1",
+          normalizedStatus: "pending" as const,
+          totalAmountMinor: 20_000,
+          orderedAt: now - 2 * 24 * 60 * 60 * 1000,
+        },
+      ]
+
+      vi.mocked(convexQuery)
+        .mockResolvedValueOnce(mockAttendees)
+        .mockResolvedValueOnce(mockEvents)
+        .mockResolvedValueOnce(mockOrders)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+
+      const result = await getAttendeeLedger({})
+
+      const cleared = result.rows.find((r) => r.attendeeId === "attendee-a")
+      const targeted = result.rows.find((r) => r.attendeeId === "attendee-b")
+      expect(cleared?.paidAmountMinor).toBe(15_000)
+      expect(cleared?.outstandingAmountMinor).toBe(0)
+      expect(targeted?.paidAmountMinor).toBe(0)
+      expect(targeted?.outstandingAmountMinor).toBe(10_000)
+      // The exact integers survive the mapping — no rounding, no re-spread.
+      expect(result.rows.map((r) => r.paidAmountMinor)).toEqual([15_000, 0])
+      expect(result.rows.map((r) => r.outstandingAmountMinor)).toEqual([
+        0, 10_000,
+      ])
     })
   })
 })

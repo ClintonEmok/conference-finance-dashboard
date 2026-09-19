@@ -2,10 +2,9 @@ import { query, type QueryCtx } from "./_generated/server"
 import { v } from "convex/values"
 
 import type { Doc, Id } from "./_generated/dataModel"
-import { loadOrderAmountDueBreakdowns } from "./finance"
+import { loadOrderAmountDueBreakdowns, loadOrderPaymentAttributions } from "./finance"
 import { requireIdentity } from "./auth"
 import {
-  allocateReportPaymentsByAttendee,
   buildRegionDetailReport,
   buildStakeholderReport,
   type LocationGroup,
@@ -15,10 +14,7 @@ import {
   type ReportView,
   type StakeholderReport,
 } from "@/lib/domain/finance/stakeholder-report"
-import {
-  deriveBalanceAmounts,
-  isOrderAppliedPayment,
-} from "@/lib/domain/finance/amounts"
+import { deriveBalanceAmounts } from "@/lib/domain/finance/amounts"
 import { lookupReportShareByToken, type ReportShareDoc } from "./reportShares"
 import { loadOrderAttendeesWithExtensions } from "./provider_boundary"
 
@@ -176,9 +172,17 @@ async function loadRegionOrderGroups(
   region?: string | null
 ): Promise<RegionDetailOrderGroup[]> {
   const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(ctx, orders)
+  // ONE read pass: per-attendee paid is the canonical attributed figure
+  // (applied payments + allocation credit distributed by remaining need) from
+  // the shared attribution owner. A local spread of applied payments over
+  // attendees by due weight is the divergence this phase removes — an attendee
+  // cleared by an allocation would otherwise still read as owing money.
+  const attributionsByOrderId = await loadOrderPaymentAttributions({
+    ctx,
+    orders,
+    dueBreakdownsByOrderId: amountDueBreakdownsByOrderId,
+  })
   const groups: RegionDetailOrderGroup[] = []
-
-  const paymentsByOrderId = await batchLoadPaymentsByOrderId(ctx, orders)
 
   for (const order of orders) {
     const amountDueBreakdown = amountDueBreakdownsByOrderId.get(String(order._id))
@@ -197,21 +201,9 @@ async function loadRegionOrderGroups(
       continue
     }
 
-    const payments = paymentsByOrderId.get(String(order._id)) ?? []
+    const attribution = attributionsByOrderId.get(String(order._id))
 
     const ticketTypeResolution = await loadOrderTicketTypeResolution(ctx, order._id)
-
-    const totalPaidMinor = payments
-      .filter((payment) => isOrderAppliedPayment(payment))
-      .reduce((sum, payment) => sum + payment.amountMinor, 0)
-
-    const paidByAttendeeId = allocateReportPaymentsByAttendee({
-      totalPaidMinor,
-      attendeeWeights: attendeesWithExtensions.map((attendee) => ({
-        attendeeId: String(attendee._id),
-        weightMinor: amountDueBreakdown.amountDueByAttendeeId.get(String(attendee._id)) ?? 0,
-      })),
-    })
 
     const attendees: RegionDetailOrderGroup["attendees"] = []
     let groupAmountDueMinor = 0
@@ -222,7 +214,9 @@ async function loadRegionOrderGroups(
     for (const attendee of matchingAttendees) {
       const amountDueMinor =
         amountDueBreakdown.amountDueByAttendeeId.get(String(attendee._id)) ?? 0
-      const paidMinor = paidByAttendeeId.get(String(attendee._id)) ?? 0
+      // Canonical attributed paid — never a local payments spread.
+      const paidMinor =
+        attribution?.byAttendeeId.get(String(attendee._id))?.paidAmountMinor ?? 0
       const balance = deriveBalanceAmounts(amountDueMinor, paidMinor)
       const ticketTypeLabel =
         ticketTypeResolution.ticketTypeLabelByAttendeeId.get(String(attendee._id)) ??
@@ -275,7 +269,14 @@ async function buildSharedEventReportData(
 ): Promise<SharedEventReportData> {
   const orders = await loadOrdersForEvent(ctx, event._id)
   const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(ctx, orders)
-  const paymentsByOrderId = await batchLoadPaymentsByOrderId(ctx, orders)
+  // ONE read pass: per-attendee paid is the canonical attributed figure from
+  // the shared attribution owner (see `loadRegionOrderGroups`); this file has
+  // no second per-attendee paid owner any more.
+  const attributionsByOrderId = await loadOrderPaymentAttributions({
+    ctx,
+    orders,
+    dueBreakdownsByOrderId: amountDueBreakdownsByOrderId,
+  })
 
   const rows: ReportRow[] = []
   const orderGroups: RegionDetailOrderGroup[] = []
@@ -294,18 +295,7 @@ async function buildSharedEventReportData(
     }
 
     const ticketTypeResolution = await loadOrderTicketTypeResolution(ctx, order._id)
-    const payments = paymentsByOrderId.get(String(order._id)) ?? []
-    const totalPaidMinor = payments
-      .filter((payment) => isOrderAppliedPayment(payment))
-      .reduce((sum, payment) => sum + payment.amountMinor, 0)
-
-    const paidByAttendeeId = allocateReportPaymentsByAttendee({
-      totalPaidMinor,
-      attendeeWeights: attendeesWithExtensions.map((attendee) => ({
-        attendeeId: String(attendee._id),
-        weightMinor: amountDueBreakdown.amountDueByAttendeeId.get(String(attendee._id)) ?? 0,
-      })),
-    })
+    const attribution = attributionsByOrderId.get(String(order._id))
 
     const attendees: RegionDetailOrderGroup["attendees"] = []
     let groupAmountDueMinor = 0
@@ -316,7 +306,9 @@ async function buildSharedEventReportData(
     for (const attendee of attendeesWithExtensions) {
       const amountDueMinor =
         amountDueBreakdown.amountDueByAttendeeId.get(String(attendee._id)) ?? 0
-      const paidMinor = paidByAttendeeId.get(String(attendee._id)) ?? 0
+      // Canonical attributed paid — never a local payments spread.
+      const paidMinor =
+        attribution?.byAttendeeId.get(String(attendee._id))?.paidAmountMinor ?? 0
       const balance = deriveBalanceAmounts(amountDueMinor, paidMinor)
       const ticketTypeLabel =
         ticketTypeResolution.ticketTypeLabelByAttendeeId.get(String(attendee._id)) ??
@@ -476,6 +468,13 @@ async function buildReportRows(
   orders: Doc<"orders">[]
 ) {
   const amountDueBreakdownsByOrderId = await loadOrderAmountDueBreakdowns(ctx, orders)
+  // ONE read pass: per-attendee paid is the canonical attributed figure from
+  // the shared attribution owner (see `loadRegionOrderGroups`).
+  const attributionsByOrderId = await loadOrderPaymentAttributions({
+    ctx,
+    orders,
+    dueBreakdownsByOrderId: amountDueBreakdownsByOrderId,
+  })
 
   const rows: Array<{
     location: string | null
@@ -485,8 +484,6 @@ async function buildReportRows(
     paidAmountMinor: number
     createdAt: string
   }> = []
-
-  const paymentsByOrderId = await batchLoadPaymentsByOrderId(ctx, orders)
 
   for (const order of orders) {
     const amountDueBreakdown = amountDueBreakdownsByOrderId.get(String(order._id))
@@ -501,23 +498,14 @@ async function buildReportRows(
     }
 
     const ticketTypeResolution = await loadOrderTicketTypeResolution(ctx, order._id)
-    const payments = paymentsByOrderId.get(String(order._id)) ?? []
-    const totalPaidMinor = payments
-      .filter((payment) => isOrderAppliedPayment(payment))
-      .reduce((sum, payment) => sum + payment.amountMinor, 0)
-
-    const paidByAttendeeId = allocateReportPaymentsByAttendee({
-      totalPaidMinor,
-      attendeeWeights: attendeesWithExtensions.map((attendee) => ({
-        attendeeId: String(attendee._id),
-        weightMinor: amountDueBreakdown.amountDueByAttendeeId.get(String(attendee._id)) ?? 0,
-      })),
-    })
+    const attribution = attributionsByOrderId.get(String(order._id))
 
     for (const attendee of attendeesWithExtensions) {
       const amountDueMinor =
         amountDueBreakdown.amountDueByAttendeeId.get(String(attendee._id)) ?? 0
-      const paidAmountMinor = paidByAttendeeId.get(String(attendee._id)) ?? 0
+      // Canonical attributed paid — never a local payments spread.
+      const paidAmountMinor =
+        attribution?.byAttendeeId.get(String(attendee._id))?.paidAmountMinor ?? 0
       const balance = deriveBalanceAmounts(amountDueMinor, paidAmountMinor)
 
       rows.push({
