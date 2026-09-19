@@ -56,6 +56,7 @@ describe("Tikkie donation-link purpose parity (Phase 55.1)", () => {
       "purpose: resolveTikkieLinkPurpose(link.purpose)"
     )
     expect(upsertCall).toContain("eventId: link.eventId")
+    expect(upsertCall).toContain("tikkiePaymentLinkId: link._id")
   })
 
   test("the domain sync chain forwards the event id and resolved purpose to syncTikkiePayments", () => {
@@ -68,6 +69,7 @@ describe("Tikkie donation-link purpose parity (Phase 55.1)", () => {
     const syncCall = regionAfter(source, "syncTikkiePayments(", 200)
     expect(syncCall).toContain("eventId: link.eventId")
     expect(syncCall).toContain("purpose: resolveTikkieLinkPurpose(link.purpose)")
+    expect(syncCall).toContain("tikkiePaymentLinkId: link._id")
   })
 
   test("the domain upsert call site resolves the purpose before writing", () => {
@@ -86,6 +88,7 @@ describe("Tikkie donation-link purpose parity (Phase 55.1)", () => {
       "purpose: resolveTikkieLinkPurpose(options.purpose)"
     )
     expect(upsertCall).toContain("eventId: options.eventId")
+    expect(upsertCall).toContain("tikkiePaymentLinkId: options.tikkiePaymentLinkId")
   })
 
   test("the legacy event-payment mirror guards auto-match against donation links", () => {

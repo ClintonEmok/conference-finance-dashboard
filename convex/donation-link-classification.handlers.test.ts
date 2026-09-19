@@ -144,12 +144,13 @@ test("(a) a purpose-less legacy link still resolves as the payment link while th
 
 test("(b) a donation-link payment inserts as a standalone donation and is never reclassified", async () => {
   const t = fresh().withIdentity(adminIdentity)
-  const { eventId } = await seedEventWithLinks(t)
+  const { eventId, donationLinkId } = await seedEventWithLinks(t)
 
   const donationArgs = {
     sourceId: "donation-token-1",
     eventId: String(eventId),
     purpose: "donation" as const,
+    tikkiePaymentLinkId: donationLinkId,
     payerName: "Jane Donor",
     amountMinor: 2500,
     paidAt: BASE_AT,
@@ -168,6 +169,7 @@ test("(b) a donation-link payment inserts as a standalone donation and is never 
   expect(before?.status).toBe("donation")
   expect(before?.donationKind).toBe("standalone")
   expect(before?.eventId).toBe(eventId)
+  expect(before?.tikkiePaymentLinkId).toBe(donationLinkId)
   expect(before?.orderId).toBeUndefined()
   expect(Object.keys(before ?? {})).not.toContain("orderId")
 

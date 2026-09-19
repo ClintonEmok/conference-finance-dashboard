@@ -128,6 +128,7 @@ test("the cron pull classifies a donation-link payment as a standalone donation 
     donationKind: "standalone",
     eventId,
   })
+  expect(donationRow?.tikkiePaymentLinkId).toBeDefined()
   expect(donationRow?.orderId).toBeUndefined()
 
   const paymentRow = payments.find(
@@ -138,6 +139,7 @@ test("the cron pull classifies a donation-link payment as a standalone donation 
     status: "unassigned",
     eventId,
   })
+  expect(paymentRow?.tikkiePaymentLinkId).toBeDefined()
   expect(paymentRow?.orderId).toBeUndefined()
 
   // Gap 1 (D-03): the row the real cron action just classified is visible in
