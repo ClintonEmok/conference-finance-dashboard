@@ -122,8 +122,8 @@ async function createAttendee(
   const attendeeId = await t.mutation(async (ctx) =>
     ctx.db.insert("orderAttendees", {
       orderId,
-      // Phase 62: the ledger scans `orderAttendees.by_eventId` (source rows),
-      // so the fixture carries the additive copy.
+      // New rows still carry the additive event copy for compatibility, even
+      // though the event-scoped ledger resolves ownership through the order.
       eventId,
       attendeeKey: input.attendeeKey,
       name: input.name,

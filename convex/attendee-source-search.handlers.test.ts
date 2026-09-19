@@ -8,8 +8,7 @@ import schema from "./schema"
 import type { Id } from "./_generated/dataModel"
 
 /**
- * Phase 62 plan 62-03 — the D-05 acceptance bar for the attendee ledger and
- * the allocation picker that consumes it.
+ * Phase 62 plan 62-03 — the D-05 acceptance bar for the attendee ledger.
  *
  * The fixture contains NO `searchDocuments` / `searchProjectionFanoutJobs` /
  * `searchDocumentTerms` rows (asserted before every call), so an
@@ -500,7 +499,6 @@ async function seedPaginationFixture(t: TestConvex) {
       ordinal += 1
       const attendeeId = await ctx.db.insert("orderAttendees", {
         orderId: order,
-        eventId: event,
         attendeeKey: `page-${ordinal}`,
         name,
         gender: "unknown",
@@ -580,6 +578,71 @@ test("pagination covers every match exactly once and never serves an undersized 
   ).rejects.toThrow("Attendee ledger cursor does not match the request.")
 })
 
+test("pagination carries an order boundary when a page spans multiple orders", async () => {
+  const t = fresh()
+  const ids = await t.run(async (ctx) => {
+    const event = await ctx.db.insert(
+      "events",
+      internalEventDoc("attendees-source-multi-order")
+    )
+    const olderOrder = await ctx.db.insert("orders", {
+      eventId: event,
+      source: "internal",
+      bookingRef: "BK-MULTI-01",
+      bookerName: "Older Multi Order",
+      submittedAt: BASE_AT,
+      status: "pending",
+    })
+    const newerOrder = await ctx.db.insert("orders", {
+      eventId: event,
+      source: "internal",
+      bookingRef: "BK-MULTI-02",
+      bookerName: "Newer Multi Order",
+      submittedAt: BASE_AT + 1_000,
+      status: "pending",
+    })
+    const olderAttendees = await Promise.all(
+      ["Multi Older One", "Multi Older Two"].map((name, sortOrder) =>
+        ctx.db.insert("orderAttendees", {
+          orderId: olderOrder,
+          attendeeKey: name.toLowerCase().replaceAll(" ", "-"),
+          name,
+          gender: "unknown",
+          sortOrder,
+        })
+      )
+    )
+    const newerAttendee = await ctx.db.insert("orderAttendees", {
+      orderId: newerOrder,
+      attendeeKey: "multi-newer-one",
+      name: "Multi Newer One",
+      gender: "unknown",
+      sortOrder: 0,
+    })
+    return { event, attendees: [...olderAttendees, newerAttendee] }
+  })
+
+  const pageSizes: number[] = []
+  const seen: string[] = []
+  let cursor: string | null = null
+  for (;;) {
+    const page = await ledger(t, {
+      eventId: ids.event,
+      search: "Multi",
+      pageSize: 2,
+      cursor,
+    })
+    pageSizes.push(page.rows.length)
+    seen.push(...page.rows.map((row) => String(row._id)))
+    if (!page.page.hasNextPage) break
+    cursor = page.page.nextCursor
+    if (!cursor) throw new Error("missing attendee ledger cursor")
+  }
+
+  expect(pageSizes).toEqual([2, 1])
+  expect(new Set(seen)).toEqual(new Set(ids.attendees.map(String)))
+})
+
 test("a match behind a long non-match run still fills the first page", async () => {
   const t = fresh()
   const ids = await t.run(async (ctx) => {
@@ -642,22 +705,68 @@ test("a match behind a long non-match run still fills the first page", async () 
   expect(page.page.nextCursor).toBeNull()
 })
 
-test("legacy rows without eventId are honestly invisible until the copy is filled", async () => {
+test("a full final page does not advertise an empty following order", async () => {
+  const t = fresh()
+  const ids = await t.run(async (ctx) => {
+    const event = await ctx.db.insert(
+      "events",
+      internalEventDoc("attendees-source-empty-order")
+    )
+    const emptyOrder = await ctx.db.insert("orders", {
+      eventId: event,
+      source: "internal",
+      bookingRef: "BK-EMPTY-01",
+      bookerName: "Empty Order",
+      submittedAt: BASE_AT,
+      status: "pending",
+    })
+    const populatedOrder = await ctx.db.insert("orders", {
+      eventId: event,
+      source: "internal",
+      bookingRef: "BK-POPULATED-02",
+      bookerName: "Populated Order",
+      submittedAt: BASE_AT + 1_000,
+      status: "pending",
+    })
+    const attendee = await ctx.db.insert("orderAttendees", {
+      orderId: populatedOrder,
+      attendeeKey: "only-attendee",
+      name: "Only Attendee",
+      email: "only.attendee@example.com",
+      gender: "unknown",
+      sortOrder: 0,
+    })
+    return { event, emptyOrder, attendee }
+  })
+
+  const page = await ledger(t, {
+    eventId: ids.event,
+    search: "Only Attendee",
+    pageSize: 1,
+  })
+  expect(page.rows.map((row) => String(row._id))).toEqual([
+    String(ids.attendee),
+  ])
+  expect(page.page.hasNextPage).toBe(false)
+  expect(page.page.nextCursor).toBeNull()
+})
+
+test("legacy rows without eventId are visible through their order event", async () => {
   const t = fresh()
   const ids = await seedCore(t)
 
-  // The row exists, but the event-scoped index cannot see it.
   expect(
     await foundIds(t, { eventId: ids.eventA, search: "Legacy Loner" })
-  ).toEqual([])
+  ).toEqual([String(ids.attendeeLegacy)])
   expect(
     await foundIds(t, {
       eventId: ids.eventA,
       search: "legacy.loner@example.com",
     })
-  ).toEqual([])
+  ).toEqual([String(ids.attendeeLegacy)])
 
-  // After the copy is filled (what the backfill does) it IS found.
+  // The compatibility backfill remains idempotent even though the ledger no
+  // longer depends on the copied field.
   await t.run(async (ctx) => {
     await ctx.db.patch("orderAttendees", ids.attendeeLegacy, {
       eventId: ids.eventA,
@@ -743,7 +852,7 @@ test("the ledger cursor is version-bumped and malformed cursors are rejected", a
   ).rejects.toThrow("Invalid attendee ledger continuation cursor.")
 
   const wrongSignature = `al:${encodeURIComponent(
-    JSON.stringify({ version: 2, signature: "nope", sourceCursor: null })
+    JSON.stringify({ version: 3, signature: "nope", sourceCursor: null })
   )}`
   await expect(
     ledger(t, {
@@ -751,7 +860,7 @@ test("the ledger cursor is version-bumped and malformed cursors are rejected", a
       search: "oliver",
       cursor: wrongSignature,
     })
-  ).rejects.toThrow("Attendee ledger cursor does not match the request.")
+  ).rejects.toThrow("Invalid attendee ledger continuation cursor.")
 
   await expect(ledger(t, { eventId: ids.eventA, pageSize: 0 })).rejects.toThrow(
     "Invalid attendee ledger page size."
@@ -759,6 +868,56 @@ test("the ledger cursor is version-bumped and malformed cursors are rejected", a
   await expect(
     ledger(t, { eventId: ids.eventA, pageSize: 101 })
   ).rejects.toThrow("Invalid attendee ledger page size.")
+
+  const legacyGlobalCursor = `al:${encodeURIComponent(
+    JSON.stringify({
+      version: 2,
+      signature: JSON.stringify({
+        v: 2,
+        eventId: null,
+        search: "",
+        from: null,
+        to: null,
+        dateMode: "bounded",
+      }),
+      sourceCursor: null,
+    })
+  )}`
+  await expect(
+    ledger(t, { search: "", cursor: legacyGlobalCursor })
+  ).resolves.toBeDefined()
+
+  const validEventPage = await ledger(t, {
+    eventId: ids.eventA,
+    search: "",
+    pageSize: 1,
+  })
+  const validEventCursor = validEventPage.page.nextCursor
+  if (!validEventCursor) throw new Error("missing valid event ledger cursor")
+  const validOuterCursor = JSON.parse(
+    decodeURIComponent(validEventCursor.slice(3))
+  ) as Record<string, unknown>
+  const inconsistentSourceCursor = `ao:${encodeURIComponent(
+    JSON.stringify({
+      version: 1,
+      orderBoundary: null,
+      activeOrderId: String(ids.orderLegacy),
+      attendeeBoundary: null,
+    })
+  )}`
+  const inconsistentEventCursor = `al:${encodeURIComponent(
+    JSON.stringify({
+      ...validOuterCursor,
+      sourceCursor: inconsistentSourceCursor,
+    })
+  )}`
+  await expect(
+    ledger(t, {
+      eventId: ids.eventA,
+      search: "",
+      cursor: inconsistentEventCursor,
+    })
+  ).rejects.toThrow("Invalid attendee ledger continuation cursor.")
 })
 
 const BACKFILL_DEPLOYMENT_URL = "https://test-source-search.convex.cloud"

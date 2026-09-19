@@ -164,6 +164,8 @@ export interface SourceScanBoundary {
   ids: string[]
 }
 
+const SOURCE_SCAN_BOUNDARY_MAX_IDS = 16_000
+
 export function encodeSourceScanBoundary(t: number, ids: string[]): string {
   return JSON.stringify({ t, ids })
 }
@@ -187,6 +189,7 @@ export function decodeSourceScanBoundary(
     typeof payload.t !== "number" ||
     !Number.isFinite(payload.t) ||
     !Array.isArray(payload.ids) ||
+    payload.ids.length > SOURCE_SCAN_BOUNDARY_MAX_IDS ||
     !payload.ids.every((id) => typeof id === "string")
   ) {
     throw new Error("Invalid search cursor.")
@@ -198,6 +201,8 @@ export type SourceSearchFetchedPage<T> = {
   items: T[]
   continueCursor: string | null
   isDone: boolean
+  /** Stop this collector invocation and let the caller resume with the cursor. */
+  stopAfterPage?: boolean
 }
 
 export type SourceSearchPage<T> = {
@@ -274,6 +279,7 @@ export async function collectSourceSearchPage<T>(args: {
     }
     cursor = page.continueCursor
     isDone = page.isDone
+    if (page.stopAfterPage) break
     if (page.items.length === 0 && !isDone) {
       consecutiveEmptyPages += 1
       if (consecutiveEmptyPages >= MAX_CONSECUTIVE_EMPTY_SOURCE_PAGES) break

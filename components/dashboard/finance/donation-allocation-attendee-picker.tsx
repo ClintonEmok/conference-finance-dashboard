@@ -5,54 +5,34 @@ import { useConvex } from "convex/react"
 
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { Button } from "@/components/ui/button"
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
 /**
- * The allocation editor's attendee picker (Phase 58, plan 58-08).
- *
- * THE ONE STRUCTURAL RULE: this component renders NO money — no amount, no
- * balance, no capacity, no formatted figure. Rows carry only the attendee name,
- * the order reference and the ticket-type label, so a per-attendee figure
- * cannot be misread as writable capacity before the server quotes one (the
- * LOCKED effective-capacity rule, UI-SPEC 4.4). The guard in
- * `tests/dashboard/donation-allocation-dialog.test.ts` scans this file and
- * fails on any money read; keep it that way.
- *
- * Selection lives by `attendeeId` in the PARENT (`selectedIds`), so it survives
- * searches by construction: the picker only renders and reports toggles, and no
- * piece of selection state is ever page-indexed.
- *
- * The read is IMPERATIVE (`useConvex().query`) so a superseded page can be
- * dropped and a stale cursor never overwrites a newer search.
+ * The retained allocation picker path now searches source orders. The component
+ * keeps the historical filename because the finance money-audit suite pins it,
+ * but its public rows contain only order-facing identity data.
  */
 
 export type PickerRow = {
-  attendeeId: Id<"orderAttendees">
-  name: string
-  orderRef: string | null
-  ticketTypeLabel: string | null
+  orderId: Id<"orders">
+  bookingRef: string | null
+  providerOrderId: string | null
+  bookerName: string | null
+  bookerEmail: string | null
 }
 
 export type DonationAllocationAttendeePickerProps = {
   eventId: Id<"events">
-  selectedIds: ReadonlySet<string>
+  selectedOrder: PickerRow | null
   onSelect: (row: PickerRow) => void
-  onDeselect: (attendeeId: Id<"orderAttendees">) => void
+  onDeselect: () => void
   disabled?: boolean
 }
 
-/** The fields this picker reads from each ledger row — and nothing else. */
-type LedgerRow = {
-  _id: Id<"orderAttendees">
-  name: string
-  bookingRef: string | null
-  ticketTypeLabel: string | null
-}
-
-type LedgerPage = {
-  rows: LedgerRow[]
+type SearchPage = {
+  rows: PickerRow[]
   page: { hasNextPage: boolean; nextCursor: string | null }
 }
 
@@ -61,9 +41,23 @@ type LoadMode = "replace" | "append"
 const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 250
 
+function orderTitle(row: PickerRow) {
+  return row.bookerName?.trim() || row.bookingRef || "Unnamed booker"
+}
+
+function orderDetails(row: PickerRow) {
+  return [
+    row.bookingRef,
+    row.providerOrderId,
+    row.bookerEmail,
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" · ")
+}
+
 export function DonationAllocationAttendeePicker({
   eventId,
-  selectedIds,
+  selectedOrder,
   onSelect,
   onDeselect,
   disabled = false,
@@ -72,22 +66,17 @@ export function DonationAllocationAttendeePicker({
 
   const [search, setSearch] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
-  const [rows, setRows] = useState<LedgerRow[]>([])
+  const [rows, setRows] = useState<PickerRow[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [hasNextPage, setHasNextPage] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [attemptedCursor, setAttemptedCursor] = useState<string | null>(null)
-
-  // Supersede guard: only the newest request may write state, so a page that
-  // resolves after a newer search can never overwrite it.
   const requestIdRef = useRef(0)
 
-  // Debounce the typed search (>= 250 ms) so the server sees one query per
-  // settled term, not one per keystroke.
   useEffect(() => {
     const handle = setTimeout(
-      () => setDebouncedSearch(search),
+      () => setDebouncedSearch(search.trim()),
       SEARCH_DEBOUNCE_MS
     )
     return () => clearTimeout(handle)
@@ -102,11 +91,11 @@ export function DonationAllocationAttendeePicker({
       setError(null)
 
       try {
-        const page: LedgerPage = await convex.query(
-          api.attendees.getAttendeeLedgerPage,
+        const page: SearchPage = await convex.query(
+          api.orders.searchOrdersForDonationAllocation,
           {
             eventId,
-            search: debouncedSearch || undefined,
+            search: debouncedSearch,
             pageSize: PAGE_SIZE,
             cursor,
           }
@@ -119,7 +108,7 @@ export function DonationAllocationAttendeePicker({
         setHasNextPage(page.page.hasNextPage)
       } catch {
         if (requestIdRef.current !== requestId) return
-        setError("The attendee list could not be loaded.")
+        setError("The order list could not be loaded.")
       } finally {
         if (requestIdRef.current === requestId) setIsLoading(false)
       }
@@ -127,44 +116,58 @@ export function DonationAllocationAttendeePicker({
     [convex, debouncedSearch, eventId]
   )
 
-  // A new debounced search (or a new event) resets to the first page and
-  // REPLACES the rows. `loadPage` is stable for one debounced term, so this
-  // runs exactly once per term.
   useEffect(() => {
     void loadPage(null, "replace")
   }, [loadPage])
 
   const showLoadingState = isLoading && rows.length === 0
   const showEmptyState = !isLoading && !error && rows.length === 0
-  // A page can come back empty while the server reports further pages
-  // (`page.hasNextPage`): the source scan keeps a scan-cap resume resumable.
-  // Saying "No attendees match this search" there would be a lie — the copy
-  // must point at the still-reachable `Load more attendees` control instead.
   const emptyTitle = debouncedSearch
     ? hasNextPage
       ? "No matches yet"
-      : "No attendees match this search"
-    : "No attendees to select"
+      : "No orders match this search"
+    : "No eligible orders to select"
   const emptyMessage = debouncedSearch
     ? hasNextPage
       ? "Load more to keep searching this event."
-      : "Try a different name or order reference."
-    : "This event has no attendees yet."
+      : "Try a different booking reference, provider ID, order ID, name, or email."
+    : "This event has no visible internal orders yet."
 
   return (
     <div className="space-y-3">
       <Input
         type="search"
-        aria-label="Search attendees"
-        placeholder="Search by name or order reference"
+        aria-label="Search orders"
+        placeholder="Search by booking reference, provider ID, order ID, name, or email"
         value={search}
         disabled={disabled}
         onChange={(event) => setSearch(event.target.value)}
       />
 
-      <p className="text-xs text-muted-foreground">
-        {selectedIds.size} selected
-      </p>
+      {selectedOrder ? (
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              Selected order
+            </p>
+            <p className="truncate text-sm font-medium" title={orderTitle(selectedOrder)}>
+              {orderTitle(selectedOrder)}
+            </p>
+            <p className="truncate text-xs text-muted-foreground">
+              {orderDetails(selectedOrder) || String(selectedOrder.orderId)}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            disabled={disabled}
+            onClick={onDeselect}
+          >
+            Remove
+          </Button>
+        </div>
+      ) : null}
 
       {error ? (
         <div
@@ -199,38 +202,29 @@ export function DonationAllocationAttendeePicker({
       ) : (
         <div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border border-border/60">
           {rows.map((row) => {
-            const checked = selectedIds.has(String(row._id))
+            const selected =
+              selectedOrder !== null &&
+              String(selectedOrder.orderId) === String(row.orderId)
+            const title = orderTitle(row)
             return (
               <label
-                key={row._id}
+                key={row.orderId}
                 className="flex min-h-11 cursor-pointer items-center gap-3 p-3 transition-colors hover:bg-muted/40"
               >
                 <input
-                  type="checkbox"
-                  aria-label={`${checked ? "Deselect" : "Select"} ${row.name}`}
-                  checked={checked}
+                  type="radio"
+                  name="donation-allocation-order"
+                  aria-label={`${selected ? "Deselect" : "Select"} ${title}`}
+                  checked={selected}
                   disabled={disabled}
-                  onChange={() =>
-                    checked
-                      ? onDeselect(row._id)
-                      : onSelect({
-                          attendeeId: row._id,
-                          name: row.name,
-                          orderRef: row.bookingRef ?? null,
-                          ticketTypeLabel: row.ticketTypeLabel ?? null,
-                        })
-                  }
+                  onChange={() => (selected ? onDeselect() : onSelect(row))}
                 />
                 <span className="min-w-0">
-                  <span
-                    className="block truncate text-sm font-medium"
-                    title={row.name}
-                  >
-                    {row.name}
+                  <span className="block truncate text-sm font-medium" title={title}>
+                    {title}
                   </span>
                   <span className="block truncate text-xs text-muted-foreground">
-                    {row.bookingRef ?? "No order reference"}
-                    {row.ticketTypeLabel ? ` · ${row.ticketTypeLabel}` : ""}
+                    {orderDetails(row) || String(row.orderId)}
                   </span>
                 </span>
               </label>
@@ -247,7 +241,7 @@ export function DonationAllocationAttendeePicker({
           disabled={disabled || isLoading}
           onClick={() => void loadPage(nextCursor, "append")}
         >
-          Load more attendees
+          Load more orders
         </Button>
       ) : null}
     </div>

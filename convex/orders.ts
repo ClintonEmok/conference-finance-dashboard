@@ -6,6 +6,7 @@ import {
   canonicalOrderStatusValidator,
   nullableStringValidator,
   orderLedgerRowValidator,
+  orderAllocationSearchRowValidator,
   orderSearchRowValidator,
 } from "../lib/types/order"
 import {
@@ -811,6 +812,7 @@ function isInternalEvent(
 // request a page the server rejects.
 const ORDER_SEARCH_SCAN_CAP = 2_000
 const ORDER_SEARCH_PAGE_MAX = 200
+const DONATION_ORDER_SEARCH_PAGE_MAX = 50
 
 export const getOrdersWithFilters = query({
   args: {
@@ -1398,6 +1400,192 @@ export const searchOrders = query({
           order.totalAmountMinor ??
           null,
       }))
+  },
+})
+
+/**
+ * Search the source orders that an operator may select for a standalone
+ * donation allocation. This intentionally does not widen `searchOrders`: the
+ * orders route owns a money-bearing shape, while this picker receives only
+ * identity fields and a cursor bound to its event/search/page request.
+ */
+export const searchOrdersForDonationAllocation = query({
+  args: {
+    eventId: v.id("events"),
+    search: v.string(),
+    pageSize: v.number(),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  },
+  returns: v.object({
+    rows: v.array(orderAllocationSearchRowValidator),
+    page: v.object({
+      hasNextPage: v.boolean(),
+      nextCursor: v.union(v.string(), v.null()),
+    }),
+  }),
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx)
+
+    if (
+      !Number.isInteger(args.pageSize) ||
+      args.pageSize < 1 ||
+      args.pageSize > DONATION_ORDER_SEARCH_PAGE_MAX
+    ) {
+      throw new Error("Invalid donation allocation order search page size.")
+    }
+
+    const needle = requireSearchNeedle(args.search)
+    const signature = JSON.stringify({
+      v: 1,
+      eventId: String(args.eventId),
+      search: needle,
+      pageSize: args.pageSize,
+    })
+
+    let scanCursor: string | null = null
+    if (args.cursor != null) {
+      let decoded: { signature: string; cursor: string | null }
+      try {
+        decoded = decodeSearchCursor(args.cursor)
+      } catch {
+        throw new Error("Invalid donation allocation order search cursor.")
+      }
+      if (decoded.signature !== signature) {
+        throw new Error(
+          "Donation allocation order search cursor does not match the request."
+        )
+      }
+      scanCursor = decoded.cursor
+    }
+
+    const event = await ctx.db.get("events", args.eventId)
+    if (!event) {
+      throw new Error("Event not found.")
+    }
+
+    // Donation allocation is an internal-event operation. Return an empty,
+    // well-typed page rather than exposing integration orders through a
+    // caller-supplied event id.
+    if (event.primarySourceKind !== "internal") {
+      return {
+        rows: [],
+        page: { hasNextPage: false, nextCursor: null },
+      }
+    }
+
+    const resolvedByOrderId = new Map<
+      string,
+      {
+        orderId: Id<"orders">
+        bookingRef: string | null
+        providerOrderId: string | null
+        bookerName: string | null
+        bookerEmail: string | null
+      }
+    >()
+
+    const matches = async (order: Doc<"orders">): Promise<boolean> => {
+      // The by_eventId index is the primary isolation boundary. Keep the
+      // equality check explicit as a defense against a future query change.
+      if (order.eventId !== args.eventId || order.mergedIntoOrderId) {
+        return false
+      }
+
+      const haystack = buildSearchHaystack([
+        String(order._id),
+        order.bookingRef,
+        order.providerOrderId,
+        order.bookerName,
+        order.bookerEmail,
+      ])
+      if (!matchesNormalizedSearch(haystack, needle)) return false
+
+      const combined = await loadOrderWithExtension(ctx, order._id)
+      if (
+        !combined ||
+        !isOrderVisible(combined.extension) ||
+        isOrderMergedCore(combined.order) ||
+        combined.order.eventId !== args.eventId
+      ) {
+        return false
+      }
+
+      resolvedByOrderId.set(String(order._id), {
+        orderId: order._id,
+        bookingRef: order.bookingRef ?? null,
+        providerOrderId: order.providerOrderId ?? null,
+        bookerName: order.bookerName ?? null,
+        bookerEmail: order.bookerEmail ?? null,
+      })
+      return true
+    }
+
+    const fetchPage = async (cursor: string | null, limit: number) => {
+      const bound = decodeSourceScanBoundary(cursor)
+      const excluded = new Set(bound?.ids ?? [])
+      const takeCount = limit + excluded.size + 1
+      const query =
+        bound === null
+          ? ctx.db
+              .query("orders")
+              .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+              .order("desc")
+          : ctx.db
+              .query("orders")
+              .withIndex("by_eventId", (q) =>
+                q.eq("eventId", args.eventId).lte("_creationTime", bound.t)
+              )
+              .order("desc")
+
+      const rows = await query.take(takeCount)
+      const fresh =
+        bound === null
+          ? rows
+          : rows.filter(
+              (row) =>
+                !(row._creationTime === bound.t && excluded.has(String(row._id)))
+            )
+      const hasMore = fresh.length > limit
+      const items = hasMore ? fresh.slice(0, limit) : fresh
+      const last = items[items.length - 1]
+      let continueCursor: string | null = null
+      if (hasMore && last) {
+        const t = last._creationTime
+        const carried = bound !== null && bound.t === t ? bound.ids : []
+        const atT = items
+          .filter((row) => row._creationTime === t)
+          .map((row) => String(row._id))
+        continueCursor = encodeSourceScanBoundary(
+          t,
+          Array.from(new Set([...carried, ...atT]))
+        )
+      }
+
+      return { items, continueCursor, isDone: !hasMore }
+    }
+
+    const collected = await collectSourceSearchPage({
+      fetchPage,
+      matches,
+      pageSize: args.pageSize,
+      cursor: scanCursor,
+      scanCap: ORDER_SEARCH_SCAN_CAP,
+    })
+
+    const rows = collected.rows.flatMap((order) => {
+      const resolved = resolvedByOrderId.get(String(order._id))
+      return resolved ? [resolved] : []
+    })
+
+    return {
+      rows,
+      page: {
+        hasNextPage: !collected.isDone,
+        nextCursor: collected.isDone
+          ? null
+          : encodeSearchCursor(signature, collected.continueCursor),
+      },
+    }
   },
 })
 

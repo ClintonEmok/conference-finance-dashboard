@@ -5,7 +5,7 @@ import type { GenericDataModel } from "convex/server"
 
 import { api } from "./_generated/api"
 import schema from "./schema"
-import type { Id } from "./_generated/dataModel"
+import type { Doc, Id } from "./_generated/dataModel"
 
 /**
  * Phase 58's ACCEPTANCE EXAMPLES, on real writes.
@@ -62,10 +62,24 @@ type TargetInput = {
   scope: AllocationScope
 }
 
+type OrderManualRowInput = {
+  orderId: Id<"orders">
+  amountMinor: number
+  scope: "whole_order"
+}
+
+type OrderTargetInput = {
+  orderId: Id<"orders">
+  scope: "whole_order"
+}
+
 type AllocationRequestInput =
   | { method: "manual"; rows: ManualRowInput[] }
   | { method: "equal"; targets: TargetInput[] }
   | { method: "largest_balance_first"; targets: TargetInput[] }
+  | { method: "manual"; rows: OrderManualRowInput[] }
+  | { method: "equal"; targets: OrderTargetInput[] }
+  | { method: "largest_balance_first"; targets: OrderTargetInput[] }
 
 function fresh() {
   return convexTest(schema, modules)
@@ -73,6 +87,23 @@ function fresh() {
 
 function manualRequest(rows: ManualRowInput[]) {
   return { method: "manual" as const, rows }
+}
+
+function orderRequest(
+  method: "manual" | "equal" | "largest_balance_first",
+  orderId: Id<"orders">,
+  amountMinor?: number
+): AllocationRequestInput {
+  if (method === "manual") {
+    return {
+      method,
+      rows: [{ orderId, amountMinor: amountMinor ?? 0, scope: "whole_order" }],
+    }
+  }
+  if (method === "equal") {
+    return { method, targets: [{ orderId, scope: "whole_order" }] }
+  }
+  return { method, targets: [{ orderId, scope: "whole_order" }] }
 }
 
 /**
@@ -347,6 +378,41 @@ async function preview(
   return client.query(api.donations.previewDonationAllocation, args)
 }
 
+type OrderPreviewResult = {
+  donationId: string
+  eventId: string
+  donationAmountMinor: number
+  recordedAllocatedMinor: number
+  remainingMinor: number
+  method: string
+  totalAllocatedMinor: number
+  leftoverMinor: number
+  remainderMinor: number
+  rows: Array<{
+    orderId: string
+    scope: string
+    ceilingMinor: number
+    amountMinor: number
+    extraMinorUnits: number
+    skipped: boolean
+    skipReason?: string
+    effectiveCapacityMinor: number
+    exceedsCapacity: boolean
+  }>
+  previewOnly: boolean
+}
+
+async function previewOrder(
+  client: TestConvex,
+  args: {
+    donationId: Id<"payments">
+    eventId: Id<"events">
+    request: AllocationRequestInput
+  }
+): Promise<OrderPreviewResult> {
+  return client.query(api.donations.previewDonationAllocation, args)
+}
+
 /** Finds one preview row, failing loudly when it is absent. */
 function previewRowFor(
   payload: PreviewResult,
@@ -426,6 +492,54 @@ async function loadAllocationRows(
       })
     }
 
+    return rows
+  })
+}
+
+async function loadSubmissionRows(
+  t: TestConvex,
+  donationId: Id<"payments">
+): Promise<
+  Array<{
+    operation: string
+    idempotencyKey: string
+    rows: Array<{
+      attendeeId: string
+      orderId: string
+      amountMinor: number
+      scope: string
+    }>
+  }>
+> {
+  return t.query(async (ctx) => {
+    const rows: Array<{
+      operation: string
+      idempotencyKey: string
+      rows: Array<{
+        attendeeId: string
+        orderId: string
+        amountMinor: number
+        scope: string
+      }>
+    }> = []
+    for await (const rawSubmission of ctx.db
+      .query("donationAllocationSubmissions")
+      .withIndex("by_donationId_and_operation", (q) =>
+        q.eq("donationId", donationId)
+      )) {
+      const submission = rawSubmission as Doc<"donationAllocationSubmissions">
+      if (submission.operation !== "allocate") continue
+      rows.push({
+        operation: submission.operation,
+        idempotencyKey: submission.idempotencyKey,
+        rows: submission.rows.map((row) => ({
+          attendeeId: String(row.attendeeId),
+          orderId: String(row.orderId),
+          amountMinor: row.amountMinor,
+          scope: row.scope,
+        })),
+      })
+    }
     return rows
   })
 }
@@ -1151,4 +1265,227 @@ test("AE-1f — another donation's €150 claim leaves Maria's €120 balance on
     exceedsCeiling: false,
     exceedsCapacity: false,
   })
+})
+
+// ---------------------------------------------------------------------------
+// Order-first allocation contract
+// ---------------------------------------------------------------------------
+
+test("order targets are server-anchored, redacted in preview/commit/replay, and preserve the source donation", async () => {
+  const seeded = fresh()
+  const { eventId, maria, tom } = await seedMariaAndTom(
+    seeded,
+    "order-first-success"
+  )
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 15_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+  const request = orderRequest("manual", maria.orderId, 10_000)
+  const beforePayment = await seeded.query(async (ctx) =>
+    ctx.db.get("payments", donationId)
+  )
+
+  const quoted = await previewOrder(authed, { donationId, eventId, request })
+  expect(quoted.totalAllocatedMinor).toBe(10_000)
+  expect(quoted.leftoverMinor).toBe(5_000)
+  expect(quoted.rows).toEqual([
+    expect.objectContaining({
+      orderId: String(maria.orderId),
+      scope: "whole_order",
+      amountMinor: 10_000,
+    }),
+  ])
+  expect(quoted.rows[0]).not.toHaveProperty("attendeeId")
+  expect(quoted).not.toHaveProperty("remainderRecipientAttendeeIds")
+  expect(quoted).not.toHaveProperty("privateAnchor")
+
+  const committed = await allocate(authed, {
+    donationId,
+    eventId,
+    request,
+    idempotencyKey: "order-first-success-key",
+  })
+  expect(committed.rows).toEqual([
+    { orderId: maria.orderId, scope: "whole_order", amountMinor: 10_000 },
+  ])
+  expect(committed.rows[0]).not.toHaveProperty("attendeeId")
+  expect(committed.remainingMinor).toBe(quoted.leftoverMinor)
+
+  const replayed = await allocate(authed, {
+    donationId,
+    eventId,
+    request,
+    idempotencyKey: "order-first-success-key",
+  })
+  expect(replayed).toEqual(committed)
+
+  const stored = await loadAllocationRows(seeded, donationId)
+  expect(stored).toHaveLength(1)
+  expect(stored[0]).toEqual({
+    attendeeId: String(maria.attendeeId),
+    orderId: String(maria.orderId),
+    amountMinor: 10_000,
+    scope: "whole_order",
+  })
+  // The lower sortOrder wins, so the server anchor is Maria even though Tom is
+  // another attendee on the same order.
+  expect(stored[0].attendeeId).not.toBe(String(tom.attendeeId))
+
+  const submissions = await loadSubmissionRows(seeded, donationId)
+  expect(submissions).toHaveLength(1)
+  expect(submissions[0].rows).toEqual(stored)
+
+  const afterPayment = await seeded.query(async (ctx) =>
+    ctx.db.get("payments", donationId)
+  )
+  expect(afterPayment).toEqual(beforePayment)
+})
+
+test("order-first allocation refuses missing, empty, cross-event, external, removed, and merged orders before writing", async () => {
+  const seeded = fresh()
+  const eventId = await seedEvent(seeded, "order-first-refusals")
+  const foreignEventId = await seedEvent(seeded, "order-first-foreign")
+  const externalEventId = await seeded.run((ctx) =>
+    ctx.db.insert("events", {
+      ...{
+        slug: "order-first-external",
+        title: "order-first-external",
+        startsAt: BASE_AT,
+        timezone: "Europe/Amsterdam",
+        currency: "EUR",
+        isPublished: true,
+        isSignupOpen: true,
+        accommodationEnabled: false,
+        updatedAt: BASE_AT,
+      },
+      primarySourceKind: "integration" as const,
+    })
+  )
+  const valid = await createAttendee(seeded, eventId, {
+    attendeeKey: "order-first-valid",
+    name: "Valid",
+    ticketPriceMinor: 5_000,
+  })
+  const foreign = await createAttendee(seeded, foreignEventId, {
+    attendeeKey: "order-first-foreign",
+    name: "Foreign",
+    ticketPriceMinor: 5_000,
+  })
+  const external = await createAttendee(seeded, externalEventId, {
+    attendeeKey: "order-first-external",
+    name: "External",
+    ticketPriceMinor: 5_000,
+  })
+  const emptyOrder = await seeded.run((ctx) =>
+    ctx.db.insert("orders", {
+      eventId,
+      source: "internal" as const,
+      bookingRef: "BK-EMPTY-ORDER",
+      bookerName: "Empty",
+      submittedAt: BASE_AT,
+    })
+  )
+  const missingOrder = await seeded.run(async (ctx) => {
+    const orderId = await ctx.db.insert("orders", {
+      eventId,
+      source: "internal" as const,
+      bookingRef: "BK-MISSING-ORDER",
+      bookerName: "Missing",
+      submittedAt: BASE_AT,
+    })
+    await ctx.db.delete("orders", orderId)
+    return orderId
+  })
+  const removed = await createAttendee(seeded, eventId, {
+    attendeeKey: "order-first-removed",
+    name: "Removed",
+    ticketPriceMinor: 5_000,
+  })
+  const merged = await createAttendee(seeded, eventId, {
+    attendeeKey: "order-first-merged",
+    name: "Merged",
+    ticketPriceMinor: 5_000,
+  })
+  await seeded.run(async (ctx) => {
+    await ctx.db.insert("ticketTailorOrders", {
+      providerOrderId: "REMOVED-PROVIDER",
+      providerEventId: "removed-provider-event",
+      orderId: removed.orderId,
+      removedAt: BASE_AT + 1,
+      rawPayload: {},
+    })
+    await ctx.db.patch("orders", merged.orderId, {
+      mergedIntoOrderId: valid.orderId,
+      mergedAt: BASE_AT + 2,
+    })
+  })
+  const donationId = await createDonation(seeded, eventId, {
+    amountMinor: 20_000,
+  })
+  const authed = seeded.withIdentity(adminIdentity)
+
+  const cases: Array<{
+    label: string
+    orderId: Id<"orders">
+    expected: string
+  }> = [
+    {
+      label: "missing",
+      orderId: missingOrder,
+      expected: "DONATION_ALLOCATION_UNKNOWN_TARGET",
+    },
+    {
+      label: "empty",
+      orderId: emptyOrder,
+      expected: "DONATION_ALLOCATION_UNKNOWN_TARGET",
+    },
+    {
+      label: "cross-event",
+      orderId: foreign.orderId,
+      expected: "DONATION_ALLOCATION_CROSS_EVENT",
+    },
+    {
+      label: "external-event",
+      orderId: external.orderId,
+      expected: "DONATION_ALLOCATION_CROSS_EVENT",
+    },
+    {
+      label: "removed",
+      orderId: removed.orderId,
+      expected: "DONATION_ALLOCATION_UNKNOWN_TARGET",
+    },
+    {
+      label: "merged",
+      orderId: merged.orderId,
+      expected: "DONATION_ALLOCATION_UNKNOWN_TARGET",
+    },
+  ]
+
+  for (const [index, entry] of cases.entries()) {
+    expect(
+      await rejectionCode(
+        preview(authed, {
+          donationId,
+          eventId,
+          request: orderRequest("manual", entry.orderId, 1_000),
+        })
+      ),
+      entry.label
+    ).toBe(entry.expected)
+    expect(
+      await rejectionCode(
+        allocate(authed, {
+          donationId,
+          eventId,
+          request: orderRequest("manual", entry.orderId, 1_000),
+          idempotencyKey: `refusal-${index}`,
+        })
+      ),
+      entry.label
+    ).toBe(entry.expected)
+  }
+
+  expect(await loadAllocationRows(seeded, donationId)).toEqual([])
+  expect(await loadSubmissionRows(seeded, donationId)).toEqual([])
 })

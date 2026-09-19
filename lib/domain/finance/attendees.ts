@@ -94,7 +94,7 @@ export type AttendeeLedgerResult = {
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_PAGE = 1
 const DEFAULT_PAGE_SIZE = 25
-const MAX_PAGE_SIZE = 200
+const MAX_PAGE_SIZE = 100
 
 function parseDate(
   value: Date | string | null | undefined,

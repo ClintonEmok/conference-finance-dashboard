@@ -595,6 +595,22 @@ export declare const api: {
                 attendeeId: Id<"orderAttendees">;
                 scope: "event_charges" | "whole_order";
               }>;
+            }
+          | {
+              method: "manual";
+              rows: Array<{
+                amountMinor: number;
+                orderId: Id<"orders">;
+                scope: "whole_order";
+              }>;
+            }
+          | {
+              method: "equal";
+              targets: Array<{ orderId: Id<"orders">; scope: "whole_order" }>;
+            }
+          | {
+              method: "largest_balance_first";
+              targets: Array<{ orderId: Id<"orders">; scope: "whole_order" }>;
             };
       },
       any
@@ -670,6 +686,22 @@ export declare const api: {
                 attendeeId: Id<"orderAttendees">;
                 scope: "event_charges" | "whole_order";
               }>;
+            }
+          | {
+              method: "manual";
+              rows: Array<{
+                amountMinor: number;
+                orderId: Id<"orders">;
+                scope: "whole_order";
+              }>;
+            }
+          | {
+              method: "equal";
+              targets: Array<{ orderId: Id<"orders">; scope: "whole_order" }>;
+            }
+          | {
+              method: "largest_balance_first";
+              targets: Array<{ orderId: Id<"orders">; scope: "whole_order" }>;
             };
       },
       any
@@ -1291,6 +1323,26 @@ export declare const api: {
         id: Id<"orders">;
         providerOrderId: string | null;
       }>
+    >;
+    searchOrdersForDonationAllocation: FunctionReference<
+      "query",
+      "public",
+      {
+        cursor?: string | null;
+        eventId: Id<"events">;
+        pageSize: number;
+        search: string;
+      },
+      {
+        page: { hasNextPage: boolean; nextCursor: string | null };
+        rows: Array<{
+          bookerEmail: string | null;
+          bookerName: string | null;
+          bookingRef: string | null;
+          orderId: Id<"orders">;
+          providerOrderId: string | null;
+        }>;
+      }
     >;
     searchOrdersForMerge: FunctionReference<
       "query",

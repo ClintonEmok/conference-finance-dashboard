@@ -19,10 +19,15 @@ import {
   encodeSourceScanBoundary,
   matchesNormalizedSearch,
   requireSearchNeedle,
+  type SourceScanBoundary,
   type SourceSearchFetchedPage,
 } from "./search"
 
 type AttendeeResolveCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">
+
+function isOrderMerged(order: Doc<"orders">) {
+  return typeof order.mergedIntoOrderId === "string"
+}
 
 type TicketFinancials = {
   ticketTypeId: Id<"ticketTypes"> | null
@@ -424,22 +429,46 @@ export const getAttendeesWithTickets = query({
 
 const LEDGER_PAGE_MAX = 100
 const LEDGER_CURSOR_PREFIX = "al:"
+const EVENT_LEDGER_SOURCE_CURSOR_PREFIX = "ao:"
 /** Hard candidate-scan budget per invocation, mirroring the orders search path. */
 const ATTENDEE_SEARCH_SCAN_CAP = 2_000
+/**
+ * Keep event-source reads well below Convex's 4,096 index-range limit. The
+ * ledger page is capped at 100 rows; current row and finance enrichment can
+ * consume roughly 1,500 ranges in the worst distinct-order case, so this
+ * source budget leaves a conservative margin for those reads.
+ */
+const EVENT_LEDGER_RANGE_BUDGET = 500
+/** Keep same-timestamp boundary reads below Convex's document scan limit. */
+const EVENT_LEDGER_CURSOR_MAX_IDS = 16_000
 
 type LedgerCursor = {
-  version: 2
+  version: 2 | 3
   signature: string
   sourceCursor: string | null
+  from?: number
+  to?: number
+}
+
+type EventLedgerSourceCursor = {
+  version: 1
+  orderBoundary: SourceScanBoundary | null
+  activeOrderId: string | null
+  attendeeBoundary: SourceScanBoundary | null
 }
 
 function decodeLedgerCursor(cursor: string): LedgerCursor {
   try {
     const value = JSON.parse(decodeURIComponent(cursor.slice(LEDGER_CURSOR_PREFIX.length))) as LedgerCursor
     if (
-      value.version !== 2 ||
+      (value.version !== 2 && value.version !== 3) ||
       typeof value.signature !== "string" ||
-      (value.sourceCursor !== null && typeof value.sourceCursor !== "string")
+      (value.sourceCursor !== null && typeof value.sourceCursor !== "string") ||
+      (value.version === 3 &&
+        (typeof value.from !== "number" ||
+          !Number.isFinite(value.from) ||
+          typeof value.to !== "number" ||
+          !Number.isFinite(value.to)))
     ) {
       throw new Error()
     }
@@ -453,10 +482,75 @@ function encodeLedgerCursor(value: LedgerCursor) {
   return `${LEDGER_CURSOR_PREFIX}${encodeURIComponent(JSON.stringify(value))}`
 }
 
+function isSourceBoundary(value: unknown): value is SourceScanBoundary {
+  if (!value || typeof value !== "object") return false
+  const candidate = value as { t?: unknown; ids?: unknown }
+  return (
+    typeof candidate.t === "number" &&
+    Number.isFinite(candidate.t) &&
+    Array.isArray(candidate.ids) &&
+    candidate.ids.length <= EVENT_LEDGER_CURSOR_MAX_IDS &&
+    candidate.ids.every((id) => typeof id === "string")
+  )
+}
+
+function encodeEventLedgerSourceCursor(value: EventLedgerSourceCursor) {
+  return `${EVENT_LEDGER_SOURCE_CURSOR_PREFIX}${encodeURIComponent(JSON.stringify(value))}`
+}
+
+function decodeEventLedgerSourceCursor(cursor: string): EventLedgerSourceCursor {
+  if (!cursor.startsWith(EVENT_LEDGER_SOURCE_CURSOR_PREFIX)) {
+    throw new Error("Invalid attendee ledger continuation cursor.")
+  }
+
+  try {
+    const parsed = JSON.parse(
+      decodeURIComponent(cursor.slice(EVENT_LEDGER_SOURCE_CURSOR_PREFIX.length))
+    ) as Partial<EventLedgerSourceCursor>
+
+    if (
+      parsed.version !== 1 ||
+      (parsed.orderBoundary !== null && !isSourceBoundary(parsed.orderBoundary)) ||
+      (parsed.attendeeBoundary !== null && !isSourceBoundary(parsed.attendeeBoundary)) ||
+      (parsed.activeOrderId !== null && typeof parsed.activeOrderId !== "string") ||
+      (parsed.activeOrderId === null) !== (parsed.attendeeBoundary === null)
+    ) {
+      throw new Error()
+    }
+
+    return {
+      version: 1,
+      orderBoundary: parsed.orderBoundary ?? null,
+      activeOrderId: parsed.activeOrderId ?? null,
+      attendeeBoundary: parsed.attendeeBoundary ?? null,
+    }
+  } catch {
+    throw new Error("Invalid attendee ledger continuation cursor.")
+  }
+}
+
+function advanceSourceBoundary(
+  boundary: SourceScanBoundary | null,
+  createdAt: number,
+  id: string
+): SourceScanBoundary {
+  const carried = boundary?.t === createdAt ? boundary.ids : []
+  const ids = Array.from(new Set([...carried, id]))
+  if (ids.length > EVENT_LEDGER_CURSOR_MAX_IDS) {
+    throw new Error("Attendee ledger cursor boundary is too large.")
+  }
+  return {
+    t: createdAt,
+    ids,
+  }
+}
+
 /**
- * Bounded canonical attendee ledger search (D-01 source-table search since
- * Phase 62: it scans `orderAttendees` and never a derived projection).
- * Legacy collection callers above are intentionally unchanged.
+ * Bounded canonical attendee ledger search. Event-scoped reads start at the
+ * order aggregate (`orders.by_eventId`) and load child attendees through
+ * `orderId`; the copied `orderAttendees.eventId` is not a read dependency.
+ * Global reads retain the legacy attendee-rooted source scan because they do
+ * not have an event boundary to use as a parent query.
  */
 export const getAttendeeLedgerPage = query({
   args: {
@@ -475,58 +569,384 @@ export const getAttendeeLedgerPage = query({
     const needle = requireSearchNeedle(args.search)
     const dateMode = args.eventId && args.from == null && args.to == null ? "all-time" : "bounded"
     const now = Date.now()
-    const from = args.eventId
+    let from = args.eventId
       ? (args.from ?? 0)
       : (args.from ?? now - 29 * 24 * 60 * 60 * 1000)
-    const to = args.to ?? now
-    if (from > to) throw new Error("Invalid date range. 'from' must be less than or equal to 'to'.")
-    const signature = JSON.stringify({ v: 2, eventId: args.eventId ?? null, search: needle, from: args.from ?? null, to: args.to ?? null, dateMode })
+    let to = args.to ?? now
+    const cursorVersion = 3 as const
+    const legacySignature = JSON.stringify({ v: 2, eventId: args.eventId ?? null, search: needle, from: args.from ?? null, to: args.to ?? null, dateMode })
+    const buildSignature = (effectiveFrom: number, effectiveTo: number) =>
+      JSON.stringify({ v: cursorVersion, eventId: args.eventId ?? null, search: needle, from: args.from ?? null, to: args.to ?? null, effectiveFrom, effectiveTo, dateMode })
+    let signature = buildSignature(from, to)
     let sourceCursor: string | null = null
     if (args.cursor) {
       const decoded = decodeLedgerCursor(args.cursor)
-      if (decoded.signature !== signature) throw new Error("Attendee ledger cursor does not match the request.")
+      if (decoded.version === 2) {
+        if (args.eventId || decoded.signature !== legacySignature) {
+          throw new Error("Attendee ledger cursor does not match the request.")
+        }
+        signature = decoded.signature
+      } else {
+        from = decoded.from!
+        to = decoded.to!
+        signature = buildSignature(from, to)
+        if (decoded.signature !== signature) {
+          throw new Error("Attendee ledger cursor does not match the request.")
+        }
+      }
       sourceCursor = decoded.sourceCursor
     }
+    if (from > to) throw new Error("Invalid date range. 'from' must be less than or equal to 'to'.")
 
-    // D-01/D-04: source rows are the truth. The event-scoped scan is a single
-    // `orderAttendees.by_eventId` indexed range (global mode scans the table);
-    // the collector pages it until the result page is full, so a match behind a
-    // long non-match run still fills the page. Attendees written before the
-    // additive `eventId` copy existed are invisible to the indexed scan until
-    // the operator-gated `backfillAttendeeEventIds` migration patches them.
     type LedgerCandidate = { attendee: Doc<"orderAttendees">; order: Doc<"orders"> | null }
     const orderCache = new Map<string, Doc<"orders"> | null>()
-    const fetchPage = async (cursor: string | null, limit: number): Promise<SourceSearchFetchedPage<LedgerCandidate>> => {
+    let eventRangeReads = 0
+    const reserveEventRange = () => {
+      if (eventRangeReads >= EVENT_LEDGER_RANGE_BUDGET) return false
+      eventRangeReads += 1
+      return true
+    }
+    const fetchEventPage = async (
+      cursor: string | null,
+      limit: number
+    ): Promise<SourceSearchFetchedPage<LedgerCandidate>> => {
+      const state = cursor
+        ? decodeEventLedgerSourceCursor(cursor)
+        : {
+            version: 1 as const,
+            orderBoundary: null,
+            activeOrderId: null,
+            attendeeBoundary: null,
+          }
+      let orderBoundary = state.orderBoundary
+      let activeOrderId = state.activeOrderId
+      let attendeeBoundary = state.attendeeBoundary
+      let scanCapped = false
+      let pendingOrders: Doc<"orders">[] = []
+      let pendingOrderIndex = 0
+      const items: LedgerCandidate[] = []
+
+      const nextOrder = async () => {
+        for (;;) {
+          if (pendingOrderIndex < pendingOrders.length) {
+            const candidate = pendingOrders[pendingOrderIndex++]
+            const orderBoundaryBefore = orderBoundary
+            const nextBoundary = advanceSourceBoundary(
+              orderBoundary,
+              candidate._creationTime,
+              String(candidate._id)
+            )
+            if (isOrderMerged(candidate)) {
+              orderBoundary = nextBoundary
+              continue
+            }
+            return { order: candidate, orderBoundaryBefore }
+          }
+
+          pendingOrders = []
+          pendingOrderIndex = 0
+          if (!reserveEventRange()) {
+            scanCapped = true
+            return null
+          }
+
+          const excluded = new Set(orderBoundary?.ids ?? [])
+          const takeCount = Math.max(2, limit + excluded.size + 1)
+          const query =
+            orderBoundary === null
+              ? ctx.db
+                  .query("orders")
+                  .withIndex("by_eventId", (q) =>
+                    q.eq("eventId", args.eventId!)
+                  )
+                  .order("desc")
+              : ctx.db
+                  .query("orders")
+                  .withIndex("by_eventId", (q) =>
+                    q.eq("eventId", args.eventId!).lte(
+                      "_creationTime",
+                      orderBoundary!.t
+                    )
+                  )
+                  .order("desc")
+          const candidates = await query.take(takeCount)
+          pendingOrders =
+            orderBoundary === null
+              ? candidates
+              : candidates.filter(
+                  (candidate) =>
+                    !(
+                      candidate._creationTime === orderBoundary!.t &&
+                      excluded.has(String(candidate._id))
+                    )
+                )
+          if (
+            pendingOrders.length === 0 &&
+            (candidates.length < takeCount || candidates.length === 0)
+          ) {
+            return null
+          }
+        }
+      }
+
+      while (items.length < limit) {
+        let order: Doc<"orders"> | null = null
+        let orderBoundaryBefore = orderBoundary
+
+        if (activeOrderId) {
+          const normalizedOrderId = ctx.db.normalizeId("orders", activeOrderId)
+          if (!normalizedOrderId) {
+            throw new Error("Invalid attendee ledger continuation cursor.")
+          }
+          if (!reserveEventRange()) {
+            scanCapped = true
+            break
+          }
+          order = await ctx.db.get("orders", normalizedOrderId)
+          if (!order || String(order.eventId) !== String(args.eventId)) {
+            throw new Error("Invalid attendee ledger continuation cursor.")
+          }
+        } else {
+          const next = await nextOrder()
+          if (!next) break
+          order = next.order
+          orderBoundaryBefore = next.orderBoundaryBefore
+        }
+
+        if (isOrderMerged(order)) {
+          orderBoundary = advanceSourceBoundary(
+            orderBoundaryBefore,
+            order._creationTime,
+            String(order._id)
+          )
+          activeOrderId = null
+          attendeeBoundary = null
+          continue
+        }
+
+        const remaining = limit - items.length
+        const excluded = new Set(attendeeBoundary?.ids ?? [])
+        const takeCount = Math.max(2, remaining + excluded.size + 1)
+        const attendeeQuery =
+          attendeeBoundary === null
+            ? ctx.db
+                .query("orderAttendees")
+                .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+                .order("desc")
+            : ctx.db
+                .query("orderAttendees")
+                .withIndex("by_orderId", (q) =>
+                  q.eq("orderId", order._id!).lte(
+                    "_creationTime",
+                    attendeeBoundary!.t
+                  )
+                )
+                .order("desc")
+        if (!reserveEventRange()) {
+          scanCapped = true
+          break
+        }
+        const candidates = await attendeeQuery.take(takeCount)
+        const fresh =
+          attendeeBoundary === null
+            ? candidates
+            : candidates.filter(
+                (candidate) =>
+                  !(
+                    candidate._creationTime === attendeeBoundary!.t &&
+                    excluded.has(String(candidate._id))
+                  )
+              )
+        const hasMore = fresh.length > remaining
+        const scanned = hasMore ? fresh.slice(0, remaining) : fresh
+        items.push(...scanned.map((attendee) => ({ attendee, order })))
+
+        if (hasMore && scanned.length > 0) {
+          const last = scanned[scanned.length - 1]
+          attendeeBoundary = advanceSourceBoundary(
+            attendeeBoundary,
+            last._creationTime,
+            String(last._id)
+          )
+          activeOrderId = String(order._id)
+          return {
+            items,
+            continueCursor: encodeEventLedgerSourceCursor({
+              version: 1,
+              orderBoundary: orderBoundaryBefore,
+              activeOrderId,
+              attendeeBoundary,
+            }),
+            isDone: false,
+          }
+        }
+
+        orderBoundary = advanceSourceBoundary(
+          orderBoundaryBefore,
+          order._creationTime,
+          String(order._id)
+        )
+        activeOrderId = null
+        attendeeBoundary = null
+      }
+
+      const hasNextEventOrder = async (
+        boundary: SourceScanBoundary | null,
+        queuedOrders: Doc<"orders">[],
+        queuedOrderIndex: number
+      ) => {
+        let scanBoundary = boundary
+        const stopAtCheckedBoundary = () => {
+          orderBoundary = scanBoundary
+          scanCapped = true
+          return true
+        }
+
+        for (const candidate of queuedOrders.slice(queuedOrderIndex)) {
+          const nextBoundary = advanceSourceBoundary(
+            scanBoundary,
+            candidate._creationTime,
+            String(candidate._id)
+          )
+          if (isOrderMerged(candidate)) {
+            scanBoundary = nextBoundary
+            continue
+          }
+          if (!reserveEventRange()) {
+            return stopAtCheckedBoundary()
+          }
+          const attendee = await ctx.db
+            .query("orderAttendees")
+            .withIndex("by_orderId", (q) => q.eq("orderId", candidate._id))
+            .first()
+          scanBoundary = nextBoundary
+          if (attendee) return true
+        }
+
+        for (;;) {
+          if (!reserveEventRange()) {
+            return stopAtCheckedBoundary()
+          }
+          const excluded = new Set(scanBoundary?.ids ?? [])
+          const takeCount = Math.max(2, excluded.size + 1)
+          const query =
+            scanBoundary === null
+              ? ctx.db
+                  .query("orders")
+                  .withIndex("by_eventId", (q) =>
+                    q.eq("eventId", args.eventId!)
+                  )
+                  .order("desc")
+              : ctx.db
+                  .query("orders")
+                  .withIndex("by_eventId", (q) =>
+                    q.eq("eventId", args.eventId!).lte(
+                      "_creationTime",
+                      scanBoundary!.t
+                    )
+                  )
+                  .order("desc")
+          const candidates = await query.take(takeCount)
+          const fresh =
+            scanBoundary === null
+              ? candidates
+              : candidates.filter(
+                  (candidate) =>
+                    !(
+                      candidate._creationTime === scanBoundary!.t &&
+                      excluded.has(String(candidate._id))
+                    )
+                )
+
+          for (const candidate of fresh) {
+            const nextBoundary = advanceSourceBoundary(
+              scanBoundary,
+              candidate._creationTime,
+              String(candidate._id)
+            )
+            if (isOrderMerged(candidate)) {
+              scanBoundary = nextBoundary
+              continue
+            }
+            if (!reserveEventRange()) {
+              return stopAtCheckedBoundary()
+            }
+            const attendee = await ctx.db
+              .query("orderAttendees")
+              .withIndex("by_orderId", (q) => q.eq("orderId", candidate._id))
+              .first()
+            scanBoundary = nextBoundary
+            if (attendee) return true
+          }
+
+          if (candidates.length < takeCount || candidates.length === 0) {
+            return false
+          }
+        }
+
+        return stopAtCheckedBoundary()
+      }
+
+      if (items.length >= limit) {
+        const hasNext = await hasNextEventOrder(
+          orderBoundary,
+          pendingOrders,
+          pendingOrderIndex
+        )
+        return {
+          items,
+          continueCursor: hasNext
+            ? encodeEventLedgerSourceCursor({
+                version: 1,
+                orderBoundary,
+                activeOrderId,
+                attendeeBoundary,
+              })
+            : null,
+          isDone: !hasNext,
+          stopAfterPage: scanCapped,
+        }
+      }
+
+      if (scanCapped) {
+        return {
+          items,
+          continueCursor: encodeEventLedgerSourceCursor({
+            version: 1,
+            orderBoundary,
+            activeOrderId,
+            attendeeBoundary,
+          }),
+          isDone: false,
+          stopAfterPage: true,
+        }
+      }
+
+      return { items, continueCursor: null, isDone: true }
+    }
+
+    const fetchPage = async (
+      cursor: string | null,
+      limit: number
+    ): Promise<SourceSearchFetchedPage<LedgerCandidate>> => {
+      if (args.eventId) {
+        return await fetchEventPage(cursor, limit)
+      }
+
       // Convex allows only ONE paginated query per function execution, so the
-      // scan cannot re-`.paginate()` across fetches. It scans with `.take()`
-      // and carries its own `_creationTime` boundary cursor instead, so a
-      // resumption starts strictly after the last consumed candidate.
+      // global fallback scans with `.take()` and carries its own
+      // `_creationTime` boundary cursor instead.
       const bound = decodeSourceScanBoundary(cursor)
       const excluded = new Set(bound?.ids ?? [])
       const takeCount = limit + excluded.size + 1
-      let rows: Doc<"orderAttendees">[]
-      if (bound === null) {
-        rows = await (args.eventId
-          ? ctx.db
-              .query("orderAttendees")
-              .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId!))
-              .order("desc")
-          : ctx.db.query("orderAttendees").order("desc")
-        ).take(takeCount)
-      } else {
-        rows = await (args.eventId
-          ? ctx.db
-              .query("orderAttendees")
-              .withIndex("by_eventId", (q) =>
-                q.eq("eventId", args.eventId!).lte("_creationTime", bound.t)
-              )
-              .order("desc")
-          : ctx.db
+      const rows =
+        bound === null
+          ? await ctx.db.query("orderAttendees").order("desc").take(takeCount)
+          : await ctx.db
               .query("orderAttendees")
               .order("desc")
               .filter((q) => q.lte(q.field("_creationTime"), bound.t))
-        ).take(takeCount)
-      }
+              .take(takeCount)
       const fresh =
         bound === null
           ? rows
@@ -541,7 +961,6 @@ export const getAttendeeLedgerPage = query({
       const scanned = hasMore ? fresh.slice(0, limit) : fresh
       const items: LedgerCandidate[] = []
       for (const attendee of scanned) {
-        // One cached `orders` get per distinct order for the whole call.
         const key = String(attendee.orderId)
         let order: Doc<"orders"> | null
         if (orderCache.has(key)) {
@@ -638,7 +1057,7 @@ export const getAttendeeLedgerPage = query({
     }
     return {
       dateMode, from: dateMode === "all-time" ? null : from, to: dateMode === "all-time" ? null : to,
-      rows, page: { hasNextPage: hasNext, nextCursor: hasNext ? encodeLedgerCursor({ version: 2, signature, sourceCursor: collected.continueCursor }) : null, totalRows: null, totalPages: null },
+      rows, page: { hasNextPage: hasNext, nextCursor: hasNext ? encodeLedgerCursor({ version: cursorVersion, signature, sourceCursor: collected.continueCursor, from, to }) : null, totalRows: null, totalPages: null },
     }
   },
 })

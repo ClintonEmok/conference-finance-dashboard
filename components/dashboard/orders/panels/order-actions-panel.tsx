@@ -100,7 +100,7 @@ export function OrderActionsPanel({
         className="h-9 rounded-lg border-white/20 text-[11px] font-bold tracking-wider uppercase"
       >
         <HandCoins className="mr-2 size-3.5" />
-        Allocate a donation to this order
+         Add donation to order
       </Button>
       <Button
         variant="destructive"

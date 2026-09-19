@@ -27,6 +27,7 @@ export type AllocationScope = "event_charges" | "whole_order"
 export type AllocationMethod = "equal" | "largest_balance_first" | "manual"
 
 export type AllocationAttendeeId = Id<"orderAttendees">
+export type AllocationOrderId = Id<"orders">
 
 /**
  * Mirrors `allocationRequestValidator` (`convex/donations.ts`): `manual` carries
@@ -49,10 +50,39 @@ export type AllocationRequest =
       }>
     }
   | {
-      method: "equal" | "largest_balance_first"
+      method: "equal"
       targets: Array<{
         attendeeId: AllocationAttendeeId
         scope: AllocationScope
+      }>
+    }
+  | {
+      method: "largest_balance_first"
+      targets: Array<{
+        attendeeId: AllocationAttendeeId
+        scope: AllocationScope
+      }>
+    }
+  | {
+      method: "manual"
+      rows: Array<{
+        orderId: AllocationOrderId
+        amountMinor: number
+        scope: "whole_order"
+      }>
+    }
+  | {
+      method: "equal"
+      targets: Array<{
+        orderId: AllocationOrderId
+        scope: "whole_order"
+      }>
+    }
+  | {
+      method: "largest_balance_first"
+      targets: Array<{
+        orderId: AllocationOrderId
+        scope: "whole_order"
       }>
     }
 
@@ -61,6 +91,35 @@ export type AllocationDraftTarget = {
   attendeeId: AllocationAttendeeId
   scope: AllocationScope
 }
+
+/** One order selected by the order-first editor. Scope is server-forced. */
+export type OrderAllocationDraftTarget = {
+  orderId: AllocationOrderId
+}
+
+export type OrderAllocationRequest =
+  | {
+      method: "manual"
+      rows: Array<{
+        orderId: AllocationOrderId
+        amountMinor: number
+        scope: "whole_order"
+      }>
+    }
+  | {
+      method: "equal"
+      targets: Array<{
+        orderId: AllocationOrderId
+        scope: "whole_order"
+      }>
+    }
+  | {
+      method: "largest_balance_first"
+      targets: Array<{
+        orderId: AllocationOrderId
+        scope: "whole_order"
+      }>
+    }
 
 export const ALLOCATION_SCOPE_LABELS: Record<AllocationScope, string> = {
   event_charges: "Event charges",
@@ -115,6 +174,11 @@ export type AllocationRequestBuildResult =
   | { ok: true; request: AllocationRequest; canonical: string }
   | { ok: false; reason: "no_targets" }
   | { ok: false; reason: "invalid_amount"; attendeeId: AllocationAttendeeId }
+
+export type OrderAllocationRequestBuildResult =
+  | { ok: true; request: OrderAllocationRequest; canonical: string }
+  | { ok: false; reason: "no_order" }
+  | { ok: false; reason: "invalid_amount"; orderId: AllocationOrderId }
 
 /**
  * Builds the exact object the dialog submits.
@@ -180,6 +244,41 @@ export function buildAllocationRequest(input: {
       ? { method: "equal", targets }
       : { method: "largest_balance_first", targets }
 
+  return { ok: true, request, canonical: JSON.stringify(request) }
+}
+
+/**
+ * Builds the single-selection order-first request. The order target has no
+ * client-selectable scope: every emitted row is explicitly `whole_order`, and
+ * the only optional operator input is the positive manual amount.
+ */
+export function buildOrderAllocationRequest(input: {
+  method: AllocationMethod
+  target: OrderAllocationDraftTarget | null
+  amount?: string
+}): OrderAllocationRequestBuildResult {
+  if (input.target === null) {
+    return { ok: false, reason: "no_order" }
+  }
+
+  const { orderId } = input.target
+  if (input.method === "manual") {
+    const parsed = parseMinorUnitsInput(input.amount ?? "")
+    if (!parsed.ok) {
+      return { ok: false, reason: "invalid_amount", orderId }
+    }
+
+    const request: OrderAllocationRequest = {
+      method: "manual",
+      rows: [{ orderId, amountMinor: parsed.amountMinor, scope: "whole_order" }],
+    }
+    return { ok: true, request, canonical: JSON.stringify(request) }
+  }
+
+  const request: OrderAllocationRequest = {
+    method: input.method,
+    targets: [{ orderId, scope: "whole_order" }],
+  }
   return { ok: true, request, canonical: JSON.stringify(request) }
 }
 
