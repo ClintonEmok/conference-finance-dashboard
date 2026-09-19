@@ -353,7 +353,11 @@ export async function markPaymentAsDonation(
 
 export async function syncTikkiePayments(
   paymentRequestToken: string,
-  options: { eventId?: string; purpose?: TikkieLinkPurpose } = {}
+  options: {
+    eventId?: string
+    purpose?: TikkieLinkPurpose
+    tikkiePaymentLinkId?: string
+  } = {}
 ): Promise<SyncTikkiePaymentsResult> {
   const result: SyncTikkiePaymentsResult = {
     paymentsFetched: 0,
@@ -413,6 +417,9 @@ export async function syncTikkiePayments(
         api.payments.upsertTikkiePayment,
         {
           sourceId,
+          tikkiePaymentLinkId: options.tikkiePaymentLinkId as
+            | Id<"tikkiePaymentLinks">
+            | undefined,
           eventId: options.eventId,
           purpose: resolveTikkieLinkPurpose(options.purpose),
           payerName,

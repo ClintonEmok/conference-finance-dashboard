@@ -5,6 +5,7 @@ import { autoMatchPayments, syncTikkiePayments } from "./payments"
 import { resolveTikkieLinkPurpose } from "./tikkie-link-purpose"
 
 type TikkieLink = {
+  _id: string
   _creationTime: number
   paymentRequestToken: string
   status?: "created" | "paid" | "expired"
@@ -81,6 +82,7 @@ export async function runTikkieSync(): Promise<RunTikkieSyncResult> {
     try {
       const syncResult = await syncTikkiePayments(link.paymentRequestToken, {
         eventId: link.eventId,
+        tikkiePaymentLinkId: link._id,
         purpose: resolveTikkieLinkPurpose(link.purpose),
       })
       result.paymentsFetched += syncResult.paymentsFetched

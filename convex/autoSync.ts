@@ -341,6 +341,7 @@ async function runTikkieAutoSync(ctx: AutoSyncCtx) {
             internal.payments.internalUpsertTikkiePayment,
             {
               sourceId,
+              tikkiePaymentLinkId: link._id,
               eventId: link.eventId,
               purpose: resolveTikkieLinkPurpose(link.purpose),
               payerName,
