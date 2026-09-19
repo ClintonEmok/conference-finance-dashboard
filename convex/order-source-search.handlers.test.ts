@@ -3,6 +3,7 @@ import { expect, test } from "vitest"
 import { convexTest, type TestConvexForDataModel } from "convex-test"
 import type { GenericDataModel } from "convex/server"
 import { api } from "./_generated/api"
+import type { Id } from "./_generated/dataModel"
 import schema from "./schema"
 import { buildSearchHaystack, matchesNormalizedSearch } from "./search"
 
@@ -32,6 +33,25 @@ function fresh() {
 
 async function ledger(t: TestConvex, args: LedgerArgs = {}) {
   return await t.query(api.orders.getOrdersWithFilters, args)
+}
+
+type DonationOrderSearchArgs = {
+  eventId: string
+  search?: string
+  pageSize?: number
+  cursor?: string | null
+}
+
+async function donationOrderSearch(
+  t: TestConvex,
+  args: DonationOrderSearchArgs
+) {
+  return await t.query(api.orders.searchOrdersForDonationAllocation, {
+    eventId: args.eventId as Id<"events">,
+    search: args.search ?? "",
+    pageSize: args.pageSize ?? 25,
+    cursor: args.cursor,
+  })
 }
 
 /**
@@ -691,4 +711,215 @@ test("the search cursor is signature-bound and malformed cursors are rejected", 
   })
   expect(resume.orders.map((row) => row.orderId)).toEqual([String(ids.defect)])
   expect(resume.hasNextPage).toBe(false)
+})
+
+test("donation allocation search matches every approved identity field and redacts money and attendee data", async () => {
+  const t = fresh()
+  const ids = await seedCore(t)
+  await expectSourceOnly(t)
+
+  const expectations = [
+    String(ids.defect),
+    "BK-FAMILY-VOS",
+    "PROVIDER-VOS",
+    "Oliver",
+    "oliver.vos@example.com",
+  ]
+
+  for (const search of expectations) {
+    const result = await donationOrderSearch(t, {
+      eventId: String(ids.internalEvent),
+      search,
+      pageSize: 10,
+    })
+    expect(result.rows.map((row) => String(row.orderId))).toEqual([
+      String(ids.defect),
+    ])
+    expect(result.rows[0]).toEqual({
+      orderId: ids.defect,
+      bookingRef: "BK-FAMILY-VOS",
+      providerOrderId: "PROVIDER-VOS",
+      bookerName: "Oliver Vos",
+      bookerEmail: "oliver.vos@example.com",
+    })
+    expect(result.rows[0]).not.toHaveProperty("amountDueMinor")
+    expect(result.rows[0]).not.toHaveProperty("attendeeId")
+    expect(result.rows[0]).not.toHaveProperty("allocationCount")
+  }
+})
+
+test("donation allocation search is isolated to the requested internal event and filters removed, merged, and external orders", async () => {
+  const t = fresh()
+  const ids = await seedCore(t)
+  const otherInternalEvent = await t.run((ctx) =>
+    ctx.db.insert("events", internalEventDoc("orders-source-other-internal"))
+  )
+  const otherInternalOrder = await t.run((ctx) =>
+    ctx.db.insert("orders", {
+      eventId: otherInternalEvent,
+      source: "internal" as const,
+      bookerName: "Oliver Vos Other Event",
+      bookingRef: "BK-OTHER-EVENT",
+      providerOrderId: "PROVIDER-OTHER-EVENT",
+      submittedAt: 900,
+    })
+  )
+  const removed = await t.run(async (ctx) => {
+    const orderId = await ctx.db.insert("orders", {
+      eventId: ids.internalEvent,
+      source: "internal" as const,
+      bookerName: "Removed Rene",
+      bookingRef: "BK-REMOVED-05",
+      providerOrderId: "PROVIDER-REMOVED",
+      submittedAt: 700,
+    })
+    await ctx.db.insert("ticketTailorOrders", {
+      providerOrderId: "PROVIDER-REMOVED",
+      providerEventId: "provider-event",
+      orderId,
+      removedAt: 701,
+      rawPayload: {},
+    })
+    return orderId
+  })
+  await expectSourceOnly(t)
+
+  const scoped = await donationOrderSearch(t, {
+    eventId: String(ids.internalEvent),
+    pageSize: 25,
+  })
+  expect(scoped.rows.map((row) => String(row.orderId)).sort()).toEqual(
+    [String(ids.defect), String(ids.companion)].sort()
+  )
+  expect(scoped.rows.map((row) => String(row.orderId))).not.toContain(
+    String(ids.merged)
+  )
+  expect(scoped.rows.map((row) => String(row.orderId))).not.toContain(
+    String(removed)
+  )
+  expect(scoped.rows.map((row) => String(row.orderId))).not.toContain(
+    String(otherInternalOrder)
+  )
+  expect(scoped.rows.map((row) => String(row.orderId))).not.toContain(
+    String(ids.external)
+  )
+
+  const externalEvent = await donationOrderSearch(t, {
+    eventId: String(ids.integrationEvent),
+    search: "xena",
+    pageSize: 25,
+  })
+  expect(externalEvent).toEqual({
+    rows: [],
+    page: { hasNextPage: false, nextCursor: null },
+  })
+})
+
+test("donation allocation search continues through cursor pages without duplicates", async () => {
+  const t = fresh()
+  const internalEvent = await t.run((ctx) =>
+    ctx.db.insert("events", internalEventDoc("donation-order-search-pages"))
+  )
+  const expected: string[] = []
+  await t.run(async (ctx) => {
+    for (let index = 0; index < 17; index += 1) {
+      const orderId = await ctx.db.insert("orders", {
+        eventId: internalEvent,
+        source: "internal" as const,
+        bookerName: `Searchable Person ${index}`,
+        bookingRef: `BK-SEARCH-${index}`,
+        submittedAt: 1_000 + index,
+      })
+      expected.push(String(orderId))
+    }
+  })
+  await expectSourceOnly(t)
+
+  const pages: string[] = []
+  let cursor: string | null = null
+  let hasNextPage = true
+  while (hasNextPage) {
+    const result = await donationOrderSearch(t, {
+      eventId: String(internalEvent),
+      search: "searchable",
+      pageSize: 4,
+      cursor,
+    })
+    expect(result.rows.length).toBeLessThanOrEqual(4)
+    pages.push(...result.rows.map((row) => String(row.orderId)))
+    cursor = result.page.nextCursor
+    hasNextPage = result.page.hasNextPage
+    if (pages.length > expected.length + 4) throw new Error("pagination runaway")
+  }
+
+  expect(pages).toHaveLength(expected.length)
+  expect(new Set(pages).size).toBe(expected.length)
+  expect([...pages].sort()).toEqual([...expected].sort())
+  expect(cursor).toBeNull()
+})
+
+test("donation allocation search rejects invalid, malformed, and stale cursors", async () => {
+  const t = fresh()
+  const ids = await seedCore(t)
+
+  await expect(
+    donationOrderSearch(t, {
+      eventId: String(ids.internalEvent),
+      pageSize: 0,
+    })
+  ).rejects.toThrow("Invalid donation allocation order search page size.")
+  await expect(
+    donationOrderSearch(t, {
+      eventId: String(ids.internalEvent),
+      pageSize: 51,
+    })
+  ).rejects.toThrow("Invalid donation allocation order search page size.")
+
+  const first = await donationOrderSearch(t, {
+    eventId: String(ids.internalEvent),
+    search: "provider",
+    pageSize: 1,
+  })
+  const cursor = first.page.nextCursor
+  if (cursor === null) throw new Error("expected a continuation cursor")
+
+  await expect(
+    donationOrderSearch(t, {
+      eventId: String(ids.internalEvent),
+      search: "oliver",
+      pageSize: 1,
+      cursor,
+    })
+  ).rejects.toThrow(
+    "Donation allocation order search cursor does not match the request."
+  )
+  await expect(
+    donationOrderSearch(t, {
+      eventId: String(ids.internalEvent),
+      search: "provider",
+      pageSize: 2,
+      cursor,
+    })
+  ).rejects.toThrow(
+    "Donation allocation order search cursor does not match the request."
+  )
+  await expect(
+    donationOrderSearch(t, {
+      eventId: String(ids.internalEvent),
+      search: "provider",
+      pageSize: 1,
+      cursor: "garbage",
+    })
+  ).rejects.toThrow("Invalid donation allocation order search cursor.")
+})
+
+test("donation allocation order search requires an authenticated caller", async () => {
+  const t = convexTest(schema, modules)
+  const eventId = await t.run((ctx) =>
+    ctx.db.insert("events", internalEventDoc("donation-order-search-auth"))
+  )
+
+  await expect(
+    donationOrderSearch(t, { eventId: String(eventId), pageSize: 10 })
+  ).rejects.toThrow("Unauthorized")
 })

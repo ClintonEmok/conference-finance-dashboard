@@ -1292,6 +1292,26 @@ export declare const api: {
         providerOrderId: string | null;
       }>
     >;
+    searchOrdersForDonationAllocation: FunctionReference<
+      "query",
+      "public",
+      {
+        cursor?: string | null;
+        eventId: Id<"events">;
+        pageSize: number;
+        search: string;
+      },
+      {
+        page: { hasNextPage: boolean; nextCursor: string | null };
+        rows: Array<{
+          bookerEmail: string | null;
+          bookerName: string | null;
+          bookingRef: string | null;
+          orderId: Id<"orders">;
+          providerOrderId: string | null;
+        }>;
+      }
+    >;
     searchOrdersForMerge: FunctionReference<
       "query",
       "public",

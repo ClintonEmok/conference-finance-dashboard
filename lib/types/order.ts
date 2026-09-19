@@ -54,3 +54,18 @@ export const orderSearchRowValidator = v.object({
   buyerName: nullableStringValidator,
   amountDueMinor: v.union(v.number(), v.null()),
 })
+
+/**
+ * Redacted identity-only row for the standalone-donation order picker.
+ *
+ * This is deliberately separate from `orderSearchRowValidator`: the order
+ * route's search rows carry a money figure, while donation allocation search
+ * must never expose money, attendee anchors, or allocation state.
+ */
+export const orderAllocationSearchRowValidator = v.object({
+  orderId: v.id("orders"),
+  bookingRef: nullableStringValidator,
+  providerOrderId: nullableStringValidator,
+  bookerName: nullableStringValidator,
+  bookerEmail: nullableStringValidator,
+})
