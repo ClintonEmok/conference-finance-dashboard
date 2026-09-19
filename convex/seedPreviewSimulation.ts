@@ -221,9 +221,9 @@ export default internalMutation({
     // write `eventId` in the same mutation. This seed inserts through a
     // dynamic table name, so the copy cannot be added as a literal field on a
     // literal insert; it is derived from the already-mapped order instead
-    // (orders are seeded before their attendees by SEED_ORDER). Without it
-    // every seeded attendee would be legacy-shaped and invisible to the
-    // `by_eventId` scan until the backfill re-runs.
+    // (orders are seeded before their attendees by SEED_ORDER). The event copy
+    // remains part of the write contract for compatibility, even though the
+    // event-scoped ledger resolves ownership through the order.
     const eventIdByRealOrderId = new Map<string, string>()
 
     // Precompute logical ID by stable key across the snapshot so that when an

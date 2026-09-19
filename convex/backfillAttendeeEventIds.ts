@@ -3,14 +3,15 @@ import { v } from "convex/values"
 import { assertProductionDeployment } from "../lib/domain/legacy/production-deployment-guard"
 
 /**
- * Phase 62 (D-06) one-off backfill for the additive `orderAttendees.eventId`
+ * Phase 62 (D-06) one-off repair for the additive `orderAttendees.eventId`
  * copy.
  *
  * Why it exists: the field was added after `orderAttendees` had rows in
- * production, so legacy attendee rows carry no `eventId` and are invisible to
- * the new event-scoped `by_eventId` source scan (the attendee ledger and the
- * donation-allocation picker). New rows are written with the field by all four
- * production insert sites, so this only ever fills history.
+ * production, so legacy attendee rows carry no `eventId`. The event-scoped
+ * attendee ledger and order-first donation-allocation picker now resolve
+ * ownership through orders, so this is compatibility-only. New rows are
+ * written with the field by all four production insert sites, so this only
+ * ever fills history.
  *
  * Shape (mirrors the batched, operator-guarded legacy backfills):
  * - Batched and resumable: `ctx.db.query("orderAttendees").order("asc").paginate`

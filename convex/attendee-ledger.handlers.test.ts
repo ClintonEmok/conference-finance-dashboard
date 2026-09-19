@@ -13,10 +13,9 @@ test("authenticated attendee ledger searches source fields and uses event all-ti
     const event = await ctx.db.insert("events", { slug: "ledger", title: "Ledger", startsAt: 1, timezone: "UTC", currency: "EUR", isPublished: true, isSignupOpen: true, accommodationEnabled: false, primarySourceKind: "internal", updatedAt: 1 })
     const ticket = await ctx.db.insert("ticketTypes", { eventId: event, label: "Family Pass", priceMinor: 100, isActive: true, visibility: "public", availabilityState: "selectable", updatedAt: 1 })
     const order = await ctx.db.insert("orders", { eventId: event, source: "internal", bookingRef: "BOOK-OLD", bookerName: "Booker", bookerEmail: "booker@example.com", submittedAt: 1, status: "pending" })
-    // Phase 62: the ledger scans `orderAttendees.by_eventId`, so the fixture
-    // carries the additive copy (a legacy row without it is deliberately
-    // invisible — pinned by the new source-search suite).
-    const attendee = await ctx.db.insert("orderAttendees", { orderId: order, eventId: event, attendeeKey: "one", name: "Older Attendee", email: "older@example.com", gender: "unknown", sortOrder: 0 })
+    // The event boundary belongs to the order. This legacy-shaped attendee
+    // deliberately omits the copied eventId field.
+    const attendee = await ctx.db.insert("orderAttendees", { orderId: order, attendeeKey: "one", name: "Older Attendee", email: "older@example.com", gender: "unknown", sortOrder: 0 })
     await ctx.db.insert("orderTicketSelections", { orderId: order, attendeeId: attendee, ticketTypeId: ticket, quantity: 1, sortOrder: 0 })
     const family = await ctx.db.insert("attendeeFamilyGroups", { label: "Search Family", primaryAttendeeId: String(attendee) })
     await ctx.db.insert("attendeeFamilyMembers", { familyGroupId: String(family), attendeeId: String(attendee), relationship: "child" })

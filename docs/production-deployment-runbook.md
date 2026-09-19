@@ -81,7 +81,7 @@ signups run degraded with a Convex warning. Provision both, then verify.
 > projection is unread and unwritten, so no projection backfill exists. The
 > preview rehearsal is safe to run only against the exact preview deployment
 > URL. The remaining operator-gated production writes for search and legacy
-> data (attendee `eventId` backfill, legacy accommodation backfill, attendee
+> data (attendee `eventId` repair, legacy accommodation backfill, attendee
 > rekey) are named below; no command in this phase executes a production
 > seed, backfill, broadcast, or other production write.
 
@@ -111,10 +111,12 @@ search reads the source tables directly, so **no projection backfill exists
 and none is required**. The three projection tables — `searchDocuments`,
 `searchProjectionFanoutJobs`, and the already-deprecated
 `searchDocumentTerms` — remain in `convex/schema.ts`, unread and unwritten;
-nothing in production references them. The remaining operator-gated
-production gate for search is the attendee `eventId` backfill in the next
-section: it makes legacy attendee rows visible to the event-scoped source
-scan (the attendee ledger and the donation-allocation picker).
+nothing in production references them. The event-scoped attendee ledger and
+the order-first donation-allocation picker resolve ownership through
+`orders.eventId` and `orderAttendees.orderId`, so the additive attendee
+`eventId` repair is not required to make those surfaces visible. It remains an
+optional compatibility repair for other consumers that explicitly require the
+copied field.
 
 **Stage 2 (operator-gated; not attempted in Phase 62):** drop **all three**
 tables — `searchDocuments`, `searchProjectionFanoutJobs`, and the
@@ -124,15 +126,16 @@ not be attempted before that migration, and the three must be dropped
 together: clearing only some of them compounds the deprecated-table debt
 instead of retiring it.
 
-### Attendee `eventId` backfill (operator-only)
+### Attendee `eventId` repair (operator-only)
 
 > ⛔ **OPERATOR AUTHORIZATION REQUIRED.** The additive `orderAttendees.eventId`
 > copy (Phase 62, D-06) is written with every new attendee row at all four
-> production insert sites, but rows that predate the field carry no `eventId`
-> and are invisible to the event-scoped attendee ledger / donation-allocation
-> picker until they are filled. Phase 62 ran this backfill against the DEV
-> deployment only (149 rows processed, 149 patched, 0 skipped; a re-run
-> patched 0). This section is the production carry-forward.
+> production insert sites. Rows that predate the field can still be repaired
+> for compatibility, but the event-scoped attendee ledger and order-first
+> donation-allocation picker do not depend on this copy. Phase 62 ran this
+> repair against the DEV deployment only (149 rows processed, 149 patched, 0
+> skipped; a re-run patched 0). This section documents the optional production
+> carry-forward.
 
 The mutation is batched, resumable, and idempotent (rows already carrying
 `eventId` are counted and skipped), and it is production-guarded: it fails
@@ -153,8 +156,8 @@ Discipline: stop immediately on a guard failure, an invalid cursor, an
 unexpected skip diagnostic, or any incomplete pass; investigate before
 resuming from the last known-good returned cursor. A `skipped` row with the
 diagnostic `eventless or missing order` is left unpatched by design (never
-guessed) and must be understood before continuing. Run this before promoting
-the Phase 62 search surfaces in production.
+guessed) and must be understood before continuing. Run this only when the
+compatibility copy is explicitly required by a separate production consumer.
 
 ### Production attendee-key rekey (operator-only)
 
